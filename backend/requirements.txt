@@ -1,0 +1,38 @@
+# Web framework
+fastapi
+uvicorn[standard]
+
+# Database (async)
+sqlalchemy
+asyncpg
+alembic
+
+# Validation / settings
+pydantic[email]
+pydantic-settings
+email-validator
+
+# Auth
+python-jose[cryptography]
+passlib[bcrypt]
+bcrypt==4.0.1
+
+# Uploads / multipart
+python-multipart
+
+# Config
+python-dotenv
+
+# Supabase Storage
+supabase
+
+# Email (async SMTP)
+aiosmtplib
+
+# Document generation
+reportlab
+pillow
+qrcode
+python-docx
+openpyxl
+pypdf

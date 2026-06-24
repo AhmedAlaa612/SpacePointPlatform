@@ -1,0 +1,14 @@
+Alembic migrations (async).
+
+The database URL and engine come from app.core.config / app.db.session — do not
+put credentials in alembic.ini.
+
+Common commands (run from backend/, with the venv active and .env filled in):
+
+  alembic upgrade head                      # apply all migrations
+  alembic revision -m "add interns tables"  # hand-write a migration
+  alembic revision --autogenerate -m "..."  # diff models vs DB (review output!)
+  alembic downgrade -1                       # roll back one
+
+Gotcha (PLAN §13.4): adding values to an existing ENUM (e.g. user_role) cannot
+run inside a transaction — use an AUTOCOMMIT block in that migration.
