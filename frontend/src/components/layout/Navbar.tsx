@@ -27,9 +27,10 @@ export function Navbar() {
 
   const domain = activeRole ? ROLE_DOMAIN[activeRole] : null;
 
-  // Per-domain nav links. Other domains are added as their phases land.
+  // Per-domain nav links. Admin has no dedicated domain UI yet (Phase 5), so
+  // they get the interns nav for now. Other domains are added as phases land.
   const links: NavLink[] =
-    domain === "interns"
+    domain === "interns" || isAdmin
       ? [
           { to: "/interns", label: "Board", exact: true },
           { to: "/interns/tracker", label: "Tracker" },
