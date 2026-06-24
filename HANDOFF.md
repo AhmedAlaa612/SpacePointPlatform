@@ -219,6 +219,8 @@ Ported and verified in-browser. Pages/components/api live under `frontend/src/pa
 - `5ffbe9f` — fix(interns): show interns nav links for admin
 
 ### Recipe for porting a domain frontend (used for interns; reuse for §11)
+> ⚠️ **Encoding:** read source with `[System.IO.File]::ReadAllText($p)` and write with `New-Object System.Text.UTF8Encoding($false)`. **Do NOT use `Get-Content -Raw`** (PS 5.1 reads UTF-8 as Windows-1252 → mojibake on `·`, em-dashes, smart quotes). And don't name a PS function `R` (collides with the `r`=Invoke-History alias). Both bit the interns port.
+
 1. Copy `api/*` → `frontend/src/api/<domain>/`; repath `./client` → `@/api/client` (named `api` import), `@/types` → `@/types/<domain>`, prefix API paths with `/<domain>` (leave `/auth`, `/notifications`).
 2. Copy pages/components → `frontend/src/pages/<domain>/`; repath `@/types`→`@/types/<domain>`, `@/api/X`→`@/api/<domain>/X`, `@/components/X`(≠ui)→`@/pages/<domain>/components/X`. Drop the domain's own `AuthContext`/`client`/`Layout`/`Navbar`.
 3. `types/<domain>.ts`: re-export shared `User`; keep domain types. Patch other-user `u.role` → `u.roles` (a `userRole()`-style helper).
