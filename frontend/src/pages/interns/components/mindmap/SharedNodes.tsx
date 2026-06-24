@@ -4,14 +4,14 @@ import { X, MessageCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { WorkStatus } from "@/types/interns"
 
-// â”€â”€ Shared status styling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Shared status styling ─────────────────────────────────────────────────────
 export const STATUS: Record<WorkStatus, { badge: string; dot: string }> = {
   todo:        { badge: "bg-gray-100 text-gray-500",    dot: "bg-gray-300"   },
   in_progress: { badge: "bg-[#d6c7e1] text-[#643f83]", dot: "bg-[#a880ff]"  },
   done:        { badge: "bg-black text-white",           dot: "bg-black"      },
 }
 
-// â”€â”€ Project node (only used in project map) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Project node (only used in project map) ───────────────────────────────────
 export function ProjectNode({ data }: NodeProps) {
   return (
     <div className="bg-black text-white rounded-2xl px-10 py-6 min-w-[260px] text-center shadow-2xl select-none cursor-pointer">
@@ -25,7 +25,7 @@ export function ProjectNode({ data }: NodeProps) {
   )
 }
 
-// â”€â”€ Epic node â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Epic node ─────────────────────────────────────────────────────────────────
 export function EpicNode({ data }: NodeProps) {
   const teamName   = (data.team_name   as string | null) ?? null
   const leaderName = (data.leader_name as string | null) ?? null
@@ -59,7 +59,7 @@ export function EpicNode({ data }: NodeProps) {
   )
 }
 
-// â”€â”€ Module node â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Module node ───────────────────────────────────────────────────────────────
 export function ModuleNode({ data, selected }: NodeProps) {
   return (
     <div className={cn(
@@ -79,7 +79,7 @@ export function ModuleNode({ data, selected }: NodeProps) {
   )
 }
 
-// â”€â”€ Task node â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Task node ─────────────────────────────────────────────────────────────────
 type AssigneeInfo = { id: string; full_name: string; email: string; role: string; phone: string | null }
 
 export function TaskNode({ data, selected }: NodeProps) {
@@ -174,7 +174,7 @@ export function TaskNode({ data, selected }: NodeProps) {
   )
 }
 
-// â”€â”€ nodeTypes maps â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── nodeTypes maps ────────────────────────────────────────────────────────────
 export const epicMapNodeTypes = {
   epicNode:    EpicNode,
   moduleNode:  ModuleNode,

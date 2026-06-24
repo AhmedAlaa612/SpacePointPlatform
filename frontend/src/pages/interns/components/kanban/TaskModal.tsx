@@ -203,16 +203,16 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
             </div>
           </DialogHeader>
 
-          {/* Ã¢â€â‚¬Ã¢â€â‚¬ Detail view Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+          {/* ── Detail view ─────────────────────────────────────────── */}
           {view === "detail" && (
             <div className="mt-4 flex flex-col gap-4">
-              {/* Module scope Ã¢â‚¬â€ collapsible context */}
+              {/* Module scope — collapsible context */}
               {(() => {
                 const isGeneral = !card.module_title || card.module_title === "General"
                 const scopeText = card.module_description
                   ?? (isGeneral ? (card.epic_description ?? null) : null)
                 if (!scopeText) return null
-                const label = isGeneral ? "Epic scope" : `${card.module_title} Ã¢â‚¬â€ scope`
+                const label = isGeneral ? "Epic scope" : `${card.module_title} — scope`
                 return (
                   <div className="border border-[#d6c7e1] rounded-xl overflow-hidden">
                     <button
@@ -317,7 +317,7 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                 {isIntern && card.status === "todo" && (
                   <button onClick={() => startMutation.mutate()} disabled={startMutation.isPending}
                     className="w-full h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-                    {startMutation.isPending ? "UpdatingÃ¢â‚¬Â¦" : "Start working"}
+                    {startMutation.isPending ? "Updating…" : "Start working"}
                   </button>
                 )}
                 {isIntern && card.status === "in_progress" && (
@@ -371,7 +371,7 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
             </div>
           )}
 
-          {/* Ã¢â€â‚¬Ã¢â€â‚¬ Edit view (leader only) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+          {/* ── Edit view (leader only) ──────────────────────────────── */}
           {view === "edit" && (
             <div className="mt-4 flex flex-col gap-4">
               {/* title */}
@@ -456,18 +456,18 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                 <button onClick={() => editMutation.mutate()}
                   disabled={!editTitle.trim() || editMutation.isPending}
                   className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-                  {editMutation.isPending ? "SavingÃ¢â‚¬Â¦" : "Save changes"}
+                  {editMutation.isPending ? "Saving…" : "Save changes"}
                 </button>
               </div>
             </div>
           )}
 
-          {/* Ã¢â€â‚¬Ã¢â€â‚¬ Submit view Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+          {/* ── Submit view ──────────────────────────────────────────── */}
           {view === "submit" && (
             <div className="mt-4 flex flex-col gap-3">
               <p className="text-sm text-gray-500">Paste a link to your work</p>
               <input value={submitLink} onChange={(e) => setSubmitLink(e.target.value)}
-                placeholder="https://Ã¢â‚¬Â¦"
+                placeholder="https://…"
                 className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
               <textarea value={submitNote} onChange={(e) => setSubmitNote(e.target.value)}
                 placeholder="Add a note (optional)" rows={3}
@@ -476,7 +476,7 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                 <label className="block text-xs font-medium text-gray-500 mb-1.5">
                   Time spent (hours)
                   {card.expected_time != null && (
-                    <span className="text-gray-400 font-normal"> Ã‚Â· expected {card.expected_time}h</span>
+                    <span className="text-gray-400 font-normal"> · expected {card.expected_time}h</span>
                   )}
                 </label>
                 <input type="number" min="0" step="0.5" value={actualTime}
@@ -491,13 +491,13 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                 <button onClick={() => submitMutation.mutate()}
                   disabled={!submitLink.trim() || submitMutation.isPending}
                   className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-                  {submitMutation.isPending ? "SubmittingÃ¢â‚¬Â¦" : "Submit"}
+                  {submitMutation.isPending ? "Submitting…" : "Submit"}
                 </button>
               </div>
             </div>
           )}
 
-          {/* Ã¢â€â‚¬Ã¢â€â‚¬ Review view Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+          {/* ── Review view ──────────────────────────────────────────── */}
           {view === "review" && selectedSubId && (() => {
             const sub = card.submissions.find((s) => s.id === selectedSubId)
             if (!sub) return null
@@ -511,10 +511,10 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                   {sub.note && <p className="text-xs text-gray-500 mt-1">{sub.note}</p>}
                 </div>
                 <input type="number" value={reviewScore} onChange={(e) => setReviewScore(e.target.value)}
-                  placeholder="Score (0Ã¢â‚¬â€œ100)" min={0} max={100}
+                  placeholder="Score (0–100)" min={0} max={100}
                   className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
                 <textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)}
-                  placeholder="FeedbackÃ¢â‚¬Â¦" rows={3}
+                  placeholder="Feedback…" rows={3}
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors" />
                 <div className="flex gap-2 pt-1">
                   <button onClick={() => setView("detail")}
@@ -524,7 +524,7 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                   <button onClick={() => reviewMutation.mutate()}
                     disabled={!reviewComment.trim() || reviewMutation.isPending}
                     className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-                    {reviewMutation.isPending ? "SavingÃ¢â‚¬Â¦" : "Submit review"}
+                    {reviewMutation.isPending ? "Saving…" : "Submit review"}
                   </button>
                 </div>
               </div>

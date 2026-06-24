@@ -9,7 +9,7 @@ export default function Calendar() {
       </div>
       <p className="text-base font-semibold text-black">Calendar</p>
       <p className="text-sm text-gray-400 text-center max-w-xs">
-        Deadlines and meeting scheduling â€” TBD
+        Deadlines and meeting scheduling — TBD
       </p>
     </div>
   )

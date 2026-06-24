@@ -22,7 +22,7 @@ import { getEpicProposalsApi, reviewProposalApi } from "@/api/interns/proposals"
 import { getTeamsApi } from "@/api/interns/teams"
 import { cn } from "@/lib/utils"
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ styling Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── styling ─────────────────────────────────────────────────────────── */
 const TASK_STATUS: Record<WorkStatus, { dot: string; badge: string }> = {
   todo:        { dot: "bg-gray-300",  badge: "bg-gray-100 text-gray-500" },
   in_progress: { dot: "bg-[#a880ff]", badge: "bg-[#d6c7e1] text-[#643f83]" },
@@ -64,7 +64,7 @@ function AdminDashboard() {
   /* board drill-down: null = epic view, set = that epic's task view */
   const [boardEpic, setBoardEpic] = useState<Epic | null>(null)
 
-  /* drag state Ã¢â‚¬â€ separate for projects / epics / tasks */
+  /* drag state — separate for projects / epics / tasks */
   const [dragProject, setDragProject] = useState<Project | null>(null)
   const [dragEpic,    setDragEpic]    = useState<Epic | null>(null)
   const [dragTask,    setDragTask]    = useState<Task | null>(null)
@@ -79,7 +79,7 @@ function AdminDashboard() {
   const projSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const taskSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ project move mutation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* ── project move mutation ─────────────────────────────────────── */
   const moveProjectMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: ProjectStatus }) =>
       updateProjectApi(id, { status }),
@@ -95,7 +95,7 @@ function AdminDashboard() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["projects"] }),
   })
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ delete project mutation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* ── delete project mutation ──────────────────────────────────── */
   const deleteProjectMutation = useMutation({
     mutationFn: (id: string) => deleteProjectApi(id),
     onSuccess: () => {
@@ -105,7 +105,7 @@ function AdminDashboard() {
     },
   })
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ task move mutation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* ── task move mutation ────────────────────────────────────────── */
   const moveTaskMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: WorkStatus }) => updateTaskApi(id, { status }),
     onMutate: async ({ id, status }) => {
@@ -120,7 +120,7 @@ function AdminDashboard() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["tasks", "admin"] }),
   })
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ epic move mutation Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* ── epic move mutation ────────────────────────────────────────── */
   const moveEpicMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: WorkStatus }) => updateEpicApi(id, { status }),
     onMutate: async ({ id, status }) => {
@@ -136,14 +136,14 @@ function AdminDashboard() {
   })
 
   /* helpers */
-  const projectName = (id: string) => projects.find((p) => p.id === id)?.title ?? "Ã¢â‚¬â€"
+  const projectName = (id: string) => projects.find((p) => p.id === id)?.title ?? "—"
 
   const activeProjects    = projects.filter((p) => (p.status ?? "active") === "active")
   const completedProjects = projects.filter((p) => (p.status ?? "active") === "completed")
   const filteredEpics     = projectFilter === "all" ? allEpics : allEpics.filter((e) => e.project_id === projectFilter)
   const boardEpicTasks    = boardEpic ? tasks.filter((t) => t.epic_id === boardEpic.id) : []
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ project dnd handlers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* ── project dnd handlers ──────────────────────────────────────── */
   const onProjDragStart = (e: DragStartEvent) =>
     setDragProject(projects.find((p) => p.id === String(e.active.id)) ?? null)
 
@@ -158,7 +158,7 @@ function AdminDashboard() {
     moveProjectMutation.mutate({ id: proj.id, status: newStatus })
   }
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ epic dnd handlers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* ── epic dnd handlers ─────────────────────────────────────────── */
   const onEpicDragStart = (e: DragStartEvent) =>
     setDragEpic(allEpics.find((ep) => ep.id === String(e.active.id)) ?? null)
 
@@ -173,7 +173,7 @@ function AdminDashboard() {
     moveEpicMutation.mutate({ id: epic.id, status: ns })
   }
 
-  /* Ã¢â€â‚¬Ã¢â€â‚¬ task dnd handlers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+  /* ── task dnd handlers ─────────────────────────────────────────── */
   const onTaskDragStart = (e: DragStartEvent) =>
     setDragTask(tasks.find((t) => t.id === String(e.active.id)) ?? null)
 
@@ -193,12 +193,12 @@ function AdminDashboard() {
   return (
     <div className="flex flex-col gap-10">
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Page header Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* ── Page header ──────────────────────────────────────────────── */}
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-xl font-bold text-black tracking-tight">Dashboard</h1>
           <p className="text-sm text-gray-400 mt-0.5">
-            {projects.length} project{projects.length !== 1 ? "s" : ""} Ã‚Â· {allEpics.length} epic{allEpics.length !== 1 ? "s" : ""}
+            {projects.length} project{projects.length !== 1 ? "s" : ""} · {allEpics.length} epic{allEpics.length !== 1 ? "s" : ""}
           </p>
         </div>
         <button
@@ -209,7 +209,7 @@ function AdminDashboard() {
         </button>
       </div>
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Projects kanban (draggable) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* ── Projects kanban (draggable) ───────────────────────────────── */}
       <section className="flex flex-col gap-4">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Projects</p>
 
@@ -235,7 +235,7 @@ function AdminDashboard() {
         </DndContext>
       </section>
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Epic / task drill-down board Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* ── Epic / task drill-down board ─────────────────────────────── */}
       <section className="flex flex-col gap-4">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           {boardEpic ? (
@@ -251,7 +251,7 @@ function AdminDashboard() {
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
               Epics
               {projectFilter !== "all" && (
-                <span className="ml-2 font-normal normal-case text-gray-400">Ã‚Â· {projectName(projectFilter)}</span>
+                <span className="ml-2 font-normal normal-case text-gray-400">· {projectName(projectFilter)}</span>
               )}
             </p>
           )}
@@ -274,7 +274,7 @@ function AdminDashboard() {
         </div>
 
         {boardEpic ? (
-          /* Ã¢â€â‚¬Ã¢â€â‚¬ Task level (drilled into an epic) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+          /* ── Task level (drilled into an epic) ───────────────────── */
           <DndContext sensors={taskSensors} onDragStart={onTaskDragStart} onDragEnd={onTaskDragEnd}>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {TASK_COLS.map((col) => (
@@ -298,7 +298,7 @@ function AdminDashboard() {
             </DragOverlay>
           </DndContext>
         ) : (
-          /* Ã¢â€â‚¬Ã¢â€â‚¬ Epic level Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+          /* ── Epic level ──────────────────────────────────────────── */
           <DndContext sensors={taskSensors} onDragStart={onEpicDragStart} onDragEnd={onEpicDragEnd}>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {TASK_COLS.map((col) => (
@@ -327,7 +327,7 @@ function AdminDashboard() {
         )}
       </section>
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Project manage panel Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* ── Project manage panel ─────────────────────────────────────── */}
       {activeProject && (
         <ProjectTasksPanel
           project={activeProject}
@@ -348,7 +348,7 @@ function AdminDashboard() {
         />
       )}
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Task detail modal Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* ── Task detail modal ─────────────────────────────────────────── */}
       {selectedTask && (
         <AdminTaskModal
           key={selectedTask.id}
@@ -371,7 +371,7 @@ function AdminDashboard() {
         />
       )}
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Create project modal Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* ── Create project modal ─────────────────────────────────────── */}
       {createProjectOpen && (
         <CreateProjectModal
           onClose={() => setCreateProjectOpen(false)}
@@ -386,7 +386,7 @@ function AdminDashboard() {
 }
 
 /* ================================================================== */
-/* Project column Ã¢â‚¬â€ useDroppable + scrollable card list               */
+/* Project column — useDroppable + scrollable card list               */
 /* ================================================================== */
 function ProjectColumn({ colKey, projects, epicCounts, onManage }: {
   colKey: "active" | "completed"
@@ -440,7 +440,7 @@ function ProjectColumn({ colKey, projects, epicCounts, onManage }: {
   )
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Project card Ã¢â‚¬â€ useDraggable Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── Project card — useDraggable ─────────────────────────────────────── */
 function ProjectCard({ project, epicCount, onManage }: {
   project: Project; epicCount: number; onManage: () => void
 }) {
@@ -491,7 +491,7 @@ function ProjectCard({ project, epicCount, onManage }: {
   )
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Drag overlay (lightweight copy, no dnd hooks) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── Drag overlay (lightweight copy, no dnd hooks) ───────────────────── */
 function ProjectCardOverlay({ project }: { project: Project }) {
   return (
     <div className="bg-white border-2 border-[#a880ff] rounded-xl p-3.5 shadow-xl rotate-1 cursor-grabbing">
@@ -501,7 +501,7 @@ function ProjectCardOverlay({ project }: { project: Project }) {
 }
 
 /* ================================================================== */
-/* Project manage panel Ã¢â‚¬â€ two screens: epics list Ã¢â€ â€™ epic tasks          */
+/* Project manage panel — two screens: epics list → epic tasks          */
 /* ================================================================== */
 function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated, onToggleStatus, onDelete }: {
   project: Project; tasks: Task[]
@@ -561,10 +561,10 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
 
-        {/* Ã¢â€â‚¬Ã¢â€â‚¬ Header Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+        {/* ── Header ─────────────────────────────────────────────────── */}
         <div className="flex items-start justify-between gap-2 px-4 sm:px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
           {activeEpic ? (
-            /* Screen 2 header Ã¢â‚¬â€ epic tasks */
+            /* Screen 2 header — epic tasks */
             <div className="w-full flex flex-col gap-3">
               {/* Row 1: back + title + close */}
               <div className="flex items-center justify-between gap-2">
@@ -632,7 +632,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
               </div>
             </div>
           ) : (
-            /* Screen 1 header Ã¢â‚¬â€ epics list */
+            /* Screen 1 header — epics list */
             <div className="w-full flex flex-col gap-3">
               {/* Row 1: title + close */}
               <div className="flex items-start justify-between gap-2">
@@ -641,7 +641,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
                   {project.description && (
                     <p className="text-xs text-gray-400 mt-0.5 break-words line-clamp-2">{project.description}</p>
                   )}
-                  <p className="text-xs text-gray-400 mt-0.5">{epics.length} epic{epics.length !== 1 ? "s" : ""} Ã‚Â· {tasks.length} task{tasks.length !== 1 ? "s" : ""}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{epics.length} epic{epics.length !== 1 ? "s" : ""} · {tasks.length} task{tasks.length !== 1 ? "s" : ""}</p>
                 </div>
                 <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-black transition-colors flex-shrink-0">
                   <X size={16} />
@@ -682,7 +682,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
           )}
         </div>
 
-        {/* Ã¢â€â‚¬Ã¢â€â‚¬ Tab bar (only shown in epic view) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+        {/* ── Tab bar (only shown in epic view) ──────────────────────── */}
         {activeEpic && (
           <div className="flex border-b border-gray-100 px-6 flex-shrink-0">
             {(["tasks", "proposals"] as const).map((tab) => (
@@ -704,10 +704,10 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
           </div>
         )}
 
-        {/* Ã¢â€â‚¬Ã¢â€â‚¬ Body Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+        {/* ── Body ───────────────────────────────────────────────────── */}
         <div className="overflow-y-auto flex-1 p-4 flex flex-col gap-2">
 
-          {/* Screen 1 Ã¢â‚¬â€ epics list */}
+          {/* Screen 1 — epics list */}
           {!activeEpic && (
             epicsLoading ? (
               <div className="flex items-center justify-center h-24">
@@ -715,7 +715,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
               </div>
             ) : epics.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-28 gap-3">
-                <p className="text-sm text-gray-400">No epics yet Ã¢â‚¬â€ add one to get started</p>
+                <p className="text-sm text-gray-400">No epics yet — add one to get started</p>
                 <button onClick={() => setCreateEpicOpen(true)}
                   className="flex items-center gap-1.5 h-8 px-4 border border-dashed border-gray-300 rounded-xl text-xs font-medium text-gray-500 hover:border-black hover:text-black transition-colors">
                   <Plus size={12} /> Add the first epic
@@ -749,7 +749,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
             )
           )}
 
-          {/* Screen 2 Ã¢â‚¬â€ tasks tab */}
+          {/* Screen 2 — tasks tab */}
           {activeEpic && activeTab === "tasks" && (
             epicTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-28 gap-3">
@@ -793,7 +793,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
             )
           )}
 
-          {/* Screen 2 Ã¢â‚¬â€ proposals tab */}
+          {/* Screen 2 — proposals tab */}
           {activeEpic && activeTab === "proposals" && (
             proposals.length === 0 ? (
               <div className="flex items-center justify-center h-28">
@@ -825,7 +825,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
                   {p.description && (
                     <p className="text-xs text-gray-500 line-clamp-2">{p.description}</p>
                   )}
-                  <p className="text-[11px] text-gray-400">by {p.proposer_name ?? "Unknown"} Ã‚Â· tap to review</p>
+                  <p className="text-[11px] text-gray-400">by {p.proposer_name ?? "Unknown"} · tap to review</p>
                 </button>
               ))
             )
@@ -854,7 +854,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
         />
       )}
 
-      {/* Create task modal Ã¢â‚¬â€ pre-scoped to selected epic */}
+      {/* Create task modal — pre-scoped to selected epic */}
       {createTaskOpen && activeEpic && (
         <CreateTaskForEpicModal
           epic={activeEpic}
@@ -931,7 +931,7 @@ function CreateEpicModal({ project, onClose, onCreated }: {
           <label className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1 block">Assign to team *</label>
           <select value={teamId} onChange={(e) => setTeamId(e.target.value)}
             className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-black transition-colors">
-            <option value="">Select teamÃ¢â‚¬Â¦</option>
+            <option value="">Select team…</option>
             {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </div>
@@ -943,7 +943,7 @@ function CreateEpicModal({ project, onClose, onCreated }: {
           </button>
           <button onClick={() => mutation.mutate()} disabled={!title.trim() || !teamId || mutation.isPending}
             className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-            {mutation.isPending ? "CreatingÃ¢â‚¬Â¦" : "Create epic"}
+            {mutation.isPending ? "Creating…" : "Create epic"}
           </button>
         </div>
       </div>
@@ -1029,7 +1029,7 @@ function CreateTaskForEpicModal({ epic, onClose, onCreated, prefillTitle, prefil
           </button>
           <button onClick={() => mutation.mutate()} disabled={!title.trim() || !targetModule || mutation.isPending}
             className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-            {mutation.isPending ? "CreatingÃ¢â‚¬Â¦" : "Create task"}
+            {mutation.isPending ? "Creating…" : "Create task"}
           </button>
         </div>
       </div>
@@ -1182,7 +1182,7 @@ function AdminTaskColumn({ title, status, tasks, projectName, onTaskClick }: {
   )
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Admin task card (useDraggable) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── Admin task card (useDraggable) ──────────────────────────────────── */
 function AdminTaskCard({ task, projectName, onClick, isDragOverlay }: {
   task: Task; projectName: string
   onClick: () => void; isDragOverlay?: boolean
@@ -1212,7 +1212,7 @@ function AdminTaskCard({ task, projectName, onClick, isDragOverlay }: {
         </button>
       </div>
       <p className="text-[11px] text-gray-500 mb-2">
-        {task.epic_title ? `${task.epic_title} Ã‚Â· ` : ""}{projectName}
+        {task.epic_title ? `${task.epic_title} · ` : ""}{projectName}
       </p>
       {due && (
         <div className={cn("flex items-center gap-1 text-[11px]", isOverdue ? "text-red-500" : "text-gray-400")}>
@@ -1313,7 +1313,7 @@ function AdminTaskModal({ task, projectName, onClose, onSaved, onDeleted, elevat
                 <button onClick={() => saveMutation.mutate()}
                   disabled={!title.trim() || saveMutation.isPending}
                   className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-                  {saveMutation.isPending ? "SavingÃ¢â‚¬Â¦" : "Save changes"}
+                  {saveMutation.isPending ? "Saving…" : "Save changes"}
                 </button>
               </div>
             </div>
@@ -1431,10 +1431,10 @@ function AdminSubmissionRow({ sub, isLatest, onReview, reviewing }: {
         showReview ? (
           <div className="mt-2 flex flex-col gap-1.5">
             <input type="number" min={0} max={100} value={score} onChange={(e) => setScore(e.target.value)}
-              placeholder="Score (0Ã¢â‚¬â€œ100)"
+              placeholder="Score (0–100)"
               className="w-full h-8 px-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-black" />
             <textarea value={comment} onChange={(e) => setComment(e.target.value)}
-              placeholder="FeedbackÃ¢â‚¬Â¦" rows={2}
+              placeholder="Feedback…" rows={2}
               className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs resize-none focus:outline-none focus:border-black" />
             <div className="flex gap-1.5">
               <button onClick={() => setShowReview(false)}
@@ -1445,7 +1445,7 @@ function AdminSubmissionRow({ sub, isLatest, onReview, reviewing }: {
                 onClick={() => onReview(Number(score) || 0, comment)}
                 disabled={!comment.trim() || reviewing}
                 className="flex-1 h-7 bg-black text-white rounded-lg text-[11px] font-medium hover:bg-gray-900 disabled:opacity-50">
-                {reviewing ? "Ã¢â‚¬Â¦" : "Submit review"}
+                {reviewing ? "…" : "Submit review"}
               </button>
             </div>
           </div>
@@ -1497,7 +1497,7 @@ function CreateProjectModal({ onClose, onCreated }: { onClose: () => void; onCre
           </button>
           <button onClick={() => mutation.mutate()} disabled={!title.trim() || mutation.isPending}
             className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-            {mutation.isPending ? "CreatingÃ¢â‚¬Â¦" : "Create"}
+            {mutation.isPending ? "Creating…" : "Create"}
           </button>
         </div>
       </div>
@@ -1505,7 +1505,7 @@ function CreateProjectModal({ onClose, onCreated }: { onClose: () => void; onCre
   )
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── helpers ─────────────────────────────────────────────────────────── */
 function LabeledField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>

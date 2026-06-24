@@ -264,7 +264,7 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
           <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@example.com" type="email" className="input" />
         </Field>
         <Field label="Password">
-          <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" type="password" className="input" />
+          <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" type="password" className="input" />
         </Field>
         <Field label="Role">
           <select value={role} onChange={(e) => setRole(e.target.value as Role)} className="input bg-white">
@@ -352,7 +352,7 @@ function ManageMembersModal({ team, users, onClose, onSuccess }: {
   })
 
   return (
-    <Modal title={`Members â€” ${team.name}`} onClose={onClose}>
+    <Modal title={`Members — ${team.name}`} onClose={onClose}>
       <div className="flex flex-col gap-2">
         {interns.length === 0 && (
           <p className="text-sm text-gray-400 text-center py-4">
@@ -418,18 +418,18 @@ function ChangePasswordModal({ user, onClose, onSuccess }: {
   const mismatch = confirm.length > 0 && password !== confirm
 
   return (
-    <Modal title={`Change password â€” ${user.full_name}`} onClose={onClose}>
+    <Modal title={`Change password — ${user.full_name}`} onClose={onClose}>
       <div className="flex flex-col gap-3">
         <Field label="New password">
           <input
             value={password} onChange={(e) => { setPassword(e.target.value); setError("") }}
-            type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" autoFocus className="input"
+            type="password" placeholder="••••••••" autoFocus className="input"
           />
         </Field>
         <Field label="Confirm password">
           <input
             value={confirm} onChange={(e) => setConfirm(e.target.value)}
-            type="password" placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" className="input"
+            type="password" placeholder="••••••••" className="input"
           />
           {mismatch && <p className="text-xs text-red-500 mt-1">Passwords do not match</p>}
         </Field>
@@ -484,7 +484,7 @@ function ModalActions({ onCancel, onConfirm, loading, disabled, label }: {
       </button>
       <button onClick={onConfirm} disabled={disabled || loading}
         className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-        {loading ? "â€¦" : label}
+        {loading ? "…" : label}
       </button>
     </div>
   )

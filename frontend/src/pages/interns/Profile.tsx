@@ -75,7 +75,7 @@ export default function Profile() {
               </button>
               <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}
                 className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-                {saveMutation.isPending ? "Savingâ€¦" : "Save"}
+                {saveMutation.isPending ? "Saving…" : "Save"}
               </button>
             </div>
           </>
@@ -92,7 +92,7 @@ export default function Profile() {
           </>
         )}
 
-        {saved && <p className="text-sm text-green-600 font-medium text-center">Saved âœ“</p>}
+        {saved && <p className="text-sm text-green-600 font-medium text-center">Saved ✓</p>}
       </div>
     </div>
   )

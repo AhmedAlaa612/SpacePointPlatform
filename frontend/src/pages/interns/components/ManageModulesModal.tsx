@@ -46,12 +46,12 @@ function ModuleEditDialog({ module: m, onSave, onClose, isPending }: {
           </div>
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-wider text-gray-400 mb-1.5">
-              Scope / Description <span className="normal-case font-normal text-gray-300">â€” interns will see this</span>
+              Scope / Description <span className="normal-case font-normal text-gray-300">— interns will see this</span>
             </label>
             <textarea
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
-              placeholder="Describe the scope of this moduleâ€¦"
+              placeholder="Describe the scope of this module…"
               rows={4}
               className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors"
             />
@@ -66,7 +66,7 @@ function ModuleEditDialog({ module: m, onSave, onClose, isPending }: {
               disabled={!title.trim() || isPending}
               className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
             >
-              <Check size={14} /> {isPending ? "Savingâ€¦" : "Save"}
+              <Check size={14} /> {isPending ? "Saving…" : "Save"}
             </button>
           </div>
         </div>
@@ -144,7 +144,7 @@ export default function ManageModulesModal({ epic, role, onClose }: {
             <textarea
               value={newDesc}
               onChange={(e) => setNewDesc(e.target.value)}
-              placeholder="Scope / description (optional) â€” interns will see this"
+              placeholder="Scope / description (optional) — interns will see this"
               rows={2}
               className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors"
             />
@@ -177,7 +177,7 @@ export default function ManageModulesModal({ epic, role, onClose }: {
                       {m.description ? (
                         <p className="text-xs text-gray-400 mt-0.5 leading-relaxed line-clamp-2">{m.description}</p>
                       ) : (
-                        <p className="text-xs text-gray-300 mt-0.5 italic">No description â€” interns won't see scope context</p>
+                        <p className="text-xs text-gray-300 mt-0.5 italic">No description — interns won't see scope context</p>
                       )}
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">

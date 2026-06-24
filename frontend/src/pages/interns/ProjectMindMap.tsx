@@ -17,7 +17,7 @@ import { getTaskNoteApi, updateTaskNoteApi } from "@/api/interns/mindmap"
 import { updateModuleApi } from "@/api/interns/modules"
 import { STATUS, projectMapNodeTypes as nodeTypes } from "@/pages/interns/components/mindmap/SharedNodes"
 
-// â”€â”€ Auto-layout constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Auto-layout constants ─────────────────────────────────────────────────────
 const TASK_W   = 200
 const TASK_GAP = 30
 const MOD_GAP  = 50
@@ -129,7 +129,7 @@ function buildProjectGraph(
   return { nodes, edges }
 }
 
-// â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Page ──────────────────────────────────────────────────────────────────────
 export default function ProjectMindMap() {
   const { projectId }   = useParams({ strict: false }) as { projectId: string }
   const navigate        = useNavigate()
@@ -144,7 +144,7 @@ export default function ProjectMindMap() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [initialised, setInitialised]    = useState(false)
 
-  // side panel state â€” mirrors MindMap.tsx pattern
+  // side panel state — mirrors MindMap.tsx pattern
   const [selectedTask,   setSelectedTask]   = useState<{ id: string; title: string; status: string } | null>(null)
   const [selectedModule, setSelectedModule] = useState<{ id: string; title: string; description: string | null } | null>(null)
   const [selectedEpic,   setSelectedEpic]   = useState<{ title: string; description: string | null; status: string } | null>(null)
@@ -155,7 +155,7 @@ export default function ProjectMindMap() {
   const [editingDesc,  setEditingDesc]  = useState(false)
   const [editDescText, setEditDescText] = useState("")
 
-  // â”€â”€ data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── data ─────────────────────────────────────────────────────────────────
   const { data: project } = useQuery({
     queryKey: ["project", projectId],
     queryFn:  () => getProjectApi(projectId),
@@ -175,7 +175,7 @@ export default function ProjectMindMap() {
     setInitialised(true)
   }
 
-  // â”€â”€ task note â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── task note ─────────────────────────────────────────────────────────────
   const { data: taskNote } = useQuery({
     queryKey: ["task-note", selectedTask?.id],
     queryFn:  () => getTaskNoteApi(selectedTask!.id, role),
@@ -200,7 +200,7 @@ export default function ProjectMindMap() {
     },
   })
 
-  // â”€â”€ module description â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── module description ────────────────────────────────────────────────────
   const saveModuleDescMutation = useMutation({
     mutationFn: () => updateModuleApi(selectedModule!.id, { description: editDescText.trim() || undefined }, role as "admin" | "leader"),
     onSuccess: () => {
@@ -216,7 +216,7 @@ export default function ProjectMindMap() {
     },
   })
 
-  // â”€â”€ layout save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── layout save ───────────────────────────────────────────────────────────
   const saveLayout = useCallback(() => {
     if (!canEdit) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -230,7 +230,7 @@ export default function ProjectMindMap() {
     }, 800)
   }, [canEdit, STORAGE_KEY, setNodes])
 
-  // â”€â”€ node click â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── node click ────────────────────────────────────────────────────────────
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     setEditingDesc(false)
     if (node.type === "taskNode") {
@@ -283,7 +283,7 @@ export default function ProjectMindMap() {
           </div>
         </div>
         {canEdit && (
-          <p className="text-xs text-gray-400 italic">Drag nodes to rearrange â€” saved to browser</p>
+          <p className="text-xs text-gray-400 italic">Drag nodes to rearrange — saved to browser</p>
         )}
       </div>
 
@@ -316,7 +316,7 @@ export default function ProjectMindMap() {
           </ReactFlow>
         </div>
 
-        {/* â”€â”€ Project side panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── Project side panel ─────────────────────────────────────── */}
         {selectedProject && (
           <div className="w-72 flex-shrink-0 bg-white rounded-2xl border border-gray-100 p-5 flex flex-col gap-4 overflow-y-auto">
             <div className="flex items-start justify-between">
@@ -342,7 +342,7 @@ export default function ProjectMindMap() {
           </div>
         )}
 
-        {/* â”€â”€ Epic side panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── Epic side panel ────────────────────────────────────────── */}
         {selectedEpic && (
           <div className="w-72 flex-shrink-0 bg-white rounded-2xl border border-gray-100 p-5 flex flex-col gap-4 overflow-y-auto">
             <div className="flex items-start justify-between">
@@ -368,7 +368,7 @@ export default function ProjectMindMap() {
           </div>
         )}
 
-        {/* â”€â”€ Module side panel â€” same as individual map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── Module side panel — same as individual map ─────────────── */}
         {selectedModule && !selectedTask && (
           <div className="w-72 flex-shrink-0 bg-white rounded-2xl border border-gray-100 p-5 flex flex-col gap-4 overflow-y-auto">
             <div className="flex items-start justify-between">
@@ -397,7 +397,7 @@ export default function ProjectMindMap() {
                   <textarea
                     value={editDescText}
                     onChange={(e) => setEditDescText(e.target.value)}
-                    placeholder="Describe this module's scope so interns understand the contextâ€¦"
+                    placeholder="Describe this module's scope so interns understand the context…"
                     rows={6}
                     autoFocus
                     className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors"
@@ -408,7 +408,7 @@ export default function ProjectMindMap() {
                       disabled={saveModuleDescMutation.isPending}
                       className="flex-1 h-9 flex items-center justify-center gap-1.5 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50"
                     >
-                      <Check size={13} /> {saveModuleDescMutation.isPending ? "Savingâ€¦" : "Save"}
+                      <Check size={13} /> {saveModuleDescMutation.isPending ? "Saving…" : "Save"}
                     </button>
                     <button onClick={() => setEditingDesc(false)}
                       className="h-9 px-3 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50 transition-colors">
@@ -421,7 +421,7 @@ export default function ProjectMindMap() {
                   {selectedModule.description
                     ? <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{selectedModule.description}</p>
                     : <p className="text-sm text-gray-300 italic">
-                        {canEdit ? "No description yet â€” click Edit to add scope context for interns." : "No scope description set for this module."}
+                        {canEdit ? "No description yet — click Edit to add scope context for interns." : "No scope description set for this module."}
                       </p>}
                 </div>
               )}
@@ -429,7 +429,7 @@ export default function ProjectMindMap() {
           </div>
         )}
 
-        {/* â”€â”€ Task side panel â€” same as individual map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── Task side panel — same as individual map ───────────────── */}
         {selectedTask && (
           <div className="w-72 flex-shrink-0 bg-white rounded-2xl border border-gray-100 p-5 flex flex-col gap-4 overflow-y-auto">
             <div className="flex items-start justify-between">
@@ -455,7 +455,7 @@ export default function ProjectMindMap() {
                   <textarea
                     value={noteText}
                     onChange={(e) => { setNoteText(e.target.value); setNoteDirty(true) }}
-                    placeholder="Describe your approach, logic, or challengesâ€¦"
+                    placeholder="Describe your approach, logic, or challenges…"
                     rows={6}
                     className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors"
                   />
@@ -465,7 +465,7 @@ export default function ProjectMindMap() {
                       disabled={saveNoteMutation.isPending}
                       className="mt-2 w-full h-9 flex items-center justify-center gap-1.5 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50"
                     >
-                      <Save size={13} /> {saveNoteMutation.isPending ? "Savingâ€¦" : "Save note"}
+                      <Save size={13} /> {saveNoteMutation.isPending ? "Saving…" : "Save note"}
                     </button>
                   )}
                 </>

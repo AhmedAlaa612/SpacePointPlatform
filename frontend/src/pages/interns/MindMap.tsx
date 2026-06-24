@@ -18,7 +18,7 @@ import {
 import { updateModuleApi } from "@/api/interns/modules"
 import { STATUS, epicMapNodeTypes as nodeTypes } from "@/pages/interns/components/mindmap/SharedNodes"
 
-// â”€â”€ Layout builder â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Layout builder ────────────────────────────────────────────────────────────
 function buildGraph(
   epic: Epic,
   savedPositions: Record<string, { x: number; y: number }>,
@@ -93,7 +93,7 @@ function buildGraph(
   return { nodes, edges }
 }
 
-// â”€â”€ Main page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function MindMap() {
   const { epicId }    = useParams({ strict: false }) as { epicId: string }
   const navigate      = useNavigate()
@@ -113,20 +113,20 @@ export default function MindMap() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [initialised, setInitialised]  = useState(false)
 
-  // â”€â”€ Fetch epic â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Fetch epic ───────────────────────────────────────────────────────────
   const { data: epic, isLoading: epicLoading } = useQuery<Epic>({
     queryKey: ["epic", epicId],
     queryFn: () => getEpicForMapApi(epicId, role),
   })
 
-  // â”€â”€ Fetch layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Fetch layout ─────────────────────────────────────────────────────────
   const { data: layout, isLoading: layoutLoading } = useQuery({
     queryKey: ["mind-map-layout", epicId],
     queryFn: () => getLayoutApi(epicId, role),
     enabled: !!epic,
   })
 
-  // â”€â”€ Build graph once both are loaded â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Build graph once both are loaded ─────────────────────────────────────
   if (epic && layout && !initialised) {
     const saved = layout.layout ?? {}
     const { nodes: n, edges: e } = buildGraph(epic, saved, {})
@@ -135,7 +135,7 @@ export default function MindMap() {
     setInitialised(true)
   }
 
-  // â”€â”€ Save layout (debounced) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Save layout (debounced) ───────────────────────────────────────────────
   const saveLayout = useCallback(() => {
     if (!canEdit) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -150,7 +150,7 @@ export default function MindMap() {
     }, 800)
   }, [canEdit, epicId, role, queryClient, setNodes])
 
-  // â”€â”€ Task note fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Task note fetch ───────────────────────────────────────────────────────
   const { data: taskNote } = useQuery({
     queryKey: ["task-note", selectedTask?.id],
     queryFn: () => getTaskNoteApi(selectedTask!.id, role),
@@ -163,7 +163,7 @@ export default function MindMap() {
     setNoteDirty(false)
   }, [taskNote])
 
-  // â”€â”€ Save note â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Save note ─────────────────────────────────────────────────────────────
   const saveNoteMutation = useMutation({
     mutationFn: () => updateTaskNoteApi(selectedTask!.id, noteText),
     onSuccess: () => {
@@ -177,7 +177,7 @@ export default function MindMap() {
     },
   })
 
-  // â”€â”€ Save module description â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Save module description ───────────────────────────────────────────────
   const saveModuleDescMutation = useMutation({
     mutationFn: () => updateModuleApi(selectedModule!.id, { description: editDescText.trim() || undefined }, role as "admin" | "leader"),
     onSuccess: () => {
@@ -193,7 +193,7 @@ export default function MindMap() {
     },
   })
 
-  // â”€â”€ Node click â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Node click ────────────────────────────────────────────────────────────
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.type === "taskNode") {
       setSelectedModule(null)
@@ -223,7 +223,7 @@ export default function MindMap() {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* â”€â”€ Header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate({ to: "/" })}
@@ -238,11 +238,11 @@ export default function MindMap() {
           </div>
         </div>
         {canEdit && (
-          <p className="text-xs text-gray-400 italic">Drag nodes to rearrange â€” saved automatically</p>
+          <p className="text-xs text-gray-400 italic">Drag nodes to rearrange — saved automatically</p>
         )}
       </div>
 
-      {/* â”€â”€ Canvas + Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Canvas + Sidebar ────────────────────────────────────────────── */}
       <div className="flex gap-4" style={{ height: "calc(100vh - 14rem)" }}>
         <div className={cn("flex-1 rounded-2xl border border-gray-100 overflow-hidden", (selectedTask || selectedModule) ? "w-2/3" : "w-full")}>
           <ReactFlow
@@ -270,7 +270,7 @@ export default function MindMap() {
           </ReactFlow>
         </div>
 
-        {/* â”€â”€ Module side panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── Module side panel ───────────────────────────────────────── */}
         {selectedModule && !selectedTask && (
           <div className="w-72 flex-shrink-0 bg-white rounded-2xl border border-gray-100 p-5 flex flex-col gap-4 overflow-y-auto">
             <div className="flex items-start justify-between">
@@ -301,7 +301,7 @@ export default function MindMap() {
                   <textarea
                     value={editDescText}
                     onChange={(e) => setEditDescText(e.target.value)}
-                    placeholder="Describe this module's scope so interns understand the contextâ€¦"
+                    placeholder="Describe this module's scope so interns understand the context…"
                     rows={6}
                     autoFocus
                     className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors"
@@ -312,7 +312,7 @@ export default function MindMap() {
                       disabled={saveModuleDescMutation.isPending}
                       className="flex-1 h-9 flex items-center justify-center gap-1.5 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50"
                     >
-                      <Check size={13} /> {saveModuleDescMutation.isPending ? "Savingâ€¦" : "Save"}
+                      <Check size={13} /> {saveModuleDescMutation.isPending ? "Saving…" : "Save"}
                     </button>
                     <button
                       onClick={() => setEditingDesc(false)}
@@ -328,7 +328,7 @@ export default function MindMap() {
                     <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{selectedModule.description}</p>
                   ) : (
                     <p className="text-sm text-gray-300 italic">
-                      {canEdit ? "No description yet â€” click Edit to add scope context for interns." : "No scope description set for this module."}
+                      {canEdit ? "No description yet — click Edit to add scope context for interns." : "No scope description set for this module."}
                     </p>
                   )}
                 </div>
@@ -337,7 +337,7 @@ export default function MindMap() {
           </div>
         )}
 
-        {/* â”€â”€ Task side panel â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── Task side panel ─────────────────────────────────────────── */}
         {selectedTask && (
           <div className="w-72 flex-shrink-0 bg-white rounded-2xl border border-gray-100 p-5 flex flex-col gap-4 overflow-y-auto">
             <div className="flex items-start justify-between">
@@ -365,7 +365,7 @@ export default function MindMap() {
                   <textarea
                     value={noteText}
                     onChange={(e) => { setNoteText(e.target.value); setNoteDirty(true) }}
-                    placeholder="Describe your approach, logic, or challengesâ€¦"
+                    placeholder="Describe your approach, logic, or challenges…"
                     rows={6}
                     className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors"
                   />
@@ -375,7 +375,7 @@ export default function MindMap() {
                       disabled={saveNoteMutation.isPending}
                       className="mt-2 w-full h-9 flex items-center justify-center gap-1.5 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50"
                     >
-                      <Save size={13} /> {saveNoteMutation.isPending ? "Savingâ€¦" : "Save note"}
+                      <Save size={13} /> {saveNoteMutation.isPending ? "Saving…" : "Save note"}
                     </button>
                   )}
                 </>

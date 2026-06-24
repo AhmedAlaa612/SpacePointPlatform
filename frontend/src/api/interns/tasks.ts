@@ -1,7 +1,7 @@
 import { api } from "@/api/client"
 import type { Task, Submission } from "@/types/interns"
 
-// â”€â”€ Admin â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Admin ─────────────────────────────────────────────────────────────────────
 
 export const getAllTasksApi = () =>
   api.get<Task[]>("/interns/admin/tasks").then((r) => r.data)
@@ -27,7 +27,7 @@ export const adminReviewSubmissionApi = (
   data: { score: number; review_comment: string }
 ) => api.patch<Submission>(`/interns/admin/submissions/${submissionId}/review`, data).then((r) => r.data)
 
-// â”€â”€ Leader â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Leader ────────────────────────────────────────────────────────────────────
 
 export const getLeaderTasksApi = () =>
   api.get<Task[]>("/interns/leader/tasks").then((r) => r.data)
@@ -56,7 +56,7 @@ export const leaderReviewSubmissionApi = (
   data: { score: number; review_comment: string }
 ) => api.patch<Submission>(`/interns/leader/submissions/${submissionId}/review`, data).then((r) => r.data)
 
-// â”€â”€ Intern â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Intern ────────────────────────────────────────────────────────────────────
 
 export const getInternTasksApi = () =>
   api.get<Task[]>("/interns/intern/tasks").then((r) => r.data)

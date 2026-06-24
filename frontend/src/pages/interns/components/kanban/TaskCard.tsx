@@ -44,15 +44,15 @@ export default function TaskCard({ card, onClick }: TaskCardProps) {
           isDragging && "shadow-lg"
         )}
       >
-        {/* Breadcrumb: project â€º epic â€º module */}
+        {/* Breadcrumb: project › epic › module */}
         {(card.project_title || card.epic_title || (card.module_title && !isGeneral)) && (
           <p className="text-[10px] mb-1.5 flex items-center gap-1 flex-wrap">
             {card.project_title && <span className="text-gray-400">{card.project_title}</span>}
-            {card.project_title && card.epic_title && <span className="text-gray-300">â€º</span>}
+            {card.project_title && card.epic_title && <span className="text-gray-300">›</span>}
             {card.epic_title && <span className="font-semibold text-[#643f83]">{card.epic_title}</span>}
             {!isGeneral && (
               <>
-                <span className="text-gray-300">â€º</span>
+                <span className="text-gray-300">›</span>
                 <span className="text-gray-400">{card.module_title}</span>
               </>
             )}

@@ -59,7 +59,7 @@ export default function KanbanBoard() {
   const [boardEpic,     setBoardEpic]     = useState<Epic | null>(null)   // leader drill-down
   const [modulesOpen,   setModulesOpen]   = useState(false)
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ data Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── data ────────────────────────────────────────────────────────────────────
   const { data: tasks = [], isLoading } = useQuery<Task[]>({
     queryKey: tasksKey,
     queryFn: isIntern ? getInternTasksApi : getLeaderTasksApi,
@@ -117,7 +117,7 @@ export default function KanbanBoard() {
   const visibleTasks   = isLeader && boardEpic ? tasks.filter((t) => t.epic_id === boardEpic.id) : tasks
   const cards          = visibleTasks.map(taskToCard)
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ task move (optimistic) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── task move (optimistic) ───────────────────────────────────────────────────
   const moveMutation = useMutation({
     mutationFn: ({ id, newStatus }: { id: string; newStatus: WorkStatus }) =>
       isIntern ? updateInternTaskStatusApi(id, newStatus) : updateLeaderTaskApi(id, { status: newStatus }),
@@ -133,7 +133,7 @@ export default function KanbanBoard() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: tasksKey }),
   })
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ epic move (leader, optimistic) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── epic move (leader, optimistic) ───────────────────────────────────────────
   const moveEpicMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: WorkStatus }) => updateLeaderEpicApi(id, { status }),
     onMutate: async ({ id, status }) => {
@@ -148,7 +148,7 @@ export default function KanbanBoard() {
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["epics", "leader"] }),
   })
 
-  // Ã¢â€â‚¬Ã¢â€â‚¬ dnd handlers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // ── dnd handlers ──────────────────────────────────────────────────────────────
   const handleDragStart = (event: DragStartEvent) => {
     const id = String(event.active.id)
     if (leaderEpicMode) setDragEpic(epics.find((e) => e.id === id) ?? null)
@@ -187,7 +187,7 @@ export default function KanbanBoard() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Header Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl font-bold text-black tracking-tight">Task Board</h1>
@@ -244,7 +244,7 @@ export default function KanbanBoard() {
         </div>
       </div>
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Leader breadcrumb (inside an epic) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* ── Leader breadcrumb (inside an epic) ─────────────────────────────── */}
       {isLeader && boardEpic && (
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <button onClick={() => setBoardEpic(null)}
@@ -260,7 +260,7 @@ export default function KanbanBoard() {
         </div>
       )}
 
-      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Board Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
+      {/* ── Board ──────────────────────────────────────────────────────────── */}
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {leaderEpicMode
@@ -343,7 +343,7 @@ export default function KanbanBoard() {
   )
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Epic column (leader drill-down level 1) Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── Epic column (leader drill-down level 1) ─────────────────────────────── */
 function EpicColumn({ title, status, epics, tasks, projectName, onEpicClick }: {
   title: string; status: WorkStatus; epics: Epic[]; tasks: Task[]
   projectName: (id: string | null) => string | null
@@ -446,7 +446,7 @@ function EpicCard({ epic, taskCount, doneCount, projectName, onClick, isDragOver
   )
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Intern drag-to-done submit dialog Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── Intern drag-to-done submit dialog ───────────────────────────────────── */
 function SubmitDialog({ card, tasksKey, onDone }: { card: BoardCard; tasksKey: string[]; onDone: () => void }) {
   const queryClient = useQueryClient()
   const [link,       setLink]       = useState("")
@@ -470,7 +470,7 @@ function SubmitDialog({ card, tasksKey, onDone }: { card: BoardCard; tasksKey: s
           <p className="text-sm text-gray-500 mt-0.5">{card.title}</p>
         </div>
         <input value={link} onChange={(e) => setLink(e.target.value)}
-          placeholder="Link (GitHub, Figma, DriveÃ¢â‚¬Â¦)" autoFocus
+          placeholder="Link (GitHub, Figma, Drive…)" autoFocus
           className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
         <textarea value={note} onChange={(e) => setNote(e.target.value)}
           placeholder="Note (optional)" rows={2}
@@ -478,7 +478,7 @@ function SubmitDialog({ card, tasksKey, onDone }: { card: BoardCard; tasksKey: s
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1.5">
             Time spent (hours)
-            {card.expected_time && <span className="text-gray-400 font-normal"> Ã‚Â· expected {card.expected_time}h</span>}
+            {card.expected_time && <span className="text-gray-400 font-normal"> · expected {card.expected_time}h</span>}
           </label>
           <input type="number" min="0" step="0.5" value={actualTime} onChange={(e) => setActualTime(e.target.value)}
             placeholder="e.g. 2.5"
@@ -492,7 +492,7 @@ function SubmitDialog({ card, tasksKey, onDone }: { card: BoardCard; tasksKey: s
           <button onClick={() => mutation.mutate()}
             disabled={!link.trim() || mutation.isPending}
             className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-            {mutation.isPending ? "SubmittingÃ¢â‚¬Â¦" : "Submit"}
+            {mutation.isPending ? "Submitting…" : "Submit"}
           </button>
         </div>
       </div>
@@ -500,7 +500,7 @@ function SubmitDialog({ card, tasksKey, onDone }: { card: BoardCard; tasksKey: s
   )
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Intern: propose idea modal Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── Intern: propose idea modal ──────────────────────────────────────────── */
 function CreateProposalModal({ tasks, onClose }: { tasks: Task[]; onClose: () => void }) {
   const queryClient = useQueryClient()
   const epics = tasks
@@ -562,7 +562,7 @@ function CreateProposalModal({ tasks, onClose }: { tasks: Task[]; onClose: () =>
               <button onClick={() => mutation.mutate()}
                 disabled={!title.trim() || !epicId || mutation.isPending}
                 className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-                {mutation.isPending ? "SubmittingÃ¢â‚¬Â¦" : "Submit proposal"}
+                {mutation.isPending ? "Submitting…" : "Submit proposal"}
               </button>
             </div>
           </>
@@ -572,7 +572,7 @@ function CreateProposalModal({ tasks, onClose }: { tasks: Task[]; onClose: () =>
   )
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Leader: proposals review modal Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── Leader: proposals review modal ─────────────────────────────────────── */
 function LeaderProposalsModal({ proposals, onClose, onRefresh }: {
   proposals: Proposal[]; onClose: () => void; onRefresh: () => void
 }) {
@@ -593,7 +593,7 @@ function LeaderProposalsModal({ proposals, onClose, onRefresh }: {
           <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
             <div>
               <p className="text-base font-semibold text-black">Proposals</p>
-              <p className="text-xs text-gray-400 mt-0.5">{pending.length} pending Ã‚Â· {reviewed.length} reviewed</p>
+              <p className="text-xs text-gray-400 mt-0.5">{pending.length} pending · {reviewed.length} reviewed</p>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-black transition-colors">
               <X size={16} />
@@ -615,7 +615,7 @@ function LeaderProposalsModal({ proposals, onClose, onRefresh }: {
                 className="w-full text-left flex flex-col gap-1.5 p-3.5 border border-[#d6c7e1] rounded-xl bg-[#d6c7e1]/10 hover:bg-[#d6c7e1]/20 transition-colors">
                 <p className="text-sm font-semibold text-black">{p.title}</p>
                 {p.description && <p className="text-xs text-gray-500 line-clamp-2">{p.description}</p>}
-                <p className="text-[11px] text-gray-400">by {p.proposer_name ?? "Unknown"} Ã‚Â· tap to review</p>
+                <p className="text-[11px] text-gray-400">by {p.proposer_name ?? "Unknown"} · tap to review</p>
               </button>
             ))}
 
@@ -656,7 +656,7 @@ function LeaderProposalsModal({ proposals, onClose, onRefresh }: {
   )
 }
 
-/* Ã¢â€â‚¬Ã¢â€â‚¬ Intern: view my proposals modal Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */
+/* ── Intern: view my proposals modal ─────────────────────────────────────── */
 function InternProposalsModal({ proposals, onClose }: {
   proposals: Proposal[]; onClose: () => void
 }) {
@@ -672,7 +672,7 @@ function InternProposalsModal({ proposals, onClose }: {
           <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
             <div>
               <p className="text-base font-semibold text-black">My Proposals</p>
-              <p className="text-xs text-gray-400 mt-0.5">{pending.length} pending Ã‚Â· {reviewed.length} reviewed</p>
+              <p className="text-xs text-gray-400 mt-0.5">{pending.length} pending · {reviewed.length} reviewed</p>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-black transition-colors">
               <X size={16} />

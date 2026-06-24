@@ -133,7 +133,7 @@ export default function EpicDetailModal({ epic, projectName, open, onClose }: Pr
                   <button onClick={() => saveMutation.mutate()}
                     disabled={!editTitle.trim() || saveMutation.isPending}
                     className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5">
-                    <Check size={14} /> {saveMutation.isPending ? "Savingâ€¦" : "Save"}
+                    <Check size={14} /> {saveMutation.isPending ? "Saving…" : "Save"}
                   </button>
                 </div>
               </div>

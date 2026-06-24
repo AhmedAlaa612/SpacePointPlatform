@@ -96,7 +96,7 @@ export default function CreateTaskModal({ open, onClose, tasksKey }: Props) {
                 value={epicId} onChange={(e) => { setEpicId(e.target.value); setModuleId(""); setSelectedUsers([]); setAddingModule(false) }}
                 className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm text-black bg-white focus:outline-none focus:border-black transition-colors"
               >
-                <option value="">Select epicâ€¦</option>
+                <option value="">Select epic…</option>
                 {epics.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
               </select>
             </div>
@@ -123,14 +123,14 @@ export default function CreateTaskModal({ open, onClose, tasksKey }: Props) {
                     />
                     <textarea
                       value={newModuleDesc} onChange={(e) => setNewModuleDesc(e.target.value)}
-                      placeholder="Scope / description â€” interns will read this" rows={2}
+                      placeholder="Scope / description — interns will read this" rows={2}
                       className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors"
                     />
                     <div className="flex gap-2">
                       <button type="button" onClick={() => createModuleMutation.mutate()}
                         disabled={!newModuleName.trim() || createModuleMutation.isPending}
                         className="h-9 px-4 bg-black text-white rounded-xl text-xs font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
-                        {createModuleMutation.isPending ? "â€¦" : "Add"}
+                        {createModuleMutation.isPending ? "…" : "Add"}
                       </button>
                       <button type="button" onClick={() => { setAddingModule(false); setNewModuleName(""); setNewModuleDesc("") }}
                         className="h-9 px-3 flex items-center gap-1 border border-gray-200 rounded-xl text-xs text-gray-400 hover:text-black transition-colors">
@@ -162,7 +162,7 @@ export default function CreateTaskModal({ open, onClose, tasksKey }: Props) {
               <label className="block text-xs font-medium text-gray-500 mb-1.5">Description</label>
               <textarea
                 value={description} onChange={(e) => setDescription(e.target.value)}
-                placeholder="Optional detailsâ€¦" rows={2}
+                placeholder="Optional details…" rows={2}
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors"
               />
             </div>
@@ -215,7 +215,7 @@ export default function CreateTaskModal({ open, onClose, tasksKey }: Props) {
               disabled={!title.trim() || !epicId || !targetModule || mutation.isPending}
               className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50"
             >
-              {mutation.isPending ? "Creatingâ€¦" : "Create task"}
+              {mutation.isPending ? "Creating…" : "Create task"}
             </button>
           </div>
         </div>

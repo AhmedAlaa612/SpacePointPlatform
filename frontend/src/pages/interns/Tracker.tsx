@@ -10,15 +10,15 @@ import { getAdminTrackerApi, getLeaderTrackerApi, getInternTrackerApi } from "@/
 import { getTeamsApi, getLeaderTeamApi, getInternTeamApi, getLeaderTeamMembersApi } from "@/api/interns/teams"
 import logoImg from "@/assets/logos/intern.svg"
 
-// â”€â”€ helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDate(d: string | null) {
-  if (!d) return "â€”"
+  if (!d) return "—"
   return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
 }
 
 function fmtHours(h: number | null) {
-  if (h == null) return "â€”"
+  if (h == null) return "—"
   return `${Number(h)}h`
 }
 
@@ -67,7 +67,7 @@ function computeStats(tasks: Task[]) {
   return { total, done, pctDone, pctOnTime, avgDelta, totalActual, totalExpected, avgScore, scoredCount: scoredTasks.length }
 }
 
-// â”€â”€ main component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── main component ────────────────────────────────────────────────────────────
 
 export default function Tracker() {
   const { currentUser } = useAuth()
@@ -78,7 +78,7 @@ export default function Tracker() {
 
   const [selectedUserId, setSelectedUserId] = useState<string>("")
 
-  // â”€â”€ data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── data ──────────────────────────────────────────────────────────────────
   const { data: allUsers = [] } = useQuery<User[]>({
     queryKey: ["users"],
     queryFn: getUsersApi,
@@ -113,7 +113,7 @@ export default function Tracker() {
     ? currentUser
     : interns.find((u) => u.id === selectedUserId) ?? null
 
-  // â”€â”€ team name â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── team name ────────────────────────────────────────────────────────────────
   const { data: internTeam }  = useQuery<Team>({ queryKey: ["intern", "team"], queryFn: getInternTeamApi,  enabled: isIntern })
   const { data: leaderTeam }  = useQuery<Team>({ queryKey: ["leader", "team"], queryFn: getLeaderTeamApi,  enabled: isLeader })
   const { data: allTeams = [] } = useQuery<Team[]>({ queryKey: ["teams"],      queryFn: getTeamsApi,       enabled: isAdmin  })
@@ -126,7 +126,7 @@ export default function Tracker() {
 
   const stats = computeStats(tasks)
 
-  // â”€â”€ export sheet â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── export sheet ───────────────────────────────────────────────────────────
   const handleExportSheet = () => {
     const name = selectedUser?.full_name ?? "Intern"
     const rows = tasks.map((task) => {
@@ -175,10 +175,10 @@ export default function Tracker() {
       { "":  "Total tasks",    " ": stats.total },
       { "":  "Completed",      " ": stats.done },
       { "":  "Completion %",   " ": `${stats.pctDone}%` },
-      { "":  "On-time %",      " ": stats.pctOnTime != null ? `${stats.pctOnTime}%` : "â€”" },
-      { "":  "Total hours",    " ": stats.totalActual > 0 ? `${stats.totalActual}h` : "â€”" },
-      { "":  "Expected hours", " ": stats.totalExpected > 0 ? `${stats.totalExpected}h` : "â€”" },
-      { "":  "Avg score",      " ": stats.avgScore != null ? `${stats.avgScore}/100` : "â€”" },
+      { "":  "On-time %",      " ": stats.pctOnTime != null ? `${stats.pctOnTime}%` : "—" },
+      { "":  "Total hours",    " ": stats.totalActual > 0 ? `${stats.totalActual}h` : "—" },
+      { "":  "Expected hours", " ": stats.totalExpected > 0 ? `${stats.totalExpected}h` : "—" },
+      { "":  "Avg score",      " ": stats.avgScore != null ? `${stats.avgScore}/100` : "—" },
     ]
     const wsSummary = XLSX.utils.json_to_sheet(summaryRows, { skipHeader: true })
     wsSummary["!cols"] = [{ wch: 18 }, { wch: 30 }]
@@ -187,7 +187,7 @@ export default function Tracker() {
     XLSX.writeFile(wb, `SpacePoint_${name.replace(/\s+/g, "_")}_Tasks.xlsx`)
   }
 
-  // â”€â”€ print â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── print ──────────────────────────────────────────────────────────────────
   const handlePrint = () => window.print()
 
   if (!currentUser) return null
@@ -195,7 +195,7 @@ export default function Tracker() {
   return (
     <div className="flex flex-col gap-6">
 
-      {/* â”€â”€ print styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── print styles ────────────────────────────────────────────────── */}
       <style>{`
         @media print {
           @page { size: A4 landscape; margin: 18mm 16mm; }
@@ -248,7 +248,7 @@ export default function Tracker() {
         @media print { #pdf-report { display: block; } }
       `}</style>
 
-      {/* â”€â”€ Page header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Page header ─────────────────────────────────────────────────── */}
       <div className="flex items-end justify-between no-print">
         <div>
           <h1 className="text-xl font-bold text-black tracking-tight">Work Tracker</h1>
@@ -274,7 +274,7 @@ export default function Tracker() {
         )}
       </div>
 
-      {/* â”€â”€ Intern selector (admin / leader only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Intern selector (admin / leader only) ───────────────────────── */}
       {(isAdmin || isLeader) && (
         <div className="no-print">
           <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
@@ -311,7 +311,7 @@ export default function Tracker() {
         </div>
       )}
 
-      {/* â”€â”€ Empty / loading state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Empty / loading state ────────────────────────────────────────── */}
       {!targetId && (isAdmin || isLeader) && (
         <div className="flex items-center justify-center h-40 border border-dashed border-gray-200 rounded-2xl">
           <p className="text-sm text-gray-400 flex items-center gap-2">
@@ -326,7 +326,7 @@ export default function Tracker() {
         </div>
       )}
 
-      {/* â”€â”€ Main printable area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Main printable area ──────────────────────────────────────────── */}
       {targetId && !isLoading && (
         <div id="tracker-print" ref={printRef}>
 
@@ -336,7 +336,7 @@ export default function Tracker() {
             </div>
           ) : (
             <>
-              {/* â”€â”€ Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+              {/* ── Stats ─────────────────────────────────────────────── */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-6">
                 <StatCard
                   label="Completed"
@@ -346,18 +346,18 @@ export default function Tracker() {
                 />
                 <StatCard
                   label="On time"
-                  value={stats.pctOnTime != null ? `${stats.pctOnTime}%` : "â€”"}
+                  value={stats.pctOnTime != null ? `${stats.pctOnTime}%` : "—"}
                   sub={stats.pctOnTime != null ? "of done tasks" : "no data yet"}
                   highlight={stats.pctOnTime != null && stats.pctOnTime >= 70}
                 />
                 <StatCard
                   label="Total hours"
-                  value={stats.totalActual > 0 ? `${stats.totalActual}h` : "â€”"}
+                  value={stats.totalActual > 0 ? `${stats.totalActual}h` : "—"}
                   sub={stats.totalExpected > 0 ? `of ${stats.totalExpected}h expected` : "no estimates yet"}
                 />
                 <StatCard
                   label="Avg time delta"
-                  value={stats.avgDelta != null ? `${stats.avgDelta > 0 ? "+" : ""}${stats.avgDelta.toFixed(1)}h` : "â€”"}
+                  value={stats.avgDelta != null ? `${stats.avgDelta > 0 ? "+" : ""}${stats.avgDelta.toFixed(1)}h` : "—"}
                   sub={stats.avgDelta != null
                     ? stats.avgDelta > 0 ? "over estimate" : stats.avgDelta < 0 ? "under estimate" : "on point"
                     : "no data yet"}
@@ -365,13 +365,13 @@ export default function Tracker() {
                 />
                 <StatCard
                   label="Score"
-                  value={stats.avgScore != null ? `${stats.avgScore}/100` : "â€”"}
+                  value={stats.avgScore != null ? `${stats.avgScore}/100` : "—"}
                   sub={stats.scoredCount > 0 ? `across ${stats.scoredCount} reviewed task${stats.scoredCount !== 1 ? "s" : ""}` : "no reviewed tasks yet"}
                   highlight={stats.avgScore != null && stats.avgScore >= 80}
                 />
               </div>
 
-              {/* â”€â”€ Table â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+              {/* ── Table ─────────────────────────────────────────────── */}
               <div className="overflow-x-auto rounded-2xl border border-gray-100">
                 <table className="w-full text-sm border-collapse">
                   <thead>
@@ -400,13 +400,13 @@ export default function Tracker() {
                           <td className="px-4 py-3 max-w-[140px]">
                             {task.module_title
                               ? <p className="text-xs text-gray-600 truncate">{task.module_title}</p>
-                              : <span className="text-gray-300">â€”</span>}
+                              : <span className="text-gray-300">—</span>}
                           </td>
                           {/* Epic */}
                           <td className="px-4 py-3">
                             {task.epic_title
                               ? <span className="text-[11px] font-semibold text-[#643f83] bg-[#d6c7e1]/40 px-2 py-0.5 rounded-full whitespace-nowrap">{task.epic_title}</span>
-                              : <span className="text-gray-300">â€”</span>}
+                              : <span className="text-gray-300">—</span>}
                           </td>
                           {/* Start date */}
                           <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(task.created_at)}</td>
@@ -428,7 +428,7 @@ export default function Tracker() {
                           <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                             {latestSub?.submitted_at
                               ? fmtDate(latestSub.submitted_at)
-                              : <span className="text-gray-300">â€”</span>}
+                              : <span className="text-gray-300">—</span>}
                           </td>
                           {/* Score */}
                           <td className="px-4 py-3 text-center">
@@ -441,7 +441,7 @@ export default function Tracker() {
                               )}>
                                 {latestSub.score}/100
                               </span>
-                            ) : <span className="text-gray-300">â€”</span>}
+                            ) : <span className="text-gray-300">—</span>}
                           </td>
                           {/* Submission link */}
                           <td className="px-4 py-3 max-w-[160px]">
@@ -450,7 +450,7 @@ export default function Tracker() {
                                   className="text-[#643f83] hover:underline text-xs truncate block">
                                   {latestSub.link}
                                 </a>
-                              : <span className="text-gray-300">â€”</span>}
+                              : <span className="text-gray-300">—</span>}
                           </td>
                         </tr>
                       )
@@ -464,7 +464,7 @@ export default function Tracker() {
         </div>
       )}
 
-      {/* â”€â”€ PDF report (hidden on screen, shown only when printing) â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── PDF report (hidden on screen, shown only when printing) ─────── */}
       {targetId && tasks.length > 0 && selectedUser && (
         <div id="pdf-report">
           {/* header bar */}
@@ -499,9 +499,9 @@ export default function Tracker() {
           <div className="pdf-stat-grid">
             {[
               { label: "Completed",   value: `${stats.done}/${stats.total}`, sub: `${stats.pctDone}% completion rate` },
-              { label: "On time",     value: stats.pctOnTime != null ? `${stats.pctOnTime}%` : "â€”", sub: stats.pctOnTime != null ? "of completed tasks" : "no deadline data" },
-              { label: "Hours logged",value: stats.totalActual > 0 ? `${stats.totalActual}h` : "â€”", sub: stats.totalExpected > 0 ? `of ${stats.totalExpected}h estimated` : "no time estimates" },
-              { label: "Score",       value: stats.avgScore != null ? `${stats.avgScore}/100` : "â€”", sub: stats.scoredCount > 0 ? `across ${stats.scoredCount} reviewed task${stats.scoredCount !== 1 ? "s" : ""}` : "no reviewed tasks" },
+              { label: "On time",     value: stats.pctOnTime != null ? `${stats.pctOnTime}%` : "—", sub: stats.pctOnTime != null ? "of completed tasks" : "no deadline data" },
+              { label: "Hours logged",value: stats.totalActual > 0 ? `${stats.totalActual}h` : "—", sub: stats.totalExpected > 0 ? `of ${stats.totalExpected}h estimated` : "no time estimates" },
+              { label: "Score",       value: stats.avgScore != null ? `${stats.avgScore}/100` : "—", sub: stats.scoredCount > 0 ? `across ${stats.scoredCount} reviewed task${stats.scoredCount !== 1 ? "s" : ""}` : "no reviewed tasks" },
             ].map(({ label, value, sub }) => (
               <div key={label} className="pdf-stat-box">
                 <div className="pdf-stat-label">{label}</div>
@@ -531,15 +531,15 @@ export default function Tracker() {
                 return (
                   <tr key={task.id}>
                     <td style={{ maxWidth: 160, wordBreak: "break-word" }}>{task.title}</td>
-                    <td>{task.module_title ?? "â€”"}</td>
-                    <td>{task.epic_title ?? "â€”"}</td>
+                    <td>{task.module_title ?? "—"}</td>
+                    <td>{task.epic_title ?? "—"}</td>
                     <td>{fmtDate(task.created_at)}</td>
                     <td>{fmtDate(task.due_date)}</td>
                     <td><span className={statusClass}>{task.status.replace("_", " ")}</span></td>
                     <td style={{ textAlign: "right" }}>{fmtHours(task.expected_time)}</td>
                     <td style={{ textAlign: "right" }}>{fmtHours(task.actual_time)}</td>
-                    <td>{latestSub?.submitted_at ? fmtDate(latestSub.submitted_at) : "â€”"}</td>
-                    <td>{scoreVal != null ? <span className={`pdf-badge ${scoreClass}`}>{scoreVal}/100</span> : "â€”"}</td>
+                    <td>{latestSub?.submitted_at ? fmtDate(latestSub.submitted_at) : "—"}</td>
+                    <td>{scoreVal != null ? <span className={`pdf-badge ${scoreClass}`}>{scoreVal}/100</span> : "—"}</td>
                   </tr>
                 )
               })}
@@ -549,8 +549,8 @@ export default function Tracker() {
           {/* footer */}
           <hr className="pdf-divider" style={{ marginTop: 18 }} />
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: "7.5pt", color: "#a1a1aa" }}>
-            <span>SpacePoint Internship Â· Confidential</span>
-            <span>{selectedUser.full_name} Â· {new Date().getFullYear()}</span>
+            <span>SpacePoint Internship · Confidential</span>
+            <span>{selectedUser.full_name} · {new Date().getFullYear()}</span>
           </div>
         </div>
       )}
@@ -558,7 +558,7 @@ export default function Tracker() {
   )
 }
 
-// â”€â”€ Stat card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Stat card ─────────────────────────────────────────────────────────────────
 function StatCard({ label, value, sub, highlight }: {
   label: string; value: string; sub: string; highlight?: boolean
 }) {

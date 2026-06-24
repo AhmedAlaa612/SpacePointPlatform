@@ -9,6 +9,6 @@ export const getAdminTrackerApi = (userId: string) =>
 export const getLeaderTrackerApi = (userId: string) =>
   api.get<Task[]>(`/interns/leader/tracker/${userId}`).then((r) => r.data)
 
-/** Intern: own tracker â€” reuses the assigned-tasks endpoint */
+/** Intern: own tracker — reuses the assigned-tasks endpoint */
 export const getInternTrackerApi = () =>
   api.get<Task[]>("/interns/intern/tasks").then((r) => r.data)

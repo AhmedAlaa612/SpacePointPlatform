@@ -14,7 +14,7 @@ export interface TaskNote {
   updated_at: string
 }
 
-// â”€â”€ Layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Layout ────────────────────────────────────────────────────────────────────
 
 export const getLayoutApi = (epicId: string, role: "admin" | "leader" | "intern") =>
   api.get<MindMapLayout>(`/interns/${role}/epics/${epicId}/mind-map`).then((r) => r.data)
@@ -25,12 +25,12 @@ export const saveLayoutApi = (
   role: "admin" | "leader"
 ) => api.patch<MindMapLayout>(`/interns/${role}/epics/${epicId}/mind-map`, { layout }).then((r) => r.data)
 
-// â”€â”€ Epic fetch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Epic fetch ────────────────────────────────────────────────────────────────
 
 export const getEpicForMapApi = (epicId: string, role: "admin" | "leader" | "intern") =>
   api.get<Epic>(`/interns/${role}/epics/${epicId}`).then((r) => r.data)
 
-// â”€â”€ Task notes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Task notes ────────────────────────────────────────────────────────────────
 
 export const getTaskNoteApi = (taskId: string, role: "admin" | "leader" | "intern") =>
   api.get<TaskNote>(`/interns/${role}/tasks/${taskId}/mind-map-note`).then((r) => r.data)
