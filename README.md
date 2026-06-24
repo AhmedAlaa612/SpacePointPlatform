@@ -53,7 +53,7 @@ npm run dev
 Following the phases in `PLAN.md §12`:
 
 - [x] **Phase 0 — Scaffold** (this commit): monorepo structure, build config, design system, auth foundation, unified `users` model, storage service stubs.
-- [ ] Phase 1 — Interns domain
+- [x] **Phase 1 — Interns domain** — backend + frontend, verified in-browser vs live Supabase
 - [ ] Phase 2 — Ambassadors domain
 - [ ] Phase 3 — Instructors domain (full rewrite)
 - [ ] Phase 4 — Shared document service

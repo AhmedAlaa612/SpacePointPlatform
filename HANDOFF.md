@@ -24,8 +24,8 @@ Source apps (siblings of this repo, used as the port source — do not deploy th
 |---|---|
 | **Phase 0 — Scaffold** | ✅ Done, verified, committed (`956013d`) |
 | **Phase 1 — Interns: backend** | ✅ Done, verified vs live Supabase, committed (`a3f56b2`) |
-| **Phase 1 — Interns: frontend** | ⛔ Not started — **this is the next task** |
-| Phase 2 — Ambassadors | ⬜ Not started |
+| **Phase 1 — Interns: frontend** | ✅ Done, verified in-browser vs live Supabase, committed (`6ddf3fd`, `5ffbe9f`) |
+| Phase 2 — Ambassadors | ⬜ Not started — **next task** |
 | Phase 3 — Instructors (rewrite) | ⬜ Not started |
 | Phase 4 — Shared documents (ID cards, certs, letters) | ⬜ Not started |
 | Phase 5 — Unified admin dashboard | ⬜ Not started |
@@ -141,6 +141,8 @@ npm run build                     # tsc -b && vite build (must stay clean)
 - `GET /notifications/me` → 200
 - unauthenticated → 401
 
+**Phase 1 frontend** — verified in a real browser against the running stack: login as admin → redirect to `/interns` → AdminDashboard board renders + fetches → nav → `/interns/admin` users page renders with the correct role badge, dark mode. **No console errors.** `tsc -b` + `vite build` clean.
+
 ---
 
 ## 8. Key decisions & adaptations (interns backend port)
@@ -165,9 +167,9 @@ npm run build                     # tsc -b && vite build (must stay clean)
 
 ---
 
-## 10. NEXT STEP — Phase 1 frontend (interns)
+## 10. Phase 1 frontend (interns) — DONE ✅
 
-Port the interns SPA into `frontend/src` and wire it to the unified backend. Source: `../interns/frontend/Spacepoint-interns/src/`.
+Ported and verified in-browser. Pages/components/api live under `frontend/src/pages/interns`, `frontend/src/api/interns`; the interns UI kit (`button`/`card`/`dialog`) is now the shared `components/ui`. The plan below records *how* it was done — reuse the same recipe for ambassadors/instructors. Source: `../interns/frontend/Spacepoint-interns/src/`.
 
 **Plan:**
 1. **Types** — replace interns `types.ts` usage with the unified `@/types/shared` `User` (which is `roles[]`). Add interns-specific types (Epic, Module, Task, TaskBrief, Submission, Proposal, BoardCard) under `frontend/src/types/interns.ts`. Map `WorkStatus`/`SubmissionStatus`.
@@ -184,9 +186,9 @@ Port the interns SPA into `frontend/src` and wire it to the unified backend. Sou
 
 ---
 
-## 11. After Phase 1 (per PLAN §12)
+## 11. NEXT — Phase 2 onward (per PLAN §12)
 
-- **Phase 2 — Ambassadors:** port `ambassadorsV1` backend (already async, mostly copy) + frontend; **remove** its `instructors` table + `instructor-apply` endpoint; reuse the shared notifications + points services. Add `services/points.py` real impl (currently a stub).
+- **Phase 2 — Ambassadors (next):** port `ambassadorsV1` backend (already async, mostly copy) + frontend; **remove** its `instructors` table + `instructor-apply` endpoint; reuse the shared notifications + points services. Add `services/points.py` real impl (currently a stub).
 - **Phase 3 — Instructors:** full rewrite — async models (UUID PKs), Jinja2 templates → React pages, Supabase Storage for files, pure ReportLab for contracts (drop docx2pdf), ambassador-referral → `award_points` hook on approval.
 - **Phase 4 — Shared docs:** ID cards (Pillow, all roles), certificates/recommendation/intern letters (ReportLab) → Supabase Storage; create the storage buckets (PLAN §10).
 - **Phase 5 — Unified admin dashboard:** one tabbed page across all domains; multi-role user management.
@@ -212,3 +214,13 @@ Port the interns SPA into `frontend/src` and wire it to the unified backend. Sou
 
 - `956013d` — Phase 0: scaffold unified platform (monorepo, auth, design system)
 - `a3f56b2` — Phase 1 (backend): port interns domain
+- `97a2035` — docs: add HANDOFF.md
+- `6ddf3fd` — Phase 1 (frontend): port interns SPA
+- `5ffbe9f` — fix(interns): show interns nav links for admin
+
+### Recipe for porting a domain frontend (used for interns; reuse for §11)
+1. Copy `api/*` → `frontend/src/api/<domain>/`; repath `./client` → `@/api/client` (named `api` import), `@/types` → `@/types/<domain>`, prefix API paths with `/<domain>` (leave `/auth`, `/notifications`).
+2. Copy pages/components → `frontend/src/pages/<domain>/`; repath `@/types`→`@/types/<domain>`, `@/api/X`→`@/api/<domain>/X`, `@/components/X`(≠ui)→`@/pages/<domain>/components/X`. Drop the domain's own `AuthContext`/`client`/`Layout`/`Navbar`.
+3. `types/<domain>.ts`: re-export shared `User`; keep domain types. Patch other-user `u.role` → `u.roles` (a `userRole()`-style helper).
+4. Add routes under `/<domain>` in `router.tsx`; fix in-page `to:` strings (typed router flags them).
+5. Add domain nav links to the shared `Navbar`. Then `npm run build` and fix iteratively; finish with an in-browser check.
