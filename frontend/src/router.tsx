@@ -7,12 +7,19 @@ import {
 } from "@tanstack/react-router";
 import { Navbar } from "@/components/layout/Navbar";
 import { Login } from "@/pages/auth/Login";
-import { Home } from "@/pages/Home";
 import { tokens } from "@/api/client";
 
-const rootRoute = createRootRoute({
-  component: () => <Outlet />,
-});
+// Interns domain pages
+import Dashboard from "@/pages/interns/Dashboard";
+import Tracker from "@/pages/interns/Tracker";
+import Calendar from "@/pages/interns/Calendar";
+import Leaderboard from "@/pages/interns/Leaderboard";
+import Profile from "@/pages/interns/Profile";
+import Admin from "@/pages/interns/Admin";
+import MindMap from "@/pages/interns/MindMap";
+import ProjectMindMap from "@/pages/interns/ProjectMindMap";
+
+const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -20,11 +27,7 @@ const loginRoute = createRoute({
   component: Login,
 });
 
-/**
- * Authenticated shell (PLAN §7 `_auth`): redirects to /login when there's no
- * access token. Per-domain route trees (/interns, /ambassadors, /instructors,
- * /admin) are added as children in Phases 1–5.
- */
+/** Authenticated shell (PLAN §7 `_auth`): redirect to /login when no token. */
 const authLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "auth",
@@ -46,12 +49,36 @@ const authLayoutRoute = createRoute({
 const indexRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/",
-  component: Home,
+  beforeLoad: () => {
+    // Only the interns domain exists so far — route everyone there.
+    throw redirect({ to: "/interns" });
+  },
 });
+
+const internsLayoutRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/interns",
+  component: () => <Outlet />,
+});
+
+const p = () => internsLayoutRoute;
+const internsRoutes = [
+  createRoute({ getParentRoute: p, path: "/", component: Dashboard }),
+  createRoute({ getParentRoute: p, path: "/tracker", component: Tracker }),
+  createRoute({ getParentRoute: p, path: "/calendar", component: Calendar }),
+  createRoute({ getParentRoute: p, path: "/leaderboard", component: Leaderboard }),
+  createRoute({ getParentRoute: p, path: "/profile", component: Profile }),
+  createRoute({ getParentRoute: p, path: "/admin", component: Admin }),
+  createRoute({ getParentRoute: p, path: "/mind-map/$epicId", component: MindMap }),
+  createRoute({ getParentRoute: p, path: "/mind-map/project/$projectId", component: ProjectMindMap }),
+];
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
-  authLayoutRoute.addChildren([indexRoute]),
+  authLayoutRoute.addChildren([
+    indexRoute,
+    internsLayoutRoute.addChildren(internsRoutes),
+  ]),
 ]);
 
 export const router = createRouter({ routeTree });

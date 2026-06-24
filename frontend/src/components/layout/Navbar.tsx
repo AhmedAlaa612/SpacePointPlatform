@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ChevronDown, LogOut, Moon, Sun } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { ROLE_LABEL, type Role } from "@/types/shared";
+import { ROLE_DOMAIN, ROLE_LABEL, type Role } from "@/types/shared";
 import { cn } from "@/lib/utils";
 import { roleLogo } from "@/lib/logos";
 import { Button } from "@/components/ui/button";
@@ -12,26 +12,61 @@ function toggleTheme() {
   localStorage.setItem("theme", isDark ? "dark" : "light");
 }
 
+interface NavLink {
+  to: string;
+  label: string;
+  exact?: boolean;
+}
+
 export function Navbar() {
-  const { user, roles, activeRole, setActiveRole, logout } = useAuth();
+  const { user, roles, activeRole, setActiveRole, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
 
   if (!user) return null;
 
+  const domain = activeRole ? ROLE_DOMAIN[activeRole] : null;
+
+  // Per-domain nav links. Other domains are added as their phases land.
+  const links: NavLink[] =
+    domain === "interns"
+      ? [
+          { to: "/interns", label: "Board", exact: true },
+          { to: "/interns/tracker", label: "Tracker" },
+          { to: "/interns/calendar", label: "Calendar" },
+          { to: "/interns/leaderboard", label: "Leaderboard" },
+          { to: "/interns/profile", label: "Profile" },
+          ...(isAdmin ? [{ to: "/interns/admin", label: "Admin" }] : []),
+        ]
+      : [];
+
   function chooseRole(role: Role) {
     setActiveRole(role);
     setMenuOpen(false);
-    // Domain deep-links land here once the per-domain route tree exists (PLAN §7).
     void navigate({ to: "/" });
   }
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-card/80 backdrop-blur">
-      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4">
-        <Link to="/" className="flex items-center" aria-label="SpacePoint home">
-          <img src={roleLogo(activeRole)} alt="SpacePoint" className="h-7 w-auto" />
-        </Link>
+      <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 px-4">
+        <div className="flex items-center gap-4">
+          <Link to="/" className="flex shrink-0 items-center" aria-label="SpacePoint home">
+            <img src={roleLogo(activeRole)} alt="SpacePoint" className="h-7 w-auto" />
+          </Link>
+          <nav className="hidden items-center gap-1 md:flex">
+            {links.map((l) => (
+              <Link
+                key={l.to}
+                to={l.to}
+                activeOptions={{ exact: l.exact ?? false }}
+                className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                activeProps={{ className: "bg-muted text-foreground" }}
+              >
+                {l.label}
+              </Link>
+            ))}
+          </nav>
+        </div>
 
         <div className="flex items-center gap-2">
           {roles.length > 1 && activeRole && (

@@ -16,6 +16,11 @@ interface AuthContextValue {
   logout: () => Promise<void>;
   hasRole: (role: Role) => boolean;
   isAdmin: boolean;
+  // Compatibility aliases for ported domain frontends (interns, ambassadors…):
+  // `currentUser.role` is the active role; `isLoading`/`setCurrentUser` mirror state.
+  currentUser: (User & { role: Role | null }) | null;
+  isLoading: boolean;
+  setCurrentUser: (u: User) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -97,6 +102,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       hasRole: (role: Role) => !!user?.roles.includes(role),
       isAdmin: !!user?.roles.includes("admin"),
+      currentUser: user ? { ...user, role: activeRole } : null,
+      isLoading: loading,
+      setCurrentUser: (u: User) => setUser(u),
     }),
     [user, activeRole, loading, setActiveRole, login, logout],
   );
