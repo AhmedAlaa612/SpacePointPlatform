@@ -45,7 +45,7 @@ class TaskOut(TaskBase):
     created_at: datetime
     assignees: List[UserOut] = []
     submissions: List[TaskSubmissionOut] = []
-    # derived from module â†’ epic chain
+    # derived from module → epic chain
     module_title: Optional[str] = None
     module_description: Optional[str] = None
     epic_id: Optional[UUID] = None

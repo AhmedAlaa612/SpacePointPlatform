@@ -28,7 +28,7 @@ from app.services.interns import mind_map as mind_map_service
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-# â”€â”€ Users â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Users ─────────────────────────────────────────────────────────────────────
 
 @router.post("/users", response_model=UserOut)
 async def create_user(user_in: UserCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
@@ -47,7 +47,7 @@ async def delete_user(id: UUID, db: AsyncSession = Depends(get_db), current_user
     return await user_service.delete_user(db, id)
 
 
-# â”€â”€ Teams â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Teams ─────────────────────────────────────────────────────────────────────
 
 @router.post("/teams", response_model=TeamOut)
 async def create_team(team_in: TeamCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
@@ -74,7 +74,7 @@ async def remove_team_member(id: UUID, user_id: UUID, db: AsyncSession = Depends
     return await team_service.remove_member(db, id, user_id)
 
 
-# â”€â”€ Projects â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Projects ──────────────────────────────────────────────────────────────────
 
 @router.post("/projects", response_model=ProjectOut)
 async def create_project(project_in: ProjectCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
@@ -105,7 +105,7 @@ async def unassign_team(id: UUID, team_id: UUID, db: AsyncSession = Depends(get_
     return await project_service.remove_team_from_project(db, id, team_id)
 
 
-# â”€â”€ Epics â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Epics ─────────────────────────────────────────────────────────────────────
 
 @router.get("/epics", response_model=List[EpicOut])
 async def read_all_epics(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
@@ -132,7 +132,7 @@ async def delete_epic(id: UUID, db: AsyncSession = Depends(get_db), current_user
     return await epic_service.delete_epic(db, id)
 
 
-# â”€â”€ Modules â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Modules ───────────────────────────────────────────────────────────────────
 
 @router.post("/epics/{id}/modules", response_model=ModuleOut)
 async def create_module(id: UUID, module_in: ModuleCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
@@ -147,7 +147,7 @@ async def delete_module(id: UUID, db: AsyncSession = Depends(get_db), current_us
     return await module_service.delete_module(db, id)
 
 
-# â”€â”€ Tasks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Tasks ─────────────────────────────────────────────────────────────────────
 
 @router.get("/tasks", response_model=List[TaskOut])
 async def read_all_tasks(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
@@ -178,14 +178,14 @@ async def assign_task(id: UUID, assign_in: TaskAssign, db: AsyncSession = Depend
     return await task_service.assign_task(db, id, assign_in)
 
 
-# â”€â”€ Submissions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Submissions ───────────────────────────────────────────────────────────────
 
 @router.patch("/submissions/{id}/review", response_model=TaskSubmissionOut)
 async def review_submission(id: UUID, review_in: TaskSubmissionReview, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
     return await task_service.review_submission(db, id, review_in)
 
 
-# â”€â”€ Proposals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Proposals ─────────────────────────────────────────────────────────────────
 
 @router.get("/epics/{id}/proposals", response_model=List[ProposalOut])
 async def read_proposals(id: UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
@@ -196,7 +196,7 @@ async def review_proposal(id: UUID, review_in: ProposalReview, db: AsyncSession 
     return await proposal_service.review_proposal(db, id, review_in, current_user.id)
 
 
-# â”€â”€ Mind map â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Mind map ──────────────────────────────────────────────────────────────────
 
 @router.get("/epics/{id}/mind-map", response_model=MindMapLayoutOut)
 async def get_mind_map(id: UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
@@ -207,9 +207,9 @@ async def update_mind_map(id: UUID, layout_in: MindMapLayoutUpdate, db: AsyncSes
     return await mind_map_service.update_layout(db, id, layout_in)
 
 
-# â”€â”€ Tracker â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Tracker ───────────────────────────────────────────────────────────────────
 
 @router.get("/tracker/{user_id}", response_model=List[TaskOut])
 async def get_user_tracker(user_id: UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    """All tasks assigned to a specific user â€” used by admin to view any intern's tracker."""
+    """All tasks assigned to a specific user — used by admin to view any intern's tracker."""
     return await task_service.get_tasks_assigned_to(db, user_id)

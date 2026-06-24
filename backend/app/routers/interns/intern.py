@@ -33,14 +33,14 @@ async def _verify_intern_task_access(db: AsyncSession, user: User, task_id: UUID
     return task
 
 
-# â”€â”€ Projects â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Projects ──────────────────────────────────────────────────────────────────
 
 @router.get("/projects", response_model=List[ProjectOut])
 async def read_projects(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_intern)):
     return await project_service.get_projects(db)
 
 
-# â”€â”€ Tasks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Tasks ─────────────────────────────────────────────────────────────────────
 
 @router.get("/tasks", response_model=List[TaskOut])
 async def read_my_tasks(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_intern)):
@@ -57,7 +57,7 @@ async def submit_work(id: UUID, submit_in: TaskSubmissionCreate, db: AsyncSessio
     return await task_service.submit_task_work(db, id, submit_in, current_user.id)
 
 
-# â”€â”€ Team â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Team ──────────────────────────────────────────────────────────────────────
 
 @router.get("/team", response_model=TeamOut)
 async def read_my_team(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_intern)):
@@ -73,7 +73,7 @@ async def read_my_team(db: AsyncSession = Depends(get_db), current_user: User = 
     return team
 
 
-# â”€â”€ Proposals â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Proposals ─────────────────────────────────────────────────────────────────
 
 @router.get("/proposals", response_model=List[ProposalOut])
 async def read_my_proposals(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_intern)):
@@ -84,7 +84,7 @@ async def create_proposal(id: UUID, proposal_in: ProposalCreate, db: AsyncSessio
     return await proposal_service.create_proposal(db, id, proposal_in, current_user.id)
 
 
-# â”€â”€ Mind map notes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Mind map notes ────────────────────────────────────────────────────────────
 
 @router.patch("/tasks/{id}/mind-map-note", response_model=TaskMindMapNoteOut)
 async def update_task_note(id: UUID, note_in: TaskMindMapNoteUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_intern)):
@@ -97,7 +97,7 @@ async def get_task_note(id: UUID, db: AsyncSession = Depends(get_db), current_us
     return await mind_map_service.get_or_create_task_note(db, id)
 
 
-# â”€â”€ Mind map (read-only epic structure + layout) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Mind map (read-only epic structure + layout) ───────────────────────────────
 
 @router.get("/epics/{id}", response_model=EpicOut)
 async def read_epic(id: UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_intern)):

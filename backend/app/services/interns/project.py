@@ -15,7 +15,7 @@ async def create_project(db: AsyncSession, project_in: ProjectCreate, user_id: U
     )
     db.add(db_project)
     await db.commit()
-    # Re-query with selectinload â€” async sessions can't lazy-load relationships
+    # Re-query with selectinload — async sessions can't lazy-load relationships
     result = await db.execute(
         select(Project).where(Project.id == db_project.id).options(selectinload(Project.teams))
     )

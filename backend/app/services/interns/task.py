@@ -190,7 +190,7 @@ async def review_submission(
     await notification_service.create_notification(
         db, submission.submitted_by,
         "Submission reviewed",
-        f"Your submission was reviewed â€” score: {review_in.score}",
+        f"Your submission was reviewed — score: {review_in.score}",
     )
 
     await db.commit()

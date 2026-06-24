@@ -6,7 +6,7 @@ from app.models.enums import WorkStatus
 from app.schemas.user import UserOut
 
 
-# â”€â”€ forward-declared to avoid circular imports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── forward-declared to avoid circular imports ────────────────────────────────
 class TaskBriefOut(BaseModel):
     id: UUID
     title: str
@@ -56,7 +56,7 @@ class ModuleBriefOut(BaseModel):
         from_attributes = True
 
 
-# â”€â”€ Epic schemas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ── Epic schemas ──────────────────────────────────────────────────────────────
 
 class EpicBase(BaseModel):
     title: str
