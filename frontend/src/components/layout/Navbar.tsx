@@ -94,9 +94,10 @@ export function Navbar() {
       { label: "Profile Card", to: "/instructors/profile-card" },
     ];
   } else if (activeRole === "facilitator") {
-    // facilitator dashboard lands in Phase 3.5 — no nav yet, intentionally
-    // empty rather than linking to pages that don't exist.
-    navLinks = [];
+    navLinks = [
+      { label: "Training", to: "/instructors/facilitator/training" },
+      { label: "Library", to: "/instructors/facilitator/library" },
+    ];
   } else if (domain === "interns" || isAdmin) {
     navLinks = [
       { label: "Board", to: "/interns" },
@@ -111,6 +112,8 @@ export function Navbar() {
     ? "/instructors/status"
     : activeRole === "instructor"
     ? "/instructors/profile-card"
+    : activeRole === "facilitator"
+    ? "/instructors/facilitator/training"
     : "/interns/profile";
 
   const initials = user.full_name

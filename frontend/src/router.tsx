@@ -45,6 +45,8 @@ import InstructorLibrary from "@/pages/instructors/Library";
 import InstructorDocuments from "@/pages/instructors/Documents";
 import InstructorProfileCard from "@/pages/instructors/ProfileCard";
 import InstructorPayments from "@/pages/instructors/Payments";
+import FacilitatorTraining from "@/pages/instructors/facilitator/Training";
+import FacilitatorLibrary from "@/pages/instructors/facilitator/Library";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -104,9 +106,9 @@ const indexRoute = createRoute({
       throw redirect({ to: "/instructors/status" });
     } else if (role === "instructor") {
       throw redirect({ to: "/instructors/dashboard" });
+    } else if (role === "facilitator") {
+      throw redirect({ to: "/instructors/facilitator/training" });
     } else {
-      // facilitator dashboard lands in Phase 3.5 — until then fall through
-      // to interns rather than a page that 403s for their role.
       throw redirect({ to: "/interns" });
     }
   },
@@ -168,6 +170,8 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/documents", component: InstructorDocuments }),
   createRoute({ getParentRoute: pi, path: "/profile-card", component: InstructorProfileCard }),
   createRoute({ getParentRoute: pi, path: "/payments", component: InstructorPayments }),
+  createRoute({ getParentRoute: pi, path: "/facilitator/training", component: FacilitatorTraining }),
+  createRoute({ getParentRoute: pi, path: "/facilitator/library", component: FacilitatorLibrary }),
 ];
 
 const applyAmbassadorRoute = createRoute({

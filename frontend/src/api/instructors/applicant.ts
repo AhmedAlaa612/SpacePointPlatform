@@ -19,10 +19,14 @@ export const toggleChecklistItemApi = (itemId: string) =>
   api.put<{ id: string; is_completed: boolean }>(`/instructors/checklist/items/${itemId}/toggle`).then((r) => r.data)
 
 export const submitModuleApi = (moduleId: string, file: File, notesText?: string) => {
+  // notes_text is a query param, not a form field — FastAPI reads plain
+  // scalar params as query params when the endpoint also takes an
+  // UploadFile, unless explicitly declared with Form(...) (verified
+  // empirically; see Phase 3.5 notes).
   const form = new FormData()
   form.append("file", file)
-  if (notesText) form.append("notes_text", notesText)
-  return api.post(`/instructors/modules/${moduleId}/submit`, form).then((r) => r.data)
+  const qs = notesText ? `?notes_text=${encodeURIComponent(notesText)}` : ""
+  return api.post(`/instructors/modules/${moduleId}/submit${qs}`, form).then((r) => r.data)
 }
 
 export const submitApplicationApi = () =>
