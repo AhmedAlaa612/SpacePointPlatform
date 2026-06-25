@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { Briefcase, GraduationCap, Network } from "lucide-react"
+import { Briefcase, GraduationCap, Network, Users } from "lucide-react"
 import { getAdminOverviewApi } from "@/api/instructors/admin"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader, Spinner } from "@/pages/instructors/components/common"
@@ -37,6 +37,12 @@ export default function AdminHub() {
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <DomainCard
+          to="/admin/users"
+          icon={<Users size={20} />}
+          title="Users"
+          updates={["Manage users and roles across all roles"]}
+        />
+        <DomainCard
           to="/instructors/admin"
           icon={<GraduationCap size={20} />}
           title="Instructors"
@@ -50,7 +56,7 @@ export default function AdminHub() {
           to="/interns/admin"
           icon={<Briefcase size={20} />}
           title="Interns"
-          updates={["Manage users and teams"]}
+          updates={["Manage teams"]}
         />
         <DomainCard
           to="/ambassadors/admin"

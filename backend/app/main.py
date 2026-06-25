@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.routers import auth, documents, notifications
+from app.routers import admin, auth, documents, notifications
 from app.routers.interns import admin as interns_admin
 from app.routers.interns import intern as interns_intern
 from app.routers.interns import leader as interns_leader
@@ -23,6 +23,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(notifications.router)  # shared: /notifications/*
 app.include_router(documents.router)  # shared: /documents/*  (Phase 4)
+app.include_router(admin.router, prefix="/admin")  # shared: /admin/users/*  (generic user management)
 
 # Interns domain (Phase 1) — /interns/*
 app.include_router(interns_admin.router, prefix="/interns")
@@ -37,9 +38,6 @@ app.include_router(ambassadors_router, prefix="/ambassadors")
 # in routers/auth.py — /auth/instructor-apply — matching the existing
 # apply/teacher-apply convention, not a separate /apply/* router)
 app.include_router(instructors_router, prefix="/instructors")
-
-# Mounted as later phases land (PLAN §3 / §12):
-#   app.include_router(admin_router, prefix="/admin")
 
 
 @app.get("/health", tags=["health"])

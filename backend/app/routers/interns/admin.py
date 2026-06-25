@@ -15,7 +15,6 @@ from app.core.dependencies import require_admin
 from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.intern_letters import generate_intern_letter_pdf
-from app.schemas.user import UserCreate, UserOut, UserUpdate
 from app.schemas.interns.team import TeamCreate, TeamOut, TeamUpdate
 from app.schemas.interns.project import ProjectCreate, ProjectOut, ProjectUpdate
 from app.schemas.interns.epic import EpicCreate, EpicOut, EpicUpdate
@@ -25,7 +24,6 @@ from app.schemas.interns.submission import TaskSubmissionOut, TaskSubmissionRevi
 from app.schemas.interns.proposal import ProposalOut, ProposalReview
 from app.schemas.interns.mind_map import MindMapLayoutOut, MindMapLayoutUpdate, TaskMindMapNoteOut
 
-from app.services import user as user_service
 from app.services.interns import team as team_service
 from app.services.interns import project as project_service
 from app.services.interns import epic as epic_service
@@ -35,25 +33,6 @@ from app.services.interns import proposal as proposal_service
 from app.services.interns import mind_map as mind_map_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-
-
-# ── Users ─────────────────────────────────────────────────────────────────────
-
-@router.post("/users", response_model=UserOut)
-async def create_user(user_in: UserCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    return await user_service.create_user(db, user_in)
-
-@router.get("/users", response_model=List[UserOut])
-async def read_users(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    return await user_service.get_users(db)
-
-@router.patch("/users/{id}", response_model=UserOut)
-async def update_user(id: UUID, user_in: UserUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    return await user_service.update_user(db, id, user_in)
-
-@router.delete("/users/{id}")
-async def delete_user(id: UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    return await user_service.delete_user(db, id)
 
 
 # ── Documents (PLAN §9.1) — manual admin triggers, no auto status lifecycle ───

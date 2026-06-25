@@ -2,7 +2,7 @@ import { useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ChevronDown, ChevronUp, ExternalLink, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react"
-import { getUsersApi } from "@/api/interns/users"
+import { getUsersApi } from "@/api/admin/users"
 import {
   type ApplicationQuestion,
   createApplicationQuestionApi,

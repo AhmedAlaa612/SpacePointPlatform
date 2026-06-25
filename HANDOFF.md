@@ -54,11 +54,12 @@ spacepoint-unified/
 ├── .gitignore / .gitattributes
 ├── frontend/                  # Vite SPA (Phase 0 scaffold; interns & ambassadors integrated)
 │   └── src/
-│       ├── api/{client.ts, auth.ts, interns/, instructors/, ambassadors/}
+│       ├── api/{client.ts, auth.ts, documents.ts, admin/users.ts, interns/, instructors/, ambassadors/}
 │       ├── components/{ui/, layout/Navbar.tsx}
 │       ├── context/AuthContext.tsx     # user, roles[], activeRole, setActiveRole
 │       ├── lib/{utils.ts, logos.ts}
-│       ├── pages/{auth/Login.tsx, Home.tsx, interns/, ambassadors/, instructors/, admin/Dashboard.tsx}
+│       ├── pages/{auth/Login.tsx, Home.tsx, interns/, ambassadors/, instructors/,
+│       │         admin/{Dashboard.tsx, Users.tsx, components/common.tsx}}
 │       ├── types/shared.ts             # Role, User (roles[]), ROLE_DOMAIN, ROLE_LABEL
 │       ├── router.tsx                  # auth-gated shell; with global auth loading guard
 │       └── main.tsx
@@ -72,19 +73,22 @@ spacepoint-unified/
     │   ├── 0001_initial_users.sql
     │   ├── 0002_interns.sql
     │   ├── 0003_ambassadors.sql
-    │   └── 0004_instructors.sql
+    │   ├── 0004_instructors.sql
+    │   └── 0005_phase4_documents.sql
     ├── alembic/               # async env + 0001 migration (kept for "later")
     └── app/
-        ├── main.py            # mounts auth, notifications, /interns/*, /ambassadors/*, /instructors/*
+        ├── main.py            # mounts auth, notifications, documents, admin, /interns/*, /ambassadors/*, /instructors/*
         ├── core/{config.py, security.py, dependencies.py}   # roles[] JWT + RequireRole
         ├── db/{base.py, session.py}                          # async engine (Supabase SSL)
-        ├── models/{user.py, notification.py, enums.py, id_card.py, certificate.py, interns/, ambassadors/, instructors/}
-        ├── schemas/{auth.py, user.py, notification.py, interns/, ambassadors/, instructors/}
+        ├── models/{user.py, notification.py, enums.py, id_card.py, certificate.py,
+        │           recommendation_letter.py, intern_letter.py, interns/, ambassadors/, instructors/}
+        ├── schemas/{auth.py, user.py, notification.py, documents.py, interns/, ambassadors/, instructors/}
         ├── services/{user.py, notification.py, storage.py, email.py, points.py, interns/, ambassadors/,
-        │             documents/{id_card,certificate,contract,payment_letter}.py}
+        │             documents/{id_card,certificate,contract,payment_letter,recommendation,intern_letters}.py}
         ├── static/{fonts/ (Times New Roman x4), templates/{certificate_template.png, id_cards/instructor_{front,back}.png},
         │           spacepoint_logo.png}
-        └── routers/{auth.py, notifications.py, interns/{admin,leader,intern,shared}.py, ambassadors/,
+        └── routers/{auth.py, notifications.py, documents.py, admin/users.py (package — generic user mgmt, not
+                     domain-specific), interns/{admin,leader,intern,shared}.py, ambassadors/,
                      instructors/{applicant,admin,instructor,training,library,payments,facilitator,payments_admin}.py}
 ```
 
@@ -250,9 +254,10 @@ Full rewrite, not a port: source was sync FastAPI + Jinja2 + Integer PKs + local
 
 ## 12. NEXT — Phase 6 (per PLAN §12)
 
-- **Phase 4 is done.** `recommendation.py` (admin-triggered, any role) and `intern_letters.py` (confirmation/completion) shipped, alongside `generate_completion_certificate_pdf` in the existing `certificate.py`. New shared router `routers/documents.py` (`/documents/me` self-service, `/documents/recommendation-letters` admin) mirrors the `/notifications` top-level pattern. Completion-cert trigger is **automatic** for instructors (fires inside `review_applicant`'s `approved` branch — a real existing event) and **manual** for interns (3 new `/interns/admin/users/{id}/{confirmation-letter,completion-letter,certificate}` endpoints, since there's no equivalent "internship done" event to hook — PLAN §8.2's "auto on intern status=completed" was aspirational; `users.status` never actually gained a `completed` value). New tables `recommendation_letters`/`intern_letters` per `sql/0005_phase4_documents.sql`. Frontend: a "Documents" action on each row in `interns/Admin.tsx`'s Users panel (recommendation letter form, always; the 3 intern-only actions, gated on the real `roles[]` array — not the cosmetic single-role `userRole()` badge, which still mislabels non-intern/non-leader/non-admin users as "intern" in this table, a pre-existing Phase-1-era display quirk, unrelated to Phase 4, not fixed here) plus self-service "My documents" sections on `interns/Profile.tsx` and `instructors/Documents.tsx`.
+- **Phase 4 is done.** `recommendation.py` (admin-triggered, any role) and `intern_letters.py` (confirmation/completion) shipped, alongside `generate_completion_certificate_pdf` in the existing `certificate.py`. New shared router `routers/documents.py` (`/documents/me` self-service, `/documents/recommendation-letters` admin) mirrors the `/notifications` top-level pattern. Completion-cert trigger is **automatic** for instructors (fires inside `review_applicant`'s `approved` branch — a real existing event) and **manual** for interns (3 new `/interns/admin/users/{id}/{confirmation-letter,completion-letter,certificate}` endpoints, since there's no equivalent "internship done" event to hook — PLAN §8.2's "auto on intern status=completed" was aspirational; `users.status` never actually gained a `completed` value). New tables `recommendation_letters`/`intern_letters` per `sql/0005_phase4_documents.sql`. Frontend: a "Documents" action per row on `pages/admin/Users.tsx` (recommendation letter form, always; the 3 intern-only actions, gated on the real `roles[]` array) plus self-service "My documents" sections on `interns/Profile.tsx` and `instructors/Documents.tsx`.
 - **Intern ID cards remain out of scope** — PLAN §9.1 lists an admin-triggered `.../id-card` endpoint, but `static/templates/id_cards/` only has `instructor_{front,back}.png`; wiring it would silently hand an intern an instructor-branded card. Needs real `intern_front.png`/`intern_back.png` artwork first — `id_card.py`'s per-role template resolution already supports dropping it in with zero code changes once it exists.
-- **Phase 5 is done** — hub at `/admin` + instructors admin (3.6) + ambassadors admin (gap closed, see §14 `ce2566c`). Multi-role user management across domains is still generic-only (`/interns/admin/users`), not a dedicated cross-domain UI — that's the one piece of §9.4's vision not built, and it's a reasonable place to stop (the generic CRUD already covers the need).
+- **Phase 5's one remaining gap is now closed too.** Generic user management relocated out of the interns domain to `/admin/users` (`pages/admin/Users.tsx`, backend `routers/admin/users.py` — a package, since `routers/admin/` already existed as an empty Phase-0 scaffold dir reserved for exactly this per PLAN §3) per explicit user direction: user management isn't domain-specific, but team management stays owned by interns (`/interns/admin`, Teams-only now — the Users tab was removed entirely, not left in parallel). The create-user form now supports real multi-role assignment (checkbox group over all 8 roles — `UserCreate`/`UserUpdate` already accepted `roles: list[UserRole]`, only the frontend was single-role) and shows a team picker whenever `intern` is checked, which calls the existing `/interns/admin/teams/{id}/members` endpoint right after creation — no new backend endpoint needed, just a cross-domain call from the new page (same precedent as ambassadors' admin-bypass code calling across domains). This also fixed a latent display bug for free: the per-row role badge now renders the real `roles[]` array instead of going through the old single-role `userRole()` helper, which collapsed every non-admin/leader/intern user to an "intern" badge.
+- **Bug found while testing the above, not fixed (flagged as `task_e822a830`):** `DELETE /admin/users/{id}` 500s if the user is still a team member — `team_members.user_id`'s FK has no cascade/cleanup behavior, and `services/user.py`'s `delete_user` doesn't remove memberships first. Pre-existing gap (unrelated to this session's changes), just newly likely to get hit now that creating a user and assigning them to a team in one step is easy.
 - **Phase 6 — Polish:** dark-mode pass, CORS tighten, RLS review, `tsc --noEmit` clean, secrets check. Also: the `xlsx` npm package (interns Tracker export) has an unfixed high-severity vulnerability — flagged as a separate task, swap it out.
 
 ---

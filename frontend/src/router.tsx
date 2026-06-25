@@ -53,6 +53,7 @@ import FacilitatorLibrary from "@/pages/instructors/facilitator/Library";
 
 // Admin hub
 import AdminHub from "@/pages/admin/Dashboard";
+import AdminUsers from "@/pages/admin/Users";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -189,6 +190,12 @@ const adminHubRoute = createRoute({
   component: AdminHub,
 });
 
+const adminUsersRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/admin/users",
+  component: AdminUsers,
+});
+
 const applyAmbassadorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apply/ambassador",
@@ -222,6 +229,7 @@ const routeTree = rootRoute.addChildren([
   authLayoutRoute.addChildren([
     indexRoute,
     adminHubRoute,
+    adminUsersRoute,
     internsLayoutRoute.addChildren(internsRoutes),
     ambassadorsLayoutRoute.addChildren(ambassadorsRoutes),
     instructorsLayoutRoute.addChildren(instructorsRoutes),
