@@ -2,7 +2,7 @@
 
 > **Audience:** any agent/developer picking this up cold.
 > **Authoritative spec:** [`../PLAN.md`](../PLAN.md) — read it first. This file is the *current state* on top of that plan.
-> **Last updated:** 2026-06-24
+> **Last updated:** 2026-06-25
 
 ---
 
@@ -13,7 +13,7 @@ A single role-based platform replacing three separate apps (`interns`, `ambassad
 Source apps (siblings of this repo, used as the port source — do not deploy them):
 - `../interns/` — React 19 + async FastAPI. Roles: admin, leader, intern. **Feature-complete.**
 - `../ambassadorsV1/` — React 19 + async FastAPI. Roles: admin, ambassador, teacher. **Feature-complete.**
-- `../instructors/` — Jinja2 + **sync** FastAPI. Roles: ADMIN, APPLICANT, INSTRUCTOR, FACILITATOR. **Business logic only — full frontend rewrite needed.**
+- `../instructors/` — Jinja2 + **sync** FastAPI. Roles: ADMIN, APPLICANT, INSTRUCTOR, FACILITATOR. Rewrite is **done** (Phase 3) — kept as historical reference only; see `../instructors/HANDOFF.md` for the source-app inventory it was rewritten from.
 - `../ambassadors/` (no V1) — an **older, flat-structured** version of the ambassador app. **Ignore it.** The source of truth is `ambassadorsV1`.
 
 ---
@@ -25,13 +25,13 @@ Source apps (siblings of this repo, used as the port source — do not deploy th
 | **Phase 0 — Scaffold** | ✅ Done, verified, committed (`956013d`) |
 | **Phase 1 — Interns: backend** | ✅ Done, verified vs live Supabase, committed (`a3f56b2`) |
 | **Phase 1 — Interns: frontend** | ✅ Done, verified in-browser vs live Supabase, committed (`6ddf3fd`, `5ffbe9f`) |
-| **Phase 2 — Ambassadors** | ✅ Done, verified, pending commit |
-| Phase 3 — Instructors (rewrite) | ⬜ Not started — **next task** |
-| Phase 4 — Shared documents (ID cards, certs, letters) | ⬜ Not started |
-| Phase 5 — Unified admin dashboard | ⬜ Not started |
+| **Phase 2 — Ambassadors** | ✅ Done, verified, committed (`9cbb914`) |
+| **Phase 3 — Instructors (rewrite)** | ✅ Done, verified, committed (`e3eec31`…`e35af11`, see §14) — **next task: Phase 4** |
+| Phase 4 — Shared documents (ID cards, certs, letters) | 🟡 Partially done — `id_cards`/`certificates` tables + `id_card.py`/`certificate.py` services were pulled forward into Phase 3 (instructor portal needed them). Remaining: `recommendation.py`, `intern_letters.py`, and wiring completion-cert auto-triggers for interns/instructors. |
+| Phase 5 — Unified admin dashboard | 🟡 Reframed — built as a hub (`/admin` cards → domain-specific admin pages) instead of PLAN §9.4's single tabbed page, per explicit user direction. Instructors admin page done (Phase 3.6); **Ambassadors admin was never built (Phase 2 gap) — flagged as a separate task, not yet started.** |
 | Phase 6 — Polish | ⬜ Not started |
 
-**Both commits are on `main`.** The repo is its own git repo (`git init`'d here); it is NOT the same repo as the parent `spacepoint/` folder.
+**All commits are on `main`.** The repo is its own git repo (`git init`'d here); it is NOT the same repo as the parent `spacepoint/` folder.
 
 ---
 
@@ -58,7 +58,7 @@ spacepoint-unified/
 │       ├── components/{ui/, layout/Navbar.tsx}
 │       ├── context/AuthContext.tsx     # user, roles[], activeRole, setActiveRole
 │       ├── lib/{utils.ts, logos.ts}
-│       ├── pages/{auth/Login.tsx, Home.tsx, interns/, ambassadors/, instructors/, admin/}
+│       ├── pages/{auth/Login.tsx, Home.tsx, interns/, ambassadors/, instructors/, admin/Dashboard.tsx}
 │       ├── types/shared.ts             # Role, User (roles[]), ROLE_DOMAIN, ROLE_LABEL
 │       ├── router.tsx                  # auth-gated shell; with global auth loading guard
 │       └── main.tsx
@@ -67,19 +67,25 @@ spacepoint-unified/
     ├── .env.example
     ├── requirements.txt
     ├── seed.py                # creates admin from ADMIN_EMAIL/PASSWORD
+    ├── seed_instructors.py    # loads spacepoint/instructors/seed_data.json (checklist curriculum)
     ├── sql/                   # SQL-first provisioning artifacts (see §5)
     │   ├── 0001_initial_users.sql
     │   ├── 0002_interns.sql
-    │   └── 0003_ambassadors.sql
+    │   ├── 0003_ambassadors.sql
+    │   └── 0004_instructors.sql
     ├── alembic/               # async env + 0001 migration (kept for "later")
     └── app/
-        ├── main.py            # mounts auth, notifications, /interns/*, /ambassadors/*
+        ├── main.py            # mounts auth, notifications, /interns/*, /ambassadors/*, /instructors/*
         ├── core/{config.py, security.py, dependencies.py}   # roles[] JWT + RequireRole
         ├── db/{base.py, session.py}                          # async engine (Supabase SSL)
-        ├── models/{user.py, notification.py, enums.py, interns/, ambassadors/}
-        ├── schemas/{auth.py, user.py, notification.py, interns/, ambassadors/}
-        ├── services/{user.py, notification.py, storage.py, email.py, points.py, interns/, ambassadors/, documents/}
-        └── routers/{auth.py, notifications.py, interns/{admin,leader,intern,shared}.py, ambassadors/}
+        ├── models/{user.py, notification.py, enums.py, id_card.py, certificate.py, interns/, ambassadors/, instructors/}
+        ├── schemas/{auth.py, user.py, notification.py, interns/, ambassadors/, instructors/}
+        ├── services/{user.py, notification.py, storage.py, email.py, points.py, interns/, ambassadors/,
+        │             documents/{id_card,certificate,contract,payment_letter}.py}
+        ├── static/{fonts/ (Times New Roman x4), templates/{certificate_template.png, id_cards/instructor_{front,back}.png},
+        │           spacepoint_logo.png}
+        └── routers/{auth.py, notifications.py, interns/{admin,leader,intern,shared}.py, ambassadors/,
+                     instructors/{applicant,admin,instructor,training,library,payments,facilitator,payments_admin}.py}
 ```
 
 > **Convention note (deviation from PLAN §3):** we use `app/db/base.py` + `app/db/session.py` (matches both source backends → clean ports), not the plan's illustrative `core/database.py`. Domain code lives in `*/interns/` subpackages to avoid name collisions across domains.
@@ -90,14 +96,17 @@ spacepoint-unified/
 
 A **fresh** Supabase project is provisioned and in use. Schema was created **SQL-first** (the user's chosen workflow); Alembic is kept for later.
 
-**Tables that exist now:** `users` (Phase 0) + the 13 interns/shared tables (Phase 1) + 11 ambassadors tables (Phase 2): `teams, team_members, projects, project_teams, epics, modules, tasks, task_assignees, task_submissions, proposals, mind_map_layouts, task_mind_map_notes, notifications, leads, lead_comments, ambassador_tasks, teacher_sessions, points_transactions, titles, achievements, badge_definitions, materials, application_questions, teacher_applications`.
-**Enums:** `user_role` (8 roles), `work_status`, `submission_status`.
+**Tables that exist now (51 total):** `users` (Phase 0) + 13 interns/shared tables (Phase 1) + 11 ambassadors tables (Phase 2) + 25 instructors + shared-doc tables (Phase 3): `invitation_codes, applicant_profiles, application_reviews, video_submissions, presentation_submissions, checklist_modules, module_sections, checklist_items, user_checklist_progress, module_submissions, instructor_profiles, instructor_documents, training_modules, training_videos, user_training_progress, library_modules, library_resources, payment_batches, payment_letters, payment_sessions, payment_addons, instructor_bank_details, portal_settings, id_cards, certificates`.
+**Enums:** `user_role` (8 roles), `work_status`, `submission_status`, `application_status`, `instructor_video_status`, `module_submission_status`, `payment_letter_status`, `payment_session_role`, `certificate_type`.
 
 **How the schema is provisioned / reproduced:**
 - `backend/sql/0001_initial_users.sql` — run in Supabase SQL editor (already done).
 - `backend/sql/0002_interns.sql` — generated from the SQLAlchemy models; the actual tables were created by running `Base.metadata.create_all` against Supabase. Re-runnable on a fresh DB.
 - `backend/sql/0003_ambassadors.sql` — generated from SQLAlchemy models for the ambassadors domain (tables created via SQL/Supabase).
+- `backend/sql/0004_instructors.sql` — same pattern; enum types created first (raw `CREATE TYPE`), then `create_all` for the tables.
 - Each future phase should ship a matching `backend/sql/000N_*.sql`.
+
+**Supabase Storage buckets (all 11 from PLAN §10, created in Phase 3):** `id-cards, certificates, recommendation-letters, intern-letters, instructor-documents, library-resources (public), training-videos, applicant-submissions, contracts, payment-letters, instructor-photos`. None existed before Phase 3 — created via the `supabase-py` storage admin client, not the dashboard.
 
 **⚠️ Alembic catch-up:** because tables were created via SQL/`create_all` (not `alembic upgrade`), before ever using Alembic you must `alembic stamp head` so it doesn't try to recreate existing tables. There is currently only the `0001` migration; **no `0002` or `0003` alembic migrations were written** (the SQL scripts + models are the source of truth). Writing matching Alembic migrations is a deferred clean-up task.
 
@@ -145,12 +154,16 @@ npm run build                     # tsc -b && vite build (must stay clean)
 
 **Phase 1 frontend** — verified in a real browser against the running stack: login as admin → redirect to `/interns` → AdminDashboard board renders + fetches → nav → `/interns/admin` users page renders with the correct role badge, dark mode. **No console errors.** `tsc -b` + `vite build` clean.
 
-**Phase 2 & Phase 3 (UI & Auth fixes)** — verified backend compilation and frontend build:
-- Frontend `npm run build` compiles cleanly with zero TS or bundler errors.
-- Backend routing successfully compiled using `python -m py_compile` for `network.py`.
-- Form layout overlapping search icon on materials page resolved.
-- Full dark mode styling and theme support verified for leads/tasks/leaderboard/network tree pages.
-- Authorization endpoints and session creation bypass for administrators verified on the backend.
+**Phase 2 (Ambassadors)** — verified backend compilation, frontend build, and a live httpx smoke test (login + ambassadors/interns/notifications endpoints, 200/401 as expected) against Supabase.
+
+**Phase 3 (Instructors)** — verified per sub-phase, each with a live httpx `ASGITransport` smoke test against Supabase *and* (3.4 onward) real in-browser passes via the Claude Preview MCP tools, not just API checks:
+- 3.0 schema: all 51 tables present live, backend imports clean.
+- 3.1 applicant pipeline backend: full apply → videos → modules → submit → admin phase1-approve → phase2 → admin final-approve chain, including contract PDF generation + upload to Storage.
+- 3.3 instructor portal backend: ID card generation (visually inspected the rendered PNGs/PDF, not just "didn't crash"), training/library/vault, payment letter sign (signature embed → PDF regen → certificate generation → email/notify) — also visually inspected the generated certificate PDF.
+- 3.4 instructor portal frontend: full in-browser walkthrough as a real instructor account, zero console errors. **Caught and fixed a real bug this way** — an unhandled Storage 404 that left the video player spinning forever.
+- 3.5 facilitator portal: role enforcement confirmed (instructor correctly 403's on facilitator-only endpoints), in-browser module creation through the real dialog UI.
+- 3.6 admin instructors page + hub: backend smoke test (invitations/facilitators/directory/settings/batches/letters/sessions/addons/bulk-import-with-a-real-xlsx-round-trip/certificates) + full in-browser admin pass. **Caught and fixed a recurring CSS bug** (see §9.7) in 3 places, including one left over from Phase 3.2 that had never been visually exercised until now.
+- 3.7 end-to-end: one continuous run with a brand-new account through the *entire* chain (apply → both admin approval gates → fresh login as the newly-promoted instructor → full instructor portal → facilitator cross-visibility → admin directory), proving no step depends on state left over from manual testing.
 
 ---
 
@@ -176,6 +189,11 @@ npm run build                     # tsc -b && vite build (must stay clean)
 4. **asyncpg + Supabase pooler:** `statement_cache_size=0` + permissive SSL context (already in `app/db/session.py`); session pooler **port 5432**; DB password is URL-encoded in `DATABASE_URL`.
 5. **PowerShell sandbox** blocked a `Remove-Item` that was embedded inside a big regex-heavy script — run destructive ops as small standalone commands.
 6. From the interns source: `model_validator(mode="before")` reads `_sa_instance_state.dict` for async-safe relationship reads; mind-map uses `useParams({ strict: false })`; admin board has two separate `DndContext`s — don't merge them.
+7. **`<input className="input w-X">` / `"input flex-1"` — the `.input` class's own `width: 100%` competes with a sizing utility on the *same* element.** Confirmed via direct DOM measurement: the input meant to be wide rendered at 25px, the one meant to be narrow stretched to 596px. Fix: put the sizing class (`flex-1`, `w-24`, etc.) on a wrapping `<div>`, leave `.input` alone on the `<input>`. Hit this in 3 places across Phase 3 (two in `pages/instructors/Admin.tsx`, one in `pages/instructors/Status.tsx` left over from Phase 3.2 and never caught until a Phase 3.6 browser pass happened to exercise that exact form). **Grep for `className="input \(flex-\|w-\)` before trusting any form layout that wasn't visually checked.**
+8. **SQLAlchemy `ENUM(SomePyEnum, ...)` sends the Python member *name* to Postgres by default, not `.value`.** Only matters when they differ (e.g. `PaymentSessionRole.facilitator = "Facilitator"` — name≠value). Fix with `values_callable=lambda e: [x.value for x in e]` on that column. Every other Phase 3 enum is snake_case-name-equals-value and unaffected.
+9. **FastAPI: a plain scalar param (`str | None = None`) alongside an `UploadFile` param is read as a query param, not a form field** — confirmed empirically with a throwaway `TestClient` script, not obvious from the FastAPI docs at a glance. Every `UploadFile`-handling endpoint in Phase 3 sends its other fields via the query string for this reason; the frontend `api/*.ts` functions append them to the URL, not the `FormData` body.
+10. **`preview_eval`'s plain `element.click()` did not reliably trigger React's onClick** in this session (root cause unclear). `element.dispatchEvent(new MouseEvent('click', {bubbles:true, cancelable:true, view:window}))` worked every time — prefer it when driving the UI via `preview_eval`.
+11. **The source instructors app's `id_card_service.py` hardcoded a `venv/lib/python3.12/...` path** to find a fallback font — breaks on any other Python version or OS layout. The unified `services/documents/id_card.py` resolves the same fallback (`reportlab`'s bundled Vera font) via `os.path.dirname(reportlab.__file__)` instead — works regardless of Python version/venv layout since it walks the installed package, not a hardcoded path.
 
 ---
 
@@ -212,12 +230,28 @@ Ported, integrated, and verified in-browser. Pages and components live under `fr
 
 ---
 
-## 12. NEXT — Phase 3 onward (per PLAN §12)
+## 11.5 Phase 3 — Instructors (full rewrite) — DONE ✅
 
-- **Phase 3 — Instructors:** full rewrite — async models (UUID PKs), Jinja2 templates → React pages, Supabase Storage for files, pure ReportLab for contracts (drop docx2pdf), ambassador-referral → `award_points` hook on approval.
-- **Phase 4 — Shared docs:** ID cards (Pillow, all roles), certificates/recommendation/intern letters (ReportLab) → Supabase Storage; create the storage buckets (PLAN §10).
-- **Phase 5 — Unified admin dashboard:** one tabbed page across all domains; multi-role user management.
-- **Phase 6 — Polish:** dark-mode pass, CORS tighten, RLS review, `tsc --noEmit` clean, secrets check.
+Full rewrite, not a port: source was sync FastAPI + Jinja2 + Integer PKs + local disk + cookie JWT; target is async + React + UUID PKs + Supabase Storage + Bearer JWT. See `../instructors/HANDOFF.md` (written before this phase started) for the complete source-app inventory this rewrite was based on, and `C:\Users\ahmed\.claude\plans\magical-forging-gray.md` for the sub-phase plan (3.-1 through 3.7) this was executed against.
+
+**Key decisions (deviations from PLAN.md's literal text, made deliberately):**
+- `id_cards`/`certificates` tables + `id_card.py`/`certificate.py` services pulled forward from Phase 4 into Phase 3 — the instructor Profile Card page needed them now. Both are genuinely role/type-generic (not instructor-specific) per explicit user direction — only the *artwork* (`static/templates/id_cards/instructor_{front,back}.png`) is instructor-only today; the code resolves per-role templates and falls back to the instructor one only because no other role's artwork exists yet.
+- `certificates` unified with a `type` discriminator (`workshop_delivery` now; `instructor_completion`/`internship_completion` reserved for Phase 4) instead of two same-named concepts colliding.
+- `checklist_modules` (not bare `modules`, which already belongs to the interns domain in this shared schema).
+- `research_submissions` (source table) dropped — dead in source, no router referenced it.
+- The stub `/auth/instructor-apply` endpoint (ported as-is from ambassadorsV1 *before* this phase, bypassing the whole applicant pipeline) was stripped and rebuilt properly as part of 3.1 — same route, real semantics this time (applicant_profiles → application_reviews pipeline, ambassador-referral detection against both `invitation_codes` and `users.invite_code`).
+- **Admin dashboard reframed as a hub-and-spoke model** (`/admin` → summary cards with live counts → click into a domain's own admin page) instead of PLAN §9.4's single tabbed page, per explicit user direction. This also surfaced that **ambassadors admin (network tree, approvals, titles/badges, questions — documented in `ambassadorsV1/HANDOFF.md`) was never built in Phase 2** — shown as a disabled hub card, flagged as a separate task, not backfilled here.
+
+**Sub-phases (each its own commit, see §14):** 3.0 schema (25 tables) → 3.1 applicant pipeline backend → 3.2 applicant pipeline frontend → 3.3 instructor portal backend (ID cards, training, library, vault, payments+e-signature) → 3.4 instructor portal frontend → 3.5 facilitator portal → 3.6 admin instructors page + hub → 3.7 end-to-end verification.
+
+---
+
+## 12. NEXT — Phase 4 onward (per PLAN §12)
+
+- **Phase 4 — Shared docs (remaining):** `recommendation.py` (admin-triggered, any role) and `intern_letters.py` (confirmation/completion) — `id_card.py`/`certificate.py` already done (pulled into Phase 3). Wire completion-cert auto-triggers (intern epics-all-done, instructor application approved) into the now-shared `certificates` table.
+- **Ambassadors admin (Phase 2 gap, flagged separately):** network tree, application approvals, titles/badges/questions CRUD — documented in `ambassadorsV1/HANDOFF.md`, never built. Should land as `/ambassadors/admin`, get a real hub card once done.
+- **Phase 5 — Unified admin dashboard:** the hub (`/admin`) + instructors admin page are done (Phase 3.6); extend the hub with a real Ambassadors card once that admin page exists; multi-role user management across domains still not built.
+- **Phase 6 — Polish:** dark-mode pass, CORS tighten, RLS review, `tsc --noEmit` clean, secrets check. Also: the `xlsx` npm package (interns Tracker export) has an unfixed high-severity vulnerability — flagged as a separate task, swap it out.
 
 ---
 
@@ -246,7 +280,15 @@ Ported, integrated, and verified in-browser. Pages and components live under `fr
 - `e29947ee` — feat(interns): responsive navbar + fix port encoding
 - `ed0339a6` — fix(interns/backend): correct UTF-8 encoding of ported files
 - `6a59aefe` — docs: note UTF-8 encoding gotcha in port recipe
-- `[Pending]` — Phase 2 & 3: port Ambassadors backend & frontend + dark-mode UI fixes + backend permissions bypasses
+- `9cbb914` — Phase 2: port ambassadors domain (backend + frontend)
+- `e3eec31` — Phase 3.0: instructors domain schema & models
+- `383bbd6` — Phase 3.1: instructors applicant pipeline backend
+- `feeadb4` — Phase 3.2: instructors applicant pipeline frontend
+- `74786c5` — Phase 3.3: instructor portal backend (id cards, training, library, documents vault, payments with e-signature)
+- `ea442c3` — Phase 3.4: instructor portal frontend
+- `f21726b` — Phase 3.5: facilitator portal
+- `e35af11` — Phase 3.6: instructors admin page + super-admin hub
+- *(3.7 — this commit, see message for the full end-to-end verification summary)*
 
 ### Recipe for porting a domain frontend (used for interns; reuse for §11)
 > ⚠️ **Encoding:** read source with `[System.IO.File]::ReadAllText($p)` and write with `New-Object System.Text.UTF8Encoding($false)`. **Do NOT use `Get-Content -Raw`** (PS 5.1 reads UTF-8 as Windows-1252 → mojibake on `·`, em-dashes, smart quotes). And don't name a PS function `R` (collides with the `r`=Invoke-History alias). Both bit the interns port.
