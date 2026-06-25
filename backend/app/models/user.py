@@ -30,6 +30,7 @@ class User(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     must_change_password = Column(Boolean, nullable=False, default=False)
+    recruit_points_awarded = Column(Boolean, nullable=False, default=False)
     phone = Column(String(50), nullable=True)
     country = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

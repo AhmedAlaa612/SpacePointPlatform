@@ -23,3 +23,22 @@ export async function logout(): Promise<void> {
 export async function changePassword(new_password: string, current_password?: string): Promise<void> {
   await api.post("/auth/change-password", { new_password, current_password });
 }
+
+export const applyAmbassadorApi = (data: {
+  full_name: string
+  email: string
+  password: string
+  country?: string
+}) => api.post("/auth/apply", data).then((r) => r.data)
+
+export const applyTeacherApi = (data: {
+  full_name: string
+  email: string
+  password: string
+  invite_code: string
+  answers?: Record<string, any>
+}) => api.post("/auth/teacher-apply", data).then((r) => r.data)
+
+export const validateInviteApi = (code: string) =>
+  api.get<{ ambassador_name: string; valid: boolean }>(`/auth/invite/${code}`).then((r) => r.data)
+

@@ -83,18 +83,18 @@ export default function CreateTaskModal({ open, onClose, tasksKey }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-md bg-white border border-gray-100 rounded-2xl p-0 overflow-hidden">
+      <DialogContent className="max-w-md bg-card border border-border text-foreground rounded-2xl p-0 overflow-hidden">
         <div className="p-6 flex flex-col gap-4">
           <DialogHeader>
-            <DialogTitle className="text-base font-semibold text-black">New task</DialogTitle>
+            <DialogTitle className="text-base font-semibold text-foreground">New task</DialogTitle>
           </DialogHeader>
 
           <div className="flex flex-col gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">Epic *</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Epic *</label>
               <select
                 value={epicId} onChange={(e) => { setEpicId(e.target.value); setModuleId(""); setSelectedUsers([]); setAddingModule(false) }}
-                className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm text-black bg-white focus:outline-none focus:border-black transition-colors"
+                className="w-full h-10 px-3 border border-border rounded-xl text-sm text-foreground bg-background focus:outline-none focus:border-primary transition-colors"
               >
                 <option value="">Select epic…</option>
                 {epics.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
@@ -105,10 +105,10 @@ export default function CreateTaskModal({ open, onClose, tasksKey }: Props) {
             {selectedEpic && (
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-medium text-gray-500">Module</label>
+                  <label className="block text-xs font-medium text-muted-foreground">Module</label>
                   {!addingModule && (
                     <button type="button" onClick={() => setAddingModule(true)}
-                      className="flex items-center gap-1 text-[11px] font-medium text-[#643f83] hover:text-[#4a2d63] transition-colors">
+                      className="flex items-center gap-1 text-[11px] font-medium text-[#643f83] dark:text-[#d6c7e1] hover:text-[#4a2d63] dark:hover:text-[#e4daf0] transition-colors">
                       <Plus size={11} /> New module
                     </button>
                   )}
@@ -119,21 +119,21 @@ export default function CreateTaskModal({ open, onClose, tasksKey }: Props) {
                     <input
                       value={newModuleName} onChange={(e) => setNewModuleName(e.target.value)}
                       placeholder="Module name" autoFocus
-                      className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors"
+                      className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
                     />
                     <textarea
                       value={newModuleDesc} onChange={(e) => setNewModuleDesc(e.target.value)}
                       placeholder="Scope / description — interns will read this" rows={2}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors"
+                      className="w-full px-3 py-2 border border-border bg-background text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors"
                     />
                     <div className="flex gap-2">
                       <button type="button" onClick={() => createModuleMutation.mutate()}
                         disabled={!newModuleName.trim() || createModuleMutation.isPending}
-                        className="h-9 px-4 bg-black text-white rounded-xl text-xs font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+                        className="h-9 px-4 bg-primary text-primary-foreground rounded-xl text-xs font-medium hover:bg-primary/95 transition-colors disabled:opacity-50">
                         {createModuleMutation.isPending ? "…" : "Add"}
                       </button>
                       <button type="button" onClick={() => { setAddingModule(false); setNewModuleName(""); setNewModuleDesc("") }}
-                        className="h-9 px-3 flex items-center gap-1 border border-gray-200 rounded-xl text-xs text-gray-400 hover:text-black transition-colors">
+                        className="h-9 px-3 flex items-center gap-1 border border-border rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                         <X size={13} /> Cancel
                       </button>
                     </div>
@@ -141,7 +141,7 @@ export default function CreateTaskModal({ open, onClose, tasksKey }: Props) {
                 ) : (
                   <select
                     value={targetModule?.id ?? ""} onChange={(e) => setModuleId(e.target.value)}
-                    className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm text-black bg-white focus:outline-none focus:border-black transition-colors"
+                    className="w-full h-10 px-3 border border-border rounded-xl text-sm text-foreground bg-background focus:outline-none focus:border-primary transition-colors"
                   >
                     {modules.map((m) => <option key={m.id} value={m.id}>{m.title}</option>)}
                   </select>
@@ -150,53 +150,53 @@ export default function CreateTaskModal({ open, onClose, tasksKey }: Props) {
             )}
 
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">Title *</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Title *</label>
               <input
                 value={title} onChange={(e) => setTitle(e.target.value)}
                 placeholder="What needs to be done?"
-                className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors"
+                className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">Description</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
               <textarea
                 value={description} onChange={(e) => setDescription(e.target.value)}
                 placeholder="Optional details…" rows={2}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors"
+                className="w-full px-3 py-2.5 border border-border bg-background text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">Due date</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Due date</label>
                 <input
                   type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
-                  className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm text-black focus:outline-none focus:border-black transition-colors"
+                  className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors [color-scheme:light] dark:[color-scheme:dark]"
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">Expected hours</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Expected hours</label>
                 <input
                   type="number" min="0" step="0.5" value={expectedTime} onChange={(e) => setExpectedTime(e.target.value)}
                   placeholder="e.g. 3"
-                  className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors"
+                  className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
                 />
               </div>
             </div>
 
             {teamMembers.length > 0 && (
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">Assign to</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Assign to</label>
                 <div className="flex flex-col gap-1">
                   {teamMembers.map((u) => (
-                    <label key={u.id} className="flex items-center gap-3 cursor-pointer p-2 rounded-xl hover:bg-gray-50 transition-colors">
-                      <input type="checkbox" checked={selectedUsers.includes(u.id)} onChange={() => toggleUser(u.id)} className="rounded" />
+                    <label key={u.id} className="flex items-center gap-3 cursor-pointer p-2 rounded-xl hover:bg-muted/50 transition-colors">
+                      <input type="checkbox" checked={selectedUsers.includes(u.id)} onChange={() => toggleUser(u.id)} className="rounded text-primary focus:ring-primary border-border bg-background" />
                       <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-full bg-[#d6c7e1] text-[#643f83] text-xs font-semibold flex items-center justify-center flex-shrink-0">
+                        <div className="w-7 h-7 rounded-full bg-[#d6c7e1] dark:bg-[#d6c7e1]/10 text-[#643f83] dark:text-[#d6c7e1] text-xs font-semibold flex items-center justify-center flex-shrink-0">
                           {u.full_name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
                         </div>
-                        <span className="text-sm text-black">{u.full_name}</span>
+                        <span className="text-sm text-foreground">{u.full_name}</span>
                       </div>
                     </label>
                   ))}
@@ -207,13 +207,13 @@ export default function CreateTaskModal({ open, onClose, tasksKey }: Props) {
 
           <div className="flex gap-2 pt-1">
             <button onClick={onClose}
-              className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+              className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
               Cancel
             </button>
             <button
               onClick={() => mutation.mutate()}
               disabled={!title.trim() || !epicId || !targetModule || mutation.isPending}
-              className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50"
+              className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/95 transition-colors disabled:opacity-50"
             >
               {mutation.isPending ? "Creating…" : "Create task"}
             </button>

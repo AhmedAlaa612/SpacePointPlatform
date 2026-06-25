@@ -40,27 +40,27 @@ export default function TaskCard({ card, onClick }: TaskCardProps) {
         {...listeners}
         onClick={onClick}
         className={cn(
-          "bg-white border border-gray-100 rounded-xl p-3 cursor-pointer select-none transition-all hover:border-gray-300 hover:shadow-sm",
+          "bg-card border border-border rounded-xl p-3 cursor-pointer select-none transition-all hover:border-[#a880ff]/50 dark:hover:border-[#d6c7e1]/50 hover:shadow-sm",
           isDragging && "shadow-lg"
         )}
       >
         {/* Breadcrumb: project › epic › module */}
         {(card.project_title || card.epic_title || (card.module_title && !isGeneral)) && (
           <p className="text-[10px] mb-1.5 flex items-center gap-1 flex-wrap">
-            {card.project_title && <span className="text-gray-400">{card.project_title}</span>}
-            {card.project_title && card.epic_title && <span className="text-gray-300">›</span>}
-            {card.epic_title && <span className="font-semibold text-[#643f83]">{card.epic_title}</span>}
+            {card.project_title && <span className="text-muted-foreground">{card.project_title}</span>}
+            {card.project_title && card.epic_title && <span className="text-muted-foreground/50">›</span>}
+            {card.epic_title && <span className="font-semibold text-[#643f83] dark:text-[#d6c7e1]">{card.epic_title}</span>}
             {!isGeneral && (
               <>
-                <span className="text-gray-300">›</span>
-                <span className="text-gray-400">{card.module_title}</span>
+                <span className="text-muted-foreground/50">›</span>
+                <span className="text-muted-foreground">{card.module_title}</span>
               </>
             )}
             {hasScope && (
               <button
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); setScopeOpen(true) }}
-                className="inline-flex items-center gap-0.5 text-[#643f83] hover:text-[#4a2d63] transition-colors"
+                className="inline-flex items-center gap-0.5 text-[#643f83] dark:text-[#d6c7e1] hover:text-[#4a2d63] dark:hover:text-[#e4daf0] transition-colors"
                 title="View module scope"
               >
                 <Info size={10} />
@@ -74,21 +74,21 @@ export default function TaskCard({ card, onClick }: TaskCardProps) {
           <button
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); setScopeOpen(true) }}
-            className="flex items-center gap-1 text-[10px] text-[#643f83] hover:text-[#4a2d63] mb-1.5 transition-colors"
+            className="flex items-center gap-1 text-[10px] text-[#643f83] dark:text-[#d6c7e1] hover:text-[#4a2d63] dark:hover:text-[#e4daf0] mb-1.5 transition-colors"
           >
             <Info size={10} /> Scope
           </button>
         )}
 
         {/* Title */}
-        <p className="text-sm font-semibold text-black leading-snug mb-1">{card.title}</p>
+        <p className="text-sm font-semibold text-foreground leading-snug mb-1">{card.title}</p>
 
         {/* Footer */}
         <div className="flex items-center justify-between gap-2 mt-2">
           {due ? (
             <span className={cn(
               "text-[11px] font-medium px-2 py-0.5 rounded-full",
-              due.urgent ? "bg-red-50 text-red-500" : "bg-gray-100 text-gray-500"
+              due.urgent ? "bg-red-50 text-red-500 dark:bg-red-950/30 dark:text-red-400" : "bg-muted text-muted-foreground"
             )}>
               {due.label}
             </span>
@@ -99,8 +99,8 @@ export default function TaskCard({ card, onClick }: TaskCardProps) {
               <span className={cn(
                 "text-[10px] font-medium px-2 py-0.5 rounded-full",
                 latestSub.status === "reviewed"
-                  ? "bg-black text-white"
-                  : "bg-[#d6c7e1] text-[#643f83]"
+                  ? "bg-foreground text-background"
+                  : "bg-[#d6c7e1] text-[#643f83] dark:bg-[#643f83] dark:text-[#d6c7e1]"
               )}>
                 {latestSub.status === "reviewed" ? "Reviewed" : "Submitted"}
               </span>
@@ -110,12 +110,12 @@ export default function TaskCard({ card, onClick }: TaskCardProps) {
               <div className="flex -space-x-1.5">
                 {card.assignees.slice(0, 3).map((u) => (
                   <div key={u.id} title={u.full_name}
-                    className="w-6 h-6 rounded-full bg-[#d6c7e1] text-[#643f83] text-[9px] font-bold flex items-center justify-center border-2 border-white flex-shrink-0">
+                    className="w-6 h-6 rounded-full bg-[#d6c7e1] dark:bg-[#d6c7e1]/20 text-[#643f83] dark:text-[#d6c7e1] text-[9px] font-bold flex items-center justify-center border-2 border-card flex-shrink-0">
                     {u.full_name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
                   </div>
                 ))}
                 {card.assignees.length > 3 && (
-                  <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-[9px] font-bold flex items-center justify-center border-2 border-white flex-shrink-0">
+                  <div className="w-6 h-6 rounded-full bg-muted text-muted-foreground text-[9px] font-bold flex items-center justify-center border-2 border-card flex-shrink-0">
                     +{card.assignees.length - 3}
                   </div>
                 )}
@@ -128,26 +128,26 @@ export default function TaskCard({ card, onClick }: TaskCardProps) {
       {/* Scope popup */}
       {scopeOpen && (
         <div
-          className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
           onPointerDown={() => setScopeOpen(false)}
         >
           <div
-            className="w-full max-w-sm bg-white rounded-2xl shadow-2xl p-5 flex flex-col gap-3"
+            className="w-full max-w-sm bg-card border border-border rounded-2xl shadow-2xl p-5 flex flex-col gap-3"
             onPointerDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-start justify-between">
               <div>
-                <span className="text-[9px] font-bold uppercase tracking-widest text-[#643f83]">
+                <span className="text-[9px] font-bold uppercase tracking-widest text-[#643f83] dark:text-[#d6c7e1]">
                   {isGeneral ? "Epic scope" : "Module scope"}
                 </span>
-                <p className="text-sm font-semibold text-black mt-0.5">{scopeLabel}</p>
+                <p className="text-sm font-semibold text-foreground mt-0.5">{scopeLabel}</p>
               </div>
               <button onClick={() => setScopeOpen(false)}
-                className="p-1 rounded-lg text-gray-400 hover:text-black transition-colors">
+                className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
                 <X size={14} />
               </button>
             </div>
-            <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{scopeText}</p>
+            <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{scopeText}</p>
           </div>
         </div>
       )}

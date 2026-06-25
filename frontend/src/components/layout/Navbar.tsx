@@ -61,23 +61,41 @@ export function Navbar() {
   if (!user) return null;
 
   const domain = activeRole ? ROLE_DOMAIN[activeRole] : null;
-  const navLinks: NavItem[] =
-    domain === "interns" || isAdmin
-      ? [
-          { label: "Board", to: "/interns" },
-          { label: "Tracker", to: "/interns/tracker" },
-          { label: "Calendar", to: "/interns/calendar" },
-          { label: "Leaderboard", to: "/interns/leaderboard" },
-          ...(isAdmin ? [{ label: "Admin", to: "/interns/admin" }] : []),
-        ]
-      : [];
+  let navLinks: NavItem[] = [];
+  if (activeRole === "ambassador") {
+    navLinks = [
+      { label: "Dashboard", to: "/ambassadors" },
+      { label: "Leads", to: "/ambassadors/leads" },
+      { label: "Tasks", to: "/ambassadors/tasks" },
+      { label: "Network", to: "/ambassadors/network" },
+      { label: "Materials", to: "/ambassadors/materials" },
+      { label: "Leaderboard", to: "/ambassadors/leaderboard" },
+    ];
+  } else if (activeRole === "teacher") {
+    navLinks = [
+      { label: "My Sessions", to: "/ambassadors/teacher-portal" },
+      { label: "Tasks", to: "/ambassadors/tasks" },
+      { label: "Materials", to: "/ambassadors/materials" },
+      { label: "Leaderboard", to: "/ambassadors/leaderboard" },
+    ];
+  } else if (domain === "interns" || isAdmin) {
+    navLinks = [
+      { label: "Board", to: "/interns" },
+      { label: "Tracker", to: "/interns/tracker" },
+      ...(isAdmin ? [{ label: "Admin", to: "/interns/admin" }] : []),
+    ];
+  }
+
+  const profileTo = (activeRole === "ambassador" || activeRole === "teacher")
+    ? "/ambassadors/profile"
+    : "/interns/profile";
 
   const initials = user.full_name
     ? user.full_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
     : "?";
 
   const isActive = (to: string) =>
-    to === "/interns" ? pathname === "/interns" : pathname.startsWith(to);
+    (to === "/interns" || to === "/ambassadors") ? pathname === to : pathname.startsWith(to);
 
   const handleBell = () => {
     const wasOpen = bellOpen;
@@ -99,7 +117,7 @@ export function Navbar() {
 
   return (
     <nav className="sticky top-0 z-40 border-b border-border bg-card/95 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-card/80">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-4 sm:h-[72px] sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-2 px-4 sm:h-24 sm:px-6 lg:px-8">
         {/* Left: hamburger (mobile) + logo */}
         <div className="flex items-center gap-2">
           {navLinks.length > 0 && (
@@ -113,7 +131,7 @@ export function Navbar() {
             </button>
           )}
           <Link to="/" className="flex shrink-0 items-center" aria-label="SpacePoint home">
-            <img src={roleLogo(activeRole)} alt="SpacePoint" className="h-8 w-auto sm:h-9" />
+            <img src={roleLogo(activeRole)} alt="SpacePoint" className="h-10 w-auto sm:h-12" />
           </Link>
         </div>
 
@@ -227,7 +245,7 @@ export function Navbar() {
 
           {/* Avatar → profile */}
           <Link
-            to="/interns/profile"
+            to={profileTo}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-bold tracking-wide text-background transition-opacity hover:opacity-80"
             aria-label="Profile"
           >

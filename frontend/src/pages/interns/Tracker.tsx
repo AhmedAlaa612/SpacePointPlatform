@@ -1,6 +1,6 @@
 import { useState, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Download, Users, Sheet } from "lucide-react"
+import { Download, Users, Sheet, ChevronDown } from "lucide-react"
 import * as XLSX from "xlsx"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/context/AuthContext"
@@ -24,11 +24,11 @@ function fmtHours(h: number | null) {
 
 function statusBadge(status: string) {
   const map: Record<string, string> = {
-    todo:        "bg-gray-100 text-gray-500",
+    todo:        "bg-muted text-muted-foreground",
     in_progress: "bg-[#d6c7e1] text-[#643f83]",
-    done:        "bg-black text-white",
+    done:        "bg-foreground text-background",
   }
-  return map[status] ?? "bg-gray-100 text-gray-500"
+  return map[status] ?? "bg-muted text-muted-foreground"
 }
 
 function computeStats(tasks: Task[]) {
@@ -251,8 +251,8 @@ export default function Tracker() {
       {/* ── Page header ─────────────────────────────────────────────────── */}
       <div className="flex items-end justify-between no-print">
         <div>
-          <h1 className="text-xl font-bold text-black tracking-tight">Work Tracker</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
+          <h1 className="text-xl font-bold text-foreground tracking-tight">Work Tracker</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
             {isIntern ? "Your task history and time log" : "View intern progress and time accuracy"}
           </p>
         </div>
@@ -260,13 +260,13 @@ export default function Tracker() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleExportSheet}
-              className="flex items-center gap-1.5 h-9 px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-1.5 h-9 px-4 border border-border bg-background hover:bg-muted rounded-xl text-sm font-medium text-foreground transition-colors"
             >
               <Sheet size={14} /> Export sheet
             </button>
             <button
               onClick={handlePrint}
-              className="flex items-center gap-1.5 h-9 px-4 border border-gray-200 rounded-xl text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-1.5 h-9 px-4 border border-border bg-background hover:bg-muted rounded-xl text-sm font-medium text-foreground transition-colors"
             >
               <Download size={14} /> Export PDF
             </button>
@@ -277,35 +277,30 @@ export default function Tracker() {
       {/* ── Intern selector (admin / leader only) ───────────────────────── */}
       {(isAdmin || isLeader) && (
         <div className="no-print">
-          <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">
+          <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
             {isAdmin ? "Select intern" : "Team member"}
           </label>
           {interns.length === 0 ? (
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-muted-foreground">
               {isLeader ? "No interns in your team yet." : "No intern accounts found."}
             </p>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {interns.map((u) => (
-                <button
-                  key={u.id}
-                  onClick={() => setSelectedUserId(u.id)}
-                  className={cn(
-                    "flex items-center gap-2 h-9 px-4 rounded-xl text-sm font-medium border transition-colors",
-                    selectedUserId === u.id
-                      ? "bg-black text-white border-black"
-                      : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
-                  )}
-                >
-                  <div className={cn(
-                    "w-6 h-6 rounded-full text-[9px] font-bold flex items-center justify-center flex-shrink-0",
-                    selectedUserId === u.id ? "bg-white text-black" : "bg-[#d6c7e1] text-[#643f83]"
-                  )}>
-                    {u.full_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
-                  </div>
-                  {u.full_name}
-                </button>
-              ))}
+            <div className="relative w-full max-w-xs">
+              <select
+                value={selectedUserId}
+                onChange={(e) => setSelectedUserId(e.target.value)}
+                className="w-full h-10 pl-4 pr-10 rounded-xl text-sm font-medium border bg-background text-foreground border-border hover:border-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary appearance-none cursor-pointer transition-colors"
+              >
+                <option value="" className="bg-background text-muted-foreground">Select an intern...</option>
+                {interns.map((u) => (
+                  <option key={u.id} value={u.id} className="bg-background text-foreground">
+                    {u.full_name}
+                  </option>
+                ))}
+              </select>
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-muted-foreground">
+                <ChevronDown size={16} />
+              </div>
             </div>
           )}
         </div>
@@ -313,8 +308,8 @@ export default function Tracker() {
 
       {/* ── Empty / loading state ────────────────────────────────────────── */}
       {!targetId && (isAdmin || isLeader) && (
-        <div className="flex items-center justify-center h-40 border border-dashed border-gray-200 rounded-2xl">
-          <p className="text-sm text-gray-400 flex items-center gap-2">
+        <div className="flex items-center justify-center h-40 border border-dashed border-border rounded-2xl">
+          <p className="text-sm text-muted-foreground flex items-center gap-2">
             <Users size={16} /> Select an intern to view their tracker
           </p>
         </div>
@@ -322,7 +317,7 @@ export default function Tracker() {
 
       {isLoading && (
         <div className="flex items-center justify-center h-40">
-          <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
         </div>
       )}
 
@@ -331,8 +326,8 @@ export default function Tracker() {
         <div id="tracker-print" ref={printRef}>
 
           {tasks.length === 0 ? (
-            <div className="flex items-center justify-center h-40 border border-dashed border-gray-200 rounded-2xl">
-              <p className="text-sm text-gray-400">No tasks assigned yet</p>
+            <div className="flex items-center justify-center h-40 border border-dashed border-border rounded-2xl">
+              <p className="text-sm text-muted-foreground">No tasks assigned yet</p>
             </div>
           ) : (
             <>
@@ -372,12 +367,12 @@ export default function Tracker() {
               </div>
 
               {/* ── Table ─────────────────────────────────────────────── */}
-              <div className="overflow-x-auto rounded-2xl border border-gray-100">
+              <div className="overflow-x-auto rounded-2xl border border-border">
                 <table className="w-full text-sm border-collapse">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-100">
+                    <tr className="bg-muted/50 border-b border-border">
                       {["Task", "Module", "Epic", "Start date", "Deadline", "Status", "Expected", "Actual", "Submitted", "Score", "Submission link"].map((h) => (
-                        <th key={h} className="text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-4 py-3 whitespace-nowrap">
+                        <th key={h} className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 whitespace-nowrap">
                           {h}
                         </th>
                       ))}
@@ -389,29 +384,29 @@ export default function Tracker() {
                       const isOverdue = task.due_date && new Date(task.due_date) < new Date() && task.status !== "done"
                       return (
                         <tr key={task.id} className={cn(
-                          "border-b border-gray-50 transition-colors hover:bg-gray-50/50",
-                          i % 2 === 1 ? "bg-gray-50/30" : "bg-white"
+                          "border-b border-border transition-colors hover:bg-muted/50",
+                          i % 2 === 1 ? "bg-muted/20" : "bg-card"
                         )}>
                           {/* Task */}
-                          <td className="px-4 py-3 font-medium text-black max-w-[180px]">
+                          <td className="px-4 py-3 font-medium text-foreground max-w-[180px]">
                             <p className="truncate">{task.title}</p>
                           </td>
                           {/* Module */}
                           <td className="px-4 py-3 max-w-[140px]">
                             {task.module_title
-                              ? <p className="text-xs text-gray-600 truncate">{task.module_title}</p>
-                              : <span className="text-gray-300">—</span>}
+                              ? <p className="text-xs text-muted-foreground truncate">{task.module_title}</p>
+                              : <span className="text-muted-foreground/30">—</span>}
                           </td>
                           {/* Epic */}
                           <td className="px-4 py-3">
                             {task.epic_title
                               ? <span className="text-[11px] font-semibold text-[#643f83] bg-[#d6c7e1]/40 px-2 py-0.5 rounded-full whitespace-nowrap">{task.epic_title}</span>
-                              : <span className="text-gray-300">—</span>}
+                              : <span className="text-muted-foreground/30">—</span>}
                           </td>
                           {/* Start date */}
-                          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{fmtDate(task.created_at)}</td>
+                          <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{fmtDate(task.created_at)}</td>
                           {/* Deadline */}
-                          <td className={cn("px-4 py-3 whitespace-nowrap", isOverdue ? "text-red-500 font-medium" : "text-gray-500")}>
+                          <td className={cn("px-4 py-3 whitespace-nowrap", isOverdue ? "text-destructive font-medium" : "text-muted-foreground")}>
                             {fmtDate(task.due_date)}
                           </td>
                           {/* Status */}
@@ -421,36 +416,36 @@ export default function Tracker() {
                             </span>
                           </td>
                           {/* Expected */}
-                          <td className="px-4 py-3 text-gray-500 text-right whitespace-nowrap">{fmtHours(task.expected_time)}</td>
+                          <td className="px-4 py-3 text-muted-foreground text-right whitespace-nowrap">{fmtHours(task.expected_time)}</td>
                           {/* Actual */}
-                          <td className="px-4 py-3 text-gray-500 text-right whitespace-nowrap">{fmtHours(task.actual_time)}</td>
+                          <td className="px-4 py-3 text-muted-foreground text-right whitespace-nowrap">{fmtHours(task.actual_time)}</td>
                           {/* Submitted */}
-                          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
+                          <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                             {latestSub?.submitted_at
                               ? fmtDate(latestSub.submitted_at)
-                              : <span className="text-gray-300">—</span>}
+                              : <span className="text-muted-foreground/30">—</span>}
                           </td>
                           {/* Score */}
                           <td className="px-4 py-3 text-center">
                             {latestSub?.status === "reviewed" && latestSub.score != null ? (
                               <span className={cn(
                                 "text-xs font-bold px-2 py-0.5 rounded-full",
-                                latestSub.score >= 80 ? "bg-black text-white" :
+                                latestSub.score >= 80 ? "bg-foreground text-background" :
                                 latestSub.score >= 60 ? "bg-[#d6c7e1] text-[#643f83]" :
-                                "bg-red-100 text-red-500"
+                                "bg-destructive/20 text-destructive dark:text-red-400"
                               )}>
                                 {latestSub.score}/100
                               </span>
-                            ) : <span className="text-gray-300">—</span>}
+                            ) : <span className="text-muted-foreground/30">—</span>}
                           </td>
                           {/* Submission link */}
                           <td className="px-4 py-3 max-w-[160px]">
                             {latestSub?.link
                               ? <a href={latestSub.link} target="_blank" rel="noreferrer"
-                                  className="text-[#643f83] hover:underline text-xs truncate block">
+                                  className="text-[#643f83] dark:text-snuff hover:underline text-xs truncate block">
                                   {latestSub.link}
                                 </a>
-                              : <span className="text-gray-300">—</span>}
+                              : <span className="text-muted-foreground/30">—</span>}
                           </td>
                         </tr>
                       )
@@ -564,14 +559,29 @@ function StatCard({ label, value, sub, highlight }: {
 }) {
   return (
     <div className={cn(
-      "rounded-2xl border p-4 flex flex-col gap-1",
-      highlight ? "border-black bg-black text-white" : "border-gray-100 bg-white"
+      "rounded-2xl border p-4 flex flex-col gap-1 transition-colors",
+      highlight
+        ? "border-[#643f83] bg-[#643f83] text-[#d6c7e1] dark:border-[#d6c7e1] dark:bg-[#d6c7e1] dark:text-[#643f83]"
+        : "border-border bg-card text-foreground"
     )}>
-      <span className={cn("text-xs font-semibold uppercase tracking-wider mb-1", highlight ? "text-gray-300" : "text-gray-400")}>
+      <span className={cn(
+        "text-xs font-semibold uppercase tracking-wider mb-1",
+        highlight ? "text-[#d6c7e1]/80 dark:text-[#643f83]/80" : "text-muted-foreground"
+      )}>
         {label}
       </span>
-      <p className={cn("text-2xl font-bold", highlight ? "text-white" : "text-black")}>{value}</p>
-      <p className="text-xs text-gray-400">{sub}</p>
+      <p className={cn(
+        "text-2xl font-bold",
+        highlight ? "text-white dark:text-[#643f83]" : "text-foreground"
+      )}>
+        {value}
+      </p>
+      <p className={cn(
+        "text-xs",
+        highlight ? "text-[#d6c7e1]/90 dark:text-[#643f83]/90" : "text-muted-foreground"
+      )}>
+        {sub}
+      </p>
     </div>
   )
 }

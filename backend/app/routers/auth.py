@@ -23,6 +23,11 @@ from app.schemas.auth import (
     Token,
     UserOut,
 )
+import secrets
+from app.models.enums import UserRole
+from app.models.ambassadors.teacher_application import TeacherApplication
+from app.schemas.user import AmbassadorApply, TeacherApply
+from app.services.notification import create_notification as notify
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -114,3 +119,96 @@ async def change_password(
     current_user.must_change_password = False
     await db.commit()
     return {"detail": "password updated"}
+
+
+async def _email_taken(db: AsyncSession, email: str) -> bool:
+    return (await db.execute(select(User.id).where(User.email == email))).first() is not None
+
+
+@router.post("/apply", status_code=status.HTTP_201_CREATED)
+async def apply_ambassador(payload: AmbassadorApply, db: AsyncSession = Depends(get_db)):
+    """Public ambassador application. Starts as 'pending' for admin approval."""
+    if await _email_taken(db, payload.email):
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    user = User(
+        full_name=payload.full_name,
+        email=payload.email,
+        password_hash=get_password_hash(payload.password),
+        roles=[UserRole.ambassador],
+        country=payload.country,
+        invite_code=secrets.token_hex(4).upper(),
+        status="pending",
+    )
+    db.add(user)
+
+    # Notify admins
+    admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
+    for admin in admins:
+        await notify(db, admin.id, "New Ambassador Application", f"{payload.full_name} applied as an ambassador.")
+
+    await db.commit()
+    await db.refresh(user)
+    return _user_out(user)
+
+
+@router.post("/teacher-apply", status_code=status.HTTP_201_CREATED)
+async def teacher_apply(payload: TeacherApply, db: AsyncSession = Depends(get_db)):
+    """Public teacher application via an ambassador's invite code."""
+    if await _email_taken(db, payload.email):
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    # Find ambassador
+    amb = (await db.execute(
+        select(User).where(
+            User.invite_code == payload.invite_code,
+            User.roles.any("ambassador"),
+            User.status == "active",
+        )
+    )).scalars().first()
+    if not amb:
+        raise HTTPException(status_code=400, detail="Invalid or inactive invite code")
+
+    # Check duplicate app
+    dup = (await db.execute(
+        select(TeacherApplication.id).where(
+            TeacherApplication.email == payload.email,
+            TeacherApplication.invited_by_id == amb.id,
+            TeacherApplication.status == "pending"
+        )
+    )).first()
+    if dup:
+        raise HTTPException(status_code=400, detail="You have already applied via this ambassador")
+
+    app = TeacherApplication(
+        full_name=payload.full_name,
+        email=payload.email,
+        password_hash=get_password_hash(payload.password),
+        invite_code=payload.invite_code,
+        invited_by_id=amb.id,
+        answers=payload.answers,
+        status="pending",
+    )
+    db.add(app)
+
+    # Notify the ambassador
+    await notify(db, amb.id, "New Teacher Application",
+                 f"{payload.full_name} applied as a teacher with your invite code — review them in Network.")
+
+    await db.commit()
+    await db.refresh(app)
+    return {"id": str(app.id), "email": app.email, "status": app.status}
+
+
+@router.get("/invite/{code}")
+async def validate_invite(code: str, db: AsyncSession = Depends(get_db)):
+    amb = (await db.execute(
+        select(User).where(
+            User.invite_code == code,
+            User.roles.any("ambassador"),
+            User.status == "active"
+        )
+    )).scalars().first()
+    if not amb:
+        raise HTTPException(status_code=404, detail="Invalid or inactive invite code")
+    return {"ambassador_name": amb.full_name, "valid": True}

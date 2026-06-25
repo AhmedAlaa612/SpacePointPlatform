@@ -7,6 +7,7 @@ from app.routers.interns import admin as interns_admin
 from app.routers.interns import intern as interns_intern
 from app.routers.interns import leader as interns_leader
 from app.routers.interns import shared as interns_shared
+from app.routers.ambassadors import router as ambassadors_router
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
@@ -27,8 +28,10 @@ app.include_router(interns_leader.router, prefix="/interns")
 app.include_router(interns_intern.router, prefix="/interns")
 app.include_router(interns_shared.router, prefix="/interns")
 
+# Ambassadors domain (Phase 2) — /ambassadors/*
+app.include_router(ambassadors_router, prefix="/ambassadors")
+
 # Mounted as later phases land (PLAN §3 / §12):
-#   app.include_router(ambassadors_router, prefix="/ambassadors")
 #   app.include_router(instructors_router, prefix="/instructors")
 #   app.include_router(admin_router,       prefix="/admin")
 #   app.include_router(apply_router,       prefix="/apply")

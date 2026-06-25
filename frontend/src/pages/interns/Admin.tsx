@@ -8,7 +8,7 @@ import { userRole } from "@/types/interns"
 import { cn } from "@/lib/utils"
 
 const roleBadge: Record<string, string> = {
-  admin:  "bg-black text-white",
+  admin:  "bg-black dark:bg-white text-white dark:text-black border border-transparent dark:border-border",
   leader: "bg-[#643f83] text-white",
   intern: "bg-[#d6c7e1] text-[#643f83]",
 }
@@ -21,18 +21,18 @@ export default function Admin() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h1 className="text-xl font-bold text-black tracking-tight">Admin</h1>
-        <p className="text-sm text-gray-400 mt-0.5">Manage users and teams</p>
+        <h1 className="text-xl font-bold text-foreground tracking-tight">Admin</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Manage users and teams</p>
       </div>
 
-      <div className="flex gap-1 border-b border-gray-100">
+      <div className="flex gap-1 border-b border-border">
         {(["users", "teams"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
               "px-4 py-2 text-sm font-medium capitalize transition-colors border-b-2 -mb-px",
-              tab === t ? "border-black text-black" : "border-transparent text-gray-400 hover:text-black"
+              tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
             )}
           >
             {t === "users" ? "Users" : "Teams"}
@@ -69,10 +69,10 @@ function UsersPanel() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-400">{users.length} user{users.length !== 1 ? "s" : ""}</p>
+        <p className="text-sm text-muted-foreground">{users.length} user{users.length !== 1 ? "s" : ""}</p>
         <button
           onClick={() => setCreateOpen(true)}
-          className="flex items-center gap-1.5 h-9 px-4 bg-black text-white text-sm font-medium rounded-xl hover:bg-gray-900 transition-colors"
+          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
         >
           <UserPlus size={14} /> New user
         </button>
@@ -82,15 +82,15 @@ function UsersPanel() {
         {users.map((u) => (
           <div
             key={u.id}
-            className="flex items-center justify-between p-4 bg-white border border-gray-100 rounded-2xl hover:border-gray-200 transition-colors"
+            className="flex items-center justify-between p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors"
           >
             <div className="flex items-center gap-3 min-w-0">
-              <div className="w-9 h-9 rounded-full bg-black text-white text-xs font-semibold flex items-center justify-center flex-shrink-0">
+              <div className="w-9 h-9 rounded-full bg-foreground text-background text-xs font-semibold flex items-center justify-center flex-shrink-0">
                 {u.full_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-medium text-black truncate">{u.full_name}</p>
-                <p className="text-xs text-gray-400 truncate">{u.email}</p>
+                <p className="text-sm font-medium text-foreground truncate">{u.full_name}</p>
+                <p className="text-xs text-muted-foreground truncate">{u.email}</p>
               </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0 ml-3">
@@ -99,13 +99,13 @@ function UsersPanel() {
               </span>
               <button
                 onClick={() => setChangePasswordUser(u)}
-                className="text-xs font-medium text-gray-400 hover:text-black transition-colors"
+                className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
               >
                 Change password
               </button>
               <button
                 onClick={() => { if (confirm(`Delete ${u.full_name}?`)) deleteMutation.mutate(u.id) }}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
               >
                 <Trash2 size={14} />
               </button>
@@ -113,8 +113,8 @@ function UsersPanel() {
           </div>
         ))}
         {users.length === 0 && (
-          <div className="flex items-center justify-center h-32 border border-dashed border-gray-200 rounded-2xl">
-            <p className="text-sm text-gray-400">No users yet</p>
+          <div className="flex items-center justify-center h-32 border border-dashed border-border rounded-2xl">
+            <p className="text-sm text-muted-foreground">No users yet</p>
           </div>
         )}
       </div>
@@ -162,10 +162,10 @@ function TeamsPanel() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-400">{teams.length} team{teams.length !== 1 ? "s" : ""}</p>
+        <p className="text-sm text-muted-foreground">{teams.length} team{teams.length !== 1 ? "s" : ""}</p>
         <button
           onClick={() => setCreateOpen(true)}
-          className="flex items-center gap-1.5 h-9 px-4 bg-black text-white text-sm font-medium rounded-xl hover:bg-gray-900 transition-colors"
+          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
         >
           <Plus size={14} /> New team
         </button>
@@ -175,17 +175,17 @@ function TeamsPanel() {
         {teams.map((team) => (
           <div
             key={team.id}
-            className="bg-white border border-gray-100 rounded-2xl p-5 flex flex-col gap-3 hover:border-gray-200 transition-colors"
+            className="bg-card border border-border rounded-2xl p-5 flex flex-col gap-3 hover:border-muted-foreground/30 transition-colors"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-black">{team.name}</p>
-                <div className="flex items-center gap-1 mt-0.5 text-xs text-gray-400">
+                <p className="text-sm font-semibold text-foreground">{team.name}</p>
+                <div className="flex items-center gap-1 mt-0.5 text-xs text-muted-foreground">
                   <Crown size={11} />
                   <span>{getUserName(team.leader_id)}</span>
                 </div>
               </div>
-              <span className="text-xs text-gray-400 flex-shrink-0 mt-0.5">
+              <span className="text-xs text-muted-foreground flex-shrink-0 mt-0.5">
                 {team.members.length} member{team.members.length !== 1 ? "s" : ""}
               </span>
             </div>
@@ -205,15 +205,15 @@ function TeamsPanel() {
 
             <button
               onClick={() => setManagingTeam(team)}
-              className="h-8 border border-gray-200 rounded-lg text-xs font-medium text-gray-700 hover:bg-gray-50 transition-colors flex items-center justify-center gap-1.5"
+              className="h-8 border border-border rounded-lg text-xs font-medium text-foreground bg-card hover:bg-muted transition-colors flex items-center justify-center gap-1.5"
             >
               <Users size={12} /> Manage members
             </button>
           </div>
         ))}
         {teams.length === 0 && (
-          <div className="col-span-2 flex items-center justify-center h-32 border border-dashed border-gray-200 rounded-2xl">
-            <p className="text-sm text-gray-400">No teams yet</p>
+          <div className="col-span-2 flex items-center justify-center h-32 border border-dashed border-border rounded-2xl">
+            <p className="text-sm text-muted-foreground">No teams yet</p>
           </div>
         )}
       </div>
@@ -258,23 +258,28 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
     <Modal title="New user" onClose={onClose}>
       <div className="flex flex-col gap-3">
         <Field label="Full name">
-          <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Smith" autoFocus className="input" />
+          <input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Jane Smith" autoFocus
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
         <Field label="Email">
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@example.com" type="email" className="input" />
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@example.com" type="email"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
         <Field label="Password">
-          <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" type="password" className="input" />
+          <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" type="password"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
         <Field label="Role">
-          <select value={role} onChange={(e) => setRole(e.target.value as Role)} className="input bg-white">
-            <option value="intern">Intern</option>
-            <option value="leader">Team leader</option>
-            <option value="admin">Admin</option>
+          <select value={role} onChange={(e) => setRole(e.target.value as Role)}
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer">
+            <option value="intern" className="bg-card text-foreground">Intern</option>
+            <option value="leader" className="bg-card text-foreground">Team leader</option>
+            <option value="admin" className="bg-card text-foreground">Admin</option>
           </select>
         </Field>
         <Field label="WhatsApp number (optional)">
-          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20 10 0000 0000" className="input" />
+          <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20 10 0000 0000"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
         {error && <p className="text-xs text-red-500">{error}</p>}
         <ModalActions
@@ -308,15 +313,17 @@ function CreateTeamModal({ users, onClose, onSuccess }: {
     <Modal title="New team" onClose={onClose}>
       <div className="flex flex-col gap-3">
         <Field label="Team name">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Team Alpha" autoFocus className="input" />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Team Alpha" autoFocus
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
         <Field label="Team leader">
           {leaders.length === 0 ? (
             <p className="text-xs text-red-500">No leaders found. Create a user with the "leader" role first.</p>
           ) : (
-            <select value={leaderId} onChange={(e) => setLeaderId(e.target.value)} className="input bg-white">
+            <select value={leaderId} onChange={(e) => setLeaderId(e.target.value)}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer">
               {leaders.map((u) => (
-                <option key={u.id} value={u.id}>{u.full_name} ({userRole(u)})</option>
+                <option key={u.id} value={u.id} className="bg-card text-foreground">{u.full_name} ({userRole(u)})</option>
               ))}
             </select>
           )}
@@ -363,14 +370,14 @@ function ManageMembersModal({ team, users, onClose, onSuccess }: {
           const isMember  = memberIds.has(intern.id)
           const isPending = addMutation.isPending || removeMutation.isPending
           return (
-            <div key={intern.id} className="flex items-center justify-between p-3 border border-gray-100 rounded-xl">
+            <div key={intern.id} className="flex items-center justify-between p-3 border border-border rounded-xl">
               <div className="flex items-center gap-2.5">
                 <div className="w-8 h-8 rounded-full bg-[#d6c7e1] text-[#643f83] text-xs font-semibold flex items-center justify-center">
                   {intern.full_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()}
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-black">{intern.full_name}</p>
-                  <p className="text-xs text-gray-400">{intern.email}</p>
+                  <p className="text-sm font-medium text-foreground">{intern.full_name}</p>
+                  <p className="text-xs text-muted-foreground">{intern.email}</p>
                 </div>
               </div>
               <button
@@ -379,8 +386,8 @@ function ManageMembersModal({ team, users, onClose, onSuccess }: {
                 className={cn(
                   "h-7 px-3 rounded-lg text-xs font-medium transition-colors disabled:opacity-50",
                   isMember
-                    ? "border border-gray-200 text-gray-600 hover:bg-red-50 hover:text-red-500 hover:border-red-200"
-                    : "bg-black text-white hover:bg-gray-900"
+                    ? "border border-border text-muted-foreground hover:bg-red-500/10 hover:text-red-500 hover:border-red-200"
+                    : "bg-primary text-primary-foreground hover:opacity-90"
                 )}
               >
                 {isMember ? "Remove" : "Add"}
@@ -391,7 +398,7 @@ function ManageMembersModal({ team, users, onClose, onSuccess }: {
       </div>
       <div className="mt-4">
         <button onClick={onClose}
-          className="w-full h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+          className="w-full h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
           Done
         </button>
       </div>
@@ -423,13 +430,15 @@ function ChangePasswordModal({ user, onClose, onSuccess }: {
         <Field label="New password">
           <input
             value={password} onChange={(e) => { setPassword(e.target.value); setError("") }}
-            type="password" placeholder="••••••••" autoFocus className="input"
+            type="password" placeholder="••••••••" autoFocus
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </Field>
         <Field label="Confirm password">
           <input
             value={confirm} onChange={(e) => setConfirm(e.target.value)}
-            type="password" placeholder="••••••••" className="input"
+            type="password" placeholder="••••••••"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
           {mismatch && <p className="text-xs text-red-500 mt-1">Passwords do not match</p>}
         </Field>
@@ -451,10 +460,10 @@ function ChangePasswordModal({ user, onClose, onSuccess }: {
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-white rounded-2xl p-6 flex flex-col gap-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-sm bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between">
-          <p className="text-base font-semibold text-black">{title}</p>
-          <button onClick={onClose} className="p-1 rounded-lg text-gray-400 hover:text-black transition-colors">
+          <p className="text-base font-semibold text-foreground">{title}</p>
+          <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
             <X size={16} />
           </button>
         </div>
@@ -467,7 +476,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1 block">{label}</label>
+      <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">{label}</label>
       {children}
     </div>
   )
@@ -479,11 +488,11 @@ function ModalActions({ onCancel, onConfirm, loading, disabled, label }: {
   return (
     <div className="flex gap-2 mt-1">
       <button onClick={onCancel}
-        className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+        className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
         Cancel
       </button>
       <button onClick={onConfirm} disabled={disabled || loading}
-        className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+        className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50">
         {loading ? "…" : label}
       </button>
     </div>
@@ -493,7 +502,7 @@ function ModalActions({ onCancel, onConfirm, loading, disabled, label }: {
 function Spinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+      <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
   )
 }

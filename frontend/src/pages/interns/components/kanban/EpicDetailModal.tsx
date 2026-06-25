@@ -14,9 +14,9 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  todo: "bg-gray-100 text-gray-500",
-  in_progress: "bg-[#d6c7e1] text-[#643f83]",
-  done: "bg-black text-white",
+  todo: "bg-gray-100 text-gray-500 dark:bg-muted dark:text-muted-foreground",
+  in_progress: "bg-[#d6c7e1] text-[#643f83] dark:bg-[#d6c7e1]/10 dark:text-[#d6c7e1]",
+  done: "bg-black text-white dark:bg-foreground dark:text-background",
 }
 
 interface Props {
@@ -70,16 +70,16 @@ export default function EpicDetailModal({ epic, projectName, open, onClose }: Pr
         onClick={onClose}
       >
         <div
-          className="w-full max-w-md bg-white border border-gray-100 shadow-xl rounded-2xl overflow-hidden flex flex-col max-h-[85vh]"
+          className="w-full max-w-md bg-card border border-border text-foreground shadow-xl rounded-2xl overflow-hidden flex flex-col max-h-[85vh]"
           onClick={(e) => e.stopPropagation()}
         >
           {/* header */}
-          <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-4 border-b border-border flex-shrink-0">
             <div className="min-w-0">
-              <span className="text-[9px] font-bold uppercase tracking-widest text-[#643f83]">Epic</span>
-              <p className="text-base font-semibold text-black leading-snug mt-0.5">{epic.title}</p>
+              <span className="text-[9px] font-bold uppercase tracking-widest text-[#643f83] dark:text-[#d6c7e1]">Epic</span>
+              <p className="text-base font-semibold text-foreground leading-snug mt-0.5">{epic.title}</p>
               {projectName && (
-                <p className="text-xs text-gray-400 mt-0.5">{projectName}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{projectName}</p>
               )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -90,11 +90,11 @@ export default function EpicDetailModal({ epic, projectName, open, onClose }: Pr
                 {STATUS_LABEL[epic.status] ?? epic.status}
               </span>
               {!editing && (
-                <button onClick={openEdit} className="p-1.5 rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="Edit epic">
+                <button onClick={openEdit} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors" title="Edit epic">
                   <Pencil size={14} />
                 </button>
               )}
-              <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-black transition-colors">
+              <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                 <X size={15} />
               </button>
             </div>
@@ -106,20 +106,20 @@ export default function EpicDetailModal({ epic, projectName, open, onClose }: Pr
             {editing ? (
               <div className="flex flex-col gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Title</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Title</label>
                   <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
-                    className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+                    className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Description</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
                   <textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)}
                     rows={4} placeholder="Optional"
-                    className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors" />
+                    className="w-full px-3 py-2.5 border border-border bg-background text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Status</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Status</label>
                   <select value={editStatus} onChange={(e) => setEditStatus(e.target.value as WorkStatus)}
-                    className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-black transition-colors">
+                    className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors">
                     <option value="todo">To do</option>
                     <option value="in_progress">In progress</option>
                     <option value="done">Done</option>
@@ -127,31 +127,31 @@ export default function EpicDetailModal({ epic, projectName, open, onClose }: Pr
                 </div>
                 <div className="flex gap-2">
                   <button onClick={() => setEditing(false)}
-                    className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                    className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
                     Cancel
                   </button>
                   <button onClick={() => saveMutation.mutate()}
                     disabled={!editTitle.trim() || saveMutation.isPending}
-                    className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5">
+                    className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/95 transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5">
                     <Check size={14} /> {saveMutation.isPending ? "Saving…" : "Save"}
                   </button>
                 </div>
               </div>
             ) : epic.description ? (
-              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{epic.description}</p>
+              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{epic.description}</p>
             ) : (
-              <p className="text-sm text-gray-300 italic">No description provided.</p>
+              <p className="text-sm text-muted-foreground/50 italic">No description provided.</p>
             )}
 
             {/* progress */}
-            <div className="flex items-center gap-3 text-xs text-gray-500 bg-gray-50 rounded-xl px-3 py-2.5">
-              <span className="font-medium text-black">{doneTasks}/{totalTasks}</span>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground bg-muted rounded-xl px-3 py-2.5">
+              <span className="font-medium text-foreground">{doneTasks}/{totalTasks}</span>
               tasks done
               {totalTasks > 0 && (
                 <>
-                  <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div className="flex-1 h-1.5 bg-background dark:bg-muted-foreground/20 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-[#643f83] rounded-full transition-all"
+                      className="h-full bg-[#643f83] dark:bg-[#d6c7e1] rounded-full transition-all"
                       style={{ width: `${Math.round((doneTasks / totalTasks) * 100)}%` }}
                     />
                   </div>
@@ -163,20 +163,20 @@ export default function EpicDetailModal({ epic, projectName, open, onClose }: Pr
             {/* modules */}
             {nonEmptyModules.length > 0 && (
               <div>
-                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Modules</p>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Modules</p>
                 <div className="flex flex-col gap-1.5">
                   {nonEmptyModules.map((m) => {
                     const mDone = m.tasks.filter((t) => t.status === "done").length
                     return (
-                      <div key={m.id} className="flex items-center justify-between px-3 py-2 rounded-xl border border-gray-100 bg-gray-50/60 gap-2">
+                      <div key={m.id} className="flex items-center justify-between px-3 py-2 rounded-xl border border-border bg-muted/30 gap-2">
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm text-black font-medium truncate">{m.title}</p>
-                          <p className="text-[11px] text-gray-400">{mDone}/{m.tasks.length} done</p>
+                          <p className="text-sm text-foreground font-medium truncate">{m.title}</p>
+                          <p className="text-[11px] text-muted-foreground">{mDone}/{m.tasks.length} done</p>
                         </div>
                         <button
                           onClick={() => setViewModule(m)}
                           title="View module details"
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-[#643f83] hover:bg-purple-50 transition-colors flex-shrink-0"
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-[#643f83] dark:hover:text-[#d6c7e1] hover:bg-muted transition-colors flex-shrink-0"
                         >
                           <Eye size={13} />
                         </button>
@@ -187,7 +187,7 @@ export default function EpicDetailModal({ epic, projectName, open, onClose }: Pr
               </div>
             )}
 
-            <p className="text-[11px] text-gray-300">
+            <p className="text-[11px] text-muted-foreground/70">
               Created {new Date(epic.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
             </p>
           </div>

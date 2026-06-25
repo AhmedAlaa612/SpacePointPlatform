@@ -4,5 +4,6 @@ from app.models.user import User  # noqa: F401
 from app.models.notification import Notification  # noqa: F401  (shared)
 from app.models import interns  # noqa: F401  (Phase 1)
 
-# Phase 2 — ambassadors: from app.models import ambassadors
+from app.models import ambassadors  # noqa: F401  (Phase 2)
 # Phase 3 — instructors: from app.models import instructors
+

@@ -25,12 +25,12 @@ function AssigneeRow({ user }: { user: User }) {
   return (
     <div className="flex items-center justify-between py-2">
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-[#d6c7e1] text-[#643f83] text-xs font-semibold flex items-center justify-center flex-shrink-0">
+        <div className="w-8 h-8 rounded-full bg-[#d6c7e1] dark:bg-[#d6c7e1]/20 text-[#643f83] dark:text-[#d6c7e1] text-xs font-semibold flex items-center justify-center flex-shrink-0">
           {initials}
         </div>
         <div>
-          <p className="text-sm font-medium text-black">{user.full_name}</p>
-          <p className="text-xs text-gray-400">{user.email}</p>
+          <p className="text-sm font-medium text-foreground">{user.full_name}</p>
+          <p className="text-xs text-muted-foreground">{user.email}</p>
         </div>
       </div>
       {user.phone && (
@@ -154,31 +154,31 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={resetClose}>
-      <DialogContent className="max-w-md w-full bg-white border border-gray-100 shadow-xl rounded-2xl p-0 overflow-hidden">
+      <DialogContent className="max-w-md w-full bg-card border border-border text-foreground shadow-xl rounded-2xl p-0 overflow-hidden">
         <div className="p-6">
           <DialogHeader>
             {/* Epic / module context */}
             {(card.epic_title || card.module_title) && (
               <div className="flex items-center gap-1.5 mb-1">
                 {card.epic_title && (
-                  <span className="text-[10px] font-semibold text-[#643f83] bg-[#d6c7e1]/40 px-2 py-0.5 rounded-full">
+                  <span className="text-[10px] font-semibold text-[#643f83] dark:text-[#d6c7e1] bg-[#d6c7e1]/40 dark:bg-[#d6c7e1]/10 px-2 py-0.5 rounded-full">
                     {card.epic_title}
                   </span>
                 )}
                 {card.module_title && card.module_title !== "General" && (
-                  <span className="text-[10px] text-gray-400">{card.module_title}</span>
+                  <span className="text-[10px] text-muted-foreground">{card.module_title}</span>
                 )}
               </div>
             )}
             <div className="flex items-start justify-between gap-2">
-              <DialogTitle className="text-base font-semibold text-black leading-snug pr-2">
+              <DialogTitle className="text-base font-semibold text-foreground leading-snug pr-2">
                 {card.title}
               </DialogTitle>
               <div className="flex items-center gap-1 flex-shrink-0">
                 {card.epic_id && (
                   <button
                     onClick={() => navigate({ to: "/interns/mind-map/$epicId", params: { epicId: card.epic_id! } })}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-[#643f83] hover:bg-[#d6c7e1]/30 transition-colors"
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-[#643f83] dark:hover:text-[#d6c7e1] hover:bg-[#d6c7e1]/30 dark:hover:bg-[#d6c7e1]/10 transition-colors"
                     title="View epic mind map"
                   >
                     <Network size={14} />
@@ -186,7 +186,7 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                 )}
                 {isLeader && view === "detail" && (
                   <button onClick={openEdit}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors">
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                     <Pencil size={14} />
                   </button>
                 )}
@@ -194,7 +194,7 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                   <button
                     onClick={() => { if (confirm(`Delete "${card.title}"?`)) deleteMutation.mutate() }}
                     disabled={deleteMutation.isPending}
-                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 dark:hover:bg-red-500/20 transition-colors disabled:opacity-50"
                   >
                     <Trash2 size={14} />
                   </button>
@@ -214,17 +214,17 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                 if (!scopeText) return null
                 const label = isGeneral ? "Epic scope" : `${card.module_title} — scope`
                 return (
-                  <div className="border border-[#d6c7e1] rounded-xl overflow-hidden">
+                  <div className="border border-[#d6c7e1] dark:border-[#d6c7e1]/20 rounded-xl overflow-hidden">
                     <button
                       onClick={() => setScopeOpen((o) => !o)}
-                      className="w-full flex items-center justify-between px-3.5 py-2.5 bg-[#f5f0fa] text-[#643f83] hover:bg-[#ede5f5] transition-colors"
+                      className="w-full flex items-center justify-between px-3.5 py-2.5 bg-[#f5f0fa] dark:bg-[#643f83]/10 text-[#643f83] dark:text-[#d6c7e1] hover:bg-[#ede5f5] dark:hover:bg-[#643f83]/20 transition-colors"
                     >
                       <span className="text-[10px] font-bold uppercase tracking-widest">{label}</span>
                       {scopeOpen ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                     </button>
                     {scopeOpen && (
-                      <div className="px-3.5 py-3 bg-white">
-                        <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">{scopeText}</p>
+                      <div className="px-3.5 py-3 bg-card">
+                        <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">{scopeText}</p>
                       </div>
                     )}
                   </div>
@@ -232,22 +232,22 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
               })()}
 
               {card.description && (
-                <p className="text-sm text-gray-600 leading-relaxed">{card.description}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{card.description}</p>
               )}
 
               <div className="flex flex-wrap gap-2">
                 {formattedDue && (
-                  <span className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-lg">
                     <Clock size={11} /> Due {formattedDue}
                   </span>
                 )}
                 {card.expected_time != null && (
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
+                  <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-lg">
                     Expected {card.expected_time}h
                   </span>
                 )}
                 {card.actual_time != null && (
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
+                  <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-lg">
                     Actual {card.actual_time}h
                   </span>
                 )}
@@ -256,8 +256,8 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
               {/* Assignees */}
               {card.assignees.length > 0 && (
                 <div>
-                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Assigned to</p>
-                  <div className="divide-y divide-gray-50">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Assigned to</p>
+                  <div className="divide-y divide-border">
                     {card.assignees.map((u) => <AssigneeRow key={u.id} user={u} />)}
                   </div>
                 </div>
@@ -266,45 +266,45 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
               {/* Submissions */}
               {card.submissions.length > 0 && (
                 <div className="flex flex-col gap-2">
-                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                     Submissions ({card.submissions.length})
                   </p>
                   {[...card.submissions].reverse().map((sub, i) => (
                     <div key={sub.id} className={cn(
-                      "rounded-xl p-3 border",
-                      i === 0 ? "bg-gray-50 border-gray-200" : "bg-white border-gray-100 opacity-70"
+                      "rounded-xl p-3 border border-border",
+                      i === 0 ? "bg-muted/50" : "bg-card/50 opacity-70"
                     )}>
                       <div className="flex items-center justify-between mb-1.5">
                         {i === 0
-                          ? <p className="text-[9px] font-bold uppercase tracking-widest text-[#643f83]">Latest</p>
+                          ? <p className="text-[9px] font-bold uppercase tracking-widest text-[#643f83] dark:text-[#d6c7e1]">Latest</p>
                           : <span />}
                         {sub.submitter_name && (
-                          <span className="text-[10px] font-medium text-gray-500">by {sub.submitter_name}</span>
+                          <span className="text-[10px] font-medium text-muted-foreground">by {sub.submitter_name}</span>
                         )}
                       </div>
                       <a href={sub.link} target="_blank" rel="noreferrer"
-                        className="flex items-center gap-1.5 text-sm text-[#643f83] hover:underline">
+                        className="flex items-center gap-1.5 text-sm text-[#643f83] dark:text-[#d6c7e1] hover:underline">
                         <ExternalLink size={13} />{sub.link}
                       </a>
-                      {sub.note && <p className="text-xs text-gray-500 mt-1">{sub.note}</p>}
+                      {sub.note && <p className="text-xs text-muted-foreground mt-1">{sub.note}</p>}
                       <div className="flex items-center justify-between mt-2">
                         <span className={cn(
                           "text-[10px] font-semibold px-2 py-0.5 rounded-full",
-                          sub.status === "reviewed" ? "bg-black text-white" : "bg-[#d6c7e1] text-[#643f83]"
+                          sub.status === "reviewed" ? "bg-foreground text-background" : "bg-[#d6c7e1] text-[#643f83] dark:bg-[#643f83]/40 dark:text-[#d6c7e1]"
                         )}>
                           {sub.status === "reviewed" ? "Reviewed" : "Pending review"}
                         </span>
                         <div className="flex items-center gap-2">
                           {sub.score != null && (
-                            <span className="text-xs font-semibold text-black">{sub.score}/100</span>
+                            <span className="text-xs font-semibold text-foreground">{sub.score}/100</span>
                           )}
-                          <span className="text-[10px] text-gray-400">
+                          <span className="text-[10px] text-muted-foreground">
                             {new Date(sub.submitted_at).toLocaleDateString()}
                           </span>
                         </div>
                       </div>
                       {sub.review_comment && (
-                        <p className="text-xs text-gray-500 mt-1.5 italic">"{sub.review_comment}"</p>
+                        <p className="text-xs text-muted-foreground mt-1.5 italic">"{sub.review_comment}"</p>
                       )}
                     </div>
                   ))}
@@ -316,13 +316,13 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                 {/* Intern */}
                 {isIntern && card.status === "todo" && (
                   <button onClick={() => startMutation.mutate()} disabled={startMutation.isPending}
-                    className="w-full h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+                    className="w-full h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/95 transition-colors disabled:opacity-50">
                     {startMutation.isPending ? "Updating…" : "Start working"}
                   </button>
                 )}
                 {isIntern && card.status === "in_progress" && (
                   <button onClick={() => setView("submit")}
-                    className="w-full h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors">
+                    className="w-full h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/95 transition-colors">
                     Submit work
                   </button>
                 )}
@@ -336,7 +336,7 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                     setSelectedSubId(latest.id)
                     setView("review")
                   }}
-                    className="w-full h-10 border border-black text-black rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors">
+                    className="w-full h-10 border border-primary text-primary rounded-xl text-sm font-medium hover:bg-primary/5 dark:hover:bg-primary/10 transition-colors">
                     Review submission ({pendingSubs.length})
                   </button>
                 )}
@@ -347,21 +347,21 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                     {card.status !== "in_progress" && (
                       <button onClick={() => updateStatusMutation.mutate("in_progress")}
                         disabled={updateStatusMutation.isPending}
-                        className="flex-1 h-9 border border-[#643f83] text-[#643f83] rounded-xl text-xs font-medium hover:bg-[#d6c7e1]/30 transition-colors disabled:opacity-50">
+                        className="flex-1 h-9 border border-[#643f83] dark:border-[#d6c7e1] text-[#643f83] dark:text-[#d6c7e1] rounded-xl text-xs font-medium hover:bg-[#d6c7e1]/30 dark:hover:bg-[#d6c7e1]/10 transition-colors disabled:opacity-50">
                         Mark in progress
                       </button>
                     )}
                     {card.status !== "done" && (
                       <button onClick={() => updateStatusMutation.mutate("done")}
                         disabled={updateStatusMutation.isPending}
-                        className="flex-1 h-9 bg-black text-white rounded-xl text-xs font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+                        className="flex-1 h-9 bg-primary text-primary-foreground rounded-xl text-xs font-medium hover:bg-primary/95 transition-colors disabled:opacity-50">
                         Mark done
                       </button>
                     )}
                     {card.status !== "todo" && (
                       <button onClick={() => updateStatusMutation.mutate("todo")}
                         disabled={updateStatusMutation.isPending}
-                        className="flex-1 h-9 border border-gray-200 text-gray-600 rounded-xl text-xs font-medium hover:bg-gray-50 transition-colors disabled:opacity-50">
+                        className="flex-1 h-9 border border-border text-muted-foreground rounded-xl text-xs font-medium hover:bg-muted transition-colors disabled:opacity-50">
                         Reopen
                       </button>
                     )}
@@ -376,49 +376,49 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
             <div className="mt-4 flex flex-col gap-4">
               {/* title */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">Title</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Title</label>
                 <input value={editTitle} onChange={(e) => setEditTitle(e.target.value)}
-                  className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+                  className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
               </div>
               {/* description */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">Description</label>
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">Description</label>
                 <textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)}
                   rows={3} placeholder="Optional"
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors" />
+                  className="w-full px-3 py-2.5 border border-border bg-background text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors" />
               </div>
               {/* due date + expected time */}
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Deadline</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Deadline</label>
                   <input type="date" value={editDue} onChange={(e) => setEditDue(e.target.value)}
-                    className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+                    className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors [color-scheme:light] dark:[color-scheme:dark]" />
                 </div>
                 <div className="flex-1">
-                  <label className="block text-xs font-medium text-gray-500 mb-1.5">Expected (h)</label>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1.5">Expected (h)</label>
                   <input type="number" min="0" step="0.5" value={editExpected} onChange={(e) => setEditExpected(e.target.value)}
                     placeholder="e.g. 3"
-                    className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+                    className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
                 </div>
               </div>
 
               {/* assignees */}
               <div>
-                <p className="text-xs font-medium text-gray-500 mb-2">Assignees</p>
+                <p className="text-xs font-medium text-muted-foreground mb-2">Assignees</p>
                 {/* current */}
                 {card.assignees.length > 0 && (
                   <div className="flex flex-col gap-1.5 mb-3">
                     {card.assignees.map((u) => (
-                      <div key={u.id} className="flex items-center justify-between px-3 py-2 bg-gray-50 rounded-xl">
+                      <div key={u.id} className="flex items-center justify-between px-3 py-2 bg-muted/50 rounded-xl">
                         <div className="flex items-center gap-2">
-                          <div className="w-6 h-6 rounded-full bg-[#d6c7e1] text-[#643f83] text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                          <div className="w-6 h-6 rounded-full bg-[#d6c7e1] dark:bg-[#d6c7e1]/10 text-[#643f83] dark:text-[#d6c7e1] text-[10px] font-bold flex items-center justify-center flex-shrink-0">
                             {u.full_name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
                           </div>
-                          <span className="text-sm font-medium text-black">{u.full_name}</span>
+                          <span className="text-sm font-medium text-foreground">{u.full_name}</span>
                         </div>
                         <button onClick={() => unassignMutation.mutate(u.id)}
                           disabled={unassignMutation.isPending}
-                          className="p-1 rounded-lg text-gray-400 hover:text-red-500 transition-colors disabled:opacity-50">
+                          className="p-1 rounded-lg text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50">
                           <XIcon size={13} />
                         </button>
                       </div>
@@ -428,20 +428,20 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
                 {/* add from team */}
                 {teamMembers.filter((m) => !card.assignees.find((a) => a.id === m.id)).length > 0 && (
                   <div className="flex flex-col gap-1.5">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Add from team</p>
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Add from team</p>
                     {teamMembers
                       .filter((m) => !card.assignees.find((a) => a.id === m.id))
                       .map((m) => (
                         <button key={m.id} onClick={() => assignMutation.mutate(m.id)}
                           disabled={assignMutation.isPending}
-                          className="flex items-center justify-between px-3 py-2 border border-dashed border-gray-200 rounded-xl hover:border-black hover:bg-gray-50 transition-all disabled:opacity-50">
+                          className="flex items-center justify-between px-3 py-2 border border-dashed border-border rounded-xl hover:border-primary hover:bg-muted/50 transition-all disabled:opacity-50">
                           <div className="flex items-center gap-2">
-                            <div className="w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                            <div className="w-6 h-6 rounded-full bg-muted text-muted-foreground text-[10px] font-bold flex items-center justify-center flex-shrink-0">
                               {m.full_name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
                             </div>
-                            <span className="text-sm text-gray-600">{m.full_name}</span>
+                            <span className="text-sm text-muted-foreground">{m.full_name}</span>
                           </div>
-                          <Plus size={13} className="text-gray-400" />
+                          <Plus size={13} className="text-muted-foreground" />
                         </button>
                       ))}
                   </div>
@@ -450,12 +450,12 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
 
               <div className="flex gap-2 pt-1">
                 <button onClick={() => setView("detail")}
-                  className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                  className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
                   Cancel
                 </button>
                 <button onClick={() => editMutation.mutate()}
                   disabled={!editTitle.trim() || editMutation.isPending}
-                  className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+                  className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/95 transition-colors disabled:opacity-50">
                   {editMutation.isPending ? "Saving…" : "Save changes"}
                 </button>
               </div>
@@ -465,32 +465,32 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
           {/* ── Submit view ──────────────────────────────────────────── */}
           {view === "submit" && (
             <div className="mt-4 flex flex-col gap-3">
-              <p className="text-sm text-gray-500">Paste a link to your work</p>
+              <p className="text-sm text-muted-foreground">Paste a link to your work</p>
               <input value={submitLink} onChange={(e) => setSubmitLink(e.target.value)}
                 placeholder="https://…"
-                className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+                className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
               <textarea value={submitNote} onChange={(e) => setSubmitNote(e.target.value)}
                 placeholder="Add a note (optional)" rows={3}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors" />
+                className="w-full px-3 py-2.5 border border-border bg-background text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors" />
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1.5">
+                <label className="block text-xs font-medium text-muted-foreground mb-1.5">
                   Time spent (hours)
                   {card.expected_time != null && (
-                    <span className="text-gray-400 font-normal"> · expected {card.expected_time}h</span>
+                    <span className="text-muted-foreground/80 font-normal"> · expected {card.expected_time}h</span>
                   )}
                 </label>
                 <input type="number" min="0" step="0.5" value={actualTime}
                   onChange={(e) => setActualTime(e.target.value)} placeholder="e.g. 2.5"
-                  className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+                  className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
               </div>
               <div className="flex gap-2 pt-1">
                 <button onClick={() => setView("detail")}
-                  className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                  className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
                   Back
                 </button>
                 <button onClick={() => submitMutation.mutate()}
                   disabled={!submitLink.trim() || submitMutation.isPending}
-                  className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+                  className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/95 transition-colors disabled:opacity-50">
                   {submitMutation.isPending ? "Submitting…" : "Submit"}
                 </button>
               </div>
@@ -503,27 +503,27 @@ export default function TaskModal({ card, open, onClose, tasksKey }: Props) {
             if (!sub) return null
             return (
               <div className="mt-4 flex flex-col gap-3">
-                <div className="bg-gray-50 rounded-xl p-3">
+                <div className="bg-muted/50 rounded-xl p-3">
                   <a href={sub.link} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-1.5 text-sm text-[#643f83] hover:underline">
+                    className="flex items-center gap-1.5 text-sm text-[#643f83] dark:text-[#d6c7e1] hover:underline">
                     <ExternalLink size={13} />{sub.link}
                   </a>
-                  {sub.note && <p className="text-xs text-gray-500 mt-1">{sub.note}</p>}
+                  {sub.note && <p className="text-xs text-muted-foreground mt-1">{sub.note}</p>}
                 </div>
                 <input type="number" value={reviewScore} onChange={(e) => setReviewScore(e.target.value)}
                   placeholder="Score (0–100)" min={0} max={100}
-                  className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+                  className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
                 <textarea value={reviewComment} onChange={(e) => setReviewComment(e.target.value)}
                   placeholder="Feedback…" rows={3}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors" />
+                  className="w-full px-3 py-2.5 border border-border bg-background text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors" />
                 <div className="flex gap-2 pt-1">
                   <button onClick={() => setView("detail")}
-                    className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                    className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
                     Back
                   </button>
                   <button onClick={() => reviewMutation.mutate()}
                     disabled={!reviewComment.trim() || reviewMutation.isPending}
-                    className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+                    className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/95 transition-colors disabled:opacity-50">
                     {reviewMutation.isPending ? "Saving…" : "Submit review"}
                   </button>
                 </div>

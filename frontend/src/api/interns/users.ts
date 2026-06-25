@@ -10,10 +10,16 @@ export const createUserApi = (data: {
   password: string
   role: string
   phone?: string
-}) => api.post<User>("/interns/admin/users", data).then((r) => r.data)
+}) => {
+  const { role, ...rest } = data
+  return api.post<User>("/interns/admin/users", { ...rest, roles: [role] }).then((r) => r.data)
+}
 
-export const updateUserApi = (id: string, data: Partial<{ full_name: string; email: string; password: string; phone: string; role: string }>) =>
-  api.patch<User>(`/interns/admin/users/${id}`, data).then((r) => r.data)
+export const updateUserApi = (id: string, data: Partial<{ full_name: string; email: string; password: string; phone: string; role: string }>) => {
+  const { role, ...rest } = data
+  const payload = role ? { ...rest, roles: [role] } : rest
+  return api.patch<User>(`/interns/admin/users/${id}`, payload).then((r) => r.data)
+}
 
 export const deleteUserApi = (id: string) =>
   api.delete(`/interns/admin/users/${id}`).then((r) => r.data)

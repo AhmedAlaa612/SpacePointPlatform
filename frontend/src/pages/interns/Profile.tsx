@@ -38,43 +38,43 @@ export default function Profile() {
   return (
     <div className="max-w-md mx-auto flex flex-col gap-6 pt-4">
       <div className="flex items-center gap-4">
-        <div className="w-16 h-16 rounded-full bg-black text-white text-xl font-bold flex items-center justify-center flex-shrink-0">
+        <div className="w-16 h-16 rounded-full bg-[#d6c7e1]/40 dark:bg-[#d6c7e1]/10 text-[#643f83] dark:text-[#d6c7e1] text-xl font-bold flex items-center justify-center flex-shrink-0 border border-border">
           {initials}
         </div>
         <div>
-          <p className="text-lg font-bold text-black">{currentUser.full_name}</p>
+          <p className="text-lg font-bold text-foreground">{currentUser.full_name}</p>
           <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${roleBadge[currentUser.role ?? "intern"]}`}>
             {currentUser.role}
           </span>
         </div>
       </div>
 
-      <div className="border border-gray-100 rounded-2xl p-5 flex flex-col gap-4">
+      <div className="border border-border bg-card rounded-2xl p-5 flex flex-col gap-4">
         <div>
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">Email</p>
-          <p className="text-sm text-black">{currentUser.email}</p>
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1">Email</p>
+          <p className="text-sm text-foreground">{currentUser.email}</p>
         </div>
 
         {editing ? (
           <>
             <div>
-              <label className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1 block">Full name</label>
+              <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">Full name</label>
               <input value={fullName} onChange={(e) => setFullName(e.target.value)}
-                className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
             </div>
             <div>
-              <label className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1 block">WhatsApp number</label>
+              <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">WhatsApp number</label>
               <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20 10 0000 0000"
-                className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
-              <p className="text-xs text-gray-400 mt-1">Used for WhatsApp contact on task cards</p>
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
+              <p className="text-xs text-muted-foreground mt-1">Used for WhatsApp contact on task cards</p>
             </div>
             <div className="flex gap-2">
               <button onClick={() => { setEditing(false); setFullName(currentUser.full_name); setPhone(currentUser.phone ?? "") }}
-                className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
                 Cancel
               </button>
               <button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}
-                className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+                className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50">
                 {saveMutation.isPending ? "Saving…" : "Save"}
               </button>
             </div>
@@ -82,11 +82,11 @@ export default function Profile() {
         ) : (
           <>
             <div>
-              <p className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1">WhatsApp</p>
-              <p className="text-sm text-black">{currentUser.phone || <span className="text-gray-400 italic">Not set</span>}</p>
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1">WhatsApp</p>
+              <p className="text-sm text-foreground">{currentUser.phone || <span className="text-muted-foreground/50 italic">Not set</span>}</p>
             </div>
             <button onClick={() => setEditing(true)}
-              className="h-10 border border-gray-200 rounded-xl text-sm font-medium text-black hover:bg-gray-50 transition-colors">
+              className="h-10 border border-border bg-card rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors">
               Edit profile
             </button>
           </>

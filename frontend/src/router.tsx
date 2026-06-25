@@ -19,6 +19,19 @@ import Admin from "@/pages/interns/Admin";
 import MindMap from "@/pages/interns/MindMap";
 import ProjectMindMap from "@/pages/interns/ProjectMindMap";
 
+// Ambassadors domain pages
+import AmbassadorDashboard from "@/pages/ambassadors/Dashboard";
+import AmbassadorLeads from "@/pages/ambassadors/Leads";
+import AmbassadorTasks from "@/pages/ambassadors/Tasks";
+import AmbassadorNetwork from "@/pages/ambassadors/Network";
+import AmbassadorTeacherProfile from "@/pages/ambassadors/TeacherProfile";
+import AmbassadorLeaderboard from "@/pages/ambassadors/Leaderboard";
+import AmbassadorProfile from "@/pages/ambassadors/Profile";
+import AmbassadorMaterials from "@/pages/ambassadors/Materials";
+import AmbassadorTeacherPortal from "@/pages/ambassadors/TeacherPortal";
+import AmbassadorApply from "@/pages/ambassadors/AmbassadorApply";
+import TeacherApply from "@/pages/ambassadors/TeacherApply";
+
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
 const loginRoute = createRoute({
@@ -26,6 +39,8 @@ const loginRoute = createRoute({
   path: "/login",
   component: Login,
 });
+
+import { useAuth } from "@/context/AuthContext";
 
 /** Authenticated shell (PLAN §7 `_auth`): redirect to /login when no token. */
 const authLayoutRoute = createRoute({
@@ -36,22 +51,44 @@ const authLayoutRoute = createRoute({
       throw redirect({ to: "/login" });
     }
   },
-  component: () => (
-    <div className="min-h-screen bg-background text-foreground">
-      <Navbar />
-      <main className="mx-auto max-w-7xl px-4 py-6">
-        <Outlet />
-      </main>
-    </div>
-  ),
+  component: () => {
+    const { currentUser, isLoading } = useAuth();
+
+    if (isLoading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
+          <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      );
+    }
+
+    if (!currentUser) {
+      return null;
+    }
+
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <Navbar />
+        <main className="mx-auto max-w-7xl px-4 py-6">
+          <Outlet />
+        </main>
+      </div>
+    );
+  },
 });
 
 const indexRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/",
   beforeLoad: () => {
-    // Only the interns domain exists so far — route everyone there.
-    throw redirect({ to: "/interns" });
+    const role = localStorage.getItem("active_role");
+    if (role === "ambassador") {
+      throw redirect({ to: "/ambassadors" });
+    } else if (role === "teacher") {
+      throw redirect({ to: "/ambassadors/teacher-portal" });
+    } else {
+      throw redirect({ to: "/interns" });
+    }
   },
 });
 
@@ -73,11 +110,45 @@ const internsRoutes = [
   createRoute({ getParentRoute: p, path: "/mind-map/project/$projectId", component: ProjectMindMap }),
 ];
 
+const ambassadorsLayoutRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/ambassadors",
+  component: () => <Outlet />,
+});
+
+const pa = () => ambassadorsLayoutRoute;
+const ambassadorsRoutes = [
+  createRoute({ getParentRoute: pa, path: "/", component: AmbassadorDashboard }),
+  createRoute({ getParentRoute: pa, path: "/leads", component: AmbassadorLeads }),
+  createRoute({ getParentRoute: pa, path: "/tasks", component: AmbassadorTasks }),
+  createRoute({ getParentRoute: pa, path: "/network", component: AmbassadorNetwork }),
+  createRoute({ getParentRoute: pa, path: "/network/teacher/$teacherId", component: AmbassadorTeacherProfile }),
+  createRoute({ getParentRoute: pa, path: "/leaderboard", component: AmbassadorLeaderboard }),
+  createRoute({ getParentRoute: pa, path: "/profile", component: AmbassadorProfile }),
+  createRoute({ getParentRoute: pa, path: "/materials", component: AmbassadorMaterials }),
+  createRoute({ getParentRoute: pa, path: "/teacher-portal", component: AmbassadorTeacherPortal }),
+];
+
+const applyAmbassadorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apply/ambassador",
+  component: AmbassadorApply,
+});
+
+const applyTeacherRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apply/teacher/$code",
+  component: TeacherApply,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  applyAmbassadorRoute,
+  applyTeacherRoute,
   authLayoutRoute.addChildren([
     indexRoute,
     internsLayoutRoute.addChildren(internsRoutes),
+    ambassadorsLayoutRoute.addChildren(ambassadorsRoutes),
   ]),
 ]);
 

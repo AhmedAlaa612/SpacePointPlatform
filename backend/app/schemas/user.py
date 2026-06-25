@@ -33,3 +33,19 @@ class UserOut(UserBase):
 
     class Config:
         from_attributes = True
+
+
+class AmbassadorApply(BaseModel):
+    full_name: str
+    email: EmailStr
+    password: str
+    country: str | None = None
+
+
+class TeacherApply(BaseModel):
+    full_name: str
+    email: EmailStr
+    password: str
+    invite_code: str
+    answers: dict | None = None
+

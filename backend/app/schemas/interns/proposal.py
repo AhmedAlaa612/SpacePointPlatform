@@ -1,11 +1,11 @@
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, Any
 from datetime import datetime
 from uuid import UUID
 
 
 class ProposalCreate(BaseModel):
-    title: str
+    title: str = Field(..., max_length=255)
     description: Optional[str] = None
 
 

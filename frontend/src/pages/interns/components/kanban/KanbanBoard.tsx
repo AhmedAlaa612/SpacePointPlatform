@@ -30,9 +30,9 @@ const COLUMNS: { title: string; status: WorkStatus }[] = [
 ]
 
 const STATUS_STYLE: Record<WorkStatus, { dot: string; badge: string }> = {
-  todo:        { dot: "bg-gray-300",  badge: "bg-gray-100 text-gray-500" },
-  in_progress: { dot: "bg-[#a880ff]", badge: "bg-[#d6c7e1] text-[#643f83]" },
-  done:        { dot: "bg-black",     badge: "bg-black text-white" },
+  todo:        { dot: "bg-gray-300 dark:bg-muted-foreground",  badge: "bg-gray-100 text-gray-500 dark:bg-muted dark:text-muted-foreground" },
+  in_progress: { dot: "bg-[#a880ff]", badge: "bg-[#d6c7e1] text-[#643f83] dark:bg-[#d6c7e1]/10 dark:text-[#d6c7e1]" },
+  done:        { dot: "bg-black dark:bg-[#d6c7e1]",     badge: "bg-black text-white dark:bg-[#d6c7e1] dark:text-[#643f83]" },
 }
 
 export default function KanbanBoard() {
@@ -180,7 +180,7 @@ export default function KanbanBoard() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -190,8 +190,8 @@ export default function KanbanBoard() {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-xl font-bold text-black tracking-tight">Task Board</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
+          <h1 className="text-xl font-bold text-foreground tracking-tight">Task Board</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
             {leaderEpicMode
               ? `${epics.length} epic${epics.length !== 1 ? "s" : ""}`
               : `${cards.length} task${cards.length !== 1 ? "s" : ""}`}
@@ -210,7 +210,7 @@ export default function KanbanBoard() {
                   setSeenProposalIds(next)
                   localStorage.setItem(`seen_proposals_${currentUser?.id}`, JSON.stringify([...next]))
                 }}
-                className="relative flex items-center gap-1.5 h-9 px-4 border border-gray-200 text-sm font-medium rounded-xl text-gray-700 hover:bg-gray-50 transition-colors">
+                className="relative flex items-center gap-1.5 h-9 px-4 border border-border bg-card text-sm font-medium rounded-xl text-foreground hover:bg-muted transition-colors">
                 <MessageSquare size={14} /> My proposals
                 {internProposals.filter((p) => p.status !== "pending" && !seenProposalIds.has(p.id)).length > 0 && (
                   <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-[#a880ff] text-white text-[9px] font-bold rounded-full flex items-center justify-center">
@@ -219,14 +219,14 @@ export default function KanbanBoard() {
                 )}
               </button>
               <button onClick={() => setProposeOpen(true)}
-                className="flex items-center gap-1.5 h-9 px-4 border border-gray-200 text-sm font-medium rounded-xl text-gray-700 hover:bg-gray-50 transition-colors">
+                className="flex items-center gap-1.5 h-9 px-4 border border-border bg-card text-sm font-medium rounded-xl text-foreground hover:bg-muted transition-colors">
                 <Lightbulb size={14} /> Propose idea
               </button>
             </>
           )}
           {isLeader && (
             <button onClick={() => setProposalsOpen(true)}
-              className="relative flex items-center gap-1.5 h-9 px-4 border border-gray-200 text-sm font-medium rounded-xl text-gray-700 hover:bg-gray-50 transition-colors">
+              className="relative flex items-center gap-1.5 h-9 px-4 border border-border bg-card text-sm font-medium rounded-xl text-foreground hover:bg-muted transition-colors">
               <MessageSquare size={14} /> Proposals
               {pendingProposals.length > 0 && (
                 <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-[#a880ff] text-white text-[9px] font-bold rounded-full flex items-center justify-center">
@@ -237,7 +237,7 @@ export default function KanbanBoard() {
           )}
           {isLeader && (
             <button onClick={() => setCreateOpen(true)}
-              className="h-9 px-4 bg-black text-white text-sm font-medium rounded-xl hover:bg-gray-900 transition-colors">
+              className="h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:bg-primary/95 transition-colors">
               + New task
             </button>
           )}
@@ -248,13 +248,13 @@ export default function KanbanBoard() {
       {isLeader && boardEpic && (
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <button onClick={() => setBoardEpic(null)}
-            className="flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase tracking-wider hover:text-black transition-colors w-fit">
+            className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors w-fit">
             <ArrowLeft size={13} /> Epics
-            <span className="text-gray-300">/</span>
-            <span className="normal-case tracking-normal text-black">{boardEpic.title}</span>
+            <span className="text-border">/</span>
+            <span className="normal-case tracking-normal text-foreground font-semibold">{boardEpic.title}</span>
           </button>
           <button onClick={() => setModulesOpen(true)}
-            className="flex items-center gap-1.5 h-8 px-3 border border-gray-200 text-gray-500 text-xs font-medium rounded-lg hover:border-black hover:text-black transition-colors">
+            className="flex items-center gap-1.5 h-8 px-3 border border-border text-muted-foreground bg-card text-xs font-medium rounded-lg hover:border-primary hover:text-foreground transition-colors">
             <Layers size={12} /> Modules
           </button>
         </div>
@@ -354,12 +354,12 @@ function EpicColumn({ title, status, epics, tasks, projectName, onEpicClick }: {
   return (
     <div ref={setNodeRef} className={cn(
       "flex flex-col gap-3 rounded-2xl border p-4 min-h-[360px] transition-colors",
-      isOver ? "border-[#a880ff] bg-[#a880ff]/5" : "border-gray-100 bg-gray-50/50"
+      isOver ? "border-[#a880ff] bg-[#a880ff]/5" : "border-border bg-muted/20 dark:bg-muted/10"
     )}>
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
           <span className={cn("w-2 h-2 rounded-full", s.dot)} />
-          <span className="text-xs font-semibold text-black uppercase tracking-widest">{title}</span>
+          <span className="text-xs font-semibold text-foreground uppercase tracking-widest">{title}</span>
         </div>
         <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", s.badge)}>{epics.length}</span>
       </div>
@@ -376,7 +376,7 @@ function EpicColumn({ title, status, epics, tasks, projectName, onEpicClick }: {
       </div>
       {epics.length === 0 && (
         <div className="flex-1 flex items-center justify-center">
-          <p className="text-xs text-gray-300">No epics</p>
+          <p className="text-xs text-muted-foreground/60">No epics</p>
         </div>
       )}
     </div>
@@ -398,30 +398,30 @@ function EpicCard({ epic, taskCount, doneCount, projectName, onClick, isDragOver
         {...attributes} {...listeners}
         onClick={onClick}
         className={cn(
-          "bg-white border-2 border-[#643f83] rounded-xl p-3 cursor-pointer select-none transition-all hover:shadow-md",
+          "bg-card border-2 border-[#643f83] dark:border-[#a880ff]/70 rounded-xl p-3 cursor-pointer select-none transition-all hover:shadow-md",
           isDragging && !isDragOverlay && "shadow-lg"
         )}
       >
         <div className="flex items-start justify-between gap-2 mb-0.5">
           <div className="min-w-0">
-            <span className="text-[9px] font-bold uppercase tracking-widest text-[#643f83]">Epic</span>
-            <p className="text-sm font-semibold text-black leading-snug">{epic.title}</p>
+            <span className="text-[9px] font-bold uppercase tracking-widest text-[#643f83] dark:text-[#d6c7e1]">Epic</span>
+            <p className="text-sm font-semibold text-foreground leading-snug">{epic.title}</p>
           </div>
-          <ChevronRight size={14} className="text-gray-300 flex-shrink-0 mt-0.5" />
+          <ChevronRight size={14} className="text-muted-foreground/50 flex-shrink-0 mt-0.5" />
         </div>
-        {projectName && <p className="text-[11px] text-gray-500 mb-1">{projectName}</p>}
+        {projectName && <p className="text-[11px] text-muted-foreground mb-1">{projectName}</p>}
         {epic.description && (
-          <p className="text-[11px] text-gray-400 leading-relaxed line-clamp-2 mb-1">{epic.description}</p>
+          <p className="text-[11px] text-muted-foreground/80 leading-relaxed line-clamp-2 mb-1">{epic.description}</p>
         )}
         <div className="flex items-center justify-between mt-1">
-          <span className="text-[10px] text-gray-400">
+          <span className="text-[10px] text-muted-foreground">
             {doneCount}/{taskCount} task{taskCount !== 1 ? "s" : ""} done
           </span>
           <div className="flex items-center gap-2">
             <button
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); setDetailOpen(true) }}
-              className="flex items-center gap-1 text-[10px] font-medium text-gray-400 hover:text-[#643f83] transition-colors"
+              className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground hover:text-[#643f83] dark:hover:text-[#d6c7e1] transition-colors"
               title="View details"
             >
               <Info size={11} /> Details
@@ -429,7 +429,7 @@ function EpicCard({ epic, taskCount, doneCount, projectName, onClick, isDragOver
             <button
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); navigate({ to: "/interns/mind-map/$epicId", params: { epicId: epic.id } }) }}
-              className="flex items-center gap-1 text-[10px] font-medium text-[#643f83] hover:text-[#4a2d63] transition-colors"
+              className="flex items-center gap-1 text-[10px] font-medium text-[#643f83] dark:text-[#d6c7e1] hover:text-[#4a2d63] dark:hover:text-[#e4daf0] transition-colors"
             >
               <Network size={11} /> Mind map
             </button>
@@ -464,34 +464,34 @@ function SubmitDialog({ card, tasksKey, onDone }: { card: BoardCard; tasksKey: s
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-white rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
+      <div className="w-full max-w-sm bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
         <div>
-          <p className="text-base font-semibold text-black">Submit work</p>
-          <p className="text-sm text-gray-500 mt-0.5">{card.title}</p>
+          <p className="text-base font-semibold text-foreground">Submit work</p>
+          <p className="text-sm text-muted-foreground mt-0.5">{card.title}</p>
         </div>
         <input value={link} onChange={(e) => setLink(e.target.value)}
           placeholder="Link (GitHub, Figma, Drive…)" autoFocus
-          className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+          className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         <textarea value={note} onChange={(e) => setNote(e.target.value)}
           placeholder="Note (optional)" rows={2}
-          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors" />
+          className="w-full px-3 py-2.5 border border-border bg-background text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors" />
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1.5">
+          <label className="block text-xs font-medium text-muted-foreground mb-1.5">
             Time spent (hours)
-            {card.expected_time && <span className="text-gray-400 font-normal"> · expected {card.expected_time}h</span>}
+            {card.expected_time && <span className="text-muted-foreground/75 font-normal"> · expected {card.expected_time}h</span>}
           </label>
           <input type="number" min="0" step="0.5" value={actualTime} onChange={(e) => setActualTime(e.target.value)}
             placeholder="e.g. 2.5"
-            className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+            className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </div>
         <div className="flex gap-2">
           <button onClick={onDone}
-            className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+            className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
             Cancel
           </button>
           <button onClick={() => mutation.mutate()}
             disabled={!link.trim() || mutation.isPending}
-            className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+            className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/95 transition-colors disabled:opacity-50">
             {mutation.isPending ? "Submitting…" : "Submit"}
           </button>
         </div>
@@ -518,50 +518,86 @@ function CreateProposalModal({ tasks, onClose }: { tasks: Task[]; onClose: () =>
   const mutation = useMutation({
     mutationFn: () => createProposalApi(epicId, { title, description: description || undefined }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["proposals"] }); onClose() },
-    onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to submit proposal"),
+    onError: (e: any) => {
+      const detail = e?.response?.data?.detail
+      if (typeof detail === "string") {
+        setError(detail)
+      } else if (Array.isArray(detail)) {
+        setError(detail.map((err: any) => err.msg).join(", "))
+      } else {
+        setError("Failed to submit proposal")
+      }
+    },
   })
+
+  const handleSubmit = () => {
+    if (!title.trim()) {
+      setError("Title is required")
+      return
+    }
+    if (title.length > 255) {
+      setError("Title cannot exceed 255 characters")
+      return
+    }
+    setError("")
+    mutation.mutate()
+  }
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-white rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
+      <div className="w-full max-w-sm bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-base font-semibold text-black">Propose an idea</p>
-            <p className="text-xs text-gray-400 mt-0.5">Your leader will review it</p>
+            <p className="text-base font-semibold text-foreground">Propose an idea</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Your leader will review it</p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-gray-400 hover:text-black transition-colors">
+          <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
             <X size={16} />
           </button>
         </div>
 
         {epics.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-4">
+          <p className="text-sm text-muted-foreground text-center py-4">
             You need to be assigned to a task before you can propose ideas.
           </p>
         ) : (
           <>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">Epic</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1.5">Epic</label>
               <select value={epicId} onChange={(e) => setEpicId(e.target.value)}
-                className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-black transition-colors">
+                className="w-full h-10 px-3 border border-border rounded-xl text-sm bg-background text-foreground focus:outline-none focus:border-primary transition-colors">
                 {epics.map((e) => <option key={e.id} value={e.id}>{e.title}</option>)}
               </select>
             </div>
-            <input value={title} onChange={(e) => setTitle(e.target.value)}
-              placeholder="What's your idea?" autoFocus
-              className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-medium text-muted-foreground">Title</label>
+                <span className={cn(
+                  "text-[10px] font-medium transition-colors",
+                  title.length >= 240 ? "text-amber-500 font-bold" : "text-muted-foreground/60"
+                )}>
+                  {title.length}/255
+                </span>
+              </div>
+              <input value={title} onChange={(e) => {
+                setTitle(e.target.value)
+                if (error) setError("")
+              }}
+                placeholder="What's your idea?" autoFocus maxLength={255}
+                className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
+            </div>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)}
               placeholder="Describe it in more detail (optional)" rows={3}
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors" />
-            {error && <p className="text-xs text-red-500">{error}</p>}
+              className="w-full px-3 py-2.5 border border-border bg-background text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors" />
+            {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
             <div className="flex gap-2">
               <button onClick={onClose}
-                className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
                 Cancel
               </button>
-              <button onClick={() => mutation.mutate()}
+              <button onClick={handleSubmit}
                 disabled={!title.trim() || !epicId || mutation.isPending}
-                className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+                className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/95 transition-colors disabled:opacity-50">
                 {mutation.isPending ? "Submitting…" : "Submit proposal"}
               </button>
             </div>
@@ -589,13 +625,13 @@ function LeaderProposalsModal({ proposals, onClose, onRefresh }: {
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl flex flex-col max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+        <div className="w-full max-w-md bg-card border border-border text-foreground rounded-2xl shadow-2xl flex flex-col max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border flex-shrink-0">
             <div>
-              <p className="text-base font-semibold text-black">Proposals</p>
-              <p className="text-xs text-gray-400 mt-0.5">{pending.length} pending · {reviewed.length} reviewed</p>
+              <p className="text-base font-semibold text-foreground">Proposals</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{pending.length} pending · {reviewed.length} reviewed</p>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-black transition-colors">
+            <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
               <X size={16} />
             </button>
           </div>
@@ -603,35 +639,35 @@ function LeaderProposalsModal({ proposals, onClose, onRefresh }: {
           <div className="overflow-y-auto flex-1 p-4 flex flex-col gap-3">
             {proposals.length === 0 && (
               <div className="flex items-center justify-center h-28">
-                <p className="text-sm text-gray-400">No proposals yet from your team</p>
+                <p className="text-sm text-muted-foreground">No proposals yet from your team</p>
               </div>
             )}
 
             {pending.length > 0 && (
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Pending</p>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Pending</p>
             )}
             {pending.map((p) => (
               <button key={p.id} onClick={() => setSelected(p)}
-                className="w-full text-left flex flex-col gap-1.5 p-3.5 border border-[#d6c7e1] rounded-xl bg-[#d6c7e1]/10 hover:bg-[#d6c7e1]/20 transition-colors">
-                <p className="text-sm font-semibold text-black">{p.title}</p>
-                {p.description && <p className="text-xs text-gray-500 line-clamp-2">{p.description}</p>}
-                <p className="text-[11px] text-gray-400">by {p.proposer_name ?? "Unknown"} · tap to review</p>
+                className="w-full text-left flex flex-col gap-1.5 p-3.5 border border-[#d6c7e1] dark:border-[#d6c7e1]/20 rounded-xl bg-[#d6c7e1]/10 hover:bg-[#d6c7e1]/20 transition-colors">
+                <p className="text-sm font-semibold text-foreground">{p.title}</p>
+                {p.description && <p className="text-xs text-muted-foreground line-clamp-2">{p.description}</p>}
+                <p className="text-[11px] text-muted-foreground/80">by {p.proposer_name ?? "Unknown"} · tap to review</p>
               </button>
             ))}
 
             {reviewed.length > 0 && (
               <>
-                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mt-2">Reviewed</p>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mt-2">Reviewed</p>
                 {reviewed.map((p) => (
                   <button key={p.id} onClick={() => setSelected(p)}
-                    className="w-full text-left flex items-start justify-between gap-2 p-3.5 border border-gray-100 rounded-xl opacity-70 hover:opacity-100 hover:bg-gray-50 transition-all">
+                    className="w-full text-left flex items-start justify-between gap-2 p-3.5 border border-border bg-card/50 rounded-xl opacity-70 hover:opacity-100 hover:bg-muted/50 transition-all">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-black truncate">{p.title}</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">by {p.proposer_name ?? "Unknown"}</p>
+                      <p className="text-sm font-medium text-foreground truncate">{p.title}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">by {p.proposer_name ?? "Unknown"}</p>
                     </div>
                     <span className={cn(
                       "text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0",
-                      p.status === "accepted" ? "bg-black text-white" : "bg-gray-100 text-gray-400"
+                      p.status === "accepted" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
                     )}>
                       {p.status}
                     </span>
@@ -668,13 +704,13 @@ function InternProposalsModal({ proposals, onClose }: {
   return createPortal(
     <>
       <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl flex flex-col max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+        <div className="w-full max-w-md bg-card border border-border text-foreground rounded-2xl shadow-2xl flex flex-col max-h-[80vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border flex-shrink-0">
             <div>
-              <p className="text-base font-semibold text-black">My Proposals</p>
-              <p className="text-xs text-gray-400 mt-0.5">{pending.length} pending · {reviewed.length} reviewed</p>
+              <p className="text-base font-semibold text-foreground">My Proposals</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{pending.length} pending · {reviewed.length} reviewed</p>
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-black transition-colors">
+            <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
               <X size={16} />
             </button>
           </div>
@@ -682,22 +718,22 @@ function InternProposalsModal({ proposals, onClose }: {
           <div className="overflow-y-auto flex-1 p-4 flex flex-col gap-3">
             {proposals.length === 0 && (
               <div className="flex items-center justify-center h-28">
-                <p className="text-sm text-gray-400">You haven't submitted any proposals yet</p>
+                <p className="text-sm text-muted-foreground">You haven't submitted any proposals yet</p>
               </div>
             )}
 
             {pending.length > 0 && (
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Pending review</p>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Pending review</p>
             )}
             {pending.map((p) => (
               <button key={p.id} onClick={() => setSelected(p)}
-                className="w-full text-left flex flex-col gap-1.5 p-3.5 border border-[#d6c7e1] rounded-xl bg-[#d6c7e1]/10 hover:bg-[#d6c7e1]/20 transition-colors">
+                className="w-full text-left flex flex-col gap-1.5 p-3.5 border border-[#d6c7e1] dark:border-[#d6c7e1]/20 rounded-xl bg-[#d6c7e1]/10 hover:bg-[#d6c7e1]/20 transition-colors">
                 <div className="flex items-center justify-between gap-2">
-                  <p className="text-sm font-semibold text-black truncate">{p.title}</p>
-                  <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-[#d6c7e1] text-[#643f83] flex-shrink-0">pending</span>
+                  <p className="text-sm font-semibold text-foreground truncate">{p.title}</p>
+                  <span className="text-[10px] font-semibold px-2.5 py-1 rounded-full bg-[#d6c7e1] text-[#643f83] dark:bg-[#643f83]/40 dark:text-[#d6c7e1] flex-shrink-0">pending</span>
                 </div>
-                {p.description && <p className="text-xs text-gray-500 line-clamp-2">{p.description}</p>}
-                <p className="text-[11px] text-gray-400">
+                {p.description && <p className="text-xs text-muted-foreground line-clamp-2">{p.description}</p>}
+                <p className="text-[11px] text-muted-foreground">
                   {new Date(p.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                 </p>
               </button>
@@ -705,18 +741,18 @@ function InternProposalsModal({ proposals, onClose }: {
 
             {reviewed.length > 0 && (
               <>
-                <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mt-1">Reviewed</p>
+                <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mt-1">Reviewed</p>
                 {reviewed.map((p) => (
                   <button key={p.id} onClick={() => setSelected(p)}
                     className={cn(
                       "w-full text-left flex items-start justify-between gap-2 p-3.5 rounded-xl border transition-all hover:shadow-sm",
                       p.status === "accepted"
-                        ? "border-green-200 bg-green-50/60 hover:bg-green-50"
-                        : "border-red-100 bg-red-50/40 hover:bg-red-50/60"
+                        ? "border-green-200 dark:border-green-950 bg-green-50/60 dark:bg-green-950/20 hover:bg-green-50 dark:hover:bg-green-950/30 text-green-400"
+                        : "border-red-100 dark:border-red-950 bg-red-50/40 dark:bg-red-950/10 hover:bg-red-50/60 dark:hover:bg-red-950/20 text-red-400"
                     )}>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-black truncate">{p.title}</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">
+                      <p className="text-sm font-medium text-foreground truncate">{p.title}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
                         {new Date(p.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
                       </p>
                     </div>

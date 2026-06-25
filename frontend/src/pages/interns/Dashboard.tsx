@@ -196,14 +196,14 @@ function AdminDashboard() {
       {/* ── Page header ──────────────────────────────────────────────── */}
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-xl font-bold text-black tracking-tight">Dashboard</h1>
-          <p className="text-sm text-gray-400 mt-0.5">
+          <h1 className="text-xl font-bold text-foreground tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
             {projects.length} project{projects.length !== 1 ? "s" : ""} · {allEpics.length} epic{allEpics.length !== 1 ? "s" : ""}
           </p>
         </div>
         <button
           onClick={() => setCreateProjectOpen(true)}
-          className="flex items-center gap-1.5 h-9 px-4 bg-black text-white text-sm font-medium rounded-xl hover:bg-gray-900 transition-colors"
+          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
         >
           <Plus size={14} /> New project
         </button>
@@ -261,14 +261,14 @@ function AdminDashboard() {
               <select
                 value={projectFilter}
                 onChange={(e) => setProjectFilter(e.target.value)}
-                className="h-8 pl-3 pr-8 text-xs border border-gray-200 rounded-lg bg-white text-gray-700 focus:outline-none focus:border-black transition-colors appearance-none cursor-pointer"
+                className="h-8 pl-3 pr-8 text-xs border border-border rounded-lg bg-card text-foreground focus:outline-none focus:border-primary transition-colors appearance-none cursor-pointer"
               >
                 <option value="all">All projects</option>
                 {projects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.title}</option>
+                  <option key={p.id} value={p.id} className="bg-card text-foreground">{p.title}</option>
                 ))}
               </select>
-              <ChevronRight size={10} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none rotate-90" />
+              <ChevronRight size={10} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none rotate-90" />
             </div>
           )}
         </div>
@@ -405,15 +405,15 @@ function ProjectColumn({ colKey, projects, epicCounts, onManage }: {
         isOver
           ? "border-[#a880ff] bg-[#a880ff]/5"
           : colKey === "active"
-            ? "border-gray-100 bg-gray-50/50"
-            : "border-black/10 bg-black/[0.02]"
+            ? "border-border bg-muted/20"
+            : "border-border bg-muted/40 dark:bg-card/30"
       )}
     >
       {/* Column header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className={cn("w-2 h-2 rounded-full", col.dot)} />
-          <span className="text-xs font-semibold text-black uppercase tracking-widest">{col.label}</span>
+          <span className="text-xs font-semibold text-foreground uppercase tracking-widest">{col.label}</span>
         </div>
         <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", col.badge)}>
           {projects.length}
@@ -453,17 +453,17 @@ function ProjectCard({ project, epicCount, onManage }: {
       style={{ transform: CSS.Translate.toString(transform), opacity: isDragging ? 0.4 : 1 }}
       {...attributes} {...listeners}
       className={cn(
-        "bg-white border border-gray-100 rounded-xl p-3.5 select-none transition-all cursor-grab active:cursor-grabbing hover:border-gray-200 hover:shadow-sm",
+        "bg-card border border-border rounded-xl p-3.5 select-none transition-all cursor-grab active:cursor-grabbing hover:border-muted-foreground/30 hover:shadow-sm",
         isDragging && "shadow-lg"
       )}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0">
-          <p className={cn("text-sm font-semibold leading-snug truncate", isDone ? "text-gray-400 line-through" : "text-black")}>
+          <p className={cn("text-sm font-semibold leading-snug truncate", isDone ? "text-muted-foreground line-through" : "text-foreground")}>
             {project.title}
           </p>
           {project.description && (
-            <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{project.description}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{project.description}</p>
           )}
         </div>
       </div>
@@ -475,13 +475,13 @@ function ProjectCard({ project, epicCount, onManage }: {
         <div className="flex items-center gap-3" onPointerDown={(e) => e.stopPropagation()}>
           <button
             onClick={(e) => { e.stopPropagation(); navigate({ to: "/interns/mind-map/project/$projectId", params: { projectId: project.id } }) }}
-            className="flex items-center gap-1 text-[11px] font-medium text-gray-400 hover:text-[#643f83] transition-colors"
+            className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-primary transition-colors"
           >
             <Network size={10} /> Map
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onManage() }}
-            className="flex items-center gap-1 text-[11px] font-semibold text-[#643f83] hover:text-[#4a2d63] transition-colors"
+            className="flex items-center gap-1 text-[11px] font-semibold text-[#643f83] dark:text-snuff hover:opacity-80 transition-colors"
           >
             Manage <ChevronRight size={10} />
           </button>
@@ -494,8 +494,8 @@ function ProjectCard({ project, epicCount, onManage }: {
 /* ── Drag overlay (lightweight copy, no dnd hooks) ───────────────────── */
 function ProjectCardOverlay({ project }: { project: Project }) {
   return (
-    <div className="bg-white border-2 border-[#a880ff] rounded-xl p-3.5 shadow-xl rotate-1 cursor-grabbing">
-      <p className="text-sm font-semibold text-black leading-snug truncate">{project.title}</p>
+    <div className="bg-card border-2 border-[#a880ff] rounded-xl p-3.5 shadow-xl rotate-1 cursor-grabbing">
+      <p className="text-sm font-semibold text-foreground leading-snug truncate">{project.title}</p>
     </div>
   )
 }
@@ -558,11 +558,11 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
     : []
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden">
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden text-foreground">
 
         {/* ── Header ─────────────────────────────────────────────────── */}
-        <div className="flex items-start justify-between gap-2 px-4 sm:px-6 pt-5 pb-4 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-start justify-between gap-2 px-4 sm:px-6 pt-5 pb-4 border-b border-border flex-shrink-0">
           {activeEpic ? (
             /* Screen 2 header — epic tasks */
             <div className="w-full flex flex-col gap-3">
@@ -570,15 +570,15 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <button onClick={() => { setActiveEpic(null); setActiveTab("tasks") }}
-                    className="p-1 rounded-lg text-gray-400 hover:text-black transition-colors flex-shrink-0">
+                    className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
                     <ArrowLeft size={15} />
                   </button>
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-black truncate">{activeEpic.title}</p>
-                    <p className="text-xs text-gray-400">{epicTasks.length} task{epicTasks.length !== 1 ? "s" : ""}</p>
+                    <p className="text-sm font-semibold text-foreground truncate">{activeEpic.title}</p>
+                    <p className="text-xs text-muted-foreground">{epicTasks.length} task{epicTasks.length !== 1 ? "s" : ""}</p>
                   </div>
                 </div>
-                <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-black transition-colors flex-shrink-0">
+                <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
                   <X size={16} />
                 </button>
               </div>
@@ -586,20 +586,20 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   onClick={() => navigate({ to: "/interns/mind-map/$epicId", params: { epicId: activeEpic.id } })}
-                  className="flex items-center gap-1.5 h-8 px-3 border border-gray-200 text-gray-500 text-xs font-medium rounded-lg hover:border-black hover:text-black transition-colors"
+                  className="flex items-center gap-1.5 h-8 px-3 border border-border text-muted-foreground text-xs font-medium rounded-lg hover:border-foreground hover:text-foreground transition-colors bg-card"
                   title="View mind map"
                 >
                   <Network size={12} /> Mind map
                 </button>
                 <button
                   onClick={() => setCreateTaskOpen(true)}
-                  className="flex items-center gap-1.5 h-8 px-3 bg-black text-white text-xs font-medium rounded-lg hover:bg-gray-900 transition-colors"
+                  className="flex items-center gap-1.5 h-8 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 transition-colors"
                 >
                   <Plus size={12} /> Add task
                 </button>
                 <button
                   onClick={() => setManageModulesOpen(true)}
-                  className="flex items-center gap-1.5 h-8 px-3 border border-gray-200 text-gray-500 text-xs font-medium rounded-lg hover:border-black hover:text-black transition-colors"
+                  className="flex items-center gap-1.5 h-8 px-3 border border-border text-muted-foreground text-xs font-medium rounded-lg hover:border-foreground hover:text-foreground transition-colors bg-card"
                 >
                   <Layers size={12} /> Modules
                 </button>
@@ -613,10 +613,10 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
                     setActiveEpic({ ...activeEpic, status: isDoneEpic ? "todo" : "done" })
                   }}
                   className={cn(
-                    "flex items-center gap-1 h-8 px-3 text-xs font-medium rounded-lg border transition-colors",
+                    "flex items-center gap-1 h-8 px-3 text-xs font-medium rounded-lg border transition-colors bg-card",
                     activeEpic.status === "done"
-                      ? "border-gray-200 text-gray-500 hover:border-black hover:text-black"
-                      : "border-gray-200 text-gray-500 hover:border-black hover:bg-black hover:text-white"
+                      ? "border-border text-muted-foreground hover:border-foreground hover:text-foreground"
+                      : "border-border text-muted-foreground hover:border-foreground hover:bg-primary hover:text-primary-foreground"
                   )}
                 >
                   {activeEpic.status === "done" ? <RotateCcw size={11} /> : <Check size={11} />}
@@ -624,7 +624,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
                 </button>
                 <button
                   onClick={() => { if (confirm(`Delete epic "${activeEpic.title}" and all its tasks?`)) deleteEpicMutation.mutate(activeEpic.id) }}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors ml-auto"
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors ml-auto"
                   title="Delete epic"
                 >
                   <Trash2 size={14} />
@@ -637,13 +637,13 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
               {/* Row 1: title + close */}
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-base font-semibold text-black break-words">{project.title}</p>
+                  <p className="text-base font-semibold text-foreground break-words">{project.title}</p>
                   {project.description && (
-                    <p className="text-xs text-gray-400 mt-0.5 break-words line-clamp-2">{project.description}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 break-words line-clamp-2">{project.description}</p>
                   )}
-                  <p className="text-xs text-gray-400 mt-0.5">{epics.length} epic{epics.length !== 1 ? "s" : ""} · {tasks.length} task{tasks.length !== 1 ? "s" : ""}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{epics.length} epic{epics.length !== 1 ? "s" : ""} · {tasks.length} task{tasks.length !== 1 ? "s" : ""}</p>
                 </div>
-                <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-black transition-colors flex-shrink-0">
+                <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors flex-shrink-0">
                   <X size={16} />
                 </button>
               </div>
@@ -652,10 +652,10 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
                 <button
                   onClick={onToggleStatus}
                   className={cn(
-                    "flex items-center gap-1 h-8 px-3 text-xs font-medium rounded-lg border transition-colors",
+                    "flex items-center gap-1 h-8 px-3 text-xs font-medium rounded-lg border transition-colors bg-card",
                     isDone
-                      ? "border-gray-200 text-gray-500 hover:border-black hover:text-black"
-                      : "border-gray-200 text-gray-500 hover:border-black hover:bg-black hover:text-white"
+                      ? "border-border text-muted-foreground hover:border-foreground hover:text-foreground"
+                      : "border-border text-muted-foreground hover:border-foreground hover:bg-primary hover:text-primary-foreground"
                   )}
                 >
                   {isDone ? <RotateCcw size={11} /> : <Check size={11} />}
@@ -663,18 +663,18 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
                 </button>
                 <button
                   onClick={() => setCreateEpicOpen(true)}
-                  className="flex items-center gap-1.5 h-8 px-3 bg-black text-white text-xs font-medium rounded-lg hover:bg-gray-900 transition-colors"
+                  className="flex items-center gap-1.5 h-8 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-xl hover:opacity-90 transition-colors"
                 >
                   <Plus size={12} /> Add epic
                 </button>
                 <button
                   onClick={() => navigate({ to: "/interns/mind-map/project/$projectId", params: { projectId: project.id } })}
-                  className="flex items-center gap-1.5 h-8 px-3 border border-gray-200 text-gray-500 text-xs font-medium rounded-lg hover:border-black hover:text-black transition-colors"
+                  className="flex items-center gap-1.5 h-8 px-3 border border-border text-muted-foreground text-xs font-medium rounded-lg hover:border-foreground hover:text-foreground transition-colors bg-card"
                 >
                   <Network size={12} /> Project map
                 </button>
                 <button onClick={onDelete}
-                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors ml-auto" title="Delete project">
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors ml-auto" title="Delete project">
                   <Trash2 size={15} />
                 </button>
               </div>
@@ -684,14 +684,14 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
 
         {/* ── Tab bar (only shown in epic view) ──────────────────────── */}
         {activeEpic && (
-          <div className="flex border-b border-gray-100 px-6 flex-shrink-0">
+          <div className="flex border-b border-border px-6 flex-shrink-0">
             {(["tasks", "proposals"] as const).map((tab) => (
               <button key={tab} onClick={() => setActiveTab(tab)}
                 className={cn(
                   "px-4 py-2.5 text-xs font-semibold capitalize border-b-2 -mb-px transition-colors",
                   activeTab === tab
-                    ? "border-black text-black"
-                    : "border-transparent text-gray-400 hover:text-black"
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:text-foreground"
                 )}>
                 {tab}
                 {tab === "proposals" && pendingCount > 0 && (
@@ -715,9 +715,9 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
               </div>
             ) : epics.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-28 gap-3">
-                <p className="text-sm text-gray-400">No epics yet — add one to get started</p>
+                <p className="text-sm text-muted-foreground">No epics yet — add one to get started</p>
                 <button onClick={() => setCreateEpicOpen(true)}
-                  className="flex items-center gap-1.5 h-8 px-4 border border-dashed border-gray-300 rounded-xl text-xs font-medium text-gray-500 hover:border-black hover:text-black transition-colors">
+                  className="flex items-center gap-1.5 h-8 px-4 border border-dashed border-border rounded-xl text-xs font-medium text-muted-foreground hover:border-foreground hover:text-foreground transition-colors">
                   <Plus size={12} /> Add the first epic
                 </button>
               </div>
@@ -728,11 +728,11 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
                 const statusStyle     = TASK_STATUS[epic.status as WorkStatus] ?? TASK_STATUS.todo
                 return (
                   <button key={epic.id} onClick={() => { setActiveEpic(epic); setActiveTab("tasks") }}
-                    className="w-full text-left flex items-center gap-3 p-3.5 border border-gray-100 rounded-xl hover:border-gray-200 hover:bg-gray-50/50 transition-all group">
+                    className="w-full text-left flex items-center gap-3 p-3.5 border border-border bg-card rounded-xl hover:border-muted-foreground/30 hover:bg-muted/40 transition-all group">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-black truncate">{epic.title}</p>
+                      <p className="text-sm font-semibold text-foreground truncate">{epic.title}</p>
                       <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[11px] text-gray-400">
+                        <span className="text-[11px] text-muted-foreground">
                           {doneCount}/{epicTaskCount} task{epicTaskCount !== 1 ? "s" : ""} done
                         </span>
                       </div>
@@ -741,7 +741,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
                       <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", statusStyle.badge)}>
                         {epic.status.replace("_", " ")}
                       </span>
-                      <ChevronRight size={13} className="text-gray-300 group-hover:text-gray-500 transition-colors" />
+                      <ChevronRight size={13} className="text-muted-foreground group-hover:text-foreground transition-colors" />
                     </div>
                   </button>
                 )
@@ -753,9 +753,9 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
           {activeEpic && activeTab === "tasks" && (
             epicTasks.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-28 gap-3">
-                <p className="text-sm text-gray-400">No tasks in this epic yet</p>
+                <p className="text-sm text-muted-foreground">No tasks in this epic yet</p>
                 <button onClick={() => setCreateTaskOpen(true)}
-                  className="flex items-center gap-1.5 h-8 px-4 border border-dashed border-gray-300 rounded-xl text-xs font-medium text-gray-500 hover:border-black hover:text-black transition-colors">
+                  className="flex items-center gap-1.5 h-8 px-4 border border-dashed border-border rounded-xl text-xs font-medium text-muted-foreground hover:border-foreground hover:text-foreground transition-colors">
                   <Plus size={12} /> Add the first task
                 </button>
               </div>
@@ -764,17 +764,17 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
                 const isOverdue = task.due_date && new Date(task.due_date) < new Date() && task.status !== "done"
                 return (
                   <button key={task.id} onClick={() => onTaskClick(task)}
-                    className="w-full text-left flex items-center gap-3 p-3.5 border border-gray-100 rounded-xl hover:border-gray-200 hover:bg-gray-50/50 transition-all group">
+                    className="w-full text-left flex items-center gap-3 p-3.5 border border-border bg-card rounded-xl hover:border-muted-foreground/30 hover:bg-muted/40 transition-all group">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-black truncate">{task.title}</p>
+                      <p className="text-sm font-medium text-foreground truncate">{task.title}</p>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         {task.assignees.length > 0 && (
-                          <span className="flex items-center gap-1 text-[11px] text-gray-400">
+                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                             <Users size={9} /> {task.assignees.map(a => a.full_name.split(" ")[0]).join(", ")}
                           </span>
                         )}
                         {task.due_date && (
-                          <span className={cn("flex items-center gap-1 text-[11px]", isOverdue ? "text-red-400" : "text-gray-400")}>
+                          <span className={cn("flex items-center gap-1 text-[11px]", isOverdue ? "text-red-400" : "text-muted-foreground")}>
                             <Clock size={9} />
                             {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                           </span>
@@ -785,7 +785,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
                       <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", TASK_STATUS[task.status].badge)}>
                         {task.status.replace("_", " ")}
                       </span>
-                      <ChevronRight size={13} className="text-gray-300 group-hover:text-gray-500 transition-colors" />
+                      <ChevronRight size={13} className="text-muted-foreground group-hover:text-foreground transition-colors" />
                     </div>
                   </button>
                 )
@@ -797,7 +797,7 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
           {activeEpic && activeTab === "proposals" && (
             proposals.length === 0 ? (
               <div className="flex items-center justify-center h-28">
-                <p className="text-sm text-gray-400">No proposals yet for this epic</p>
+                <p className="text-sm text-muted-foreground">No proposals yet for this epic</p>
               </div>
             ) : (
               proposals.map((p) => (
@@ -805,27 +805,27 @@ function ProjectTasksPanel({ project, tasks, onTaskClick, onClose, onTaskCreated
                   className={cn(
                     "w-full text-left flex flex-col gap-2 p-4 rounded-xl border transition-all",
                     p.status === "pending"
-                      ? "bg-white border-gray-200 shadow-sm hover:shadow-md hover:border-gray-300"
-                      : "bg-gray-50 border-gray-100 opacity-70 hover:opacity-100 hover:bg-white"
+                      ? "bg-card border-border shadow-sm hover:shadow-md hover:border-muted-foreground/30"
+                      : "bg-muted/30 border-border opacity-70 hover:opacity-100 hover:bg-card"
                   )}>
                   <div className="flex items-center justify-between gap-2">
                     <span className={cn(
                       "text-[10px] font-semibold px-2.5 py-1 rounded-full",
                       p.status === "pending"  ? "bg-[#d6c7e1] text-[#643f83]" :
-                      p.status === "accepted" ? "bg-black text-white" :
-                      "bg-gray-100 text-gray-400"
+                      p.status === "accepted" ? "bg-foreground text-background" :
+                      "bg-muted text-muted-foreground"
                     )}>
                       {p.status}
                     </span>
-                    <p className="text-[11px] text-gray-400">
+                    <p className="text-[11px] text-muted-foreground">
                       {new Date(p.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                     </p>
                   </div>
-                  <p className="text-sm font-semibold text-black leading-snug">{p.title}</p>
+                  <p className="text-sm font-semibold text-foreground leading-snug">{p.title}</p>
                   {p.description && (
-                    <p className="text-xs text-gray-500 line-clamp-2">{p.description}</p>
+                    <p className="text-xs text-muted-foreground line-clamp-2">{p.description}</p>
                   )}
-                  <p className="text-[11px] text-gray-400">by {p.proposer_name ?? "Unknown"} · tap to review</p>
+                  <p className="text-[11px] text-muted-foreground">by {p.proposer_name ?? "Unknown"} · tap to review</p>
                 </button>
               ))
             )
@@ -911,38 +911,38 @@ function CreateEpicModal({ project, onClose, onCreated }: {
   })
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-white rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 shadow-2xl text-foreground">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-base font-semibold text-black">New epic</p>
-            <p className="text-xs text-gray-400 mt-0.5">{project.title}</p>
+            <p className="text-base font-semibold text-foreground">New epic</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{project.title}</p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-gray-400 hover:text-black transition-colors">
+          <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
             <X size={16} />
           </button>
         </div>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Epic title" autoFocus
-          className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+          className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         <textarea value={description} onChange={(e) => setDescription(e.target.value)}
           placeholder="Description (optional)" rows={2}
-          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors" />
+          className="w-full px-3 py-2.5 border border-border bg-card text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors" />
         <div>
-          <label className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1 block">Assign to team *</label>
+          <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">Assign to team *</label>
           <select value={teamId} onChange={(e) => setTeamId(e.target.value)}
-            className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-black transition-colors">
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors">
             <option value="">Select team…</option>
-            {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            {teams.map((t) => <option key={t.id} value={t.id} className="bg-card text-foreground">{t.name}</option>)}
           </select>
         </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
         <div className="flex gap-2">
           <button onClick={onClose}
-            className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+            className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
             Cancel
           </button>
           <button onClick={() => mutation.mutate()} disabled={!title.trim() || !teamId || mutation.isPending}
-            className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+            className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50">
             {mutation.isPending ? "Creating…" : "Create epic"}
           </button>
         </div>
@@ -982,53 +982,53 @@ function CreateTaskForEpicModal({ epic, onClose, onCreated, prefillTitle, prefil
   })
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-[60] flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-white rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
+    <div className="fixed inset-0 bg-black/60 z-[60] flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 shadow-2xl text-foreground">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-base font-semibold text-black">New task</p>
-            <p className="text-xs text-gray-400 mt-0.5">{epic.title}</p>
+            <p className="text-base font-semibold text-foreground">New task</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{epic.title}</p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-gray-400 hover:text-black transition-colors">
+          <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
             <X size={16} />
           </button>
         </div>
         {modules.length > 1 && (
           <div>
-            <label className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1 block">Module</label>
+            <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">Module</label>
             <select value={targetModule?.id ?? ""} onChange={(e) => setModuleId(e.target.value)}
-              className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm bg-white focus:outline-none focus:border-black transition-colors">
-              {modules.map((m) => <option key={m.id} value={m.id}>{m.title}</option>)}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors">
+              {modules.map((m) => <option key={m.id} value={m.id} className="bg-card text-foreground">{m.title}</option>)}
             </select>
           </div>
         )}
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Task title" autoFocus
-          className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+          className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         <textarea value={description} onChange={(e) => setDescription(e.target.value)}
           placeholder="Description (optional)" rows={2}
-          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors" />
+          className="w-full px-3 py-2.5 border border-border bg-card text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors" />
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1 block">Due date</label>
+            <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">Due date</label>
             <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
-              className="w-full h-9 px-2.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-black transition-colors" />
+              className="w-full h-9 px-2.5 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors" />
           </div>
           <div>
-            <label className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1 block">Expected hours</label>
+            <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">Expected hours</label>
             <input type="number" min="0" step="0.5" value={expectedTime} onChange={(e) => setExpectedTime(e.target.value)}
               placeholder="e.g. 3"
-              className="w-full h-9 px-2.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-black transition-colors" />
+              className="w-full h-9 px-2.5 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors" />
           </div>
         </div>
         {!targetModule && <p className="text-xs text-amber-500">This epic has no modules yet.</p>}
         {error && <p className="text-xs text-red-500">{error}</p>}
         <div className="flex gap-2">
           <button onClick={onClose}
-            className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+            className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
             Cancel
           </button>
           <button onClick={() => mutation.mutate()} disabled={!title.trim() || !targetModule || mutation.isPending}
-            className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+            className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50">
             {mutation.isPending ? "Creating…" : "Create task"}
           </button>
         </div>
@@ -1050,12 +1050,12 @@ function AdminEpicColumn({ title, status, epics, tasks, projectName, onEpicClick
   return (
     <div ref={setNodeRef} className={cn(
       "flex flex-col gap-3 rounded-2xl border p-4 min-h-[360px] transition-colors",
-      isOver ? "border-[#a880ff] bg-[#a880ff]/5" : "border-gray-100 bg-gray-50/50"
+      isOver ? "border-[#a880ff] bg-[#a880ff]/5" : "border-border bg-muted/20"
     )}>
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
           <span className={cn("w-2 h-2 rounded-full", s.dot)} />
-          <span className="text-xs font-semibold text-black uppercase tracking-widest">{title}</span>
+          <span className="text-xs font-semibold text-foreground uppercase tracking-widest">{title}</span>
         </div>
         <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", s.badge)}>{epics.length}</span>
       </div>
@@ -1094,20 +1094,20 @@ function AdminEpicCard({ epic, taskCount, doneCount, projectName, onClick, isDra
         {...attributes} {...listeners}
         onClick={onClick}
         className={cn(
-          "bg-white border-2 border-[#643f83] rounded-xl p-3 cursor-pointer select-none transition-all hover:shadow-md",
+          "bg-card border-2 border-[#643f83] rounded-xl p-3 cursor-pointer select-none transition-all hover:shadow-md",
           isDragging && !isDragOverlay && "shadow-lg"
         )}
       >
         <div className="flex items-start justify-between gap-2 mb-0.5">
           <div className="min-w-0">
             <span className="text-[9px] font-bold uppercase tracking-widest text-[#643f83]">Epic</span>
-            <p className="text-sm font-semibold text-black leading-snug">{epic.title}</p>
+            <p className="text-sm font-semibold text-foreground leading-snug">{epic.title}</p>
           </div>
-          <ChevronRight size={14} className="text-gray-300 flex-shrink-0 mt-0.5" />
+          <ChevronRight size={14} className="text-muted-foreground flex-shrink-0 mt-0.5" />
         </div>
-        <p className="text-[11px] text-gray-500 mb-1">{projectName}</p>
+        <p className="text-[11px] text-muted-foreground mb-1">{projectName}</p>
         {epic.description && (
-          <p className="text-[11px] text-gray-400 leading-relaxed line-clamp-2 mb-1">{epic.description}</p>
+          <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2 mb-1">{epic.description}</p>
         )}
         <div className="flex items-center justify-between mt-1">
           <span className="text-[10px] text-gray-400">
@@ -1155,12 +1155,12 @@ function AdminTaskColumn({ title, status, tasks, projectName, onTaskClick }: {
   return (
     <div ref={setNodeRef} className={cn(
       "flex flex-col gap-3 rounded-2xl border p-4 min-h-[360px] transition-colors",
-      isOver ? "border-[#a880ff] bg-[#a880ff]/5" : "border-gray-100 bg-gray-50/50"
+      isOver ? "border-[#a880ff] bg-[#a880ff]/5" : "border-border bg-muted/20"
     )}>
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
           <span className={cn("w-2 h-2 rounded-full", s.dot)} />
-          <span className="text-xs font-semibold text-black uppercase tracking-widest">{title}</span>
+          <span className="text-xs font-semibold text-foreground uppercase tracking-widest">{title}</span>
         </div>
         <span className={cn("text-xs font-medium px-2 py-0.5 rounded-full", s.badge)}>{tasks.length}</span>
       </div>
@@ -1198,20 +1198,20 @@ function AdminTaskCard({ task, projectName, onClick, isDragOverlay }: {
       {...attributes} {...listeners}
       onClick={onClick}
       className={cn(
-        "bg-white border-2 border-black rounded-xl p-3 cursor-pointer select-none transition-all hover:shadow-md",
+        "bg-card border border-border rounded-xl p-3 cursor-pointer select-none transition-all hover:shadow-md hover:border-muted-foreground/30",
         isDragging && !isDragOverlay && "shadow-lg"
       )}
     >
       <div className="flex items-start justify-between gap-2 mb-0.5">
-        <p className="text-sm font-semibold text-black leading-snug flex-1">{task.title}</p>
+        <p className="text-sm font-semibold text-foreground leading-snug flex-1">{task.title}</p>
         <button
           onClick={(e) => { e.stopPropagation(); onClick() }}
-          className="p-1 rounded text-gray-400 hover:text-black flex-shrink-0 transition-colors"
+          className="p-1 rounded text-muted-foreground hover:text-foreground flex-shrink-0 transition-colors"
         >
           <Pencil size={11} />
         </button>
       </div>
-      <p className="text-[11px] text-gray-500 mb-2">
+      <p className="text-[11px] text-muted-foreground mb-2">
         {task.epic_title ? `${task.epic_title} · ` : ""}{projectName}
       </p>
       {due && (
@@ -1266,14 +1266,14 @@ function AdminTaskModal({ task, projectName, onClose, onSaved, onDeleted, elevat
       "fixed inset-0 bg-black/40 flex items-center justify-center p-4",
       elevated ? "z-[60]" : "z-50"
     )}>
-      <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+      <div className="w-full max-w-lg bg-card border border-border rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden text-foreground">
 
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100 flex-shrink-0">
+        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-black text-white">Task</span>
+            <span className="text-[9px] font-bold uppercase tracking-widest px-1.5 py-0.5 rounded bg-foreground text-background">Task</span>
             {!editing && (
               <button onClick={() => setEditing(true)}
-                className="p-1.5 rounded-lg text-gray-400 hover:text-black hover:bg-gray-50 transition-colors">
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                 <Pencil size={13} />
               </button>
             )}
@@ -1282,11 +1282,11 @@ function AdminTaskModal({ task, projectName, onClose, onSaved, onDeleted, elevat
             <button
               onClick={() => { if (confirm("Delete this task?")) deleteMutation.mutate() }}
               disabled={deleteMutation.isPending}
-              className="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors disabled:opacity-50"
             >
               <Trash2 size={14} />
             </button>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:text-black transition-colors">
+            <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
               <X size={16} />
             </button>
           </div>
@@ -1296,23 +1296,25 @@ function AdminTaskModal({ task, projectName, onClose, onSaved, onDeleted, elevat
           {editing ? (
             <div className="flex flex-col gap-3">
               <LabeledField label="Title">
-                <input value={title} onChange={(e) => setTitle(e.target.value)} className="input" autoFocus />
+                <input value={title} onChange={(e) => setTitle(e.target.value)} autoFocus
+                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
               </LabeledField>
               <LabeledField label="Description">
                 <textarea value={description} onChange={(e) => setDescription(e.target.value)}
-                  rows={3} className="input h-auto py-2.5 resize-none" />
+                  rows={3} className="w-full px-3 py-2.5 border border-border bg-card text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors" />
               </LabeledField>
               <LabeledField label="Due date">
-                <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="input" />
+                <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
+                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
               </LabeledField>
               <div className="flex gap-2">
                 <button onClick={() => setEditing(false)}
-                  className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+                  className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
                   Cancel
                 </button>
                 <button onClick={() => saveMutation.mutate()}
                   disabled={!title.trim() || saveMutation.isPending}
-                  className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+                  className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50">
                   {saveMutation.isPending ? "Saving…" : "Save changes"}
                 </button>
               </div>
@@ -1324,25 +1326,25 @@ function AdminTaskModal({ task, projectName, onClose, onSaved, onDeleted, elevat
                   {task.epic_title}
                 </span>
               )}
-              <h2 className="text-base font-semibold text-black">{task.title}</h2>
+              <h2 className="text-base font-semibold text-foreground">{task.title}</h2>
               {task.description && (
-                <p className="text-sm text-gray-600 leading-relaxed">{task.description}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">{task.description}</p>
               )}
               <div className="flex flex-wrap gap-2">
-                <span className="text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">{projectName}</span>
+                <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-lg">{projectName}</span>
                 {task.due_date && (
-                  <span className="flex items-center gap-1.5 text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-lg">
                     <Clock size={11} />
                     {new Date(task.due_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   </span>
                 )}
                 {task.expected_time != null && (
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
+                  <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-lg">
                     Expected {task.expected_time}h
                   </span>
                 )}
                 {task.actual_time != null && (
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
+                  <span className="text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-lg">
                     Actual {task.actual_time}h
                   </span>
                 )}
@@ -1356,7 +1358,7 @@ function AdminTaskModal({ task, projectName, onClose, onSaved, onDeleted, elevat
           {/* Assignees */}
           {task.assignees?.length > 0 && (
             <div>
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Assigned to</p>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Assigned to</p>
               <div className="flex flex-wrap gap-2">
                 {task.assignees.map((u) => (
                   <div key={u.id} className="flex items-center gap-1.5 bg-[#d6c7e1]/40 text-[#643f83] rounded-full px-2.5 py-1">
@@ -1373,7 +1375,7 @@ function AdminTaskModal({ task, projectName, onClose, onSaved, onDeleted, elevat
           {/* Submissions */}
           {task.submissions?.length > 0 && (
             <div>
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider mb-2">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">
                 Submissions ({task.submissions.length})
               </p>
               <div className="flex flex-col gap-2">
@@ -1388,7 +1390,7 @@ function AdminTaskModal({ task, projectName, onClose, onSaved, onDeleted, elevat
             </div>
           )}
           {task.submissions?.length === 0 && (
-            <p className="text-sm text-gray-400 italic">No submissions yet</p>
+            <p className="text-sm text-muted-foreground italic">No submissions yet</p>
           )}
         </div>
       </div>
@@ -1405,53 +1407,53 @@ function AdminSubmissionRow({ sub, isLatest, onReview, reviewing }: {
   const [comment, setComment]       = useState("")
 
   return (
-    <div className={cn("rounded-xl p-3 border text-xs", isLatest ? "bg-gray-50 border-gray-200" : "bg-white border-gray-100 opacity-70")}>
+    <div className={cn("rounded-xl p-3 border text-xs", isLatest ? "bg-muted/50 border-border" : "bg-card border-border opacity-70")}>
       <div className="flex items-center justify-between mb-1.5">
         {isLatest ? <span className="text-[9px] font-bold uppercase tracking-widest text-[#643f83]">Latest</span> : <span />}
-        {sub.submitter_name && <span className="text-[10px] text-gray-500">by {sub.submitter_name}</span>}
+        {sub.submitter_name && <span className="text-[10px] text-muted-foreground">by {sub.submitter_name}</span>}
       </div>
       <a href={sub.link} target="_blank" rel="noreferrer"
-        className="flex items-center gap-1 text-[#643f83] hover:underline">
+        className="flex items-center gap-1 text-[#643f83] dark:text-snuff hover:underline">
         <ExternalLink size={10} className="flex-shrink-0" />
         <span className="truncate">{sub.link}</span>
       </a>
-      {sub.note && <p className="text-gray-500 mt-1 italic">{sub.note}</p>}
+      {sub.note && <p className="text-muted-foreground mt-1 italic">{sub.note}</p>}
       <div className="flex items-center justify-between mt-1.5">
         <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded-full",
-          sub.status === "reviewed" ? "bg-black text-white" : "bg-[#d6c7e1] text-[#643f83]")}>
+          sub.status === "reviewed" ? "bg-foreground text-background" : "bg-[#d6c7e1] text-[#643f83]")}>
           {sub.status === "reviewed" ? "Reviewed" : "Pending"}
         </span>
         <div className="flex items-center gap-2">
-          {sub.score != null && <span className="font-semibold text-black">{sub.score}/100</span>}
-          <span className="text-gray-400">{new Date(sub.submitted_at).toLocaleDateString()}</span>
+          {sub.score != null && <span className="font-semibold text-foreground">{sub.score}/100</span>}
+          <span className="text-muted-foreground">{new Date(sub.submitted_at).toLocaleDateString()}</span>
         </div>
       </div>
-      {sub.review_comment && <p className="text-gray-500 mt-1 italic">"{sub.review_comment}"</p>}
+      {sub.review_comment && <p className="text-muted-foreground mt-1 italic">"{sub.review_comment}"</p>}
       {isLatest && sub.status !== "reviewed" && (
         showReview ? (
           <div className="mt-2 flex flex-col gap-1.5">
             <input type="number" min={0} max={100} value={score} onChange={(e) => setScore(e.target.value)}
               placeholder="Score (0–100)"
-              className="w-full h-8 px-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:border-black" />
+              className="w-full h-8 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary" />
             <textarea value={comment} onChange={(e) => setComment(e.target.value)}
               placeholder="Feedback…" rows={2}
-              className="w-full px-2 py-1.5 border border-gray-200 rounded-lg text-xs resize-none focus:outline-none focus:border-black" />
+              className="w-full px-2 py-1.5 border border-border bg-card text-foreground rounded-lg text-xs resize-none focus:outline-none focus:border-primary" />
             <div className="flex gap-1.5">
               <button onClick={() => setShowReview(false)}
-                className="flex-1 h-7 border border-gray-200 rounded-lg text-[11px] font-medium text-gray-600 hover:bg-gray-50">
+                className="flex-1 h-7 border border-border rounded-lg text-[11px] font-medium text-muted-foreground hover:bg-muted bg-card">
                 Cancel
               </button>
               <button
                 onClick={() => onReview(Number(score) || 0, comment)}
                 disabled={!comment.trim() || reviewing}
-                className="flex-1 h-7 bg-black text-white rounded-lg text-[11px] font-medium hover:bg-gray-900 disabled:opacity-50">
+                className="flex-1 h-7 bg-primary text-primary-foreground rounded-lg text-[11px] font-medium hover:opacity-90 disabled:opacity-50">
                 {reviewing ? "…" : "Submit review"}
               </button>
             </div>
           </div>
         ) : (
           <button onClick={() => setShowReview(true)}
-            className="mt-2 w-full h-7 border border-gray-200 rounded-lg text-[11px] font-medium text-gray-600 hover:bg-gray-50">
+            className="mt-2 w-full h-7 border border-border bg-card rounded-lg text-[11px] font-medium text-muted-foreground hover:bg-muted">
             Review
           </button>
         )
@@ -1475,28 +1477,28 @@ function CreateProjectModal({ onClose, onCreated }: { onClose: () => void; onCre
   })
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-white rounded-2xl p-6 flex flex-col gap-4 shadow-2xl">
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 shadow-2xl text-foreground">
         <div className="flex items-center justify-between">
-          <p className="text-base font-semibold text-black">New project</p>
-          <button onClick={onClose} className="p-1 rounded-lg text-gray-400 hover:text-black transition-colors">
+          <p className="text-base font-semibold text-foreground">New project</p>
+          <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
             <X size={16} />
           </button>
         </div>
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Project title" autoFocus
           onKeyDown={(e) => { if (e.key === "Enter" && title.trim()) mutation.mutate() }}
-          className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-black transition-colors" />
+          className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         <textarea value={description} onChange={(e) => setDescription(e.target.value)}
           placeholder="Description (optional)" rows={2}
-          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:border-black transition-colors" />
+          className="w-full px-3 py-2.5 border border-border bg-card text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors" />
         {error && <p className="text-xs text-red-500">{error}</p>}
         <div className="flex gap-2">
           <button onClick={onClose}
-            className="flex-1 h-10 border border-gray-200 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
+            className="flex-1 h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors">
             Cancel
           </button>
           <button onClick={() => mutation.mutate()} disabled={!title.trim() || mutation.isPending}
-            className="flex-1 h-10 bg-black text-white rounded-xl text-sm font-medium hover:bg-gray-900 transition-colors disabled:opacity-50">
+            className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50">
             {mutation.isPending ? "Creating…" : "Create"}
           </button>
         </div>
@@ -1509,7 +1511,7 @@ function CreateProjectModal({ onClose, onCreated }: { onClose: () => void; onCre
 function LabeledField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="text-xs text-gray-400 font-medium uppercase tracking-wider mb-1 block">{label}</label>
+      <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">{label}</label>
       {children}
     </div>
   )
@@ -1518,7 +1520,7 @@ function LabeledField({ label, children }: { label: string; children: React.Reac
 function PageSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+      <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
   )
 }
