@@ -84,9 +84,18 @@ export function Navbar() {
       { label: "Videos", to: "/instructors/videos" },
       { label: "Modules", to: "/instructors/modules" },
     ];
-    // instructor/facilitator dashboards land in Phase 3.4/3.5 — no nav yet,
-    // intentionally empty rather than linking to pages that don't exist.
-  } else if (activeRole === "instructor" || activeRole === "facilitator") {
+  } else if (activeRole === "instructor") {
+    navLinks = [
+      { label: "Dashboard", to: "/instructors/dashboard" },
+      { label: "Training", to: "/instructors/training" },
+      { label: "Library", to: "/instructors/library" },
+      { label: "Documents", to: "/instructors/documents" },
+      { label: "Payments", to: "/instructors/payments" },
+      { label: "Profile Card", to: "/instructors/profile-card" },
+    ];
+  } else if (activeRole === "facilitator") {
+    // facilitator dashboard lands in Phase 3.5 — no nav yet, intentionally
+    // empty rather than linking to pages that don't exist.
     navLinks = [];
   } else if (domain === "interns" || isAdmin) {
     navLinks = [
@@ -100,6 +109,8 @@ export function Navbar() {
     ? "/ambassadors/profile"
     : activeRole === "applicant"
     ? "/instructors/status"
+    : activeRole === "instructor"
+    ? "/instructors/profile-card"
     : "/interns/profile";
 
   const initials = user.full_name

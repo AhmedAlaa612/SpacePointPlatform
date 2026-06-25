@@ -12,6 +12,23 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
   )
 }
 
+export function StatCard({
+  icon, label, value, sub,
+}: { icon: ReactNode; label: string; value: ReactNode; sub?: string }) {
+  return (
+    <div className="rounded-xl border bg-card p-4 sm:p-5 flex items-center gap-4 shadow-sm">
+      <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide truncate">{label}</p>
+        <p className="text-2xl font-bold leading-tight">{value}</p>
+        {sub && <p className="text-xs text-muted-foreground mt-0.5 truncate">{sub}</p>}
+      </div>
+    </div>
+  )
+}
+
 const STATUS_STYLES: Record<string, string> = {
   draft: "bg-muted text-muted-foreground border-border",
   in_progress: "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/50",

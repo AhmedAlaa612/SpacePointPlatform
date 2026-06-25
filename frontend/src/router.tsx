@@ -38,6 +38,13 @@ import InstructorVideos from "@/pages/instructors/pipeline/Videos";
 import InstructorModules from "@/pages/instructors/pipeline/Modules";
 import InstructorModuleDetail from "@/pages/instructors/pipeline/ModuleDetail";
 import InstructorApply from "@/pages/instructors/apply/InstructorApply";
+import InstructorDashboard from "@/pages/instructors/Dashboard";
+import InstructorTraining from "@/pages/instructors/Training";
+import InstructorTrainingPlayer from "@/pages/instructors/TrainingPlayer";
+import InstructorLibrary from "@/pages/instructors/Library";
+import InstructorDocuments from "@/pages/instructors/Documents";
+import InstructorProfileCard from "@/pages/instructors/ProfileCard";
+import InstructorPayments from "@/pages/instructors/Payments";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -95,9 +102,11 @@ const indexRoute = createRoute({
       throw redirect({ to: "/ambassadors/teacher-portal" });
     } else if (role === "applicant") {
       throw redirect({ to: "/instructors/status" });
+    } else if (role === "instructor") {
+      throw redirect({ to: "/instructors/dashboard" });
     } else {
-      // instructor/facilitator dashboards land in Phase 3.4/3.5 — until then
-      // fall through to interns rather than a page that 403s for their role.
+      // facilitator dashboard lands in Phase 3.5 — until then fall through
+      // to interns rather than a page that 403s for their role.
       throw redirect({ to: "/interns" });
     }
   },
@@ -152,6 +161,13 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/videos", component: InstructorVideos }),
   createRoute({ getParentRoute: pi, path: "/modules", component: InstructorModules }),
   createRoute({ getParentRoute: pi, path: "/modules/$moduleId", component: InstructorModuleDetail }),
+  createRoute({ getParentRoute: pi, path: "/dashboard", component: InstructorDashboard }),
+  createRoute({ getParentRoute: pi, path: "/training", component: InstructorTraining }),
+  createRoute({ getParentRoute: pi, path: "/training/player/$videoId", component: InstructorTrainingPlayer }),
+  createRoute({ getParentRoute: pi, path: "/library", component: InstructorLibrary }),
+  createRoute({ getParentRoute: pi, path: "/documents", component: InstructorDocuments }),
+  createRoute({ getParentRoute: pi, path: "/profile-card", component: InstructorProfileCard }),
+  createRoute({ getParentRoute: pi, path: "/payments", component: InstructorPayments }),
 ];
 
 const applyAmbassadorRoute = createRoute({

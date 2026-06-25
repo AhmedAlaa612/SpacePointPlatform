@@ -57,7 +57,10 @@ async def stream_video(
     video = (await db.execute(select(TrainingVideo).where(TrainingVideo.id == video_id))).scalars().first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    signed_url = await storage.get_signed_url("training-videos", video.video_path, expires_in=3600)
+    try:
+        signed_url = await storage.get_signed_url("training-videos", video.video_path, expires_in=3600)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="Video file not found in storage") from exc
     return {"url": signed_url}
 
 
