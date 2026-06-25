@@ -31,12 +31,16 @@ class PaymentAddonOut(BaseModel):
 
 class PaymentLetterOut(BaseModel):
     id: UUID
+    instructor_user_id: Optional[UUID] = None
+    instructor_name: Optional[str] = None
+    batch_id: Optional[UUID] = None
     letter_date: Optional[str] = None
     reference: str
     status: PaymentLetterStatus
     is_published: bool
     pdf_url: Optional[str] = None
     signed_pdf_url: Optional[str] = None
+    admin_notes: Optional[str] = None
     sessions: list[PaymentSessionOut] = []
     addons: list[PaymentAddonOut] = []
 
@@ -66,3 +70,43 @@ class PaymentSessionCreate(BaseModel):
     location: Optional[str] = None
     duration_hours: Optional[float] = None
     compensation_aed: float = 0
+
+
+class PaymentAddonCreate(BaseModel):
+    description: str
+    amount_aed: float = 0
+    notes: Optional[str] = None
+
+
+class PaymentBatchCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+
+class PaymentBatchOut(BaseModel):
+    id: UUID
+    name: str
+    description: Optional[str] = None
+    letter_count: int = 0
+
+    class Config:
+        from_attributes = True
+
+
+class CertificateOut(BaseModel):
+    id: UUID
+    user_id: UUID
+    instructor_name: Optional[str] = None
+    type: str
+    workshop_name: Optional[str] = None
+    workshop_date: Optional[str] = None
+    location: Optional[str] = None
+    file_url: str
+
+
+class BulkImportPreviewOut(BaseModel):
+    instructor_count: int
+    session_count: int
+    addon_count: int
+    unmatched_emails: list[str]
+    errors: list[str]

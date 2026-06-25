@@ -141,12 +141,16 @@ export interface PaymentAddon {
 
 export interface PaymentLetter {
   id: string
+  instructor_user_id?: string | null
+  instructor_name?: string | null
+  batch_id?: string | null
   letter_date: string | null
   reference: string
   status: PaymentLetterStatus
   is_published: boolean
   pdf_url: string | null
   signed_pdf_url: string | null
+  admin_notes?: string | null
   sessions: PaymentSession[]
   addons: PaymentAddon[]
 }

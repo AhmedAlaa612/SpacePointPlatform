@@ -102,7 +102,7 @@ export function Navbar() {
     navLinks = [
       { label: "Board", to: "/interns" },
       { label: "Tracker", to: "/interns/tracker" },
-      ...(isAdmin ? [{ label: "Admin", to: "/interns/admin" }] : []),
+      ...(isAdmin ? [{ label: "Admin", to: "/admin" }] : []),
     ];
   }
 

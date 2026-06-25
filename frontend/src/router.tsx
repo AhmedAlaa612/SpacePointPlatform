@@ -45,8 +45,12 @@ import InstructorLibrary from "@/pages/instructors/Library";
 import InstructorDocuments from "@/pages/instructors/Documents";
 import InstructorProfileCard from "@/pages/instructors/ProfileCard";
 import InstructorPayments from "@/pages/instructors/Payments";
+import InstructorsAdmin from "@/pages/instructors/Admin";
 import FacilitatorTraining from "@/pages/instructors/facilitator/Training";
 import FacilitatorLibrary from "@/pages/instructors/facilitator/Library";
+
+// Admin hub
+import AdminHub from "@/pages/admin/Dashboard";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -172,7 +176,14 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/payments", component: InstructorPayments }),
   createRoute({ getParentRoute: pi, path: "/facilitator/training", component: FacilitatorTraining }),
   createRoute({ getParentRoute: pi, path: "/facilitator/library", component: FacilitatorLibrary }),
+  createRoute({ getParentRoute: pi, path: "/admin", component: InstructorsAdmin }),
 ];
+
+const adminHubRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/admin",
+  component: AdminHub,
+});
 
 const applyAmbassadorRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -206,6 +217,7 @@ const routeTree = rootRoute.addChildren([
   applyInstructorWithCodeRoute,
   authLayoutRoute.addChildren([
     indexRoute,
+    adminHubRoute,
     internsLayoutRoute.addChildren(internsRoutes),
     ambassadorsLayoutRoute.addChildren(ambassadorsRoutes),
     instructorsLayoutRoute.addChildren(instructorsRoutes),

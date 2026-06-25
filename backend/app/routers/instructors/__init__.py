@@ -7,6 +7,7 @@ from app.routers.instructors.training import router as training_router
 from app.routers.instructors.library import router as library_router
 from app.routers.instructors.payments import router as payments_router
 from app.routers.instructors.facilitator import router as facilitator_router
+from app.routers.instructors.payments_admin import router as payments_admin_router
 
 # Aggregate all instructors sub-routers under a single router that main.py
 # mounts under /instructors (mirrors routers/ambassadors/__init__.py).
@@ -18,3 +19,4 @@ router.include_router(training_router)
 router.include_router(library_router)
 router.include_router(payments_router)
 router.include_router(facilitator_router)
+router.include_router(payments_admin_router)

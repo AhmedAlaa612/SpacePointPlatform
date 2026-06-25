@@ -24,3 +24,21 @@ class InvitationCodeCreate(BaseModel):
 class InvitationCodeUpdate(BaseModel):
     is_active: Optional[bool] = None
     max_uses: Optional[int] = None
+
+
+class AdminOverviewOut(BaseModel):
+    pending_applications: int
+    pending_payment_signatures: int
+    total_instructors: int
+    total_applicants: int
+
+
+class FacilitatorCreate(BaseModel):
+    full_name: str
+    email: str
+    password: str
+
+
+class PortalSettingUpdate(BaseModel):
+    key: str
+    value: str

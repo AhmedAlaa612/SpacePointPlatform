@@ -13,6 +13,9 @@ from app.schemas.instructors.admin import (
     ModuleSubmissionDecision,
     InvitationCodeCreate,
     InvitationCodeUpdate,
+    AdminOverviewOut,
+    FacilitatorCreate,
+    PortalSettingUpdate,
 )
 from app.schemas.instructors.instructor import (
     InstructorProfileOut,
@@ -39,6 +42,11 @@ from app.schemas.instructors.payment import (
     SignLetterRequest,
     PaymentLetterCreate,
     PaymentSessionCreate,
+    PaymentAddonCreate,
+    PaymentBatchCreate,
+    PaymentBatchOut,
+    CertificateOut,
+    BulkImportPreviewOut,
 )
 
 __all__ = [
@@ -54,6 +62,9 @@ __all__ = [
     "ModuleSubmissionDecision",
     "InvitationCodeCreate",
     "InvitationCodeUpdate",
+    "AdminOverviewOut",
+    "FacilitatorCreate",
+    "PortalSettingUpdate",
     "InstructorProfileOut",
     "InstructorProfileUpdate",
     "IdCardOut",
@@ -74,4 +85,9 @@ __all__ = [
     "SignLetterRequest",
     "PaymentLetterCreate",
     "PaymentSessionCreate",
+    "PaymentAddonCreate",
+    "PaymentBatchCreate",
+    "PaymentBatchOut",
+    "CertificateOut",
+    "BulkImportPreviewOut",
 ]

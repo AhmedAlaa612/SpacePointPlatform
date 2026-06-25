@@ -79,10 +79,12 @@ export default function Status() {
                   onSubmit={(e) => { e.preventDefault(); submitPresentation.mutate() }}
                   className="flex flex-col sm:flex-row gap-2"
                 >
-                  <input
-                    className="input flex-1" placeholder="YouTube or Drive link" value={videoLink}
-                    onChange={(e) => setVideoLink(e.target.value)} required
-                  />
+                  <div className="flex-1">
+                    <input
+                      className="input" placeholder="YouTube or Drive link" value={videoLink}
+                      onChange={(e) => setVideoLink(e.target.value)} required
+                    />
+                  </div>
                   <Button type="submit" disabled={submitPresentation.isPending}>
                     {submitPresentation.isPending ? "Submitting…" : "Submit presentation"}
                   </Button>
