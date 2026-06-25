@@ -56,7 +56,15 @@ class PaymentSession(Base):
     )
     session_date = Column(String(50), nullable=True)
     workshop_description = Column(String(255), nullable=False)
-    role = Column(ENUM(PaymentSessionRole, name="payment_session_role", create_type=False), nullable=False)
+    # values_callable: this enum's values are human-readable display strings
+    # ("Lead Facilitator") that don't match the Python member names
+    # (lead_facilitator) — without this, SQLAlchemy sends the member *name*
+    # to Postgres and every insert fails with "invalid input value for enum".
+    role = Column(
+        ENUM(PaymentSessionRole, name="payment_session_role", create_type=False,
+             values_callable=lambda enum_cls: [e.value for e in enum_cls]),
+        nullable=False,
+    )
     location = Column(String(255), nullable=True)
     duration_hours = Column(Float, nullable=True)
     compensation_aed = Column(Float, nullable=False, default=0)

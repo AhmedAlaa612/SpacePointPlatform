@@ -14,6 +14,32 @@ from app.schemas.instructors.admin import (
     InvitationCodeCreate,
     InvitationCodeUpdate,
 )
+from app.schemas.instructors.instructor import (
+    InstructorProfileOut,
+    InstructorProfileUpdate,
+    IdCardOut,
+    BankDetailsOut,
+    BankDetailsUpdate,
+    InstructorDocumentOut,
+)
+from app.schemas.instructors.training import (
+    TrainingVideoOut,
+    TrainingModuleOut,
+    TrainingModuleCreate,
+    TrainingVideoCreate,
+    LibraryResourceOut,
+    LibraryModuleOut,
+    LibraryModuleCreate,
+)
+from app.schemas.instructors.payment import (
+    PaymentSessionOut,
+    PaymentAddonOut,
+    PaymentLetterOut,
+    PaymentSummaryOut,
+    SignLetterRequest,
+    PaymentLetterCreate,
+    PaymentSessionCreate,
+)
 
 __all__ = [
     "VideoSubmissionOut",
@@ -28,4 +54,24 @@ __all__ = [
     "ModuleSubmissionDecision",
     "InvitationCodeCreate",
     "InvitationCodeUpdate",
+    "InstructorProfileOut",
+    "InstructorProfileUpdate",
+    "IdCardOut",
+    "BankDetailsOut",
+    "BankDetailsUpdate",
+    "InstructorDocumentOut",
+    "TrainingVideoOut",
+    "TrainingModuleOut",
+    "TrainingModuleCreate",
+    "TrainingVideoCreate",
+    "LibraryResourceOut",
+    "LibraryModuleOut",
+    "LibraryModuleCreate",
+    "PaymentSessionOut",
+    "PaymentAddonOut",
+    "PaymentLetterOut",
+    "PaymentSummaryOut",
+    "SignLetterRequest",
+    "PaymentLetterCreate",
+    "PaymentSessionCreate",
 ]
