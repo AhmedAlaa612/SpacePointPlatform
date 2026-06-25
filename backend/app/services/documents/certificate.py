@@ -1,8 +1,7 @@
 """Shared certificate generator (PLAN §4.5/§8.2) — `certificates` table has a
 `type` discriminator so this one module serves workshop-delivery certs
-(Phase 3, needed now for payment-letter signing) and completion certs
-(Phase 4, intern/instructor completion — not built yet, but the table and
-this module's shape already accommodate it without rework).
+(Phase 3, payment-letter signing) and completion certs (Phase 4, intern +
+instructor completion).
 """
 
 import io
@@ -58,6 +57,35 @@ def generate_workshop_certificate_pdf(
         f"in recognition of his/her outstanding contribution as a facilitator to the<br/>"
         f"<b>{workshop_name}</b>, delivered on <b>{workshop_date}</b> at <b>{location}</b>"
     )
+    p = Paragraph(text, style)
+    p_width = 600
+    p_height = p.wrap(p_width, 100)[1]
+    p.drawOn(c, (width - p_width) / 2.0, 240 - p_height)
+
+    c.save()
+    return buf.getvalue()
+
+
+def generate_completion_certificate_pdf(recipient_name: str, program_label: str) -> bytes:
+    """Completion certificate (certificates.type='internship_completion' |
+    'instructor_completion'). `program_label` (e.g. "Internship Program",
+    "Instructor Program") keeps this role-generic, same as id_card.py."""
+    _ensure_fonts()
+    width, height = landscape(A4)
+    buf = io.BytesIO()
+    c = canvas.Canvas(buf, pagesize=(width, height))
+
+    c.drawImage(_TEMPLATE_PATH, 0, 0, width=width, height=height)
+
+    c.setFont("TimesNewRoman-BoldItalic", 34)
+    c.setFillColor(_TEXT_COLOR)
+    c.drawCentredString(width / 2.0, 298, recipient_name)
+
+    style = ParagraphStyle(
+        name="CertificateCompletionText", fontName="TimesNewRoman-Italic", fontSize=15,
+        leading=22, textColor=_TEXT_COLOR, alignment=1,
+    )
+    text = f"in recognition of having successfully completed the<br/><b>SpacePoint {program_label}</b>"
     p = Paragraph(text, style)
     p_width = 600
     p_height = p.wrap(p_width, 100)[1]

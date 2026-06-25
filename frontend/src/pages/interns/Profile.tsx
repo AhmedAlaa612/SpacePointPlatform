@@ -1,7 +1,9 @@
 import { useState } from "react"
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
+import { Download } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import { updateMeApi } from "@/api/interns/auth"
+import { getMyDocumentsApi } from "@/api/documents"
 
 const roleBadge: Record<string, string> = {
   admin:  "bg-black text-white",
@@ -94,6 +96,45 @@ export default function Profile() {
 
         {saved && <p className="text-sm text-green-600 font-medium text-center">Saved ✓</p>}
       </div>
+
+      <MyDocuments />
+    </div>
+  )
+}
+
+function MyDocuments() {
+  const { data, isLoading } = useQuery({ queryKey: ["my-documents"], queryFn: getMyDocumentsApi })
+
+  const items = [
+    ...(data?.certificates ?? []).map((c) => ({
+      id: c.id,
+      label: c.type === "internship_completion" ? "Internship completion certificate" : "Certificate",
+      url: c.file_url,
+    })),
+    ...(data?.recommendation_letters ?? []).map((r) => ({ id: r.id, label: "Recommendation letter", url: r.file_url })),
+    ...(data?.intern_letters ?? []).map((l) => ({
+      id: l.id, label: l.type === "completion" ? "Completion letter" : "Confirmation letter", url: l.file_url,
+    })),
+  ]
+
+  if (isLoading) return null
+
+  return (
+    <div className="border border-border bg-card rounded-2xl p-5 flex flex-col gap-3">
+      <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">My documents</p>
+      {items.length === 0 ? (
+        <p className="text-sm text-muted-foreground/70 italic">Nothing generated for you yet</p>
+      ) : (
+        items.map((item) => (
+          <a
+            key={item.id} href={item.url} target="_blank" rel="noreferrer"
+            className="flex items-center justify-between text-sm text-foreground hover:text-primary transition-colors"
+          >
+            <span>{item.label}</span>
+            <Download size={14} />
+          </a>
+        ))
+      )}
     </div>
   )
 }

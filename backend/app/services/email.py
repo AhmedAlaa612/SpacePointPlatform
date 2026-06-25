@@ -107,3 +107,13 @@ async def send_certificates_email(to_email: str, name: str, pdfs: list[tuple[str
     body = f"Hi {name},\n\nAttached are your certificate(s) for the workshop(s) you delivered.\n\n— SpacePoint"
     attachments = [(fname, data, "pdf") for fname, data in pdfs]
     return await try_send_email(to_email, "Your SpacePoint Certificate(s)", body, attachments=attachments)
+
+
+async def send_recommendation_letter_email(to_email: str, name: str) -> bool:
+    body = (
+        f"Hi {name},\n\n"
+        "A recommendation letter has been generated for you — you can view and download it "
+        "from your profile.\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, "Your SpacePoint Recommendation Letter", body)

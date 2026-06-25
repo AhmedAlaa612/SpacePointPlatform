@@ -23,3 +23,12 @@ export const updateUserApi = (id: string, data: Partial<{ full_name: string; ema
 
 export const deleteUserApi = (id: string) =>
   api.delete(`/interns/admin/users/${id}`).then((r) => r.data)
+
+export const generateConfirmationLetterApi = (id: string) =>
+  api.post<{ file_url: string }>(`/interns/admin/users/${id}/confirmation-letter`).then((r) => r.data)
+
+export const generateCompletionLetterApi = (id: string) =>
+  api.post<{ file_url: string }>(`/interns/admin/users/${id}/completion-letter`).then((r) => r.data)
+
+export const generateCertificateApi = (id: string) =>
+  api.post<{ file_url: string }>(`/interns/admin/users/${id}/certificate`).then((r) => r.data)

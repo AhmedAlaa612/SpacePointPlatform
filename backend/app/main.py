@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.routers import auth, notifications
+from app.routers import auth, documents, notifications
 from app.routers.interns import admin as interns_admin
 from app.routers.interns import intern as interns_intern
 from app.routers.interns import leader as interns_leader
@@ -22,6 +22,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(notifications.router)  # shared: /notifications/*
+app.include_router(documents.router)  # shared: /documents/*  (Phase 4)
 
 # Interns domain (Phase 1) — /interns/*
 app.include_router(interns_admin.router, prefix="/interns")

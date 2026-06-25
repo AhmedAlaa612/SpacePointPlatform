@@ -2,6 +2,7 @@ import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Download, Trash2, Upload } from "lucide-react"
 import { deleteDocumentApi, listDocumentsApi, uploadDocumentApi } from "@/api/instructors/instructor"
+import { getMyDocumentsApi } from "@/api/documents"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
@@ -30,6 +31,8 @@ export default function Documents() {
   return (
     <div>
       <PageHeader title="My Documents" subtitle="Your personal document vault — only visible to you and admins." />
+
+      <GeneratedDocuments />
 
       <Card className="mb-6">
         <CardContent className="p-5 flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
@@ -70,5 +73,39 @@ export default function Documents() {
         </div>
       )}
     </div>
+  )
+}
+
+function GeneratedDocuments() {
+  const { data, isLoading } = useQuery({ queryKey: ["my-documents"], queryFn: getMyDocumentsApi })
+  if (isLoading) return null
+
+  const items = [
+    ...(data?.certificates ?? []).map((c) => ({
+      id: c.id,
+      label: c.type === "instructor_completion" ? "Instructor program completion certificate" : "Certificate",
+      url: c.file_url,
+    })),
+    ...(data?.recommendation_letters ?? []).map((r) => ({ id: r.id, label: "Recommendation letter", url: r.file_url })),
+  ]
+  if (items.length === 0) return null
+
+  return (
+    <Card className="mb-6">
+      <CardContent className="p-5 flex flex-col gap-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+          Generated documents
+        </p>
+        {items.map((item) => (
+          <a
+            key={item.id} href={item.url} target="_blank" rel="noreferrer"
+            className="flex items-center justify-between text-sm text-foreground hover:text-primary transition-colors"
+          >
+            <span>{item.label}</span>
+            <Download size={14} />
+          </a>
+        ))}
+      </CardContent>
+    </Card>
   )
 }

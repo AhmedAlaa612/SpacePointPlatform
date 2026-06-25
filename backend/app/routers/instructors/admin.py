@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.models.enums import ApplicationStatus, UserRole
 from sqlalchemy import func
 
+from app.models.certificate import Certificate
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
 from app.models.instructors.instructor_document import InstructorDocument
@@ -29,8 +30,9 @@ from app.schemas.instructors.admin import (
     InvitationCodeUpdate,
     PortalSettingUpdate,
 )
-from app.models.enums import PaymentLetterStatus
+from app.models.enums import CertificateType, PaymentLetterStatus
 from app.services import storage
+from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.contract import generate_contract_pdf
 from app.services.email import send_approval_credentials_email, send_phase1_approval_email
 from app.services.notification import create_notification as notify
@@ -150,6 +152,18 @@ async def review_applicant(
             inst_profile.contract_url = contract_url
         else:
             db.add(InstructorProfile(user_id=user_id, contract_url=contract_url))
+
+        # Completion certificate auto-fires here — this approval is the one clean,
+        # already-existing event for it (PLAN §8.2). Role-generic generator, same
+        # one used for the interns-admin manual trigger (routers/interns/admin.py).
+        cert_bytes = generate_completion_certificate_pdf(user.full_name, "Instructor Program")
+        cert_url = await storage.upload_file(
+            "certificates", f"{user_id}/instructor_completion.pdf", cert_bytes, "application/pdf"
+        )
+        db.add(Certificate(
+            user_id=user_id, type=CertificateType.instructor_completion, file_url=cert_url,
+            generated_by=current_user.id,
+        ))
 
         email_sent = await send_approval_credentials_email(
             user.email, user.full_name, temp_password, contract_pdf=contract_bytes

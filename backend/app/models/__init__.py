@@ -9,4 +9,6 @@ from app.models import ambassadors  # noqa: F401  (Phase 2)
 from app.models import instructors  # noqa: F401  (Phase 3)
 from app.models.id_card import IdCard  # noqa: F401  (shared, PLAN §4.5 — pulled forward into Phase 3)
 from app.models.certificate import Certificate  # noqa: F401  (shared, PLAN §4.5 — pulled forward into Phase 3)
+from app.models.recommendation_letter import RecommendationLetter  # noqa: F401  (shared, PLAN §4.5 — Phase 4)
+from app.models.intern_letter import InternLetter  # noqa: F401  (shared, PLAN §4.5 — Phase 4)
 

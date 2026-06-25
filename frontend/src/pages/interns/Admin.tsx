@@ -1,9 +1,13 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Trash2, UserPlus, Users, Plus, Crown, X } from "lucide-react"
+import { Trash2, UserPlus, Users, Plus, Crown, X, FileText } from "lucide-react"
 import type { User, Team, Role } from "@/types/interns"
-import { getUsersApi, createUserApi, updateUserApi, deleteUserApi } from "@/api/interns/users"
+import {
+  getUsersApi, createUserApi, updateUserApi, deleteUserApi,
+  generateConfirmationLetterApi, generateCompletionLetterApi, generateCertificateApi,
+} from "@/api/interns/users"
 import { getTeamsApi, createTeamApi, addTeamMemberApi, removeTeamMemberApi } from "@/api/interns/teams"
+import { generateRecommendationLetterApi } from "@/api/documents"
 import { userRole } from "@/types/interns"
 import { cn } from "@/lib/utils"
 
@@ -53,6 +57,7 @@ function UsersPanel() {
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [changePasswordUser, setChangePasswordUser] = useState<User | null>(null)
+  const [documentsUser, setDocumentsUser] = useState<User | null>(null)
 
   const { data: users = [], isLoading } = useQuery<User[]>({
     queryKey: ["users"],
@@ -104,6 +109,13 @@ function UsersPanel() {
                 Change password
               </button>
               <button
+                onClick={() => setDocumentsUser(u)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                title="Documents"
+              >
+                <FileText size={14} />
+              </button>
+              <button
                 onClick={() => { if (confirm(`Delete ${u.full_name}?`)) deleteMutation.mutate(u.id) }}
                 className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
               >
@@ -132,6 +144,10 @@ function UsersPanel() {
           onClose={() => setChangePasswordUser(null)}
           onSuccess={() => setChangePasswordUser(null)}
         />
+      )}
+
+      {documentsUser && (
+        <DocumentsModal user={documentsUser} onClose={() => setDocumentsUser(null)} />
       )}
     </div>
   )
@@ -449,6 +465,135 @@ function ChangePasswordModal({ user, onClose, onSuccess }: {
           disabled={!password.trim() || password !== confirm}
           label="Update password"
         />
+      </div>
+    </Modal>
+  )
+}
+
+/* ================================================================== */
+/* Documents modal                                                     */
+/* ================================================================== */
+function DocumentsModal({ user, onClose }: { user: User; onClose: () => void }) {
+  const [recommendationText, setRecommendationText] = useState("")
+  const [signatoryName, setSignatoryName] = useState("")
+  const [signatoryTitle, setSignatoryTitle] = useState("")
+  const [error, setError] = useState("")
+  const [lastUrl, setLastUrl] = useState<string | null>(null)
+
+  const isIntern = user.roles.includes("intern" as Role)
+
+  const onOk = (url: string) => { setLastUrl(url); setError("") }
+  const onErr = (label: string) => () => setError(`Failed to generate ${label}`)
+
+  const recommend = useMutation({
+    mutationFn: () => generateRecommendationLetterApi({
+      user_id: user.id, recommendation_text: recommendationText,
+      signatory_name: signatoryName || undefined, signatory_title: signatoryTitle || undefined,
+    }),
+    onSuccess: (letter) => { onOk(letter.file_url); setRecommendationText("") },
+    onError: onErr("recommendation letter"),
+  })
+  const confirmationLetter = useMutation({
+    mutationFn: () => generateConfirmationLetterApi(user.id),
+    onSuccess: (r) => onOk(r.file_url),
+    onError: onErr("confirmation letter"),
+  })
+  const completionLetter = useMutation({
+    mutationFn: () => generateCompletionLetterApi(user.id),
+    onSuccess: (r) => onOk(r.file_url),
+    onError: onErr("completion letter"),
+  })
+  const certificate = useMutation({
+    mutationFn: () => generateCertificateApi(user.id),
+    onSuccess: (r) => onOk(r.file_url),
+    onError: onErr("certificate"),
+  })
+
+  return (
+    <Modal title={`Documents — ${user.full_name}`} onClose={onClose}>
+      <div className="flex flex-col gap-4">
+        {isIntern && (
+          <div>
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2">
+              Intern documents
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => confirmationLetter.mutate()} disabled={confirmationLetter.isPending}
+                className="h-9 border border-border rounded-xl text-sm font-medium text-foreground bg-card hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                {confirmationLetter.isPending ? "Generating…" : "Generate confirmation letter"}
+              </button>
+              <button
+                onClick={() => completionLetter.mutate()} disabled={completionLetter.isPending}
+                className="h-9 border border-border rounded-xl text-sm font-medium text-foreground bg-card hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                {completionLetter.isPending ? "Generating…" : "Generate completion letter"}
+              </button>
+              <button
+                onClick={() => certificate.mutate()} disabled={certificate.isPending}
+                className="h-9 border border-border rounded-xl text-sm font-medium text-foreground bg-card hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                {certificate.isPending ? "Generating…" : "Generate completion certificate"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div>
+          <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-2">
+            Recommendation letter
+          </p>
+          <div className="flex flex-col gap-3">
+            <Field label="Letter text">
+              <textarea
+                value={recommendationText}
+                onChange={(e) => { setRecommendationText(e.target.value); setError("") }}
+                rows={5} placeholder="Write what this letter should say…"
+                className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors resize-none"
+              />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Signatory name (optional)">
+                <input
+                  value={signatoryName} onChange={(e) => setSignatoryName(e.target.value)}
+                  placeholder="Abdullah Al-Rashidi"
+                  className="w-full h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                />
+              </Field>
+              <Field label="Signatory title (optional)">
+                <input
+                  value={signatoryTitle} onChange={(e) => setSignatoryTitle(e.target.value)}
+                  placeholder="Co-Founders & CEO"
+                  className="w-full h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                />
+              </Field>
+            </div>
+            <button
+              onClick={() => recommend.mutate()} disabled={!recommendationText.trim() || recommend.isPending}
+              className="h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+            >
+              {recommend.isPending ? "Generating…" : "Generate recommendation letter"}
+            </button>
+          </div>
+        </div>
+
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        {lastUrl && (
+          <a
+            href={lastUrl} target="_blank" rel="noreferrer"
+            className="text-sm text-primary hover:underline text-center"
+          >
+            Open generated document ↗
+          </a>
+        )}
+
+        <button
+          onClick={onClose}
+          className="w-full h-10 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+        >
+          Done
+        </button>
       </div>
     </Modal>
   )
