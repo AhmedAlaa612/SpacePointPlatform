@@ -42,3 +42,26 @@ export const applyTeacherApi = (data: {
 export const validateInviteApi = (code: string) =>
   api.get<{ ambassador_name: string; valid: boolean }>(`/auth/invite/${code}`).then((r) => r.data)
 
+export async function applyInstructorApi(data: {
+  full_name: string
+  email: string
+  password: string
+  invite_code: string
+  university?: string
+  highest_degree?: string
+  highest_degree_other?: string
+  city_of_residence?: string
+  deliver_cities?: string[]
+  background_areas?: string[]
+  background_other?: string
+  has_own_transportation?: boolean
+  country?: string
+}): Promise<User> {
+  // Unlike apply/teacher-apply, this creates an active user immediately
+  // (status starts the pipeline, not a pending-admin-approval gate) and
+  // auto-logs them in, so it stores tokens the same way login() does.
+  const { data: res } = await api.post<AuthTokens & { user: User }>("/auth/instructor-apply", data);
+  tokens.set(res);
+  return res.user;
+}
+

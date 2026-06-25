@@ -32,6 +32,13 @@ import AmbassadorTeacherPortal from "@/pages/ambassadors/TeacherPortal";
 import AmbassadorApply from "@/pages/ambassadors/AmbassadorApply";
 import TeacherApply from "@/pages/ambassadors/TeacherApply";
 
+// Instructors domain pages
+import InstructorStatus from "@/pages/instructors/Status";
+import InstructorVideos from "@/pages/instructors/pipeline/Videos";
+import InstructorModules from "@/pages/instructors/pipeline/Modules";
+import InstructorModuleDetail from "@/pages/instructors/pipeline/ModuleDetail";
+import InstructorApply from "@/pages/instructors/apply/InstructorApply";
+
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
 const loginRoute = createRoute({
@@ -86,7 +93,11 @@ const indexRoute = createRoute({
       throw redirect({ to: "/ambassadors" });
     } else if (role === "teacher") {
       throw redirect({ to: "/ambassadors/teacher-portal" });
+    } else if (role === "applicant") {
+      throw redirect({ to: "/instructors/status" });
     } else {
+      // instructor/facilitator dashboards land in Phase 3.4/3.5 — until then
+      // fall through to interns rather than a page that 403s for their role.
       throw redirect({ to: "/interns" });
     }
   },
@@ -129,6 +140,20 @@ const ambassadorsRoutes = [
   createRoute({ getParentRoute: pa, path: "/teacher-portal", component: AmbassadorTeacherPortal }),
 ];
 
+const instructorsLayoutRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/instructors",
+  component: () => <Outlet />,
+});
+
+const pi = () => instructorsLayoutRoute;
+const instructorsRoutes = [
+  createRoute({ getParentRoute: pi, path: "/status", component: InstructorStatus }),
+  createRoute({ getParentRoute: pi, path: "/videos", component: InstructorVideos }),
+  createRoute({ getParentRoute: pi, path: "/modules", component: InstructorModules }),
+  createRoute({ getParentRoute: pi, path: "/modules/$moduleId", component: InstructorModuleDetail }),
+];
+
 const applyAmbassadorRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/apply/ambassador",
@@ -141,14 +166,29 @@ const applyTeacherRoute = createRoute({
   component: TeacherApply,
 });
 
+const applyInstructorRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apply/instructor",
+  component: InstructorApply,
+});
+
+const applyInstructorWithCodeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/apply/instructor/$code",
+  component: InstructorApply,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   applyAmbassadorRoute,
   applyTeacherRoute,
+  applyInstructorRoute,
+  applyInstructorWithCodeRoute,
   authLayoutRoute.addChildren([
     indexRoute,
     internsLayoutRoute.addChildren(internsRoutes),
     ambassadorsLayoutRoute.addChildren(ambassadorsRoutes),
+    instructorsLayoutRoute.addChildren(instructorsRoutes),
   ]),
 ]);
 

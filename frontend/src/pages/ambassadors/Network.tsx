@@ -49,7 +49,7 @@ export default function Network() {
 
   const inviteCode = currentUser?.invite_code
   const teacherLink = inviteCode ? `${window.location.origin}/apply/teacher/${inviteCode}` : null
-  const instructorLink = inviteCode ? `${window.location.origin}/apply/instructor?code=${inviteCode}` : null
+  const instructorLink = inviteCode ? `${window.location.origin}/apply/instructor/${inviteCode}` : null
 
   return (
     <div>

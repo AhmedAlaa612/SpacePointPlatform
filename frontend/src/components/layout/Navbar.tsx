@@ -78,6 +78,16 @@ export function Navbar() {
       { label: "Materials", to: "/ambassadors/materials" },
       { label: "Leaderboard", to: "/ambassadors/leaderboard" },
     ];
+  } else if (activeRole === "applicant") {
+    navLinks = [
+      { label: "Status", to: "/instructors/status" },
+      { label: "Videos", to: "/instructors/videos" },
+      { label: "Modules", to: "/instructors/modules" },
+    ];
+    // instructor/facilitator dashboards land in Phase 3.4/3.5 — no nav yet,
+    // intentionally empty rather than linking to pages that don't exist.
+  } else if (activeRole === "instructor" || activeRole === "facilitator") {
+    navLinks = [];
   } else if (domain === "interns" || isAdmin) {
     navLinks = [
       { label: "Board", to: "/interns" },
@@ -88,6 +98,8 @@ export function Navbar() {
 
   const profileTo = (activeRole === "ambassador" || activeRole === "teacher")
     ? "/ambassadors/profile"
+    : activeRole === "applicant"
+    ? "/instructors/status"
     : "/interns/profile";
 
   const initials = user.full_name
