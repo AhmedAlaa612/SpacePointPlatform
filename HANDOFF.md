@@ -26,9 +26,9 @@ Source apps (siblings of this repo, used as the port source — do not deploy th
 | **Phase 1 — Interns: backend** | ✅ Done, verified vs live Supabase, committed (`a3f56b2`) |
 | **Phase 1 — Interns: frontend** | ✅ Done, verified in-browser vs live Supabase, committed (`6ddf3fd`, `5ffbe9f`) |
 | **Phase 2 — Ambassadors** | ✅ Done, verified, committed (`9cbb914`) |
-| **Phase 3 — Instructors (rewrite)** | ✅ Done, verified, committed (`e3eec31`…`e35af11`, see §14) — **next task: Phase 4** |
-| Phase 4 — Shared documents (ID cards, certs, letters) | 🟡 Partially done — `id_cards`/`certificates` tables + `id_card.py`/`certificate.py` services were pulled forward into Phase 3 (instructor portal needed them). Remaining: `recommendation.py`, `intern_letters.py`, and wiring completion-cert auto-triggers for interns/instructors. |
-| Phase 5 — Unified admin dashboard | 🟡 Reframed — built as a hub (`/admin` cards → domain-specific admin pages) instead of PLAN §9.4's single tabbed page, per explicit user direction. Instructors admin page done (Phase 3.6); **Ambassadors admin was never built (Phase 2 gap) — flagged as a separate task, not yet started.** |
+| **Phase 3 — Instructors (rewrite)** | ✅ Done, verified, committed (`e3eec31`…`e35af11`, see §14) |
+| Phase 4 — Shared documents (ID cards, certs, letters) | 🟡 Partially done — `id_cards`/`certificates` tables + `id_card.py`/`certificate.py` services were pulled forward into Phase 3 (instructor portal needed them). Remaining: `recommendation.py`, `intern_letters.py`, and wiring completion-cert auto-triggers for interns/instructors. — **next candidate task** |
+| Phase 5 — Unified admin dashboard | ✅ Done as a hub (`/admin` cards with live counts → domain-specific admin pages) instead of PLAN §9.4's single tabbed page, per explicit user direction. Instructors admin (3.6) + **Ambassadors admin (Phase 2 gap, now closed — `ce2566c`)** both done. Multi-role user management across domains still generic-only (`/interns/admin/users` — not domain-scoped). |
 | Phase 6 — Polish | ⬜ Not started |
 
 **All commits are on `main`.** The repo is its own git repo (`git init`'d here); it is NOT the same repo as the parent `spacepoint/` folder.
@@ -246,11 +246,10 @@ Full rewrite, not a port: source was sync FastAPI + Jinja2 + Integer PKs + local
 
 ---
 
-## 12. NEXT — Phase 4 onward (per PLAN §12)
+## 12. NEXT — Phase 4 / Phase 6 (per PLAN §12)
 
 - **Phase 4 — Shared docs (remaining):** `recommendation.py` (admin-triggered, any role) and `intern_letters.py` (confirmation/completion) — `id_card.py`/`certificate.py` already done (pulled into Phase 3). Wire completion-cert auto-triggers (intern epics-all-done, instructor application approved) into the now-shared `certificates` table.
-- **Ambassadors admin (Phase 2 gap, flagged separately):** network tree, application approvals, titles/badges/questions CRUD — documented in `ambassadorsV1/HANDOFF.md`, never built. Should land as `/ambassadors/admin`, get a real hub card once done.
-- **Phase 5 — Unified admin dashboard:** the hub (`/admin`) + instructors admin page are done (Phase 3.6); extend the hub with a real Ambassadors card once that admin page exists; multi-role user management across domains still not built.
+- **Phase 5 is done** — hub at `/admin` + instructors admin (3.6) + ambassadors admin (gap closed, see §14 `ce2566c`). Multi-role user management across domains is still generic-only (`/interns/admin/users`), not a dedicated cross-domain UI — that's the one piece of §9.4's vision not built, and it's a reasonable place to stop (the generic CRUD already covers the need).
 - **Phase 6 — Polish:** dark-mode pass, CORS tighten, RLS review, `tsc --noEmit` clean, secrets check. Also: the `xlsx` npm package (interns Tracker export) has an unfixed high-severity vulnerability — flagged as a separate task, swap it out.
 
 ---
@@ -288,7 +287,8 @@ Full rewrite, not a port: source was sync FastAPI + Jinja2 + Integer PKs + local
 - `ea442c3` — Phase 3.4: instructor portal frontend
 - `f21726b` — Phase 3.5: facilitator portal
 - `e35af11` — Phase 3.6: instructors admin page + super-admin hub
-- *(3.7 — this commit, see message for the full end-to-end verification summary)*
+- `f23f67f` — Phase 3.7: end-to-end verification + HANDOFF.md update
+- `ce2566c` — Port ambassadors admin dashboard (closes the Phase 2 gap; also fixes the `invited_by_id` instructor-referral stats bug — see commit message)
 
 ### Recipe for porting a domain frontend (used for interns; reuse for §11)
 > ⚠️ **Encoding:** read source with `[System.IO.File]::ReadAllText($p)` and write with `New-Object System.Text.UTF8Encoding($false)`. **Do NOT use `Get-Content -Raw`** (PS 5.1 reads UTF-8 as Windows-1252 → mojibake on `·`, em-dashes, smart quotes). And don't name a PS function `R` (collides with the `r`=Invoke-History alias). Both bit the interns port.
