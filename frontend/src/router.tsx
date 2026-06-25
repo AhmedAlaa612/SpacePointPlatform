@@ -31,6 +31,8 @@ import AmbassadorMaterials from "@/pages/ambassadors/Materials";
 import AmbassadorTeacherPortal from "@/pages/ambassadors/TeacherPortal";
 import AmbassadorApply from "@/pages/ambassadors/AmbassadorApply";
 import TeacherApply from "@/pages/ambassadors/TeacherApply";
+import AmbassadorsAdmin from "@/pages/ambassadors/Admin";
+import AdminAmbassador from "@/pages/ambassadors/AdminAmbassador";
 
 // Instructors domain pages
 import InstructorStatus from "@/pages/instructors/Status";
@@ -153,6 +155,8 @@ const ambassadorsRoutes = [
   createRoute({ getParentRoute: pa, path: "/profile", component: AmbassadorProfile }),
   createRoute({ getParentRoute: pa, path: "/materials", component: AmbassadorMaterials }),
   createRoute({ getParentRoute: pa, path: "/teacher-portal", component: AmbassadorTeacherPortal }),
+  createRoute({ getParentRoute: pa, path: "/admin", component: AmbassadorsAdmin }),
+  createRoute({ getParentRoute: pa, path: "/admin/ambassador/$ambassadorId", component: AdminAmbassador }),
 ];
 
 const instructorsLayoutRoute = createRoute({

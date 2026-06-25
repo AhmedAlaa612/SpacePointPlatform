@@ -1,34 +1,16 @@
 import { api } from "@/api/client"
-import type { User } from "@/types/shared"
-import type { Teacher, Instructor, TeacherSession, LeaderboardEntry, PointsTransaction } from "@/types/ambassadors"
+import type { LeaderboardEntry, PointsTransaction } from "@/types/ambassadors"
 
-export const getUsersApi = (params?: { status?: string; role?: string }) =>
-  api.get<User[]>("/ambassadors/admin/users", { params }).then((r) => r.data)
-
-export const updateUserStatusApi = (id: string, status: "active" | "rejected") =>
-  api.put<User>(`/ambassadors/admin/users/${id}/status`, { status }).then((r) => r.data)
-
-export const createUserApi = (data: {
-  full_name: string
-  email: string
-  password: string
-  role: string
-  country?: string
-}) => api.post<User>("/ambassadors/admin/users", data).then((r) => r.data)
-
-export const editUserApi = (
-  id: string,
-  data: Partial<{ full_name: string; email: string; password: string; role: string; country: string; status: string }>
-) => api.patch<User>(`/ambassadors/admin/users/${id}`, data).then((r) => r.data)
-
-export const deleteUserApi = (id: string) =>
-  api.delete(`/ambassadors/admin/users/${id}`).then((r) => r.data)
+// Note: no Users CRUD here — that's generic (the `users` table isn't
+// domain-specific) and already lives at /interns/admin/users. Instructor
+// *approval* lives solely in /instructors/admin — everything instructor-shaped
+// below is read-only.
 
 export interface AmbassadorNetwork {
   ambassador: { id: string; full_name: string }
-  teachers: Teacher[]
-  instructors: Instructor[]
-  sessions: TeacherSession[]
+  teachers: { id: string; full_name: string; email: string; status: string }[]
+  instructors: { id: string; full_name: string; email: string; status: string }[]
+  sessions: { id: string; teacher_id: string; title: string; status: string; date: string | null; attended_students: number; teacher_name: string | null }[]
 }
 
 export const getAmbassadorNetworkApi = (id: string) =>
@@ -46,6 +28,19 @@ export interface FullNetwork {
 export const getFullNetworkApi = () =>
   api.get<FullNetwork>("/ambassadors/admin/network").then((r) => r.data)
 
+export interface AdminInstructor {
+  id: string
+  full_name: string
+  email: string
+  status: string
+  invited_by_id: string | null
+  ambassador_name: string | null
+  created_at: string | null
+}
+
+export const getInstructorsApi = () =>
+  api.get<AdminInstructor[]>("/ambassadors/admin/instructors").then((r) => r.data)
+
 export interface ActivityEntry {
   created_at: string
   kind: "points" | "lead" | "task" | "session" | "signup"
@@ -56,6 +51,9 @@ export interface ActivityEntry {
 
 export const getActivityLogApi = (limit = 60) =>
   api.get<ActivityEntry[]>("/ambassadors/admin/activity", { params: { limit } }).then((r) => r.data)
+
+export const updateUserStatusApi = (id: string, status: "active" | "rejected") =>
+  api.put(`/ambassadors/admin/users/${id}/status`, { status }).then((r) => r.data)
 
 export interface PointsLogEntry {
   id: string
@@ -71,23 +69,42 @@ export const getAmbassadorPointsLogApi = (id: string) =>
 export const getAmbassadorStatsApi = (id: string) =>
   api.get<any>(`/ambassadors/admin/users/${id}/ambassador-stats`).then((r) => r.data)
 
+export const getTeacherStatsApi = (id: string) =>
+  api.get<any>(`/ambassadors/admin/users/${id}/teacher-stats`).then((r) => r.data)
+
 export const getAdminLeaderboardApi = (season = false) =>
   api.get<LeaderboardEntry[]>("/ambassadors/admin/leaderboard", { params: { season } }).then((r) => r.data)
 
 export const getPointsLogApi = () =>
   api.get<PointsTransaction[]>("/ambassadors/admin/points-log").then((r) => r.data)
 
-export const getInstructorsApi = (status?: string) =>
-  api.get<Instructor[]>("/ambassadors/admin/instructors", { params: status ? { status } : undefined }).then((r) => r.data)
-
-export const updateInstructorStatusApi = (id: string, status: "active" | "rejected") =>
-  api.put(`/ambassadors/admin/instructors/${id}/status`, { status }).then((r) => r.data)
-
-export const getAllTeacherSessionsApi = () =>
-  api.get<TeacherSession[]>("/ambassadors/admin/teacher-sessions").then((r) => r.data)
-
 export const getSettingsApi = () =>
   api.get<Record<string, string>>("/ambassadors/admin/settings").then((r) => r.data)
 
 export const updateSettingApi = (key: string, value: string) =>
   api.put(`/ambassadors/admin/settings/${key}`, { value }).then((r) => r.data)
+
+export interface ApplicationQuestion {
+  id: string
+  question_text: string
+  question_type: string
+  required: boolean
+  order: number
+  options: string[] | null
+  created_at: string | null
+  deleted_at: string | null
+}
+
+export const listApplicationQuestionsApi = () =>
+  api.get<ApplicationQuestion[]>("/ambassadors/admin/application-questions").then((r) => r.data)
+
+export const createApplicationQuestionApi = (data: {
+  question_text: string; question_type: string; required: boolean; options?: string[]
+}) => api.post<ApplicationQuestion>("/ambassadors/admin/application-questions", data).then((r) => r.data)
+
+export const updateApplicationQuestionApi = (id: string, data: Partial<{
+  question_text: string; question_type: string; required: boolean; order: number; options: string[]
+}>) => api.put<ApplicationQuestion>(`/ambassadors/admin/application-questions/${id}`, data).then((r) => r.data)
+
+export const deleteApplicationQuestionApi = (id: string) =>
+  api.delete(`/ambassadors/admin/application-questions/${id}`).then((r) => r.data)

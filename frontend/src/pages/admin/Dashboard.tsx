@@ -53,10 +53,10 @@ export default function AdminHub() {
           updates={["Manage users and teams"]}
         />
         <DomainCard
+          to="/ambassadors/admin"
           icon={<Network size={20} />}
           title="Ambassadors"
-          updates={["Admin dashboard not built yet"]}
-          disabled
+          updates={["Network, approvals, leads, sessions, titles & badges"]}
         />
       </div>
     </div>

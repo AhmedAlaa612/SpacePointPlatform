@@ -93,7 +93,7 @@ export function FullNetworkTree({ ambassadors }: { ambassadors: FullNetworkAmbas
   }, [ambassadors])
 
   return (
-    <div className="h-[560px] w-full rounded-xl border border-gray-100 bg-gray-50/40 overflow-hidden">
+    <div className="h-[560px] w-full rounded-xl border border-border bg-muted/40 overflow-hidden">
       <ReactFlow nodes={nodes} edges={edges} fitView minZoom={0.2} proOptions={{ hideAttribution: true }}>
         <Background color="#e5e7eb" gap={20} />
         <Controls showInteractive={false} />

@@ -245,6 +245,12 @@ async def instructor_apply(payload: InstructorApply, db: AsyncSession = Depends(
         country=payload.country,
         status="active",
         must_change_password=False,
+        # Mirrors the teacher-apply pattern above (users.invited_by_id) so the
+        # ambassadors domain's stats/leaderboard/network queries — which all
+        # read users.invited_by_id, not applicant_profiles — count referred
+        # instructors correctly. applicant_profiles.referred_by_ambassador_id
+        # (below) stays the source of truth for the Phase 3 approval points hook.
+        invited_by_id=referred_by_ambassador_id,
     )
     db.add(user)
     await db.flush()  # assign user.id

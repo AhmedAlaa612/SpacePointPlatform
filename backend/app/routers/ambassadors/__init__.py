@@ -11,6 +11,7 @@ from app.routers.ambassadors.points import router as points_router
 from app.routers.ambassadors.achievements import router as achievements_router
 from app.routers.ambassadors.materials import router as materials_router
 from app.routers.ambassadors.public import router as public_router
+from app.routers.ambassadors.admin import router as admin_router
 
 # Aggregate all ambassador sub-routers under a single router
 # that main.py will mount under /ambassadors
@@ -26,3 +27,4 @@ router.include_router(points_router)
 router.include_router(achievements_router)
 router.include_router(materials_router)
 router.include_router(public_router)
+router.include_router(admin_router)
