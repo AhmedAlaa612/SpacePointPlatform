@@ -863,10 +863,9 @@ async def list_buckets(
 ):
     """List names of all Supabase storage buckets."""
     return [
-        "documents", "certificates", "recommendation-letters",
-        "instructor-documents", "applicant-submissions",
-        "contracts", "payment-letters", "profile_pictures",
-        "intern-letters", "library-resources", "cvs",
+        "documents", "certificates", "instructor-documents",
+        "applicant-submissions", "contracts", "payment-letters",
+        "profile_pictures", "library-resources", "cvs",
     ]
 
 
