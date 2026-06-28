@@ -242,7 +242,7 @@ export function Navbar() {
             </button>
           )}
           <Link to="/" className="flex shrink-0 items-center" aria-label="SpacePoint home">
-            <DomainIcon className="h-14 w-auto sm:h-16" />
+            <DomainIcon className="h-8 w-auto sm:h-14" />
           </Link>
         </div>
 
