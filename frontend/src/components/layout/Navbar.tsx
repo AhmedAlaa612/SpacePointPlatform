@@ -5,7 +5,7 @@ import { Bell, ChevronDown, LogOut, Menu, Moon, Sun, X } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { getNotificationsApi, markAllReadApi } from "@/api/notifications";
 import { ROLE_DOMAIN, ROLE_LABEL, type Notification, type Role } from "@/types/shared";
-import { roleLogo } from "@/lib/logos";
+import { DomainIcon } from "@/components/ui/DomainIcon";
 import { cn } from "@/lib/utils";
 
 function toggleTheme() {
@@ -21,7 +21,7 @@ interface NavItem {
 export function Navbar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { user, roles, activeRole, setActiveRole, logout, isAdmin } = useAuth();
+  const { user, roles, activeRole, setActiveRole, logout } = useAuth();
   const queryClient = useQueryClient();
 
   const [menuOpen, setMenuOpen] = useState(false); // mobile menu
@@ -60,60 +60,143 @@ export function Navbar() {
 
   if (!user) return null;
 
-  const domain = activeRole ? ROLE_DOMAIN[activeRole] : null;
   let navLinks: NavItem[] = [];
-  if (activeRole === "ambassador") {
+  if (pathname.startsWith("/admin")) {
     navLinks = [
-      { label: "Dashboard", to: "/ambassadors" },
-      { label: "Leads", to: "/ambassadors/leads" },
-      { label: "Tasks", to: "/ambassadors/tasks" },
-      { label: "Network", to: "/ambassadors/network" },
-      { label: "Materials", to: "/ambassadors/materials" },
-      { label: "Leaderboard", to: "/ambassadors/leaderboard" },
+      { label: "Dashboard", to: "/admin" },
+      { label: "User Management", to: "/admin/users" },
+      { label: "Documents", to: "/admin/documents" },
+      { label: "Applications", to: "/admin/applications" },
+      { label: "Settings", to: "/admin/settings" },
     ];
-  } else if (activeRole === "teacher") {
-    navLinks = [
-      { label: "My Sessions", to: "/ambassadors/teacher-portal" },
-      { label: "Tasks", to: "/ambassadors/tasks" },
-      { label: "Materials", to: "/ambassadors/materials" },
-      { label: "Leaderboard", to: "/ambassadors/leaderboard" },
-    ];
-  } else if (activeRole === "applicant") {
-    navLinks = [
-      { label: "Status", to: "/instructors/status" },
-      { label: "Videos", to: "/instructors/videos" },
-      { label: "Modules", to: "/instructors/modules" },
-    ];
-  } else if (activeRole === "instructor") {
-    navLinks = [
-      { label: "Dashboard", to: "/instructors/dashboard" },
-      { label: "Training", to: "/instructors/training" },
-      { label: "Library", to: "/instructors/library" },
-      { label: "Documents", to: "/instructors/documents" },
-      { label: "Payments", to: "/instructors/payments" },
-      { label: "Profile Card", to: "/instructors/profile-card" },
-    ];
-  } else if (activeRole === "facilitator") {
-    navLinks = [
-      { label: "Training", to: "/instructors/facilitator/training" },
-      { label: "Library", to: "/instructors/facilitator/library" },
-    ];
-  } else if (domain === "interns" || isAdmin) {
-    navLinks = [
-      { label: "Board", to: "/interns" },
-      { label: "Tracker", to: "/interns/tracker" },
-      ...(isAdmin ? [{ label: "Admin", to: "/admin" }] : []),
-    ];
+  } else if (pathname.startsWith("/ambassadors")) {
+    if (activeRole === "admin") {
+      navLinks = [];
+    } else if (activeRole === "teacher") {
+      navLinks = [
+        { label: "My Sessions", to: "/ambassadors/teacher-portal" },
+        { label: "Tasks", to: "/ambassadors/tasks" },
+        { label: "Materials", to: "/ambassadors/materials" },
+        { label: "Documents", to: "/ambassadors/documents" },
+        { label: "Leaderboard", to: "/ambassadors/leaderboard" },
+      ];
+    } else {
+      navLinks = [
+        { label: "Dashboard", to: "/ambassadors" },
+        { label: "Leads", to: "/ambassadors/leads" },
+        { label: "Tasks", to: "/ambassadors/tasks" },
+        { label: "Network", to: "/ambassadors/network" },
+        { label: "Materials", to: "/ambassadors/materials" },
+        { label: "Documents", to: "/ambassadors/documents" },
+        { label: "Leaderboard", to: "/ambassadors/leaderboard" },
+      ];
+    }
+  } else if (pathname.startsWith("/instructors")) {
+    if (activeRole === "admin") {
+      navLinks = [];
+    } else if (activeRole === "facilitator") {
+      navLinks = [
+        { label: "Training", to: "/instructors/facilitator/training" },
+        { label: "Library", to: "/instructors/facilitator/library" },
+        { label: "Documents", to: "/instructors/documents" },
+        { label: "Application", to: "/instructors/facilitator/application" },
+      ];
+    } else if (activeRole === "applicant") {
+      navLinks = [
+        { label: "Status", to: "/instructors/status" },
+        { label: "Videos", to: "/instructors/videos" },
+        { label: "Modules", to: "/instructors/modules" },
+      ];
+    } else {
+      navLinks = [
+        { label: "Dashboard", to: "/instructors/dashboard" },
+        { label: "Training", to: "/instructors/training" },
+        { label: "Library", to: "/instructors/library" },
+        { label: "Documents", to: "/instructors/documents" },
+        { label: "Payments", to: "/instructors/payments" },
+      ];
+    }
+  } else if (pathname.startsWith("/interns")) {
+    if (activeRole === "admin") {
+      navLinks = [
+        { label: "Dashboard", to: "/interns" },
+        { label: "Tracker", to: "/interns/tracker" },
+        { label: "Team Management", to: "/interns/admin" },
+      ];
+    } else {
+      navLinks = [
+        { label: "Board", to: "/interns" },
+        { label: "Tracker", to: "/interns/tracker" },
+        { label: "Documents", to: "/interns/documents" },
+      ];
+    }
+  } else {
+    // Fallback based on activeRole
+    const domain = activeRole ? ROLE_DOMAIN[activeRole] : null;
+    if (activeRole === "ambassador") {
+      navLinks = [
+        { label: "Dashboard", to: "/ambassadors" },
+        { label: "Leads", to: "/ambassadors/leads" },
+        { label: "Tasks", to: "/ambassadors/tasks" },
+        { label: "Network", to: "/ambassadors/network" },
+        { label: "Materials", to: "/ambassadors/materials" },
+        { label: "Documents", to: "/ambassadors/documents" },
+        { label: "Leaderboard", to: "/ambassadors/leaderboard" },
+      ];
+    } else if (activeRole === "teacher") {
+      navLinks = [
+        { label: "My Sessions", to: "/ambassadors/teacher-portal" },
+        { label: "Tasks", to: "/ambassadors/tasks" },
+        { label: "Materials", to: "/ambassadors/materials" },
+        { label: "Documents", to: "/ambassadors/documents" },
+        { label: "Leaderboard", to: "/ambassadors/leaderboard" },
+      ];
+    } else if (activeRole === "applicant") {
+      navLinks = [
+        { label: "Status", to: "/instructors/status" },
+        { label: "Videos", to: "/instructors/videos" },
+        { label: "Modules", to: "/instructors/modules" },
+      ];
+    } else if (activeRole === "instructor") {
+      navLinks = [
+        { label: "Dashboard", to: "/instructors/dashboard" },
+        { label: "Training", to: "/instructors/training" },
+        { label: "Library", to: "/instructors/library" },
+        { label: "Documents", to: "/instructors/documents" },
+        { label: "Payments", to: "/instructors/payments" },
+      ];
+    } else if (activeRole === "facilitator") {
+      navLinks = [
+        { label: "Training", to: "/instructors/facilitator/training" },
+        { label: "Library", to: "/instructors/facilitator/library" },
+        { label: "Documents", to: "/instructors/documents" },
+        { label: "Application", to: "/instructors/facilitator/application" },
+      ];
+    } else if (activeRole === "admin") {
+      navLinks = [
+        { label: "Dashboard", to: "/admin" },
+        { label: "User Management", to: "/admin/users" },
+        { label: "Documents", to: "/admin/documents" },
+        { label: "Applications", to: "/admin/applications" },
+        { label: "Settings", to: "/admin/settings" },
+      ];
+    } else if (domain === "interns") {
+      navLinks = [
+        { label: "Board", to: "/interns" },
+        { label: "Tracker", to: "/interns/tracker" },
+        { label: "Documents", to: "/interns/documents" },
+      ];
+    }
   }
 
-  const profileTo = (activeRole === "ambassador" || activeRole === "teacher")
+  const profileTo = activeRole === "admin"
+    ? "/admin/profile"
+    : (activeRole === "ambassador" || activeRole === "teacher")
     ? "/ambassadors/profile"
     : activeRole === "applicant"
     ? "/instructors/status"
-    : activeRole === "instructor"
-    ? "/instructors/profile-card"
-    : activeRole === "facilitator"
-    ? "/instructors/facilitator/training"
+    : (activeRole === "instructor" || activeRole === "facilitator")
+    ? "/instructors/profile"
     : "/interns/profile";
 
   const initials = user.full_name
@@ -121,7 +204,9 @@ export function Navbar() {
     : "?";
 
   const isActive = (to: string) =>
-    (to === "/interns" || to === "/ambassadors") ? pathname === to : pathname.startsWith(to);
+    (to === "/interns" || to === "/ambassadors" || to === "/admin" || to === "/instructors/dashboard")
+      ? pathname === to
+      : pathname.startsWith(to);
 
   const handleBell = () => {
     const wasOpen = bellOpen;
@@ -157,7 +242,7 @@ export function Navbar() {
             </button>
           )}
           <Link to="/" className="flex shrink-0 items-center" aria-label="SpacePoint home">
-            <img src={roleLogo(activeRole)} alt="SpacePoint" className="h-10 w-auto sm:h-12" />
+            <DomainIcon className="h-14 w-auto sm:h-16" />
           </Link>
         </div>
 
@@ -272,10 +357,14 @@ export function Navbar() {
           {/* Avatar → profile */}
           <Link
             to={profileTo}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-bold tracking-wide text-background transition-opacity hover:opacity-80"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-foreground text-xs font-bold tracking-wide text-background transition-opacity hover:opacity-80 overflow-hidden border border-border"
             aria-label="Profile"
           >
-            {initials}
+            {user?.photo_url ? (
+              <img src={user.photo_url} alt="Profile" className="w-full h-full object-cover" />
+            ) : (
+              initials
+            )}
           </Link>
 
           {/* Logout (desktop) */}

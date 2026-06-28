@@ -4,8 +4,8 @@ from uuid import UUID
 from app.models.notification import Notification
 
 
-async def create_notification(db: AsyncSession, user_id: UUID, title: str, body: str = None) -> None:
-    notif = Notification(user_id=user_id, title=title, body=body)
+async def create_notification(db: AsyncSession, user_id: UUID, title: str, body: str = None, type: str = None) -> None:
+    notif = Notification(user_id=user_id, title=title, body=body, type=type)
     db.add(notif)
 
 

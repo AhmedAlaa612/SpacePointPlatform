@@ -1,5 +1,5 @@
 import { api } from "@/api/client"
-import type { Teacher, Instructor, TeacherSession, TeacherApplication } from "@/types/ambassadors"
+import type { Teacher, Instructor, TeacherSession } from "@/types/ambassadors"
 
 export const getMyTeachersApi = () =>
   api.get<Teacher[]>("/ambassadors/network/teachers").then((r) => r.data)
@@ -46,13 +46,3 @@ export const cancelSessionApi = (id: string, reason?: string) =>
 
 export const deleteSessionApi = (id: string) =>
   api.delete(`/ambassadors/network/sessions/${id}`).then((r) => r.data)
-
-// Teacher applications
-export const getTeacherApplicationsApi = (status?: string) =>
-  api.get<TeacherApplication[]>("/ambassadors/network/teacher-applications", { params: status ? { status } : undefined }).then((r) => r.data)
-
-export const approveTeacherApplicationApi = (id: string) =>
-  api.put<TeacherApplication>(`/ambassadors/network/teacher-applications/${id}/approve`).then((r) => r.data)
-
-export const rejectTeacherApplicationApi = (id: string) =>
-  api.put<TeacherApplication>(`/ambassadors/network/teacher-applications/${id}/reject`).then((r) => r.data)

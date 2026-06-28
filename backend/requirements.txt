@@ -31,8 +31,11 @@ aiosmtplib
 
 # Document generation
 reportlab
+docxtpl
+jinja2
 pillow
 qrcode
 python-docx
 openpyxl
 pypdf
+cairosvg

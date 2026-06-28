@@ -67,10 +67,13 @@ export interface InstructorProfile {
 
 export interface IdCard {
   card_id: string | null
-  front_url: string | null
-  back_url: string | null
-  pdf_url: string | null
+  front_b64: string | null   // base64-encoded PNG
+  back_b64: string | null    // base64-encoded PNG
   generated_at: string | null
+  has_photo: boolean
+  has_linkedin: boolean
+  photo_url?: string | null
+  linkedin_url?: string | null
 }
 
 export interface BankDetails {
@@ -92,6 +95,7 @@ export interface TrainingVideo {
   title: string
   description: string | null
   notes: string | null
+  video_url: string
   sort_order: number
   is_completed: boolean
 }
@@ -109,7 +113,8 @@ export interface LibraryResource {
   title: string
   description: string | null
   format: string
-  file_url: string
+  file_url: string   // signed URL for files, raw URL for links
+  resource_type: "link" | "file"
 }
 
 export interface LibraryModule {
@@ -117,6 +122,33 @@ export interface LibraryModule {
   name: string
   description: string | null
   resources: LibraryResource[]
+}
+
+// Facilitator — Application Content management
+
+export interface ApplicationVideoConfig {
+  video_no: number
+  title: string
+  url: string
+}
+
+export interface ApplicationChecklistItem {
+  id: string
+  module_id: string
+  section_id: string | null
+  item_code: string
+  title: string
+  description: string | null
+  sort_order: number
+  is_required: boolean
+}
+
+export interface ApplicationModule {
+  id: string
+  title: string
+  sort_order: number
+  created_at: string | null
+  items: ApplicationChecklistItem[]
 }
 
 export type PaymentLetterStatus = "draft" | "published" | "signed" | "paid"

@@ -12,12 +12,10 @@ from app.core.dependencies import get_current_active_user, require_ambassador, r
 from app.core.security import get_password_hash
 from app.models.user import User
 from app.models.ambassadors.teacher_session import TeacherSession
-from app.models.ambassadors.teacher_application import TeacherApplication
 from app.schemas.ambassadors.network import (
     StatusUpdate, SessionCreate, SessionDone, SessionUpdate, MaterialSent,
     SessionCancel, SessionReject, TeacherOut, InstructorOut, SessionOut,
 )
-from app.schemas.ambassadors.application import TeacherApplicationOut
 from app.services.points import award_points, adjust_points, get_setting_int
 from app.services.notification import create_notification as notify
 from app.services.ambassadors import achievements
@@ -354,117 +352,7 @@ async def delete_session(
     return {"status": "deleted"}
 
 
-# ── Teacher Applications (Ambassador/Admin Review) ──────────────
-
-@router.get("/teacher-applications", response_model=list[TeacherApplicationOut])
-async def my_teacher_applications(
-    status: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_ambassador),
-):
-    if "admin" in current_user.role_values:
-        q = select(TeacherApplication)
-    else:
-        q = select(TeacherApplication).where(TeacherApplication.invited_by_id == current_user.id)
-    if status:
-        q = q.where(TeacherApplication.status == status)
-    q = q.order_by(TeacherApplication.created_at.desc())
-    rows = (await db.execute(q)).scalars().all()
-    return rows
-
-
-@router.get("/teacher-applications/{app_id}", response_model=TeacherApplicationOut)
-async def get_my_teacher_application(
-    app_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_ambassador),
-):
-    if "admin" in current_user.role_values:
-        q = select(TeacherApplication).where(TeacherApplication.id == app_id)
-    else:
-        q = select(TeacherApplication).where(
-            TeacherApplication.id == app_id,
-            TeacherApplication.invited_by_id == current_user.id
-        )
-    app = (await db.execute(q)).scalars().first()
-    if not app:
-        raise HTTPException(status_code=404, detail="Application not found")
-    return app
-
-
-@router.put("/teacher-applications/{app_id}/approve", response_model=TeacherApplicationOut)
-async def approve_teacher_application_ambassador(
-    app_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_ambassador),
-):
-    if "admin" in current_user.role_values:
-        app = (await db.execute(
-            select(TeacherApplication).where(TeacherApplication.id == app_id)
-        )).scalars().first()
-    else:
-        app = (await db.execute(
-            select(TeacherApplication).where(
-                TeacherApplication.id == app_id,
-                TeacherApplication.invited_by_id == current_user.id
-            )
-        )).scalars().first()
-
-    if not app:
-        raise HTTPException(status_code=404, detail="Application not found")
-    if app.status != "pending":
-        raise HTTPException(status_code=400, detail="Application is not pending")
-
-    user = User(
-        full_name=app.full_name,
-        email=app.email,
-        password_hash=app.password_hash,
-        roles=["teacher"],
-        invited_by_id=app.invited_by_id,
-        status="active",
-    )
-    db.add(user)
-    app.status = "approved"
-
-    # Reward recruiting ambassador
-    if app.invited_by_id:
-        reward = await get_setting_int(db, "teacher_points_reward", 500)
-        await award_points(db, app.invited_by_id, reward, f"Recruited teacher: {app.full_name}")
-        await notify(db, app.invited_by_id, "Points Earned!", f"You earned {reward} points for recruiting {app.full_name}.")
-    await notify(db, user.id, "Application Approved", "Your teacher application was approved — welcome aboard!")
-
-    await db.flush()
-    if app.invited_by_id:
-        await achievements.check_and_grant(db, app.invited_by_id)
-    await db.commit()
-    await db.refresh(app)
-    return app
-
-
-@router.put("/teacher-applications/{app_id}/reject", response_model=TeacherApplicationOut)
-async def reject_teacher_application_ambassador(
-    app_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_ambassador),
-):
-    if "admin" in current_user.role_values:
-        app = (await db.execute(
-            select(TeacherApplication).where(TeacherApplication.id == app_id)
-        )).scalars().first()
-    else:
-        app = (await db.execute(
-            select(TeacherApplication).where(
-                TeacherApplication.id == app_id,
-                TeacherApplication.invited_by_id == current_user.id
-            )
-        )).scalars().first()
-
-    if not app:
-        raise HTTPException(status_code=404, detail="Application not found")
-    if app.status != "pending":
-        raise HTTPException(status_code=400, detail="Application is not pending")
-
-    app.status = "rejected"
-    await db.commit()
-    await db.refresh(app)
-    return app
+# Teacher onboarding (application + approval) is handled by the unified apply
+# pipeline (routers/apply.py + routers/admin/applications.py). Ambassador
+# referral points are awarded on admin approval; ambassadors view their
+# referred teachers via the Teachers/Network endpoints above.

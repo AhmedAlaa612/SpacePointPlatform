@@ -19,8 +19,8 @@ const MEDAL_SHADES = [
 export default function LeaderboardPage() {
   const { currentUser } = useAuth()
   const navigate = useNavigate()
-  const isAdmin = currentUser?.roles?.includes("admin")
-  const isTeacher = currentUser?.roles?.includes("teacher")
+  const isAdmin = currentUser?.role === "admin"
+  const isTeacher = currentUser?.role === "teacher"
   const [season, setSeason] = useState(false)
 
   if (isTeacher) return <TeacherLeaderboard meId={currentUser?.id} />
@@ -86,7 +86,7 @@ function TeacherLeaderboard({ meId }: { meId?: string }) {
             <div className="overflow-x-auto -mx-1">
               <table className="w-full text-sm min-w-[560px]">
                 <thead>
-                  <tr className="text-left text-muted-foreground border-b border-gray-100 dark:border-zinc-800">
+                  <tr className="text-left text-muted-foreground border-b border-border">
                     <th className="py-2.5 pr-3 font-semibold">#</th>
                     <th className="py-2.5 pr-3 font-semibold">Teacher</th>
                     <th className="py-2.5 pr-3 font-semibold">Country</th>
@@ -99,7 +99,7 @@ function TeacherLeaderboard({ meId }: { meId?: string }) {
                   {rows.map((t, i) => {
                     const me = t.id === meId
                     return (
-                      <tr key={t.id} className={`border-b border-gray-50 dark:border-zinc-900 last:border-0 ${me ? "bg-snuff/20 dark:bg-snuff/10" : ""}`}>
+                      <tr key={t.id} className={`border-b border-border/50 last:border-0 ${me ? "bg-snuff/20 dark:bg-snuff/10" : ""}`}>
                         <td className="py-2.5 pr-3 font-bold text-muted-foreground">
                           {i < 3 ? <Medal size={18} className={`inline ${MEDAL_SHADES[i]}`} strokeWidth={2.2} /> : `#${i + 1}`}
                         </td>

@@ -17,7 +17,7 @@ from app.core.config import settings
 # so private buckets need a signed URL instead — long-lived since these are
 # meant to be stored once and referenced indefinitely (contracts, documents),
 # not the short-lived signed URLs used for on-demand video streaming.
-_PUBLIC_BUCKETS = {"library-resources"}
+_PUBLIC_BUCKETS: set[str] = set()  # library-resources moved to private; signed URLs generated at query time
 _LONG_LIVED_SIGNED_URL_SECONDS = 10 * 365 * 24 * 3600  # ~10 years
 
 
@@ -47,6 +47,21 @@ async def upload_file(bucket: str, path: str, data: bytes, content_type: str) ->
     return await anyio.to_thread.run_sync(_do)
 
 
+async def upload_to_path(bucket: str, path: str, data: bytes, content_type: str) -> str:
+    """Upload bytes and return only the storage path. Caller is responsible for
+    generating signed URLs at query time via get_signed_url()."""
+
+    def _do() -> None:
+        _client().storage.from_(bucket).upload(
+            path,
+            data,
+            {"content-type": content_type, "upsert": "true"},
+        )
+
+    await anyio.to_thread.run_sync(_do)
+    return path
+
+
 async def delete_file(bucket: str, path: str) -> None:
     def _do() -> None:
         _client().storage.from_(bucket).remove([path])
@@ -60,3 +75,19 @@ async def get_signed_url(bucket: str, path: str, expires_in: int = 3600) -> str:
         return res.get("signedURL") or res.get("signed_url", "")
 
     return await anyio.to_thread.run_sync(_do)
+
+
+async def download_file(bucket: str, path: str) -> bytes:
+    def _do() -> bytes:
+        return _client().storage.from_(bucket).download(path)
+
+    return await anyio.to_thread.run_sync(_do)
+
+
+async def list_files(bucket: str, path: str = "") -> list[dict]:
+    """List all files/folders inside a Supabase storage bucket at the given path."""
+    def _do() -> list[dict]:
+        return _client().storage.from_(bucket).list(path)
+
+    return await anyio.to_thread.run_sync(_do)
+

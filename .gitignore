@@ -51,3 +51,17 @@ yarn-error.log*
 # Generated documents / uploads (should live in Supabase Storage, not git)
 backend/app/static/generated/
 backend/uploads/
+
+# Docs & internal notes — not for the repo
+*.md
+
+# Tooling
+.claude/
+.antigravity
+.antigravity/
+
+# Python venvs (non-standard names)
+myenv/
+
+# Plans
+*.plan

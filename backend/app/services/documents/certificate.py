@@ -34,48 +34,23 @@ def _ensure_fonts() -> None:
     _fonts_registered = True
 
 
-def generate_workshop_certificate_pdf(
-    recipient_name: str, workshop_name: str, workshop_date: str, location: str,
+def generate_completion_certificate_pdf(
+    recipient_name: str,
+    body_text_template: str,
+    background_bytes: bytes | None = None
 ) -> bytes:
-    """Workshop-delivery certificate (certificates.type='workshop_delivery')."""
-    _ensure_fonts()
-    width, height = landscape(A4)
-    buf = io.BytesIO()
-    c = canvas.Canvas(buf, pagesize=(width, height))
-
-    c.drawImage(_TEMPLATE_PATH, 0, 0, width=width, height=height)
-
-    c.setFont("TimesNewRoman-BoldItalic", 34)
-    c.setFillColor(_TEXT_COLOR)
-    c.drawCentredString(width / 2.0, 298, recipient_name)
-
-    style = ParagraphStyle(
-        name="CertificateRecognitionText", fontName="TimesNewRoman-Italic", fontSize=15,
-        leading=22, textColor=_TEXT_COLOR, alignment=1,
-    )
-    text = (
-        f"in recognition of his/her outstanding contribution as a facilitator to the<br/>"
-        f"<b>{workshop_name}</b>, delivered on <b>{workshop_date}</b> at <b>{location}</b>"
-    )
-    p = Paragraph(text, style)
-    p_width = 600
-    p_height = p.wrap(p_width, 100)[1]
-    p.drawOn(c, (width - p_width) / 2.0, 240 - p_height)
-
-    c.save()
-    return buf.getvalue()
-
-
-def generate_completion_certificate_pdf(recipient_name: str, program_label: str) -> bytes:
     """Completion certificate (certificates.type='internship_completion' |
-    'instructor_completion'). `program_label` (e.g. "Internship Program",
-    "Instructor Program") keeps this role-generic, same as id_card.py."""
+    'instructor_completion'). Uses dynamic body text and optional background file bytes.
+    """
     _ensure_fonts()
     width, height = landscape(A4)
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(width, height))
 
-    c.drawImage(_TEMPLATE_PATH, 0, 0, width=width, height=height)
+    if background_bytes:
+        c.drawImage(io.BytesIO(background_bytes), 0, 0, width=width, height=height)
+    else:
+        c.drawImage(_TEMPLATE_PATH, 0, 0, width=width, height=height)
 
     c.setFont("TimesNewRoman-BoldItalic", 34)
     c.setFillColor(_TEXT_COLOR)
@@ -85,8 +60,7 @@ def generate_completion_certificate_pdf(recipient_name: str, program_label: str)
         name="CertificateCompletionText", fontName="TimesNewRoman-Italic", fontSize=15,
         leading=22, textColor=_TEXT_COLOR, alignment=1,
     )
-    text = f"in recognition of having successfully completed the<br/><b>SpacePoint {program_label}</b>"
-    p = Paragraph(text, style)
+    p = Paragraph(body_text_template, style)
     p_width = 600
     p_height = p.wrap(p_width, 100)[1]
     p.drawOn(c, (width - p_width) / 2.0, 240 - p_height)

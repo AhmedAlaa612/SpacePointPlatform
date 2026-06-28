@@ -37,10 +37,7 @@ async def list_training(db: AsyncSession = Depends(get_db), current_user: User =
         TrainingModuleOut(
             id=m.id, title=m.title, description=m.description, sort_order=m.sort_order,
             videos=[
-                TrainingVideoOut(
-                    id=v.id, title=v.title, description=v.description, notes=v.notes,
-                    sort_order=v.sort_order, is_completed=v.id in completed_ids,
-                )
+                TrainingVideoOut.from_orm_video(v, is_completed=v.id in completed_ids)
                 for v in videos_by_module.get(m.id, [])
             ],
         )
@@ -52,16 +49,10 @@ async def list_training(db: AsyncSession = Depends(get_db), current_user: User =
 async def stream_video(
     video_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)
 ):
-    """Returns a short-lived signed URL — training-videos is a private bucket
-    (PLAN gotcha #10), never a permanent/public link."""
     video = (await db.execute(select(TrainingVideo).where(TrainingVideo.id == video_id))).scalars().first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    try:
-        signed_url = await storage.get_signed_url("training-videos", video.video_path, expires_in=3600)
-    except Exception as exc:
-        raise HTTPException(status_code=404, detail="Video file not found in storage") from exc
-    return {"url": signed_url}
+    return {"url": video.video_path}
 
 
 @router.post("/videos/{video_id}/complete")

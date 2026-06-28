@@ -17,9 +17,5 @@ class ApplicantProfile(Base):
     background_other = Column(String(255), nullable=True)
     has_own_transportation = Column(Boolean, nullable=False, default=False)
     country = Column(String(100), nullable=False, default="United Arab Emirates")
-
-    # Ambassador-referral hook (PLAN §4.3/§9.2): set when /apply/instructor's
-    # invite code matched a users.invite_code rather than an admin invitation_code.
-    referred_by_ambassador_id = Column(
-        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
+    # NOTE: the referring ambassador is tracked on users.invited_by_id (single source
+    # of truth) — there is intentionally no duplicate referred_by_ambassador_id here.

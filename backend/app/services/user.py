@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import text
 from fastapi import HTTPException, status
 from uuid import UUID
 from app.models.user import User
@@ -55,6 +56,32 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate) -> U
 
 async def delete_user(db: AsyncSession, user_id: UUID):
     user = await get_user_by_id(db, user_id)
+
+    # Check if user is a leader of any teams
+    team_check = await db.execute(text("SELECT id, name FROM teams WHERE leader_id = :uid"), {"uid": user_id})
+    led_teams = team_check.all()
+    if led_teams:
+        team_names = ", ".join([r[1] for r in led_teams])
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot delete user who is a leader of team(s): {team_names}. Reassign team leadership first."
+        )
+
+    # Check if user created any projects
+    project_check = await db.execute(text("SELECT id, title FROM projects WHERE created_by = :uid"), {"uid": user_id})
+    created_projects = project_check.all()
+    if created_projects:
+        proj_names = ", ".join([r[1] for r in created_projects])
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot delete user who created project(s): {proj_names}. Delete or reassign projects first."
+        )
+
+    # Remove from team_members
+    await db.execute(text("DELETE FROM team_members WHERE user_id = :uid"), {"uid": user_id})
+    # Remove from task_assignees
+    await db.execute(text("DELETE FROM task_assignees WHERE user_id = :uid"), {"uid": user_id})
+
     await db.delete(user)
     await db.commit()
     return {"detail": "User deleted"}

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { BookOpen, FileText, IdCard, Wallet } from "lucide-react"
+import { BookOpen, FileText, Wallet } from "lucide-react"
 import { listTrainingApi } from "@/api/instructors/training"
 import { getPaymentSummaryApi } from "@/api/instructors/payments"
 import { useAuth } from "@/context/AuthContext"
@@ -21,12 +21,11 @@ export default function InstructorDashboard() {
     <div>
       <PageHeader title={`Welcome, ${currentUser?.full_name ?? "Instructor"}`} subtitle="Your SpacePoint instructor portal." />
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-6">
         <StatCard icon={<Wallet size={20} />} label="Earned (AED)" value={summary.data?.total_earned_aed.toLocaleString() ?? 0}
           sub={summary.data?.pending_signature ? `${summary.data.pending_signature} pending signature` : "All signed"} />
         <StatCard icon={<BookOpen size={20} />} label="Training" value={`${completedVideos}/${totalVideos}`} sub="Videos completed" />
         <StatCard icon={<FileText size={20} />} label="Sessions" value={summary.data?.total_sessions ?? 0} sub="Workshops delivered" />
-        <StatCard icon={<IdCard size={20} />} label="ID Card" value="—" sub="See Profile Card" />
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
@@ -54,11 +53,11 @@ export default function InstructorDashboard() {
             </CardContent>
           </Card>
         </Link>
-        <Link to="/instructors/profile-card">
+        <Link to="/instructors/profile">
           <Card className="hover:border-primary transition-colors">
             <CardContent className="p-5">
-              <p className="font-semibold">Profile Card</p>
-              <p className="text-sm text-muted-foreground mt-1">Generate your official SpacePoint ID card.</p>
+              <p className="font-semibold">Profile</p>
+              <p className="text-sm text-muted-foreground mt-1">Your profile info and official SpacePoint ID card.</p>
             </CardContent>
           </Card>
         </Link>

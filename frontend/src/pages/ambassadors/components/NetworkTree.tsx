@@ -87,7 +87,7 @@ export function NetworkTree({
           id: sId,
           position: { x: 520, y: row * colGap + (j - 1) * 46 },
           data: { label: `${s.title}  ·  ${s.status}${s.status === "done" ? ` (${s.attended_students})` : ""}` },
-          style: nodeStyle(s.status === "done" ? "#4ade80" : "#e5e7eb", s.status === "done" ? "#06321a" : "#374151"),
+          style: nodeStyle(s.status === "done" ? "#4ade80" : "hsl(var(--muted))", s.status === "done" ? "#06321a" : "hsl(var(--foreground))"),
           targetPosition: Position.Left,
         })
         edges.push({
@@ -127,7 +127,7 @@ export function NetworkTree({
   return (
     <div className="h-[420px] w-full rounded-xl border bg-muted/20 overflow-hidden">
       <ReactFlow nodes={nodes} edges={edges} fitView proOptions={{ hideAttribution: true }}>
-        <Background color="currentColor" className="text-gray-200 dark:text-zinc-800" gap={20} />
+        <Background color="hsl(var(--border))" gap={20} />
         <Controls showInteractive={false} />
       </ReactFlow>
     </div>

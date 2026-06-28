@@ -22,8 +22,9 @@ class LibraryResource(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    format = Column(String(20), nullable=False)  # PDF, PPTX, ...
-    file_url = Column(String, nullable=False)
+    format = Column(String(20), nullable=False)   # PDF, PPTX, LINK, ...
+    file_url = Column(String, nullable=False)      # storage path for files, external URL for links
+    resource_type = Column(String(10), nullable=False, default="file")  # "file" | "link"
     uploader_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     module_id = Column(UUID(as_uuid=True), ForeignKey("library_modules.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

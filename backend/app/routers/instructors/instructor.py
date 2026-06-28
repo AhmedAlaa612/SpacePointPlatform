@@ -1,11 +1,14 @@
+import base64
 import uuid
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.core.dependencies import require_instructor
+from app.core.dependencies import require_instructor, require_instructor_or_facilitator
 from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.id_card import IdCard
@@ -22,7 +25,7 @@ from app.schemas.instructors.instructor import (
     InstructorProfileUpdate,
 )
 from app.services import storage
-from app.services.documents.id_card import generate_id_card
+from app.services.documents.id_card import ensure_card_id, render_card_png, render_card_back_png
 
 router = APIRouter(tags=["instructors-instructor"])
 
@@ -37,55 +40,202 @@ async def _get_or_create_profile(db: AsyncSession, user_id: uuid.UUID) -> Instru
 
 
 @router.get("/profile", response_model=InstructorProfileOut)
-async def get_profile(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)):
-    return await _get_or_create_profile(db, current_user.id)
+async def get_profile(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor_or_facilitator)):
+    profile = await _get_or_create_profile(db, current_user.id)
+    return InstructorProfileOut(
+        user_id=profile.user_id,
+        linkedin_url=current_user.linkedin_url,
+        photo_url=current_user.photo_url,
+        contract_url=profile.contract_url,
+        signed_contract_url=profile.signed_contract_url,
+    )
 
 
 @router.put("/profile", response_model=InstructorProfileOut)
 async def update_profile(
     body: InstructorProfileUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_instructor),
+    current_user: User = Depends(require_instructor_or_facilitator),
 ):
     profile = await _get_or_create_profile(db, current_user.id)
     if body.linkedin_url is not None:
-        profile.linkedin_url = body.linkedin_url
+        current_user.linkedin_url = body.linkedin_url
     await db.commit()
-    await db.refresh(profile)
-    return profile
+    return InstructorProfileOut(
+        user_id=profile.user_id,
+        linkedin_url=current_user.linkedin_url,
+        photo_url=current_user.photo_url,
+        contract_url=profile.contract_url,
+        signed_contract_url=profile.signed_contract_url,
+    )
 
 
 @router.get("/id-card", response_model=IdCardOut | None)
-async def get_id_card(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)):
-    return (await db.execute(
-        select(IdCard).where(IdCard.user_id == current_user.id, IdCard.role == "instructor")
-    )).scalars().first()
+async def get_id_card(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_instructor),
+):
+    """Render the ID card front and back on-the-fly."""
+    card_row = await ensure_card_id(db, current_user.id, UserRole.instructor)
+
+    photo_bytes = None
+    resolved_photo_url = await _resolve_photo_url(current_user.photo_url)
+    if resolved_photo_url and resolved_photo_url != current_user.photo_url:
+        current_user.photo_url = resolved_photo_url
+    await db.commit()
+    if resolved_photo_url:
+        try:
+            photo_bytes = await _fetch_photo(resolved_photo_url)
+        except Exception:
+            pass
+
+    front_png = render_card_png(UserRole.instructor, photo_bytes, current_user.linkedin_url, current_user.full_name)
+    issue_date = card_row.generated_at or datetime.now(timezone.utc)
+    back_png = render_card_back_png(UserRole.instructor, card_row.card_id, issue_date)
+
+    return IdCardOut(
+        card_id=card_row.card_id,
+        front_b64=base64.b64encode(front_png).decode(),
+        back_b64=base64.b64encode(back_png).decode(),
+        generated_at=card_row.generated_at,
+        has_photo=bool(current_user.photo_url),
+        has_linkedin=bool(current_user.linkedin_url),
+    )
 
 
 @router.post("/id-card", response_model=IdCardOut)
-async def generate_my_id_card(
-    photo: UploadFile,
+async def update_id_card(
+    photo: UploadFile | None = None,
     linkedin_url: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_instructor),
 ):
-    photo_bytes = await photo.read()
-    profile = await _get_or_create_profile(db, current_user.id)
-    if linkedin_url:
-        profile.linkedin_url = linkedin_url
+    """Upload/update profile photo and/or LinkedIn URL, then return rendered card front and back."""
+    if linkedin_url is not None:
+        current_user.linkedin_url = linkedin_url or None
 
-    photo_url = await storage.upload_file(
-        "instructor-photos", f"{current_user.id}{_ext(photo.filename)}", photo_bytes, photo.content_type or "image/jpeg"
-    )
-    profile.photo_url = photo_url
+    photo_bytes: bytes | None = None
+    if photo and photo.filename:
+        photo_bytes = await photo.read()
+        uploaded_url = await storage.upload_file(
+            "profile_pictures",
+            f"{current_user.id}{_ext(photo.filename)}",
+            photo_bytes,
+            photo.content_type or "image/jpeg",
+        )
+        current_user.photo_url = uploaded_url
 
-    card = await generate_id_card(
-        db, current_user.id, UserRole.instructor,
-        current_user.full_name, photo_bytes, linkedin_url or profile.linkedin_url,
-    )
+    card_row = await ensure_card_id(db, current_user.id, UserRole.instructor)
     await db.commit()
-    await db.refresh(card)
-    return card
+
+    if photo_bytes is None and current_user.photo_url:
+        resolved = await _resolve_photo_url(current_user.photo_url)
+        if resolved and resolved != current_user.photo_url:
+            current_user.photo_url = resolved
+            await db.commit()
+        try:
+            photo_bytes = await _fetch_photo(resolved or current_user.photo_url)
+        except Exception:
+            pass
+
+    front_png = render_card_png(UserRole.instructor, photo_bytes, current_user.linkedin_url, current_user.full_name)
+    issue_date = card_row.generated_at or datetime.now(timezone.utc)
+    back_png = render_card_back_png(UserRole.instructor, card_row.card_id, issue_date)
+
+    return IdCardOut(
+        card_id=card_row.card_id,
+        front_b64=base64.b64encode(front_png).decode(),
+        back_b64=base64.b64encode(back_png).decode(),
+        generated_at=card_row.generated_at,
+        has_photo=bool(current_user.photo_url),
+        has_linkedin=bool(current_user.linkedin_url),
+    )
+
+
+@router.get("/id-card/pdf")
+async def download_id_card_pdf(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_instructor),
+):
+    """Stream the rendered card (front and back) as a downloadable PDF."""
+    from io import BytesIO
+    from reportlab.lib.units import inch
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.utils import ImageReader
+    from PIL import Image as PILImage
+
+    card_row = await ensure_card_id(db, current_user.id, UserRole.instructor)
+    photo_bytes = None
+    resolved_photo_url = await _resolve_photo_url(current_user.photo_url)
+    if resolved_photo_url and resolved_photo_url != current_user.photo_url:
+        current_user.photo_url = resolved_photo_url
+    await db.commit()
+    if resolved_photo_url:
+        try:
+            photo_bytes = await _fetch_photo(resolved_photo_url)
+        except Exception:
+            pass
+
+    front_png = render_card_png(UserRole.instructor, photo_bytes, current_user.linkedin_url, current_user.full_name)
+    issue_date = card_row.generated_at or datetime.now(timezone.utc)
+    back_png = render_card_back_png(UserRole.instructor, card_row.card_id, issue_date)
+
+    # Wrap front and back in a CR80-sized PDF (3.375 × 2.125 in landscape)
+    buf = BytesIO()
+    w, h = 3.375 * inch, 2.125 * inch
+    c = rl_canvas.Canvas(buf, pagesize=(w, h))
+    
+    # Page 1: Front
+    front_img = PILImage.open(BytesIO(front_png)).rotate(-90, expand=True)
+    img_buf1 = BytesIO()
+    front_img.save(img_buf1, format="PNG")
+    img_buf1.seek(0)
+    c.drawImage(ImageReader(img_buf1), 0, 0, width=w, height=h)
+    c.showPage()
+    
+    # Page 2: Back
+    back_img = PILImage.open(BytesIO(back_png)).rotate(-90, expand=True)
+    img_buf2 = BytesIO()
+    back_img.save(img_buf2, format="PNG")
+    img_buf2.seek(0)
+    c.drawImage(ImageReader(img_buf2), 0, 0, width=w, height=h)
+    c.showPage()
+
+    c.save()
+
+    filename = f"SpacePoint_ID_{card_row.card_id or current_user.id}.pdf"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+async def _fetch_photo(url: str) -> bytes:
+    """Download photo bytes from a URL (Supabase public URL)."""
+    async with httpx.AsyncClient(timeout=10) as client:
+        r = await client.get(url)
+        r.raise_for_status()
+        return r.content
+
+
+_RENAMED_BUCKETS = {"instructor-photos", "intern-photos", "ambassador-photos"}
+_PHOTO_BUCKET = "profile_pictures"
+
+
+async def _resolve_photo_url(url: str | None) -> str | None:
+    """Re-issue a signed URL if the stored URL still references a renamed bucket."""
+    if not url:
+        return url
+    import re
+    for old in _RENAMED_BUCKETS:
+        m = re.search(rf"/object/sign/{re.escape(old)}/([^?]+)", url)
+        if m:
+            try:
+                return await storage.get_signed_url(_PHOTO_BUCKET, m.group(1))
+            except Exception:
+                return url
+    return url
 
 
 def _ext(filename: str | None) -> str:

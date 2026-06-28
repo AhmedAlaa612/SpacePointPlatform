@@ -9,11 +9,23 @@ class TrainingVideoOut(BaseModel):
     title: str
     description: Optional[str] = None
     notes: Optional[str] = None
+    video_url: str = ""
     sort_order: int
     is_completed: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = {"from_attributes": True, "populate_by_name": True}
+
+    @classmethod
+    def from_orm_video(cls, v: object, is_completed: bool = False) -> "TrainingVideoOut":
+        return cls(
+            id=getattr(v, "id"),
+            title=getattr(v, "title"),
+            description=getattr(v, "description"),
+            notes=getattr(v, "notes"),
+            video_url=getattr(v, "video_path", "") or "",
+            sort_order=getattr(v, "sort_order"),
+            is_completed=is_completed,
+        )
 
 
 class TrainingModuleOut(BaseModel):
@@ -46,7 +58,8 @@ class LibraryResourceOut(BaseModel):
     title: str
     description: Optional[str] = None
     format: str
-    file_url: str
+    file_url: str          # signed URL at response time (not stored value)
+    resource_type: str = "file"
 
     class Config:
         from_attributes = True

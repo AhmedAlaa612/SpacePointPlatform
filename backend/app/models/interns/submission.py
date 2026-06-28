@@ -14,7 +14,7 @@ class TaskSubmission(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id"), nullable=False)
-    submitted_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    submitted_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     link = Column(String, nullable=False)
     note = Column(Text, nullable=True)
     status = Column(

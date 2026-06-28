@@ -8,13 +8,10 @@ from sqlalchemy.future import select
 
 from app.db.session import get_db
 from app.models.user import User
-from app.models.ambassadors.application_question import ApplicationQuestion
 from app.services.ambassadors import stats as stats_service
 from app.services.points import lifetime_points
 from app.services.ambassadors.titles import resolve_title_progress
 from app.services.ambassadors import achievements
-from app.schemas.ambassadors.application import ApplicationQuestionOut
-
 router = APIRouter(prefix="/public", tags=["ambassador-public"])
 
 
@@ -88,13 +85,3 @@ async def public_profile(ambassador_id: uuid.UUID, db: AsyncSession = Depends(ge
         "badges": badges,
     }
 
-
-@router.get("/teacher-application-questions", response_model=list[ApplicationQuestionOut])
-async def get_teacher_application_questions(db: AsyncSession = Depends(get_db)):
-    """Get active teacher application questions."""
-    rows = (await db.execute(
-        select(ApplicationQuestion)
-        .where(ApplicationQuestion.deleted_at == None)  # noqa: E711
-        .order_by(ApplicationQuestion.order, ApplicationQuestion.created_at)
-    )).scalars().all()
-    return rows

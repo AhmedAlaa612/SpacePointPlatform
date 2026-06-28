@@ -40,9 +40,9 @@ export default function Leads() {
                   <StatusPill status={l.status} />
                 </div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide">{l.type}</p>
-                {l.notes && <p className="text-sm text-muted-foreground dark:text-zinc-300 mt-2 line-clamp-3">{l.notes}</p>}
+                {l.notes && <p className="text-sm text-muted-foreground mt-2 line-clamp-3">{l.notes}</p>}
                 <div className="flex items-center justify-between mt-3">
-                  <p className="text-xs text-gray-400">{new Date(l.created_at).toLocaleDateString()}</p>
+                  <p className="text-xs text-muted-foreground">{new Date(l.created_at).toLocaleDateString()}</p>
                   <Button size="sm" variant="outline" onClick={() => setSelected(l)}>
                     <MessageSquare size={14} /> Details & comments
                   </Button>

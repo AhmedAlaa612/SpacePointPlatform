@@ -1,0 +1,10 @@
+.venv/
+venv/
+myenv/
+__pycache__/
+*.py[cod]
+.env
+*.log
+.git/
+*.sqlite3
+startup.sh

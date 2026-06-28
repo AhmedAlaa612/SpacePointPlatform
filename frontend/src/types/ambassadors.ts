@@ -178,25 +178,3 @@ export interface DashboardStats {
   points_to_next: number
   progress_to_next: number
 }
-
-export interface ApplicationQuestion {
-  id: string
-  question_text: string
-  question_type: "text" | "number" | "radio" | "multiple_choice"
-  required: boolean
-  order: number
-  options?: string[]
-  created_at: string | null
-  deleted_at: string | null
-}
-
-export interface TeacherApplication {
-  id: string
-  full_name: string
-  email: string
-  invite_code: string
-  invited_by_id: string
-  answers: Record<string, unknown> | null
-  status: "pending" | "approved" | "rejected"
-  created_at: string | null
-}

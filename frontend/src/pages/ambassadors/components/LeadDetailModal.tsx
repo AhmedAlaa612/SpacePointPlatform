@@ -82,12 +82,12 @@ export function LeadDetailModal({ lead, onClose }: { lead: Lead; onClose: () => 
         ) : (
         <div className="mt-2 space-y-3">
           <div className="text-sm">
-            <p className="text-gray-500">Contact: <span className="text-foreground font-medium">{lead.contact_name}</span></p>
-            <p className="text-gray-500">Type: <span className="text-foreground font-medium uppercase">{lead.type}</span></p>
-            {lead.ambassador_name && <p className="text-gray-500">Ambassador: <span className="text-foreground font-medium">{lead.ambassador_name}</span></p>}
+            <p className="text-muted-foreground">Contact: <span className="text-foreground font-medium">{lead.contact_name}</span></p>
+            <p className="text-muted-foreground">Type: <span className="text-foreground font-medium uppercase">{lead.type}</span></p>
+            {lead.ambassador_name && <p className="text-muted-foreground">Ambassador: <span className="text-foreground font-medium">{lead.ambassador_name}</span></p>}
           </div>
           {lead.notes && (
-            <div className="rounded-lg bg-gray-50 dark:bg-zinc-900/50 p-3 text-sm text-gray-700 dark:text-zinc-300 border dark:border-zinc-800 whitespace-pre-wrap">{lead.notes}</div>
+            <div className="rounded-lg bg-muted/50 p-3 text-sm text-foreground border border-border whitespace-pre-wrap">{lead.notes}</div>
           )}
 
           {(canEdit || canWithdraw) && (
@@ -104,23 +104,23 @@ export function LeadDetailModal({ lead, onClose }: { lead: Lead; onClose: () => 
 
           {/* Comment thread */}
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Comments</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Comments</p>
             <div className="max-h-64 overflow-y-auto space-y-2 pr-1">
               {isLoading ? (
                 <Spinner />
               ) : comments.length === 0 ? (
-                <p className="text-sm text-gray-400 py-3 text-center">No comments yet.</p>
+                <p className="text-sm text-muted-foreground py-3 text-center">No comments yet.</p>
               ) : (
                 comments.map((c) => (
-                  <div key={c.id} className="rounded-lg border border-gray-100 dark:border-zinc-800 p-2.5">
+                  <div key={c.id} className="rounded-lg border border-border p-2.5">
                     <div className="flex items-center justify-between gap-2 mb-0.5">
                       <span className="text-xs font-semibold text-foreground">
                         {c.author_name ?? "Unknown"}
                         {c.author_role === "admin" && <span className="ml-1.5 text-[10px] font-bold text-heliotrope uppercase">Admin</span>}
                       </span>
-                      <span className="text-[11px] text-gray-400">{new Date(c.created_at).toLocaleString()}</span>
+                      <span className="text-[11px] text-muted-foreground">{new Date(c.created_at).toLocaleString()}</span>
                     </div>
-                    <p className="text-sm text-gray-700 dark:text-zinc-300 whitespace-pre-wrap">{c.body}</p>
+                    <p className="text-sm text-foreground whitespace-pre-wrap">{c.body}</p>
                   </div>
                 ))
               )}

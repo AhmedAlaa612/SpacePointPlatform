@@ -58,11 +58,50 @@ async def _all_modules_submitted(db: AsyncSession, user_id: uuid.UUID) -> bool:
 
 # ── Phase 1: video summaries ──────────────────────────────────
 
+# Default URLs used when the facilitator hasn't configured them yet.
+_DEFAULT_VIDEO_URLS = [
+    "https://youtu.be/6KcV1C1Ui5s",
+    "https://youtu.be/qr1AvisQcV8",
+    "https://youtu.be/5voQfQOTem8",
+]
+
+
+async def _get_video_urls(db: AsyncSession) -> list[str]:
+    """Return the 3 canonical video URLs, reading from portal_settings first
+    and falling back to the hardcoded defaults when not yet configured."""
+    from app.models.instructors.payment import PortalSetting
+    settings = {
+        s.key: s.value
+        for s in (await db.execute(
+            select(PortalSetting).where(PortalSetting.key.like("app_video_%_url"))
+        )).scalars().all()
+    }
+    return [settings.get(f"app_video_{n}_url") or _DEFAULT_VIDEO_URLS[n - 1] for n in range(1, 4)]
+
+
 @router.get("/videos", response_model=list[VideoSubmissionOut])
 async def list_videos(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_applicant)):
     rows = (await db.execute(
         select(VideoSubmission).where(VideoSubmission.user_id == current_user.id).order_by(VideoSubmission.video_no)
     )).scalars().all()
+    video_urls = await _get_video_urls(db)
+    if not rows:
+        rows = [VideoSubmission(user_id=current_user.id, video_no=n, youtube_url=url) for n, url in enumerate(video_urls, 1)]
+        db.add_all(rows)
+        await db.commit()
+        for r in rows:
+            await db.refresh(r)
+    else:
+        # Backfill missing URLs for rows created before the URL was seeded
+        dirty = False
+        for row in rows:
+            if not row.youtube_url:
+                row.youtube_url = video_urls[row.video_no - 1]
+                dirty = True
+        if dirty:
+            await db.commit()
+            for r in rows:
+                await db.refresh(r)
     return list(rows)
 
 
@@ -302,7 +341,12 @@ async def submit_presentation(
 
 @router.get("/status", response_model=ApplicationStatusOut)
 async def get_status(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_applicant)):
-    review = await _get_review(db, current_user.id)
+    review = (await db.execute(select(ApplicationReview).where(ApplicationReview.user_id == current_user.id))).scalars().first()
+    if not review:
+        review = ApplicationReview(user_id=current_user.id, status=ApplicationStatus.in_progress)
+        db.add(review)
+        await db.commit()
+        await db.refresh(review)
     presentation = (await db.execute(
         select(PresentationSubmission).where(PresentationSubmission.user_id == current_user.id)
     )).scalars().first()

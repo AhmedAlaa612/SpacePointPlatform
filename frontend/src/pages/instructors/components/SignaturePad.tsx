@@ -8,13 +8,61 @@ interface SignaturePadProps {
   signing?: boolean
 }
 
+function trimCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
+  const ctx = canvas.getContext("2d")
+  if (!ctx) return canvas
+
+  const width = canvas.width
+  const height = canvas.height
+  const pixels = ctx.getImageData(0, 0, width, height)
+  const len = pixels.data.length
+
+  let bound = {
+    top: null as number | null,
+    left: null as number | null,
+    right: null as number | null,
+    bottom: null as number | null,
+  }
+
+  for (let i = 0; i < len; i += 4) {
+    if (pixels.data[i + 3] !== 0) { // If alpha channel is not 0 (not transparent)
+      const x = (i / 4) % width
+      const y = Math.floor((i / 4) / width)
+
+      if (bound.top === null) bound.top = y
+      if (bound.left === null || x < bound.left) bound.left = x
+      if (bound.right === null || x > bound.right) bound.right = x
+      if (bound.bottom === null || y > bound.bottom) bound.bottom = y
+    }
+  }
+
+  if (bound.top === null || bound.left === null || bound.right === null || bound.bottom === null) {
+    return canvas
+  }
+
+  const trimHeight = bound.bottom - bound.top + 1
+  const trimWidth = bound.right - bound.left + 1
+  const trimmed = ctx.getImageData(bound.left, bound.top, trimWidth, trimHeight)
+
+  const copy = document.createElement("canvas")
+  copy.width = trimWidth
+  copy.height = trimHeight
+  const copyCtx = copy.getContext("2d")
+  if (copyCtx) {
+    copyCtx.putImageData(trimmed, 0, 0)
+  }
+  return copy
+}
+
 /** Canvas-based e-signature capture for payment letters. */
 export function SignaturePad({ onSign, signing }: SignaturePadProps) {
   const ref = useRef<SignatureCanvas>(null)
 
   const handleSign = () => {
     if (!ref.current || ref.current.isEmpty()) return
-    onSign(ref.current.getTrimmedCanvas().toDataURL("image/png"))
+    const canvas = ref.current.getCanvas()
+    const trimmedCanvas = trimCanvas(canvas)
+    onSign(trimmedCanvas.toDataURL("image/png"))
   }
 
   return (
@@ -37,3 +85,4 @@ export function SignaturePad({ onSign, signing }: SignaturePadProps) {
     </div>
   )
 }
+

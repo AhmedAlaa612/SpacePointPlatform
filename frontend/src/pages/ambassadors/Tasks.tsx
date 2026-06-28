@@ -13,7 +13,7 @@ import { TaskDetailModal } from "@/pages/ambassadors/components/TaskDetailModal"
 export default function Tasks() {
   const { currentUser } = useAuth()
   const qc = useQueryClient()
-  const isAmbassador = currentUser?.roles?.includes("ambassador")
+  const isAmbassador = currentUser?.role === "ambassador"
   const [tab, setTab] = useState<"assigned" | "created">("assigned")
   const [open, setOpen] = useState(false)
   const [selected, setSelected] = useState<Task | null>(null)
@@ -76,10 +76,10 @@ function TaskRow({ task, onOpen }: { task: Task; onOpen: () => void }) {
               <span className="text-xs font-semibold text-affair dark:text-heliotrope bg-snuff/40 dark:bg-snuff/10 px-2 py-0.5 rounded-full">{task.points_reward} pts</span>
               {needsAction && <span className="w-2 h-2 rounded-full bg-heliotrope" title="Needs action" />}
             </div>
-            {task.description && <p className="text-sm text-gray-500 mt-1 line-clamp-1">{task.description}</p>}
-            {task.deadline && <p className="text-xs text-gray-400 mt-1">Due {new Date(task.deadline).toLocaleDateString()}</p>}
+            {task.description && <p className="text-sm text-muted-foreground mt-1 line-clamp-1">{task.description}</p>}
+            {task.deadline && <p className="text-xs text-muted-foreground mt-1">Due {new Date(task.deadline).toLocaleDateString()}</p>}
           </div>
-          <ChevronRight size={18} className="text-gray-300 shrink-0" />
+          <ChevronRight size={18} className="text-muted-foreground shrink-0" />
         </button>
       </CardContent>
     </Card>

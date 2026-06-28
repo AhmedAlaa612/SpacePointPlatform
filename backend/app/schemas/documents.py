@@ -14,22 +14,9 @@ class RecommendationLetterCreate(BaseModel):
     signatory_title: Optional[str] = None
 
 
-class RecommendationLetterOut(BaseModel):
+class DocumentOut(BaseModel):
     id: UUID
-    user_id: UUID
-    signatory_name: str
-    signatory_title: str
-    file_url: str
-    generated_at: datetime
-
-    class Config:
-        from_attributes = True
-
-
-class InternLetterOut(BaseModel):
-    id: UUID
-    user_id: UUID
-    type: str
+    label: str
     file_url: str
     generated_at: datetime
 
@@ -39,5 +26,51 @@ class InternLetterOut(BaseModel):
 
 class MyDocumentsOut(BaseModel):
     certificates: list[CertificateOut] = []
-    recommendation_letters: list[RecommendationLetterOut] = []
-    intern_letters: list[InternLetterOut] = []
+    documents: list[DocumentOut] = []
+
+
+class AvailableTemplateOut(BaseModel):
+    id: UUID
+    key: str
+    name: str
+    roles: list[str] = []
+
+
+class DocumentTemplateOut(BaseModel):
+    id: UUID
+    key: str
+    name: str
+    roles: list[str] = []
+    body_text: Optional[str] = None
+    template_file_url: Optional[str] = None
+    type: str = "letter"
+    is_system: bool = False
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentTemplateUpdate(BaseModel):
+    name: Optional[str] = None
+    roles: Optional[list[str]] = None
+    body_text: Optional[str] = None
+    template_file_url: Optional[str] = None
+
+
+class DocumentTemplateCreate(BaseModel):
+    key: str
+    name: str
+    roles: list[str]
+    body_text: Optional[str] = None
+    type: str = "letter"   # 'letter' | 'certificate'
+
+
+class StorageFileOut(BaseModel):
+    name: str
+    size: Optional[int] = None
+    mimetype: Optional[str] = None
+    last_modified: Optional[str] = None
+    signed_url: Optional[str] = None
+    owner_name: Optional[str] = None
+    document_type_label: Optional[str] = None

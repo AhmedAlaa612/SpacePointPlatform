@@ -29,7 +29,7 @@ export function LeaderboardTable({
     <div className="overflow-x-auto -mx-1">
       <table className="w-full text-sm min-w-[640px]">
         <thead>
-          <tr className="text-left text-muted-foreground border-b border-gray-100 dark:border-zinc-800">
+          <tr className="text-left text-muted-foreground border-b border-border">
             <th className="py-2.5 pr-3 font-semibold">#</th>
             <th className="py-2.5 pr-3 font-semibold">Ambassador</th>
             <th className="py-2.5 pr-3 font-semibold">Country</th>
@@ -48,9 +48,9 @@ export function LeaderboardTable({
                 key={r.id}
                 onClick={onRowClick ? () => onRowClick(r.id) : undefined}
                 className={cn(
-                  "border-b border-gray-50 dark:border-zinc-900 last:border-0",
+                  "border-b border-border/50 last:border-0",
                   me && "bg-snuff/20 dark:bg-snuff/10",
-                  onRowClick && "cursor-pointer hover:bg-gray-50 dark:hover:bg-zinc-800/50"
+                  onRowClick && "cursor-pointer hover:bg-muted/50"
                 )}
               >
                 <td className="py-2.5 pr-3 font-bold text-muted-foreground">

@@ -8,10 +8,6 @@ from app.schemas.ambassadors.title import TitleCreate, TitleOut, TitleUpdate
 from app.schemas.ambassadors.badge import BadgeCreate, BadgeOut, BadgeUpdate, slugify
 from app.schemas.ambassadors.material import MaterialCreate, MaterialOut, MaterialUpdate
 from app.schemas.ambassadors.points import PointsTransactionOut
-from app.schemas.ambassadors.application import (
-    ApplicationQuestionCreate, ApplicationQuestionUpdate, ApplicationQuestionOut,
-    TeacherApplicationCreate, TeacherApplicationUpdate, TeacherApplicationOut,
-)
 
 __all__ = [
     "LeadCreate", "LeadOut", "LeadStatusUpdate", "LeadUpdate", "LeadCommentCreate", "LeadCommentOut",
@@ -22,6 +18,4 @@ __all__ = [
     "BadgeCreate", "BadgeOut", "BadgeUpdate", "slugify",
     "MaterialCreate", "MaterialOut", "MaterialUpdate",
     "PointsTransactionOut",
-    "ApplicationQuestionCreate", "ApplicationQuestionUpdate", "ApplicationQuestionOut",
-    "TeacherApplicationCreate", "TeacherApplicationUpdate", "TeacherApplicationOut",
 ]

@@ -1,5 +1,7 @@
 import { X } from "lucide-react"
 
+export { Spinner } from "@/components/ui/primitives"
+
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
@@ -38,14 +40,6 @@ export function ModalActions({ onCancel, onConfirm, loading, disabled, label }: 
         className="flex-1 h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50">
         {loading ? "…" : label}
       </button>
-    </div>
-  )
-}
-
-export function Spinner() {
-  return (
-    <div className="flex items-center justify-center h-64">
-      <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
     </div>
   )
 }

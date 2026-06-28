@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -17,8 +18,8 @@ from app.models.instructors.payment import (
     PaymentBatch,
     PaymentLetter,
     PaymentSession,
-    PortalSetting,
 )
+from app.services.settings import get_portal_setting as _get_setting
 from app.models.user import User
 from app.schemas.instructors.payment import (
     BulkImportPreviewOut,
@@ -196,11 +197,6 @@ async def delete_addon(
     return {"status": "deleted"}
 
 
-async def _get_setting(db: AsyncSession, key: str, default: str = "") -> str:
-    row = (await db.execute(select(PortalSetting).where(PortalSetting.key == key))).scalars().first()
-    return row.value if row and row.value else default
-
-
 @router.post("/letters/{letter_id}/generate-pdf", response_model=PaymentLetterOut)
 async def generate_pdf(
     letter_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
@@ -213,18 +209,37 @@ async def generate_pdf(
     addons = (await db.execute(select(PaymentAddon).where(PaymentAddon.payment_letter_id == letter_id))).scalars().all()
     bank = (await db.execute(select(InstructorBankDetails).where(InstructorBankDetails.user_id == letter.instructor_user_id))).scalars().first()
 
-    pdf_bytes = generate_payment_letter_pdf(
-        instructor_name=instructor.full_name, reference=letter.reference, letter_date=letter.letter_date or "",
-        sessions=[{"session_date": s.session_date, "workshop_description": s.workshop_description, "role": s.role.value,
-                   "location": s.location, "duration_hours": s.duration_hours, "compensation_aed": s.compensation_aed} for s in sessions],
-        addons=[{"description": a.description, "amount_aed": a.amount_aed, "notes": a.notes} for a in addons],
-        bank={"account_holder_name": bank.account_holder_name, "bank_name": bank.bank_name, "iban": bank.iban,
-              "swift_bic": bank.swift_bic} if bank else None,
-        admin_signatory_name=await _get_setting(db, "admin_signatory_name", settings.DEFAULT_SIGNATORY_NAME),
-        instructor_signature_b64=letter.instructor_signature_data,
-        signed_date=letter.signed_at.strftime("%d/%m/%Y") if letter.signed_at else None,
-    )
-    letter.pdf_url = await storage.upload_file("payment-letters", f"{letter.id}/letter.pdf", pdf_bytes, "application/pdf")
+    admin_signature_bytes = None
+    sig_url = await _get_setting(db, "admin_signature_url", "")
+    if sig_url:
+        try:
+            admin_signature_bytes = await storage.download_file("instructor-documents", "settings/admin_signature.png")
+        except Exception as e:
+            print(f"Error downloading admin signature: {e}")
+
+    try:
+        pdf_bytes = await asyncio.to_thread(
+            generate_payment_letter_pdf,
+            instructor_name=instructor.full_name, reference=letter.reference, letter_date=letter.letter_date or "",
+            sessions=[{"session_date": s.session_date, "workshop_description": s.workshop_description, "role": s.role.value,
+                       "location": s.location, "duration_hours": s.duration_hours, "compensation_aed": s.compensation_aed} for s in sessions],
+            addons=[{"description": a.description, "amount_aed": a.amount_aed, "notes": a.notes} for a in addons],
+            bank={"account_holder_name": bank.account_holder_name, "bank_name": bank.bank_name, "iban": bank.iban,
+                  "swift_bic": bank.swift_bic} if bank else None,
+            admin_signatory_name=await _get_setting(db, "admin_signatory_name", settings.DEFAULT_SIGNATORY_NAME),
+            admin_signatory_title=await _get_setting(db, "admin_signatory_title", settings.DEFAULT_SIGNATORY_TITLE),
+            admin_signature_bytes=admin_signature_bytes,
+            instructor_signature_b64=letter.instructor_signature_data,
+            signed_date=letter.signed_at.strftime("%d/%m/%Y") if letter.signed_at else None,
+        )
+        letter.pdf_url = await storage.upload_file("payment-letters", f"{letter.id}/letter.pdf", pdf_bytes, "application/pdf")
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF generation or upload failed: {str(e)}"
+        )
     await db.commit()
     return await _letter_with_children(db, letter)
 

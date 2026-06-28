@@ -33,6 +33,8 @@ class User(Base):
     recruit_points_awarded = Column(Boolean, nullable=False, default=False)
     phone = Column(String(50), nullable=True)
     country = Column(String(100), nullable=True)
+    photo_url = Column(String, nullable=True)
+    linkedin_url = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 

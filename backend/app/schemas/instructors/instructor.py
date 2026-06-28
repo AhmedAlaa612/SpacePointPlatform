@@ -22,13 +22,13 @@ class InstructorProfileUpdate(BaseModel):
 
 class IdCardOut(BaseModel):
     card_id: Optional[str] = None
-    front_url: Optional[str] = None
-    back_url: Optional[str] = None
-    pdf_url: Optional[str] = None
+    front_b64: Optional[str] = None   # base64-encoded PNG of the rendered card
+    back_b64: Optional[str] = None    # base64-encoded PNG of the rendered card back
     generated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
+    has_photo: bool = False
+    has_linkedin: bool = False
+    photo_url: Optional[str] = None
+    linkedin_url: Optional[str] = None
 
 
 class BankDetailsOut(BaseModel):

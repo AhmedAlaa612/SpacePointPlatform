@@ -148,7 +148,7 @@ export function SessionDetailModal({
               <div className="rounded-lg border p-3">
                 <label className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Students attended</label>
                 <div className="flex gap-2">
-                  <input className="input flex-1" type="number" min={0} value={attended} onChange={(e) => setAttended(Number(e.target.value))} />
+                  <div className="flex-1"><input className="input" type="number" min={0} value={attended} onChange={(e) => setAttended(Number(e.target.value))} /></div>
                   <Button variant="default" disabled={busy} onClick={() => deliver.mutate()}>Mark delivered</Button>
                 </div>
               </div>

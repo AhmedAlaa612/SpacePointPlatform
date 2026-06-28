@@ -28,7 +28,7 @@ class TaskMindMapNote(Base):
 
     task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id"), primary_key=True)
     note = Column(Text, nullable=True)
-    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     task = relationship("Task", back_populates="mind_map_note")

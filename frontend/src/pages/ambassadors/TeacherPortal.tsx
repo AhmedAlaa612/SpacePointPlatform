@@ -42,12 +42,12 @@ export default function TeacherPortal() {
               {s.material_link && <span className="text-xs text-green-600 font-semibold">Material ready</span>}
               {s.status === "approved" && s.material_sent && <span className="w-2 h-2 rounded-full bg-heliotrope" title="Ready to mark delivered" />}
             </div>
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               {new Date(s.date).toLocaleDateString()} · planned {s.planned_students}
               {s.status === "done" && ` · attended ${s.attended_students}`}
             </p>
           </div>
-          <ChevronRight size={18} className="text-gray-300 shrink-0" />
+          <ChevronRight size={18} className="text-muted-foreground shrink-0" />
         </button>
       </CardContent>
     </Card>

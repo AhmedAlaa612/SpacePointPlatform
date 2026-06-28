@@ -12,7 +12,7 @@ task_assignees = Table(
     "task_assignees",
     Base.metadata,
     Column("task_id", UUID(as_uuid=True), ForeignKey("tasks.id"), primary_key=True),
-    Column("user_id", UUID(as_uuid=True), ForeignKey("users.id"), primary_key=True),
+    Column("user_id", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
 )
 
 
@@ -31,7 +31,7 @@ class Task(Base):
     due_date = Column(DateTime(timezone=True), nullable=True)
     expected_time = Column(Numeric(6, 2), nullable=True)
     actual_time = Column(Numeric(6, 2), nullable=True)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     module = relationship("Module", back_populates="tasks")

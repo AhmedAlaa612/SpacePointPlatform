@@ -1,5 +1,5 @@
 import { api } from "@/api/client"
-import type { BankDetails, IdCard, InstructorDocument, InstructorProfile } from "@/types/instructors"
+import type { BankDetails, InstructorDocument, InstructorProfile } from "@/types/instructors"
 
 export const getProfileApi = () =>
   api.get<InstructorProfile>("/instructors/profile").then((r) => r.data)
@@ -7,15 +7,20 @@ export const getProfileApi = () =>
 export const updateProfileApi = (data: { linkedin_url?: string }) =>
   api.put<InstructorProfile>("/instructors/profile", data).then((r) => r.data)
 
-export const getIdCardApi = () =>
-  api.get<IdCard | null>("/instructors/id-card").then((r) => r.data)
+import {
+  getIdCardApi as getSharedIdCard,
+  updateIdCardApi as updateSharedIdCard,
+  downloadIdCardPdfApi as downloadSharedIdCardPdf,
+} from "@/api/documents"
 
-export const generateIdCardApi = (photo: File, linkedinUrl?: string) => {
-  const form = new FormData()
-  form.append("photo", photo)
-  const qs = linkedinUrl ? `?linkedin_url=${encodeURIComponent(linkedinUrl)}` : ""
-  return api.post<IdCard>(`/instructors/id-card${qs}`, form).then((r) => r.data)
-}
+export const getIdCardApi = (role: string = "instructor") => getSharedIdCard(role)
+
+/** Upload a new photo and/or set LinkedIn URL — returns freshly rendered card */
+export const updateIdCardApi = (photo?: File, linkedinUrl?: string, role: string = "instructor") =>
+  updateSharedIdCard(role, photo, linkedinUrl)
+
+/** Download the PDF version of the card */
+export const downloadIdCardPdfApi = (role: string = "instructor") => downloadSharedIdCardPdf(role)
 
 export const getBankDetailsApi = () =>
   api.get<BankDetails>("/instructors/bank-details").then((r) => r.data)

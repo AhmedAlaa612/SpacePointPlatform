@@ -43,6 +43,8 @@ export interface User {
   phone?: string | null;
   country?: string | null;
   invite_code?: string | null;
+  photo_url?: string | null;
+  linkedin_url?: string | null;
   must_change_password?: boolean;
   created_at?: string;
   last_login_at?: string | null;

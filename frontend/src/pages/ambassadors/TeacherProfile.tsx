@@ -31,14 +31,14 @@ export default function TeacherProfile() {
 
   return (
     <div>
-      <Link to="/ambassadors/network" className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-foreground mb-4">
+      <Link to="/ambassadors/network" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4">
         <ArrowLeft size={16} /> Back to network
       </Link>
 
       {/* Identity */}
       <Card className="mb-6">
         <CardContent className="p-6 flex flex-col sm:flex-row sm:items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-zinc-900 dark:bg-zinc-800 text-white dark:text-zinc-100 text-xl font-bold flex items-center justify-center shrink-0">
+          <div className="w-16 h-16 rounded-full bg-foreground text-background text-xl font-bold flex items-center justify-center shrink-0">
             {initials}
           </div>
           <div className="min-w-0 flex-1">
@@ -46,8 +46,8 @@ export default function TeacherProfile() {
               <p className="text-xl font-bold text-foreground">{teacher.full_name}</p>
               <StatusPill status={teacher.status} />
             </div>
-            <p className="text-sm text-gray-500">{teacher.email}</p>
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="text-sm text-muted-foreground">{teacher.email}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
               Joined {new Date(teacher.created_at).toLocaleDateString()}
             </p>
           </div>
@@ -70,16 +70,16 @@ export default function TeacherProfile() {
           ) : sessions.length === 0 ? (
             <EmptyState title="No sessions yet" />
           ) : (
-            <div className="divide-y divide-gray-50 dark:divide-zinc-800">
+            <div className="divide-y divide-border">
               {[...sessions].sort((a, b) => +new Date(b.date) - +new Date(a.date)).map((s) => (
                 <button
                    key={s.id}
                    onClick={() => setSelectedSession(s)}
-                   className="w-full flex items-center justify-between py-3 gap-2 text-left hover:bg-gray-50 dark:hover:bg-zinc-800/50 rounded-lg px-1"
+                   className="w-full flex items-center justify-between py-3 gap-2 text-left hover:bg-muted/50 rounded-lg px-1"
                 >
                    <div className="min-w-0">
                      <p className="font-medium text-foreground truncate">{s.title}</p>
-                    <p className="text-xs text-gray-400">
+                    <p className="text-xs text-muted-foreground">
                       {new Date(s.date).toLocaleDateString()}
                       {s.status === "done" ? ` · ${s.attended_students} students` : ` · ${s.planned_students} planned`}
                     </p>

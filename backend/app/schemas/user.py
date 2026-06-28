@@ -29,25 +29,14 @@ class UserOut(UserBase):
     id: UUID
     roles: list[UserRole] = []
     status: str | None = None
+    country: str | None = None
+    photo_url: str | None = None
+    linkedin_url: str | None = None
+    invite_code: str | None = None
     created_at: datetime | None = None
 
     class Config:
         from_attributes = True
-
-
-class AmbassadorApply(BaseModel):
-    full_name: str
-    email: EmailStr
-    password: str
-    country: str | None = None
-
-
-class TeacherApply(BaseModel):
-    full_name: str
-    email: EmailStr
-    password: str
-    invite_code: str
-    answers: dict | None = None
 
 
 class InstructorApply(BaseModel):

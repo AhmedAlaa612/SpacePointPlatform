@@ -91,11 +91,11 @@ export function TaskDetailModal({
           </form>
         ) : (
         <div className="mt-2 space-y-3 text-sm">
-          {task.deadline && <p className="text-gray-500">Due <span className="text-foreground font-medium">{new Date(task.deadline).toLocaleDateString()}</span></p>}
+          {task.deadline && <p className="text-muted-foreground">Due <span className="text-foreground font-medium">{new Date(task.deadline).toLocaleDateString()}</span></p>}
 
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Description</p>
-            <p className="text-gray-700 dark:text-zinc-300 whitespace-pre-wrap">{task.description || "No description provided."}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Description</p>
+            <p className="text-foreground whitespace-pre-wrap">{task.description || "No description provided."}</p>
           </div>
 
           {task.edit_notes && (
@@ -108,7 +108,7 @@ export function TaskDetailModal({
           {/* Submission */}
           {canSubmit || canAccept ? (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Your submission</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Your submission</p>
               <textarea
                 className="input h-24 py-2 resize-none w-full"
                 placeholder="Paste a link to your work, or describe what you did…"
@@ -119,8 +119,8 @@ export function TaskDetailModal({
           ) : (
             task.submission && (
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Submission</p>
-                <p className="text-gray-700 dark:text-zinc-300 whitespace-pre-wrap break-words">{task.submission}</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Submission</p>
+                <p className="text-foreground whitespace-pre-wrap break-words">{task.submission}</p>
               </div>
             )
           )}
@@ -128,7 +128,7 @@ export function TaskDetailModal({
           {/* Reviewer revision notes */}
           {canReview && (
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">Revision notes (optional)</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Revision notes (optional)</p>
               <textarea
                 className="input h-16 py-2 resize-none w-full"
                 placeholder="Needed only if you request changes…"
@@ -165,7 +165,7 @@ export function TaskDetailModal({
 
           {/* Manage (creator / admin) */}
           {canManage && (
-            <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-zinc-800">
+            <div className="flex gap-2 pt-2 border-t border-border">
               <Button variant="ghost" size="sm" onClick={() => setEditing(true)}><Pencil size={14} /> Edit</Button>
               <Button variant="ghost" size="sm" disabled={remove.isPending}
                 onClick={() => { if (confirm(`Delete task "${task.title}"? This can't be undone.`)) remove.mutate() }}>

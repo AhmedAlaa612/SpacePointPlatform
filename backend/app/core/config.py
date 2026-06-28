@@ -25,14 +25,15 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
+    SMTP_FROM: str = ""  # e.g. "SpacePoint <noreply@spacepoint.ae>"
 
     # App
     BASE_URL: str = "http://localhost:8000"
     FRONTEND_URL: str = "http://localhost:5173"
     ADMIN_EMAIL: str = "admin@spacepoint.local"
     ADMIN_PASSWORD: str = "changeme"
-    DEFAULT_SIGNATORY_NAME: str = "Abdullah Al-Rashidi"
-    DEFAULT_SIGNATORY_TITLE: str = "Co-Founders & CEO, SpacePoint"
+    DEFAULT_SIGNATORY_NAME: str = "ABDULLAH ALSALMANI"
+    DEFAULT_SIGNATORY_TITLE: str = "Co-Founder & CEO of SpacePoint"
 
     # CORS — comma-separated list of allowed origins
     CORS_ORIGINS: str = "http://localhost:5173"

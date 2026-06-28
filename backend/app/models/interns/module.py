@@ -15,7 +15,7 @@ class Module(Base):
     epic_id = Column(UUID(as_uuid=True), ForeignKey("epics.id"), nullable=False)
     title = Column(String, nullable=False, default="General")
     description = Column(Text, nullable=True)
-    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     epic = relationship("Epic", back_populates="modules")

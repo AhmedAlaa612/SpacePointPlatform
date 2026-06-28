@@ -36,7 +36,7 @@ export default function Materials() {
       />
 
       <div className="relative mb-5 max-w-sm">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
         <input className="input pl-9 w-full" placeholder="Search materials…" value={q} onChange={(e) => setQ(e.target.value)} />
       </div>
 
@@ -53,8 +53,8 @@ export default function Materials() {
                   <p className="font-semibold text-foreground min-w-0">{m.title}</p>
                   {m.category && <span className="text-[10px] font-bold uppercase text-affair dark:text-heliotrope bg-snuff/40 dark:bg-snuff/10 px-2 py-0.5 rounded-full shrink-0">{m.category}</span>}
                 </div>
-                {m.description && <p className="text-sm text-muted-foreground dark:text-zinc-300 line-clamp-3">{m.description}</p>}
-                <p className="text-xs text-gray-400 mt-auto pt-2">
+                {m.description && <p className="text-sm text-muted-foreground line-clamp-3">{m.description}</p>}
+                <p className="text-xs text-muted-foreground mt-auto pt-2">
                   {m.created_by_name ? `Added by ${m.created_by_name} · ` : ""}{new Date(m.created_at).toLocaleDateString()}
                 </p>
                 <div className="flex items-center gap-2 pt-1">

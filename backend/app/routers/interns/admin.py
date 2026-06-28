@@ -7,14 +7,9 @@ from uuid import UUID
 
 from app.core.config import settings
 from app.db.session import get_db
-from app.models.certificate import Certificate
-from app.models.enums import CertificateType
-from app.models.intern_letter import InternLetter
 from app.models.user import User
 from app.core.dependencies import require_admin
 from app.services import storage
-from app.services.documents.certificate import generate_completion_certificate_pdf
-from app.services.documents.intern_letters import generate_intern_letter_pdf
 from app.schemas.interns.team import TeamCreate, TeamOut, TeamUpdate
 from app.schemas.interns.project import ProjectCreate, ProjectOut, ProjectUpdate
 from app.schemas.interns.epic import EpicCreate, EpicOut, EpicUpdate
@@ -35,62 +30,8 @@ from app.services.interns import mind_map as mind_map_service
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-# ── Documents (PLAN §9.1) — manual admin triggers, no auto status lifecycle ───
-
-@router.post("/users/{id}/confirmation-letter")
-async def generate_confirmation_letter(
-    id: UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
-):
-    user = await db.get(User, id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    start_date = user.created_at.strftime("%d %B %Y").lstrip("0")
-    pdf_bytes = generate_intern_letter_pdf(
-        user.full_name, "confirmation", start_date, None,
-        settings.DEFAULT_SIGNATORY_NAME, settings.DEFAULT_SIGNATORY_TITLE,
-    )
-    file_url = await storage.upload_file("intern-letters", f"{id}/confirmation.pdf", pdf_bytes, "application/pdf")
-    db.add(InternLetter(user_id=id, type="confirmation", file_url=file_url))
-    await db.commit()
-    return {"file_url": file_url}
-
-
-@router.post("/users/{id}/completion-letter")
-async def generate_completion_letter(
-    id: UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
-):
-    user = await db.get(User, id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    start_date = user.created_at.strftime("%d %B %Y").lstrip("0")
-    end_date = date.today().strftime("%d %B %Y").lstrip("0")
-    pdf_bytes = generate_intern_letter_pdf(
-        user.full_name, "completion", start_date, end_date,
-        settings.DEFAULT_SIGNATORY_NAME, settings.DEFAULT_SIGNATORY_TITLE,
-    )
-    file_url = await storage.upload_file("intern-letters", f"{id}/completion.pdf", pdf_bytes, "application/pdf")
-    db.add(InternLetter(user_id=id, type="completion", file_url=file_url))
-    await db.commit()
-    return {"file_url": file_url}
-
-
-@router.post("/users/{id}/certificate")
-async def generate_internship_certificate(
-    id: UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
-):
-    user = await db.get(User, id)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    pdf_bytes = generate_completion_certificate_pdf(user.full_name, "Internship Program")
-    file_url = await storage.upload_file(
-        "certificates", f"{id}/internship_completion.pdf", pdf_bytes, "application/pdf"
-    )
-    db.add(Certificate(
-        user_id=id, type=CertificateType.internship_completion, file_url=file_url,
-        generated_by=current_user.id,
-    ))
-    await db.commit()
-    return {"file_url": file_url}
+# ── Documents ───
+# Removed direct generation endpoints in favor of approval-based document requests.
 
 
 # ── Teams ─────────────────────────────────────────────────────────────────────

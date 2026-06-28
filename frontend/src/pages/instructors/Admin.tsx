@@ -1,29 +1,30 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, Plus, Trash2, X } from "lucide-react"
+import { useNavigate } from "@tanstack/react-router"
+import { Download, Plus, Trash2 } from "lucide-react"
 import {
-  createFacilitatorApi, createInvitationApi, deleteInvitationApi, getApplicantDetailApi,
+  createInvitationApi, deleteInvitationApi,
   listAdminFacilitatorsApi, listAdminInstructorsApi, listApplicantsApi, listInvitationsApi,
-  reviewApplicantApi, updateInvitationApi, uploadAdminSignatureApi, upsertSettingApi, getSettingsApi,
+  updateInvitationApi,
 } from "@/api/instructors/admin"
 import {
   addAddonApi, addSessionApi, bulkImportConfirmApi, bulkImportPreviewApi, createLetterApi,
-  downloadBulkImportTemplateApi, generateLetterPdfApi, listAdminLettersApi, listCertificatesApi,
+  downloadBulkImportTemplateApi, generateLetterPdfApi, listAdminLettersApi,
   markPaidApi, paymentsInstructorDropdownApi, publishLetterApi,
 } from "@/api/instructors/payments_admin"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState, Spinner, StatusPill } from "@/pages/instructors/components/common"
+import { UserProfileModal } from "@/components/UserProfileModal"
 import { cn } from "@/lib/utils"
 
-type Tab = "applications" | "invitations" | "instructors" | "payments" | "settings"
+type Tab = "applications" | "invitations" | "instructors" | "payments"
 const TABS: { id: Tab; label: string }[] = [
   { id: "applications", label: "Applications" },
   { id: "invitations", label: "Invitations" },
   { id: "instructors", label: "Instructors" },
   { id: "payments", label: "Payments" },
-  { id: "settings", label: "Settings" },
 ]
 
 export default function InstructorsAdmin() {
@@ -55,7 +56,6 @@ export default function InstructorsAdmin() {
       {tab === "invitations" && <InvitationsPanel />}
       {tab === "instructors" && <InstructorsPanel />}
       {tab === "payments" && <PaymentsPanel />}
-      {tab === "settings" && <SettingsPanel />}
     </div>
   )
 }
@@ -64,26 +64,8 @@ export default function InstructorsAdmin() {
 /* Applications panel                                                  */
 
 function ApplicationsPanel() {
-  const qc = useQueryClient()
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [feedback, setFeedback] = useState("")
-
+  const navigate = useNavigate()
   const { data: applicants, isLoading } = useQuery({ queryKey: ["admin-applicants"], queryFn: listApplicantsApi })
-  const { data: detail } = useQuery({
-    queryKey: ["admin-applicant-detail", selectedId],
-    queryFn: () => getApplicantDetailApi(selectedId!),
-    enabled: !!selectedId,
-  })
-
-  const review = useMutation({
-    mutationFn: (status: string) => reviewApplicantApi(selectedId!, status, feedback || undefined),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-applicants"] })
-      qc.invalidateQueries({ queryKey: ["admin-applicant-detail", selectedId] })
-      qc.invalidateQueries({ queryKey: ["admin-overview"] })
-      setFeedback("")
-    },
-  })
 
   if (isLoading) return <Spinner />
 
@@ -92,66 +74,29 @@ function ApplicationsPanel() {
       {(applicants ?? []).length === 0 ? (
         <EmptyState title="No applicants yet" />
       ) : (
-        <div className="space-y-2">
-          {applicants!.map((a) => (
-            <button
-              key={a.id}
-              onClick={() => setSelectedId(a.id)}
-              className="w-full flex items-center justify-between gap-3 p-3 rounded-lg border bg-card hover:bg-muted text-left transition-colors"
-            >
-              <div>
-                <p className="text-sm font-medium">{a.full_name}</p>
-                <p className="text-xs text-muted-foreground">{a.email} {a.university ? `· ${a.university}` : ""}</p>
+        <div className="space-y-2.5">
+          {applicants!.map((a) => {
+            return (
+              <div
+                key={a.id}
+                onClick={() => void navigate({ to: "/instructors/admin/applicants/$userId", params: { userId: a.id } })}
+                className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-border/60 bg-card hover:bg-muted/40 transition-all cursor-pointer group shadow-sm hover:shadow animate-fade-in"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">{a.full_name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                    {a.email} {a.university ? `· ${a.university}` : ""}
+                  </p>
+                </div>
+                
+                <div className="flex items-center gap-3 shrink-0">
+                  <StatusPill status={a.status} />
+                </div>
               </div>
-              <StatusPill status={a.status} />
-            </button>
-          ))}
+            )
+          })}
         </div>
       )}
-
-      <Dialog open={!!selectedId} onOpenChange={(open) => !open && setSelectedId(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{detail?.full_name}</DialogTitle></DialogHeader>
-          {detail ? (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">{detail.email}</p>
-              <StatusPill status={detail.review?.status ?? "in_progress"} />
-              {detail.profile && (
-                <p className="text-sm text-muted-foreground">
-                  {[detail.profile.university, detail.profile.city_of_residence, detail.profile.country]
-                    .filter(Boolean).join(" — ")}
-                </p>
-              )}
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1">Videos submitted</p>
-                <p className="text-sm">{detail.videos?.filter((v: any) => v.status === "submitted").length ?? 0} / 3</p>
-              </div>
-              {detail.presentation_link && (
-                <p className="text-sm">Presentation: <a href={detail.presentation_link} target="_blank" rel="noreferrer" className="text-primary underline">{detail.presentation_link}</a></p>
-              )}
-              {detail.review?.status === "under_review" && (
-                <div className="pt-2 border-t space-y-2">
-                  <textarea
-                    className="input" placeholder="Feedback (optional)" value={feedback}
-                    onChange={(e) => setFeedback(e.target.value)}
-                  />
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => review.mutate("phase_1_approved")} disabled={review.isPending}>
-                      <Check size={14} className="mr-1" /> Approve Phase 1
-                    </Button>
-                    <Button size="sm" onClick={() => review.mutate("approved")} disabled={review.isPending}>
-                      <Check size={14} className="mr-1" /> Final approve
-                    </Button>
-                    <Button size="sm" variant="destructive" onClick={() => review.mutate("rejected")} disabled={review.isPending}>
-                      <X size={14} className="mr-1" /> Reject
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : <Spinner />}
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
@@ -223,31 +168,15 @@ function InvitationsPanel() {
 /* Instructors panel (directory + facilitator accounts)                */
 
 function InstructorsPanel() {
-  const qc = useQueryClient()
-  const [facilitatorOpen, setFacilitatorOpen] = useState(false)
-  const [form, setForm] = useState({ full_name: "", email: "", password: "" })
-
   const { data: instructors, isLoading } = useQuery({ queryKey: ["admin-instructors"], queryFn: listAdminInstructorsApi })
   const { data: facilitators } = useQuery({ queryKey: ["admin-facilitators"], queryFn: listAdminFacilitatorsApi })
-
-  const createFacilitator = useMutation({
-    mutationFn: () => createFacilitatorApi(form),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-facilitators"] })
-      setFacilitatorOpen(false)
-      setForm({ full_name: "", email: "", password: "" })
-    },
-  })
 
   if (isLoading) return <Spinner />
 
   return (
     <div className="space-y-6">
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold">Facilitators</h2>
-          <Button size="sm" onClick={() => setFacilitatorOpen(true)}><Plus size={14} className="mr-1" /> New facilitator</Button>
-        </div>
+        <h2 className="text-sm font-semibold mb-3">Facilitators</h2>
         <div className="space-y-2">
           {(facilitators ?? []).map((f) => (
             <div key={f.id} className="flex items-center justify-between p-3 rounded-lg border bg-card">
@@ -276,20 +205,6 @@ function InstructorsPanel() {
           </div>
         )}
       </div>
-
-      <Dialog open={facilitatorOpen} onOpenChange={setFacilitatorOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>New facilitator account</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <input className="input" placeholder="Full name" value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} />
-            <input className="input" placeholder="Email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-            <input className="input" placeholder="Temporary password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
-            <Button onClick={() => createFacilitator.mutate()} disabled={!form.email || !form.password || createFacilitator.isPending}>
-              {createFacilitator.isPending ? "Creating…" : "Create account"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
@@ -307,7 +222,6 @@ function PaymentsPanel() {
 
   const { data: letters, isLoading } = useQuery({ queryKey: ["admin-payment-letters"], queryFn: () => listAdminLettersApi() })
   const { data: instructorOptions } = useQuery({ queryKey: ["payments-instructor-options"], queryFn: paymentsInstructorDropdownApi })
-  const { data: certificates } = useQuery({ queryKey: ["admin-certificates"], queryFn: listCertificatesApi })
 
   const createLetter = useMutation({
     mutationFn: () => createLetterApi({ instructor_user_id: selectedInstructor }),
@@ -344,6 +258,7 @@ function PaymentsPanel() {
   })
 
   const [manageLetterId, setManageLetterId] = useState<string | null>(null)
+  const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const manageLetter = (letters ?? []).find((l) => l.id === manageLetterId) ?? null
   const [sessionForm, setSessionForm] = useState({ workshop_description: "", role: "Facilitator" as const, compensation_aed: 0 })
   const [addonForm, setAddonForm] = useState({ description: "", amount_aed: 0 })
@@ -404,33 +319,37 @@ function PaymentsPanel() {
           <div className="space-y-2">
             {letters!.map((l) => (
               <div key={l.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-card">
-                <button className="text-left" onClick={() => setManageLetterId(l.id)}>
-                  <p className="text-sm font-medium hover:underline">{l.instructor_name}</p>
+                <div className="text-left">
+                  <div className="flex items-center gap-2">
+                    <button className="text-sm font-medium hover:underline" onClick={() => setManageLetterId(l.id)}>
+                      {l.instructor_name}
+                    </button>
+                    {l.instructor_user_id && (
+                      <button
+                        onClick={() => setProfileUserId(l.instructor_user_id!)}
+                        className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        View profile →
+                      </button>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground">{l.sessions.length} session(s) · {l.reference}</p>
-                </button>
+                </div>
                 <div className="flex items-center gap-2">
                   <StatusPill status={l.status} />
+                  {(l.pdf_url || l.signed_pdf_url) && (
+                    <a href={l.signed_pdf_url ?? l.pdf_url ?? undefined} target="_blank" rel="noreferrer">
+                      <Button size="sm" variant="outline">
+                        <Download size={14} className="mr-1.5" />
+                        {l.status === "signed" || l.status === "paid" ? "View signed" : "View draft"}
+                      </Button>
+                    </a>
+                  )}
                   {!l.pdf_url && <Button size="sm" variant="outline" onClick={() => generatePdf.mutate(l.id)}>Generate PDF</Button>}
                   {l.pdf_url && l.status === "draft" && <Button size="sm" onClick={() => publish.mutate(l.id)}>Publish</Button>}
                   {l.status === "signed" && <Button size="sm" onClick={() => markPaid.mutate(l.id)}>Mark paid</Button>}
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div>
-        <h2 className="text-sm font-semibold mb-3">Certificates</h2>
-        {(certificates ?? []).length === 0 ? (
-          <EmptyState title="No certificates generated yet" />
-        ) : (
-          <div className="space-y-2">
-            {certificates!.map((c) => (
-              <a key={c.id} href={c.file_url} target="_blank" rel="noreferrer" className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-muted">
-                <p className="text-sm">{c.instructor_name} — {c.workshop_name}</p>
-                <p className="text-xs text-muted-foreground">{c.workshop_date}</p>
-              </a>
             ))}
           </div>
         )}
@@ -448,6 +367,10 @@ function PaymentsPanel() {
           </Button>
         </DialogContent>
       </Dialog>
+
+      {profileUserId && (
+        <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />
+      )}
 
       <Dialog open={!!manageLetterId} onOpenChange={(open) => !open && setManageLetterId(null)}>
         <DialogContent>
@@ -497,52 +420,4 @@ function PaymentsPanel() {
   )
 }
 
-/* ================================================================== */
-/* Settings panel                                                       */
 
-function SettingsPanel() {
-  const qc = useQueryClient()
-  const { data: settings, isLoading } = useQuery({ queryKey: ["admin-settings"], queryFn: getSettingsApi })
-  const [signatoryName, setSignatoryName] = useState("")
-  const [loaded, setLoaded] = useState(false)
-
-  if (settings && !loaded) {
-    setSignatoryName(settings.admin_signatory_name ?? "")
-    setLoaded(true)
-  }
-
-  const saveSignatory = useMutation({
-    mutationFn: () => upsertSettingApi("admin_signatory_name", signatoryName),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-settings"] }),
-  })
-  const uploadSignature = useMutation({
-    mutationFn: (file: File) => uploadAdminSignatureApi(file),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-settings"] }),
-  })
-
-  if (isLoading) return <Spinner />
-
-  return (
-    <Card className="max-w-md">
-      <CardHeader><CardTitle>Signatory defaults</CardTitle></CardHeader>
-      <CardContent className="space-y-4">
-        <div>
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">Signatory name</label>
-          <input className="input" value={signatoryName} onChange={(e) => setSignatoryName(e.target.value)} />
-        </div>
-        <Button size="sm" onClick={() => saveSignatory.mutate()} disabled={saveSignatory.isPending}>Save</Button>
-
-        <div className="pt-3 border-t">
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">Admin signature image</label>
-          <input
-            type="file" accept="image/*" className="input"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadSignature.mutate(f) }}
-          />
-          {settings?.admin_signature_url && (
-            <img src={settings.admin_signature_url} alt="Admin signature" className="mt-2 h-12 object-contain" />
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  )
-}

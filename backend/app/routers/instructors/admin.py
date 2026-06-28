@@ -1,3 +1,4 @@
+import asyncio
 import secrets
 import uuid
 from datetime import datetime, timezone
@@ -71,7 +72,7 @@ async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User
             "id": str(u.id), "full_name": u.full_name, "email": u.email,
             "status": review.status, "feedback": review.feedback,
             "university": profile.university if profile else None,
-            "referred_by_ambassador_id": str(profile.referred_by_ambassador_id) if profile and profile.referred_by_ambassador_id else None,
+            "referred_by_ambassador_id": str(u.invited_by_id) if u.invited_by_id else None,
             "created_at": u.created_at,
         }
         for u, review, profile in rows
@@ -93,10 +94,66 @@ async def applicant_detail(
     presentation = (await db.execute(
         select(PresentationSubmission).where(PresentationSubmission.user_id == user_id)
     )).scalars().first()
+
+    # Expose checklist modules, items, progress, and submissions for the admin review page
+    from app.models.instructors.checklist import ChecklistModule, ChecklistItem, UserChecklistProgress
+    from app.models.instructors.module_submission import ModuleSubmission
+
+    modules = (await db.execute(select(ChecklistModule).order_by(ChecklistModule.sort_order))).scalars().all()
+    module_ids = [m.id for m in modules]
+
+    items = (await db.execute(select(ChecklistItem).where(ChecklistItem.module_id.in_(module_ids)))).scalars().all()
+    items_by_module = {}
+    for it in items:
+        items_by_module.setdefault(it.module_id, []).append(it)
+
+    item_ids = [it.id for it in items]
+    progress_rows = (await db.execute(
+        select(UserChecklistProgress).where(
+            UserChecklistProgress.user_id == user_id,
+            UserChecklistProgress.checklist_item_id.in_(item_ids),
+        )
+    )).scalars().all()
+    completed_ids = {p.checklist_item_id for p in progress_rows if p.is_completed}
+
+    submissions = (await db.execute(
+        select(ModuleSubmission).where(
+            ModuleSubmission.user_id == user_id, ModuleSubmission.module_id.in_(module_ids)
+        )
+    )).scalars().all()
+    submission_by_module = {s.module_id: s for s in submissions}
+
+    modules_data = []
+    for m in modules:
+        module_items = items_by_module.get(m.id, [])
+        sub = submission_by_module.get(m.id)
+        modules_data.append({
+            "id": str(m.id),
+            "title": m.title,
+            "sort_order": m.sort_order,
+            "checklist_items": [
+                {
+                    "id": str(it.id),
+                    "title": it.title,
+                    "is_completed": it.id in completed_ids,
+                }
+                for it in module_items
+            ],
+            "submission": {
+                "id": str(sub.id),
+                "file_url": sub.file_url,
+                "original_filename": sub.original_filename,
+                "notes_text": sub.notes_text,
+                "status": sub.status.value if sub.status else None,
+                "feedback": sub.feedback,
+            } if sub else None
+        })
+
     return {
         "id": str(user.id), "full_name": user.full_name, "email": user.email,
         "profile": profile, "review": {"status": review.status, "feedback": review.feedback} if review else None,
         "videos": videos, "presentation_link": presentation.video_link if presentation else None,
+        "modules": modules_data,
     }
 
 
@@ -116,8 +173,8 @@ async def review_applicant(
     review = (await db.execute(select(ApplicationReview).where(ApplicationReview.user_id == user_id))).scalars().first()
     if not review:
         raise HTTPException(status_code=404, detail="Application review not found")
-    if review.status != ApplicationStatus.under_review:
-        raise HTTPException(status_code=400, detail="Can only review an application that is under review")
+    if review.status in (ApplicationStatus.approved, ApplicationStatus.rejected):
+        raise HTTPException(status_code=400, detail="Application is already finalized")
 
     review.status = body.status
     review.admin_id = current_user.id
@@ -132,15 +189,12 @@ async def review_applicant(
     elif body.status == ApplicationStatus.approved:
         # Promote to instructor (replace 'applicant' — cleaner than keeping both, per PLAN §9.2)
         user.roles = [UserRole.instructor]
-        temp_password = secrets.token_urlsafe(12)
-        user.password_hash = get_password_hash(temp_password)
-        user.must_change_password = True
 
         profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == user_id))).scalars().first()
         living_area = (profile.city_of_residence if profile and profile.city_of_residence else None) or \
             (profile.country if profile else "United Arab Emirates")
 
-        contract_bytes = generate_contract_pdf(user.full_name, living_area)
+        contract_bytes = await asyncio.to_thread(generate_contract_pdf, user.full_name, living_area)
         contract_url = await storage.upload_file(
             "contracts", f"{user_id}/agreement.pdf", contract_bytes, "application/pdf"
         )
@@ -166,13 +220,13 @@ async def review_applicant(
         ))
 
         email_sent = await send_approval_credentials_email(
-            user.email, user.full_name, temp_password, contract_pdf=contract_bytes
+            user.email, user.full_name, contract_pdf=contract_bytes
         )
 
-        if profile and profile.referred_by_ambassador_id:
-            await award_points(db, profile.referred_by_ambassador_id, 1000, f"Recruited instructor: {user.full_name}")
-            await notify(db, profile.referred_by_ambassador_id, "Instructor Approved!",
-                         f"{user.full_name}, whom you referred, was approved as an instructor — you earned points.")
+        if user.invited_by_id:
+            await award_points(db, user.invited_by_id, 1000, f"Recruited instructor: {user.full_name}")
+            await notify(db, user.invited_by_id, "Instructor Approved!",
+                         f"{user.full_name}, whom you referred, was approved as an instructor — you earned points.", type="ambassador")
 
     # rejected: no email, by design (matches source — applicant must check the portal)
 
@@ -287,37 +341,4 @@ async def instructor_detail(
     }
 
 
-# ── Portal settings ────────────────────────────────────────────
-
-@router.get("/settings")
-async def list_settings(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    rows = (await db.execute(select(PortalSetting))).scalars().all()
-    return {s.key: s.value for s in rows}
-
-
-@router.post("/settings")
-async def upsert_setting(
-    body: PortalSettingUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
-):
-    setting = (await db.execute(select(PortalSetting).where(PortalSetting.key == body.key))).scalars().first()
-    if setting:
-        setting.value = body.value
-    else:
-        db.add(PortalSetting(key=body.key, value=body.value))
-    await db.commit()
-    return {"key": body.key, "value": body.value}
-
-
-@router.post("/settings/admin-signature")
-async def upload_admin_signature(
-    file: UploadFile, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
-):
-    data = await file.read()
-    url = await storage.upload_file("instructor-documents", "settings/admin_signature.png", data, file.content_type or "image/png")
-    setting = (await db.execute(select(PortalSetting).where(PortalSetting.key == "admin_signature_url"))).scalars().first()
-    if setting:
-        setting.value = url
-    else:
-        db.add(PortalSetting(key="admin_signature_url", value=url))
-    await db.commit()
-    return {"admin_signature_url": url}
+# Settings moved to app.routers.admin.settings

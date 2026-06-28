@@ -9,6 +9,7 @@ class NotificationOut(BaseModel):
     user_id: UUID
     title: str
     body: Optional[str] = None
+    type: Optional[str] = None
     is_read: bool
     created_at: datetime
 

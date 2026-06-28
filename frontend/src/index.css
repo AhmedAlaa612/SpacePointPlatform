@@ -1,5 +1,11 @@
 @import "tw-animate-css";
 
+@font-face {
+  font-family: 'Just Another Hand';
+  src: url('@/assets/fonts/JustAnotherHand-Regular.ttf') format('truetype');
+  font-display: swap;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -74,12 +80,7 @@
 }
 
 @layer base {
-  input[type="text"],
-  input[type="number"],
-  input[type="date"],
-  input[type="datetime-local"],
-  input[type="email"],
-  input[type="password"],
+  input,
   select,
   textarea {
     display: flex;
@@ -95,12 +96,7 @@
     transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
   }
 
-  input[type="text"]:focus,
-  input[type="number"]:focus,
-  input[type="date"]:focus,
-  input[type="datetime-local"]:focus,
-  input[type="email"]:focus,
-  input[type="password"]:focus,
+  input:focus,
   select:focus,
   textarea:focus {
     border-color: hsl(var(--ring));

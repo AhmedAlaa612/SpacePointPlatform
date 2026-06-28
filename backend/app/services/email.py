@@ -28,7 +28,7 @@ async def send_email(
         raise RuntimeError("SMTP_USER and SMTP_PASSWORD must be set")
 
     message = EmailMessage()
-    message["From"] = settings.SMTP_USER
+    message["From"] = settings.SMTP_FROM or settings.SMTP_USER
     message["To"] = to
     message["Subject"] = subject
     message.set_content(body, subtype="html" if html else "plain")
@@ -72,13 +72,17 @@ async def send_phase1_approval_email(to_email: str, name: str) -> bool:
 
 
 async def send_approval_credentials_email(
-    to_email: str, name: str, temp_password: str, contract_pdf: bytes | None = None
+    to_email: str, name: str, temp_password: str | None = None, contract_pdf: bytes | None = None
 ) -> bool:
+    if temp_password:
+        login_info = f"Email: {to_email}\nTemporary password: {temp_password}\n\nYou'll be asked to set a new password on first login."
+    else:
+        login_info = f"Email: {to_email}\nUse your existing password to log in."
+
     body = (
         f"Hi {name},\n\n"
         "Congratulations — your instructor application has been approved!\n\n"
-        f"Email: {to_email}\nTemporary password: {temp_password}\n\n"
-        "You'll be asked to set a new password on first login.\n\n"
+        f"{login_info}\n\n"
         f"Log in to the instructor portal: {settings.FRONTEND_URL}/login\n\n"
         "— SpacePoint"
     )

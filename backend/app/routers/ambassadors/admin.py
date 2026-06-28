@@ -21,18 +21,12 @@ from sqlalchemy.future import select
 
 from app.core.dependencies import require_admin
 from app.db.session import get_db
-from app.models.ambassadors.application_question import ApplicationQuestion
 from app.models.ambassadors.lead import Lead
 from app.models.ambassadors.points_transaction import PointsTransaction
 from app.models.ambassadors.system_setting import SystemSetting
 from app.models.ambassadors.task import AmbassadorTask
 from app.models.ambassadors.teacher_session import TeacherSession
 from app.models.user import User
-from app.schemas.ambassadors import (
-    ApplicationQuestionCreate,
-    ApplicationQuestionOut,
-    ApplicationQuestionUpdate,
-)
 from app.services.ambassadors import stats as stats_service
 from app.services.ambassadors import achievements as ach_service
 from app.services.ambassadors.titles import resolve_title_progress
@@ -231,14 +225,14 @@ async def update_user_status(
         reward = await get_setting_int(db, "teacher_points_reward", 500)
         await award_points(db, user.invited_by_id, reward, f"Recruited teacher: {user.full_name}")
         user.recruit_points_awarded = True
-        await notify(db, user.invited_by_id, "Points Earned!", f"You earned {reward} points for recruiting {user.full_name}.")
+        await notify(db, user.invited_by_id, "Points Earned!", f"You earned {reward} points for recruiting {user.full_name}.", type="ambassador")
 
     activated_teacher_of = user.invited_by_id if (
         body.status == "active" and user.status != "active" and "teacher" in user.role_values
     ) else None
     user.status = body.status
     if body.status == "active":
-        await notify(db, user.id, "Account Activated", "Your account was activated by an administrator.")
+        await notify(db, user.id, "Account Activated", "Your account was activated by an administrator.", type="ambassador")
     if activated_teacher_of:
         await db.flush()
         await ach_service.check_and_grant(db, activated_teacher_of)
@@ -373,56 +367,3 @@ async def update_setting(
     await db.commit()
     return {"key": key, "value": body.value}
 
-
-# ── Application questions ──────────────────────────────────────
-
-@router.get("/application-questions", response_model=list[ApplicationQuestionOut])
-async def list_questions(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
-    rows = (await db.execute(
-        select(ApplicationQuestion).order_by(ApplicationQuestion.order, ApplicationQuestion.created_at)
-    )).scalars().all()
-    return rows
-
-
-@router.post("/application-questions", response_model=ApplicationQuestionOut, status_code=201)
-async def create_question(
-    body: ApplicationQuestionCreate, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)
-):
-    max_order = (await db.execute(
-        select(func.max(ApplicationQuestion.order)).where(ApplicationQuestion.deleted_at.is_(None))
-    )).scalar()
-    q = ApplicationQuestion(
-        question_text=body.question_text, question_type=body.question_type,
-        required=body.required, order=(max_order + 1) if max_order is not None else 0, options=body.options,
-    )
-    db.add(q)
-    await db.commit()
-    await db.refresh(q)
-    return q
-
-
-@router.put("/application-questions/{question_id}", response_model=ApplicationQuestionOut)
-async def update_question(
-    question_id: uuid.UUID, body: ApplicationQuestionUpdate,
-    db: AsyncSession = Depends(get_db), _: User = Depends(require_admin),
-):
-    q = (await db.execute(select(ApplicationQuestion).where(ApplicationQuestion.id == question_id))).scalars().first()
-    if not q:
-        raise HTTPException(status_code=404, detail="Question not found")
-    for k, v in body.model_dump(exclude_unset=True).items():
-        setattr(q, k, v)
-    await db.commit()
-    await db.refresh(q)
-    return q
-
-
-@router.delete("/application-questions/{question_id}")
-async def delete_question(
-    question_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)
-):
-    q = (await db.execute(select(ApplicationQuestion).where(ApplicationQuestion.id == question_id))).scalars().first()
-    if not q:
-        raise HTTPException(status_code=404, detail="Question not found")
-    q.deleted_at = datetime.now(timezone.utc)
-    await db.commit()
-    return {"status": "deleted"}

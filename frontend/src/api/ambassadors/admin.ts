@@ -83,28 +83,3 @@ export const getSettingsApi = () =>
 
 export const updateSettingApi = (key: string, value: string) =>
   api.put(`/ambassadors/admin/settings/${key}`, { value }).then((r) => r.data)
-
-export interface ApplicationQuestion {
-  id: string
-  question_text: string
-  question_type: string
-  required: boolean
-  order: number
-  options: string[] | null
-  created_at: string | null
-  deleted_at: string | null
-}
-
-export const listApplicationQuestionsApi = () =>
-  api.get<ApplicationQuestion[]>("/ambassadors/admin/application-questions").then((r) => r.data)
-
-export const createApplicationQuestionApi = (data: {
-  question_text: string; question_type: string; required: boolean; options?: string[]
-}) => api.post<ApplicationQuestion>("/ambassadors/admin/application-questions", data).then((r) => r.data)
-
-export const updateApplicationQuestionApi = (id: string, data: Partial<{
-  question_text: string; question_type: string; required: boolean; order: number; options: string[]
-}>) => api.put<ApplicationQuestion>(`/ambassadors/admin/application-questions/${id}`, data).then((r) => r.data)
-
-export const deleteApplicationQuestionApi = (id: string) =>
-  api.delete(`/ambassadors/admin/application-questions/${id}`).then((r) => r.data)

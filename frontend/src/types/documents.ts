@@ -9,27 +9,45 @@ export interface Certificate {
   workshop_date?: string | null
   location?: string | null
   file_url: string
+  generated_at?: string | null
 }
 
-export interface RecommendationLetter {
+export interface DocumentItem {
   id: string
-  user_id: string
-  signatory_name: string
-  signatory_title: string
-  file_url: string
-  generated_at: string
-}
-
-export interface InternLetter {
-  id: string
-  user_id: string
-  type: "confirmation" | "completion"
+  label: string
   file_url: string
   generated_at: string
 }
 
 export interface MyDocuments {
   certificates: Certificate[]
-  recommendation_letters: RecommendationLetter[]
-  intern_letters: InternLetter[]
+  documents: DocumentItem[]
+}
+
+export interface DocumentRequest {
+  id: string
+  user_id: string
+  user_name?: string
+  user_email?: string
+  type: "recommendation_letter" | "confirmation_letter" | "completion_letter" | "certificate"
+  status: "pending" | "approved" | "rejected"
+  requested_role?: string | null
+  notes?: string | null
+  admin_notes?: string | null
+  file_url?: string | null
+  user_created_at?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface DocumentTemplate {
+  id: string
+  key: string
+  name: string
+  roles: string[]
+  body_text?: string | null
+  template_file_url?: string | null
+  type?: "letter" | "certificate"
+  is_system?: boolean
+  updated_at: string
 }

@@ -1,31 +1,21 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronDown, ChevronUp, ExternalLink, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react"
+import { ExternalLink, MessageSquare, Pencil, Plus, Trash2 } from "lucide-react"
 import { getUsersApi } from "@/api/admin/users"
 import {
-  type ApplicationQuestion,
-  createApplicationQuestionApi,
-  deleteApplicationQuestionApi,
   getActivityLogApi,
   getAmbassadorNetworkApi,
   getFullNetworkApi,
-  getInstructorsApi,
   getSettingsApi,
-  listApplicationQuestionsApi,
-  updateApplicationQuestionApi,
   updateSettingApi,
-  updateUserStatusApi,
 } from "@/api/ambassadors/admin"
 import { getLeadsApi, updateLeadStatusApi } from "@/api/ambassadors/leads"
 import { getTasksApi, getAssignableUsersApi, createTaskApi } from "@/api/ambassadors/tasks"
 import { getTitlesApi, createTitleApi, updateTitleApi, deleteTitleApi } from "@/api/ambassadors/titles"
 import { getBadgesApi, getCriteriaTypesApi, createBadgeApi, updateBadgeApi, deleteBadgeApi } from "@/api/ambassadors/badges"
 import { getAllSessionsApi } from "@/api/ambassadors/network"
-import {
-  approveTeacherApplicationApi, getTeacherApplicationQuestionsApi, listMyTeacherApplicationsApi, rejectTeacherApplicationApi,
-} from "@/api/ambassadors/application"
-import type { Badge, Lead, Task, TeacherApplication, TeacherSession, Title } from "@/types/ambassadors"
+import type { Badge, Lead, Task, TeacherSession, Title } from "@/types/ambassadors"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -39,14 +29,14 @@ import { TaskDetailModal } from "@/pages/ambassadors/components/TaskDetailModal"
 import { SessionDetailModal } from "@/pages/ambassadors/components/SessionDetailModal"
 import { cn } from "@/lib/utils"
 
-const TABS = ["Network", "Approvals", "Tasks", "Leads", "Sessions", "Titles", "Badges", "Questions", "Settings"] as const
+const TABS = ["Network", "Tasks", "Leads", "Sessions", "Titles", "Badges", "Settings"] as const
 type Tab = (typeof TABS)[number]
 
 export default function AmbassadorsAdmin() {
   const [tab, setTab] = useState<Tab>("Network")
   return (
     <div>
-      <PageHeader title="Ambassadors Admin" subtitle="Network, approvals, tasks, leads, sessions and rewards." />
+      <PageHeader title="Ambassadors Admin" subtitle="Network, tasks, leads, sessions and rewards." />
       <div className="flex gap-1 mb-6 border-b border-border overflow-x-auto">
         {TABS.map((t) => (
           <button
@@ -62,162 +52,13 @@ export default function AmbassadorsAdmin() {
         ))}
       </div>
       {tab === "Network" && <NetworkAdmin />}
-      {tab === "Approvals" && <Approvals />}
       {tab === "Tasks" && <TasksAdmin />}
       {tab === "Leads" && <LeadsAdmin />}
       {tab === "Sessions" && <SessionsAdmin />}
       {tab === "Titles" && <TitlesAdmin />}
       {tab === "Badges" && <BadgesAdmin />}
-      {tab === "Questions" && <QuestionsAdmin />}
       {tab === "Settings" && <SettingsAdmin />}
     </div>
-  )
-}
-
-/* ================================================================== */
-/* Approvals                                                            */
-
-function Approvals() {
-  const qc = useQueryClient()
-  const [selectedApp, setSelectedApp] = useState<TeacherApplication | null>(null)
-
-  const users = useQuery({ queryKey: ["admin-users-all"], queryFn: getUsersApi })
-  const instructors = useQuery({ queryKey: ["admin-instructors"], queryFn: getInstructorsApi })
-  const teacherApps = useQuery({ queryKey: ["admin-teacher-apps"], queryFn: () => listMyTeacherApplicationsApi("pending") })
-  const appQuestions = useQuery({ queryKey: ["application-questions-public"], queryFn: getTeacherApplicationQuestionsApi })
-  const questionMap = useMemo(
-    () => Object.fromEntries((appQuestions.data ?? []).map((q) => [q.id, q.question_text])),
-    [appQuestions.data],
-  )
-
-  const pendingAmbassadors = (users.data ?? []).filter((u) => u.roles.includes("ambassador") && u.status === "pending")
-  const pendingTeachers = (users.data ?? []).filter((u) => u.roles.includes("teacher") && u.status === "pending")
-  const pendingInstructorApplicants = (users.data ?? []).filter((u) => u.roles.includes("applicant") && u.status === "active")
-
-  const refreshUsers = () => qc.invalidateQueries({ queryKey: ["admin-users-all"] })
-  const refreshApps = () => qc.invalidateQueries({ queryKey: ["admin-teacher-apps"] })
-
-  const userStatus = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: "active" | "rejected" }) => updateUserStatusApi(id, status),
-    onSuccess: refreshUsers,
-  })
-  const approveApp = useMutation({
-    mutationFn: (id: string) => approveTeacherApplicationApi(id),
-    onSuccess: () => { refreshApps(); setSelectedApp(null) },
-  })
-  const rejectApp = useMutation({
-    mutationFn: (id: string) => rejectTeacherApplicationApi(id),
-    onSuccess: () => { refreshApps(); setSelectedApp(null) },
-  })
-
-  if (users.isLoading || instructors.isLoading || teacherApps.isLoading) return <Spinner />
-
-  const Section = ({ title, children, empty }: { title: string; children: React.ReactNode; empty: boolean }) => (
-    <Card className="mb-5">
-      <CardHeader><CardTitle>{title}</CardTitle></CardHeader>
-      <CardContent>{empty ? <EmptyState title="Nothing pending" /> : <div className="divide-y divide-border">{children}</div>}</CardContent>
-    </Card>
-  )
-  const Row = ({ name, sub, onApprove, onReject, onView }: {
-    name: string; sub: string; onApprove?: () => void; onReject?: () => void; onView?: () => void
-  }) => (
-    <div className="flex items-center justify-between py-3 gap-2">
-      {onView ? (
-        <button onClick={onView} className="flex-1 min-w-0 text-left hover:bg-muted px-1 py-1 rounded">
-          <p className="font-medium truncate">{name}</p>
-          <p className="text-xs text-muted-foreground truncate">{sub}</p>
-        </button>
-      ) : (
-        <div className="min-w-0 flex-1">
-          <p className="font-medium truncate">{name}</p>
-          <p className="text-xs text-muted-foreground truncate">{sub}</p>
-        </div>
-      )}
-      {(onApprove || onReject) && (
-        <div className="flex gap-2 shrink-0">
-          {onApprove && <Button size="sm" onClick={onApprove}>Approve</Button>}
-          {onReject && <Button size="sm" variant="outline" onClick={onReject}>Reject</Button>}
-        </div>
-      )}
-    </div>
-  )
-
-  const pendingApps = teacherApps.data ?? []
-
-  return (
-    <>
-      <Section title="Ambassador applications" empty={!pendingAmbassadors.length}>
-        {pendingAmbassadors.map((u) => (
-          <Row key={u.id} name={u.full_name} sub={u.email}
-            onApprove={() => userStatus.mutate({ id: u.id, status: "active" })}
-            onReject={() => userStatus.mutate({ id: u.id, status: "rejected" })} />
-        ))}
-      </Section>
-      <Section title="Teacher applications (via invite form)" empty={!pendingApps.length}>
-        {pendingApps.map((a) => (
-          <Row key={a.id} name={a.full_name} sub={a.email} onView={() => setSelectedApp(a)}
-            onApprove={() => approveApp.mutate(a.id)} onReject={() => rejectApp.mutate(a.id)} />
-        ))}
-      </Section>
-      <Section title="Teacher accounts (direct)" empty={!pendingTeachers.length}>
-        {pendingTeachers.map((u) => (
-          <Row key={u.id} name={u.full_name} sub={u.email}
-            onApprove={() => userStatus.mutate({ id: u.id, status: "active" })}
-            onReject={() => userStatus.mutate({ id: u.id, status: "rejected" })} />
-        ))}
-      </Section>
-      <Card className="mb-5">
-        <CardHeader><CardTitle>Instructor applications</CardTitle></CardHeader>
-        <CardContent>
-          {pendingInstructorApplicants.length === 0 ? (
-            <EmptyState title="Nothing pending" />
-          ) : (
-            <>
-              <p className="text-xs text-muted-foreground mb-2">
-                Instructor applications go through a multi-step review pipeline — review and approve them in the Instructors admin page.
-              </p>
-              <div className="divide-y divide-border">
-                {pendingInstructorApplicants.map((u) => <Row key={u.id} name={u.full_name} sub={u.email} />)}
-              </div>
-              <Link to="/instructors/admin">
-                <Button size="sm" variant="outline" className="mt-3"><ExternalLink size={14} className="mr-1.5" /> Review in Instructors Admin</Button>
-              </Link>
-            </>
-          )}
-        </CardContent>
-      </Card>
-
-      <Dialog open={!!selectedApp} onOpenChange={(o) => !o && setSelectedApp(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{selectedApp?.full_name}</DialogTitle></DialogHeader>
-          {selectedApp && (
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">{selectedApp.email}</p>
-              {selectedApp.answers && Object.keys(selectedApp.answers).length > 0 ? (
-                <div className="space-y-3">
-                  {Object.entries(selectedApp.answers).map(([qId, answer]) => (
-                    <div key={qId} className="p-3 bg-muted rounded-lg">
-                      <p className="text-xs font-medium text-muted-foreground mb-1">{questionMap[qId] ?? "Unknown question"}</p>
-                      <p className="text-sm">{Array.isArray(answer) ? answer.join(", ") : String(answer)}</p>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No application answers.</p>
-              )}
-              <div className="flex gap-3">
-                <Button onClick={() => approveApp.mutate(selectedApp.id)} disabled={approveApp.isPending} className="flex-1">
-                  {approveApp.isPending ? "Approving…" : "Approve"}
-                </Button>
-                <Button variant="outline" onClick={() => rejectApp.mutate(selectedApp.id)} disabled={rejectApp.isPending} className="flex-1">
-                  {rejectApp.isPending ? "Rejecting…" : "Reject"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </>
   )
 }
 
@@ -245,7 +86,7 @@ function NetworkAdmin() {
           <button onClick={() => setView("ambassador")} className={cn("px-4 py-2", view === "ambassador" ? "bg-primary text-primary-foreground" : "text-muted-foreground")}>By ambassador</button>
         </div>
         {view === "ambassador" && (
-          <select className="input w-auto" value={selected} onChange={(e) => setSelected(e.target.value)}>
+          <select className="input !w-auto" value={selected} onChange={(e) => setSelected(e.target.value)}>
             <option value="">Select an ambassador…</option>
             {ambassadors.map((a) => <option key={a.id} value={a.id}>{a.full_name}</option>)}
           </select>
@@ -437,7 +278,7 @@ function LeadsAdmin() {
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <Button size="sm" variant="outline" onClick={() => setSelected(l)}><MessageSquare size={14} className="mr-1.5" /> Details</Button>
-              <select className="input w-auto" value={l.status} onChange={(e) => status.mutate({ id: l.id, status: e.target.value })}>
+              <select className="input !w-auto" value={l.status} onChange={(e) => status.mutate({ id: l.id, status: e.target.value })}>
                 <option value="submitted">Submitted</option>
                 <option value="in review">In review</option>
                 <option value="converted">Converted (awards points)</option>
@@ -700,181 +541,6 @@ function BadgeModal({ badge, onClose, onSaved }: { badge?: Badge; onClose: () =>
         </form>
       </DialogContent>
     </Dialog>
-  )
-}
-
-/* ================================================================== */
-/* Application Questions                                                */
-
-const EMPTY_DRAFT = { question_text: "", question_type: "text", required: true, options: [] as string[] }
-
-function QuestionsAdmin() {
-  const qc = useQueryClient()
-  const { data: questions = [], isLoading } = useQuery({ queryKey: ["admin-questions"], queryFn: listApplicationQuestionsApi })
-  const [creating, setCreating] = useState(false)
-  const [editing, setEditing] = useState<ApplicationQuestion | null>(null)
-  const [draft, setDraft] = useState({ ...EMPTY_DRAFT })
-  const [optionInput, setOptionInput] = useState("")
-
-  const activeQuestions = useMemo(() => questions.filter((q) => !q.deleted_at).sort((a, b) => a.order - b.order), [questions])
-  const deletedQuestions = useMemo(() => questions.filter((q) => q.deleted_at), [questions])
-  const refresh = () => qc.invalidateQueries({ queryKey: ["admin-questions"] })
-
-  const create = useMutation({
-    mutationFn: () => createApplicationQuestionApi({
-      question_text: draft.question_text, question_type: draft.question_type, required: draft.required,
-      options: draft.options.length > 0 ? draft.options : undefined,
-    }),
-    onSuccess: () => { refresh(); setCreating(false); setDraft({ ...EMPTY_DRAFT }) },
-  })
-  const update = useMutation({
-    mutationFn: () => editing ? updateApplicationQuestionApi(editing.id, {
-      question_text: draft.question_text, question_type: draft.question_type, required: draft.required,
-      options: draft.options.length > 0 ? draft.options : undefined,
-    }) : Promise.reject(),
-    onSuccess: () => { refresh(); setEditing(null); setDraft({ ...EMPTY_DRAFT }) },
-  })
-  const del = useMutation({ mutationFn: (id: string) => deleteApplicationQuestionApi(id), onSuccess: refresh })
-
-  const moveQuestion = async (index: number, direction: "up" | "down") => {
-    const newIndex = direction === "up" ? index - 1 : index + 1
-    if (newIndex < 0 || newIndex >= activeQuestions.length) return
-    const reordered = [...activeQuestions]
-    const tmp = reordered[index]
-    reordered[index] = reordered[newIndex]
-    reordered[newIndex] = tmp
-    await Promise.all(reordered.map((q, i) => updateApplicationQuestionApi(q.id, { order: i })))
-    refresh()
-  }
-
-  const addOption = () => {
-    const val = optionInput.trim()
-    if (!val) return
-    setDraft((d) => ({ ...d, options: [...d.options, val] }))
-    setOptionInput("")
-  }
-
-  if (isLoading) return <Spinner />
-
-  const needsOptions = draft.question_type === "radio" || draft.question_type === "multiple_choice"
-  const closeDialog = () => { setCreating(false); setEditing(null); setDraft({ ...EMPTY_DRAFT }); setOptionInput("") }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <h2 className="text-lg font-semibold">Teacher Application Questions</h2>
-        <Button onClick={() => setCreating(true)}><Plus size={16} className="mr-1.5" /> New question</Button>
-      </div>
-
-      <Card className="mb-6">
-        <CardHeader><CardTitle>Active Questions ({activeQuestions.length})</CardTitle></CardHeader>
-        <CardContent>
-          {activeQuestions.length === 0 ? <EmptyState title="No active questions" hint="Click 'New question' to add one." /> : (
-            <div className="space-y-2">
-              {activeQuestions.map((q, index) => (
-                <div key={q.id} className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-                  <div className="flex flex-col shrink-0">
-                    <button type="button" onClick={() => moveQuestion(index, "up")} disabled={index === 0} className="p-0.5 rounded hover:bg-background disabled:opacity-25 text-muted-foreground">
-                      <ChevronUp size={14} />
-                    </button>
-                    <button type="button" onClick={() => moveQuestion(index, "down")} disabled={index === activeQuestions.length - 1} className="p-0.5 rounded hover:bg-background disabled:opacity-25 text-muted-foreground">
-                      <ChevronDown size={14} />
-                    </button>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm">{q.question_text}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {q.question_type} · {q.required ? "Required" : "Optional"}{q.options?.length ? ` · ${q.options.join(", ")}` : ""}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button size="sm" variant="outline" onClick={() => { setEditing(q); setDraft({ question_text: q.question_text, question_type: q.question_type, required: q.required, options: q.options ?? [] }) }}>
-                      <Pencil size={16} />
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => del.mutate(q.id)} disabled={del.isPending}>
-                      <Trash2 size={16} />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {deletedQuestions.length > 0 && (
-        <Card className="mb-6">
-          <CardHeader><CardTitle>Deleted Questions ({deletedQuestions.length})</CardTitle></CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {deletedQuestions.map((q) => (
-                <div key={q.id} className="flex items-center justify-between p-3 bg-muted rounded-lg opacity-50">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm line-through">{q.question_text}</p>
-                    <p className="text-xs text-muted-foreground">{q.question_type}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <Dialog open={creating || !!editing} onOpenChange={(open) => { if (!open) closeDialog() }}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>{editing ? "Edit question" : "New question"}</DialogTitle></DialogHeader>
-          <form onSubmit={(e) => { e.preventDefault(); editing ? update.mutate() : create.mutate() }} className="space-y-4">
-            <div>
-              <label className="text-sm font-medium block mb-1">Question text</label>
-              <textarea className="input" value={draft.question_text} onChange={(e) => setDraft((d) => ({ ...d, question_text: e.target.value }))} required rows={3} />
-            </div>
-            <div className="flex gap-3 items-end">
-              <div className="flex-1">
-                <label className="text-sm font-medium block mb-1">Type</label>
-                <select className="input" value={draft.question_type} onChange={(e) => setDraft((d) => ({ ...d, question_type: e.target.value, options: [] }))}>
-                  <option value="text">Text</option>
-                  <option value="number">Number</option>
-                  <option value="radio">Radio</option>
-                  <option value="multiple_choice">Multiple Choice</option>
-                </select>
-              </div>
-              <label className="flex items-center gap-2 text-sm cursor-pointer pb-2">
-                <input type="checkbox" checked={draft.required} onChange={(e) => setDraft((d) => ({ ...d, required: e.target.checked }))} />
-                Required
-              </label>
-            </div>
-            {needsOptions && (
-              <div>
-                <label className="text-sm font-medium block mb-2">Options</label>
-                <div className="space-y-1.5 mb-2">
-                  {draft.options.map((opt, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="flex-1 text-sm bg-muted px-3 py-1.5 rounded-lg border border-border">{opt}</span>
-                      <button type="button" onClick={() => setDraft((d) => ({ ...d, options: d.options.filter((_, j) => j !== i) }))} className="text-muted-foreground hover:text-destructive">
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <input className="input" placeholder="Add option…" value={optionInput} onChange={(e) => setOptionInput(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addOption() } }} />
-                  </div>
-                  <Button type="button" variant="outline" onClick={addOption}>Add</Button>
-                </div>
-              </div>
-            )}
-            <div className="flex gap-2 pt-2">
-              <Button type="submit" disabled={create.isPending || update.isPending} className="flex-1">
-                {create.isPending || update.isPending ? "Saving…" : "Save"}
-              </Button>
-              <Button type="button" variant="outline" onClick={closeDialog} className="flex-1">Cancel</Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
   )
 }
 

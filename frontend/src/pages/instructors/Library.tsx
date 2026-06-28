@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Download, FileText } from "lucide-react"
+import { ExternalLink, FileText } from "lucide-react"
 import { listLibraryApi } from "@/api/instructors/training"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
@@ -35,9 +35,9 @@ export default function Library() {
                     <FileText className="text-primary shrink-0" size={20} />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium truncate">{r.title}</p>
-                      <p className="text-xs text-muted-foreground">{r.format}</p>
+                      {r.resource_type !== "link" && <p className="text-xs text-muted-foreground">{r.format}</p>}
                     </div>
-                    <Download className="text-muted-foreground shrink-0" size={16} />
+                    <ExternalLink className="text-muted-foreground shrink-0" size={16} />
                   </a>
                 ))}
               </CardContent>

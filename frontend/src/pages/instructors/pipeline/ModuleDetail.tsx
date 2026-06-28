@@ -20,7 +20,28 @@ export default function ModuleDetail() {
 
   const toggle = useMutation({
     mutationFn: toggleChecklistItemApi,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-module", moduleId] }),
+    onMutate: async (itemId) => {
+      await qc.cancelQueries({ queryKey: ["instructor-module", moduleId] })
+      const previous = qc.getQueryData(["instructor-module", moduleId])
+      qc.setQueryData(["instructor-module", moduleId], (old: any) => {
+        if (!old) return old
+        let delta = 0
+        const sections = old.sections.map((sec: any) => ({
+          ...sec,
+          items: sec.items.map((it: any) => {
+            if (it.id !== itemId) return it
+            delta = it.is_completed ? -1 : 1
+            return { ...it, is_completed: !it.is_completed }
+          }),
+        }))
+        return { ...old, sections, completed_count: old.completed_count + delta }
+      })
+      return { previous }
+    },
+    onError: (_err, _itemId, ctx) => {
+      if (ctx?.previous) qc.setQueryData(["instructor-module", moduleId], ctx.previous)
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["instructor-module", moduleId] }),
   })
 
   const submit = useMutation({
@@ -37,7 +58,7 @@ export default function ModuleDetail() {
 
   if (isLoading || !module) return <Spinner />
 
-  const locked = module.submission_status === "submitted" || module.submission_status === "approved"
+  const uploadLocked = module.submission_status === "submitted" || module.submission_status === "approved"
 
   return (
     <div>
@@ -72,7 +93,7 @@ export default function ModuleDetail() {
                 <label key={item.id} className="flex items-start gap-3 rounded-lg p-2 hover:bg-muted cursor-pointer">
                   <button
                     type="button"
-                    onClick={() => !locked && toggle.mutate(item.id)}
+                    onClick={() => toggle.mutate(item.id)}
                     className={`mt-0.5 w-5 h-5 rounded border flex items-center justify-center shrink-0 ${
                       item.is_completed ? "bg-primary border-primary text-primary-foreground" : "border-border"
                     }`}
@@ -90,7 +111,7 @@ export default function ModuleDetail() {
         ))}
       </div>
 
-      {!locked && (
+      {!uploadLocked && (
         <Card>
           <CardContent className="p-4 space-y-3">
             <p className="text-sm font-semibold text-foreground">Upload your write-up (PDF)</p>

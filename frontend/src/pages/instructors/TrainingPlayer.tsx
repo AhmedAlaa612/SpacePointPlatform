@@ -1,30 +1,30 @@
-import { useEffect, useState } from "react"
 import { Link, useParams } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { AlertCircle, ArrowLeft, CheckCircle2 } from "lucide-react"
-import { listTrainingApi, markVideoCompleteApi, streamVideoApi } from "@/api/instructors/training"
+import { ArrowLeft, CheckCircle2 } from "lucide-react"
+import { listTrainingApi, markVideoCompleteApi } from "@/api/instructors/training"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader, Spinner } from "@/pages/instructors/components/common"
 
+function toEmbedUrl(url: string): string {
+  if (!url) return ""
+  try {
+    if (url.includes("youtu.be/")) {
+      const id = url.split("youtu.be/")[1].split(/[?&]/)[0]
+      return `https://www.youtube.com/embed/${id}`
+    }
+    const m = url.match(/[?&]v=([^&]+)/)
+    if (m) return `https://www.youtube.com/embed/${m[1]}`
+  } catch { /* ignore */ }
+  return url
+}
+
 export default function TrainingPlayer() {
   const { videoId } = useParams({ strict: false }) as { videoId: string }
   const qc = useQueryClient()
-  const [streamUrl, setStreamUrl] = useState<string | null>(null)
-  const [streamError, setStreamError] = useState(false)
 
   const { data: modules, isLoading } = useQuery({ queryKey: ["instructor-training"], queryFn: listTrainingApi })
   const video = (modules ?? []).flatMap((m) => m.videos).find((v) => v.id === videoId)
-
-  useEffect(() => {
-    let active = true
-    setStreamUrl(null)
-    setStreamError(false)
-    streamVideoApi(videoId)
-      .then((url) => { if (active) setStreamUrl(url) })
-      .catch(() => { if (active) setStreamError(true) })
-    return () => { active = false }
-  }, [videoId])
 
   const complete = useMutation({
     mutationFn: () => markVideoCompleteApi(videoId),
@@ -32,6 +32,8 @@ export default function TrainingPlayer() {
   })
 
   if (isLoading || !video) return <Spinner />
+
+  const embedSrc = toEmbedUrl(video.video_url)
 
   return (
     <div>
@@ -42,15 +44,20 @@ export default function TrainingPlayer() {
 
       <Card className="mb-4">
         <CardContent className="p-0">
-          {streamError ? (
-            <div className="aspect-video flex flex-col items-center justify-center gap-2 text-muted-foreground">
-              <AlertCircle size={28} />
-              <p className="text-sm">This video isn't available right now.</p>
+          {embedSrc ? (
+            <div className="aspect-video rounded-xl overflow-hidden">
+              <iframe
+                src={embedSrc}
+                title={video.title}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                className="w-full h-full"
+              />
             </div>
-          ) : streamUrl ? (
-            <video src={streamUrl} controls className="w-full rounded-t-xl aspect-video bg-black" />
           ) : (
-            <div className="aspect-video flex items-center justify-center"><Spinner /></div>
+            <div className="aspect-video flex items-center justify-center text-sm text-muted-foreground">
+              No video link configured.
+            </div>
           )}
         </CardContent>
       </Card>
