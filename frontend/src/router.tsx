@@ -5,7 +5,7 @@ import {
   Outlet,
   redirect,
 } from "@tanstack/react-router";
-import { Navbar } from "@/components/layout/Navbar";
+import { AppShell } from "@/components/layout/Sidebar";
 import { Login } from "@/pages/auth/Login";
 import { tokens } from "@/api/client";
 
@@ -98,10 +98,9 @@ const authLayoutRoute = createRoute({
 
     return (
       <div className="min-h-screen bg-background text-foreground">
-        <Navbar />
-        <main className="mx-auto max-w-7xl px-4 py-6">
+        <AppShell>
           <Outlet />
-        </main>
+        </AppShell>
       </div>
     );
   },
