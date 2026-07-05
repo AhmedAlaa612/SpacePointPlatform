@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   Download,
   FileText,
+  FileSignature,
   CheckCircle2,
   AlertCircle,
   RefreshCw,
@@ -15,6 +16,8 @@ import {
   listDocumentsApi,
   uploadDocumentApi,
   deleteDocumentApi,
+  getProfileApi,
+  signContractApi,
 } from "@/api/instructors/instructor"
 import {
   getMyDocumentsApi,
@@ -24,6 +27,8 @@ import {
 } from "@/api/documents"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { SignaturePad } from "@/pages/instructors/components/SignaturePad"
 
 const DOC_TYPES = [
   "ID Card",
@@ -62,10 +67,19 @@ export default function PersonalDocuments() {
   const [requestNotes, setRequestNotes] = useState("")
   const [requestSuccess, setRequestSuccess] = useState(false)
 
+  // ── Contract signing state ───────────────────────────────────
+  const [signingContract, setSigningContract] = useState(false)
+
   // ── Queries ──────────────────────────────────────────────────
   const { data: vaultDocs = [], isLoading: loadingVault } = useQuery({
     queryKey: ["instructor-personal-documents"],
     queryFn: listDocumentsApi,
+    enabled: canUseVault,
+  })
+
+  const { data: profile } = useQuery({
+    queryKey: ["instructor-profile"],
+    queryFn: getProfileApi,
     enabled: canUseVault,
   })
 
@@ -100,6 +114,15 @@ export default function PersonalDocuments() {
     mutationFn: (id: string) => deleteDocumentApi(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-personal-documents"] }),
     onError: (err: any) => alert(err?.response?.data?.detail || "Failed to delete document."),
+  })
+
+  const signContract = useMutation({
+    mutationFn: (signature: string) => signContractApi(signature),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["instructor-profile"] })
+      setSigningContract(false)
+    },
+    onError: (err: any) => alert(err?.response?.data?.detail || "Failed to sign contract."),
   })
 
   const submitRequest = useMutation({
@@ -370,6 +393,56 @@ export default function PersonalDocuments() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Employment Contract (instructors only) ───────────────────── */}
+      {canUseVault && profile?.contract_url && (
+        <Card className="rounded-2xl">
+          <CardHeader className="pb-3 border-b border-border/50">
+            <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-2">
+              <FileSignature size={16} className="text-primary" />
+              Employment Contract
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {profile.contract_signed_at ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 size={13} /> Signed
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-600 dark:text-amber-400">
+                    <AlertCircle size={13} /> Awaiting your signature
+                  </span>
+                )}
+                {profile.contract_signed_at && (
+                  <span className="text-xs text-muted-foreground">
+                    Signed {new Date(profile.contract_signed_at).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <a href={profile.signed_contract_url ?? profile.contract_url ?? "#"} target="_blank" rel="noreferrer">
+                  <Button size="sm" variant="outline"><Download size={14} className="mr-1.5" /> View Contract</Button>
+                </a>
+                {!profile.contract_signed_at && (
+                  <Button size="sm" onClick={() => setSigningContract(true)}>Sign Contract</Button>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Dialog open={signingContract} onOpenChange={(open) => !open && setSigningContract(false)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Sign Employment Contract</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground mb-3">
+            By signing, you confirm agreement to the terms of your SpacePoint Instructor Agreement.
+          </p>
+          <SignaturePad onSign={(sig) => signContract.mutate(sig)} signing={signContract.isPending} />
+        </DialogContent>
+      </Dialog>
 
       {/* ── Received Documents + Requests ───────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

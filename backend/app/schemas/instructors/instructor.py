@@ -11,6 +11,7 @@ class InstructorProfileOut(BaseModel):
     photo_url: Optional[str] = None
     contract_url: Optional[str] = None
     signed_contract_url: Optional[str] = None
+    contract_signed_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -18,6 +19,10 @@ class InstructorProfileOut(BaseModel):
 
 class InstructorProfileUpdate(BaseModel):
     linkedin_url: Optional[str] = None
+
+
+class SignContractRequest(BaseModel):
+    signature: str  # data:image/png;base64,...
 
 
 class IdCardOut(BaseModel):

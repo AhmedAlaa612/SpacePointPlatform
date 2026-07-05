@@ -192,6 +192,13 @@ async def _run_startup_migrations() -> None:
             END $$;
         """))
 
+        # ── Pivot Phase 6: contract signing (mirrors payment-letter signing).
+        #    No separate status enum — signed state is derived from
+        #    signed_contract_url/contract_signed_at, since contracts have no
+        #    admin draft/publish step (unlike payment letters). ──
+        await conn.execute(text("ALTER TABLE instructor_profiles ADD COLUMN IF NOT EXISTS contract_signature_data TEXT;"))
+        await conn.execute(text("ALTER TABLE instructor_profiles ADD COLUMN IF NOT EXISTS contract_signed_at TIMESTAMPTZ;"))
+
     # ── Phase-2 "research approved" applicant stage (parity with the live VPS
     #    pipeline, whose application_reviews already carries RESEARCH_APPROVED).
     #    ALTER TYPE ADD VALUE must not share a transaction with any use of the new

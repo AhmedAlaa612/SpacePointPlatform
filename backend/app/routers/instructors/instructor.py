@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import uuid
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from app.core.dependencies import require_instructor, require_instructor_or_faci
 from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.id_card import IdCard
+from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.instructor_document import InstructorDocument
 from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.instructors.payment import InstructorBankDetails
@@ -23,9 +25,13 @@ from app.schemas.instructors.instructor import (
     InstructorDocumentOut,
     InstructorProfileOut,
     InstructorProfileUpdate,
+    SignContractRequest,
 )
 from app.services import storage
+from app.services.documents.contract import generate_contract_pdf
 from app.services.documents.id_card import ensure_card_id, render_card_png, render_card_back_png
+from app.services.email import send_contract_signed_notification_email, send_signed_contract_email
+from app.services.notification import create_notification as notify
 
 router = APIRouter(tags=["instructors-instructor"])
 
@@ -48,6 +54,7 @@ async def get_profile(db: AsyncSession = Depends(get_db), current_user: User = D
         photo_url=current_user.photo_url,
         contract_url=profile.contract_url,
         signed_contract_url=profile.signed_contract_url,
+        contract_signed_at=profile.contract_signed_at,
     )
 
 
@@ -67,6 +74,66 @@ async def update_profile(
         photo_url=current_user.photo_url,
         contract_url=profile.contract_url,
         signed_contract_url=profile.signed_contract_url,
+        contract_signed_at=profile.contract_signed_at,
+    )
+
+
+@router.post("/contract/sign", response_model=InstructorProfileOut)
+async def sign_contract(
+    body: SignContractRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_instructor),
+):
+    profile = (await db.execute(
+        select(InstructorProfile).where(InstructorProfile.user_id == current_user.id)
+    )).scalars().first()
+    if not profile or not profile.contract_url:
+        raise HTTPException(status_code=404, detail="No contract on file to sign")
+    if profile.contract_signed_at:
+        raise HTTPException(status_code=400, detail="Contract already signed")
+
+    applicant_profile = (await db.execute(
+        select(ApplicantProfile).where(ApplicantProfile.user_id == current_user.id)
+    )).scalars().first()
+    living_area = (applicant_profile.city_of_residence if applicant_profile and applicant_profile.city_of_residence else None) or \
+        (applicant_profile.country if applicant_profile else "United Arab Emirates")
+
+    now = datetime.now(timezone.utc)
+    try:
+        pdf_bytes = await asyncio.to_thread(
+            generate_contract_pdf,
+            current_user.full_name,
+            living_area,
+            signed_date=now.strftime("%d %B %Y"),
+            instructor_signature_b64=body.signature,
+        )
+        signed_url = await storage.upload_file(
+            "contracts", f"{current_user.id}/signed.pdf", pdf_bytes, "application/pdf"
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Signed contract generation or upload failed: {str(e)}")
+
+    profile.signed_contract_url = signed_url
+    profile.contract_signature_data = body.signature
+    profile.contract_signed_at = now
+
+    admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
+    for admin in admins:
+        await notify(db, admin.id, "Instructor Contract Signed",
+                     f"{current_user.full_name} signed their instructor contract.", type="instructor")
+        await send_contract_signed_notification_email(admin.email, current_user.full_name)
+    await send_signed_contract_email(current_user.email, current_user.full_name, pdf_bytes)
+
+    await db.commit()
+    return InstructorProfileOut(
+        user_id=profile.user_id,
+        linkedin_url=current_user.linkedin_url,
+        photo_url=current_user.photo_url,
+        contract_url=profile.contract_url,
+        signed_contract_url=profile.signed_contract_url,
+        contract_signed_at=profile.contract_signed_at,
     )
 
 

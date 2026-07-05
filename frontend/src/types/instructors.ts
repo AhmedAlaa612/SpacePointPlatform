@@ -64,6 +64,7 @@ export interface InstructorProfile {
   photo_url: string | null
   contract_url: string | null
   signed_contract_url: string | null
+  contract_signed_at: string | null
 }
 
 export interface IdCard {

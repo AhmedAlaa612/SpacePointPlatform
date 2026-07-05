@@ -7,6 +7,9 @@ export const getProfileApi = () =>
 export const updateProfileApi = (data: { linkedin_url?: string }) =>
   api.put<InstructorProfile>("/instructors/profile", data).then((r) => r.data)
 
+export const signContractApi = (signature: string) =>
+  api.post<InstructorProfile>("/instructors/contract/sign", { signature }).then((r) => r.data)
+
 import {
   getIdCardApi as getSharedIdCard,
   updateIdCardApi as updateSharedIdCard,

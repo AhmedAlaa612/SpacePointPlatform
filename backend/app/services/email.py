@@ -113,6 +113,17 @@ async def send_certificates_email(to_email: str, name: str, pdfs: list[tuple[str
     return await try_send_email(to_email, "Your SpacePoint Certificate(s)", body, attachments=attachments)
 
 
+async def send_contract_signed_notification_email(admin_email: str, instructor_name: str) -> bool:
+    body = f"{instructor_name} has signed their instructor contract. Review it in the admin Instructors directory.\n\n— SpacePoint"
+    return await try_send_email(admin_email, "Instructor Contract Signed", body)
+
+
+async def send_signed_contract_email(to_email: str, name: str, signed_pdf: bytes) -> bool:
+    body = f"Hi {name},\n\nAttached is your fully signed SpacePoint Instructor Agreement.\n\n— SpacePoint"
+    attachments = [("SpacePoint_Instructor_Agreement_Signed.pdf", signed_pdf, "pdf")]
+    return await try_send_email(to_email, "Your Signed SpacePoint Instructor Agreement", body, attachments=attachments)
+
+
 async def send_recommendation_letter_email(to_email: str, name: str) -> bool:
     body = (
         f"Hi {name},\n\n"
