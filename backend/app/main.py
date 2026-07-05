@@ -140,6 +140,20 @@ async def _run_startup_migrations() -> None:
         for role in ("admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher"):
             await conn.execute(text(f"CREATE SEQUENCE IF NOT EXISTS card_seq_{role} START 1 INCREMENT 1"))
 
+    # ── Phase-2 "research approved" applicant stage (parity with the live VPS
+    #    pipeline, whose application_reviews already carries RESEARCH_APPROVED).
+    #    ALTER TYPE ADD VALUE must not share a transaction with any use of the new
+    #    value, so run it on a dedicated AUTOCOMMIT connection and tolerate the
+    #    "already exists" race. ──
+    autocommit_engine = engine.execution_options(isolation_level="AUTOCOMMIT")
+    try:
+        async with autocommit_engine.connect() as conn:
+            await conn.execute(
+                text("ALTER TYPE application_status ADD VALUE IF NOT EXISTS 'research_approved'")
+            )
+    except Exception as e:  # noqa: BLE001 — best-effort idempotent DDL
+        print(f"[startup] research_approved enum add skipped: {e}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

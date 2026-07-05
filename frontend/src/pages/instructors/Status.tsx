@@ -183,6 +183,22 @@ export default function Status() {
             </div>
           )}
 
+          {status.status === "research_approved" && (
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="text-primary shrink-0 mt-0.5" size={20} />
+              <div>
+                <p className="font-semibold">Research approved</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Your Phase 2 research presentation has been approved. Our team is completing your final review —
+                  you'll be notified once a decision is made.
+                </p>
+                {status.presentation_video_link && (
+                  <p className="text-sm text-muted-foreground mt-2">Submitted: {status.presentation_video_link}</p>
+                )}
+              </div>
+            </div>
+          )}
+
           {status.status === "approved" && (
             <div className="flex items-start gap-3">
               <CheckCircle2 className="text-green-600 shrink-0 mt-0.5" size={20} />

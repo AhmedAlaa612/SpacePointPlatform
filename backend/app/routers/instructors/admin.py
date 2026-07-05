@@ -3,22 +3,25 @@ import secrets
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.core.dependencies import require_admin
 from app.core.security import get_password_hash
 from app.db.session import get_db
-from app.models.enums import ApplicationStatus, UserRole
+from app.models.enums import ApplicationStatus, ModuleSubmissionStatus, UserRole
 from sqlalchemy import func
 
 from app.models.certificate import Certificate
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
+from app.models.instructors.checklist import ChecklistModule
 from app.models.instructors.instructor_document import InstructorDocument
 from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.instructors.invitation_code import InvitationCode
+from app.models.instructors.module_submission import ModuleSubmission
 from app.models.instructors.payment import PaymentLetter, PortalSetting
 from app.models.instructors.presentation_submission import PresentationSubmission
 from app.models.instructors.video_submission import VideoSubmission
@@ -29,12 +32,14 @@ from app.schemas.instructors.admin import (
     FacilitatorCreate,
     InvitationCodeCreate,
     InvitationCodeUpdate,
+    ModuleSubmissionDecision,
     PortalSettingUpdate,
 )
 from app.models.enums import CertificateType, PaymentLetterStatus
 from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.contract import generate_contract_pdf
+from app.services.documents.dossier import build_applicant_dossier_pdf
 from app.services.email import send_approval_credentials_email, send_phase1_approval_email
 from app.services.notification import create_notification as notify
 from app.services.points import award_points
@@ -228,10 +233,98 @@ async def review_applicant(
             await notify(db, user.invited_by_id, "Instructor Approved!",
                          f"{user.full_name}, whom you referred, was approved as an instructor — you earned points.", type="ambassador")
 
-    # rejected: no email, by design (matches source — applicant must check the portal)
+    # research_approved (Phase-2 gate) + rejected: no email, by design — the
+    # applicant checks the portal for those (matches the source pipeline).
 
     await db.commit()
     return {"status": review.status, "email_sent": email_sent}
+
+
+@router.put("/applicants/{user_id}/modules/{module_id}/review")
+async def review_module_submission(
+    user_id: uuid.UUID,
+    module_id: uuid.UUID,
+    body: ModuleSubmissionDecision,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Per-module PDF approve/reject + reviewer note (assessment page)."""
+    sub = (await db.execute(
+        select(ModuleSubmission).where(
+            ModuleSubmission.user_id == user_id, ModuleSubmission.module_id == module_id
+        )
+    )).scalars().first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Module submission not found")
+    sub.status = body.status
+    sub.feedback = body.feedback
+    sub.reviewed_at = datetime.now(timezone.utc)
+    sub.reviewer_admin_id = current_user.id
+    await db.commit()
+    return {"module_id": str(module_id), "status": sub.status.value, "feedback": sub.feedback}
+
+
+@router.delete("/applicants/{user_id}")
+async def delete_applicant(
+    user_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    """Delete an applicant account and everything hanging off it (FK cascades
+    cover reviews/videos/modules/submissions/checklist progress)."""
+    user = (await db.execute(select(User).where(User.id == user_id, User.roles.any("applicant")))).scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Applicant not found")
+    await db.delete(user)
+    await db.commit()
+    return {"status": "deleted"}
+
+
+@router.get("/applicants/{user_id}/dossier")
+async def export_applicant_dossier(
+    user_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    """Consolidated PDF: cover + one divider per module + each module's uploaded
+    PDF merged in (the source's "Export Consolidated PDF")."""
+    user = (await db.execute(select(User).where(User.id == user_id, User.roles.any("applicant")))).scalars().first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Applicant not found")
+    review = (await db.execute(select(ApplicationReview).where(ApplicationReview.user_id == user_id))).scalars().first()
+
+    mods = (await db.execute(select(ChecklistModule).order_by(ChecklistModule.sort_order))).scalars().all()
+    subs = (await db.execute(
+        select(ModuleSubmission).where(ModuleSubmission.user_id == user_id)
+    )).scalars().all()
+    sub_by_module = {s.module_id: s for s in subs}
+
+    modules_payload = []
+    async with httpx.AsyncClient(timeout=30) as client:
+        for m in mods:
+            sub = sub_by_module.get(m.id)
+            pdf_bytes = None
+            if sub and sub.file_url and (sub.original_filename or "").lower().endswith(".pdf"):
+                try:
+                    resp = await client.get(sub.file_url)
+                    if resp.status_code == 200:
+                        pdf_bytes = resp.content
+                except Exception:  # noqa: BLE001 — unreachable/expired URL, divider still lists it
+                    pdf_bytes = None
+            modules_payload.append({
+                "title": m.title,
+                "status": sub.status.value if sub else None,
+                "filename": sub.original_filename if sub else None,
+                "pdf_bytes": pdf_bytes,
+            })
+
+    pdf = await asyncio.to_thread(
+        build_applicant_dossier_pdf,
+        user.full_name, user.email,
+        review.status.value if review else "in_progress",
+        modules_payload,
+    )
+    safe = "".join(c for c in user.full_name if c.isalnum() or c in " -_").strip().replace(" ", "_")
+    return Response(
+        content=pdf, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="dossier_{safe or user_id}.pdf"'},
+    )
 
 
 # ── Invitation codes ───────────────────────────────────────────

@@ -47,6 +47,22 @@ export const getApplicantDetailApi = (userId: string) =>
 export const reviewApplicantApi = (userId: string, status: string, feedback?: string) =>
   api.put(`/instructors/admin/applicants/${userId}/review`, { status, feedback }).then((r) => r.data)
 
+export const reviewModuleSubmissionApi = (userId: string, moduleId: string, status: string, feedback?: string) =>
+  api.put(`/instructors/admin/applicants/${userId}/modules/${moduleId}/review`, { status, feedback }).then((r) => r.data)
+
+export const deleteApplicantApi = (userId: string) =>
+  api.delete(`/instructors/admin/applicants/${userId}`).then((r) => r.data)
+
+export const exportApplicantDossierApi = async (userId: string, name: string) => {
+  const res = await api.get(`/instructors/admin/applicants/${userId}/dossier`, { responseType: "blob" })
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `dossier_${name.replace(/[^a-z0-9]+/gi, "_")}.pdf`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export const listInvitationsApi = () => api.get<InvitationCode[]>("/instructors/admin/invitations").then((r) => r.data)
 
 export const createInvitationApi = (data: { code: string; max_uses?: number; is_active?: boolean }) =>

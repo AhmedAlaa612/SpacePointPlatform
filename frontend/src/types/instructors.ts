@@ -1,6 +1,6 @@
 // Instructors domain types (applicant pipeline — Phase 3.2)
 
-export type ApplicationStatus = "in_progress" | "under_review" | "phase_1_approved" | "approved" | "rejected"
+export type ApplicationStatus = "in_progress" | "under_review" | "phase_1_approved" | "research_approved" | "approved" | "rejected"
 export type VideoStatus = "draft" | "submitted"
 export type ModuleSubmissionStatus = "submitted" | "approved" | "rejected"
 
@@ -51,6 +51,7 @@ export const STATUS_LABEL: Record<ApplicationStatus, string> = {
   in_progress: "In progress",
   under_review: "Under review",
   phase_1_approved: "Phase 1 approved",
+  research_approved: "Research approved",
   approved: "Approved",
   rejected: "Not approved",
 }

@@ -29,6 +29,7 @@ class ApplicationStatus(str, enum.Enum):
     in_progress = "in_progress"
     under_review = "under_review"
     phase_1_approved = "phase_1_approved"
+    research_approved = "research_approved"  # Phase-2 research presentation gate (parity with the live VPS pipeline)
     approved = "approved"
     rejected = "rejected"
 

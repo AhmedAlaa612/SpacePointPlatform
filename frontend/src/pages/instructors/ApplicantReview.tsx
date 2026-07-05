@@ -1,8 +1,8 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { ArrowLeft, Check, ExternalLink, FileText, Video, Play, CheckCircle2, XCircle, AlertCircle, MessageSquare } from "lucide-react"
-import { getApplicantDetailApi, reviewApplicantApi } from "@/api/instructors/admin"
+import { ArrowLeft, Check, ExternalLink, FileText, Video, Play, CheckCircle2, XCircle, AlertCircle, MessageSquare, FileDown, Trash2, FlaskConical } from "lucide-react"
+import { getApplicantDetailApi, reviewApplicantApi, reviewModuleSubmissionApi, deleteApplicantApi, exportApplicantDossierApi } from "@/api/instructors/admin"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState, Spinner, StatusPill } from "@/pages/instructors/components/common"
@@ -13,6 +13,8 @@ export default function ApplicantReviewPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [feedback, setFeedback] = useState("")
+  const [moduleNotes, setModuleNotes] = useState<Record<string, string>>({})
+  const [exporting, setExporting] = useState(false)
 
   const { data: detail, isLoading, isError } = useQuery({
     queryKey: ["admin-applicant-detail", userId],
@@ -20,16 +22,44 @@ export default function ApplicantReviewPage() {
     enabled: !!userId,
   })
 
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["admin-applicants"] })
+    qc.invalidateQueries({ queryKey: ["admin-applicant-detail", userId] })
+    qc.invalidateQueries({ queryKey: ["admin-overview"] })
+  }
+
   const review = useMutation({
     mutationFn: (status: string) => reviewApplicantApi(userId, status, feedback || undefined),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-applicants"] })
-      qc.invalidateQueries({ queryKey: ["admin-applicant-detail", userId] })
-      qc.invalidateQueries({ queryKey: ["admin-overview"] })
+      invalidate()
       setFeedback("")
       void navigate({ to: "/instructors/admin" })
     },
   })
+
+  const reviewModule = useMutation({
+    mutationFn: (p: { moduleId: string; status: string }) =>
+      reviewModuleSubmissionApi(userId, p.moduleId, p.status, moduleNotes[p.moduleId] || undefined),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-applicant-detail", userId] }),
+  })
+
+  const removeApplicant = useMutation({
+    mutationFn: () => deleteApplicantApi(userId),
+    onSuccess: () => {
+      invalidate()
+      void navigate({ to: "/instructors/admin" })
+    },
+  })
+
+  const handleExport = async () => {
+    if (!detail) return
+    setExporting(true)
+    try {
+      await exportApplicantDossierApi(userId, detail.full_name)
+    } finally {
+      setExporting(false)
+    }
+  }
 
   if (isLoading) return <Spinner />
   if (isError || !detail) {
@@ -48,8 +78,8 @@ export default function ApplicantReviewPage() {
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl mx-auto pb-12 animate-fade-in">
-      {/* Back button */}
-      <div>
+      {/* Back button + dossier / delete actions */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <Link
           to="/instructors/admin"
           className="inline-flex items-center gap-1.5 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors group"
@@ -57,6 +87,22 @@ export default function ApplicantReviewPage() {
           <ArrowLeft size={16} className="group-hover:-translate-x-0.5 transition-transform" />
           Back to Applications
         </Link>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport} disabled={exporting}>
+            <FileDown size={14} /> {exporting ? "Exporting…" : "Export Consolidated PDF"}
+          </Button>
+          <Button
+            variant="destructive"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => {
+              if (window.confirm(`Delete ${detail.full_name}'s application? This cannot be undone.`)) removeApplicant.mutate()
+            }}
+            disabled={removeApplicant.isPending}
+          >
+            <Trash2 size={14} /> Delete
+          </Button>
+        </div>
       </div>
 
       {/* Header card with glassmorphism style */}
@@ -232,6 +278,35 @@ export default function ApplicantReviewPage() {
                               <p className="whitespace-pre-wrap">{m.submission.feedback}</p>
                             </div>
                           )}
+
+                          {/* Reviewer actions: approve / reject PDF + save note */}
+                          <div className="pt-2 mt-1 border-t border-border/40 space-y-2">
+                            <textarea
+                              className="input py-1.5 min-h-[52px] resize-none text-xs bg-background/50"
+                              placeholder="Reviewer note for this module (optional)…"
+                              value={moduleNotes[m.id] ?? m.submission.feedback ?? ""}
+                              onChange={(e) => setModuleNotes((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                            />
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                className="gap-1 h-7"
+                                onClick={() => reviewModule.mutate({ moduleId: m.id, status: "approved" })}
+                                disabled={reviewModule.isPending}
+                              >
+                                <CheckCircle2 size={12} /> Approve PDF
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                className="gap-1 h-7"
+                                onClick={() => reviewModule.mutate({ moduleId: m.id, status: "rejected" })}
+                                disabled={reviewModule.isPending}
+                              >
+                                <XCircle size={12} /> Reject PDF
+                              </Button>
+                            </div>
+                          </div>
                         </div>
                       ) : (
                         <p className="text-xs text-muted-foreground italic">No file submission uploaded for this module.</p>
@@ -306,9 +381,17 @@ export default function ApplicantReviewPage() {
                 <Button
                   className="w-full gap-1.5 justify-center py-2.5"
                   onClick={() => review.mutate("phase_1_approved")}
-                  disabled={(reviewStatus === "phase_1_approved" || reviewStatus === "approved" || reviewStatus === "rejected") || review.isPending}
+                  disabled={(reviewStatus === "phase_1_approved" || reviewStatus === "research_approved" || reviewStatus === "approved" || reviewStatus === "rejected") || review.isPending}
                 >
                   <Check size={14} /> Approve Phase 1
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full gap-1.5 justify-center py-2.5"
+                  onClick={() => review.mutate("research_approved")}
+                  disabled={(reviewStatus === "research_approved" || reviewStatus === "approved" || reviewStatus === "rejected") || review.isPending}
+                >
+                  <FlaskConical size={14} /> Approve Research (Phase 2)
                 </Button>
                 <Button
                   className="w-full gap-1.5 justify-center py-2.5 bg-affair dark:bg-heliotrope hover:opacity-90 transition-opacity"
