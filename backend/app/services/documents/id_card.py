@@ -33,6 +33,7 @@ from sqlalchemy.future import select
 
 from app.models.enums import UserRole
 from app.models.id_card import IdCard
+from app.models.user import User
 from app.services import storage
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
@@ -139,14 +140,6 @@ ROLE_LABEL: dict[UserRole, str] = {
     UserRole.ambassador:  "Ambassador",
     UserRole.teacher:     "Teacher",
 }
-
-# Short prefix used in the stable card_id (e.g. SP-INS-0012)
-ROLE_PREFIX: dict[UserRole, str] = {
-    UserRole.admin: "ADM", UserRole.intern: "INT", UserRole.leader: "LEA",
-    UserRole.applicant: "APP", UserRole.instructor: "INS",
-    UserRole.facilitator: "FAC", UserRole.ambassador: "AMB", UserRole.teacher: "TEA",
-}
-
 
 # ── Font embedding ─────────────────────────────────────────────────────────────
 
@@ -294,6 +287,21 @@ def render_card_png(
 
 # ── DB helper: ensure stable card_id ─────────────────────────────────────────
 
+async def _ensure_person_number(db: AsyncSession, user: User) -> int:
+    """Allocate (once) or return the shared per-person card number.
+
+    One number per person, reused by every role's card — not a per-role
+    sequence. Allocated lazily on first-ever card generation for that person.
+    """
+    if user.card_number is not None:
+        return user.card_number
+
+    from sqlalchemy import text
+    number = (await db.execute(text("SELECT nextval('card_seq_person')"))).scalar_one()
+    user.card_number = number
+    return number
+
+
 async def ensure_card_id(
     db: AsyncSession,
     user_id: uuid.UUID,
@@ -302,7 +310,8 @@ async def ensure_card_id(
     """
     Return (or create) the IdCard row for this user+role.
     The row carries only the stable card_id; URL columns are kept null
-    because images are generated on-the-fly.
+    because images are generated on-the-fly. `card_id` is derived from the
+    user's shared card_number — identical across every role this person holds.
     """
     existing = (
         await db.execute(
@@ -310,13 +319,14 @@ async def ensure_card_id(
         )
     ).scalars().first()
 
+    user = await db.get(User, user_id)
+    number = await _ensure_person_number(db, user)
+    card_id = f"SP-{number:04d}-UAE"
+
     if existing:
+        existing.card_id = card_id
         existing.generated_at = datetime.now(timezone.utc)
         return existing
-
-    from sqlalchemy import text
-    number = (await db.execute(text(f"SELECT nextval('card_seq_{role.value}')"))).scalar_one()
-    card_id = f"SP-{ROLE_PREFIX[role]}-{number:04d}"
 
     card = IdCard(
         user_id=user_id,

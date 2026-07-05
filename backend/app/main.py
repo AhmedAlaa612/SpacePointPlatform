@@ -136,9 +136,61 @@ async def _run_startup_migrations() -> None:
                 );
             """))
 
-        # per-role ID card sequences (SP-XXX-0001 …)
-        for role in ("admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher"):
-            await conn.execute(text(f"CREATE SEQUENCE IF NOT EXISTS card_seq_{role} START 1 INCREMENT 1"))
+        # ── ID cards: one shared number per PERSON (SP-XXXX-UAE), not per role.
+        #    Legacy per-role sequences (card_seq_admin, card_seq_intern, …) are
+        #    left in place (harmless, unused) rather than dropped. ──
+        await conn.execute(text("CREATE SEQUENCE IF NOT EXISTS card_seq_person START 1 INCREMENT 1"))
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS card_number INTEGER;"))
+        await conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_card_number "
+            "ON users(card_number) WHERE card_number IS NOT NULL;"
+        ))
+        # Backfill: any user with pre-existing per-role id_cards but no card_number
+        # yet gets a fresh sequential number (old per-role numbers came from 8
+        # independent sequences, so e.g. "instructor #1" and "facilitator #1"
+        # are different people — the old numbers can't be reused as-is without
+        # colliding). Order by earliest card generation so longtime users keep
+        # lower numbers.
+        await conn.execute(text("""
+            WITH distinct_users AS (
+                SELECT user_id, MIN(generated_at) AS first_gen
+                FROM id_cards
+                WHERE card_id IS NOT NULL
+                GROUP BY user_id
+            ),
+            ranked AS (
+                SELECT user_id, ROW_NUMBER() OVER (ORDER BY first_gen) AS rn
+                FROM distinct_users
+            )
+            UPDATE users u
+            SET card_number = ranked.rn
+            FROM ranked
+            WHERE u.id = ranked.user_id AND u.card_number IS NULL;
+        """))
+        # Rewrite every existing id_cards row to the person's shared number/format
+        # (idempotent — only touches rows that don't already match).
+        await conn.execute(text("""
+            UPDATE id_cards ic
+            SET card_id = 'SP-' || lpad(u.card_number::text, 4, '0') || '-UAE'
+            FROM users u
+            WHERE ic.user_id = u.id AND u.card_number IS NOT NULL
+              AND ic.card_id IS DISTINCT FROM ('SP-' || lpad(u.card_number::text, 4, '0') || '-UAE');
+        """))
+        # Keep the sequence ahead of any backfilled number so new allocations
+        # never collide with one just assigned above.
+        await conn.execute(text("""
+            DO $$
+            DECLARE
+                max_num INTEGER;
+                cur_val BIGINT;
+            BEGIN
+                SELECT COALESCE(MAX(card_number), 0) INTO max_num FROM users;
+                SELECT last_value INTO cur_val FROM card_seq_person;
+                IF max_num > cur_val THEN
+                    PERFORM setval('card_seq_person', max_num);
+                END IF;
+            END $$;
+        """))
 
     # ── Phase-2 "research approved" applicant stage (parity with the live VPS
     #    pipeline, whose application_reviews already carries RESEARCH_APPROVED).

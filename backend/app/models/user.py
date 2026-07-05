@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, text
 from sqlalchemy.dialects.postgresql import ARRAY, ENUM, UUID
 
 from app.db.base import Base
@@ -35,6 +35,10 @@ class User(Base):
     country = Column(String(100), nullable=True)
     photo_url = Column(String, nullable=True)
     linkedin_url = Column(String, nullable=True)
+    # Shared identity number for ID cards — one per person, reused across every
+    # role's card ("SP-{card_number:04d}-UAE"). Allocated on first-ever card
+    # generation, never per-role. See services/documents/id_card.ensure_card_id.
+    card_number = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 

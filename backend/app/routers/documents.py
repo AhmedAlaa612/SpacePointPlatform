@@ -624,6 +624,7 @@ async def get_my_id_card(
         raise HTTPException(status_code=403, detail="You do not have this role")
 
     card_row = await ensure_card_id(db, current_user.id, role)
+    await db.commit()
 
     photo_url = current_user.photo_url
     linkedin_url = current_user.linkedin_url
@@ -732,6 +733,7 @@ async def download_my_id_card_pdf(
         raise HTTPException(status_code=403, detail="You do not have this role")
 
     card_row = await ensure_card_id(db, current_user.id, role)
+    await db.commit()
 
     final_photo_url = current_user.photo_url
     final_linkedin_url = current_user.linkedin_url
