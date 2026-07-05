@@ -84,7 +84,15 @@ export async function updatePhotoApi(photo: File): Promise<User> {
 }
 
 export async function updateMeApi(
-  data: Partial<{ full_name: string; phone: string; country: string; linkedin_url: string }>,
+  data: Partial<{
+    full_name: string
+    phone: string
+    country: string
+    linkedin_url: string
+    city_of_residence: string
+    deliver_cities: string[]
+    has_own_transportation: boolean
+  }>,
 ): Promise<User> {
   const { data: res } = await api.patch<User>("/auth/me", data)
   return res

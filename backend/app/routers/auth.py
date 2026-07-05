@@ -37,7 +37,7 @@ from app.services.notification import create_notification as notify
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _user_out(user: User) -> dict:
+def _user_out(user: User, profile: ApplicantProfile | None = None) -> dict:
     return {
         "id": str(user.id),
         "full_name": user.full_name,
@@ -50,7 +50,19 @@ def _user_out(user: User) -> dict:
         "invite_code": user.invite_code,
         "photo_url": user.photo_url,
         "linkedin_url": user.linkedin_url,
+        "created_at": user.created_at,
+        # Applicant-profile fields — surfaced on Profile & Settings for
+        # instructors/facilitators/applicants. None when no profile exists.
+        "city_of_residence": profile.city_of_residence if profile else None,
+        "deliver_cities": profile.deliver_cities if profile else None,
+        "has_own_transportation": profile.has_own_transportation if profile else None,
     }
+
+
+async def _load_applicant_profile(db: AsyncSession, user_id) -> ApplicantProfile | None:
+    return (
+        await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == user_id))
+    ).scalars().first()
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -102,8 +114,12 @@ async def refresh(data: RefreshRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/me", response_model=UserOut)
-async def me(current_user: User = Depends(get_current_active_user)):
-    return _user_out(current_user)
+async def me(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    profile = await _load_applicant_profile(db, current_user.id)
+    return _user_out(current_user, profile)
 
 
 @router.get("/users/{user_id}", response_model=UserOut)
@@ -276,8 +292,21 @@ async def update_me(
         current_user.country = data.country or None
     if data.linkedin_url is not None:
         current_user.linkedin_url = data.linkedin_url or None
+
+    # Applicant-profile fields (Profile & Settings for instructors/facilitators).
+    # Only written when the user actually has an applicant_profile; otherwise the
+    # scalar user fields above still save and these are silently ignored.
+    profile = await _load_applicant_profile(db, current_user.id)
+    if profile is not None:
+        if data.city_of_residence is not None:
+            profile.city_of_residence = data.city_of_residence or None
+        if data.deliver_cities is not None:
+            profile.deliver_cities = data.deliver_cities
+        if data.has_own_transportation is not None:
+            profile.has_own_transportation = data.has_own_transportation
+
     await db.commit()
-    return _user_out(current_user)
+    return _user_out(current_user, profile)
 
 
 @router.post("/logout")

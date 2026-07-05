@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr
 
 
@@ -27,6 +29,12 @@ class UserOut(BaseModel):
     invite_code: str | None = None
     photo_url: str | None = None
     linkedin_url: str | None = None
+    created_at: datetime | None = None
+    # Applicant-derived profile fields (instructors/facilitators/applicants).
+    # Present only when the user has an applicant_profile; null otherwise.
+    city_of_residence: str | None = None
+    deliver_cities: list[str] | None = None
+    has_own_transportation: bool | None = None
 
 
 class UpdateMeRequest(BaseModel):
@@ -34,6 +42,9 @@ class UpdateMeRequest(BaseModel):
     phone: str | None = None
     country: str | None = None
     linkedin_url: str | None = None
+    city_of_residence: str | None = None
+    deliver_cities: list[str] | None = None
+    has_own_transportation: bool | None = None
 
 
 class Token(BaseModel):

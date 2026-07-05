@@ -7,6 +7,7 @@ import {
   BookOpen,
   ChevronDown,
   ClipboardList,
+  CreditCard,
   FileText,
   FolderOpen,
   GraduationCap,
@@ -23,6 +24,7 @@ import {
   Sun,
   Target,
   Trophy,
+  UserCog,
   Users,
   Video,
   Wallet,
@@ -56,8 +58,12 @@ const ICONS: Record<string, LucideIcon> = {
   "Team Management": Users,
   "User Management": Users,
   Documents: FileText,
+  "Personal Documents": FileText,
   Applications: ClipboardList,
   Settings: SettingsIcon,
+  "Profile & Settings": UserCog,
+  "Instructor ID Card": CreditCard,
+  "ID Card": CreditCard,
   Leads: Target,
   Tasks: ListTodo,
   Network: Share2,
@@ -65,7 +71,9 @@ const ICONS: Record<string, LucideIcon> = {
   Leaderboard: Trophy,
   "My Sessions": GraduationCap,
   Training: PlayCircle,
+  "SatKit Training": PlayCircle,
   Library: BookOpen,
+  "Library Resources": BookOpen,
   Payments: Wallet,
   Status: Activity,
   Videos: Video,
@@ -124,7 +132,8 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       return [
         mk("Training", "/instructors/facilitator/training"),
         mk("Library", "/instructors/facilitator/library"),
-        mk("Documents", "/instructors/documents"),
+        mk("Personal Documents", "/instructors/personal-documents"),
+        mk("Profile & Settings", "/instructors/profile"),
         mk("Application", "/instructors/facilitator/application"),
       ];
     }
@@ -136,10 +145,12 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       ];
     }
     return [
-      mk("Dashboard", "/instructors/dashboard"),
-      mk("Training", "/instructors/training"),
-      mk("Library", "/instructors/library"),
-      mk("Documents", "/instructors/documents"),
+      mk("Overview", "/instructors/dashboard"),
+      mk("SatKit Training", "/instructors/training"),
+      mk("Library Resources", "/instructors/library"),
+      mk("Personal Documents", "/instructors/personal-documents"),
+      mk("Profile & Settings", "/instructors/profile"),
+      mk("Instructor ID Card", "/instructors/id-card"),
       mk("Payments", "/instructors/payments"),
     ];
   }
@@ -187,10 +198,12 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   }
   if (activeRole === "instructor") {
     return [
-      mk("Dashboard", "/instructors/dashboard"),
-      mk("Training", "/instructors/training"),
-      mk("Library", "/instructors/library"),
-      mk("Documents", "/instructors/documents"),
+      mk("Overview", "/instructors/dashboard"),
+      mk("SatKit Training", "/instructors/training"),
+      mk("Library Resources", "/instructors/library"),
+      mk("Personal Documents", "/instructors/personal-documents"),
+      mk("Profile & Settings", "/instructors/profile"),
+      mk("Instructor ID Card", "/instructors/id-card"),
       mk("Payments", "/instructors/payments"),
     ];
   }
@@ -198,7 +211,8 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Training", "/instructors/facilitator/training"),
       mk("Library", "/instructors/facilitator/library"),
-      mk("Documents", "/instructors/documents"),
+      mk("Personal Documents", "/instructors/personal-documents"),
+      mk("Profile & Settings", "/instructors/profile"),
       mk("Application", "/instructors/facilitator/application"),
     ];
   }

@@ -45,6 +45,8 @@ import InstructorTraining from "@/pages/instructors/Training";
 import InstructorTrainingPlayer from "@/pages/instructors/TrainingPlayer";
 import InstructorLibrary from "@/pages/instructors/Library";
 import UserDocuments from "@/pages/shared/UserDocuments";
+import InstructorPersonalDocuments from "@/pages/instructors/PersonalDocuments";
+import InstructorIdCard from "@/pages/instructors/ProfileCard";
 import InstructorPayments from "@/pages/instructors/Payments";
 import InstructorsAdmin from "@/pages/instructors/Admin";
 import ApplicantReviewPage from "@/pages/instructors/ApplicantReview";
@@ -276,6 +278,8 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/training/player/$videoId", component: InstructorTrainingPlayer }),
   createRoute({ getParentRoute: pi, path: "/library", component: InstructorLibrary }),
   createRoute({ getParentRoute: pi, path: "/documents", component: UserDocuments }),
+  createRoute({ getParentRoute: pi, path: "/personal-documents", component: InstructorPersonalDocuments }),
+  createRoute({ getParentRoute: pi, path: "/id-card", component: InstructorIdCard }),
   createRoute({ getParentRoute: pi, path: "/profile", component: SharedProfile }),
   createRoute({ getParentRoute: pi, path: "/payments", component: InstructorPayments }),
   createRoute({ getParentRoute: pi, path: "/facilitator/training", component: FacilitatorTraining }),

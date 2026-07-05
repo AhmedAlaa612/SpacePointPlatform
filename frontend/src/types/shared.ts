@@ -48,6 +48,11 @@ export interface User {
   must_change_password?: boolean;
   created_at?: string;
   last_login_at?: string | null;
+  // Applicant-derived fields (instructors/facilitators/applicants). Null/absent
+  // when the user has no applicant_profile.
+  city_of_residence?: string | null;
+  deliver_cities?: string[] | null;
+  has_own_transportation?: boolean | null;
 }
 
 export interface AuthTokens {
