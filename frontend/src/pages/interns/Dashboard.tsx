@@ -24,9 +24,9 @@ import { cn } from "@/lib/utils"
 
 /* ── styling ─────────────────────────────────────────────────────────── */
 const TASK_STATUS: Record<WorkStatus, { dot: string; badge: string }> = {
-  todo:        { dot: "bg-gray-300",  badge: "bg-gray-100 text-gray-500" },
-  in_progress: { dot: "bg-[#a880ff]", badge: "bg-[#d6c7e1] text-[#643f83]" },
-  done:        { dot: "bg-black",     badge: "bg-black text-white" },
+  todo:        { dot: "bg-gray-300 dark:bg-muted-foreground",  badge: "bg-gray-100 text-gray-500 dark:bg-muted dark:text-muted-foreground" },
+  in_progress: { dot: "bg-[#a880ff]", badge: "bg-[#d6c7e1] text-[#643f83] dark:bg-[#d6c7e1]/10 dark:text-[#d6c7e1]" },
+  done:        { dot: "bg-black dark:bg-[#d6c7e1]",     badge: "bg-black text-white dark:bg-[#d6c7e1] dark:text-[#643f83]" },
 }
 
 const PROJ_COL: Record<string, { label: string; dot: string; badge: string; id: string }> = {
@@ -241,17 +241,17 @@ function AdminDashboard() {
           {boardEpic ? (
             <button
               onClick={() => setBoardEpic(null)}
-              className="flex items-center gap-2 text-xs font-semibold text-gray-400 uppercase tracking-wider hover:text-black transition-colors"
+              className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
             >
               <ArrowLeft size={13} /> Epics
-              <span className="text-gray-300">/</span>
-              <span className="normal-case tracking-normal text-black">{boardEpic.title}</span>
+              <span className="text-muted-foreground/60">/</span>
+              <span className="normal-case tracking-normal text-foreground">{boardEpic.title}</span>
             </button>
           ) : (
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
               Epics
               {projectFilter !== "all" && (
-                <span className="ml-2 font-normal normal-case text-gray-400">· {projectName(projectFilter)}</span>
+                <span className="ml-2 font-normal normal-case text-muted-foreground">· {projectName(projectFilter)}</span>
               )}
             </p>
           )}

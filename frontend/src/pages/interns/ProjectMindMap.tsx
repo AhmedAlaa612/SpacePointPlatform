@@ -260,7 +260,7 @@ export default function ProjectMindMap() {
   if (isLoading || !project) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
@@ -271,19 +271,19 @@ export default function ProjectMindMap() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate({ to: "/" })}
-            className="p-2 rounded-xl border border-gray-200 text-gray-500 hover:text-black hover:border-gray-400 transition-colors">
+            className="p-2 rounded-xl border border-border text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors">
             <ArrowLeft size={16} />
           </button>
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-[#643f83] mb-0.5">Project map</p>
-            <h1 className="text-xl font-bold text-black tracking-tight leading-none">{project.title}</h1>
-            <p className="text-sm text-gray-400 mt-0.5">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-primary mb-0.5">Project map</p>
+            <h1 className="text-xl font-bold text-foreground tracking-tight leading-none">{project.title}</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
               {epics.length} epic{epics.length !== 1 ? "s" : ""} &middot; {totalTasks} task{totalTasks !== 1 ? "s" : ""}
             </p>
           </div>
         </div>
         {canEdit && (
-          <p className="text-xs text-gray-400 italic">Drag nodes to rearrange — saved to browser</p>
+          <p className="text-xs text-muted-foreground italic">Drag nodes to rearrange — saved to browser</p>
         )}
       </div>
 

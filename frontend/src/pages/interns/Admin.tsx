@@ -127,7 +127,7 @@ function TeamsPanel() {
 function CreateTeamModal({ users, onClose, onSuccess }: {
   users: User[]; onClose: () => void; onSuccess: () => void
 }) {
-  const leaders = users.filter((u) => u.roles.includes("leader") || u.roles.includes("admin"))
+  const leaders = users.filter((u) => u.roles.includes("leader"))
   const [name,     setName]     = useState("")
   const [leaderId, setLeaderId] = useState(leaders[0]?.id ?? "")
   const [error,    setError]    = useState("")
@@ -191,7 +191,7 @@ function ManageMembersModal({ team, users, onClose, onSuccess }: {
     <Modal title={`Members — ${team.name}`} onClose={onClose}>
       <div className="flex flex-col gap-2">
         {interns.length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-4">
+          <p className="text-sm text-muted-foreground text-center py-4">
             No interns found. Create intern accounts first.
           </p>
         )}

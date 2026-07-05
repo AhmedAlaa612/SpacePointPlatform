@@ -214,12 +214,12 @@ export default function MindMap() {
   if (epicLoading || layoutLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-6 h-6 border-2 border-black border-t-transparent rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     )
   }
 
-  if (!epic) return <p className="text-gray-400">Epic not found.</p>
+  if (!epic) return <p className="text-muted-foreground">Epic not found.</p>
 
   return (
     <div className="flex flex-col gap-4">
@@ -227,18 +227,18 @@ export default function MindMap() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate({ to: "/" })}
-            className="p-2 rounded-xl border border-gray-200 text-gray-500 hover:text-black hover:border-gray-400 transition-colors">
+            className="p-2 rounded-xl border border-border text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors">
             <ArrowLeft size={16} />
           </button>
           <div>
-            <h1 className="text-xl font-bold text-black tracking-tight">{epic.title}</h1>
-            <p className="text-sm text-gray-400 mt-0.5">
+            <h1 className="text-xl font-bold text-foreground tracking-tight">{epic.title}</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
               {epic.modules.reduce((a, m) => a + m.tasks.length, 0)} tasks across {epic.modules.length} module{epic.modules.length !== 1 ? "s" : ""}
             </p>
           </div>
         </div>
         {canEdit && (
-          <p className="text-xs text-gray-400 italic">Drag nodes to rearrange — saved automatically</p>
+          <p className="text-xs text-muted-foreground italic">Drag nodes to rearrange — saved automatically</p>
         )}
       </div>
 

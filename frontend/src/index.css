@@ -10,44 +10,49 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Light "twin" of the SpacePoint space theme: near-white with a faint purple
+   tint, same heliotrope accent, glass panels over a light backdrop.
+   (Dark is the default / near-1:1 with the original instructors theme — see .dark.) */
 :root {
   --radius: 0.75rem;
-  --background: 0 0% 100%;
-  --foreground: 0 0% 4%;
+  --background: 258 40% 98%;
+  --foreground: 260 30% 10%;
   --card: 0 0% 100%;
-  --card-foreground: 0 0% 4%;
+  --card-foreground: 260 30% 10%;
   --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 4%;
-  --primary: 258 100% 75%; /* heliotrope #a880ff */
-  --primary-foreground: 0 0% 100%;
-  --secondary: 0 0% 96%;
-  --secondary-foreground: 0 0% 9%;
-  --muted: 0 0% 96%;
-  --muted-foreground: 0 0% 45%;
+  --popover-foreground: 260 30% 10%;
+  --primary: 258 100% 75%; /* heliotrope #a880ff / space-accent #A77DFF */
+  --primary-foreground: 257 45% 9%; /* dark text on the purple accent */
+  --secondary: 258 40% 95%;
+  --secondary-foreground: 260 30% 15%;
+  --muted: 258 40% 95%;
+  --muted-foreground: 258 12% 42%;
   --destructive: 0 72% 58%;
   --destructive-foreground: 0 0% 100%;
-  --border: 0 0% 90%;
-  --input: 0 0% 90%;
+  --border: 258 35% 90%;
+  --input: 258 35% 90%;
   --ring: 258 100% 75%;
 }
 
+/* The original instructors "space" theme, near-1:1. Background #05030A with
+   purple radial glows (applied on body below), glass panels #1A0F26. */
 .dark {
-  --background: 224 71% 4%;
-  --foreground: 0 0% 95%;
-  --card: 222 47% 8%;
-  --card-foreground: 0 0% 95%;
-  --popover: 222 47% 8%;
-  --popover-foreground: 0 0% 95%;
+  --background: 257 54% 3%;   /* #05030A */
+  --foreground: 0 0% 98%;
+  --card: 269 43% 10%;        /* #1A0F26 */
+  --card-foreground: 0 0% 98%;
+  --popover: 269 43% 12%;
+  --popover-foreground: 0 0% 98%;
   --primary: 258 100% 75%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 217 33% 14%;
-  --secondary-foreground: 0 0% 95%;
-  --muted: 217 33% 14%;
-  --muted-foreground: 0 0% 55%;
-  --destructive: 0 63% 45%;
+  --primary-foreground: 257 45% 8%; /* dark text on the purple accent */
+  --secondary: 269 35% 15%;
+  --secondary-foreground: 0 0% 96%;
+  --muted: 269 30% 14%;
+  --muted-foreground: 260 12% 68%; /* ~gray-400, faint purple */
+  --destructive: 0 72% 60%;
   --destructive-foreground: 0 0% 100%;
-  --border: 217 33% 18%;
-  --input: 217 33% 18%;
+  --border: 268 30% 18%;      /* hairline ≈ white/8 over near-black */
+  --input: 268 30% 18%;
   --ring: 258 100% 75%;
 }
 
@@ -57,10 +62,22 @@
   }
   body {
     margin: 0;
+    min-height: 100vh;
     background-color: hsl(var(--background));
+    /* Light twin: a whisper of purple so the accent has somewhere to live. */
+    background-image:
+      radial-gradient(circle at 15% 50%, hsl(258 100% 75% / 0.05) 0%, transparent 55%),
+      radial-gradient(circle at 85% 20%, hsl(258 55% 88% / 0.5) 0%, transparent 55%);
+    background-attachment: fixed;
     color: hsl(var(--foreground));
     font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
+  }
+  /* Dark = the instructors space theme: #05030A + two purple radial glows. */
+  .dark body {
+    background-image:
+      radial-gradient(circle at 15% 50%, hsl(258 100% 75% / 0.06) 0%, transparent 50%),
+      radial-gradient(circle at 85% 30%, hsl(269 43% 14% / 0.5) 0%, transparent 50%);
   }
 }
 

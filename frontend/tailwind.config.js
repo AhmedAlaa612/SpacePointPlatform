@@ -9,6 +9,13 @@ export default {
         heliotrope: "#a880ff",
         affair: "#643f83",
         snuff: "#d6c7e1",
+        // instructors "space" theme palette (dark theme source values)
+        space: {
+          900: "#05030A",
+          800: "#1A0F26",
+          accent: "#A77DFF",
+          hover: "#C0A0FF",
+        },
         // semantic tokens (driven by CSS variables in src/index.css)
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
@@ -42,6 +49,7 @@ export default {
       },
       fontFamily: {
         sans: ["Inter Variable", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["Outfit", "Inter Variable", "Inter", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       borderRadius: {
         lg: "var(--radius)",
