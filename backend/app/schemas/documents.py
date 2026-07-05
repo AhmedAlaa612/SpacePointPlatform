@@ -74,3 +74,15 @@ class StorageFileOut(BaseModel):
     signed_url: Optional[str] = None
     owner_name: Optional[str] = None
     document_type_label: Optional[str] = None
+
+
+class DossierItem(BaseModel):
+    category: str          # e.g. "Documents", "Certificates", "Personal Vault"...
+    label: str
+    date: Optional[datetime] = None
+    url: Optional[str] = None
+    meta: Optional[str] = None  # short status/context string shown alongside the label
+
+
+class UserDossierOut(BaseModel):
+    items: list[DossierItem] = []
