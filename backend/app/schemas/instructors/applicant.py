@@ -70,8 +70,19 @@ class PresentationSubmit(BaseModel):
     video_link: str
 
 
+class AssessmentSubmissionOut(BaseModel):
+    file_url: Optional[str] = None
+    google_drive_link: Optional[str] = None
+    comments: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
 class ApplicationStatusOut(BaseModel):
     status: ApplicationStatus
     feedback: Optional[str] = None
     reviewed_at: Optional[datetime] = None
     presentation_video_link: Optional[str] = None
+    assessment: Optional[AssessmentSubmissionOut] = None

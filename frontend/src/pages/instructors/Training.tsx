@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { CheckCircle2, PlayCircle } from "lucide-react"
+import { CheckCircle2, Info, PlayCircle } from "lucide-react"
 import { listTrainingApi } from "@/api/instructors/training"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
@@ -13,6 +13,14 @@ export default function Training() {
   return (
     <div>
       <PageHeader title="SatKit Training" subtitle="Work through each module's videos at your own pace." />
+
+      <div className="mb-6 flex items-start gap-3 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-700 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-400">
+        <Info size={18} className="shrink-0 mt-0.5" />
+        <p>
+          <strong>Hardware Requisition Note:</strong> You cannot order physical SatKits for your students
+          until you complete these training videos and pass the short quiz.
+        </p>
+      </div>
 
       {(modules ?? []).length === 0 ? (
         <EmptyState title="No training modules yet" hint="Facilitators add training content here." />

@@ -1,7 +1,7 @@
 import asyncio
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
@@ -23,6 +23,7 @@ from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.instructors.invitation_code import InvitationCode
 from app.models.instructors.module_submission import ModuleSubmission
 from app.models.instructors.payment import PaymentLetter, PortalSetting
+from app.models.instructors.assessment_submission import AssessmentSubmission
 from app.models.instructors.presentation_submission import PresentationSubmission
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.user import User
@@ -57,9 +58,44 @@ async def overview(db: AsyncSession = Depends(get_db), current_user: User = Depe
     )).scalar_one()
     total_instructors = (await db.execute(select(func.count()).select_from(User).where(User.roles.any("instructor")))).scalar_one()
     total_applicants = (await db.execute(select(func.count()).select_from(User).where(User.roles.any("applicant")))).scalar_one()
+    total_facilitators = (await db.execute(select(func.count()).select_from(User).where(User.roles.any("facilitator")))).scalar_one()
+    active_users_30d = (await db.execute(
+        select(func.count()).select_from(User).where(User.last_login_at >= datetime.now(timezone.utc) - timedelta(days=30))
+    )).scalar_one()
+
+    university_rows = (await db.execute(
+        select(ApplicantProfile.university, func.count())
+        .join(User, User.id == ApplicantProfile.user_id)
+        .where(ApplicantProfile.university.is_not(None))
+        .group_by(ApplicantProfile.university)
+        .order_by(func.count().desc())
+    )).all()
+    university_distribution = [{"name": name, "count": count} for name, count in university_rows]
+
+    city_rows = (await db.execute(
+        select(ApplicantProfile.city_of_residence, func.count())
+        .join(User, User.id == ApplicantProfile.user_id)
+        .where(ApplicantProfile.city_of_residence.is_not(None))
+        .group_by(ApplicantProfile.city_of_residence)
+        .order_by(func.count().desc())
+    )).all()
+    city_distribution = [{"name": name, "count": count} for name, count in city_rows]
+
+    month_expr = func.to_char(User.created_at, "YYYY-MM")
+    trend_rows = (await db.execute(
+        select(month_expr, func.count())
+        .where(User.roles.any("applicant"))
+        .group_by(month_expr)
+        .order_by(month_expr)
+    )).all()
+    signup_trend = [{"month": month, "count": count} for month, count in trend_rows]
+
     return AdminOverviewOut(
         pending_applications=pending_applications, pending_payment_signatures=pending_payment_signatures,
         total_instructors=total_instructors, total_applicants=total_applicants,
+        total_facilitators=total_facilitators, active_users_30d=active_users_30d,
+        university_distribution=university_distribution, city_distribution=city_distribution,
+        signup_trend=signup_trend,
     )
 
 
@@ -98,6 +134,9 @@ async def applicant_detail(
     )).scalars().all()
     presentation = (await db.execute(
         select(PresentationSubmission).where(PresentationSubmission.user_id == user_id)
+    )).scalars().first()
+    assessment = (await db.execute(
+        select(AssessmentSubmission).where(AssessmentSubmission.user_id == user_id)
     )).scalars().first()
 
     # Expose checklist modules, items, progress, and submissions for the admin review page
@@ -158,6 +197,12 @@ async def applicant_detail(
         "id": str(user.id), "full_name": user.full_name, "email": user.email,
         "profile": profile, "review": {"status": review.status, "feedback": review.feedback} if review else None,
         "videos": videos, "presentation_link": presentation.video_link if presentation else None,
+        "assessment": {
+            "file_url": assessment.file_url,
+            "google_drive_link": assessment.google_drive_link,
+            "comments": assessment.comments,
+            "submitted_at": assessment.submitted_at,
+        } if assessment else None,
         "modules": modules_data,
     }
 
@@ -413,7 +458,7 @@ async def list_instructors(db: AsyncSession = Depends(get_db), current_user: Use
     return [
         {
             "id": str(u.id), "full_name": u.full_name, "email": u.email, "status": u.status,
-            "linkedin_url": p.linkedin_url if p else None, "created_at": u.created_at,
+            "linkedin_url": u.linkedin_url, "created_at": u.created_at,
         }
         for u, p in rows
     ]

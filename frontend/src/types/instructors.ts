@@ -40,11 +40,19 @@ export interface ChecklistModule {
   submission_feedback: string | null
 }
 
+export interface AssessmentSubmissionOut {
+  file_url: string | null
+  google_drive_link: string | null
+  comments: string | null
+  submitted_at: string | null
+}
+
 export interface ApplicationStatusOut {
   status: ApplicationStatus
   feedback: string | null
   reviewed_at: string | null
   presentation_video_link: string | null
+  assessment: AssessmentSubmissionOut | null
 }
 
 export const STATUS_LABEL: Record<ApplicationStatus, string> = {

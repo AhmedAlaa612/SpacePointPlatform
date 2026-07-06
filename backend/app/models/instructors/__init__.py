@@ -3,6 +3,7 @@ from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.presentation_submission import PresentationSubmission
+from app.models.instructors.assessment_submission import AssessmentSubmission
 from app.models.instructors.checklist import ChecklistModule, ModuleSection, ChecklistItem, UserChecklistProgress
 from app.models.instructors.module_submission import ModuleSubmission
 from app.models.instructors.instructor_profile import InstructorProfile
@@ -24,6 +25,7 @@ __all__ = [
     "ApplicationReview",
     "VideoSubmission",
     "PresentationSubmission",
+    "AssessmentSubmission",
     "ChecklistModule",
     "ModuleSection",
     "ChecklistItem",

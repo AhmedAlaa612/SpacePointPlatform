@@ -9,7 +9,7 @@ from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
-from app.core.dependencies import require_instructor, require_instructor_or_facilitator
+from app.core.dependencies import get_current_active_user, require_instructor, require_instructor_or_facilitator
 from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.id_card import IdCard
@@ -336,10 +336,10 @@ async def update_bank_details(
     return bank
 
 
-# ── Personal document vault ───────────────────────────────────
+# ── Personal document vault (any authenticated role — table/paths are user-scoped, not instructor-specific) ──
 
 @router.get("/documents", response_model=list[InstructorDocumentOut])
-async def list_documents(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)):
+async def list_documents(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     rows = (await db.execute(
         select(InstructorDocument).where(InstructorDocument.user_id == current_user.id).order_by(InstructorDocument.uploaded_at.desc())
     )).scalars().all()
@@ -351,7 +351,7 @@ async def upload_document(
     document_type: str,
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_instructor),
+    current_user: User = Depends(get_current_active_user),
 ):
     data = await file.read()
     path = f"{current_user.id}_{document_type}_{int(datetime.now(timezone.utc).timestamp())}{_ext(file.filename)}"
@@ -365,7 +365,7 @@ async def upload_document(
 
 @router.delete("/documents/{doc_id}")
 async def delete_document(
-    doc_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)
+    doc_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)
 ):
     doc = (await db.execute(
         select(InstructorDocument).where(InstructorDocument.id == doc_id, InstructorDocument.user_id == current_user.id)

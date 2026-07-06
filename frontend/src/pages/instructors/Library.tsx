@@ -11,7 +11,7 @@ export default function Library() {
 
   return (
     <div>
-      <PageHeader title="Library" subtitle="Shared workshop materials from your facilitators." />
+      <PageHeader title="Curriculum Library" subtitle="Shared workshop materials from your facilitators." />
 
       {(modules ?? []).length === 0 ? (
         <EmptyState title="No resources yet" hint="Facilitators add shared materials here." />

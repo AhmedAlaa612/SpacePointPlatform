@@ -1,13 +1,14 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { CheckCircle2, Circle, Clock, FileVideo, ListChecks, XCircle } from "lucide-react"
+import { CheckCircle2, Circle, Clock, FileVideo, FlaskConical, ListChecks, XCircle } from "lucide-react"
 import {
   getApplicationStatusApi,
+  getAssessmentQuestionsApi,
   listVideosApi,
   listModulesApi,
   reopenApplicationApi,
-  submitApplicationApi,
+  submitAssessmentApi,
   submitPresentationApi,
 } from "@/api/instructors/applicant"
 import { Button } from "@/components/ui/button"
@@ -46,6 +47,10 @@ function ProgressRow({
 export default function Status() {
   const qc = useQueryClient()
   const [videoLink, setVideoLink] = useState("")
+  const [assessmentFile, setAssessmentFile] = useState<File | null>(null)
+  const [assessmentDriveLink, setAssessmentDriveLink] = useState("")
+  const [assessmentComments, setAssessmentComments] = useState("")
+  const [assessmentError, setAssessmentError] = useState<string | null>(null)
 
   const { data: status, isLoading, isError } = useQuery({
     queryKey: ["instructor-status"],
@@ -61,14 +66,14 @@ export default function Status() {
     queryFn: listModulesApi,
     enabled: status?.status === "in_progress",
   })
+  const { data: assessmentQuestions } = useQuery({
+    queryKey: ["instructor-assessment-questions"],
+    queryFn: getAssessmentQuestionsApi,
+    enabled: status?.status === "research_approved",
+  })
 
   const reopen = useMutation({
     mutationFn: reopenApplicationApi,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-status"] }),
-  })
-
-  const submitApp = useMutation({
-    mutationFn: submitApplicationApi,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-status"] }),
   })
 
@@ -76,6 +81,27 @@ export default function Status() {
     mutationFn: () => submitPresentationApi(videoLink),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-status"] }),
   })
+
+  const submitAssessment = useMutation({
+    mutationFn: () => {
+      const form = new FormData()
+      if (assessmentFile) form.append("file", assessmentFile)
+      if (assessmentDriveLink) form.append("google_drive_link", assessmentDriveLink)
+      if (assessmentComments) form.append("comments", assessmentComments)
+      return submitAssessmentApi(form)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-status"] }),
+  })
+
+  const handleAssessmentSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!assessmentFile && !assessmentDriveLink.trim()) {
+      setAssessmentError("Please upload a PDF file or provide a Google Drive link.")
+      return
+    }
+    setAssessmentError(null)
+    submitAssessment.mutate()
+  }
 
   if (isLoading) return <Spinner />
   if (isError || !status) return (
@@ -86,10 +112,7 @@ export default function Status() {
   )
 
   const videosSubmitted = videos?.filter((v) => v.status === "submitted").length ?? 0
-  const videosDone = videosSubmitted === 3
   const modulesUploaded = modules?.filter((m) => m.submission_status && m.submission_status !== "rejected").length ?? 0
-  const modulesDone = modules ? modulesUploaded === modules.length && modules.length > 0 : false
-  const canSubmit = videosDone && modulesDone
 
   return (
     <div>
@@ -119,19 +142,6 @@ export default function Status() {
                   to="/instructors/modules"
                 />
               </div>
-
-              {canSubmit && (
-                <div className="border-t border-border pt-4">
-                  {submitApp.isError && (
-                    <p className="text-sm text-destructive mb-3">
-                      {(submitApp.error as any)?.response?.data?.detail || "Could not submit application."}
-                    </p>
-                  )}
-                  <Button onClick={() => submitApp.mutate()} disabled={submitApp.isPending}>
-                    {submitApp.isPending ? "Submitting…" : "Submit application"}
-                  </Button>
-                </div>
-              )}
             </>
           )}
 
@@ -184,18 +194,95 @@ export default function Status() {
           )}
 
           {status.status === "research_approved" && (
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="text-primary shrink-0 mt-0.5" size={20} />
-              <div>
-                <p className="font-semibold">Research approved</p>
-                <p className="text-sm text-muted-foreground mt-1">
-                  Your Phase 2 research presentation has been approved. Our team is completing your final review —
-                  you'll be notified once a decision is made.
-                </p>
-                {status.presentation_video_link && (
-                  <p className="text-sm text-muted-foreground mt-2">Submitted: {status.presentation_video_link}</p>
-                )}
+            <div>
+              <div className="flex items-start gap-3 mb-4">
+                <FlaskConical className="text-primary shrink-0 mt-0.5" size={20} />
+                <div>
+                  <p className="font-semibold">Research approved</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Please complete the 10 Questions Assessment below. Upload your answers as a single PDF.
+                    If the PDF exceeds 10MB, upload it to Google Drive (set access to "Anyone with the link")
+                    and share the link below.
+                  </p>
+                </div>
               </div>
+
+              {status.assessment ? (
+                <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm space-y-1">
+                  <p className="font-semibold">Assessment submitted</p>
+                  {status.assessment.file_url && (
+                    <p className="text-muted-foreground">
+                      File:{" "}
+                      <a href={status.assessment.file_url} target="_blank" rel="noreferrer" className="text-primary underline">
+                        View PDF
+                      </a>
+                    </p>
+                  )}
+                  {status.assessment.google_drive_link && (
+                    <p className="text-muted-foreground">
+                      Google Drive link:{" "}
+                      <a href={status.assessment.google_drive_link} target="_blank" rel="noreferrer" className="text-primary underline break-all">
+                        {status.assessment.google_drive_link}
+                      </a>
+                    </p>
+                  )}
+                  {status.assessment.comments && (
+                    <p className="text-muted-foreground whitespace-pre-wrap">Comments: {status.assessment.comments}</p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="flex flex-col gap-3 mb-5">
+                    {(assessmentQuestions ?? []).map((q) => (
+                      <div key={q.question_id} className="rounded-lg border border-border p-4">
+                        <span className="inline-block text-[10px] font-semibold uppercase tracking-wide text-primary bg-primary/10 rounded-full px-2 py-0.5 mb-2">
+                          {q.category_id} — {q.category_name}
+                        </span>
+                        <p className="text-sm text-foreground">{q.task}</p>
+                        <div className="mt-2 rounded-md bg-muted/40 p-2.5">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                            Follow-Up Task
+                          </p>
+                          <p className="text-sm text-muted-foreground">{q.follow_up}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <form onSubmit={handleAssessmentSubmit} className="flex flex-col gap-3 border-t border-border pt-4">
+                    <div>
+                      <label className="text-sm font-medium block mb-1">Upload PDF</label>
+                      <input
+                        type="file"
+                        accept="application/pdf"
+                        className="input"
+                        onChange={(e) => setAssessmentFile(e.target.files?.[0] ?? null)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium block mb-1">Google Drive link (optional)</label>
+                      <input
+                        className="input"
+                        placeholder="https://drive.google.com/..."
+                        value={assessmentDriveLink}
+                        onChange={(e) => setAssessmentDriveLink(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium block mb-1">Comments (optional)</label>
+                      <textarea
+                        className="input min-h-[80px]"
+                        value={assessmentComments}
+                        onChange={(e) => setAssessmentComments(e.target.value)}
+                      />
+                    </div>
+                    {assessmentError && <p className="text-sm text-destructive">{assessmentError}</p>}
+                    <Button type="submit" disabled={submitAssessment.isPending} className="self-start">
+                      {submitAssessment.isPending ? "Submitting…" : "Submit assessment"}
+                    </Button>
+                  </form>
+                </>
+              )}
             </div>
           )}
 

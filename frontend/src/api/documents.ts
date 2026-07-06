@@ -41,7 +41,23 @@ export const regenerateDocumentRequestApi = (id: string) =>
 export const rejectDocumentRequestApi = (id: string, data: { admin_notes?: string }) =>
   api.post<DocumentRequest>(`/documents/requests/${id}/reject`, { status: "rejected", admin_notes: data.admin_notes }).then((r) => r.data)
 
-import type { IdCard } from "@/types/instructors"
+import type { IdCard, InstructorDocument } from "@/types/instructors"
+
+// Personal document vault — generic per-user, works for any role (endpoint predates the
+// multi-role platform and lives under /instructors for historical reasons only).
+export const listDocumentsApi = () =>
+  api.get<InstructorDocument[]>("/instructors/documents").then((r) => r.data)
+
+export const uploadDocumentApi = (documentType: string, file: File) => {
+  const form = new FormData()
+  form.append("file", file)
+  return api.post<InstructorDocument>(
+    `/instructors/documents?document_type=${encodeURIComponent(documentType)}`, form
+  ).then((r) => r.data)
+}
+
+export const deleteDocumentApi = (docId: string) =>
+  api.delete(`/instructors/documents/${docId}`).then((r) => r.data)
 
 export const getIdCardApi = (role: string) =>
   api.get<IdCard | null>(`/documents/id-card?role=${role}`).then((r) => r.data)

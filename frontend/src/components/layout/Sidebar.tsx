@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  Award,
   Bell,
   BookOpen,
   ChevronDown,
@@ -17,12 +18,11 @@ import {
   ListTodo,
   LogOut,
   Menu,
-  Moon,
   PlayCircle,
   Settings as SettingsIcon,
   Share2,
-  Sun,
   Target,
+  Ticket,
   Trophy,
   UserCog,
   Users,
@@ -36,12 +36,11 @@ import { getNotificationsApi, markAllReadApi } from "@/api/notifications";
 import { getPaymentSummaryApi } from "@/api/instructors/payments";
 import { ROLE_LABEL, type Notification, type Role } from "@/types/shared";
 import { DomainIcon } from "@/components/ui/DomainIcon";
+import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { SiteFooter } from "@/components/layout/SiteFooter";
+import { PLAIN_LOGO } from "@/lib/logos";
+import { BODY_BACKGROUND } from "@/lib/theme";
 import { cn } from "@/lib/utils";
-
-function toggleTheme() {
-  const isDark = document.documentElement.classList.toggle("dark");
-  localStorage.setItem("theme", isDark ? "dark" : "light");
-}
 
 interface NavItem {
   label: string;
@@ -79,6 +78,14 @@ const ICONS: Record<string, LucideIcon> = {
   Videos: Video,
   Modules: LayoutList,
   Application: ClipboardList,
+  Applicants: ClipboardList,
+  "Invitation Codes": Ticket,
+  Instructors: Users,
+  Facilitators: Users,
+  Certificates: Award,
+  Titles: Award,
+  Badges: Trophy,
+  Sessions: GraduationCap,
 };
 
 const mk = (label: string, to: string): NavItem => ({ label, to, icon: ICONS[label] ?? FileText });
@@ -106,13 +113,24 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     ];
   }
   if (pathname.startsWith("/ambassadors")) {
-    if (activeRole === "admin") return [];
+    if (activeRole === "admin") {
+      return [
+        mk("Network", "/ambassadors/admin/network"),
+        mk("Tasks", "/ambassadors/admin/tasks"),
+        mk("Leads", "/ambassadors/admin/leads"),
+        mk("Sessions", "/ambassadors/admin/sessions"),
+        mk("Titles", "/ambassadors/admin/titles"),
+        mk("Badges", "/ambassadors/admin/badges"),
+        mk("Settings", "/ambassadors/admin/settings"),
+      ];
+    }
     if (activeRole === "teacher") {
       return [
         mk("My Sessions", "/ambassadors/teacher-portal"),
         mk("Tasks", "/ambassadors/tasks"),
         mk("Materials", "/ambassadors/materials"),
         mk("Documents", "/ambassadors/documents"),
+        mk("ID Card", "/ambassadors/id-card"),
         mk("Leaderboard", "/ambassadors/leaderboard"),
       ];
     }
@@ -123,11 +141,22 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Network", "/ambassadors/network"),
       mk("Materials", "/ambassadors/materials"),
       mk("Documents", "/ambassadors/documents"),
+      mk("ID Card", "/ambassadors/id-card"),
       mk("Leaderboard", "/ambassadors/leaderboard"),
     ];
   }
   if (pathname.startsWith("/instructors")) {
-    if (activeRole === "admin") return [];
+    if (activeRole === "admin") {
+      return [
+        mk("Overview", "/instructors/admin/overview"),
+        mk("Applicants", "/instructors/admin/applicants"),
+        mk("Invitation Codes", "/instructors/admin/invitations"),
+        mk("Instructors", "/instructors/admin/instructors"),
+        mk("Facilitators", "/instructors/admin/facilitators"),
+        mk("Payments", "/instructors/admin/payments"),
+        mk("Certificates", "/instructors/admin/certificates"),
+      ];
+    }
     if (activeRole === "facilitator") {
       return [
         mk("Training", "/instructors/facilitator/training"),
@@ -166,6 +195,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Board", "/interns"),
       mk("Tracker", "/interns/tracker"),
       mk("Documents", "/interns/documents"),
+      mk("ID Card", "/interns/id-card"),
     ];
   }
   // Fallback based on activeRole (no domain in path yet).
@@ -177,6 +207,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Network", "/ambassadors/network"),
       mk("Materials", "/ambassadors/materials"),
       mk("Documents", "/ambassadors/documents"),
+      mk("ID Card", "/ambassadors/id-card"),
       mk("Leaderboard", "/ambassadors/leaderboard"),
     ];
   }
@@ -186,6 +217,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Tasks", "/ambassadors/tasks"),
       mk("Materials", "/ambassadors/materials"),
       mk("Documents", "/ambassadors/documents"),
+      mk("ID Card", "/ambassadors/id-card"),
       mk("Leaderboard", "/ambassadors/leaderboard"),
     ];
   }
@@ -230,6 +262,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Board", "/interns"),
       mk("Tracker", "/interns/tracker"),
       mk("Documents", "/interns/documents"),
+      mk("ID Card", "/interns/id-card"),
     ];
   }
   return [];
@@ -241,20 +274,6 @@ const isActive = (pathname: string, to: string) =>
     : pathname.startsWith(to);
 
 /* ─────────────────────────── sub-pieces ─────────────────────────── */
-
-function ThemeToggle() {
-  return (
-    <button
-      type="button"
-      onClick={toggleTheme}
-      className="rounded-xl p-2.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
-      aria-label="Toggle theme"
-    >
-      <Sun size={20} className="dark:hidden" />
-      <Moon size={20} className="hidden dark:block" />
-    </button>
-  );
-}
 
 function NotificationsBell() {
   const { user } = useAuth();
@@ -529,7 +548,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-white/10 bg-card/60 backdrop-blur-xl md:flex">
         <div className="flex h-20 items-center justify-center border-b border-white/10 px-4">
           <Link to="/" aria-label="SpacePoint home">
-            <DomainIcon className="h-8 w-auto" />
+            <DomainIcon className="h-11 w-auto" />
           </Link>
         </div>
         <nav className="flex-1 space-y-2 overflow-y-auto px-4 py-6">
@@ -562,7 +581,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       >
         <div className="flex h-20 shrink-0 items-center justify-between border-b border-white/10 px-6">
-          <DomainIcon className="h-7 w-auto" />
+          <DomainIcon className="h-10 w-auto" />
           <button
             type="button"
             onClick={() => setDrawerOpen(false)}
@@ -616,7 +635,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Menu size={22} />
           </button>
           <Link to="/" className="absolute left-1/2 -translate-x-1/2" aria-label="SpacePoint home">
-            <DomainIcon className="h-6 w-auto" />
+            <DomainIcon className="h-9 w-auto" />
           </Link>
           <div className="flex items-center gap-0.5">
             <ThemeToggle />
@@ -644,6 +663,41 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <main className="flex-1 overflow-x-hidden p-4 sm:p-6 lg:p-10">{children}</main>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Minimal shell for the `applicant` role — reference `base.html` uses a slim
+ * sticky top bar (logo + Logout) instead of the full sidebar. No nav links,
+ * no notifications bell/role-switcher; theme toggle kept in the corner per
+ * plan §3.4 ("keep the theme toggle everywhere").
+ */
+export function ApplicantShell({ children }: { children: ReactNode }) {
+  const navigate = useNavigate();
+  const { logout } = useAuth();
+
+  const handleLogout = () => {
+    void logout();
+    void navigate({ to: "/login" });
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col text-white" style={BODY_BACKGROUND}>
+      <header className="sticky top-0 z-20 flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-card/60 px-4 backdrop-blur-xl sm:px-6">
+        <Link to="/" aria-label="SpacePoint home">
+          <img src={PLAIN_LOGO} alt="SpacePoint" className="h-9 w-auto object-contain" />
+        </Link>
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
+        >
+          Logout
+        </button>
+      </header>
+      <main className="flex-1 overflow-x-hidden p-4 sm:p-6 lg:p-10">{children}</main>
+      <SiteFooter />
     </div>
   );
 }

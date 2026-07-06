@@ -11,11 +11,13 @@ from app.models.enums import ApplicationStatus, ModuleSubmissionStatus, VideoSub
 from app.models.instructors.application_review import ApplicationReview
 from app.models.instructors.checklist import ChecklistItem, ChecklistModule, ModuleSection, UserChecklistProgress
 from app.models.instructors.module_submission import ModuleSubmission
+from app.models.instructors.assessment_submission import AssessmentSubmission
 from app.models.instructors.presentation_submission import PresentationSubmission
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.user import User
 from app.schemas.instructors.applicant import (
     ApplicationStatusOut,
+    AssessmentSubmissionOut,
     ChecklistItemProgressOut,
     ChecklistModuleOut,
     ModuleSectionOut,
@@ -29,6 +31,40 @@ from app.services import storage
 router = APIRouter(tags=["instructors-applicant"])
 
 MIN_SUMMARY_WORDS = 200
+
+# ── Phase 2: 10 Questions Assessment (unlocked on research_approved) ──
+ASSESSMENT_QUESTIONS = [
+    {"category_id": "CAT-01", "category_name": "Subsystem Block Diagram and Analysis", "question_id": "CAT-01-Q01",
+     "task": "Draw a block diagram of a typical CubeSat Electrical Power System (EPS).",
+     "follow_up": "After creating your diagram, identify which critical component might be missing and explain why it is essential for safe and efficient power distribution."},
+    {"category_id": "CAT-02", "category_name": "Subsystem Sizing and Engineering Calculation", "question_id": "CAT-02-Q02",
+     "task": "Calculate the minimum theoretical battery capacity required for a CubeSat that consumes an average of 4 W during a 35-minute eclipse. The battery operates at 7.4 V, and the depth of discharge is limited to 30%.",
+     "follow_up": "Explain what safety margin you would apply when selecting the actual battery."},
+    {"category_id": "CAT-03", "category_name": "Identifying the Most Critical Subsystem", "question_id": "CAT-03-Q01",
+     "task": "If a satellite beacon is triggered via telecommand from the ground, which subsystem is most critical in ensuring the beacon can be activated successfully?",
+     "follow_up": "Explain your reasoning."},
+    {"category_id": "CAT-04", "category_name": "Subsystem Anomaly Troubleshooting", "question_id": "CAT-04-Q02",
+     "task": "During payload operation, the CubeSat onboard computer repeatedly resets. The resets do not occur when the payload is switched off.",
+     "follow_up": "Propose a troubleshooting plan to isolate and fix the issue, considering power stability, electrical noise, software faults, watchdog behavior, and thermal conditions."},
+    {"category_id": "CAT-05", "category_name": "Environmental and Qualification Test Planning", "question_id": "CAT-05-Q01",
+     "task": "Your team suspects the satellite's payload is highly sensitive to extreme temperature swings.",
+     "follow_up": "Design a simple thermal cycling test plan and justify the temperature ranges, duration of tests, and expected outcomes."},
+    {"category_id": "CAT-06", "category_name": "Mission Risk Identification and Mitigation", "question_id": "CAT-06-Q02",
+     "task": "List three major risks that a CubeSat faces during launch, separation, and early orbit operations.",
+     "follow_up": "Suggest at least one specific mitigation strategy for each risk and explain why you chose those strategies."},
+    {"category_id": "CAT-07", "category_name": "Failed Mission or Subsystem Evaluation", "question_id": "CAT-07-Q02",
+     "task": "Evaluate a case study where a CubeSat mission ended early because the batteries could not maintain sufficient charge during eclipse periods.",
+     "follow_up": "How would you restructure the CubeSat's EPS design or operational procedures to prevent a similar failure in future missions?"},
+    {"category_id": "CAT-08", "category_name": "Concept of Operations Development", "question_id": "CAT-08-Q02",
+     "task": "If you were to draft a Concept of Operations for a 3U Earth-imaging CubeSat, what mission phases would you include and why?",
+     "follow_up": "Be specific about target selection, attitude control, image capture, data storage, downlink windows, and power management."},
+    {"category_id": "CAT-09", "category_name": "Ground-Station Data Interpretation and Diagnosis", "question_id": "CAT-09-Q01",
+     "task": "Your ground station logs indicate intermittent data loss and unexpected signal-strength variations.",
+     "follow_up": "What factors could be causing these issues, and how would you systematically diagnose and resolve them?"},
+    {"category_id": "CAT-10", "category_name": "Space Mission Case Study and Improvement", "question_id": "CAT-10-Q01",
+     "task": "Choose one UAE CubeSat or satellite mission that interests you.",
+     "follow_up": "How did the design of this mission's subsystems reflect specific objectives or constraints? Propose one improvement or addition to enhance the mission's success if it were re-launched today."},
+]
 
 
 async def _get_review(db: AsyncSession, user_id: uuid.UUID) -> ApplicationReview:
@@ -339,6 +375,54 @@ async def submit_presentation(
                                  presentation_video_link=body.video_link)
 
 
+@router.get("/assessment/questions")
+async def get_assessment_questions(current_user: User = Depends(require_applicant)):
+    return ASSESSMENT_QUESTIONS
+
+
+@router.post("/assessment/submit", response_model=ApplicationStatusOut)
+async def submit_assessment(
+    file: UploadFile | None = None,
+    google_drive_link: str | None = None,
+    comments: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_applicant),
+):
+    review = await _get_review(db, current_user.id)
+    if review.status != ApplicationStatus.research_approved:
+        raise HTTPException(status_code=400, detail="Not eligible to submit assessment at this stage")
+
+    if not file and not google_drive_link:
+        raise HTTPException(status_code=400, detail="Please upload a PDF file or provide a Google Drive link.")
+
+    file_url = None
+    if file:
+        if not (file.filename or "").lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+        data = await file.read()
+        path = f"{current_user.id}/assessment/{file.filename}"
+        file_url = await storage.upload_file("applicant-submissions", path, data, file.content_type or "application/pdf")
+
+    existing = (await db.execute(
+        select(AssessmentSubmission).where(AssessmentSubmission.user_id == current_user.id)
+    )).scalars().first()
+    if existing:
+        if file_url:
+            existing.file_url = file_url
+        existing.google_drive_link = google_drive_link
+        existing.comments = comments
+        existing.submitted_at = datetime.now(timezone.utc)
+    else:
+        db.add(AssessmentSubmission(
+            user_id=current_user.id, file_url=file_url,
+            google_drive_link=google_drive_link, comments=comments,
+        ))
+
+    review.status = ApplicationStatus.under_review
+    await db.commit()
+    return ApplicationStatusOut(status=review.status, feedback=review.feedback, reviewed_at=review.reviewed_at)
+
+
 @router.get("/status", response_model=ApplicationStatusOut)
 async def get_status(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_applicant)):
     review = (await db.execute(select(ApplicationReview).where(ApplicationReview.user_id == current_user.id))).scalars().first()
@@ -350,7 +434,11 @@ async def get_status(db: AsyncSession = Depends(get_db), current_user: User = De
     presentation = (await db.execute(
         select(PresentationSubmission).where(PresentationSubmission.user_id == current_user.id)
     )).scalars().first()
+    assessment = (await db.execute(
+        select(AssessmentSubmission).where(AssessmentSubmission.user_id == current_user.id)
+    )).scalars().first()
     return ApplicationStatusOut(
         status=review.status, feedback=review.feedback, reviewed_at=review.reviewed_at,
         presentation_video_link=presentation.video_link if presentation else None,
+        assessment=AssessmentSubmissionOut.model_validate(assessment) if assessment else None,
     )

@@ -11,7 +11,7 @@ from app.core.dependencies import require_admin
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.certificate import Certificate
-from app.models.enums import PaymentLetterStatus
+from app.models.enums import CertificateType, PaymentLetterStatus
 from app.models.instructors.payment import (
     InstructorBankDetails,
     PaymentAddon,
@@ -23,6 +23,7 @@ from app.services.settings import get_portal_setting as _get_setting
 from app.models.user import User
 from app.schemas.instructors.payment import (
     BulkImportPreviewOut,
+    CertificateCreate,
     CertificateOut,
     PaymentAddonCreate,
     PaymentBatchCreate,
@@ -32,12 +33,13 @@ from app.schemas.instructors.payment import (
     PaymentSessionCreate,
 )
 from app.services import storage
+from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.payment_letter import (
     generate_excel_template,
     generate_payment_letter_pdf,
     parse_excel_bulk_import,
 )
-from app.services.email import send_payment_letter_ready_email
+from app.services.email import send_payment_letter_ready_email, send_workshop_certificate_ready_email
 
 router = APIRouter(prefix="/admin/payments", tags=["instructors-payments-admin"])
 
@@ -337,14 +339,67 @@ async def payments_instructor_dropdown(db: AsyncSession = Depends(get_db), curre
 @router.get("/certificates", response_model=list[CertificateOut])
 async def list_certificates(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
     rows = (await db.execute(
-        select(Certificate, User.full_name)
+        select(Certificate, User.full_name, User.email)
         .join(User, User.id == Certificate.user_id)
         .order_by(Certificate.generated_at.desc())
     )).all()
     return [
         CertificateOut(
-            id=c.id, user_id=c.user_id, instructor_name=name, type=c.type.value,
+            id=c.id, user_id=c.user_id, instructor_name=name, instructor_email=email, type=c.type.value,
             workshop_name=c.workshop_name, workshop_date=c.workshop_date, location=c.location, file_url=c.file_url,
         )
-        for c, name in rows
+        for c, name, email in rows
     ]
+
+
+@router.post("/certificates", response_model=CertificateOut, status_code=201)
+async def create_certificate(
+    body: CertificateCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    """Manually issue a workshop-delivery certificate of achievement — the
+    ad-hoc counterpart to the auto-issued instructor_completion cert fired on
+    application approval (routers/instructors/admin.py `approved` branch)."""
+    instructor = (await db.execute(
+        select(User).where(User.id == body.instructor_user_id, User.roles.any("instructor"))
+    )).scalars().first()
+    if not instructor:
+        raise HTTPException(status_code=404, detail="Instructor not found")
+
+    body_text = f"For successfully delivering<br/>{body.workshop_name}<br/>{body.workshop_date} — {body.location}"
+    cert_bytes = await asyncio.to_thread(generate_completion_certificate_pdf, instructor.full_name, body_text)
+    cert_id = uuid.uuid4()
+    cert_url = await storage.upload_file(
+        "certificates", f"{instructor.id}/workshop_{cert_id}.pdf", cert_bytes, "application/pdf"
+    )
+
+    certificate = Certificate(
+        id=cert_id, user_id=instructor.id, type=CertificateType.workshop_delivery,
+        workshop_name=body.workshop_name, workshop_date=body.workshop_date, location=body.location,
+        generated_by=current_user.id, file_url=cert_url,
+    )
+    db.add(certificate)
+    await db.commit()
+
+    if body.send_email:
+        await send_workshop_certificate_ready_email(
+            instructor.email, instructor.full_name, body.workshop_name, cert_bytes
+        )
+
+    return CertificateOut(
+        id=certificate.id, user_id=certificate.user_id, instructor_name=instructor.full_name,
+        instructor_email=instructor.email, type=certificate.type.value,
+        workshop_name=certificate.workshop_name, workshop_date=certificate.workshop_date,
+        location=certificate.location, file_url=certificate.file_url,
+    )
+
+
+@router.delete("/certificates/{certificate_id}")
+async def delete_certificate(
+    certificate_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    certificate = (await db.execute(select(Certificate).where(Certificate.id == certificate_id))).scalars().first()
+    if not certificate:
+        raise HTTPException(status_code=404, detail="Certificate not found")
+    await db.delete(certificate)
+    await db.commit()
+    return {"status": "deleted"}

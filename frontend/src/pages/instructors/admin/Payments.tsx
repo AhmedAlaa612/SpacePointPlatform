@@ -1,12 +1,6 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
 import { Download, Plus, Trash2 } from "lucide-react"
-import {
-  createInvitationApi, deleteInvitationApi,
-  listAdminFacilitatorsApi, listAdminInstructorsApi, listApplicantsApi, listInvitationsApi,
-  updateInvitationApi,
-} from "@/api/instructors/admin"
 import {
   addAddonApi, addSessionApi, bulkImportConfirmApi, bulkImportPreviewApi, createBatchApi, createLetterApi,
   deleteBatchApi, deleteLetterApi, downloadBulkImportTemplateApi, generateLetterPdfApi, listAdminLettersApi,
@@ -15,204 +9,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { EmptyState, Spinner, StatusPill } from "@/pages/instructors/components/common"
+import { EmptyState, PageHeader, Spinner, StatusPill } from "@/pages/instructors/components/common"
 import { UserProfileModal } from "@/components/UserProfileModal"
-import { cn } from "@/lib/utils"
 
-type Tab = "applications" | "invitations" | "instructors" | "payments"
-const TABS: { id: Tab; label: string }[] = [
-  { id: "applications", label: "Applications" },
-  { id: "invitations", label: "Invitations" },
-  { id: "instructors", label: "Instructors" },
-  { id: "payments", label: "Payments" },
-]
-
-export default function InstructorsAdmin() {
-  const [tab, setTab] = useState<Tab>("applications")
-
-  return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-xl font-bold text-foreground tracking-tight">Instructors Admin</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Manage the scholarship pipeline, instructors, and payments.</p>
-      </div>
-
-      <div className="flex gap-1 border-b border-border overflow-x-auto">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={cn(
-              "px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors border-b-2 -mb-px",
-              tab === t.id ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === "applications" && <ApplicationsPanel />}
-      {tab === "invitations" && <InvitationsPanel />}
-      {tab === "instructors" && <InstructorsPanel />}
-      {tab === "payments" && <PaymentsPanel />}
-    </div>
-  )
-}
-
-/* ================================================================== */
-/* Applications panel                                                  */
-
-function ApplicationsPanel() {
-  const navigate = useNavigate()
-  const { data: applicants, isLoading } = useQuery({ queryKey: ["admin-applicants"], queryFn: listApplicantsApi })
-
-  if (isLoading) return <Spinner />
-
-  return (
-    <div>
-      {(applicants ?? []).length === 0 ? (
-        <EmptyState title="No applicants yet" />
-      ) : (
-        <div className="space-y-2.5">
-          {applicants!.map((a) => {
-            return (
-              <div
-                key={a.id}
-                onClick={() => void navigate({ to: "/instructors/admin/applicants/$userId", params: { userId: a.id } })}
-                className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-border/60 bg-card hover:bg-muted/40 transition-all cursor-pointer group shadow-sm hover:shadow animate-fade-in"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-bold text-foreground group-hover:text-primary transition-colors">{a.full_name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                    {a.email} {a.university ? `· ${a.university}` : ""}
-                  </p>
-                </div>
-                
-                <div className="flex items-center gap-3 shrink-0">
-                  <StatusPill status={a.status} />
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ================================================================== */
-/* Invitations panel                                                   */
-
-function InvitationsPanel() {
-  const qc = useQueryClient()
-  const [code, setCode] = useState("")
-  const [maxUses, setMaxUses] = useState(20)
-
-  const { data: invitations, isLoading } = useQuery({ queryKey: ["admin-invitations"], queryFn: listInvitationsApi })
-
-  const create = useMutation({
-    mutationFn: () => createInvitationApi({ code, max_uses: maxUses }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-invitations"] }); setCode("") },
-  })
-  const toggleActive = useMutation({
-    mutationFn: (params: { id: string; is_active: boolean }) => updateInvitationApi(params.id, { is_active: params.is_active }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-invitations"] }),
-  })
-  const remove = useMutation({
-    mutationFn: (id: string) => deleteInvitationApi(id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-invitations"] }),
-  })
-
-  if (isLoading) return <Spinner />
-
-  return (
-    <div>
-      <Card className="mb-4">
-        <CardContent className="p-5 flex flex-col sm:flex-row gap-3">
-          <div className="flex-1"><input className="input" placeholder="Invitation code" value={code} onChange={(e) => setCode(e.target.value)} /></div>
-          <div className="w-32"><input className="input" type="number" placeholder="Max uses" value={maxUses} onChange={(e) => setMaxUses(Number(e.target.value))} /></div>
-          <Button onClick={() => create.mutate()} disabled={!code || create.isPending}>
-            <Plus size={14} className="mr-1" /> Create
-          </Button>
-        </CardContent>
-      </Card>
-
-      {(invitations ?? []).length === 0 ? (
-        <EmptyState title="No invitation codes yet" />
-      ) : (
-        <div className="space-y-2">
-          {invitations!.map((i) => (
-            <div key={i.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-card">
-              <div>
-                <p className="text-sm font-mono font-medium">{i.code}</p>
-                <p className="text-xs text-muted-foreground">{i.used_count} / {i.max_uses} used</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="outline" onClick={() => toggleActive.mutate({ id: i.id, is_active: !i.is_active })}>
-                  {i.is_active ? "Active" : "Inactive"}
-                </Button>
-                <button onClick={() => remove.mutate(i.id)} className="p-2 text-muted-foreground hover:text-destructive">
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ================================================================== */
-/* Instructors panel (directory + facilitator accounts)                */
-
-function InstructorsPanel() {
-  const { data: instructors, isLoading } = useQuery({ queryKey: ["admin-instructors"], queryFn: listAdminInstructorsApi })
-  const { data: facilitators } = useQuery({ queryKey: ["admin-facilitators"], queryFn: listAdminFacilitatorsApi })
-
-  if (isLoading) return <Spinner />
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-sm font-semibold mb-3">Facilitators</h2>
-        <div className="space-y-2">
-          {(facilitators ?? []).map((f) => (
-            <div key={f.id} className="flex items-center justify-between p-3 rounded-lg border bg-card">
-              <p className="text-sm font-medium">{f.full_name}</p>
-              <p className="text-xs text-muted-foreground">{f.email}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div>
-        <h2 className="text-sm font-semibold mb-3">Instructor directory</h2>
-        {(instructors ?? []).length === 0 ? (
-          <EmptyState title="No approved instructors yet" />
-        ) : (
-          <div className="space-y-2">
-            {instructors!.map((i) => (
-              <div key={i.id} className="flex items-center justify-between p-3 rounded-lg border bg-card">
-                <div>
-                  <p className="text-sm font-medium">{i.full_name}</p>
-                  <p className="text-xs text-muted-foreground">{i.email}</p>
-                </div>
-                <StatusPill status={i.status} />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-/* ================================================================== */
-/* Payments panel                                                       */
-
-function PaymentsPanel() {
+export default function InstructorsAdminPayments() {
   const qc = useQueryClient()
   const importInputRef = useRef<HTMLInputElement>(null)
   const [newLetterOpen, setNewLetterOpen] = useState(false)
@@ -334,7 +134,9 @@ function PaymentsPanel() {
   ]
 
   return (
-    <div className="space-y-6">
+    <div className="flex flex-col gap-6">
+      <PageHeader title="Payments" subtitle="Payment letters, batches, and bulk import." />
+
       {/* Summary stat cards */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {summaryTiles.map((t) => (
@@ -549,5 +351,3 @@ function PaymentsPanel() {
     </div>
   )
 }
-
-

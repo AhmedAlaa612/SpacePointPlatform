@@ -50,7 +50,7 @@ export function StatCard({
       </div>
       <div className="min-w-0">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide truncate">{label}</p>
-        <p className="font-display text-2xl font-bold leading-tight">{value}</p>
+        <p className="font-display text-2xl font-bold leading-tight break-all">{value}</p>
         {sub && <p className="text-xs text-muted-foreground mt-0.5 truncate">{sub}</p>}
       </div>
     </div>

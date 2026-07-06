@@ -53,10 +53,10 @@ export default function Payments() {
       <PageHeader title="Payments" subtitle="View and sign your facilitator payment letters." />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        <StatCard icon={<Banknote size={20} />} label="Earned (AED)" value={summary.data?.total_earned_aed.toLocaleString() ?? 0} />
+        <StatCard icon={<Banknote size={20} />} label="Total Earned (AED)" value={summary.data?.total_earned_aed.toLocaleString() ?? 0} />
+        <StatCard icon={<Banknote size={20} />} label="Hours Delivered" value={summary.data?.total_hours ?? 0} />
         <StatCard icon={<Calendar size={20} />} label="Sessions" value={summary.data?.total_sessions ?? 0} />
-        <StatCard icon={<Banknote size={20} />} label="Hours" value={summary.data?.total_hours ?? 0} />
-        <StatCard icon={<Banknote size={20} />} label="Pending signature" value={summary.data?.pending_signature ?? 0} />
+        <StatCard icon={<Banknote size={20} />} label="Pending Signature" value={summary.data?.pending_signature ?? 0} />
       </div>
 
       <Card className="mb-6">

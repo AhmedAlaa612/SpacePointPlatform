@@ -12,6 +12,7 @@ export interface Certificate {
   id: string
   user_id: string
   instructor_name: string | null
+  instructor_email: string | null
   type: string
   workshop_name: string | null
   workshop_date: string | null
@@ -88,3 +89,10 @@ export const paymentsInstructorDropdownApi = () =>
   api.get<{ id: string; full_name: string; email: string }[]>("/instructors/admin/payments/instructors").then((r) => r.data)
 
 export const listCertificatesApi = () => api.get<Certificate[]>("/instructors/admin/payments/certificates").then((r) => r.data)
+
+export const createCertificateApi = (data: {
+  instructor_user_id: string; workshop_name: string; workshop_date: string; location: string; send_email?: boolean
+}) => api.post<Certificate>("/instructors/admin/payments/certificates", data).then((r) => r.data)
+
+export const deleteCertificateApi = (id: string) =>
+  api.delete(`/instructors/admin/payments/certificates/${id}`).then((r) => r.data)

@@ -103,6 +103,7 @@ export const validateInviteApi = (code: string) =>
 
 export async function applyInstructorApi(data: {
   full_name: string
+  phone?: string
   email: string
   password: string
   invite_code: string

@@ -323,6 +323,68 @@ export default function ApplicantReviewPage() {
 
         {/* Right 1 Column: Phase 2 + Actions */}
         <div className="space-y-6">
+          {/* Phase 2: Assessment Card */}
+          <Card className="border-border/80 bg-card/40 backdrop-blur-sm">
+            <CardHeader className="flex flex-row items-center gap-2 border-b border-border/40 pb-4">
+              <FlaskConical className="w-5 h-5 text-primary" />
+              <CardTitle className="text-base font-bold">Phase 2: Assessment</CardTitle>
+            </CardHeader>
+            <CardContent className="p-5 space-y-3">
+              {detail.assessment ? (
+                <div className="bg-muted/40 border border-primary/20 rounded-xl p-3.5 text-sm space-y-2">
+                  <div className="flex items-center gap-1.5 text-xs text-primary font-bold uppercase tracking-wider mb-1">
+                    <CheckCircle2 size={13} /> Assessment Submitted
+                  </div>
+                  {detail.assessment.file_url && (
+                    <p className="text-xs truncate flex items-center gap-1">
+                      <span className="text-muted-foreground">File:</span>
+                      <a
+                        href={detail.assessment.file_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline font-medium inline-flex items-center gap-0.5"
+                      >
+                        View PDF
+                        <ExternalLink size={10} />
+                      </a>
+                    </p>
+                  )}
+                  {detail.assessment.google_drive_link && (
+                    <p className="text-xs break-all">
+                      <span className="text-muted-foreground">Google Drive:</span>{" "}
+                      <a
+                        href={detail.assessment.google_drive_link}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-primary underline font-medium inline-flex items-center gap-0.5"
+                      >
+                        {detail.assessment.google_drive_link}
+                        <ExternalLink size={10} />
+                      </a>
+                    </p>
+                  )}
+                  {detail.assessment.comments && (
+                    <div className="text-muted-foreground bg-card/85 p-2 rounded border border-border/30 mt-1 text-xs">
+                      <span className="font-semibold text-[10px] text-foreground block mb-0.5">Comments:</span>
+                      <p className="whitespace-pre-wrap">{detail.assessment.comments}</p>
+                    </div>
+                  )}
+                  {detail.assessment.submitted_at && (
+                    <p className="text-[10px] text-muted-foreground">
+                      Submitted: {new Date(detail.assessment.submitted_at).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-6 text-center text-muted-foreground">
+                  <AlertCircle className="w-8 h-8 opacity-40 mb-2" />
+                  <p className="text-xs font-semibold">Assessment not submitted yet</p>
+                  <p className="text-[10px] max-w-[180px] mt-0.5">Unlocked after Research approval</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Phase 2 Card */}
           <Card className="border-border/80 bg-card/40 backdrop-blur-sm">
             <CardHeader className="flex flex-row items-center gap-2 border-b border-border/40 pb-4">
@@ -379,19 +441,19 @@ export default function ApplicantReviewPage() {
 
               <div className="flex flex-col gap-2 pt-2 border-t border-border/40">
                 <Button
-                  className="w-full gap-1.5 justify-center py-2.5"
-                  onClick={() => review.mutate("phase_1_approved")}
-                  disabled={(reviewStatus === "phase_1_approved" || reviewStatus === "research_approved" || reviewStatus === "approved" || reviewStatus === "rejected") || review.isPending}
-                >
-                  <Check size={14} /> Approve Phase 1
-                </Button>
-                <Button
                   variant="outline"
                   className="w-full gap-1.5 justify-center py-2.5"
                   onClick={() => review.mutate("research_approved")}
-                  disabled={(reviewStatus === "research_approved" || reviewStatus === "approved" || reviewStatus === "rejected") || review.isPending}
+                  disabled={(reviewStatus === "research_approved" || reviewStatus === "phase_1_approved" || reviewStatus === "approved" || reviewStatus === "rejected") || review.isPending}
                 >
                   <FlaskConical size={14} /> Approve Research (Phase 2)
+                </Button>
+                <Button
+                  className="w-full gap-1.5 justify-center py-2.5"
+                  onClick={() => review.mutate("phase_1_approved")}
+                  disabled={(reviewStatus === "phase_1_approved" || reviewStatus === "approved" || reviewStatus === "rejected") || review.isPending}
+                >
+                  <Check size={14} /> Approve Phase 1
                 </Button>
                 <Button
                   className="w-full gap-1.5 justify-center py-2.5 bg-affair dark:bg-heliotrope hover:opacity-90 transition-opacity"

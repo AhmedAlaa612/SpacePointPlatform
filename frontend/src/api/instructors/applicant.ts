@@ -1,6 +1,14 @@
 import { api } from "@/api/client"
 import type { ApplicationStatusOut, ChecklistModule, VideoSubmission } from "@/types/instructors"
 
+export interface AssessmentQuestion {
+  category_id: string
+  category_name: string
+  question_id: string
+  task: string
+  follow_up: string
+}
+
 export const listVideosApi = () =>
   api.get<VideoSubmission[]>("/instructors/videos").then((r) => r.data)
 
@@ -40,3 +48,9 @@ export const submitPresentationApi = (videoLink: string) =>
 
 export const getApplicationStatusApi = () =>
   api.get<ApplicationStatusOut>("/instructors/status").then((r) => r.data)
+
+export const getAssessmentQuestionsApi = () =>
+  api.get<AssessmentQuestion[]>("/instructors/assessment/questions").then((r) => r.data)
+
+export const submitAssessmentApi = (formData: FormData) =>
+  api.post<ApplicationStatusOut>("/instructors/assessment/submit", formData).then((r) => r.data)

@@ -192,6 +192,21 @@ async def _run_startup_migrations() -> None:
             END $$;
         """))
 
+        # ── Phase 2 "10 Questions Assessment" submission, unlocked when
+        #    application_reviews.status = 'research_approved' (mirrors
+        #    presentation_submissions). See sql/0013_assessment_submissions.sql. ──
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS assessment_submissions (
+                id                 UUID PRIMARY KEY,
+                user_id            UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                file_url           TEXT,
+                google_drive_link  TEXT,
+                comments           TEXT,
+                submitted_at       TIMESTAMPTZ DEFAULT now()
+            );
+        """))
+        await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_assessment_submissions_user ON assessment_submissions(user_id);"))
+
         # ── Pivot Phase 6: contract signing (mirrors payment-letter signing).
         #    No separate status enum — signed state is derived from
         #    signed_contract_url/contract_signed_at, since contracts have no

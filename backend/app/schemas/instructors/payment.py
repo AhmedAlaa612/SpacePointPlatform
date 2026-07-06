@@ -97,11 +97,20 @@ class CertificateOut(BaseModel):
     id: UUID
     user_id: UUID
     instructor_name: Optional[str] = None
+    instructor_email: Optional[str] = None
     type: str
     workshop_name: Optional[str] = None
     workshop_date: Optional[str] = None
     location: Optional[str] = None
     file_url: str
+
+
+class CertificateCreate(BaseModel):
+    instructor_user_id: UUID
+    workshop_name: str
+    workshop_date: str
+    location: str
+    send_email: bool = False
 
 
 class BulkImportPreviewOut(BaseModel):

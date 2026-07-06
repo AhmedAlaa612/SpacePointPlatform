@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -26,11 +26,26 @@ class InvitationCodeUpdate(BaseModel):
     max_uses: Optional[int] = None
 
 
+class DistributionEntry(BaseModel):
+    name: str
+    count: int
+
+
+class SignupTrendEntry(BaseModel):
+    month: str
+    count: int
+
+
 class AdminOverviewOut(BaseModel):
     pending_applications: int
     pending_payment_signatures: int
     total_instructors: int
     total_applicants: int
+    total_facilitators: int = 0
+    active_users_30d: int = 0
+    university_distribution: List[DistributionEntry] = []
+    city_distribution: List[DistributionEntry] = []
+    signup_trend: List[SignupTrendEntry] = []
 
 
 class FacilitatorCreate(BaseModel):

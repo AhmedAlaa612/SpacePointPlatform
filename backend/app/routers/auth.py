@@ -430,6 +430,17 @@ async def instructor_apply(payload: InstructorApply, db: AsyncSession = Depends(
 
 @router.get("/invite/{code}")
 async def validate_invite(code: str, db: AsyncSession = Depends(get_db)):
+    normalized = code.strip().upper()
+    invitation = (await db.execute(
+        select(InvitationCode).where(InvitationCode.code == normalized, InvitationCode.is_active.is_(True))
+    )).scalars().first()
+    if invitation:
+        if invitation.expires_at and invitation.expires_at < datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Invitation code has expired")
+        if invitation.used_count >= invitation.max_uses:
+            raise HTTPException(status_code=400, detail="Invitation code has reached its usage limit")
+        return {"ambassador_name": None, "valid": True}
+
     amb = (await db.execute(
         select(User).where(
             User.invite_code == code,

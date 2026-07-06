@@ -1,10 +1,25 @@
 import { api } from "@/api/client"
 
+export interface DistributionEntry {
+  name: string
+  count: number
+}
+
+export interface SignupTrendEntry {
+  month: string
+  count: number
+}
+
 export interface AdminOverview {
   pending_applications: number
   pending_payment_signatures: number
   total_instructors: number
   total_applicants: number
+  total_facilitators: number
+  active_users_30d: number
+  university_distribution: DistributionEntry[]
+  city_distribution: DistributionEntry[]
+  signup_trend: SignupTrendEntry[]
 }
 
 export interface ApplicantListItem {
@@ -41,8 +56,25 @@ export const getAdminOverviewApi = () => api.get<AdminOverview>("/instructors/ad
 
 export const listApplicantsApi = () => api.get<ApplicantListItem[]>("/instructors/admin/applicants").then((r) => r.data)
 
+export interface AssessmentSubmissionDetail {
+  file_url: string | null
+  google_drive_link: string | null
+  comments: string | null
+  submitted_at: string | null
+}
+
 export const getApplicantDetailApi = (userId: string) =>
-  api.get(`/instructors/admin/applicants/${userId}`).then((r) => r.data)
+  api.get(`/instructors/admin/applicants/${userId}`).then((r) => r.data as {
+    id: string
+    full_name: string
+    email: string
+    profile: Record<string, unknown> | null
+    review: { status: string; feedback: string | null } | null
+    videos: unknown[]
+    presentation_link: string | null
+    assessment: AssessmentSubmissionDetail | null
+    modules: unknown[]
+  })
 
 export const reviewApplicantApi = (userId: string, status: string, feedback?: string) =>
   api.put(`/instructors/admin/applicants/${userId}/review`, { status, feedback }).then((r) => r.data)

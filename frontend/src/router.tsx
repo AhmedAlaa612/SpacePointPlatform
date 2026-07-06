@@ -4,8 +4,9 @@ import {
   createRouter,
   Outlet,
   redirect,
+  useLocation,
 } from "@tanstack/react-router";
-import { AppShell } from "@/components/layout/Sidebar";
+import { AppShell, ApplicantShell } from "@/components/layout/Sidebar";
 import { Login } from "@/pages/auth/Login";
 import { tokens } from "@/api/client";
 
@@ -30,13 +31,18 @@ import AmbassadorTeacherProfile from "@/pages/ambassadors/TeacherProfile";
 import AmbassadorLeaderboard from "@/pages/ambassadors/Leaderboard";
 import AmbassadorMaterials from "@/pages/ambassadors/Materials";
 import AmbassadorTeacherPortal from "@/pages/ambassadors/TeacherPortal";
-import AmbassadorsAdmin from "@/pages/ambassadors/Admin";
+import AmbassadorsAdminNetwork from "@/pages/ambassadors/admin/Network";
+import AmbassadorsAdminTasks from "@/pages/ambassadors/admin/Tasks";
+import AmbassadorsAdminLeads from "@/pages/ambassadors/admin/Leads";
+import AmbassadorsAdminSessions from "@/pages/ambassadors/admin/Sessions";
+import AmbassadorsAdminTitles from "@/pages/ambassadors/admin/Titles";
+import AmbassadorsAdminBadges from "@/pages/ambassadors/admin/Badges";
+import AmbassadorsAdminSettings from "@/pages/ambassadors/admin/Settings";
 import AdminAmbassador from "@/pages/ambassadors/AdminAmbassador";
 
 // Instructors domain pages
 import InstructorStatus from "@/pages/instructors/Status";
 import InstructorVideos from "@/pages/instructors/pipeline/Videos";
-import InstructorVideoDetail from "@/pages/instructors/pipeline/VideoDetail";
 import InstructorModules from "@/pages/instructors/pipeline/Modules";
 import InstructorModuleDetail from "@/pages/instructors/pipeline/ModuleDetail";
 import InstructorApply from "@/pages/instructors/apply/InstructorApply";
@@ -45,10 +51,18 @@ import InstructorTraining from "@/pages/instructors/Training";
 import InstructorTrainingPlayer from "@/pages/instructors/TrainingPlayer";
 import InstructorLibrary from "@/pages/instructors/Library";
 import UserDocuments from "@/pages/shared/UserDocuments";
+import PersonalDocuments from "@/pages/shared/PersonalDocuments";
+import ProfileCard from "@/pages/shared/ProfileCard";
 import InstructorPersonalDocuments from "@/pages/instructors/PersonalDocuments";
 import InstructorIdCard from "@/pages/instructors/ProfileCard";
 import InstructorPayments from "@/pages/instructors/Payments";
-import InstructorsAdmin from "@/pages/instructors/Admin";
+import InstructorsAdminOverview from "@/pages/instructors/admin/Overview";
+import InstructorsAdminApplicants from "@/pages/instructors/admin/Applicants";
+import InstructorsAdminInvitations from "@/pages/instructors/admin/Invitations";
+import InstructorsAdminInstructors from "@/pages/instructors/admin/Instructors";
+import InstructorsAdminFacilitators from "@/pages/instructors/admin/Facilitators";
+import InstructorsAdminPayments from "@/pages/instructors/admin/Payments";
+import InstructorsAdminCertificates from "@/pages/instructors/admin/Certificates";
 import ApplicantReviewPage from "@/pages/instructors/ApplicantReview";
 import FacilitatorTraining from "@/pages/instructors/facilitator/Training";
 import FacilitatorLibrary from "@/pages/instructors/facilitator/Library";
@@ -64,6 +78,9 @@ import Settings from "@/pages/admin/Settings";
 // Unified apply flow
 import ApplyFlow from "@/pages/apply/ApplyFlow";
 
+// Public instructors landing (no auth) — lives at /instructors when logged out
+import InstructorsLanding from "@/pages/public/InstructorsLanding";
+
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
 const loginRoute = createRoute({
@@ -74,17 +91,23 @@ const loginRoute = createRoute({
 
 import { useAuth } from "@/context/AuthContext";
 
+/** Bare /instructors is the one public route nested in this layout — the
+ * marketing landing page for logged-out visitors (see PIVOT_HANDOFF.md).
+ * Every other nested route still requires a token. */
+const PUBLIC_UNAUTHED_PATH = "/instructors";
+
 /** Authenticated shell (PLAN §7 `_auth`): redirect to /login when no token. */
 const authLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "auth",
-  beforeLoad: () => {
-    if (!tokens.access) {
+  beforeLoad: ({ location }) => {
+    if (!tokens.access && location.pathname !== PUBLIC_UNAUTHED_PATH) {
       throw redirect({ to: "/login" });
     }
   },
   component: () => {
-    const { currentUser, isLoading } = useAuth();
+    const { currentUser, isLoading, activeRole } = useAuth();
+    const { pathname } = useLocation();
 
     if (isLoading) {
       return (
@@ -95,14 +118,23 @@ const authLayoutRoute = createRoute({
     }
 
     if (!currentUser) {
+      if (pathname === PUBLIC_UNAUTHED_PATH) {
+        return <InstructorsLanding />;
+      }
       return null;
     }
 
     return (
       <div className="min-h-screen bg-background text-foreground">
-        <AppShell>
-          <Outlet />
-        </AppShell>
+        {activeRole === "applicant" ? (
+          <ApplicantShell>
+            <Outlet />
+          </ApplicantShell>
+        ) : (
+          <AppShell>
+            <Outlet />
+          </AppShell>
+        )}
       </div>
     );
   },
@@ -150,7 +182,8 @@ const internsRoutes = [
   createRoute({ getParentRoute: p, path: "/calendar", component: Calendar }),
   createRoute({ getParentRoute: p, path: "/leaderboard", component: Leaderboard }),
   createRoute({ getParentRoute: p, path: "/profile", component: SharedProfile }),
-  createRoute({ getParentRoute: p, path: "/documents", component: UserDocuments }),
+  createRoute({ getParentRoute: p, path: "/documents", component: PersonalDocuments }),
+  createRoute({ getParentRoute: p, path: "/id-card", component: ProfileCard }),
   createRoute({
     getParentRoute: p,
     path: "/admin",
@@ -227,7 +260,8 @@ const ambassadorsRoutes = [
   }),
   createRoute({ getParentRoute: pa, path: "/leaderboard", component: AmbassadorLeaderboard }),
   createRoute({ getParentRoute: pa, path: "/profile", component: SharedProfile }),
-  createRoute({ getParentRoute: pa, path: "/documents", component: UserDocuments }),
+  createRoute({ getParentRoute: pa, path: "/documents", component: PersonalDocuments }),
+  createRoute({ getParentRoute: pa, path: "/id-card", component: ProfileCard }),
   createRoute({ getParentRoute: pa, path: "/materials", component: AmbassadorMaterials }),
   createRoute({ getParentRoute: pa, path: "/teacher-portal", component: AmbassadorTeacherPortal }),
   createRoute({
@@ -238,8 +272,85 @@ const ambassadorsRoutes = [
       if (role !== "admin") {
         throw redirect({ to: "/" });
       }
+      throw redirect({ to: "/ambassadors/admin/network" });
     },
-    component: AmbassadorsAdmin,
+  }),
+  createRoute({
+    getParentRoute: pa,
+    path: "/admin/network",
+    beforeLoad: () => {
+      const role = localStorage.getItem("active_role");
+      if (role !== "admin") {
+        throw redirect({ to: "/" });
+      }
+    },
+    component: AmbassadorsAdminNetwork,
+  }),
+  createRoute({
+    getParentRoute: pa,
+    path: "/admin/tasks",
+    beforeLoad: () => {
+      const role = localStorage.getItem("active_role");
+      if (role !== "admin") {
+        throw redirect({ to: "/" });
+      }
+    },
+    component: AmbassadorsAdminTasks,
+  }),
+  createRoute({
+    getParentRoute: pa,
+    path: "/admin/leads",
+    beforeLoad: () => {
+      const role = localStorage.getItem("active_role");
+      if (role !== "admin") {
+        throw redirect({ to: "/" });
+      }
+    },
+    component: AmbassadorsAdminLeads,
+  }),
+  createRoute({
+    getParentRoute: pa,
+    path: "/admin/sessions",
+    beforeLoad: () => {
+      const role = localStorage.getItem("active_role");
+      if (role !== "admin") {
+        throw redirect({ to: "/" });
+      }
+    },
+    component: AmbassadorsAdminSessions,
+  }),
+  createRoute({
+    getParentRoute: pa,
+    path: "/admin/titles",
+    beforeLoad: () => {
+      const role = localStorage.getItem("active_role");
+      if (role !== "admin") {
+        throw redirect({ to: "/" });
+      }
+    },
+    component: AmbassadorsAdminTitles,
+  }),
+  createRoute({
+    getParentRoute: pa,
+    path: "/admin/badges",
+    beforeLoad: () => {
+      const role = localStorage.getItem("active_role");
+      if (role !== "admin") {
+        throw redirect({ to: "/" });
+      }
+    },
+    component: AmbassadorsAdminBadges,
+  }),
+  createRoute({
+    getParentRoute: pa,
+    path: "/admin/settings",
+    beforeLoad: () => {
+      const role = localStorage.getItem("active_role");
+      if (role !== "admin") {
+        throw redirect({ to: "/" });
+      }
+    },
+    component: AmbassadorsAdminSettings,
   }),
   createRoute({
     getParentRoute: pa,
@@ -258,6 +369,10 @@ const instructorsLayoutRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/instructors",
   beforeLoad: () => {
+    // No token means bare /instructors (the only path the parent authLayoutRoute
+    // lets through unauthenticated) — defer to authLayoutRoute's component, which
+    // renders the public InstructorsLanding page directly instead of this subtree.
+    if (!tokens.access) return;
     const role = localStorage.getItem("active_role");
     if (role !== "instructor" && role !== "facilitator" && role !== "applicant" && role !== "admin") {
       throw redirect({ to: "/" });
@@ -268,9 +383,25 @@ const instructorsLayoutRoute = createRoute({
 
 const pi = () => instructorsLayoutRoute;
 const instructorsRoutes = [
+  createRoute({
+    getParentRoute: pi,
+    path: "/",
+    beforeLoad: () => {
+      if (!tokens.access) return; // unreachable render-wise; see instructorsLayoutRoute above
+      const role = localStorage.getItem("active_role");
+      if (role === "facilitator") {
+        throw redirect({ to: "/instructors/facilitator/training" });
+      } else if (role === "applicant") {
+        throw redirect({ to: "/instructors/status" });
+      } else if (role === "admin") {
+        throw redirect({ to: "/instructors/admin" });
+      } else {
+        throw redirect({ to: "/instructors/dashboard" });
+      }
+    },
+  }),
   createRoute({ getParentRoute: pi, path: "/status", component: InstructorStatus }),
   createRoute({ getParentRoute: pi, path: "/videos", component: InstructorVideos }),
-  createRoute({ getParentRoute: pi, path: "/videos/$videoNo", component: InstructorVideoDetail }),
   createRoute({ getParentRoute: pi, path: "/modules", component: InstructorModules }),
   createRoute({ getParentRoute: pi, path: "/modules/$moduleId", component: InstructorModuleDetail }),
   createRoute({ getParentRoute: pi, path: "/dashboard", component: InstructorDashboard }),
@@ -285,8 +416,21 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/facilitator/training", component: FacilitatorTraining }),
   createRoute({ getParentRoute: pi, path: "/facilitator/library", component: FacilitatorLibrary }),
   createRoute({ getParentRoute: pi, path: "/facilitator/application", component: FacilitatorApplication }),
-  createRoute({ getParentRoute: pi, path: "/admin", component: InstructorsAdmin }),
+  createRoute({
+    getParentRoute: pi,
+    path: "/admin",
+    beforeLoad: () => {
+      throw redirect({ to: "/instructors/admin/overview" });
+    },
+  }),
+  createRoute({ getParentRoute: pi, path: "/admin/overview", component: InstructorsAdminOverview }),
+  createRoute({ getParentRoute: pi, path: "/admin/applicants", component: InstructorsAdminApplicants }),
   createRoute({ getParentRoute: pi, path: "/admin/applicants/$userId", component: ApplicantReviewPage }),
+  createRoute({ getParentRoute: pi, path: "/admin/invitations", component: InstructorsAdminInvitations }),
+  createRoute({ getParentRoute: pi, path: "/admin/instructors", component: InstructorsAdminInstructors }),
+  createRoute({ getParentRoute: pi, path: "/admin/facilitators", component: InstructorsAdminFacilitators }),
+  createRoute({ getParentRoute: pi, path: "/admin/payments", component: InstructorsAdminPayments }),
+  createRoute({ getParentRoute: pi, path: "/admin/certificates", component: InstructorsAdminCertificates }),
 ];
 
 const adminHubRoute = createRoute({
