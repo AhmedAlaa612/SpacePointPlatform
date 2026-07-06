@@ -15,7 +15,8 @@ USAGE
         --unified-db postgresql+asyncpg://spacepoint_user:PASS@localhost:5433/spacepoint_unified_test \
         --uploads-dir "C:/Users/ahmed/Downloads/var/www/spacepoint_portal/backend/app/uploads" \
         --storage-root "C:/Users/ahmed/Downloads/spacepoint/scratch_storage" \
-        --storage-key "<fernet key, or rely on STORAGE_ENCRYPTION_KEY env>"
+        --storage-key "<fernet key, or rely on STORAGE_ENCRYPTION_KEY env>" \
+        --base-url "http://<public IP or domain, no trailing slash>"
 
 --legacy-db     : sync-style DSN (psycopg2/psycopg driver — script opens its
                   own plain sync connection for reads, no ORM needed on the
@@ -401,6 +402,17 @@ async def run(args: argparse.Namespace) -> Report:
     os.environ["DATABASE_URL"] = args.unified_db
     os.environ["STORAGE_BACKEND"] = "local"
     os.environ["STORAGE_ROOT"] = args.storage_root
+    if args.base_url:
+        os.environ["BASE_URL"] = args.base_url
+    elif not os.environ.get("BASE_URL"):
+        print(
+            "[migrate_legacy] WARNING: no --base-url given and BASE_URL is not set in the "
+            "environment — falling back to app.core.config's default (http://localhost:8000). "
+            "Every long-lived signed URL this run bakes in (profile photos, certificates, "
+            "instructor documents, module/assessment submissions) will carry that wrong host "
+            "PERMANENTLY until manually fixed. Pass --base-url unless this is a throwaway local "
+            "dry-run."
+        )
     if args.storage_key:
         os.environ["STORAGE_ENCRYPTION_KEY"] = args.storage_key
     elif not os.environ.get("STORAGE_ENCRYPTION_KEY"):
@@ -1371,6 +1383,19 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     p.add_argument("--uploads-dir", required=True, help="Root of the legacy uploads/ tree")
     p.add_argument("--storage-root", required=True, help="STORAGE_ROOT for the local storage backend (encrypted blobs land here)")
     p.add_argument("--storage-key", default=None, help="Fernet key; falls back to STORAGE_ENCRYPTION_KEY env, else generates one (dev only)")
+    p.add_argument(
+        "--base-url", default=None,
+        help="Public base URL of the deployment (e.g. http://1.2.3.4 or https://portal.spacepoint.ae), "
+             "no trailing slash. Required for a real target — several long-lived signed URLs "
+             "(profile photos, certificates, instructor-document vault, module/assessment "
+             "submissions) are baked in via storage.get_signed_url() at migration time (for "
+             "backward compat with code that reads the legacy *_url column directly instead of "
+             "resolving bucket/path at query time), so whatever BASE_URL is in effect during this "
+             "run is PERMANENTLY frozen into those columns. Omitting this falls back to "
+             "app.core.config's default (http://localhost:8000), which is almost never what you "
+             "want outside of a pure local dry-run — a 2026-07-06 production run hit exactly this "
+             "and required a manual SQL fix-up afterward (see GO_LIVE.md's completion log)."
+    )
     p.add_argument("--dry-run", action="store_true", help="Parse + map + report only; write nothing")
     p.add_argument("--skip-files", action="store_true", help="Skip disk reads/uploads; DB rows still get bucket/path as if present")
     return p.parse_args(argv)
