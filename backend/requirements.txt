@@ -16,6 +16,7 @@ email-validator
 python-jose[cryptography]
 passlib[bcrypt]
 bcrypt==4.0.1
+cryptography  # also used directly by services/storage_local.py (Fernet)
 
 # Uploads / multipart
 python-multipart
