@@ -23,7 +23,8 @@ class Application(Base):
     invite_code = Column(String(50), nullable=True)
     invited_by_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
-    cv_url = Column(Text, nullable=True)
+    cv_url = Column(Text, nullable=True)   # legacy fallback only — cv_path is the source of truth (A2; bucket is always "cvs")
+    cv_path = Column(Text, nullable=True)
     answers = Column(JSONB, nullable=False, default=dict)
 
     admin_notes = Column(Text, nullable=True)

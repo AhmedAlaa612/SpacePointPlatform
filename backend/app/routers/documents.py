@@ -92,12 +92,15 @@ async def my_documents(
             CertificateOut(
                 id=c.id, user_id=c.user_id, type=c.type.value,
                 workshop_name=c.workshop_name, workshop_date=c.workshop_date, location=c.location,
-                file_url=c.file_url,
+                file_url=await storage.resolve_url(c.bucket, c.file_path, c.file_url),
             )
             for c in certs
         ],
         documents=[
-            DocumentOut(id=d.id, label=d.label, file_url=d.file_url, generated_at=d.generated_at)
+            DocumentOut(
+                id=d.id, label=d.label, generated_at=d.generated_at,
+                file_url=await storage.resolve_url(d.bucket, d.file_path, d.file_url),
+            )
             for d in docs
         ],
     )
@@ -148,13 +151,13 @@ async def create_recommendation_letter(
                 os.remove(sig_path)
             except Exception:
                 pass
-    file_url = await storage.upload_file(
-        "documents", f"{user.id}/{uuid.uuid4()}.pdf", pdf_bytes, "application/pdf"
-    )
+    doc_path = f"{user.id}/{uuid.uuid4()}.pdf"
+    file_url = await storage.upload_file("documents", doc_path, pdf_bytes, "application/pdf")
 
     doc = Document(
         user_id=user.id, generated_by=current_user.id,
         label="Letter of Recommendation", file_url=file_url,
+        bucket="documents", file_path=doc_path,
         data={"signatory_name": signatory_name, "signatory_title": signatory_title,
               "recommendation_text": body.recommendation_text},
     )
@@ -176,7 +179,13 @@ async def list_recommendation_letters(
         select(Document).where(Document.user_id == user_id)
         .order_by(Document.generated_at.desc())
     )).scalars().all()
-    return rows
+    return [
+        DocumentOut(
+            id=d.id, label=d.label, generated_at=d.generated_at,
+            file_url=await storage.resolve_url(d.bucket, d.file_path, d.file_url),
+        )
+        for d in rows
+    ]
 
 
 # ── Document Requests (PLAN §8.2 / Task List) ───
@@ -267,7 +276,7 @@ async def my_document_requests(
             requested_role=req.requested_role,
             notes=req.notes,
             admin_notes=req.admin_notes,
-            file_url=req.file_url,
+            file_url=await storage.resolve_url(req.bucket, req.file_path, req.file_url),
             user_created_at=current_user.created_at,
             created_at=req.created_at,
             updated_at=req.updated_at
@@ -301,7 +310,7 @@ async def list_document_requests(
             requested_role=req.requested_role,
             notes=req.notes,
             admin_notes=req.admin_notes,
-            file_url=req.file_url,
+            file_url=await storage.resolve_url(req.bucket, req.file_path, req.file_url),
             user_created_at=u.created_at,
             created_at=req.created_at,
             updated_at=req.updated_at
@@ -330,10 +339,12 @@ async def _render_and_store_document(
     signatory_title: str,
     date_str: str,
     generated_by: uuid.UUID,
-) -> str:
+) -> tuple[str, str, str]:
     # Render a certificate/letter PDF from a template, upload it, persist the row,
-    # and return the stored URL. Certificate vs letter is decided by template.type
-    # (NOT by parsing the key). Shared by the document-request and admin-generate flows.
+    # and return (signed_url, bucket, path). Certificate vs letter is decided by
+    # template.type (NOT by parsing the key). Shared by the document-request and
+    # admin-generate flows. bucket/path are the durable identifiers (A2); the URL
+    # is only for the immediate response.
     import os
 
     raw_body = body_text or template.body_text or ""
@@ -356,10 +367,13 @@ async def _render_and_store_document(
 
         if template.type == "certificate":
             bg_bytes = None
-            if template.template_file_url:
+            bg_path = template.template_file_path or (
+                template.template_file_url.split("/library-resources/")[-1].split("?")[0]
+                if template.template_file_url else None
+            )
+            if bg_path:
                 try:
-                    path_part = template.template_file_url.split("/library-resources/")[-1].split("?")[0]
-                    bg_bytes = await storage.download_file("library-resources", path_part)
+                    bg_bytes = await storage.download_file("library-resources", bg_path)
                 except Exception as e:
                     logger.warning("certificate template background download failed: %s", e)
             program_label = _ROLE_PROGRAM_MAP.get(role, "Internship Program")
@@ -368,11 +382,13 @@ async def _render_and_store_document(
                 body_text_template=formatted_body.replace("{program}", program_label),
                 background_bytes=bg_bytes,
             )
-            file_url = await storage.upload_file(
-                "certificates", f"{user.id}/completion_{uuid.uuid4()}.pdf", pdf_bytes, "application/pdf"
-            )
+            bucket, path = "certificates", f"{user.id}/completion_{uuid.uuid4()}.pdf"
+            file_url = await storage.upload_file(bucket, path, pdf_bytes, "application/pdf")
             cert_type = CertificateType.instructor_completion if role == "instructor" else CertificateType.internship_completion
-            db.add(Certificate(user_id=user.id, type=cert_type, file_url=file_url, generated_by=generated_by))
+            db.add(Certificate(
+                user_id=user.id, type=cert_type, file_url=file_url,
+                bucket=bucket, file_path=path, generated_by=generated_by,
+            ))
         else:
             pdf_bytes = generate_letter_pdf(
                 title=title,
@@ -380,12 +396,11 @@ async def _render_and_store_document(
                 signatory_name=signatory_name,
                 signatory_title=signatory_title,
             )
-            file_url = await storage.upload_file(
-                "documents", f"{user.id}/{uuid.uuid4()}.pdf", pdf_bytes, "application/pdf"
-            )
+            bucket, path = "documents", f"{user.id}/{uuid.uuid4()}.pdf"
+            file_url = await storage.upload_file(bucket, path, pdf_bytes, "application/pdf")
             db.add(Document(
                 user_id=user.id, template_id=template.id, generated_by=generated_by,
-                label=title, file_url=file_url,
+                label=title, file_url=file_url, bucket=bucket, file_path=path,
                 data={"signatory_name": signatory_name, "signatory_title": signatory_title, "body": raw_body},
             ))
     finally:
@@ -395,7 +410,7 @@ async def _render_and_store_document(
             except Exception:
                 pass
 
-    return file_url
+    return file_url, bucket, path
 
 
 @router.post("/requests/{id}/generate", response_model=DocumentRequestOut)
@@ -425,7 +440,7 @@ async def generate_document_request(
     signatory_title = body.signatory_title or await _get_setting(db, "admin_signatory_title", settings.DEFAULT_SIGNATORY_TITLE)
     today = body.date or date.today().strftime("%d %B %Y").lstrip("0")
 
-    req.file_url = await _render_and_store_document(
+    req.file_url, req.bucket, req.file_path = await _render_and_store_document(
         db, user=user, template=template,
         role=req.requested_role or "intern",
         title=body.title or template.name,
@@ -447,22 +462,20 @@ async def generate_document_request(
         status=req.status,
         notes=req.notes,
         admin_notes=req.admin_notes,
-        file_url=req.file_url,
+        file_url=await storage.resolve_url(req.bucket, req.file_path, req.file_url),
         created_at=req.created_at,
         updated_at=req.updated_at,
     )
 
 
 def _parse_storage_url(url: str) -> tuple[str, str]:
-    """Parse bucket and path from Supabase storage URL."""
-    parts = url.split("/")
-    if "public" in parts:
-        idx = parts.index("public")
-        bucket = parts[idx + 1]
-        path = "/".join(parts[idx + 2:])
-        if "?" in path:
-            path = path.split("?")[0]
-        return bucket, path
+    """Parse bucket and path from a Supabase storage URL (signed or public).
+    Legacy fallback only — new rows carry bucket/file_path columns (A2)."""
+    import re
+    from urllib.parse import unquote
+    m = re.search(r"/storage/v1/object/(?:sign|public)/([^/]+)/([^?]+)", url)
+    if m:
+        return m.group(1), unquote(m.group(2))
     return "", ""
 
 
@@ -489,7 +502,7 @@ async def approve_document_request(
     # finalizes the request status — no second write, no key-substring routing.
     req.status = "approved"
     req.updated_at = datetime.now(timezone.utc)
-    
+
     await notify(
         db,
         user.id,
@@ -497,10 +510,10 @@ async def approve_document_request(
         f"Your request for a {req.type.replace('_', ' ').title()} has been approved and generated.",
         "document_request_approved"
     )
-    
+
     await db.commit()
     await db.refresh(req)
-    
+
     return DocumentRequestOut(
         id=req.id,
         user_id=req.user_id,
@@ -510,7 +523,7 @@ async def approve_document_request(
         status=req.status,
         notes=req.notes,
         admin_notes=req.admin_notes,
-        file_url=req.file_url,
+        file_url=await storage.resolve_url(req.bucket, req.file_path, req.file_url),
         created_at=req.created_at,
         updated_at=req.updated_at
     )
@@ -531,16 +544,19 @@ async def regenerate_document_request(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Delete file from storage if present
-    if req.file_url:
-        bucket, path = _parse_storage_url(req.file_url)
-        if bucket and path:
-            try:
-                await storage.delete_file(bucket, path)
-            except Exception as e:
-                logger.warning("storage delete during regeneration failed: %s", e)
-                
+    # Delete file from storage if present — prefer the stored bucket/path (A2),
+    # fall back to parsing the legacy URL.
+    bucket, path = (req.bucket, req.file_path) if (req.bucket and req.file_path) \
+        else (_parse_storage_url(req.file_url) if req.file_url else ("", ""))
+    if bucket and path:
+        try:
+            await storage.delete_file(bucket, path)
+        except Exception as e:
+            logger.warning("storage delete during regeneration failed: %s", e)
+
     req.file_url = None
+    req.bucket = None
+    req.file_path = None
     req.updated_at = datetime.now(timezone.utc)
     
     await db.commit()
@@ -626,21 +642,12 @@ async def get_my_id_card(
     card_row = await ensure_card_id(db, current_user.id, role)
     await db.commit()
 
-    photo_url = current_user.photo_url
     linkedin_url = current_user.linkedin_url
 
-    photo_bytes = None
-    if photo_url:
-        from app.routers.instructors.instructor import _fetch_photo, _resolve_photo_url
-        resolved = await _resolve_photo_url(photo_url)
-        if resolved != photo_url:
-            current_user.photo_url = resolved
-            await db.commit()
-            photo_url = resolved
-        try:
-            photo_bytes = await _fetch_photo(photo_url)
-        except Exception:
-            pass
+    from app.routers.instructors.instructor import _photo_bytes_for
+    photo_bytes = await _photo_bytes_for(current_user)
+    await db.commit()
+    photo_url = current_user.photo_url
 
     front_png = render_card_png(role, photo_bytes, linkedin_url, current_user.full_name)
     issue_date = card_row.generated_at or datetime.now(timezone.utc)
@@ -651,7 +658,7 @@ async def get_my_id_card(
         front_b64=base64.b64encode(front_png).decode(),
         back_b64=base64.b64encode(back_png).decode(),
         generated_at=card_row.generated_at,
-        has_photo=bool(photo_url),
+        has_photo=bool(photo_url or current_user.photo_path),
         has_linkedin=bool(linkedin_url),
         photo_url=photo_url,
         linkedin_url=linkedin_url,
@@ -679,25 +686,26 @@ async def update_my_id_card(
         photo_bytes = None
         if photo and photo.filename:
             photo_bytes = await photo.read()
+            photo_path = f"{current_user.id}{_ext(photo.filename)}"
             uploaded_url = await storage.upload_file(
                 "profile_pictures",
-                f"{current_user.id}{_ext(photo.filename)}",
+                photo_path,
                 photo_bytes,
                 photo.content_type or "image/jpeg",
             )
             current_user.photo_url = uploaded_url
+            current_user.photo_path = photo_path
 
         await db.commit()
 
         final_photo_url = current_user.photo_url
         final_linkedin_url = current_user.linkedin_url
 
-        if photo_bytes is None and final_photo_url:
-            from app.routers.instructors.instructor import _fetch_photo
-            try:
-                photo_bytes = await _fetch_photo(final_photo_url)
-            except Exception:
-                pass
+        if photo_bytes is None:
+            from app.routers.instructors.instructor import _photo_bytes_for
+            photo_bytes = await _photo_bytes_for(current_user)
+            await db.commit()
+            final_photo_url = current_user.photo_url
 
         front_png = render_card_png(role, photo_bytes, final_linkedin_url, current_user.full_name)
         issue_date = card_row.generated_at or datetime.now(timezone.utc)
@@ -708,7 +716,7 @@ async def update_my_id_card(
             front_b64=base64.b64encode(front_png).decode(),
             back_b64=base64.b64encode(back_png).decode(),
             generated_at=card_row.generated_at,
-            has_photo=bool(final_photo_url),
+            has_photo=bool(final_photo_url or current_user.photo_path),
             has_linkedin=bool(final_linkedin_url),
             photo_url=final_photo_url,
             linkedin_url=final_linkedin_url,
@@ -735,17 +743,11 @@ async def download_my_id_card_pdf(
     card_row = await ensure_card_id(db, current_user.id, role)
     await db.commit()
 
-    final_photo_url = current_user.photo_url
     final_linkedin_url = current_user.linkedin_url
 
-    photo_bytes = None
-    if final_photo_url:
-        from app.routers.instructors.instructor import _fetch_photo, _resolve_photo_url
-        final_photo_url = await _resolve_photo_url(final_photo_url) or final_photo_url
-        try:
-            photo_bytes = await _fetch_photo(final_photo_url)
-        except Exception:
-            pass
+    from app.routers.instructors.instructor import _photo_bytes_for
+    photo_bytes = await _photo_bytes_for(current_user)
+    await db.commit()
 
     front_png = render_card_png(role, photo_bytes, final_linkedin_url, current_user.full_name)
     issue_date = card_row.generated_at or datetime.now(timezone.utc)
@@ -823,7 +825,7 @@ async def admin_generate_document(
     today = body.date or date.today().strftime("%d %B %Y").lstrip("0")
     role = user.role_values[0] if user.role_values else "intern"
 
-    file_url = await _render_and_store_document(
+    file_url, _bucket, _path = await _render_and_store_document(
         db, user=user, template=template, role=role,
         title=body.title or template.name,
         body_text=body.body_text,
@@ -1059,6 +1061,7 @@ async def update_document_template(
             file.content_type or "application/octet-stream"
         )
         template.template_file_url = file_url
+        template.template_file_path = file_path
         
     await db.commit()
     await db.refresh(template)

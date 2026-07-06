@@ -14,8 +14,10 @@ class InstructorProfile(Base):
     __tablename__ = "instructor_profiles"
 
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
-    contract_url = Column(String, nullable=True)
+    contract_url = Column(String, nullable=True)         # legacy fallback only — *_path are the source of truth (A2; bucket "contracts")
     signed_contract_url = Column(String, nullable=True)
+    contract_path = Column(String, nullable=True)
+    signed_contract_path = Column(String, nullable=True)
     contract_signature_data = Column(Text, nullable=True)
     contract_signed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

@@ -45,17 +45,23 @@ async def _get_or_create_profile(db: AsyncSession, user_id: uuid.UUID) -> Instru
     return profile
 
 
+async def _profile_out(profile: InstructorProfile, user: User) -> InstructorProfileOut:
+    """Contract URLs are generated at query time from the stored paths (A2);
+    the legacy *_url columns are only a fallback for pre-migration rows."""
+    return InstructorProfileOut(
+        user_id=profile.user_id,
+        linkedin_url=user.linkedin_url,
+        photo_url=user.photo_url,
+        contract_url=await storage.resolve_url("contracts", profile.contract_path, profile.contract_url),
+        signed_contract_url=await storage.resolve_url("contracts", profile.signed_contract_path, profile.signed_contract_url),
+        contract_signed_at=profile.contract_signed_at,
+    )
+
+
 @router.get("/profile", response_model=InstructorProfileOut)
 async def get_profile(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor_or_facilitator)):
     profile = await _get_or_create_profile(db, current_user.id)
-    return InstructorProfileOut(
-        user_id=profile.user_id,
-        linkedin_url=current_user.linkedin_url,
-        photo_url=current_user.photo_url,
-        contract_url=profile.contract_url,
-        signed_contract_url=profile.signed_contract_url,
-        contract_signed_at=profile.contract_signed_at,
-    )
+    return await _profile_out(profile, current_user)
 
 
 @router.put("/profile", response_model=InstructorProfileOut)
@@ -68,14 +74,7 @@ async def update_profile(
     if body.linkedin_url is not None:
         current_user.linkedin_url = body.linkedin_url
     await db.commit()
-    return InstructorProfileOut(
-        user_id=profile.user_id,
-        linkedin_url=current_user.linkedin_url,
-        photo_url=current_user.photo_url,
-        contract_url=profile.contract_url,
-        signed_contract_url=profile.signed_contract_url,
-        contract_signed_at=profile.contract_signed_at,
-    )
+    return await _profile_out(profile, current_user)
 
 
 @router.post("/contract/sign", response_model=InstructorProfileOut)
@@ -87,7 +86,7 @@ async def sign_contract(
     profile = (await db.execute(
         select(InstructorProfile).where(InstructorProfile.user_id == current_user.id)
     )).scalars().first()
-    if not profile or not profile.contract_url:
+    if not profile or not (profile.contract_path or profile.contract_url):
         raise HTTPException(status_code=404, detail="No contract on file to sign")
     if profile.contract_signed_at:
         raise HTTPException(status_code=400, detail="Contract already signed")
@@ -107,15 +106,15 @@ async def sign_contract(
             signed_date=now.strftime("%d %B %Y"),
             instructor_signature_b64=body.signature,
         )
-        signed_url = await storage.upload_file(
-            "contracts", f"{current_user.id}/signed.pdf", pdf_bytes, "application/pdf"
-        )
+        signed_path = f"{current_user.id}/signed.pdf"
+        signed_url = await storage.upload_file("contracts", signed_path, pdf_bytes, "application/pdf")
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Signed contract generation or upload failed: {str(e)}")
 
     profile.signed_contract_url = signed_url
+    profile.signed_contract_path = signed_path
     profile.contract_signature_data = body.signature
     profile.contract_signed_at = now
 
@@ -127,14 +126,7 @@ async def sign_contract(
     await send_signed_contract_email(current_user.email, current_user.full_name, pdf_bytes)
 
     await db.commit()
-    return InstructorProfileOut(
-        user_id=profile.user_id,
-        linkedin_url=current_user.linkedin_url,
-        photo_url=current_user.photo_url,
-        contract_url=profile.contract_url,
-        signed_contract_url=profile.signed_contract_url,
-        contract_signed_at=profile.contract_signed_at,
-    )
+    return await _profile_out(profile, current_user)
 
 
 @router.get("/id-card", response_model=IdCardOut | None)
@@ -145,16 +137,8 @@ async def get_id_card(
     """Render the ID card front and back on-the-fly."""
     card_row = await ensure_card_id(db, current_user.id, UserRole.instructor)
 
-    photo_bytes = None
-    resolved_photo_url = await _resolve_photo_url(current_user.photo_url)
-    if resolved_photo_url and resolved_photo_url != current_user.photo_url:
-        current_user.photo_url = resolved_photo_url
+    photo_bytes = await _photo_bytes_for(current_user)
     await db.commit()
-    if resolved_photo_url:
-        try:
-            photo_bytes = await _fetch_photo(resolved_photo_url)
-        except Exception:
-            pass
 
     front_png = render_card_png(UserRole.instructor, photo_bytes, current_user.linkedin_url, current_user.full_name)
     issue_date = card_row.generated_at or datetime.now(timezone.utc)
@@ -165,7 +149,7 @@ async def get_id_card(
         front_b64=base64.b64encode(front_png).decode(),
         back_b64=base64.b64encode(back_png).decode(),
         generated_at=card_row.generated_at,
-        has_photo=bool(current_user.photo_url),
+        has_photo=bool(current_user.photo_url or current_user.photo_path),
         has_linkedin=bool(current_user.linkedin_url),
     )
 
@@ -184,26 +168,22 @@ async def update_id_card(
     photo_bytes: bytes | None = None
     if photo and photo.filename:
         photo_bytes = await photo.read()
+        photo_path = f"{current_user.id}{_ext(photo.filename)}"
         uploaded_url = await storage.upload_file(
             "profile_pictures",
-            f"{current_user.id}{_ext(photo.filename)}",
+            photo_path,
             photo_bytes,
             photo.content_type or "image/jpeg",
         )
         current_user.photo_url = uploaded_url
+        current_user.photo_path = photo_path
 
     card_row = await ensure_card_id(db, current_user.id, UserRole.instructor)
     await db.commit()
 
-    if photo_bytes is None and current_user.photo_url:
-        resolved = await _resolve_photo_url(current_user.photo_url)
-        if resolved and resolved != current_user.photo_url:
-            current_user.photo_url = resolved
-            await db.commit()
-        try:
-            photo_bytes = await _fetch_photo(resolved or current_user.photo_url)
-        except Exception:
-            pass
+    if photo_bytes is None:
+        photo_bytes = await _photo_bytes_for(current_user)
+        await db.commit()
 
     front_png = render_card_png(UserRole.instructor, photo_bytes, current_user.linkedin_url, current_user.full_name)
     issue_date = card_row.generated_at or datetime.now(timezone.utc)
@@ -214,7 +194,7 @@ async def update_id_card(
         front_b64=base64.b64encode(front_png).decode(),
         back_b64=base64.b64encode(back_png).decode(),
         generated_at=card_row.generated_at,
-        has_photo=bool(current_user.photo_url),
+        has_photo=bool(current_user.photo_url or current_user.photo_path),
         has_linkedin=bool(current_user.linkedin_url),
     )
 
@@ -232,16 +212,8 @@ async def download_id_card_pdf(
     from PIL import Image as PILImage
 
     card_row = await ensure_card_id(db, current_user.id, UserRole.instructor)
-    photo_bytes = None
-    resolved_photo_url = await _resolve_photo_url(current_user.photo_url)
-    if resolved_photo_url and resolved_photo_url != current_user.photo_url:
-        current_user.photo_url = resolved_photo_url
+    photo_bytes = await _photo_bytes_for(current_user)
     await db.commit()
-    if resolved_photo_url:
-        try:
-            photo_bytes = await _fetch_photo(resolved_photo_url)
-        except Exception:
-            pass
 
     front_png = render_card_png(UserRole.instructor, photo_bytes, current_user.linkedin_url, current_user.full_name)
     issue_date = card_row.generated_at or datetime.now(timezone.utc)
@@ -305,6 +277,29 @@ async def _resolve_photo_url(url: str | None) -> str | None:
     return url
 
 
+async def _photo_bytes_for(user: User) -> bytes | None:
+    """Profile-photo bytes for card rendering — prefers the durable photo_path
+    (A2) via the storage backend; falls back to fetching the stored legacy URL.
+    May refresh user.photo_url in place when a renamed-bucket URL gets
+    re-signed — callers commit afterwards."""
+    if getattr(user, "photo_path", None):
+        try:
+            return await storage.download_file(_PHOTO_BUCKET, user.photo_path)
+        except Exception:
+            pass
+    if not user.photo_url:
+        return None
+    resolved = await _resolve_photo_url(user.photo_url)
+    if resolved and resolved != user.photo_url:
+        user.photo_url = resolved
+    if not resolved:
+        return None
+    try:
+        return await _fetch_photo(resolved)
+    except Exception:
+        return None
+
+
 def _ext(filename: str | None) -> str:
     if not filename or "." not in filename:
         return ""
@@ -338,12 +333,21 @@ async def update_bank_details(
 
 # ── Personal document vault (any authenticated role — table/paths are user-scoped, not instructor-specific) ──
 
+async def _vault_doc_out(doc: InstructorDocument) -> InstructorDocumentOut:
+    return InstructorDocumentOut(
+        id=doc.id,
+        document_type=doc.document_type,
+        file_url=await storage.resolve_url(doc.bucket, doc.file_path, doc.file_url),
+        uploaded_at=doc.uploaded_at,
+    )
+
+
 @router.get("/documents", response_model=list[InstructorDocumentOut])
 async def list_documents(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_active_user)):
     rows = (await db.execute(
         select(InstructorDocument).where(InstructorDocument.user_id == current_user.id).order_by(InstructorDocument.uploaded_at.desc())
     )).scalars().all()
-    return list(rows)
+    return [await _vault_doc_out(d) for d in rows]
 
 
 @router.post("/documents", response_model=InstructorDocumentOut, status_code=201)
@@ -356,11 +360,14 @@ async def upload_document(
     data = await file.read()
     path = f"{current_user.id}_{document_type}_{int(datetime.now(timezone.utc).timestamp())}{_ext(file.filename)}"
     file_url = await storage.upload_file("instructor-documents", path, data, file.content_type or "application/octet-stream")
-    doc = InstructorDocument(user_id=current_user.id, document_type=document_type, file_url=file_url)
+    doc = InstructorDocument(
+        user_id=current_user.id, document_type=document_type, file_url=file_url,
+        bucket="instructor-documents", file_path=path,
+    )
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
-    return doc
+    return await _vault_doc_out(doc)
 
 
 @router.delete("/documents/{doc_id}")

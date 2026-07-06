@@ -20,7 +20,9 @@ class Certificate(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     type = Column(ENUM(CertificateType, name="certificate_type", create_type=False), nullable=False)
-    file_url = Column(String, nullable=False)
+    file_url = Column(String, nullable=False)  # legacy fallback only — bucket/file_path are the source of truth (A2)
+    bucket = Column(String(100), nullable=True)
+    file_path = Column(String, nullable=True)  # storage path; URLs generated at query time via storage.resolve_url
     generated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     generated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 

@@ -267,13 +267,15 @@ async def upload_my_photo(
     from app.services import storage
     ext = ("." + photo.filename.rsplit(".", 1)[-1]) if photo.filename and "." in photo.filename else ""
     data = await photo.read()
+    photo_path = f"{current_user.id}{ext}"
     url = await storage.upload_file(
         "profile_pictures",
-        f"{current_user.id}{ext}",
+        photo_path,
         data,
         photo.content_type or "image/jpeg",
     )
     current_user.photo_url = url
+    current_user.photo_path = photo_path
     await db.commit()
     return _user_out(current_user)
 

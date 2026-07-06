@@ -15,7 +15,9 @@ class AssessmentSubmission(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
-    file_url = Column(String, nullable=True)
+    file_url = Column(String, nullable=True)  # legacy fallback only — bucket/file_path are the source of truth (A2)
+    bucket = Column(String(100), nullable=True)
+    file_path = Column(String, nullable=True)
     google_drive_link = Column(String, nullable=True)
     comments = Column(Text, nullable=True)
     submitted_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

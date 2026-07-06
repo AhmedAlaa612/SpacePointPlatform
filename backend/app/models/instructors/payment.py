@@ -34,8 +34,10 @@ class PaymentLetter(Base):
         default=PaymentLetterStatus.draft,
     )
     is_published = Column(Boolean, nullable=False, default=False)
-    pdf_url = Column(String, nullable=True)
+    pdf_url = Column(String, nullable=True)         # legacy fallback only — *_path are the source of truth (A2; bucket "payment-letters")
     signed_pdf_url = Column(String, nullable=True)
+    pdf_path = Column(String, nullable=True)
+    signed_pdf_path = Column(String, nullable=True)
     instructor_signature_data = Column(Text, nullable=True)  # base64 PNG, re-embedded into the PDF on each sign
     signed_at = Column(DateTime(timezone=True), nullable=True)
     admin_notes = Column(Text, nullable=True)

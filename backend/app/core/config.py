@@ -20,6 +20,17 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_KEY: str = ""
 
+    # Storage backend (Phase 7 / GO_LIVE §3.A3)
+    # - "supabase": Supabase Storage buckets (dev default, pre-cutover)
+    # - "local":    files under STORAGE_ROOT/{bucket}/{path}, Fernet-encrypted at
+    #               rest, served via GET /files/{bucket}/{path} with HMAC-signed URLs
+    STORAGE_BACKEND: str = "supabase"
+    STORAGE_ROOT: str = "./storage"
+    # Fernet key (32-byte urlsafe base64) — REQUIRED when STORAGE_BACKEND=local.
+    # Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Losing this key means losing every stored file — back it up offline.
+    STORAGE_ENCRYPTION_KEY: str = ""
+
     # SMTP
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587

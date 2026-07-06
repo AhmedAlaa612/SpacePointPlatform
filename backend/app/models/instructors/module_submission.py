@@ -17,7 +17,9 @@ class ModuleSubmission(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     module_id = Column(UUID(as_uuid=True), ForeignKey("checklist_modules.id", ondelete="CASCADE"), nullable=False)
-    file_url = Column(String, nullable=False)
+    file_url = Column(String, nullable=False)  # legacy fallback only — bucket/file_path are the source of truth (A2)
+    bucket = Column(String(100), nullable=True)
+    file_path = Column(String, nullable=True)
     original_filename = Column(String(255), nullable=True)
     notes_text = Column(Text, nullable=True)
     status = Column(

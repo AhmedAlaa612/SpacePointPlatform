@@ -66,9 +66,10 @@ async def get_application(
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
     out = _app_out(app)
-    if app.cv_url:
+    cv_path = app.cv_path or (_path_from_url(app.cv_url) if app.cv_url else None)
+    if cv_path:
         try:
-            out["cv_signed_url"] = await storage.get_signed_url("cvs", _path_from_url(app.cv_url))
+            out["cv_signed_url"] = await storage.get_signed_url("cvs", cv_path)
         except Exception:
             out["cv_signed_url"] = app.cv_url
     return out
@@ -154,7 +155,7 @@ def _app_out(a: Application) -> dict:
         "full_name": a.full_name, "email": a.email,
         "phone": a.phone, "country": a.country,
         "invite_code": a.invite_code,
-        "has_cv": bool(a.cv_url),
+        "has_cv": bool(a.cv_path or a.cv_url),
         "answers": a.answers,
         "admin_notes": a.admin_notes,
         "created_at": a.created_at.isoformat() if a.created_at else None,

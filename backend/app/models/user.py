@@ -33,7 +33,8 @@ class User(Base):
     recruit_points_awarded = Column(Boolean, nullable=False, default=False)
     phone = Column(String(50), nullable=True)
     country = Column(String(100), nullable=True)
-    photo_url = Column(String, nullable=True)
+    photo_url = Column(String, nullable=True)   # stored ready-to-use URL (hot read path); photo_path is the durable source of truth (A2)
+    photo_path = Column(String, nullable=True)  # path inside the "profile_pictures" bucket
     linkedin_url = Column(String, nullable=True)
     # Shared identity number for ID cards — one per person, reused across every
     # role's card ("SP-{card_number:04d}-UAE"). Allocated on first-ever card

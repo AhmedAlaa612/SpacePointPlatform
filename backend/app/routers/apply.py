@@ -84,11 +84,13 @@ async def submit_application(
     # CV upload
     app_id = uuid.uuid4()
     cv_url = None
+    cv_path = None
     if cv and cv.filename:
         from app.services import storage
         ext = ("." + cv.filename.rsplit(".", 1)[-1]) if "." in cv.filename else ""
         data = await cv.read()
-        cv_url = await storage.upload_file("cvs", f"{role}/{app_id}{ext}", data, cv.content_type or "application/pdf")
+        cv_path = f"{role}/{app_id}{ext}"
+        cv_url = await storage.upload_file("cvs", cv_path, data, cv.content_type or "application/pdf")
 
     parsed_answers = {}
     if answers:
@@ -108,6 +110,7 @@ async def submit_application(
         invite_code=invite_code,
         invited_by_id=invited_by_id,
         cv_url=cv_url,
+        cv_path=cv_path,
         answers=parsed_answers,
     )
     db.add(app)

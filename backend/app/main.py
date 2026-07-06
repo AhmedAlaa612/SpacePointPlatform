@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.routers import admin, auth, documents, notifications
 from app.routers.apply import router as apply_router
+from app.routers.files import router as files_router
 from app.routers.interns import admin as interns_admin
 from app.routers.interns import intern as interns_intern
 from app.routers.interns import leader as interns_leader
@@ -214,6 +215,99 @@ async def _run_startup_migrations() -> None:
         await conn.execute(text("ALTER TABLE instructor_profiles ADD COLUMN IF NOT EXISTS contract_signature_data TEXT;"))
         await conn.execute(text("ALTER TABLE instructor_profiles ADD COLUMN IF NOT EXISTS contract_signed_at TIMESTAMPTZ;"))
 
+        # ── Phase 7 / GO_LIVE A2: path-based storage. bucket + *_path become
+        #    the source of truth; the legacy *_url columns are KEPT as a
+        #    non-destructive fallback (never dropped, never nulled). Readers
+        #    generate URLs at query time via storage.resolve_url().
+        #    See sql/0014_path_based_storage.sql for the snapshot. ──
+        for ddl in (
+            "ALTER TABLE documents             ADD COLUMN IF NOT EXISTS bucket VARCHAR(100)",
+            "ALTER TABLE documents             ADD COLUMN IF NOT EXISTS file_path TEXT",
+            "ALTER TABLE certificates          ADD COLUMN IF NOT EXISTS bucket VARCHAR(100)",
+            "ALTER TABLE certificates          ADD COLUMN IF NOT EXISTS file_path TEXT",
+            "ALTER TABLE document_requests     ADD COLUMN IF NOT EXISTS bucket VARCHAR(100)",
+            "ALTER TABLE document_requests     ADD COLUMN IF NOT EXISTS file_path TEXT",
+            "ALTER TABLE instructor_documents  ADD COLUMN IF NOT EXISTS bucket VARCHAR(100)",
+            "ALTER TABLE instructor_documents  ADD COLUMN IF NOT EXISTS file_path TEXT",
+            "ALTER TABLE module_submissions    ADD COLUMN IF NOT EXISTS bucket VARCHAR(100)",
+            "ALTER TABLE module_submissions    ADD COLUMN IF NOT EXISTS file_path TEXT",
+            "ALTER TABLE assessment_submissions ADD COLUMN IF NOT EXISTS bucket VARCHAR(100)",
+            "ALTER TABLE assessment_submissions ADD COLUMN IF NOT EXISTS file_path TEXT",
+            "ALTER TABLE applications          ADD COLUMN IF NOT EXISTS cv_path TEXT",
+            "ALTER TABLE users                 ADD COLUMN IF NOT EXISTS photo_path TEXT",
+            "ALTER TABLE instructor_profiles   ADD COLUMN IF NOT EXISTS contract_path TEXT",
+            "ALTER TABLE instructor_profiles   ADD COLUMN IF NOT EXISTS signed_contract_path TEXT",
+            "ALTER TABLE payment_letters       ADD COLUMN IF NOT EXISTS pdf_path TEXT",
+            "ALTER TABLE payment_letters       ADD COLUMN IF NOT EXISTS signed_pdf_path TEXT",
+            "ALTER TABLE document_templates    ADD COLUMN IF NOT EXISTS template_file_path VARCHAR(512)",
+        ):
+            await conn.execute(text(ddl))
+
+        # Backfill: parse existing stored Supabase URLs
+        # (…/storage/v1/object/{sign|public}/{bucket}/{path}?token=…) into the
+        # new columns. Python-side because paths can be percent-encoded in the
+        # URL (module submissions embed the original filename). Idempotent —
+        # only rows whose path column is still NULL are touched; production is
+        # populated fresh by the legacy ETL (A4), which writes paths natively.
+        import re
+        from urllib.parse import unquote
+
+        url_re = re.compile(r"/storage/v1/object/(?:sign|public)/([^/]+)/([^?]+)")
+        backfills = [
+            # (table, pk_col, url_col, path_col, bucket_col or None, forced_bucket or None)
+            ("documents", "id", "file_url", "file_path", "bucket", None),
+            ("certificates", "id", "file_url", "file_path", "bucket", None),
+            ("document_requests", "id", "file_url", "file_path", "bucket", None),
+            ("instructor_documents", "id", "file_url", "file_path", "bucket", None),
+            ("module_submissions", "id", "file_url", "file_path", "bucket", None),
+            ("assessment_submissions", "id", "file_url", "file_path", "bucket", None),
+            ("applications", "id", "cv_url", "cv_path", None, None),
+            # photos: force the current bucket — old URLs may still reference
+            # renamed buckets (instructor-photos, …) whose files were moved to
+            # profile_pictures keeping the same path.
+            ("users", "id", "photo_url", "photo_path", None, "profile_pictures"),
+            ("instructor_profiles", "user_id", "contract_url", "contract_path", None, None),
+            ("instructor_profiles", "user_id", "signed_contract_url", "signed_contract_path", None, None),
+            ("payment_letters", "id", "pdf_url", "pdf_path", None, None),
+            ("payment_letters", "id", "signed_pdf_url", "signed_pdf_path", None, None),
+            ("document_templates", "id", "template_file_url", "template_file_path", None, None),
+        ]
+        for table, pk, url_col, path_col, bucket_col, forced_bucket in backfills:
+            rows = (await conn.execute(text(
+                f"SELECT {pk}, {url_col} FROM {table} "
+                f"WHERE {path_col} IS NULL AND {url_col} LIKE '%/storage/v1/object/%'"
+            ))).all()
+            for pk_val, url in rows:
+                m = url_re.search(url or "")
+                if not m:
+                    continue
+                parsed_bucket, parsed_path = m.group(1), unquote(m.group(2))
+                if bucket_col:
+                    await conn.execute(
+                        text(f"UPDATE {table} SET {bucket_col} = :b, {path_col} = :p WHERE {pk} = :pk"),
+                        {"b": parsed_bucket, "p": parsed_path, "pk": pk_val},
+                    )
+                else:
+                    _ = forced_bucket  # bucket is implicit/fixed for this column
+                    await conn.execute(
+                        text(f"UPDATE {table} SET {path_col} = :p WHERE {pk} = :pk"),
+                        {"p": parsed_path, "pk": pk_val},
+                    )
+
+        # library_resources.file_url already stores a path for uploaded files
+        # and an external URL for links — normalize any legacy rows that still
+        # hold a full Supabase storage URL down to the bare path.
+        rows = (await conn.execute(text(
+            "SELECT id, file_url FROM library_resources WHERE file_url LIKE '%/storage/v1/object/%'"
+        ))).all()
+        for pk_val, url in rows:
+            m = url_re.search(url or "")
+            if m:
+                await conn.execute(
+                    text("UPDATE library_resources SET file_url = :p WHERE id = :pk"),
+                    {"p": unquote(m.group(2)), "pk": pk_val},
+                )
+
     # ── Phase-2 "research approved" applicant stage (parity with the live VPS
     #    pipeline, whose application_reviews already carries RESEARCH_APPROVED).
     #    ALTER TYPE ADD VALUE must not share a transaction with any use of the new
@@ -246,6 +340,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(files_router)          # public (HMAC-signed): /files/* — local storage backend
 app.include_router(apply_router)          # public: /apply/*
 app.include_router(notifications.router)  # shared: /notifications/*
 app.include_router(documents.router)  # shared: /documents/*  (Phase 4)

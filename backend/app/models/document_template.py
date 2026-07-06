@@ -22,7 +22,8 @@ class DocumentTemplate(Base):
     name = Column(String(255), nullable=False)
     roles = Column(ARRAY(String), nullable=False, default=list)  # e.g. ["intern", "instructor"]
     body_text = Column(Text, nullable=True)
-    template_file_url = Column(String(512), nullable=True)
+    template_file_url = Column(String(512), nullable=True)   # legacy fallback only — template_file_path is the source of truth (A2)
+    template_file_path = Column(String(512), nullable=True)  # path inside the "library-resources" bucket
     type = Column(String(20), nullable=False, default="letter")   # 'letter' | 'certificate' — drives the renderer
     is_system = Column(Boolean, nullable=False, default=False)     # seeded + non-deletable (e.g. workshop_delivery)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
