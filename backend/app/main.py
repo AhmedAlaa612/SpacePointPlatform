@@ -109,6 +109,27 @@ async def _run_startup_migrations() -> None:
             "CREATE INDEX IF NOT EXISTS idx_apply_questions_audience ON apply_questions(audience) WHERE is_active;"
         ))
 
+        # ── document_templates base table (sql/0016) — this table was never
+        #    captured in any earlier numbered snapshot or startup-DDL block,
+        #    only in the SQLAlchemy model; every dev/Supabase DB so far already
+        #    had it from ad hoc history, so this went unnoticed until a
+        #    from-scratch VPS boot hit it (the ALTER statements right below,
+        #    and 0009/0014's FK to this table, all assume it already exists).
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS document_templates (
+                id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                key                 VARCHAR(50) NOT NULL UNIQUE,
+                name                VARCHAR(255) NOT NULL,
+                roles               TEXT[] NOT NULL DEFAULT '{}',
+                body_text           TEXT,
+                template_file_url   VARCHAR(512),
+                template_file_path  VARCHAR(512),
+                type                VARCHAR(20) NOT NULL DEFAULT 'letter',
+                is_system           BOOLEAN NOT NULL DEFAULT FALSE,
+                updated_at          TIMESTAMPTZ DEFAULT now()
+            );
+        """))
+
         # ── document templates: explicit render type + system flag (replaces the
         #    old "guess the type from substrings in the key" behaviour) ──
         await conn.execute(text(
