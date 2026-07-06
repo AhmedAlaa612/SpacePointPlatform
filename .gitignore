@@ -52,6 +52,12 @@ yarn-error.log*
 backend/app/static/generated/
 backend/uploads/
 
+# Legacy ETL (GO_LIVE.md A4) id-maps — audit artifacts from migrate_legacy.py
+# runs. Even the "safe-looking" tables can carry real names/emails/titles
+# depending on the source DB, so the whole directory is gitignored rather
+# than picking file-by-file; keep locally for audit, don't commit.
+backend/scripts/migration_id_maps/
+
 # Docs & internal notes — not for the repo
 *.md
 

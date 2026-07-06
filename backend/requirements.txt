@@ -6,6 +6,7 @@ uvicorn[standard]
 sqlalchemy
 asyncpg
 alembic
+psycopg2-binary  # sync driver used only by scripts/migrate_legacy.py to read the legacy DB
 
 # Validation / settings
 pydantic[email]

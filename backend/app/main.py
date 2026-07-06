@@ -137,6 +137,17 @@ async def _run_startup_migrations() -> None:
                 );
             """))
 
+        # ── library_resources.resource_type: "file" | "link" discriminator.
+        #    Column exists on the SQLAlchemy model (models/instructors/library.py)
+        #    but was missing from every numbered SQL snapshot AND this startup
+        #    hook until discovered by the A4 legacy-ETL script hitting an
+        #    UndefinedColumnError against a freshly-provisioned DB — fixing it
+        #    here rather than only in the ETL script since ANY fresh DB
+        #    (not just an ETL target) would hit the same error. ──
+        await conn.execute(text(
+            "ALTER TABLE library_resources ADD COLUMN IF NOT EXISTS resource_type VARCHAR(10) NOT NULL DEFAULT 'file';"
+        ))
+
         # ── ID cards: one shared number per PERSON (SP-XXXX-UAE), not per role.
         #    Legacy per-role sequences (card_seq_admin, card_seq_intern, …) are
         #    left in place (harmless, unused) rather than dropped. ──
