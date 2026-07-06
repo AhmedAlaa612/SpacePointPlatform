@@ -51,7 +51,7 @@ async def _profile_out(profile: InstructorProfile, user: User) -> InstructorProf
     return InstructorProfileOut(
         user_id=profile.user_id,
         linkedin_url=user.linkedin_url,
-        photo_url=user.photo_url,
+        photo_url=await storage.resolve_url("profile_pictures", user.photo_path, user.photo_url),
         contract_url=await storage.resolve_url("contracts", profile.contract_path, profile.contract_url),
         signed_contract_url=await storage.resolve_url("contracts", profile.signed_contract_path, profile.signed_contract_url),
         contract_signed_at=profile.contract_signed_at,

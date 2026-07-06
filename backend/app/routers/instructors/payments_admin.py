@@ -56,6 +56,8 @@ async def _letter_with_children(db: AsyncSession, letter: PaymentLetter) -> Paym
     out.instructor_name = instructor
     out.sessions = sessions
     out.addons = addons
+    out.pdf_url = await storage.resolve_url("payment-letters", letter.pdf_path, letter.pdf_url)
+    out.signed_pdf_url = await storage.resolve_url("payment-letters", letter.signed_pdf_path, letter.signed_pdf_url)
     return out
 
 
@@ -234,7 +236,9 @@ async def generate_pdf(
             instructor_signature_b64=letter.instructor_signature_data,
             signed_date=letter.signed_at.strftime("%d/%m/%Y") if letter.signed_at else None,
         )
-        letter.pdf_url = await storage.upload_file("payment-letters", f"{letter.id}/letter.pdf", pdf_bytes, "application/pdf")
+        letter_pdf_path = f"{letter.id}/letter.pdf"
+        letter.pdf_url = await storage.upload_file("payment-letters", letter_pdf_path, pdf_bytes, "application/pdf")
+        letter.pdf_path = letter_pdf_path
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -346,7 +350,8 @@ async def list_certificates(db: AsyncSession = Depends(get_db), current_user: Us
     return [
         CertificateOut(
             id=c.id, user_id=c.user_id, instructor_name=name, instructor_email=email, type=c.type.value,
-            workshop_name=c.workshop_name, workshop_date=c.workshop_date, location=c.location, file_url=c.file_url,
+            workshop_name=c.workshop_name, workshop_date=c.workshop_date, location=c.location,
+            file_url=await storage.resolve_url(c.bucket, c.file_path, c.file_url),
         )
         for c, name, email in rows
     ]
@@ -368,14 +373,13 @@ async def create_certificate(
     body_text = f"For successfully delivering<br/>{body.workshop_name}<br/>{body.workshop_date} — {body.location}"
     cert_bytes = await asyncio.to_thread(generate_completion_certificate_pdf, instructor.full_name, body_text)
     cert_id = uuid.uuid4()
-    cert_url = await storage.upload_file(
-        "certificates", f"{instructor.id}/workshop_{cert_id}.pdf", cert_bytes, "application/pdf"
-    )
+    cert_bucket, cert_path = "certificates", f"{instructor.id}/workshop_{cert_id}.pdf"
+    cert_url = await storage.upload_file(cert_bucket, cert_path, cert_bytes, "application/pdf")
 
     certificate = Certificate(
         id=cert_id, user_id=instructor.id, type=CertificateType.workshop_delivery,
         workshop_name=body.workshop_name, workshop_date=body.workshop_date, location=body.location,
-        generated_by=current_user.id, file_url=cert_url,
+        generated_by=current_user.id, file_url=cert_url, bucket=cert_bucket, file_path=cert_path,
     )
     db.add(certificate)
     await db.commit()
@@ -389,7 +393,8 @@ async def create_certificate(
         id=certificate.id, user_id=certificate.user_id, instructor_name=instructor.full_name,
         instructor_email=instructor.email, type=certificate.type.value,
         workshop_name=certificate.workshop_name, workshop_date=certificate.workshop_date,
-        location=certificate.location, file_url=certificate.file_url,
+        location=certificate.location,
+        file_url=await storage.resolve_url(certificate.bucket, certificate.file_path, certificate.file_url),
     )
 
 

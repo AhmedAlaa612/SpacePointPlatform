@@ -41,6 +41,8 @@ async def _letter_with_children(db: AsyncSession, letter: PaymentLetter) -> Paym
     out = PaymentLetterOut.model_validate(letter, from_attributes=True)
     out.sessions = sessions
     out.addons = addons
+    out.pdf_url = await storage.resolve_url("payment-letters", letter.pdf_path, letter.pdf_url)
+    out.signed_pdf_url = await storage.resolve_url("payment-letters", letter.signed_pdf_path, letter.signed_pdf_url)
     return out
 
 
@@ -130,9 +132,9 @@ async def sign_letter(
             instructor_signature_b64=body.signature,
             signed_date=now.strftime("%d/%m/%Y"),
         )
-        letter.signed_pdf_url = await storage.upload_file(
-            "payment-letters", f"{letter.id}/signed.pdf", pdf_bytes, "application/pdf"
-        )
+        letter_signed_path = f"{letter.id}/signed.pdf"
+        letter.signed_pdf_url = await storage.upload_file("payment-letters", letter_signed_path, pdf_bytes, "application/pdf")
+        letter.signed_pdf_path = letter_signed_path
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -157,11 +159,11 @@ async def sign_letter(
         cert_bytes = await asyncio.to_thread(
             generate_completion_certificate_pdf, current_user.full_name, body, None,
         )
-        cert_url = await storage.upload_file(
-            "certificates", f"{current_user.id}/{s.id}.pdf", cert_bytes, "application/pdf"
-        )
+        cert_bucket, cert_path = "certificates", f"{current_user.id}/{s.id}.pdf"
+        cert_url = await storage.upload_file(cert_bucket, cert_path, cert_bytes, "application/pdf")
         db.add(Certificate(
             user_id=current_user.id, type=CertificateType.workshop_delivery, file_url=cert_url,
+            bucket=cert_bucket, file_path=cert_path,
             payment_session_id=s.id, workshop_name=s.workshop_description,
             workshop_date=s.session_date, location=s.location,
         ))
@@ -189,7 +191,11 @@ async def download_letter(
     )).scalars().first()
     if not letter:
         raise HTTPException(status_code=404, detail="Letter not found")
-    return {"url": letter.signed_pdf_url or letter.pdf_url}
+    if letter.signed_pdf_path or letter.signed_pdf_url:
+        url = await storage.resolve_url("payment-letters", letter.signed_pdf_path, letter.signed_pdf_url)
+    else:
+        url = await storage.resolve_url("payment-letters", letter.pdf_path, letter.pdf_url)
+    return {"url": url}
 
 
 @router.get("/summary", response_model=PaymentSummaryOut)

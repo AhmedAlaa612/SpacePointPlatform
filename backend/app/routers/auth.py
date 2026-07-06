@@ -37,7 +37,8 @@ from app.services.notification import create_notification as notify
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _user_out(user: User, profile: ApplicantProfile | None = None) -> dict:
+async def _user_out(user: User, profile: ApplicantProfile | None = None) -> dict:
+    from app.services import storage
     return {
         "id": str(user.id),
         "full_name": user.full_name,
@@ -48,7 +49,7 @@ def _user_out(user: User, profile: ApplicantProfile | None = None) -> dict:
         "phone": user.phone,
         "country": user.country,
         "invite_code": user.invite_code,
-        "photo_url": user.photo_url,
+        "photo_url": await storage.resolve_url("profile_pictures", user.photo_path, user.photo_url),
         "linkedin_url": user.linkedin_url,
         "created_at": user.created_at,
         # Applicant-profile fields — surfaced on Profile & Settings for
@@ -82,7 +83,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         "access_token": create_access_token(user.id, roles),
         "refresh_token": create_refresh_token(user.id, roles),
         "token_type": "bearer",
-        "user": _user_out(user),
+        "user": await _user_out(user),
     }
 
 
@@ -119,7 +120,7 @@ async def me(
     db: AsyncSession = Depends(get_db),
 ):
     profile = await _load_applicant_profile(db, current_user.id)
-    return _user_out(current_user, profile)
+    return await _user_out(current_user, profile)
 
 
 @router.get("/users/{user_id}", response_model=UserOut)
@@ -135,7 +136,7 @@ async def get_user_profile(
     user = (await db.execute(select(User).where(User.id == uid))).scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return _user_out(user)
+    return await _user_out(user)
 
 
 @router.get("/users/{user_id}/stats")
@@ -277,7 +278,7 @@ async def upload_my_photo(
     current_user.photo_url = url
     current_user.photo_path = photo_path
     await db.commit()
-    return _user_out(current_user)
+    return await _user_out(current_user)
 
 
 @router.patch("/me", response_model=UserOut)
@@ -308,7 +309,7 @@ async def update_me(
             profile.has_own_transportation = data.has_own_transportation
 
     await db.commit()
-    return _user_out(current_user, profile)
+    return await _user_out(current_user, profile)
 
 
 @router.post("/logout")
@@ -426,7 +427,7 @@ async def instructor_apply(payload: InstructorApply, db: AsyncSession = Depends(
         "access_token": create_access_token(user.id, roles),
         "refresh_token": create_refresh_token(user.id, roles),
         "token_type": "bearer",
-        "user": _user_out(user),
+        "user": await _user_out(user),
     }
 
 

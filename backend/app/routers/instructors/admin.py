@@ -185,7 +185,7 @@ async def applicant_detail(
             ],
             "submission": {
                 "id": str(sub.id),
-                "file_url": sub.file_url,
+                "file_url": await storage.resolve_url(sub.bucket, sub.file_path, sub.file_url),
                 "original_filename": sub.original_filename,
                 "notes_text": sub.notes_text,
                 "status": sub.status.value if sub.status else None,
@@ -198,7 +198,7 @@ async def applicant_detail(
         "profile": profile, "review": {"status": review.status, "feedback": review.feedback} if review else None,
         "videos": videos, "presentation_link": presentation.video_link if presentation else None,
         "assessment": {
-            "file_url": assessment.file_url,
+            "file_url": await storage.resolve_url(assessment.bucket, assessment.file_path, assessment.file_url),
             "google_drive_link": assessment.google_drive_link,
             "comments": assessment.comments,
             "submitted_at": assessment.submitted_at,
@@ -245,28 +245,27 @@ async def review_applicant(
             (profile.country if profile else "United Arab Emirates")
 
         contract_bytes = await asyncio.to_thread(generate_contract_pdf, user.full_name, living_area)
-        contract_url = await storage.upload_file(
-            "contracts", f"{user_id}/agreement.pdf", contract_bytes, "application/pdf"
-        )
+        contract_bucket, contract_path = "contracts", f"{user_id}/agreement.pdf"
+        contract_url = await storage.upload_file(contract_bucket, contract_path, contract_bytes, "application/pdf")
 
         inst_profile = (await db.execute(
             select(InstructorProfile).where(InstructorProfile.user_id == user_id)
         )).scalars().first()
         if inst_profile:
             inst_profile.contract_url = contract_url
+            inst_profile.contract_path = contract_path
         else:
-            db.add(InstructorProfile(user_id=user_id, contract_url=contract_url))
+            db.add(InstructorProfile(user_id=user_id, contract_url=contract_url, contract_path=contract_path))
 
         # Completion certificate auto-fires here — this approval is the one clean,
         # already-existing event for it (PLAN §8.2). Role-generic generator, same
         # one used for the interns-admin manual trigger (routers/interns/admin.py).
         cert_bytes = generate_completion_certificate_pdf(user.full_name, "Instructor Program")
-        cert_url = await storage.upload_file(
-            "certificates", f"{user_id}/instructor_completion.pdf", cert_bytes, "application/pdf"
-        )
+        cert_bucket, cert_path = "certificates", f"{user_id}/instructor_completion.pdf"
+        cert_url = await storage.upload_file(cert_bucket, cert_path, cert_bytes, "application/pdf")
         db.add(Certificate(
             user_id=user_id, type=CertificateType.instructor_completion, file_url=cert_url,
-            generated_by=current_user.id,
+            bucket=cert_bucket, file_path=cert_path, generated_by=current_user.id,
         ))
 
         email_sent = await send_approval_credentials_email(

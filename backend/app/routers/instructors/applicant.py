@@ -301,13 +301,16 @@ async def submit_module(
 
     data = await file.read()
     path = f"{current_user.id}/{module_id}/{file.filename}"
-    file_url = await storage.upload_file("applicant-submissions", path, data, file.content_type or "application/pdf")
+    bucket = "applicant-submissions"
+    file_url = await storage.upload_file(bucket, path, data, file.content_type or "application/pdf")
 
     existing = (await db.execute(
         select(ModuleSubmission).where(ModuleSubmission.user_id == current_user.id, ModuleSubmission.module_id == module_id)
     )).scalars().first()
     if existing:
         existing.file_url = file_url
+        existing.bucket = bucket
+        existing.file_path = path
         existing.original_filename = file.filename
         existing.notes_text = notes_text
         existing.status = ModuleSubmissionStatus.submitted
@@ -317,12 +320,14 @@ async def submit_module(
     else:
         submission = ModuleSubmission(
             user_id=current_user.id, module_id=module_id, file_url=file_url,
+            bucket=bucket, file_path=path,
             original_filename=file.filename, notes_text=notes_text,
         )
         db.add(submission)
 
     await db.commit()
     await db.refresh(submission)
+    submission.file_url = await storage.resolve_url(submission.bucket, submission.file_path, submission.file_url)
     return submission
 
 
@@ -396,12 +401,14 @@ async def submit_assessment(
         raise HTTPException(status_code=400, detail="Please upload a PDF file or provide a Google Drive link.")
 
     file_url = None
+    file_bucket = None
+    file_path = None
     if file:
         if not (file.filename or "").lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail="Only PDF files are allowed")
         data = await file.read()
-        path = f"{current_user.id}/assessment/{file.filename}"
-        file_url = await storage.upload_file("applicant-submissions", path, data, file.content_type or "application/pdf")
+        file_bucket, file_path = "applicant-submissions", f"{current_user.id}/assessment/{file.filename}"
+        file_url = await storage.upload_file(file_bucket, file_path, data, file.content_type or "application/pdf")
 
     existing = (await db.execute(
         select(AssessmentSubmission).where(AssessmentSubmission.user_id == current_user.id)
@@ -409,12 +416,14 @@ async def submit_assessment(
     if existing:
         if file_url:
             existing.file_url = file_url
+            existing.bucket = file_bucket
+            existing.file_path = file_path
         existing.google_drive_link = google_drive_link
         existing.comments = comments
         existing.submitted_at = datetime.now(timezone.utc)
     else:
         db.add(AssessmentSubmission(
-            user_id=current_user.id, file_url=file_url,
+            user_id=current_user.id, file_url=file_url, bucket=file_bucket, file_path=file_path,
             google_drive_link=google_drive_link, comments=comments,
         ))
 

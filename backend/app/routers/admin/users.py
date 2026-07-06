@@ -29,7 +29,7 @@ from app.models.user import User
 from app.schemas.documents import DossierItem, UserDossierOut
 from app.schemas.instructors.instructor import IdCardOut
 from app.schemas.user import UserCreate, UserOut, UserUpdate
-from app.services import user as user_service
+from app.services import storage, user as user_service
 from app.services.documents.id_card import ensure_card_id, render_card_back_png, render_card_png
 
 router = APIRouter(prefix="/users", tags=["admin"])
@@ -72,20 +72,24 @@ async def get_user_dossier(id: UUID, db: AsyncSession = Depends(get_db), current
     items: list[DossierItem] = []
 
     for d in (await db.execute(select(Document).where(Document.user_id == id))).scalars().all():
-        items.append(DossierItem(category="Documents", label=d.label, date=d.generated_at, url=d.file_url))
+        items.append(DossierItem(
+            category="Documents", label=d.label, date=d.generated_at,
+            url=await storage.resolve_url(d.bucket, d.file_path, d.file_url),
+        ))
 
     for c in (await db.execute(select(Certificate).where(Certificate.user_id == id))).scalars().all():
         items.append(DossierItem(
             category="Certificates",
             label=_CERT_LABEL.get(c.type, str(c.type)),
             date=c.generated_at,
-            url=c.file_url,
+            url=await storage.resolve_url(c.bucket, c.file_path, c.file_url),
             meta=c.workshop_name,
         ))
 
     for v in (await db.execute(select(InstructorDocument).where(InstructorDocument.user_id == id))).scalars().all():
         items.append(DossierItem(
-            category="Personal Vault", label=v.document_type, date=v.uploaded_at, url=v.file_url,
+            category="Personal Vault", label=v.document_type, date=v.uploaded_at,
+            url=await storage.resolve_url(v.bucket, v.file_path, v.file_url),
         ))
 
     subs = (await db.execute(
@@ -98,7 +102,7 @@ async def get_user_dossier(id: UUID, db: AsyncSession = Depends(get_db), current
             category="Module Submissions",
             label=f"{module_title} — {sub.original_filename or 'submission'}",
             date=sub.submitted_at,
-            url=sub.file_url,
+            url=await storage.resolve_url(sub.bucket, sub.file_path, sub.file_url),
             meta=sub.status.value if hasattr(sub.status, "value") else str(sub.status),
         ))
 
@@ -119,26 +123,39 @@ async def get_user_dossier(id: UUID, db: AsyncSession = Depends(get_db), current
     app_row = (await db.execute(
         select(Application).where(Application.email == target.email).order_by(Application.created_at.desc())
     )).scalars().first()
-    if app_row and app_row.cv_url:
-        items.append(DossierItem(category="Applicant Pipeline", label="CV / Resume", date=app_row.created_at, url=app_row.cv_url))
+    if app_row and (app_row.cv_url or app_row.cv_path):
+        items.append(DossierItem(
+            category="Applicant Pipeline", label="CV / Resume", date=app_row.created_at,
+            url=await storage.resolve_url("cvs", app_row.cv_path, app_row.cv_url),
+        ))
 
     profile = (await db.execute(select(InstructorProfile).where(InstructorProfile.user_id == id))).scalars().first()
     if profile:
-        if profile.contract_url:
-            items.append(DossierItem(category="Contract", label="Contract", date=profile.created_at, url=profile.contract_url))
-        if profile.signed_contract_url:
-            items.append(DossierItem(category="Contract", label="Signed Contract", date=profile.updated_at, url=profile.signed_contract_url))
+        if profile.contract_url or profile.contract_path:
+            items.append(DossierItem(
+                category="Contract", label="Contract", date=profile.created_at,
+                url=await storage.resolve_url("contracts", profile.contract_path, profile.contract_url),
+            ))
+        if profile.signed_contract_url or profile.signed_contract_path:
+            items.append(DossierItem(
+                category="Contract", label="Signed Contract", date=profile.updated_at,
+                url=await storage.resolve_url("contracts", profile.signed_contract_path, profile.signed_contract_url),
+            ))
 
     for letter in (await db.execute(select(PaymentLetter).where(PaymentLetter.instructor_user_id == id))).scalars().all():
-        if letter.pdf_url:
+        if letter.pdf_url or letter.pdf_path:
             items.append(DossierItem(
                 category="Payment Letters", label=f"Payment Letter ({letter.reference})",
-                date=letter.created_at, url=letter.pdf_url, meta=letter.status.value,
+                date=letter.created_at,
+                url=await storage.resolve_url("payment-letters", letter.pdf_path, letter.pdf_url),
+                meta=letter.status.value,
             ))
-        if letter.signed_pdf_url:
+        if letter.signed_pdf_url or letter.signed_pdf_path:
             items.append(DossierItem(
                 category="Payment Letters", label=f"Signed Payment Letter ({letter.reference})",
-                date=letter.signed_at, url=letter.signed_pdf_url, meta=letter.status.value,
+                date=letter.signed_at,
+                url=await storage.resolve_url("payment-letters", letter.signed_pdf_path, letter.signed_pdf_url),
+                meta=letter.status.value,
             ))
 
     for card in (await db.execute(select(IdCard).where(IdCard.user_id == id))).scalars().all():
