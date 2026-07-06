@@ -16,7 +16,8 @@ USAGE
         --uploads-dir "C:/Users/ahmed/Downloads/var/www/spacepoint_portal/backend/app/uploads" \
         --storage-root "C:/Users/ahmed/Downloads/spacepoint/scratch_storage" \
         --storage-key "<fernet key, or rely on STORAGE_ENCRYPTION_KEY env>" \
-        --base-url "http://<public IP or domain, no trailing slash>"
+        --base-url "http://<public IP or domain, no trailing slash>" \
+        --secret-key "<the real deployment's SECRET_KEY, from its env file>"
 
 --legacy-db     : sync-style DSN (psycopg2/psycopg driver — script opens its
                   own plain sync connection for reads, no ORM needed on the
@@ -411,6 +412,21 @@ async def run(args: argparse.Namespace) -> Report:
             "Every long-lived signed URL this run bakes in (profile photos, certificates, "
             "instructor documents, module/assessment submissions) will carry that wrong host "
             "PERMANENTLY until manually fixed. Pass --base-url unless this is a throwaway local "
+            "dry-run."
+        )
+    if args.secret_key:
+        os.environ["SECRET_KEY"] = args.secret_key
+    elif not os.environ.get("SECRET_KEY"):
+        print(
+            "[migrate_legacy] WARNING: no --secret-key given and SECRET_KEY is not set in the "
+            "environment — falling back to app.core.config's hardcoded placeholder default. Every "
+            "long-lived signed URL this run bakes in is signed with THAT key, not the real "
+            "deployment's key — every one of them will fail signature verification (403 'Invalid "
+            "or expired signature') once served through the real app, even though --base-url makes "
+            "the URL itself look correct. This is exactly what happened on the 2026-07-06 stage-1 "
+            "VPS deploy: the --base-url fix alone was not enough, a second fix-up pass regenerating "
+            "every URL through the real running container's settings was required. Pass "
+            "--secret-key (the real deployment's SECRET_KEY) unless this is a throwaway local "
             "dry-run."
         )
     if args.storage_key:
@@ -1395,6 +1411,15 @@ def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
              "app.core.config's default (http://localhost:8000), which is almost never what you "
              "want outside of a pure local dry-run — a 2026-07-06 production run hit exactly this "
              "and required a manual SQL fix-up afterward (see GO_LIVE.md's completion log)."
+    )
+    p.add_argument(
+        "--secret-key", default=None,
+        help="The real deployment's SECRET_KEY (from its env file, e.g. /etc/spacepoint/env). "
+             "Required for the same reason as --base-url: long-lived signed URLs baked in during "
+             "migration are HMAC-signed with whatever SECRET_KEY is in effect during THIS run. "
+             "Omitting it falls back to app.core.config's placeholder default, producing URLs that "
+             "look fine but fail signature verification against the real running app. See "
+             "--base-url's help text for the incident this fixes."
     )
     p.add_argument("--dry-run", action="store_true", help="Parse + map + report only; write nothing")
     p.add_argument("--skip-files", action="store_true", help="Skip disk reads/uploads; DB rows still get bucket/path as if present")
