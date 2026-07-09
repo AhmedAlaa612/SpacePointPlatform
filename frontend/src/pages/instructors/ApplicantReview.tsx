@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { ArrowLeft, Check, ExternalLink, FileText, Video, Play, CheckCircle2, XCircle, AlertCircle, MessageSquare, FileDown, Trash2, FlaskConical } from "lucide-react"
+import { ArrowLeft, Check, ChevronDown, ExternalLink, FileText, Video, Play, CheckCircle2, XCircle, AlertCircle, MessageSquare, FileDown, Trash2, FlaskConical, UserRound } from "lucide-react"
 import { getApplicantDetailApi, reviewApplicantApi, reviewModuleSubmissionApi, deleteApplicantApi, exportApplicantDossierApi } from "@/api/instructors/admin"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,6 +17,8 @@ export default function ApplicantReviewPage() {
   const [decisionError, setDecisionError] = useState<string | null>(null)
   const [moduleNotes, setModuleNotes] = useState<Record<string, string>>({})
   const [exporting, setExporting] = useState(false)
+  const [expandedModules, setExpandedModules] = useState<Record<string, boolean>>({})
+  const toggleModule = (id: string) => setExpandedModules((prev) => ({ ...prev, [id]: !prev[id] }))
 
   const { data: detail, isLoading, isError } = useQuery({
     queryKey: ["admin-applicant-detail", userId],
@@ -151,6 +153,72 @@ export default function ApplicantReviewPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         {/* Left 2 Columns: Application Submissions */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Profile — mirrors the reference app's "Profile" panel */}
+          <Card className="border-border/80 bg-card/40 backdrop-blur-sm">
+            <CardHeader className="flex flex-row items-center gap-2 border-b border-border/40 pb-4">
+              <UserRound className="w-5 h-5 text-primary" />
+              <CardTitle className="text-base font-bold">Profile</CardTitle>
+            </CardHeader>
+            <CardContent className="p-5 space-y-1.5 text-sm">
+              <p><span className="text-muted-foreground">Name:</span> <span className="text-foreground font-medium">{detail.full_name}</span></p>
+              <p><span className="text-muted-foreground">Email:</span> <span className="text-foreground font-medium">{detail.email}</span></p>
+              {detail.phone && (
+                <p><span className="text-muted-foreground">Phone:</span> <span className="text-foreground font-medium">{detail.phone}</span></p>
+              )}
+              {detail.profile && (
+                <>
+                  <div className="h-px bg-border/50 my-3" />
+                  <p><span className="text-muted-foreground">Country:</span> <span className="text-foreground font-medium">{(detail.profile.country as string) || "United Arab Emirates"}</span></p>
+                  {!!detail.profile.university && (
+                    <p><span className="text-muted-foreground">University:</span> <span className="text-foreground font-medium">{detail.profile.university as string}</span></p>
+                  )}
+                  {!!detail.profile.highest_degree && (
+                    <p>
+                      <span className="text-muted-foreground">Degree:</span>{" "}
+                      <span className="text-foreground font-medium">
+                        {detail.profile.highest_degree as string}
+                        {detail.profile.highest_degree_other ? ` (${detail.profile.highest_degree_other as string})` : ""}
+                      </span>
+                    </p>
+                  )}
+                  {!!detail.profile.city_of_residence && (
+                    <>
+                      <p><span className="text-muted-foreground">City:</span> <span className="text-foreground font-medium">{detail.profile.city_of_residence as string}</span></p>
+                      <p><span className="text-muted-foreground">Own Transportation:</span> <span className="text-foreground font-medium">{detail.profile.has_own_transportation ? "Yes" : "No"}</span></p>
+                    </>
+                  )}
+                  {!!(detail.profile.deliver_cities as string[] | undefined)?.length && (
+                    <>
+                      <div className="h-px bg-border/50 my-3" />
+                      <p className="text-muted-foreground mb-1">Deliver Cities:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {(detail.profile.deliver_cities as string[]).map((c) => (
+                          <span key={c} className="bg-muted px-2 py-0.5 rounded text-xs text-foreground">{c}</span>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                  {!!(detail.profile.background_areas as string[] | undefined)?.length && (
+                    <div className="mt-2">
+                      <p className="text-muted-foreground mb-1">Background:</p>
+                      <div className="flex flex-wrap gap-1">
+                        {(detail.profile.background_areas as string[]).map((b) => (
+                          <span key={b} className="bg-primary/15 text-primary px-2 py-0.5 rounded text-xs">{b}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {!!detail.profile.background_other && (
+                    <p className="text-xs text-muted-foreground">Other: {detail.profile.background_other as string}</p>
+                  )}
+                </>
+              )}
+              {detail.invite_code_used && (
+                <p className="pt-2"><span className="text-muted-foreground">Invite Code:</span> <span className="font-mono text-xs text-foreground">{detail.invite_code_used}</span></p>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Phase 1: Video Submissions */}
           <Card className="border-border/80 bg-card/40 backdrop-blur-sm">
             <CardHeader className="flex flex-row items-center gap-2 border-b border-border/40 pb-4">
@@ -217,7 +285,8 @@ export default function ApplicantReviewPage() {
             </CardContent>
           </Card>
 
-          {/* Phase 1: Checklist Modules & Uploads */}
+          {/* Phase 1: Checklist Modules & Uploads — collapsible, header shows a
+              status badge, matching the reference app's module cards. */}
           <Card className="border-border/80 bg-card/40 backdrop-blur-sm">
             <CardHeader className="flex flex-row items-center gap-2 border-b border-border/40 pb-4">
               <FileText className="w-5 h-5 text-primary" />
@@ -228,110 +297,135 @@ export default function ApplicantReviewPage() {
                 detail.modules.map((m: any) => {
                   const hasSub = !!m.submission
                   const subStatus = m.submission?.status
-                  const checkedCount = m.checklist_items.filter((it: any) => it.is_completed).length
-                  const totalCount = m.checklist_items.length
+                  const isExpanded = !!expandedModules[m.id]
+                  const itemsNoSection = m.items_no_section ?? m.checklist_items ?? []
+                  const sections = m.sections ?? []
+
+                  const renderItem = (it: any) => (
+                    <li key={it.id} className="flex items-center gap-2 text-xs">
+                      <span className={cn(
+                        "w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0",
+                        it.is_completed
+                          ? "bg-primary border-primary text-primary-foreground"
+                          : "border-border"
+                      )}>
+                        {it.is_completed && <Check size={10} />}
+                      </span>
+                      {it.item_code && <span className="text-muted-foreground">{it.item_code}</span>}
+                      <span className={cn(it.is_completed ? "text-foreground" : "text-muted-foreground")}>
+                        {it.title}
+                      </span>
+                    </li>
+                  )
 
                   return (
-                    <div key={m.id} className="rounded-xl border border-border/60 bg-card/30 p-4 space-y-3">
-                      <div className="flex items-center justify-between flex-wrap gap-2">
-                        <p className="font-bold text-sm text-foreground">{m.title}</p>
-                        <span className="text-[10px] font-semibold bg-muted px-2 py-0.5 rounded-full text-muted-foreground">
-                          {checkedCount} / {totalCount} Items Completed
+                    <div key={m.id} className="rounded-xl border border-border/60 bg-card/30 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => toggleModule(m.id)}
+                        className="w-full flex items-center justify-between gap-2 flex-wrap px-4 py-3 text-left hover:bg-card/50 transition-colors"
+                      >
+                        <span className="flex items-center gap-2 font-bold text-sm text-foreground">
+                          <ChevronDown size={16} className={cn("text-muted-foreground transition-transform", !isExpanded && "-rotate-90")} />
+                          {m.title}
                         </span>
-                      </div>
+                        {hasSub ? (
+                          <span className={cn(
+                            "text-[10px] font-bold px-2 py-1 rounded border uppercase tracking-wider",
+                            subStatus === "approved" && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+                            subStatus === "submitted" && "bg-muted text-muted-foreground border-border",
+                            subStatus === "rejected" && "bg-destructive/10 text-destructive border-destructive/20"
+                          )}>
+                            {subStatus}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold px-2 py-1 rounded border uppercase tracking-wider bg-muted text-muted-foreground border-border">
+                            Pending Upload
+                          </span>
+                        )}
+                      </button>
 
-                      {/* Checklist items list */}
-                      <ul className="space-y-1 bg-card/25 p-3 rounded-lg border border-border/30">
-                        {m.checklist_items.map((it: any) => (
-                          <li key={it.id} className="flex items-center gap-2 text-xs">
-                            <span className={cn(
-                              "w-3.5 h-3.5 rounded flex items-center justify-center border",
-                              it.is_completed
-                                ? "bg-primary border-primary text-primary-foreground"
-                                : "border-border"
-                            )}>
-                              {it.is_completed && <Check size={10} />}
-                            </span>
-                            <span className={cn(it.is_completed ? "text-foreground" : "text-muted-foreground")}>
-                              {it.title}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
+                      {isExpanded && (
+                        <div className="px-4 pb-4 pt-1 space-y-3">
+                          {/* Module file upload submission */}
+                          {hasSub ? (
+                            <div className="bg-card/50 border border-border/50 rounded-xl p-3 text-xs space-y-2">
+                              <p className="truncate flex items-center gap-1">
+                                <span className="text-muted-foreground">File:</span>
+                                <a
+                                  href={m.submission.file_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-primary underline font-medium inline-flex items-center gap-0.5"
+                                >
+                                  {m.submission.original_filename || "Download Submission"}
+                                  <ExternalLink size={10} />
+                                </a>
+                              </p>
 
-                      {/* Module file upload submission */}
-                      {hasSub ? (
-                        <div className="bg-card/50 border border-border/50 rounded-xl p-3 text-xs space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="font-semibold text-foreground/80">Uploaded File Submission</span>
-                            <span className={cn(
-                              "text-[9px] font-bold px-2 py-0.5 rounded-full border uppercase tracking-wider",
-                              subStatus === "approved" && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-                              subStatus === "submitted" && "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
-                              subStatus === "rejected" && "bg-destructive/10 text-destructive border-destructive/20"
-                            )}>
-                              {subStatus}
-                            </span>
-                          </div>
+                              {m.submission.notes_text && (
+                                <div className="text-muted-foreground bg-card/85 p-2 rounded border border-border/30 mt-1">
+                                  <span className="font-semibold text-[10px] text-foreground block mb-0.5">Notes:</span>
+                                  <p className="whitespace-pre-wrap">{m.submission.notes_text}</p>
+                                </div>
+                              )}
 
-                          <p className="truncate flex items-center gap-1">
-                            <span className="text-muted-foreground">File:</span>
-                            <a
-                              href={m.submission.file_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-primary underline font-medium inline-flex items-center gap-0.5"
-                            >
-                              {m.submission.original_filename || "Download Submission"}
-                              <ExternalLink size={10} />
-                            </a>
-                          </p>
+                              {m.submission.feedback && (
+                                <div className="text-amber-700 dark:text-amber-400 bg-amber-500/5 p-2 rounded border border-amber-500/10 mt-1">
+                                  <span className="font-semibold text-[10px] block mb-0.5">Reviewer feedback:</span>
+                                  <p className="whitespace-pre-wrap">{m.submission.feedback}</p>
+                                </div>
+                              )}
 
-                          {m.submission.notes_text && (
-                            <div className="text-muted-foreground bg-card/85 p-2 rounded border border-border/30 mt-1">
-                              <span className="font-semibold text-[10px] text-foreground block mb-0.5">Notes:</span>
-                              <p className="whitespace-pre-wrap">{m.submission.notes_text}</p>
+                              {/* Reviewer actions: approve / reject PDF + save note */}
+                              <div className="pt-2 mt-1 border-t border-border/40 space-y-2">
+                                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Module Adjudication</div>
+                                <textarea
+                                  className="input py-1.5 min-h-[52px] resize-none text-xs bg-background/50"
+                                  placeholder="Reviewer note for this module (optional)…"
+                                  value={moduleNotes[m.id] ?? m.submission.feedback ?? ""}
+                                  onChange={(e) => setModuleNotes((prev) => ({ ...prev, [m.id]: e.target.value }))}
+                                />
+                                <div className="flex gap-2">
+                                  <Button
+                                    size="sm"
+                                    className="gap-1 h-7"
+                                    onClick={() => reviewModule.mutate({ moduleId: m.id, status: "approved" })}
+                                    disabled={reviewModule.isPending}
+                                  >
+                                    <CheckCircle2 size={12} /> Approve PDF
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    className="gap-1 h-7"
+                                    onClick={() => reviewModule.mutate({ moduleId: m.id, status: "rejected" })}
+                                    disabled={reviewModule.isPending}
+                                  >
+                                    <XCircle size={12} /> Reject PDF
+                                  </Button>
+                                </div>
+                              </div>
                             </div>
+                          ) : (
+                            <p className="text-xs text-muted-foreground italic">No file submission uploaded for this module.</p>
                           )}
 
-                          {m.submission.feedback && (
-                            <div className="text-amber-700 dark:text-amber-400 bg-amber-500/5 p-2 rounded border border-amber-500/10 mt-1">
-                              <span className="font-semibold text-[10px] block mb-0.5">Reviewer feedback:</span>
-                              <p className="whitespace-pre-wrap">{m.submission.feedback}</p>
-                            </div>
+                          {/* Checklist items — grouped by section, matching the reference */}
+                          {itemsNoSection.length > 0 && (
+                            <ul className="space-y-1 bg-card/25 p-3 rounded-lg border border-border/30">
+                              {itemsNoSection.map(renderItem)}
+                            </ul>
                           )}
-
-                          {/* Reviewer actions: approve / reject PDF + save note */}
-                          <div className="pt-2 mt-1 border-t border-border/40 space-y-2">
-                            <textarea
-                              className="input py-1.5 min-h-[52px] resize-none text-xs bg-background/50"
-                              placeholder="Reviewer note for this module (optional)…"
-                              value={moduleNotes[m.id] ?? m.submission.feedback ?? ""}
-                              onChange={(e) => setModuleNotes((prev) => ({ ...prev, [m.id]: e.target.value }))}
-                            />
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                className="gap-1 h-7"
-                                onClick={() => reviewModule.mutate({ moduleId: m.id, status: "approved" })}
-                                disabled={reviewModule.isPending}
-                              >
-                                <CheckCircle2 size={12} /> Approve PDF
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                className="gap-1 h-7"
-                                onClick={() => reviewModule.mutate({ moduleId: m.id, status: "rejected" })}
-                                disabled={reviewModule.isPending}
-                              >
-                                <XCircle size={12} /> Reject PDF
-                              </Button>
+                          {sections.map((sec: any) => (
+                            <div key={sec.id}>
+                              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1.5">{sec.title}</p>
+                              <ul className="space-y-1 bg-card/25 p-3 rounded-lg border border-border/30">
+                                {sec.items.map(renderItem)}
+                              </ul>
                             </div>
-                          </div>
+                          ))}
                         </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground italic">No file submission uploaded for this module.</p>
                       )}
                     </div>
                   )

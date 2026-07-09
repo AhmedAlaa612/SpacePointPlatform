@@ -67,7 +67,9 @@ export default function InstructorsAdminOverview() {
     return top
   }, null)
 
-  const universityData = overview?.university_distribution ?? []
+  const universityData = [...(overview?.university_distribution ?? [])]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10)
   const cityData = overview?.city_distribution ?? []
   const trendData = overview?.signup_trend ?? []
 
@@ -113,16 +115,17 @@ export default function InstructorsAdminOverview() {
           {universityData.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No university data yet.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={universityData} margin={{ top: 8, right: 8, left: 0, bottom: 48 }}>
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart data={universityData} margin={{ top: 8, right: 8, left: 0, bottom: 120 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted-foreground/20" />
                 <XAxis
                   dataKey="name"
-                  angle={-35}
+                  angle={-90}
                   textAnchor="end"
                   interval={0}
-                  height={60}
-                  tick={{ fontSize: 11, fill: "currentColor" }}
+                  height={140}
+                  tickFormatter={(value: string) => (value.length > 16 ? `${value.slice(0, 16)}…` : value)}
+                  tick={{ fontSize: 10, fill: "currentColor" }}
                   className="text-muted-foreground"
                 />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" />

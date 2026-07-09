@@ -19,6 +19,7 @@ from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
 from app.models.instructors.checklist import ChecklistModule
 from app.models.instructors.instructor_document import InstructorDocument
+from app.models.instructors.checklist import ModuleSection
 from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.instructors.invitation_code import InvitationCode
 from app.models.instructors.module_submission import ModuleSubmission
@@ -139,14 +140,35 @@ async def applicant_detail(
         select(AssessmentSubmission).where(AssessmentSubmission.user_id == user_id)
     )).scalars().first()
 
-    # Expose checklist modules, items, progress, and submissions for the admin review page
+    # Best-effort "invite code used at signup": instructor_apply never persists
+    # the code the applicant typed against their own row (it's validated then
+    # discarded) — only the referring ambassador's own sharable invite_code is
+    # reconstructible, via users.invited_by_id. Admin-issued invitation_codes
+    # (the other code family instructor_apply accepts) leave no per-applicant
+    # trace at all, so this is genuinely best-effort, not the exact code typed.
+    invite_code_used = None
+    if user.invited_by_id:
+        ambassador = (await db.execute(select(User).where(User.id == user.invited_by_id))).scalars().first()
+        invite_code_used = ambassador.invite_code if ambassador else None
+
+    # Expose checklist modules, items (grouped by section, matching the
+    # reference admin_dashboard.html), progress, and submissions.
     from app.models.instructors.checklist import ChecklistModule, ChecklistItem, UserChecklistProgress
     from app.models.instructors.module_submission import ModuleSubmission
 
     modules = (await db.execute(select(ChecklistModule).order_by(ChecklistModule.sort_order))).scalars().all()
     module_ids = [m.id for m in modules]
 
-    items = (await db.execute(select(ChecklistItem).where(ChecklistItem.module_id.in_(module_ids)))).scalars().all()
+    sections = (await db.execute(
+        select(ModuleSection).where(ModuleSection.module_id.in_(module_ids)).order_by(ModuleSection.sort_order)
+    )).scalars().all()
+    sections_by_module: dict = {}
+    for s in sections:
+        sections_by_module.setdefault(s.module_id, []).append(s)
+
+    items = (await db.execute(
+        select(ChecklistItem).where(ChecklistItem.module_id.in_(module_ids)).order_by(ChecklistItem.sort_order)
+    )).scalars().all()
     items_by_module = {}
     for it in items:
         items_by_module.setdefault(it.module_id, []).append(it)
@@ -167,21 +189,35 @@ async def applicant_detail(
     )).scalars().all()
     submission_by_module = {s.module_id: s for s in submissions}
 
+    def _item_out(it) -> dict:
+        return {
+            "id": str(it.id),
+            "item_code": it.item_code,
+            "title": it.title,
+            "is_completed": it.id in completed_ids,
+        }
+
     modules_data = []
     for m in modules:
         module_items = items_by_module.get(m.id, [])
+        module_sections = sections_by_module.get(m.id, [])
         sub = submission_by_module.get(m.id)
+        items_no_section = [it for it in module_items if it.section_id is None]
         modules_data.append({
             "id": str(m.id),
             "title": m.title,
             "sort_order": m.sort_order,
-            "checklist_items": [
+            # Flat list — kept for existing checked/total-count logic.
+            "checklist_items": [_item_out(it) for it in module_items],
+            # Section-grouped view, matching the reference admin_dashboard.html.
+            "items_no_section": [_item_out(it) for it in items_no_section],
+            "sections": [
                 {
-                    "id": str(it.id),
-                    "title": it.title,
-                    "is_completed": it.id in completed_ids,
+                    "id": str(sec.id),
+                    "title": sec.title,
+                    "items": [_item_out(it) for it in module_items if it.section_id == sec.id],
                 }
-                for it in module_items
+                for sec in module_sections
             ],
             "submission": {
                 "id": str(sub.id),
@@ -194,7 +230,8 @@ async def applicant_detail(
         })
 
     return {
-        "id": str(user.id), "full_name": user.full_name, "email": user.email,
+        "id": str(user.id), "full_name": user.full_name, "email": user.email, "phone": user.phone,
+        "invite_code_used": invite_code_used,
         "profile": profile, "review": {"status": review.status, "feedback": review.feedback} if review else None,
         "videos": videos, "presentation_link": presentation.video_link if presentation else None,
         "assessment": {
