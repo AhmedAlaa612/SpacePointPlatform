@@ -388,6 +388,10 @@ async def instructor_apply(payload: InstructorApply, db: AsyncSession = Depends(
         # instructors correctly. applicant_profiles.referred_by_ambassador_id
         # (below) stays the source of truth for the Phase 3 approval points hook.
         invited_by_id=referred_by_ambassador_id,
+        # The exact code they typed — a distinct field from invite_code (an
+        # ambassador's own sharable code). Mirrors the legacy portal's
+        # users.invitation_code_used, shown on the admin applicant review page.
+        invitation_code_used=code,
     )
     db.add(user)
     await db.flush()  # assign user.id

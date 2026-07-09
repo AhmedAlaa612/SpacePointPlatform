@@ -140,14 +140,15 @@ async def applicant_detail(
         select(AssessmentSubmission).where(AssessmentSubmission.user_id == user_id)
     )).scalars().first()
 
-    # Best-effort "invite code used at signup": instructor_apply never persists
-    # the code the applicant typed against their own row (it's validated then
-    # discarded) — only the referring ambassador's own sharable invite_code is
-    # reconstructible, via users.invited_by_id. Admin-issued invitation_codes
-    # (the other code family instructor_apply accepts) leave no per-applicant
-    # trace at all, so this is genuinely best-effort, not the exact code typed.
-    invite_code_used = None
-    if user.invited_by_id:
+    # The exact code typed at signup — sql/0017's users.invitation_code_used,
+    # populated going forward by instructor_apply. Rows that predate that fix
+    # (migrated from the legacy portal before the ETL carried this column
+    # over, or created in the gap before this fix shipped) fall back to a
+    # best-effort reconstruction: if they were referred by an ambassador, that
+    # ambassador's own sharable invite_code — not the literal code typed, but
+    # the closest recoverable equivalent.
+    invite_code_used = user.invitation_code_used
+    if not invite_code_used and user.invited_by_id:
         ambassador = (await db.execute(select(User).where(User.id == user.invited_by_id))).scalars().first()
         invite_code_used = ambassador.invite_code if ambassador else None
 

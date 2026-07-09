@@ -67,6 +67,9 @@ async def _run_startup_migrations() -> None:
         # profile photo + LinkedIn live on users (shared across every role)
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS photo_url TEXT;"))
         await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS linkedin_url TEXT;"))
+        # sql/0017 — distinct from invite_code (an ambassador's own sharable code);
+        # this is the code a person typed at THEIR OWN signup.
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS invitation_code_used VARCHAR(100);"))
 
         # ── unified applications inbox (all public applications, admin-reviewed) ──
         await conn.execute(text("""

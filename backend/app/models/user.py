@@ -26,6 +26,11 @@ class User(Base):
 
     status = Column(String(50), nullable=False, default="active")
     invite_code = Column(String(100), unique=True, nullable=True)  # ambassador's sharable code
+    # The exact code THIS person typed at signup (admin-issued invitation_codes.code
+    # or an ambassador's invite_code) — a distinct concept from invite_code above,
+    # which is only ever set for ambassadors as their OWN sharable code. Mirrors the
+    # legacy instructors-portal's users.invitation_code_used column 1:1.
+    invitation_code_used = Column(String(100), nullable=True)
     invited_by_id = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

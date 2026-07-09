@@ -536,20 +536,23 @@ async def run(args: argparse.Namespace) -> Report:
             existing.password_hash = lu["password_hash"]  # VERBATIM — bcrypt compatible, never re-hash
             existing.roles = [role]
             existing.status = "active"
-            # NOTE: legacy `invitation_code_used` is NOT the same concept as
-            # unified `users.invite_code`. `invite_code` is a UNIQUE,
-            # personally-owned referral code an ambassador shares out
-            # (app/routers/apply.py checks User.invite_code == <code the
-            # APPLICANT typed>); `invitation_code_used` is which ADMIN-issued
-            # invitation_codes.code the applicant typed at signup — many
-            # legacy users share the same one (confirmed: 37 users share
-            # "SPACEPOINT26" locally), which would violate invite_code's
-            # UNIQUE constraint if mapped directly. There is no unified
-            # column for "which invitation code did I sign up with" — the
-            # `invitation_codes` table itself is migrated separately below,
-            # but the per-user usage link is not preserved (not tracked by
-            # any unified FK/column). Deliberately left unset here.
+            # NOTE (corrected 2026-07-07 — sql/0017 closed this gap): legacy
+            # `invitation_code_used` is NOT the same concept as unified
+            # `users.invite_code`. `invite_code` is a UNIQUE, personally-owned
+            # referral code an ambassador shares out (app/routers/apply.py
+            # checks User.invite_code == <code the APPLICANT typed>);
+            # `invitation_code_used` is which code (admin-issued
+            # invitation_codes.code OR an ambassador's invite_code) THIS
+            # person typed at signup — many legacy users share the same one
+            # (confirmed: 37 users share "SPACEPOINT26" locally), which would
+            # violate invite_code's UNIQUE constraint if mapped there. A
+            # dedicated users.invitation_code_used column now exists
+            # specifically for this — mapped 1:1 from the legacy column below.
+            # invite_code itself stays unset here (still a different, unique,
+            # ambassador-only field — migrated users aren't assumed to be
+            # ambassadors just because they signed up with a code).
             existing.invite_code = None
+            existing.invitation_code_used = lu.get("invitation_code_used")
             existing.must_change_password = bool(lu.get("must_change_password") or 0)
             existing.phone = lu.get("phone")
             existing.created_at = lu.get("created_at") or datetime.now(timezone.utc)
