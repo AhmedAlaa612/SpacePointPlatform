@@ -4,12 +4,19 @@ Template: app/static/templates/docx/agreement.docx
 Placeholders: {{ today }}  {{ instructor_name }}  {{ living_area }}
 
 Signing (Phase 6): the template's signature block is a single paragraph
-(index 44) with two tab-column "Name/Date/Signature" rows. The admin's name,
-date and signature are already baked into the template as static content
-(an anchored image) — only the Facilitator (instructor) side is blank,
-filled in here at signing time. Run indices below were confirmed by
-rendering the template and inspecting the resulting python-docx runs
-(docxtpl preserves run boundaries for simple {{ var }} substitutions).
+(index 44) with two tab-column "Name/Date/Signature" rows. The admin's
+NAME and signature image are baked into the template as static content —
+but {{ today }} (run 21) is the admin's DATE field, a real Jinja
+placeholder, not static. Per the client's requirement, neither party's
+date should show until the instructor actually signs, and both dates
+must then match the signing date exactly — so {{ today }} renders BLANK
+on the initial (unsigned) generation, and gets overwritten (same value
+used for the Facilitator's date) at signing time, alongside the
+Facilitator side which was always blank until signing. Run indices below
+were confirmed by rendering the template and inspecting the resulting
+python-docx runs (docxtpl preserves run boundaries for simple {{ var }}
+substitutions, and an empty {{ today }} does not shift them either —
+verified directly).
 """
 
 import base64
@@ -77,8 +84,13 @@ def generate_contract_pdf(
     signed_date: str | None = None,
     instructor_signature_b64: str | None = None,
 ) -> bytes:
-    d = date.today()
-    today = f"{d.day} {d.strftime('%B %Y')}"  # "26 June 2026" (cross-platform)
+    is_signing = bool(instructor_signature_b64)
+    if is_signing:
+        d = date.today()
+        today = signed_date or f"{d.day} {d.strftime('%B %Y')}"  # "26 June 2026" (cross-platform)
+    else:
+        today = ""  # neither party's date shows until the instructor actually signs
+
     tpl = DocxTemplate(str(_TEMPLATE))
     tpl.render({
         "today": today,
@@ -89,9 +101,9 @@ def generate_contract_pdf(
     tpl.save(buf)
     buf.seek(0)
 
-    if instructor_signature_b64:
+    if is_signing:
         doc = Document(buf)
-        _fill_facilitator_signature(doc, signed_date or today, instructor_signature_b64)
+        _fill_facilitator_signature(doc, today, instructor_signature_b64)
         buf = io.BytesIO()
         doc.save(buf)
         buf.seek(0)

@@ -13,6 +13,8 @@ export default function ApplicantReviewPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [feedback, setFeedback] = useState("")
+  const [decision, setDecision] = useState<string | null>(null)
+  const [decisionError, setDecisionError] = useState<string | null>(null)
   const [moduleNotes, setModuleNotes] = useState<Record<string, string>>({})
   const [exporting, setExporting] = useState(false)
 
@@ -33,9 +35,20 @@ export default function ApplicantReviewPage() {
     onSuccess: () => {
       invalidate()
       setFeedback("")
+      setDecisionError(null)
       void navigate({ to: "/instructors/admin" })
     },
   })
+
+  const handleSaveDecision = () => {
+    const status = decision ?? decisionDefault
+    if (status === "rejected" && feedback.trim() === "") {
+      setDecisionError("Feedback is required for rejections to help applicants improve.")
+      return
+    }
+    setDecisionError(null)
+    review.mutate(status)
+  }
 
   const reviewModule = useMutation({
     mutationFn: (p: { moduleId: string; status: string }) =>
@@ -75,6 +88,15 @@ export default function ApplicantReviewPage() {
   }
 
   const reviewStatus = detail.review?.status ?? "in_progress"
+  // The Decision dropdown's earliest option is "under_review" (matching the
+  // reference app) — "in_progress" (this app's own pre-review default,
+  // which the reference doesn't distinguish) has no matching <option>, so it
+  // must be normalized here. Otherwise the browser silently falls back to
+  // displaying the first option while the untouched React value stays
+  // "in_progress" underneath — visually "Under Review" but actually
+  // submitting something else if Save is clicked without touching the
+  // dropdown first.
+  const decisionDefault = reviewStatus === "in_progress" ? "under_review" : reviewStatus
 
   return (
     <div className="flex flex-col gap-6 max-w-5xl mx-auto pb-12 animate-fade-in">
@@ -418,59 +440,66 @@ export default function ApplicantReviewPage() {
             </CardContent>
           </Card>
 
-          {/* Action Card */}
+          {/* Action Card — mirrors the reference app's "Adjudication" panel: one
+              Decision dropdown + one Feedback box + one Save Decision button,
+              not a stack of per-transition buttons. */}
           <Card className="border-border/80 bg-card/60 backdrop-blur-md shadow-lg">
             <CardHeader className="border-b border-border/40 pb-4">
               <CardTitle className="text-base font-bold flex items-center gap-1.5">
                 <MessageSquare size={16} className="text-primary" />
-                Application Decision
+                Adjudication
               </CardTitle>
             </CardHeader>
             <CardContent className="p-5 space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Review Feedback
-                </label>
-                <textarea
-                  className="input min-h-[100px] py-2 resize-none text-xs bg-background/50 border-border focus:border-primary"
-                  placeholder="Provide feedback to the applicant..."
-                  value={feedback}
-                  onChange={(e) => setFeedback(e.target.value)}
-                />
-              </div>
+              {(() => {
+                const finalized = reviewStatus === "approved" || reviewStatus === "rejected"
+                return (
+                  <>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                        Decision
+                      </label>
+                      <select
+                        className="input py-2 text-xs bg-background/50 border-border focus:border-primary"
+                        value={decision ?? decisionDefault}
+                        onChange={(e) => setDecision(e.target.value)}
+                        disabled={finalized || review.isPending}
+                      >
+                        <option value="under_review">Under Review</option>
+                        <option value="research_approved">Research Approved (Unlock Assessment)</option>
+                        <option value="phase_1_approved">Phase 1 Approved (Unlock Presentation)</option>
+                        <option value="approved">Final Approval</option>
+                        <option value="rejected">Reject</option>
+                      </select>
+                    </div>
 
-              <div className="flex flex-col gap-2 pt-2 border-t border-border/40">
-                <Button
-                  variant="outline"
-                  className="w-full gap-1.5 justify-center py-2.5"
-                  onClick={() => review.mutate("research_approved")}
-                  disabled={(reviewStatus === "research_approved" || reviewStatus === "phase_1_approved" || reviewStatus === "approved" || reviewStatus === "rejected") || review.isPending}
-                >
-                  <FlaskConical size={14} /> Approve Research (Phase 2)
-                </Button>
-                <Button
-                  className="w-full gap-1.5 justify-center py-2.5"
-                  onClick={() => review.mutate("phase_1_approved")}
-                  disabled={(reviewStatus === "phase_1_approved" || reviewStatus === "approved" || reviewStatus === "rejected") || review.isPending}
-                >
-                  <Check size={14} /> Approve Phase 1
-                </Button>
-                <Button
-                  className="w-full gap-1.5 justify-center py-2.5 bg-affair dark:bg-heliotrope hover:opacity-90 transition-opacity"
-                  onClick={() => review.mutate("approved")}
-                  disabled={(reviewStatus === "approved" || reviewStatus === "rejected") || review.isPending}
-                >
-                  <CheckCircle2 size={14} /> Final Approve
-                </Button>
-                <Button
-                  variant="destructive"
-                  className="w-full gap-1.5 justify-center py-2.5"
-                  onClick={() => review.mutate("rejected")}
-                  disabled={(reviewStatus === "approved" || reviewStatus === "rejected") || review.isPending}
-                >
-                  <XCircle size={14} /> Reject Application
-                </Button>
-              </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                        Feedback (Required on Reject)
+                      </label>
+                      <textarea
+                        className="input min-h-[100px] py-2 resize-none text-xs bg-background/50 border-border focus:border-primary"
+                        placeholder="Provide feedback to the applicant..."
+                        value={feedback}
+                        onChange={(e) => setFeedback(e.target.value)}
+                        disabled={finalized || review.isPending}
+                      />
+                    </div>
+
+                    {decisionError && (
+                      <p className="text-xs text-destructive">{decisionError}</p>
+                    )}
+
+                    <Button
+                      className="w-full gap-1.5 justify-center py-2.5"
+                      onClick={handleSaveDecision}
+                      disabled={finalized || review.isPending}
+                    >
+                      <Check size={14} /> Save Decision
+                    </Button>
+                  </>
+                )
+              })()}
 
               {review.isPending && (
                 <div className="flex items-center justify-center py-1">

@@ -218,17 +218,27 @@ def generate_payment_letter_pdf(
     #   [br] wt[0]="Name: admin" [5×tab] wt[1]="Name: instr" [5×tab] [br] wt[2]="Date: " [8×tab] wt[3]="Date: "
     # The original template calibrated 8 tabs for the short "Date: " prefix (~0.45").
     # "Date: DD Month YYYY" is ~1.05" wide, so 6 tabs reach the same right-column position.
+    #
+    # Per the client's requirement, neither signature date should show until the
+    # instructor actually signs — wt[2] (admin's date) previously showed
+    # `letter_date` (the letter's own issuance date, a separate concept still
+    # used correctly in the P[1] header above) regardless of signing status.
+    # Both dates now derive from `signed_date` only, so they always match.
     r1 = paras[30].runs[1]._r
     _wt(r1, 0, f"Name: {admin_signatory_name}")
     _wt(r1, 1, f"Name: {instructor_name}")
-    _wt(r1, 2, f"Date: {letter_date}")
+    _wt(r1, 2, f"Date: {signed_date}" if signed_date else "Date: ")
     _wt(r1, 3, f"Date: {signed_date or ''}")
-    wts = r1.findall(qn("w:t"))
-    children = list(r1)
-    idx2, idx3 = children.index(wts[2]), children.index(wts[3])
-    date_tabs = [c for c in children[idx2 + 1:idx3] if c.tag == qn("w:tab")]
-    for t in date_tabs[:2]:
-        r1.remove(t)
+    if signed_date:
+        # Only remove the width-compensating tabs once a full date is actually
+        # present — with "Date: " left short (unsigned), the original 8-tab
+        # spacing is still correct and must stay untouched.
+        wts = r1.findall(qn("w:t"))
+        children = list(r1)
+        idx2, idx3 = children.index(wts[2]), children.index(wts[3])
+        date_tabs = [c for c in children[idx2 + 1:idx3] if c.tag == qn("w:tab")]
+        for t in date_tabs[:2]:
+            r1.remove(t)
 
     # --- Table 0: Sessions ---
     tbl0 = doc.tables[0]
