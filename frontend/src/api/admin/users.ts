@@ -26,6 +26,7 @@ export interface DossierItem {
   date: string | null
   url: string | null
   meta: string | null
+  id: string | null
 }
 
 export const getUserDossierApi = (id: string) =>

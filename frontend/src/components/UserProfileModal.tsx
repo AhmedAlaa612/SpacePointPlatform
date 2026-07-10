@@ -1,11 +1,18 @@
 import { useState } from "react"
-import { useQuery } from "@tanstack/react-query"
-import { X, FileText, ExternalLink, CreditCard } from "lucide-react"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { X, FileText, ExternalLink, CreditCard, Trash2 } from "lucide-react"
 import { getUserProfileApi, getUserStatsApi } from "@/api/auth"
 import { getUserDossierApi, getUserIdCardApi, type DossierItem } from "@/api/admin/users"
+import { deleteGeneratedDocumentApi } from "@/api/documents"
+import { deleteCertificateApi } from "@/api/instructors/payments_admin"
 import { ROLE_LABEL } from "@/types/shared"
 import { Card, CardContent } from "@/components/ui/card"
 import { ROLE_BADGE, AmbassadorCard, TeacherCard, InstructorCard } from "@/components/ProfileStatsCards"
+
+const DELETABLE_CATEGORIES: Record<string, (id: string) => Promise<unknown>> = {
+  Documents: deleteGeneratedDocumentApi,
+  Certificates: deleteCertificateApi,
+}
 
 function IdCardDialog({ userId, role, onClose }: { userId: string; role: string; onClose: () => void }) {
   const { data, isLoading } = useQuery({
@@ -34,9 +41,15 @@ function IdCardDialog({ userId, role, onClose }: { userId: string; role: string;
 
 function DossierSection({ userId }: { userId: string }) {
   const [cardView, setCardView] = useState<string | null>(null)
+  const qc = useQueryClient()
   const { data, isLoading } = useQuery({
     queryKey: ["admin-user-dossier", userId],
     queryFn: () => getUserDossierApi(userId),
+  })
+
+  const deleteItem = useMutation({
+    mutationFn: ({ category, id }: { category: string; id: string }) => DELETABLE_CATEGORIES[category](id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-user-dossier", userId] }),
   })
 
   const groups = (data?.items ?? []).reduce<Record<string, DossierItem[]>>((acc, item) => {
@@ -76,6 +89,19 @@ function DossierSection({ userId }: { userId: string }) {
                     <a href={item.url} target="_blank" rel="noreferrer" className="p-1 rounded text-muted-foreground hover:text-primary shrink-0">
                       <ExternalLink size={14} />
                     </a>
+                  ) : null}
+                  {item.id && DELETABLE_CATEGORIES[category] ? (
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete "${item.label}"? This can't be undone.`)) {
+                          deleteItem.mutate({ category, id: item.id! })
+                        }
+                      }}
+                      disabled={deleteItem.isPending}
+                      className="p-1 rounded text-muted-foreground hover:text-destructive shrink-0"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   ) : null}
                 </div>
               ))}

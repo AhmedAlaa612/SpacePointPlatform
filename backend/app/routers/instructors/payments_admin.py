@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -42,6 +43,8 @@ from app.services.documents.payment_letter import (
 from app.services.email import send_payment_letter_ready_email, send_workshop_certificate_ready_email
 
 router = APIRouter(prefix="/admin/payments", tags=["instructors-payments-admin"])
+
+logger = logging.getLogger("payments_admin")
 
 
 async def _letter_with_children(db: AsyncSession, letter: PaymentLetter) -> PaymentLetterOut:
@@ -405,6 +408,13 @@ async def delete_certificate(
     certificate = (await db.execute(select(Certificate).where(Certificate.id == certificate_id))).scalars().first()
     if not certificate:
         raise HTTPException(status_code=404, detail="Certificate not found")
+
+    if certificate.bucket and certificate.file_path:
+        try:
+            await storage.delete_file(certificate.bucket, certificate.file_path)
+        except Exception as e:
+            logger.warning("certificate file delete failed (%s/%s): %s", certificate.bucket, certificate.file_path, e)
+
     await db.delete(certificate)
     await db.commit()
     return {"status": "deleted"}

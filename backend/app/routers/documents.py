@@ -188,6 +188,30 @@ async def list_recommendation_letters(
     ]
 
 
+@router.delete("/{document_id}")
+async def delete_document(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Admin-only: remove a generated letter (Recommendation/Confirmation/Completion/
+    template-based) — both the storage file and the `documents` row. Certificates have
+    their own delete route (instructors/admin/payments/certificates/{id})."""
+    doc = (await db.execute(select(Document).where(Document.id == document_id))).scalars().first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if doc.bucket and doc.file_path:
+        try:
+            await storage.delete_file(doc.bucket, doc.file_path)
+        except Exception as e:
+            logger.warning("document file delete failed (%s/%s): %s", doc.bucket, doc.file_path, e)
+
+    await db.delete(doc)
+    await db.commit()
+    return {"status": "deleted"}
+
+
 # ── Document Requests (PLAN §8.2 / Task List) ───
 
 @router.post("/requests", response_model=DocumentRequestOut)

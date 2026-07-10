@@ -59,6 +59,11 @@ export const uploadDocumentApi = (documentType: string, file: File) => {
 export const deleteDocumentApi = (docId: string) =>
   api.delete(`/instructors/documents/${docId}`).then((r) => r.data)
 
+// Admin-only: delete a generated letter (Recommendation/Confirmation/Completion/
+// template-based) — distinct from deleteDocumentApi above (instructor's own vault).
+export const deleteGeneratedDocumentApi = (documentId: string) =>
+  api.delete(`/documents/${documentId}`).then((r) => r.data)
+
 export const getIdCardApi = (role: string) =>
   api.get<IdCard | null>(`/documents/id-card?role=${role}`).then((r) => r.data)
 

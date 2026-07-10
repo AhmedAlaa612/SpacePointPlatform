@@ -75,6 +75,7 @@ async def get_user_dossier(id: UUID, db: AsyncSession = Depends(get_db), current
         items.append(DossierItem(
             category="Documents", label=d.label, date=d.generated_at,
             url=await storage.resolve_url(d.bucket, d.file_path, d.file_url),
+            id=d.id,
         ))
 
     for c in (await db.execute(select(Certificate).where(Certificate.user_id == id))).scalars().all():
@@ -84,6 +85,7 @@ async def get_user_dossier(id: UUID, db: AsyncSession = Depends(get_db), current
             date=c.generated_at,
             url=await storage.resolve_url(c.bucket, c.file_path, c.file_url),
             meta=c.workshop_name,
+            id=c.id,
         ))
 
     for v in (await db.execute(select(InstructorDocument).where(InstructorDocument.user_id == id))).scalars().all():

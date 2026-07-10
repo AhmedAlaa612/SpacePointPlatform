@@ -82,6 +82,7 @@ class DossierItem(BaseModel):
     date: Optional[datetime] = None
     url: Optional[str] = None
     meta: Optional[str] = None  # short status/context string shown alongside the label
+    id: Optional[UUID] = None  # row id — only set for categories the dossier UI can delete
 
 
 class UserDossierOut(BaseModel):
