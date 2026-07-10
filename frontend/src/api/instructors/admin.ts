@@ -29,6 +29,7 @@ export interface ApplicantListItem {
   status: string
   feedback: string | null
   university: string | null
+  city_of_residence: string | null
   referred_by_ambassador_id: string | null
   created_at: string
 }

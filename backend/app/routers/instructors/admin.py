@@ -114,6 +114,7 @@ async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User
             "id": str(u.id), "full_name": u.full_name, "email": u.email,
             "status": review.status, "feedback": review.feedback,
             "university": profile.university if profile else None,
+            "city_of_residence": profile.city_of_residence if profile else None,
             "referred_by_ambassador_id": str(u.invited_by_id) if u.invited_by_id else None,
             "created_at": u.created_at,
         }
