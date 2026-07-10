@@ -1,0 +1,48 @@
+name: Build Frontend
+
+on:
+  push:
+    branches: [main]
+    paths: [frontend/**]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build
+        working-directory: frontend
+        env:
+          VITE_API_URL: https://portal.spacepoint.ae/api
+        run: npm run build
+
+      - name: Package dist
+        working-directory: frontend
+        run: tar czf ../frontend-dist.tar.gz -C dist .
+
+      # Publishes to a single, stable "frontend-latest" release tag so the VPS
+      # always has one predictable URL to pull from (no need to know run IDs
+      # or specific commit SHAs) — the action updates the existing release in
+      # place on every push rather than creating a new one each time.
+      - name: Publish as frontend-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: frontend-latest
+          name: "Frontend (latest build)"
+          body: "Auto-built from commit ${{ github.sha }}. VITE_API_URL=https://portal.spacepoint.ae/api"
+          files: frontend-dist.tar.gz
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
