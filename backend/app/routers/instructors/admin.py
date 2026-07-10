@@ -117,6 +117,7 @@ async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User
             "city_of_residence": profile.city_of_residence if profile else None,
             "referred_by_ambassador_id": str(u.invited_by_id) if u.invited_by_id else None,
             "created_at": u.created_at,
+            "submitted_at": review.submitted_at,
         }
         for u, review, profile in rows
     ]

@@ -172,6 +172,29 @@ async def _run_startup_migrations() -> None:
             "ALTER TABLE library_resources ADD COLUMN IF NOT EXISTS resource_type VARCHAR(10) NOT NULL DEFAULT 'file';"
         ))
 
+        # ── application_reviews.submitted_at (sql/0018) — when the applicant
+        #    submitted for review, distinct from created_at (started) and
+        #    reviewed_at (admin actioned). Best-effort backfill for historical
+        #    rows from their latest video/module upload (you can't submit until
+        #    everything's uploaded, so that's an accurate proxy). Idempotent via
+        #    the submitted_at IS NULL guard. ──
+        await conn.execute(text(
+            "ALTER TABLE application_reviews ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ;"
+        ))
+        await conn.execute(text("""
+            UPDATE application_reviews ar
+            SET submitted_at = GREATEST(
+                    COALESCE((SELECT MAX(vs.submitted_at) FROM video_submissions vs WHERE vs.user_id = ar.user_id), 'epoch'::timestamptz),
+                    COALESCE((SELECT MAX(ms.submitted_at) FROM module_submissions ms WHERE ms.user_id = ar.user_id), 'epoch'::timestamptz)
+                )
+            WHERE ar.status::text <> 'in_progress'
+              AND ar.submitted_at IS NULL
+              AND GREATEST(
+                    COALESCE((SELECT MAX(vs.submitted_at) FROM video_submissions vs WHERE vs.user_id = ar.user_id), 'epoch'::timestamptz),
+                    COALESCE((SELECT MAX(ms.submitted_at) FROM module_submissions ms WHERE ms.user_id = ar.user_id), 'epoch'::timestamptz)
+                  ) > 'epoch'::timestamptz;
+        """))
+
         # ── ID cards: one shared number per PERSON (SP-XXXX-UAE), not per role.
         #    Legacy per-role sequences (card_seq_admin, card_seq_intern, …) are
         #    left in place (harmless, unused) rather than dropped. ──

@@ -26,3 +26,8 @@ class ApplicationReview(Base):
     admin_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     feedback = Column(String, nullable=True)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    # When the applicant submitted their application for review (status
+    # in_progress -> under_review). Distinct from created_at (when they started
+    # the application) and reviewed_at (when an admin actioned it). NULL while
+    # still in_progress. sql/0018 backfills historical rows best-effort.
+    submitted_at = Column(DateTime(timezone=True), nullable=True)

@@ -32,6 +32,7 @@ export interface ApplicantListItem {
   city_of_residence: string | null
   referred_by_ambassador_id: string | null
   created_at: string
+  submitted_at: string | null
 }
 
 export interface InvitationCode {

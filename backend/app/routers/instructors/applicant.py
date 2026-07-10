@@ -344,6 +344,7 @@ async def submit_application(db: AsyncSession = Depends(get_db), current_user: U
         raise HTTPException(status_code=400, detail="Submit all checklist modules first")
 
     review.status = ApplicationStatus.under_review
+    review.submitted_at = datetime.now(timezone.utc)
     await db.commit()
     return ApplicationStatusOut(status=review.status, feedback=review.feedback, reviewed_at=review.reviewed_at)
 

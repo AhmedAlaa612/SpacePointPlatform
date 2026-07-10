@@ -72,8 +72,8 @@ export default function InstructorsAdminApplicants() {
                   <th className="py-3 px-4 font-semibold">Applicant Name</th>
                   <th className="py-3 px-4 font-semibold">City</th>
                   <th className="py-3 px-4 font-semibold">Status</th>
-                  <th className="py-3 px-4 font-semibold">Sub Date</th>
-                  <th className="py-3 px-4 font-semibold text-right">Action</th>
+                  <th className="py-3 px-4 font-semibold">Application Start Date</th>
+                  <th className="py-3 px-4 font-semibold">Submission Date</th>
                 </tr>
               </thead>
               <tbody>
@@ -92,8 +92,8 @@ export default function InstructorsAdminApplicants() {
                     <td className="py-3.5 px-4 text-muted-foreground whitespace-nowrap">
                       {a.created_at ? new Date(a.created_at).toLocaleDateString() : "—"}
                     </td>
-                    <td className="py-3.5 px-4 text-right">
-                      <span className="text-primary text-sm opacity-0 group-hover:opacity-100 transition-opacity">Review →</span>
+                    <td className="py-3.5 px-4 text-muted-foreground whitespace-nowrap">
+                      {a.submitted_at ? new Date(a.submitted_at).toLocaleDateString() : "—"}
                     </td>
                   </tr>
                 ))}
