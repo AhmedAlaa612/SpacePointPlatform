@@ -115,17 +115,18 @@ export default function InstructorsAdminOverview() {
           {universityData.length === 0 ? (
             <p className="text-sm text-muted-foreground py-8 text-center">No university data yet.</p>
           ) : (
-            <ResponsiveContainer width="100%" height={400}>
-              <BarChart data={universityData} margin={{ top: 8, right: 8, left: 0, bottom: 120 }}>
+            <ResponsiveContainer width="100%" height={440}>
+              <BarChart data={universityData} margin={{ top: 8, right: 8, left: 0, bottom: 150 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted-foreground/20" />
                 <XAxis
                   dataKey="name"
-                  angle={-90}
+                  angle={-45}
                   textAnchor="end"
                   interval={0}
-                  height={140}
-                  tickFormatter={(value: string) => (value.length > 16 ? `${value.slice(0, 16)}…` : value)}
-                  tick={{ fontSize: 10, fill: "currentColor" }}
+                  height={165}
+                  tickMargin={8}
+                  tickFormatter={(value: string) => (value.length > 24 ? `${value.slice(0, 24)}…` : value)}
+                  tick={{ fontSize: 11, fill: "currentColor" }}
                   className="text-muted-foreground"
                 />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" />
