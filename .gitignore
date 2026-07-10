@@ -58,6 +58,10 @@ backend/uploads/
 # than picking file-by-file; keep locally for audit, don't commit.
 backend/scripts/migration_id_maps/
 
+# Local letterhead design sandbox — scratch space for iterating on the
+# document header/footer, not part of the shipped app.
+backend/tools/letterhead_lab/
+
 # Docs & internal notes — not for the repo
 *.md
 
