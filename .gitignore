@@ -65,6 +65,7 @@ backend/tools/letterhead_lab/
 # Docs & internal notes — not for the repo
 *.md
 !docs/*.md
+!/README.md
 
 # Tooling
 .claude/
