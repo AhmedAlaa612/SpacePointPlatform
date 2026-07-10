@@ -29,4 +29,7 @@ ENV HOME=/tmp
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Apply any pending Alembic migrations (tracked in alembic_version — a no-op
+# when already at head), THEN start the app. A failing migration blocks
+# startup by design, rather than serving against a half-migrated schema.
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
