@@ -1026,8 +1026,23 @@ async def delete_bucket_file(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Delete a file from a storage bucket."""
+    """Delete a file from a storage bucket, and the Document/Certificate row backing
+    it, if any — otherwise that row is left pointing at a file that no longer exists."""
     await storage.delete_file(bucket, path)
+
+    doc = (await db.execute(
+        select(Document).where(Document.bucket == bucket, Document.file_path == path)
+    )).scalars().first()
+    if doc:
+        await db.delete(doc)
+
+    cert = (await db.execute(
+        select(Certificate).where(Certificate.bucket == bucket, Certificate.file_path == path)
+    )).scalars().first()
+    if cert:
+        await db.delete(cert)
+
+    await db.commit()
     return {"message": "File deleted successfully"}
 
 

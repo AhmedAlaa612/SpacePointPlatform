@@ -93,7 +93,7 @@ function DossierSection({ userId }: { userId: string }) {
                   {item.id && DELETABLE_CATEGORIES[category] ? (
                     <button
                       onClick={() => {
-                        if (confirm(`Delete "${item.label}"? This can't be undone.`)) {
+                        if (confirm("Are you sure you want to delete this document permanently?")) {
                           deleteItem.mutate({ category, id: item.id! })
                         }
                       }}

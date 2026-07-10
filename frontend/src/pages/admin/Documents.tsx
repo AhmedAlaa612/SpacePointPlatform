@@ -530,7 +530,7 @@ function StorageManager() {
 
   const handleDelete = (fileName: string) => {
     const fullPath = filesPath ? `${filesPath}/${fileName}` : fileName
-    if (confirm(`Are you sure you want to delete ${fileName} from ${selectedBucket}?`)) {
+    if (confirm("Are you sure you want to delete this document permanently?")) {
       deleteFile.mutate(fullPath)
     }
   }
