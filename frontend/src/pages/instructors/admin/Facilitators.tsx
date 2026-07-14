@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, ClipboardList, FileEdit, Plus, Ticket, XCircle } from "lucide-react"
 import { createFacilitatorApi, listAdminFacilitatorsApi, listApplicantsApi, listInvitationsApi } from "@/api/instructors/admin"
+import { UserProfileModal } from "@/components/UserProfileModal"
 import { Button } from "@/components/ui/button"
 import { EmptyState, Spinner, StatCard } from "@/pages/instructors/components/common"
 
@@ -18,6 +19,7 @@ export default function InstructorsAdminFacilitators() {
   const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [profileUserId, setProfileUserId] = useState<string | null>(null)
 
   const { data: facilitators, isLoading: loadingFacilitators } = useQuery({
     queryKey: ["admin-facilitators"],
@@ -101,7 +103,11 @@ export default function InstructorsAdminFacilitators() {
               </thead>
               <tbody>
                 {facilitators!.map((f) => (
-                  <tr key={f.id} className="border-b border-border/50 last:border-0">
+                  <tr
+                    key={f.id}
+                    onClick={() => setProfileUserId(f.id)}
+                    className="border-b border-border/50 last:border-0 cursor-pointer hover:bg-muted/40 transition-colors"
+                  >
                     <td className="py-4 px-6 font-bold">{f.full_name}</td>
                     <td className="py-4 px-6 text-muted-foreground">{f.email}</td>
                     <td className="py-4 px-6 text-muted-foreground">{new Date(f.created_at).toLocaleDateString()}</td>
@@ -172,6 +178,10 @@ export default function InstructorsAdminFacilitators() {
             </form>
           </div>
         </div>
+      )}
+
+      {profileUserId && (
+        <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />
       )}
     </div>
   )
