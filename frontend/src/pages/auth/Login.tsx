@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useAuth } from "@/context/AuthContext";
 import { PLAIN_LOGO } from "@/lib/logos";
 import { Button } from "@/components/ui/button";
@@ -133,6 +133,21 @@ export function Login() {
             "Sign in"
           )}
         </Button>
+
+        <div className="pt-1 border-t border-slate-800/80 text-center space-y-2.5">
+          <p className="pt-3 text-xs font-medium text-slate-400">Don't have an account?</p>
+          <div className="flex items-center justify-center gap-x-5 gap-y-1.5 flex-wrap text-xs font-semibold">
+            <Link to="/apply/instructor" className="text-[#a880ff] hover:text-[#a880ff]/80 transition-colors">
+              Apply as Instructor
+            </Link>
+            <Link to="/apply/intern" className="text-[#a880ff] hover:text-[#a880ff]/80 transition-colors">
+              Apply as Intern
+            </Link>
+            <Link to="/apply/ambassador" className="text-[#a880ff] hover:text-[#a880ff]/80 transition-colors">
+              Apply as Ambassador
+            </Link>
+          </div>
+        </div>
       </form>
     </div>
   );
