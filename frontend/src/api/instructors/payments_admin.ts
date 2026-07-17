@@ -96,3 +96,6 @@ export const createCertificateApi = (data: {
 
 export const deleteCertificateApi = (id: string) =>
   api.delete(`/instructors/admin/payments/certificates/${id}`).then((r) => r.data)
+
+export const emailCertificateApi = (id: string) =>
+  api.post<{ status: string; to: string }>(`/instructors/admin/payments/certificates/${id}/email`).then((r) => r.data)

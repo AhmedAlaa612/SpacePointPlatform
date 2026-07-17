@@ -401,6 +401,33 @@ async def create_certificate(
     )
 
 
+@router.post("/certificates/{certificate_id}/email")
+async def email_certificate(
+    certificate_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    """Re-send an already-issued certificate to its instructor as a PDF attachment."""
+    row = (await db.execute(
+        select(Certificate, User)
+        .join(User, User.id == Certificate.user_id)
+        .where(Certificate.id == certificate_id)
+    )).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Certificate not found")
+    certificate, instructor = row
+
+    if not certificate.bucket or not certificate.file_path:
+        raise HTTPException(status_code=409, detail="Certificate has no PDF file to send")
+    cert_bytes = await storage.download_file(certificate.bucket, certificate.file_path)
+
+    sent = await send_workshop_certificate_ready_email(
+        instructor.email, instructor.full_name,
+        certificate.workshop_name or "SpacePoint Workshop", cert_bytes,
+    )
+    if not sent:
+        raise HTTPException(status_code=502, detail="Email failed to send — check SMTP configuration/logs")
+    return {"status": "sent", "to": instructor.email}
+
+
 @router.delete("/certificates/{certificate_id}")
 async def delete_certificate(
     certificate_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)

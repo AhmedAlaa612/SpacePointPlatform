@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, ClipboardList, FileEdit, Mail, RefreshCcw, Ticket, Trash2, XCircle } from "lucide-react"
 import { listApplicantsApi, listInvitationsApi } from "@/api/instructors/admin"
 import {
-  createCertificateApi, deleteCertificateApi, listCertificatesApi, paymentsInstructorDropdownApi,
+  createCertificateApi, deleteCertificateApi, emailCertificateApi, listCertificatesApi, paymentsInstructorDropdownApi,
 } from "@/api/instructors/payments_admin"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -61,6 +61,16 @@ export default function InstructorsAdminCertificates() {
   const removeCertificate = useMutation({
     mutationFn: (id: string) => deleteCertificateApi(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin-certificates"] }),
+  })
+
+  const [emailStatus, setEmailStatus] = useState<{ id: string; ok: boolean; message: string } | null>(null)
+  const emailCertificate = useMutation({
+    mutationFn: (id: string) => emailCertificateApi(id),
+    onSuccess: (data, id) => setEmailStatus({ id, ok: true, message: `Sent to ${data.to}` }),
+    onError: (e: unknown, id) => {
+      const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setEmailStatus({ id, ok: false, message: msg ?? "Failed to send email." })
+    },
   })
 
   if (loadingApplicants || loadingInvitations || loadingCertificates) return <Spinner />
@@ -148,8 +158,19 @@ export default function InstructorsAdminCertificates() {
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex items-center justify-end gap-2">
-                      <Button size="sm" variant="outline" disabled title="Email delivery not yet implemented">
-                        <Mail size={14} className="mr-1.5" /> Email
+                      {emailStatus?.id === c.id && (
+                        <span className={`text-xs ${emailStatus.ok ? "text-muted-foreground" : "text-destructive"}`}>
+                          {emailStatus.message}
+                        </span>
+                      )}
+                      <Button
+                        size="sm" variant="outline"
+                        onClick={() => emailCertificate.mutate(c.id)}
+                        disabled={emailCertificate.isPending || !c.file_url}
+                        title={c.file_url ? "Email the certificate PDF to the instructor" : "No PDF to send"}
+                      >
+                        <Mail size={14} className="mr-1.5" />
+                        {emailCertificate.isPending && emailCertificate.variables === c.id ? "Sending…" : "Email"}
                       </Button>
                       <Button
                         size="sm" variant="destructive"
