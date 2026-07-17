@@ -116,11 +116,16 @@ export async function applyInstructorApi(data: {
   background_other?: string
   has_own_transportation?: boolean
   country?: string
-}): Promise<User> {
+}, cv?: File | null): Promise<User> {
   // Unlike apply/teacher-apply, this creates an active user immediately
   // (status starts the pipeline, not a pending-admin-approval gate) and
   // auto-logs them in, so it stores tokens the same way login() does.
-  const { data: res } = await api.post<AuthTokens & { user: User }>("/auth/instructor-apply", data);
+  // Multipart: fields ride in a `payload` JSON part so the CV can be
+  // submitted in the same request.
+  const form = new FormData();
+  form.append("payload", JSON.stringify(data));
+  if (cv) form.append("cv", cv);
+  const { data: res } = await api.post<AuthTokens & { user: User }>("/auth/instructor-apply", form);
   tokens.set(res);
   return res.user;
 }

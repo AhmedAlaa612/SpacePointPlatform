@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { PLAIN_LOGO } from "@/lib/logos"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { Check } from "lucide-react"
+import { Check, Upload } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import { applyInstructorApi, validateInviteApi } from "@/api/auth"
 import { Button } from "@/components/ui/button"
@@ -77,6 +77,7 @@ export default function InstructorApplyPage() {
   })
   const [backgroundAreas, setBackgroundAreas] = useState<string[]>([])
   const [deliverCities, setDeliverCities] = useState<string[]>([])
+  const [cv, setCv] = useState<File | null>(null)
 
   useEffect(() => {
     if (code) {
@@ -157,6 +158,11 @@ export default function InstructorApplyPage() {
       return
     }
 
+    if (!cv) {
+      setError("Please upload your CV / resume.")
+      return
+    }
+
     // Note: the backend (InstructorApply schema / instructor_apply endpoint) does
     // NOT enforce a gmail-only email domain, so we don't invent that restriction
     // here either — any valid email the backend accepts should be allowed.
@@ -179,7 +185,7 @@ export default function InstructorApplyPage() {
         background_other: backgroundAreas.includes("Other") ? form.background_other : undefined,
         has_own_transportation: applyLocation === "within" ? form.has_own_transportation === "true" : false,
         country: form.country,
-      })
+      }, cv)
       setCurrentUser(user)
       setActiveRole(user.roles[0])
       void navigate({ to: "/instructors/status" })
@@ -449,6 +455,21 @@ export default function InstructorApplyPage() {
                     required
                   />
                 )}
+              </div>
+
+              {/* CV / Resume */}
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  CV / Resume <span className="text-destructive">*</span>
+                </label>
+                <label className="flex items-center gap-3 p-3 border border-border rounded-xl cursor-pointer hover:bg-muted transition-colors">
+                  <Upload size={16} className="text-muted-foreground shrink-0" />
+                  <span className="text-sm text-muted-foreground truncate">
+                    {cv ? cv.name : "Upload PDF or Word doc"}
+                  </span>
+                  <input type="file" accept=".pdf,.doc,.docx" className="hidden"
+                    onChange={(e) => setCv(e.target.files?.[0] ?? null)} />
+                </label>
               </div>
 
               {error && <p className="text-sm text-destructive text-center">{error}</p>}

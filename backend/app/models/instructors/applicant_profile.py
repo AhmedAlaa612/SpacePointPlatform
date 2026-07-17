@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, ForeignKey, String
+from sqlalchemy import Boolean, Column, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 
 from app.db.base import Base
@@ -17,5 +17,6 @@ class ApplicantProfile(Base):
     background_other = Column(String(255), nullable=True)
     has_own_transportation = Column(Boolean, nullable=False, default=False)
     country = Column(String(100), nullable=False, default="United Arab Emirates")
+    cv_path = Column(Text, nullable=True)  # storage path in the "cvs" bucket
     # NOTE: the referring ambassador is tracked on users.invited_by_id (single source
     # of truth) — there is intentionally no duplicate referred_by_ambassador_id here.

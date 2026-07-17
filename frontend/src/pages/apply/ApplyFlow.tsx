@@ -15,7 +15,7 @@ const ROLE_LABEL: Record<string, string> = {
   instructor: "Instructor",
 }
 
-const ROLES_WITH_CV = new Set(["intern", "teacher", "facilitator"])
+const ROLES_WITH_CV = new Set(["ambassador", "intern", "teacher", "facilitator"])
 const ROLES_REQUIRING_CODE = new Set(["teacher", "instructor"])
 const ROLES_WITH_QUESTIONS = new Set(["intern", "teacher", "facilitator"])
 
@@ -26,6 +26,10 @@ interface Props {
 
 export default function ApplyFlow({ role, prefillCode }: Props) {
   const navigate = useNavigate()
+
+  // Step 2 exists when the role has questions OR a CV upload (ambassador has
+  // no questions but still uploads a CV).
+  const hasStep2 = ROLES_WITH_QUESTIONS.has(role) || ROLES_WITH_CV.has(role)
 
   // Step 1 fields
   const [step, setStep] = useState(1)
@@ -110,7 +114,7 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
               Apply as
             </p>
             <h1 className="text-2xl font-bold text-foreground">{ROLE_LABEL[role] ?? role}</h1>
-            {ROLES_WITH_QUESTIONS.has(role) && (
+            {hasStep2 && (
               <div className="flex items-center gap-2 mt-2">
                 {[1, 2].map((s) => (
                   <div
@@ -164,14 +168,14 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
                 className="mt-1 w-full"
                 disabled={!step1Valid || submit.isPending}
                 onClick={() => {
-                  if (ROLES_WITH_QUESTIONS.has(role)) {
+                  if (hasStep2) {
                     setStep(2)
                   } else {
                     submit.mutate()
                   }
                 }}
               >
-                {submit.isPending ? "Submitting…" : ROLES_WITH_QUESTIONS.has(role) ? (
+                {submit.isPending ? "Submitting…" : hasStep2 ? (
                   <span className="flex items-center gap-1.5">Next <ChevronRight size={16} /></span>
                 ) : "Submit application"}
               </Button>

@@ -4,7 +4,7 @@
 VALID_ROLES = {"ambassador", "intern", "teacher", "facilitator"}
 
 # Roles whose apply form collects a CV upload.
-ROLES_WITH_CV = {"intern", "teacher", "facilitator"}
+ROLES_WITH_CV = {"ambassador", "intern", "teacher", "facilitator"}
 
 # Roles that must supply a valid invite code to apply.
 ROLES_REQUIRING_CODE = {"teacher"}

@@ -72,6 +72,7 @@ export const getApplicantDetailApi = (userId: string) =>
     email: string
     phone: string | null
     invite_code_used: string | null
+    cv_url: string | null
     profile: Record<string, unknown> | null
     review: { status: string; feedback: string | null } | null
     videos: unknown[]

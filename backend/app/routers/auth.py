@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import uuid as uuid_lib
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from jose import JWTError, jwt
 from sqlalchemy import func, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -342,12 +342,25 @@ async def _email_taken(db: AsyncSession, email: str) -> bool:
 
 
 @router.post("/instructor-apply", status_code=status.HTTP_201_CREATED, response_model=LoginResponse)
-async def instructor_apply(payload: InstructorApply, db: AsyncSession = Depends(get_db)):
+async def instructor_apply(
+    payload_json: str = Form(..., alias="payload"),
+    cv: UploadFile | None = File(None),
+    db: AsyncSession = Depends(get_db),
+):
     """Public instructor application (PLAN §6/§9.2). Checks the invite code
     against BOTH the admin-managed invitation_codes table AND an ambassador's
     users.invite_code (referral). Creates roles=['applicant'] — promotion to
     'instructor' happens later via the admin review state machine
-    (routers/instructors/admin.py), not here."""
+    (routers/instructors/admin.py), not here.
+
+    Multipart: the InstructorApply fields ride in a `payload` JSON part so the
+    CV file can be submitted in the same request (mirrors the unified /apply
+    flow, which requires a CV for every role)."""
+    try:
+        payload = InstructorApply.model_validate_json(payload_json)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid application payload")
+
     if await _email_taken(db, payload.email):
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -396,8 +409,17 @@ async def instructor_apply(payload: InstructorApply, db: AsyncSession = Depends(
     db.add(user)
     await db.flush()  # assign user.id
 
+    # CV upload — same "cvs" bucket layout as the unified /apply flow
+    cv_path = None
+    if cv and cv.filename:
+        from app.services import storage
+        ext = ("." + cv.filename.rsplit(".", 1)[-1]) if "." in cv.filename else ""
+        cv_path = f"instructor/{user.id}{ext}"
+        await storage.upload_file("cvs", cv_path, await cv.read(), cv.content_type or "application/pdf")
+
     db.add(ApplicantProfile(
         user_id=user.id,
+        cv_path=cv_path,
         university=payload.university,
         highest_degree=payload.highest_degree,
         highest_degree_other=payload.highest_degree_other,

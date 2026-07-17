@@ -216,6 +216,14 @@ export default function ApplicantReviewPage() {
               {detail.invite_code_used && (
                 <p className="pt-2"><span className="text-muted-foreground">Invite Code:</span> <span className="font-mono text-xs text-foreground">{detail.invite_code_used}</span></p>
               )}
+              {detail.cv_url && (
+                <p className="pt-2">
+                  <span className="text-muted-foreground">CV / Resume:</span>{" "}
+                  <a href={detail.cv_url} target="_blank" rel="noreferrer" className="text-primary font-medium hover:underline">
+                    View CV
+                  </a>
+                </p>
+              )}
             </CardContent>
           </Card>
 

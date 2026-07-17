@@ -235,6 +235,7 @@ async def applicant_detail(
     return {
         "id": str(user.id), "full_name": user.full_name, "email": user.email, "phone": user.phone,
         "invite_code_used": invite_code_used,
+        "cv_url": await storage.get_signed_url("cvs", profile.cv_path) if profile and profile.cv_path else None,
         "profile": profile, "review": {"status": review.status, "feedback": review.feedback} if review else None,
         "videos": videos, "presentation_link": presentation.video_link if presentation else None,
         "assessment": {
