@@ -78,8 +78,9 @@ import Settings from "@/pages/admin/Settings";
 // Unified apply flow
 import ApplyFlow from "@/pages/apply/ApplyFlow";
 
-// Public instructors landing (no auth) — lives at /instructors when logged out
+// Public landing pages (no auth) — shown at bare /instructors and /interns when logged out
 import InstructorsLanding from "@/pages/public/InstructorsLanding";
+import InternsLanding from "@/pages/public/InternsLanding";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -91,17 +92,17 @@ const loginRoute = createRoute({
 
 import { useAuth } from "@/context/AuthContext";
 
-/** Bare /instructors is the one public route nested in this layout — the
- * marketing landing page for logged-out visitors (see PIVOT_HANDOFF.md).
- * Every other nested route still requires a token. */
-const PUBLIC_UNAUTHED_PATH = "/instructors";
+/** Bare /instructors and /interns are the only public routes nested in this
+ * layout — marketing landing pages for logged-out visitors. Every other
+ * nested route still requires a token. */
+const PUBLIC_UNAUTHED_PATHS = new Set(["/instructors", "/interns"]);
 
 /** Authenticated shell (PLAN §7 `_auth`): redirect to /login when no token. */
 const authLayoutRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "auth",
   beforeLoad: ({ location }) => {
-    if (!tokens.access && location.pathname !== PUBLIC_UNAUTHED_PATH) {
+    if (!tokens.access && !PUBLIC_UNAUTHED_PATHS.has(location.pathname)) {
       throw redirect({ to: "/login" });
     }
   },
@@ -118,9 +119,8 @@ const authLayoutRoute = createRoute({
     }
 
     if (!currentUser) {
-      if (pathname === PUBLIC_UNAUTHED_PATH) {
-        return <InstructorsLanding />;
-      }
+      if (pathname === "/instructors") return <InstructorsLanding />;
+      if (pathname === "/interns") return <InternsLanding />;
       return null;
     }
 
@@ -167,6 +167,10 @@ const internsLayoutRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/interns",
   beforeLoad: () => {
+    // No token means bare /interns (a path the parent authLayoutRoute lets
+    // through unauthenticated) — defer to authLayoutRoute's component, which
+    // renders the public InternsLanding page directly instead of this subtree.
+    if (!tokens.access) return;
     const role = localStorage.getItem("active_role");
     if (role !== "intern" && role !== "leader" && role !== "admin") {
       throw redirect({ to: "/" });

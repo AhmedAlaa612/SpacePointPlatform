@@ -46,9 +46,12 @@ const FAQS = [
     a: (
       <>
         <p className="mb-2">
-          <strong>Intern track:</strong> Interns join SpacePoint for practical hands-on experience, supporting
-          operations and technical development under the direct supervision of CEO Eng. Abdullah AlSalmani.
-          Internships are structured educational opportunities and are unpaid.
+          <strong>
+            <Link to="/interns" className="hover:underline">Intern track</Link>:
+          </strong>{" "}
+          Interns join SpacePoint for practical hands-on experience, supporting operations and technical development
+          under the direct supervision of CEO Eng. Abdullah AlSalmani. Internships are structured educational
+          opportunities and are unpaid.
         </p>
         <p>
           <strong>Instructor track:</strong> Approved instructors qualify as certified facilitators delivering
@@ -94,19 +97,19 @@ export function InstructorsLanding() {
 
   return (
     <div className="min-h-screen text-white" style={BODY_BACKGROUND}>
-      <header className={`flex items-center justify-between px-6 py-4 border-b border-white/10 ${GLASS}`}>
-        <img src={PLAIN_LOGO} alt="SpacePoint" className="h-10 w-auto object-contain" />
-        <div className="flex items-center gap-2">
-          <ThemeToggle />
+      <header className={`flex items-center justify-between gap-2 px-4 sm:px-6 py-3 sm:py-4 border-b border-white/10 ${GLASS}`}>
+        <img src={PLAIN_LOGO} alt="SpacePoint" className="h-7 sm:h-10 w-auto object-contain shrink-0" />
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <ThemeToggle className="rounded-xl p-1.5 sm:p-2.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground" />
           <Link
             to="/login"
-            className="px-5 py-2 rounded-full font-medium tracking-wide text-white border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 transition-colors"
+            className="px-3 sm:px-5 py-1.5 sm:py-2 rounded-full font-medium tracking-wide text-white border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 transition-colors text-sm sm:text-base whitespace-nowrap"
           >
             Log In
           </Link>
           <Link
             to="/apply/instructor"
-            className="px-5 py-2 rounded-full font-medium tracking-wide text-space-900 bg-space-accent hover:bg-space-hover transition-colors shadow-[0_0_15px_rgba(167,125,255,0.4)]"
+            className="px-3 sm:px-5 py-1.5 sm:py-2 rounded-full font-medium tracking-wide text-space-900 bg-space-accent hover:bg-space-hover transition-colors shadow-[0_0_15px_rgba(167,125,255,0.4)] text-sm sm:text-base whitespace-nowrap"
           >
             Apply Now
           </Link>
