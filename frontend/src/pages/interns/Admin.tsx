@@ -1,10 +1,10 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Users, Plus, Crown } from "lucide-react"
+import { Users, Plus, Crown, Pencil } from "lucide-react"
 import type { User, Team } from "@/types/interns"
 import { userRole } from "@/types/interns"
 import { getUsersApi } from "@/api/admin/users"
-import { getTeamsApi, createTeamApi, addTeamMemberApi, removeTeamMemberApi } from "@/api/interns/teams"
+import { getTeamsApi, createTeamApi, updateTeamApi, addTeamMemberApi, removeTeamMemberApi } from "@/api/interns/teams"
 import { cn } from "@/lib/utils"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
 
@@ -28,6 +28,7 @@ function TeamsPanel() {
   const queryClient = useQueryClient()
   const [createOpen,   setCreateOpen]   = useState(false)
   const [managingTeam, setManagingTeam] = useState<Team | null>(null)
+  const [renamingTeam, setRenamingTeam] = useState<Team | null>(null)
 
   const { data: teams = [], isLoading: teamsLoading } = useQuery<Team[]>({
     queryKey: ["teams"],
@@ -63,7 +64,16 @@ function TeamsPanel() {
           >
             <div className="flex items-start justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-foreground">{team.name}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-sm font-semibold text-foreground">{team.name}</p>
+                  <button
+                    onClick={() => setRenamingTeam(team)}
+                    title="Rename team"
+                    className="text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Pencil size={12} />
+                  </button>
+                </div>
                 <div className="flex items-center gap-1 mt-0.5 text-xs text-muted-foreground">
                   <Crown size={11} />
                   <span>{getUserName(team.leader_id)}</span>
@@ -117,6 +127,14 @@ function TeamsPanel() {
           onSuccess={() => queryClient.invalidateQueries({ queryKey: ["teams"] })}
         />
       )}
+
+      {renamingTeam && (
+        <RenameTeamModal
+          team={renamingTeam}
+          onClose={() => setRenamingTeam(null)}
+          onSuccess={() => { queryClient.invalidateQueries({ queryKey: ["teams"] }); setRenamingTeam(null) }}
+        />
+      )}
     </div>
   )
 }
@@ -162,6 +180,39 @@ function CreateTeamModal({ users, onClose, onSuccess }: {
           onCancel={onClose} onConfirm={() => mutation.mutate()}
           loading={mutation.isPending} disabled={!name.trim() || !leaderId}
           label="Create team"
+        />
+      </div>
+    </Modal>
+  )
+}
+
+/* ================================================================== */
+/* Rename team modal                                                   */
+/* ================================================================== */
+function RenameTeamModal({ team, onClose, onSuccess }: {
+  team: Team; onClose: () => void; onSuccess: () => void
+}) {
+  const [name,  setName]  = useState(team.name)
+  const [error, setError] = useState("")
+
+  const mutation = useMutation({
+    mutationFn: () => updateTeamApi(team.id, { name }),
+    onSuccess,
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to rename team"),
+  })
+
+  return (
+    <Modal title="Rename team" onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <Field label="Team name">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Team Alpha" autoFocus
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
+        </Field>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <ModalActions
+          onCancel={onClose} onConfirm={() => mutation.mutate()}
+          loading={mutation.isPending} disabled={!name.trim() || name.trim() === team.name}
+          label="Save"
         />
       </div>
     </Modal>
