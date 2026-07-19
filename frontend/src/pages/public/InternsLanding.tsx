@@ -183,13 +183,6 @@ const PROJECTS: Project[] = [
     description:
       "A complete EPS design: solar array input, MPPT stage, battery storage, and regulated power distribution to the onboard computer and sensor subsystems.",
   },
-  {
-    student: "Jouri Ahmed Alobaidly",
-    title: "ATMO-1 CubeSat Mission Design",
-    image: "/static/interns/projects/jouri-alobaidly-cubesat-atmo1.jpg",
-    description:
-      "A CubeSat mission design integrating power, data handling, memory, and signal processing subsystems, with GEO orbit selection for continuous Earth monitoring.",
-  },
 ];
 
 type Alumnus = { name: string; field: string; role: string; linkedin: string; photo: string | null };
@@ -544,14 +537,14 @@ export function InternsLanding() {
               <p className="text-gray-400 text-sm">A look at what interns have designed, built, and shipped at SpacePoint</p>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6 w-full">
+            <div className="flex flex-wrap justify-center gap-4 lg:gap-6 w-full">
               {PROJECTS.map((p, i) => {
                 const open = openProject === i;
                 return (
                   <button
                     key={p.title}
                     onClick={() => setOpenProject(open ? null : i)}
-                    className={`aspect-[4/3] rounded-2xl overflow-hidden ${GLASS} group relative shadow-lg transform hover:-translate-y-1 hover:shadow-space-accent/20 hover:shadow-2xl transition-all duration-300 text-left`}
+                    className={`aspect-[4/3] w-full sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-1rem)] rounded-2xl overflow-hidden ${GLASS} group relative shadow-lg transform hover:-translate-y-1 hover:shadow-space-accent/20 hover:shadow-2xl transition-all duration-300 text-left`}
                   >
                     <img
                       src={p.image}
