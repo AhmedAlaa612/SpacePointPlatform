@@ -89,7 +89,7 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
 
   if (done) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+      <div className="dark min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardContent className="p-8 flex flex-col items-center gap-4 text-center">
             <CheckCircle2 size={48} className="text-emerald-500" />
@@ -105,7 +105,7 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="dark min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-lg">
         <CardContent className="p-6 flex flex-col gap-5">
           {/* Header */}

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { PLAIN_LOGO } from "@/lib/logos";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { GLASS, BODY_BACKGROUND } from "@/lib/theme";
 
@@ -96,11 +95,10 @@ export function InstructorsLanding() {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
   return (
-    <div className="min-h-screen text-white" style={BODY_BACKGROUND}>
+    <div className="dark min-h-screen text-white" style={BODY_BACKGROUND}>
       <header className={`flex items-center justify-between gap-2 px-4 sm:px-6 py-3 sm:py-4 border-b border-white/10 ${GLASS}`}>
         <img src={PLAIN_LOGO} alt="SpacePoint" className="h-7 sm:h-10 w-auto object-contain shrink-0" />
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-          <ThemeToggle className="rounded-xl p-1.5 sm:p-2.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground" />
           <Link
             to="/login"
             className="px-3 sm:px-5 py-1.5 sm:py-2 rounded-full font-medium tracking-wide text-white border border-white/10 hover:border-white/20 bg-white/5 hover:bg-white/10 transition-colors text-sm sm:text-base whitespace-nowrap"

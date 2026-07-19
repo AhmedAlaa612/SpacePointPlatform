@@ -30,7 +30,7 @@ export function Login() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center bg-[#030712] text-slate-100 px-4 overflow-hidden select-none">
+    <div className="dark relative flex min-h-screen items-center justify-center bg-[#030712] text-slate-100 px-4 overflow-hidden select-none">
       {/* Immersive space grid and blur spheres */}
       <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.015)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.015)_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] pointer-events-none opacity-40 dark:opacity-100" />
       <div className="absolute top-[-10%] right-[-10%] w-[60%] h-[60%] rounded-full bg-[#a880ff]/10 blur-[130px] pointer-events-none animate-pulse" />
