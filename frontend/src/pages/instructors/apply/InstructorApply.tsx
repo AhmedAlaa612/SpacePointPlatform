@@ -9,8 +9,9 @@ import { SiteFooter } from "@/components/layout/SiteFooter"
 import { BODY_BACKGROUND } from "@/lib/theme"
 
 /**
- * Two-step "Access Gate" apply flow, matching the reference app's
- * var/www/spacepoint_portal/backend/app/templates/apply.html.
+ * Single "Submit Your Interest" apply flow — the invitation code is an
+ * optional field (organic applicants have none; referred applicants type
+ * one in and it's validated on submit), not a gate blocking the form.
  */
 
 const DEGREES = ["Currently Pursuing Bachelors Degree", "Bachelors", "Masters", "PhD", "Other"]
@@ -57,14 +58,12 @@ export default function InstructorApplyPage() {
   const navigate = useNavigate()
   const { setCurrentUser, setActiveRole } = useAuth()
 
-  // Step 1: Access Gate
-  const [step, setStep] = useState<1 | 2>(1)
+  // Invitation code is optional — organic applicants (no referrer) select "No".
+  const [hasInviteCode, setHasInviteCode] = useState<boolean>(!!code)
   const [inviteCode, setInviteCode] = useState(code ?? "")
   const [referrer, setReferrer] = useState<string | null>(null)
   const [inviteError, setInviteError] = useState("")
-  const [inviteBusy, setInviteBusy] = useState(false)
 
-  // Step 2: Your Profile
   const [applyLocation, setApplyLocation] = useState<ApplyLocation>("within")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
@@ -79,21 +78,14 @@ export default function InstructorApplyPage() {
   const [deliverCities, setDeliverCities] = useState<string[]>([])
   const [cv, setCv] = useState<File | null>(null)
 
-  useEffect(() => {
-    if (code) {
-      validateInviteApi(code).then((r) => setReferrer(r.ambassador_name)).catch(() => setReferrer(null))
-    }
-  }, [code])
-
-  // If we already have a code from the URL, verify it up front like the
-  // reference does when `code` is present, and jump straight to step 2 once valid.
+  // Pre-fill from a referral link (/apply/instructor/$code) and show the
+  // referrer right away — still just informational, doesn't gate the form.
   useEffect(() => {
     if (!code) return
-    setInviteBusy(true)
+    setHasInviteCode(true)
     validateInviteApi(code)
-      .then(() => setStep(2))
+      .then((r) => setReferrer(r.ambassador_name))
       .catch(() => setInviteError("Invalid or expired invitation code."))
-      .finally(() => setInviteBusy(false))
   }, [code])
 
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -115,32 +107,37 @@ export default function InstructorApplyPage() {
     }
   }
 
-  const continueToProfile = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const handleHasCodeChange = (yes: boolean) => {
+    setHasInviteCode(yes)
     setInviteError("")
-    const trimmed = inviteCode.trim().toUpperCase()
-    if (!trimmed) return
-    setInviteBusy(true)
-    try {
-      const r = await validateInviteApi(trimmed)
-      setReferrer(r.ambassador_name)
-      setInviteCode(trimmed)
-      setStep(2)
-    } catch (err: any) {
-      setInviteError(err?.response?.data?.detail || "Invalid invitation code")
-    } finally {
-      setInviteBusy(false)
+    if (!yes) {
+      setInviteCode("")
+      setReferrer(null)
     }
-  }
-
-  const goBack = () => {
-    setStep(1)
-    setError("")
   }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
+    setInviteError("")
+
+    let submittedCode: string | undefined
+    if (hasInviteCode) {
+      submittedCode = inviteCode.trim().toUpperCase()
+      if (!submittedCode) {
+        setError('Please enter your invitation code, or select "No" if you don\'t have one.')
+        return
+      }
+      try {
+        const r = await validateInviteApi(submittedCode)
+        setReferrer(r.ambassador_name)
+      } catch (err: any) {
+        const msg = err?.response?.data?.detail || "Invalid or expired invitation code."
+        setInviteError(msg)
+        setError(msg)
+        return
+      }
+    }
 
     if (applyLocation === "within") {
       if (deliverCities.length === 0) {
@@ -175,7 +172,7 @@ export default function InstructorApplyPage() {
         phone: form.phone,
         email: emailVal,
         password: form.password,
-        invite_code: inviteCode,
+        invite_code: submittedCode,
         university: form.university,
         highest_degree: form.highest_degree,
         highest_degree_other: form.highest_degree === "Other" ? form.highest_degree_other : undefined,
@@ -204,291 +201,275 @@ export default function InstructorApplyPage() {
           <img src={PLAIN_LOGO} alt="SpacePoint" className="h-12 w-auto object-contain" />
         </div>
 
-        {/* Step indicator */}
-        <ol className="flex items-center w-full justify-between mb-8">
-          <li
-            className={`flex w-full items-center after:content-[''] after:w-full after:h-1 after:border-b after:border-4 after:inline-block ${
-              step === 2 ? "text-primary after:border-primary" : "text-primary after:border-primary"
-            }`}
-          >
-            <span className="flex items-center justify-center w-8 h-8 bg-background border-2 border-primary rounded-full shrink-0 font-bold z-10 text-foreground">
-              1
-            </span>
-          </li>
-          <li className={`flex items-center ${step === 2 ? "text-primary" : "text-muted-foreground"}`}>
-            <span
-              className={`flex items-center justify-center w-8 h-8 bg-background border-2 rounded-full shrink-0 font-bold z-10 text-foreground ${
-                step === 2 ? "border-primary" : "border-muted-foreground"
-              }`}
-            >
-              2
-            </span>
-          </li>
-        </ol>
+        <div>
+          <h1 className="text-center text-2xl font-bold text-foreground tracking-tight">Submit Your Interest</h1>
+          <p className="mt-2 text-center text-sm text-muted-foreground mb-6">
+            Complete your details to create your SpacePoint account.
+          </p>
 
-        {step === 1 && (
-          <div>
-            <h1 className="text-center text-2xl font-bold text-foreground tracking-tight">Access Gate</h1>
-            <p className="mt-2 text-center text-sm text-muted-foreground mb-6">
-              Please enter your valid invitation code to proceed to the scholarship application.
-            </p>
-            <form onSubmit={continueToProfile} className="space-y-6">
+          <form onSubmit={submit} className="flex flex-col gap-6 mt-6">
+            {/* Invitation code — optional */}
+            <div className="rounded-2xl border border-border p-5 space-y-3">
+              <label className="block text-sm font-medium text-foreground">
+                Do you have an invitation code?
+              </label>
+              <div className="flex gap-4">
+                <button
+                  type="button"
+                  onClick={() => handleHasCodeChange(true)}
+                  className={`flex-1 py-3 rounded-xl border font-bold transition-all ${
+                    hasInviteCode
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Yes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleHasCodeChange(false)}
+                  className={`flex-1 py-3 rounded-xl border font-bold transition-all ${
+                    !hasInviteCode
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  No
+                </button>
+              </div>
+              {hasInviteCode && (
+                <div className="pt-2 space-y-2">
+                  <input
+                    className="input uppercase"
+                    placeholder="INV-XXXXX"
+                    value={inviteCode}
+                    onChange={(e) => { setInviteCode(e.target.value.toUpperCase()); setInviteError("") }}
+                  />
+                  {referrer && <p className="text-sm text-primary">Referred by {referrer}</p>}
+                  {inviteError && <p className="text-sm text-destructive">{inviteError}</p>}
+                </div>
+              )}
+            </div>
+
+            {/* Within / Outside UAE toggle */}
+            <div className="rounded-2xl border border-border p-5 space-y-3">
+              <label className="block text-sm font-medium text-foreground">
+                Are you applying from within the UAE or outside the UAE?
+              </label>
+              <div className="flex gap-4">
+                <button
+                  type="button"
+                  onClick={() => handleLocationChange("within")}
+                  className={`flex-1 py-3 rounded-xl border font-bold transition-all ${
+                    applyLocation === "within"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Within UAE
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleLocationChange("outside")}
+                  className={`flex-1 py-3 rounded-xl border font-bold transition-all ${
+                    applyLocation === "outside"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Outside UAE
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Invitation Code</label>
+                <label className="block text-sm font-medium text-foreground mb-1">Full Name</label>
+                <input className="input" placeholder="Full name" value={form.full_name} onChange={set("full_name")} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Phone Number</label>
                 <input
-                  className="input uppercase"
-                  placeholder="INV-XXXXX"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  className="input"
+                  type="tel"
+                  placeholder="e.g., +971 50 123 4567"
+                  value={form.phone}
+                  onChange={set("phone")}
                   required
                 />
               </div>
-              {inviteError && <p className="text-sm text-destructive text-center">{inviteError}</p>}
-              <Button type="submit" disabled={inviteBusy} className="w-full">
-                {inviteBusy ? "Verifying…" : "Continue Application"}
-              </Button>
-            </form>
-          </div>
-        )}
+            </div>
 
-        {step === 2 && (
-          <div>
-            <h1 className="text-center text-2xl font-bold text-foreground tracking-tight">Your Profile</h1>
-            <p className="mt-2 text-center text-sm text-muted-foreground mb-2">
-              Complete your details to create your SpacePoint account.
-            </p>
-            {referrer && <p className="text-sm text-primary mb-4 text-center">Referred by {referrer}</p>}
-
-            <form onSubmit={submit} className="flex flex-col gap-6 mt-6">
-              {/* Within / Outside UAE toggle */}
-              <div className="rounded-2xl border border-border p-5 space-y-3">
-                <label className="block text-sm font-medium text-foreground">
-                  Are you applying from within the UAE or outside the UAE?
-                </label>
-                <div className="flex gap-4">
-                  <button
-                    type="button"
-                    onClick={() => handleLocationChange("within")}
-                    className={`flex-1 py-3 rounded-xl border font-bold transition-all ${
-                      applyLocation === "within"
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    Within UAE
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleLocationChange("outside")}
-                    className={`flex-1 py-3 rounded-xl border font-bold transition-all ${
-                      applyLocation === "outside"
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    Outside UAE
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Full Name</label>
-                  <input className="input" placeholder="Full name" value={form.full_name} onChange={set("full_name")} required />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Phone Number</label>
-                  <input
-                    className="input"
-                    type="tel"
-                    placeholder="e.g., +971 50 123 4567"
-                    value={form.phone}
-                    onChange={set("phone")}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Email Address</label>
-                  <input className="input" type="email" placeholder="you@example.com" value={form.email} onChange={set("email")} required />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Password</label>
-                  <input className="input" type="password" placeholder="Password" value={form.password} onChange={set("password")} required minLength={6} />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">University</label>
-                  <input className="input" placeholder="University" value={form.university} onChange={set("university")} required />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Highest Degree</label>
-                  <select className="input" value={form.highest_degree} onChange={set("highest_degree")} required>
-                    <option value="" disabled>Select...</option>
-                    {DEGREES.map((d) => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              {form.highest_degree === "Other" && (
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1">Specify Degree</label>
-                  <input className="input" placeholder="Specify degree" value={form.highest_degree_other} onChange={set("highest_degree_other")} required />
-                </div>
-              )}
-
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">Country of Residence</label>
-                <select
-                  className="input"
-                  value={form.country}
-                  onChange={set("country")}
-                  disabled={applyLocation === "within"}
-                  required
-                >
-                  {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                <label className="block text-sm font-medium text-foreground mb-1">Email Address</label>
+                <input className="input" type="email" placeholder="you@example.com" value={form.email} onChange={set("email")} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Password</label>
+                <input className="input" type="password" placeholder="Password" value={form.password} onChange={set("password")} required minLength={6} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">University</label>
+                <input className="input" placeholder="University" value={form.university} onChange={set("university")} required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-foreground mb-1">Highest Degree</label>
+                <select className="input" value={form.highest_degree} onChange={set("highest_degree")} required>
+                  <option value="" disabled>Select...</option>
+                  {DEGREES.map((d) => <option key={d} value={d}>{d}</option>)}
                 </select>
               </div>
+            </div>
 
-              {applyLocation === "within" && (
-                <>
-                  {/* City of residence */}
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1">City of Residence</label>
-                    <select className="input" value={form.city_of_residence} onChange={set("city_of_residence")} required>
-                      <option value="" disabled>Select...</option>
-                      {UAE_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-
-                  {/* Own transportation */}
-                  <div className="rounded-2xl border border-border p-5 space-y-3">
-                    <label className="block text-sm font-medium text-foreground">
-                      Do you have a car / own transportation?
-                    </label>
-                    <div className="flex gap-4">
-                      <button
-                        type="button"
-                        onClick={() => setForm((f) => ({ ...f, has_own_transportation: "true" }))}
-                        className={`flex-1 py-3 rounded-xl border font-bold transition-all ${
-                          form.has_own_transportation === "true"
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "border-border text-muted-foreground hover:bg-muted"
-                        }`}
-                      >
-                        Yes, I have a car
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setForm((f) => ({ ...f, has_own_transportation: "false" }))}
-                        className={`flex-1 py-3 rounded-xl border font-bold transition-all ${
-                          form.has_own_transportation === "false"
-                            ? "bg-destructive/20 text-destructive border-destructive/50"
-                            : "border-border text-muted-foreground hover:bg-muted"
-                        }`}
-                      >
-                        No, I don't
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Deliver cities */}
-                  <div>
-                    <p className="text-sm font-medium text-foreground mb-3">
-                      Can you deliver sessions in any of the following cities?
-                    </p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {UAE_CITIES.map((c) => (
-                        <label
-                          key={c}
-                          className="flex items-center gap-3 rounded-xl border border-border px-4 py-3 text-sm cursor-pointer transition-colors hover:bg-muted"
-                        >
-                          <input
-                            type="checkbox"
-                            className="sr-only peer"
-                            checked={deliverCities.includes(c)}
-                            onChange={() => toggleDeliverCity(c)}
-                          />
-                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border bg-background transition-colors peer-checked:border-primary peer-checked:bg-primary">
-                            <Check className="h-3.5 w-3.5 text-primary-foreground opacity-0 peer-checked:opacity-100" strokeWidth={3} />
-                          </span>
-                          <span className="text-muted-foreground peer-checked:text-foreground">{c}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Background areas */}
+            {form.highest_degree === "Other" && (
               <div>
-                <p className="text-sm font-medium text-foreground mb-3">Which areas best describe your background?</p>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  {BACKGROUNDS.map((b) => (
-                    <label
-                      key={b}
-                      className="flex items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-sm cursor-pointer transition-colors hover:bg-muted"
-                    >
-                      <input
-                        type="checkbox"
-                        className="sr-only peer"
-                        checked={backgroundAreas.includes(b)}
-                        onChange={() => toggleBackground(b)}
-                      />
-                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border bg-background transition-colors peer-checked:border-primary peer-checked:bg-primary">
-                        <Check className="h-3.5 w-3.5 text-primary-foreground opacity-0 peer-checked:opacity-100" strokeWidth={3} />
-                      </span>
-                      <span className="text-muted-foreground peer-checked:text-foreground">{b}</span>
-                    </label>
-                  ))}
+                <label className="block text-sm font-medium text-foreground mb-1">Specify Degree</label>
+                <input className="input" placeholder="Specify degree" value={form.highest_degree_other} onChange={set("highest_degree_other")} required />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">Country of Residence</label>
+              <select
+                className="input"
+                value={form.country}
+                onChange={set("country")}
+                disabled={applyLocation === "within"}
+                required
+              >
+                {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+
+            {applyLocation === "within" && (
+              <>
+                {/* City of residence */}
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1">City of Residence</label>
+                  <select className="input" value={form.city_of_residence} onChange={set("city_of_residence")} required>
+                    <option value="" disabled>Select...</option>
+                    {UAE_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  </select>
                 </div>
-                {backgroundAreas.includes("Other") && (
-                  <input
-                    className="input mt-3"
-                    placeholder="Specify other background"
-                    value={form.background_other}
-                    onChange={set("background_other")}
-                    required
-                  />
-                )}
-              </div>
 
-              {/* CV / Resume */}
-              <div>
-                <label className="block text-sm font-medium text-foreground mb-1">
-                  CV / Resume <span className="text-destructive">*</span>
-                </label>
-                <label className="flex items-center gap-3 p-3 border border-border rounded-xl cursor-pointer hover:bg-muted transition-colors">
-                  <Upload size={16} className="text-muted-foreground shrink-0" />
-                  <span className="text-sm text-muted-foreground truncate">
-                    {cv ? cv.name : "Upload PDF or Word doc"}
-                  </span>
-                  <input type="file" accept=".pdf,.doc,.docx" className="hidden"
-                    onChange={(e) => setCv(e.target.files?.[0] ?? null)} />
-                </label>
-              </div>
+                {/* Own transportation */}
+                <div className="rounded-2xl border border-border p-5 space-y-3">
+                  <label className="block text-sm font-medium text-foreground">
+                    Do you have a car / own transportation?
+                  </label>
+                  <div className="flex gap-4">
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, has_own_transportation: "true" }))}
+                      className={`flex-1 py-3 rounded-xl border font-bold transition-all ${
+                        form.has_own_transportation === "true"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      Yes, I have a car
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, has_own_transportation: "false" }))}
+                      className={`flex-1 py-3 rounded-xl border font-bold transition-all ${
+                        form.has_own_transportation === "false"
+                          ? "bg-destructive/20 text-destructive border-destructive/50"
+                          : "border-border text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      No, I don't
+                    </button>
+                  </div>
+                </div>
 
-              {error && <p className="text-sm text-destructive text-center">{error}</p>}
+                {/* Deliver cities */}
+                <div>
+                  <p className="text-sm font-medium text-foreground mb-3">
+                    Can you deliver sessions in any of the following cities?
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {UAE_CITIES.map((c) => (
+                      <label
+                        key={c}
+                        className="flex items-center gap-3 rounded-xl border border-border px-4 py-3 text-sm cursor-pointer transition-colors hover:bg-muted"
+                      >
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
+                          checked={deliverCities.includes(c)}
+                          onChange={() => toggleDeliverCity(c)}
+                        />
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border bg-background transition-colors peer-checked:border-primary peer-checked:bg-primary">
+                          <Check className="h-3.5 w-3.5 text-primary-foreground opacity-0 peer-checked:opacity-100" strokeWidth={3} />
+                        </span>
+                        <span className="text-muted-foreground peer-checked:text-foreground">{c}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
 
-              <div className="space-y-3">
-                <Button type="submit" disabled={loading} className="w-full">
-                  {loading ? "Submitting…" : "Create Account & Start Task"}
-                </Button>
-                <button
-                  type="button"
-                  onClick={goBack}
-                  className="w-full py-2.5 rounded-lg border border-border text-sm font-medium text-foreground hover:bg-muted transition-colors"
-                >
-                  Back
-                </button>
+            {/* Background areas */}
+            <div>
+              <p className="text-sm font-medium text-foreground mb-3">Which areas best describe your background?</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {BACKGROUNDS.map((b) => (
+                  <label
+                    key={b}
+                    className="flex items-center gap-3 rounded-xl border border-border px-3 py-2.5 text-sm cursor-pointer transition-colors hover:bg-muted"
+                  >
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={backgroundAreas.includes(b)}
+                      onChange={() => toggleBackground(b)}
+                    />
+                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border bg-background transition-colors peer-checked:border-primary peer-checked:bg-primary">
+                      <Check className="h-3.5 w-3.5 text-primary-foreground opacity-0 peer-checked:opacity-100" strokeWidth={3} />
+                    </span>
+                    <span className="text-muted-foreground peer-checked:text-foreground">{b}</span>
+                  </label>
+                ))}
               </div>
-            </form>
-          </div>
-        )}
+              {backgroundAreas.includes("Other") && (
+                <input
+                  className="input mt-3"
+                  placeholder="Specify other background"
+                  value={form.background_other}
+                  onChange={set("background_other")}
+                  required
+                />
+              )}
+            </div>
+
+            {/* CV / Resume */}
+            <div>
+              <label className="block text-sm font-medium text-foreground mb-1">
+                CV / Resume <span className="text-destructive">*</span>
+              </label>
+              <label className="flex items-center gap-3 p-3 border border-border rounded-xl cursor-pointer hover:bg-muted transition-colors">
+                <Upload size={16} className="text-muted-foreground shrink-0" />
+                <span className="text-sm text-muted-foreground truncate">
+                  {cv ? cv.name : "Upload PDF or Word doc"}
+                </span>
+                <input type="file" accept=".pdf,.doc,.docx" className="hidden"
+                  onChange={(e) => setCv(e.target.files?.[0] ?? null)} />
+              </label>
+            </div>
+
+            {error && <p className="text-sm text-destructive text-center">{error}</p>}
+
+            <Button type="submit" disabled={loading} className="w-full">
+              {loading ? "Submitting…" : "Create Account & Start Task"}
+            </Button>
+          </form>
+        </div>
 
         <p className="text-sm text-muted-foreground mt-6 text-center">
           Already have an account?{" "}

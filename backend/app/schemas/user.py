@@ -48,7 +48,7 @@ class InstructorApply(BaseModel):
     full_name: str
     email: EmailStr
     password: str
-    invite_code: str
+    invite_code: str | None = None
     university: str | None = None
     highest_degree: str | None = None
     highest_degree_other: str | None = None

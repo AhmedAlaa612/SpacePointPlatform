@@ -106,7 +106,7 @@ export async function applyInstructorApi(data: {
   phone?: string
   email: string
   password: string
-  invite_code: string
+  invite_code?: string
   university?: string
   highest_degree?: string
   highest_degree_other?: string

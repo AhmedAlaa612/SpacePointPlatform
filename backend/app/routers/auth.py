@@ -364,28 +364,33 @@ async def instructor_apply(
     if await _email_taken(db, payload.email):
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    code = payload.invite_code.strip().upper()
+    code = payload.invite_code.strip().upper() if payload.invite_code else None
     referred_by_ambassador_id = None
+    invitation = None
 
-    invitation = (await db.execute(
-        select(InvitationCode).where(InvitationCode.code == code, InvitationCode.is_active.is_(True))
-    )).scalars().first()
-    if invitation:
-        if invitation.expires_at and invitation.expires_at < datetime.now(timezone.utc):
-            raise HTTPException(status_code=400, detail="Invitation code has expired")
-        if invitation.used_count >= invitation.max_uses:
-            raise HTTPException(status_code=400, detail="Invitation code has reached its usage limit")
-    else:
-        amb = (await db.execute(
-            select(User).where(
-                User.invite_code == code,
-                User.roles.any("ambassador"),
-                User.status == "active",
-            )
+    # Code is optional (organic applicants have none) — but if one is
+    # supplied it must be valid, so a typo'd/expired code doesn't silently
+    # drop the referral.
+    if code:
+        invitation = (await db.execute(
+            select(InvitationCode).where(InvitationCode.code == code, InvitationCode.is_active.is_(True))
         )).scalars().first()
-        if not amb:
-            raise HTTPException(status_code=400, detail="Invalid or inactive invite code")
-        referred_by_ambassador_id = amb.id
+        if invitation:
+            if invitation.expires_at and invitation.expires_at < datetime.now(timezone.utc):
+                raise HTTPException(status_code=400, detail="Invitation code has expired")
+            if invitation.used_count >= invitation.max_uses:
+                raise HTTPException(status_code=400, detail="Invitation code has reached its usage limit")
+        else:
+            amb = (await db.execute(
+                select(User).where(
+                    User.invite_code == code,
+                    User.roles.any("ambassador"),
+                    User.status == "active",
+                )
+            )).scalars().first()
+            if not amb:
+                raise HTTPException(status_code=400, detail="Invalid or inactive invite code")
+            referred_by_ambassador_id = amb.id
 
     user = User(
         full_name=payload.full_name,
