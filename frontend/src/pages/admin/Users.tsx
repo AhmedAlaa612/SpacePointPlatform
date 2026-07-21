@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Trash2, UserPlus, FileText, Pencil } from "lucide-react"
 import type { Role, User } from "@/types/shared"
@@ -35,11 +35,22 @@ export default function Users() {
   const [documentsUser, setDocumentsUser] = useState<User | null>(null)
   const [editUser, setEditUser] = useState<User | null>(null)
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+  const [roleFilter, setRoleFilter] = useState<Role | "all">("all")
 
   const { data: users = [], isLoading } = useQuery<User[]>({
     queryKey: ["users"],
     queryFn: getUsersApi,
   })
+
+  const filteredUsers = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return users.filter((u) => {
+      if (q && !u.full_name.toLowerCase().includes(q)) return false
+      if (roleFilter !== "all" && !u.roles.includes(roleFilter)) return false
+      return true
+    })
+  }, [users, search, roleFilter])
 
   const deleteMutation = useMutation({
     mutationFn: deleteUserApi,
@@ -57,7 +68,10 @@ export default function Users() {
 
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">{users.length} user{users.length !== 1 ? "s" : ""}</p>
+          <p className="text-sm text-muted-foreground">
+            {filteredUsers.length} user{filteredUsers.length !== 1 ? "s" : ""}
+            {filteredUsers.length !== users.length ? ` of ${users.length}` : ""}
+          </p>
           <button
             onClick={() => setCreateOpen(true)}
             className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
@@ -66,8 +80,27 @@ export default function Users() {
           </button>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name…"
+            className="h-9 px-3 w-full sm:w-64 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+          <select
+            value={roleFilter}
+            onChange={(e) => setRoleFilter(e.target.value as Role | "all")}
+            className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          >
+            <option value="all">All roles</option>
+            {ALL_ROLES.map((r) => (
+              <option key={r} value={r}>{ROLE_LABEL[r]}</option>
+            ))}
+          </select>
+        </div>
+
         <div className="flex flex-col gap-2">
-          {users.map((u) => (
+          {filteredUsers.map((u) => (
             <div
               key={u.id}
               className="flex items-center justify-between p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors"
@@ -125,9 +158,11 @@ export default function Users() {
               </div>
             </div>
           ))}
-          {users.length === 0 && (
+          {filteredUsers.length === 0 && (
             <div className="flex items-center justify-center h-32 border border-dashed border-border rounded-2xl">
-              <p className="text-sm text-muted-foreground">No users yet</p>
+              <p className="text-sm text-muted-foreground">
+                {users.length === 0 ? "No users yet" : "No users match your search/filter"}
+              </p>
             </div>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { listAdminInstructorsApi } from "@/api/instructors/admin"
 import { UserProfileModal } from "@/components/UserProfileModal"
@@ -7,6 +7,13 @@ import { EmptyState, PageHeader, Spinner, StatusPill } from "@/pages/instructors
 export default function InstructorsAdminInstructors() {
   const { data: instructors, isLoading } = useQuery({ queryKey: ["admin-instructors"], queryFn: listAdminInstructorsApi })
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
+
+  const filteredInstructors = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return instructors ?? []
+    return (instructors ?? []).filter((i) => i.full_name.toLowerCase().includes(q))
+  }, [instructors, search])
 
   if (isLoading) return <Spinner />
 
@@ -14,11 +21,18 @@ export default function InstructorsAdminInstructors() {
     <div className="flex flex-col gap-6">
       <PageHeader title="Instructors" subtitle="Directory of approved instructors." />
 
-      {(instructors ?? []).length === 0 ? (
-        <EmptyState title="No approved instructors yet" />
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by name…"
+        className="h-9 px-3 w-full sm:w-64 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+      />
+
+      {filteredInstructors.length === 0 ? (
+        <EmptyState title={(instructors ?? []).length === 0 ? "No approved instructors yet" : "No instructors match your search"} />
       ) : (
         <div className="space-y-2">
-          {instructors!.map((i) => (
+          {filteredInstructors.map((i) => (
             <button
               key={i.id}
               onClick={() => setProfileUserId(i.id)}

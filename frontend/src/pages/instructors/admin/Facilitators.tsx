@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2, ClipboardList, FileEdit, Plus, Ticket, XCircle } from "lucide-react"
 import { createFacilitatorApi, listAdminFacilitatorsApi, listApplicantsApi, listInvitationsApi } from "@/api/instructors/admin"
@@ -20,11 +20,18 @@ export default function InstructorsAdminFacilitators() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
+  const [search, setSearch] = useState("")
 
   const { data: facilitators, isLoading: loadingFacilitators } = useQuery({
     queryKey: ["admin-facilitators"],
     queryFn: listAdminFacilitatorsApi,
   })
+
+  const filteredFacilitators = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return facilitators ?? []
+    return (facilitators ?? []).filter((f) => f.full_name.toLowerCase().includes(q))
+  }, [facilitators, search])
   const { data: applicants, isLoading: loadingApplicants } = useQuery({
     queryKey: ["admin-applicants"],
     queryFn: listApplicantsApi,
@@ -77,20 +84,27 @@ export default function InstructorsAdminFacilitators() {
         />
       </div>
 
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center gap-3 flex-wrap">
         <h2 className="text-2xl font-bold tracking-tight">Manage Facilitators</h2>
         <Button onClick={() => setShowModal(true)}>
           <Plus size={14} className="mr-1" /> New Facilitator
         </Button>
       </div>
 
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search by name…"
+        className="h-9 px-3 w-full sm:w-64 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+      />
+
       <div className="w-full rounded-2xl overflow-hidden border border-border bg-card/70 backdrop-blur-xl ring-1 ring-black/5 dark:bg-card/60 dark:ring-white/10 shadow-xl">
         <div className="p-4 bg-muted/50 border-b border-border text-sm text-muted-foreground text-center">
           Facilitators can access their own dashboard to add modules, slides, and manage instructor content.
         </div>
 
-        {(facilitators ?? []).length === 0 ? (
-          <EmptyState title="No facilitators yet" />
+        {filteredFacilitators.length === 0 ? (
+          <EmptyState title={(facilitators ?? []).length === 0 ? "No facilitators yet" : "No facilitators match your search"} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse min-w-[600px]">
@@ -102,7 +116,7 @@ export default function InstructorsAdminFacilitators() {
                 </tr>
               </thead>
               <tbody>
-                {facilitators!.map((f) => (
+                {filteredFacilitators.map((f) => (
                   <tr
                     key={f.id}
                     onClick={() => setProfileUserId(f.id)}
