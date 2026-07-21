@@ -118,6 +118,7 @@ async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User
             "referred_by_ambassador_id": str(u.invited_by_id) if u.invited_by_id else None,
             "created_at": u.created_at,
             "submitted_at": review.submitted_at,
+            "also_grant_role": profile.also_grant_role if profile else None,
         }
         for u, review, profile in rows
     ]
@@ -278,10 +279,24 @@ async def review_applicant(
         email_sent = await send_phase1_approval_email(user.email, user.full_name)
 
     elif body.status == ApplicationStatus.approved:
-        # Promote to instructor (replace 'applicant' — cleaner than keeping both, per PLAN §9.2)
-        user.roles = [UserRole.instructor]
-
         profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == user_id))).scalars().first()
+
+        # Promote to instructor: 'applicant' is deliberately dropped here, same as
+        # before (PLAN §9.2 / docs/HANDOFF_INSTRUCTORS.md — "promotes the user's role
+        # from applicant to instructor"). The only change from the old unconditional
+        # `user.roles = [UserRole.instructor]` is also_grant_role: applicants routed in
+        # from another role's application (e.g. an intern sent to onboarding —
+        # routers/admin/applications.py::onboard_application) carry it, and it's added
+        # alongside instructor so they end up with both roles instead of losing the one
+        # they already had (PLAN §1: intern + instructor is a documented valid combination).
+        new_roles = {UserRole.instructor}
+        if profile and profile.also_grant_role:
+            try:
+                new_roles.add(UserRole(profile.also_grant_role))
+            except ValueError:
+                pass
+        user.roles = list(new_roles)
+
         living_area = (profile.city_of_residence if profile and profile.city_of_residence else None) or \
             (profile.country if profile else "United Arab Emirates")
 

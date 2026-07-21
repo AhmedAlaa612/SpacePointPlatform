@@ -13,8 +13,11 @@ from app.db.session import get_db
 from app.models.application import Application
 from app.models.application_question import ApplicationQuestion
 from app.models.enums import UserRole
+from app.models.instructors.applicant_profile import ApplicantProfile
+from app.models.instructors.application_review import ApplicationReview
 from app.models.user import User
 from app.services import storage
+from app.services.email import send_moved_to_onboarding_email
 from app.services.notification import create_notification as notify
 from app.services.points import award_points, get_setting_int
 
@@ -145,6 +148,55 @@ async def reject_application(
     app.reviewed_at = datetime.now(timezone.utc)
     await db.commit()
     return {"detail": "rejected"}
+
+
+@router.post("/applications/{app_id}/onboard")
+async def onboard_application(
+    app_id: uuid.UUID,
+    body: ReviewBody,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Route a pending intern application into the instructor onboarding
+    pipeline instead of accepting it directly. Completing that pipeline
+    grants both the instructor and intern roles (see review_applicant() in
+    routers/instructors/admin.py)."""
+    app = await _get_pending(db, app_id)
+    if app.role != "intern":
+        raise HTTPException(status_code=400, detail="Only intern applications can be sent to onboarding")
+
+    import secrets
+    new_user = User(
+        full_name=app.full_name,
+        email=app.email,
+        password_hash=app.password_hash,
+        phone=app.phone,
+        country=app.country,
+        roles=[UserRole.applicant],
+        status="active",
+        invite_code=secrets.token_hex(4).upper(),
+        invited_by_id=app.invited_by_id,
+    )
+    db.add(new_user)
+    await db.flush()
+
+    db.add(ApplicantProfile(
+        user_id=new_user.id,
+        cv_path=app.cv_path,
+        country=app.country or "United Arab Emirates",
+        also_grant_role="intern",
+    ))
+    db.add(ApplicationReview(user_id=new_user.id))
+
+    app.status = "onboarding"
+    app.admin_notes = body.admin_notes
+    app.reviewed_by = current_user.id
+    app.reviewed_at = datetime.now(timezone.utc)
+
+    email_sent = await send_moved_to_onboarding_email(new_user.email, new_user.full_name)
+
+    await db.commit()
+    return {"detail": "onboarding", "user_id": str(new_user.id), "email_sent": email_sent}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -20,3 +20,9 @@ class ApplicantProfile(Base):
     cv_path = Column(Text, nullable=True)  # storage path in the "cvs" bucket
     # NOTE: the referring ambassador is tracked on users.invited_by_id (single source
     # of truth) — there is intentionally no duplicate referred_by_ambassador_id here.
+
+    # Set when this applicant was routed into the instructor pipeline from another
+    # role's application (e.g. an intern applicant sent to onboarding) instead of
+    # signing up organically. On final approval, review_applicant() unions this role
+    # into the instructor role instead of overwriting — see routers/instructors/admin.py.
+    also_grant_role = Column(String(50), nullable=True)

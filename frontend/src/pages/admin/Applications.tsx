@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, Trash2, X, FileText } from "lucide-react"
 import {
-  listApplicationsApi, getApplicationApi, approveApplicationApi, rejectApplicationApi,
+  listApplicationsApi, getApplicationApi, approveApplicationApi, rejectApplicationApi, sendToOnboardingApi,
   listQuestionsAdminApi, createQuestionApi, deleteQuestionApi,
 } from "@/api/apply"
 import { Button } from "@/components/ui/button"
@@ -16,9 +16,10 @@ const ROLE_OPTIONS = [
 ]
 
 const STATUS_COLOR: Record<string, string> = {
-  pending:  "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
-  approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
-  rejected: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300",
+  pending:    "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
+  approved:   "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+  rejected:   "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300",
+  onboarding: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300",
 }
 
 const ROLE_COLOR: Record<string, string> = {
@@ -85,7 +86,7 @@ function ApplicationsTab() {
           ))}
         </div>
         <div className="flex gap-1 bg-muted rounded-xl p-1">
-          {["all", "pending", "approved", "rejected"].map((s) => (
+          {["all", "pending", "onboarding", "approved", "rejected"].map((s) => (
             <button key={s} onClick={() => setStatusFilter(s)}
               className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors capitalize ${
                 statusFilter === s ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
@@ -158,6 +159,10 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
   })
   const reject = useMutation({
     mutationFn: () => rejectApplicationApi(id, notes || undefined),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-applications"] }); onClose() },
+  })
+  const onboard = useMutation({
+    mutationFn: () => sendToOnboardingApi(id, notes || undefined),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-applications"] }); onClose() },
   })
 
@@ -234,14 +239,20 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                       />
                       <div className="flex gap-2">
                         <Button variant="outline" className="flex-1 border-red-300 text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
-                          onClick={() => reject.mutate()} disabled={reject.isPending || approve.isPending}>
+                          onClick={() => reject.mutate()} disabled={reject.isPending || approve.isPending || onboard.isPending}>
                           {reject.isPending ? "Rejecting…" : "Reject"}
                         </Button>
                         <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                          onClick={() => approve.mutate()} disabled={approve.isPending || reject.isPending}>
+                          onClick={() => approve.mutate()} disabled={approve.isPending || reject.isPending || onboard.isPending}>
                           {approve.isPending ? "Approving…" : "Approve"}
                         </Button>
                       </div>
+                      {app.role === "intern" && (
+                        <Button variant="outline" className="w-full border-indigo-300 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+                          onClick={() => onboard.mutate()} disabled={approve.isPending || reject.isPending || onboard.isPending}>
+                          {onboard.isPending ? "Sending…" : "Send to Instructor Onboarding"}
+                        </Button>
+                      )}
                     </CardContent>
                   </Card>
                 )}

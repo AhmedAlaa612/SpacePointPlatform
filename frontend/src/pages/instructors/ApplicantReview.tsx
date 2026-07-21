@@ -133,7 +133,14 @@ export default function ApplicantReviewPage() {
       <div className="relative overflow-hidden rounded-2xl border border-border/80 bg-card/65 p-6 shadow-md backdrop-blur-md">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">{detail.full_name}</h1>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">{detail.full_name}</h1>
+              {detail.profile?.also_grant_role === "intern" && (
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-[#d6c7e1] text-[#643f83] shrink-0">
+                  + Intern role on approval
+                </span>
+              )}
+            </div>
             <p className="text-sm text-muted-foreground mt-1">{detail.email}</p>
             {detail.profile && (
               <p className="text-sm text-muted-foreground mt-0.5">

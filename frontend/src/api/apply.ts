@@ -12,7 +12,7 @@ export interface ApplyQuestion {
 export interface ApplicationOut {
   id: string
   role: string
-  status: "pending" | "approved" | "rejected"
+  status: "pending" | "approved" | "rejected" | "onboarding"
   full_name: string
   email: string
   phone: string | null
@@ -44,6 +44,9 @@ export const approveApplicationApi = (id: string, admin_notes?: string) =>
 
 export const rejectApplicationApi = (id: string, admin_notes?: string) =>
   api.post(`/admin/applications/${id}/reject`, { admin_notes }).then((r) => r.data)
+
+export const sendToOnboardingApi = (id: string, admin_notes?: string) =>
+  api.post(`/admin/applications/${id}/onboard`, { admin_notes }).then((r) => r.data)
 
 export const getApplicationCountsApi = () =>
   api.get<Record<string, Record<string, number>>>("/admin/applications/counts").then((r) => r.data)

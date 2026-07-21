@@ -84,7 +84,14 @@ export default function InstructorsAdminApplicants() {
                     className="border-b border-border/40 last:border-0 hover:bg-muted/40 transition-colors cursor-pointer group"
                   >
                     <td className="py-3.5 px-4">
-                      <p className="font-semibold text-foreground group-hover:text-primary transition-colors">{a.full_name}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-semibold text-foreground group-hover:text-primary transition-colors">{a.full_name}</p>
+                        {a.also_grant_role === "intern" && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[#d6c7e1] text-[#643f83] shrink-0">
+                            + Intern
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-[240px]">{a.email}</p>
                     </td>
                     <td className="py-3.5 px-4 text-muted-foreground">{a.city_of_residence || "—"}</td>

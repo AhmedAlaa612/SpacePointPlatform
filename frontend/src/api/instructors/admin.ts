@@ -33,6 +33,7 @@ export interface ApplicantListItem {
   referred_by_ambassador_id: string | null
   created_at: string
   submitted_at: string | null
+  also_grant_role: string | null
 }
 
 export interface InvitationCode {

@@ -71,6 +71,19 @@ async def send_phase1_approval_email(to_email: str, name: str) -> bool:
     return await try_send_email(to_email, "SpacePoint Instructor Application - Phase 1 Approved", body)
 
 
+async def send_moved_to_onboarding_email(to_email: str, name: str) -> bool:
+    body = (
+        f"Hi {name},\n\n"
+        "Your application has been moved into the SpacePoint instructor training "
+        "pipeline. Complete it and you'll be granted both the Instructor and Intern "
+        "roles on approval.\n\n"
+        f"Log in with your existing email and password to get started: "
+        f"{settings.FRONTEND_URL}/login\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, "SpacePoint Application - Moved to Instructor Onboarding", body)
+
+
 async def send_approval_credentials_email(
     to_email: str, name: str, temp_password: str | None = None, contract_pdf: bytes | None = None
 ) -> bool:
