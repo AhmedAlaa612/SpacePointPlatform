@@ -83,6 +83,25 @@ async def send_moved_to_onboarding_email(to_email: str, name: str) -> bool:
     return await try_send_email(to_email, "SpacePoint Internship Application - Onboarding", body)
 
 
+_APPLICATION_ROLE_LABELS = {
+    "ambassador": "Ambassador",
+    "intern": "Intern",
+    "teacher": "Teacher",
+    "facilitator": "Facilitator",
+}
+
+
+async def send_application_approved_email(to_email: str, name: str, role: str) -> bool:
+    label = _APPLICATION_ROLE_LABELS.get(role, role.title())
+    body = (
+        f"Hi {name},\n\n"
+        f"Congratulations — your {label} application has been approved! Welcome to SpacePoint.\n\n"
+        f"Log in with the email and password you used to apply: {settings.FRONTEND_URL}/login\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, f"SpacePoint {label} Application Approved", body)
+
+
 async def send_approval_credentials_email(
     to_email: str, name: str, temp_password: str | None = None, contract_pdf: bytes | None = None
 ) -> bool:

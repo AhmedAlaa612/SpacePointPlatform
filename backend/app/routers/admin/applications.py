@@ -17,7 +17,7 @@ from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
 from app.models.user import User
 from app.services import storage
-from app.services.email import send_moved_to_onboarding_email
+from app.services.email import send_application_approved_email, send_moved_to_onboarding_email
 from app.services.notification import create_notification as notify
 from app.services.points import award_points, get_setting_int
 
@@ -130,8 +130,10 @@ async def approve_application(
     await notify(db, new_user.id, "Application Approved",
                  f"Your {app.role} application has been approved. Welcome to SpacePoint!", type="application")
 
+    email_sent = await send_application_approved_email(new_user.email, new_user.full_name, app.role)
+
     await db.commit()
-    return {"detail": "approved", "user_id": str(new_user.id)}
+    return {"detail": "approved", "user_id": str(new_user.id), "email_sent": email_sent}
 
 
 @router.post("/applications/{app_id}/reject")
