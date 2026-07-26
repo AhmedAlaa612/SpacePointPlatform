@@ -79,6 +79,12 @@ class RegistrationOut(BaseModel):
     is_repeat: bool
     ticket_sent: bool
     checked_in: bool
+    # Whether a certificate exists at all. certificate_url below is only ever
+    # set for certs that were stored as a file — student completion certs are
+    # emailed as a PDF attachment and never uploaded, so they have a row and
+    # no URL. Keying "has a certificate" off the URL made every student
+    # certificate invisible in the ops list.
+    certificate_issued: bool = False
     certificate_url: str | None = None
     attended_sessions_count: int = 0
     total_cohort_sessions_count: int = 0

@@ -13,7 +13,11 @@ from pydantic import BaseModel
 
 from app.schemas.sessions.reports import SessionReportOut
 
-AttendanceStatus = Literal["present", "absent", "late", "excused"]
+# Attendance is a binary fact: the student was there or they weren't.
+# "late" and "excused" were dropped (operator, 2026-07-26) — they were also
+# actively misleading, since the ops list counted late as attended while the
+# certificate rule counted only present, so the two disagreed.
+AttendanceStatus = Literal["present", "absent"]
 
 
 class RosterEntryOut(BaseModel):

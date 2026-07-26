@@ -168,7 +168,7 @@ export interface CalendarResult {
 }
 
 /** W5 S5-1 — instructor session delivery: roster + attendance + start/done. */
-export type AttendanceStatus = "present" | "absent" | "late" | "excused";
+export type AttendanceStatus = "present" | "absent";
 
 export interface RosterEntry {
   registration_id: string;
@@ -257,6 +257,10 @@ export interface Registration {
   is_repeat: boolean;
   ticket_sent: boolean;
   checked_in: boolean;
+  /** Whether a certificate exists at all. Student completion certificates are
+   *  emailed as a PDF and never stored, so they have no certificate_url —
+   *  check this, not the URL, to know whether one was issued. */
+  certificate_issued: boolean;
   certificate_url?: string | null;
   attended_sessions_count?: number;
   total_cohort_sessions_count?: number;

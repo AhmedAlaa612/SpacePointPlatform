@@ -142,6 +142,43 @@ async def update_cohort(
     return cohort
 
 
+@router.delete("/cohorts/{cohort_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_cohort(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Only ever deletes a cohort nobody has signed up for.
+
+    registrations.cohort_id cascades, and attendance cascades from there, so
+    an unguarded delete would erase real people's sign-up and attendance
+    history without warning. Cancelled registrations count too — a cancellation
+    is a record of something that happened, not an empty slot. A cohort that
+    ran should be set to `cancelled` or `completed`, not deleted.
+
+    Its sessions (and their instructor assignments) do cascade away, which is
+    correct: with no registrations there can be no attendance hanging off them.
+    """
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    registration_count = await db.scalar(
+        select(func.count()).select_from(Registration).where(Registration.cohort_id == cohort_id)
+    )
+    if registration_count:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"This cohort has {registration_count} registration(s) and can't be deleted. "
+                "Set its status to cancelled instead — that keeps the students' history."
+            ),
+        )
+
+    await db.delete(cohort)
+    await db.commit()
+
+
 @router.post("/cohorts/{cohort_id}/complete", response_model=CompleteCohortResponse)
 async def complete_cohort(
     cohort_id: uuid.UUID,
@@ -306,6 +343,39 @@ async def update_session(
     return await _session_out(db, session)
 
 
+@router.delete("/cohorts/{cohort_id}/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_session(
+    cohort_id: uuid.UUID,
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Only ever deletes a session nobody was marked present or absent for —
+    attendance_records.session_id cascades. Instructor assignments and any
+    registration_sessions rows restricting a registration to this session do
+    cascade away, which is what you want when removing a date that was
+    scheduled by mistake or generated one too many times.
+    """
+    session = await db.get(Session, session_id)
+    if session is None or session.cohort_id != cohort_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    attendance_count = await db.scalar(
+        select(func.count()).select_from(AttendanceRecord).where(AttendanceRecord.session_id == session_id)
+    )
+    if attendance_count:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"Attendance has been recorded for {attendance_count} student(s) in this session, "
+                "so it can't be deleted."
+            ),
+        )
+
+    await db.delete(session)
+    await db.commit()
+
+
 # ── Per-session instructor assignment ───────────────────────────────────────
 
 @router.post(
@@ -463,6 +533,7 @@ async def list_registrations(
     registration_ids = [reg.id for reg, _, _, _ in rows]
     checked_in_ids: set[uuid.UUID] = set()
     certificate_urls: dict[uuid.UUID, str] = {}
+    certified_ids: set[uuid.UUID] = set()
     att_by_reg: dict[uuid.UUID, dict[uuid.UUID, AttendanceRecord]] = {}
 
     if registration_ids:
@@ -481,11 +552,13 @@ async def list_registrations(
             select(Certificate).where(Certificate.registration_id.in_(registration_ids))
         )).scalars().all()
         for cert in certs:
+            certified_ids.add(cert.registration_id)
             # resolve_url already prefers a fresh signed URL from (bucket, path)
             # and falls back to a stored file_url — guarding on bucket/path here
             # defeated that fallback, hiding the URL on any row that only has
             # file_url. Student completion certs have neither (emailed, never
-            # stored), so they correctly stay None.
+            # stored), so they correctly stay None while still being reported
+            # as issued via certified_ids.
             url = await storage.resolve_url(cert.bucket, cert.file_path, cert.file_url)
             if url:
                 certificate_urls[cert.registration_id] = url
@@ -498,7 +571,9 @@ async def list_registrations(
         for s in cohort_sessions:
             rec = reg_att_dict.get(s.id)
             status_val = rec.att_status if rec else "unrecorded"
-            if status_val in ("present", "late"):
+            # Attendance is present|absent; this used to also count "late",
+            # which disagreed with the certificate rule's present-only count.
+            if status_val == "present":
                 attended_count += 1
             att_list.append(
                 RegistrationAttendanceOut(
@@ -530,6 +605,7 @@ async def list_registrations(
                 is_repeat=reg.is_repeat,
                 ticket_sent=reg.ticket_sent_at is not None,
                 checked_in=reg.id in checked_in_ids,
+                certificate_issued=reg.id in certified_ids,
                 certificate_url=certificate_urls.get(reg.id),
                 attended_sessions_count=attended_count,
                 total_cohort_sessions_count=total_sessions_count,
@@ -657,6 +733,55 @@ async def cancel_registration(
     registration.status = "cancelled"
     await db.commit()
     return {"id": str(registration.id), "status": registration.status}
+
+
+@router.delete("/registrations/{registration_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_registration(
+    registration_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Removes a sign-up outright — for the wrong-cohort/duplicate-entry case.
+
+    Cancel (above) is the right action for someone who really did sign up and
+    then dropped out: it keeps the row, and the seat is freed either way since
+    cancelled registrations don't count against capacity. This is for rows that
+    shouldn't exist at all, so it refuses once there's anything real attached —
+    attendance taken or a certificate issued. The Contact itself is never
+    touched; only this cohort's sign-up goes.
+    """
+    registration = await db.get(Registration, registration_id)
+    if registration is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
+
+    attendance_count = await db.scalar(
+        select(func.count()).select_from(AttendanceRecord)
+        .where(AttendanceRecord.registration_id == registration_id)
+    )
+    if attendance_count:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "This student has attendance recorded for this cohort, so the registration "
+                "can't be deleted. Cancel it instead — that keeps the record."
+            ),
+        )
+
+    certificate_count = await db.scalar(
+        select(func.count()).select_from(Certificate)
+        .where(Certificate.registration_id == registration_id)
+    )
+    if certificate_count:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "A certificate has been issued for this registration, so it can't be deleted. "
+                "Cancel it instead."
+            ),
+        )
+
+    await db.delete(registration)
+    await db.commit()
 
 
 @router.post("/registrations/{registration_id}/certificate")

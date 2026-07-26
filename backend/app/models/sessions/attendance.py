@@ -19,7 +19,7 @@ class AttendanceRecord(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     registration_id = Column(UUID(as_uuid=True), ForeignKey("registrations.id", ondelete="CASCADE"), nullable=False)
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
-    att_status = Column(String(12), nullable=False)  # present|absent|late|excused
+    att_status = Column(String(12), nullable=False)  # present|absent
     method = Column(String(8), nullable=False, default="manual")  # manual|qr
     recorded_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     recorded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

@@ -245,14 +245,14 @@ async def test_mark_attendance_upserts_not_duplicates(db):
     reg = await _make_registration(db, cohort)
 
     await delivery.mark_attendance(db, session.id, reg.id, "absent", ops)
-    record, _ = await delivery.mark_attendance(db, session.id, reg.id, "late", ops)
+    record, _ = await delivery.mark_attendance(db, session.id, reg.id, "present", ops)
 
     from sqlalchemy import select
     rows = (await db.execute(
         select(AttendanceRecord).where(AttendanceRecord.registration_id == reg.id, AttendanceRecord.session_id == session.id)
     )).scalars().all()
     assert len(rows) == 1
-    assert rows[0].att_status == "late"
+    assert rows[0].att_status == "present"
 
 
 @pytest.mark.asyncio

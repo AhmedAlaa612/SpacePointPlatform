@@ -90,3 +90,16 @@ export const confirmPaymentApi = (
 // registration regardless of whether it met the program's completion rule.
 export const giveCertificateApi = (registrationId: string) =>
   api.post<{ id: string; status: string; certificate_url: string }>(`/sessions/registrations/${registrationId}/certificate`).then((r) => r.data)
+
+/** 409 if anyone has registered — cancel the cohort instead to keep history. */
+export const deleteCohortApi = (id: string) =>
+  api.delete<void>(`/sessions/cohorts/${id}`).then((r) => r.data)
+
+/** 409 if attendance has been recorded for the session. */
+export const deleteSessionApi = (cohortId: string, sessionId: string) =>
+  api.delete<void>(`/sessions/cohorts/${cohortId}/sessions/${sessionId}`).then((r) => r.data)
+
+/** Removes a sign-up outright (wrong cohort, duplicate entry). 409 once there
+ *  is attendance or a certificate attached — cancel it instead. */
+export const deleteRegistrationApi = (registrationId: string) =>
+  api.delete<void>(`/sessions/registrations/${registrationId}`).then((r) => r.data)

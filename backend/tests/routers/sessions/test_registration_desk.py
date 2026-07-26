@@ -267,6 +267,46 @@ async def test_list_registrations_includes_certificate_url_when_issued(db, clien
     assert row["certificate_url"] == "https://example.test/cert.pdf"
 
 
+@pytest.mark.asyncio
+async def test_student_certificate_is_reported_issued_without_a_url(db, client, operations_headers):
+    """Student completion certs are emailed, never stored, so they have a row
+    and no file. The list keyed "has a certificate" off certificate_url, which
+    made every one of them invisible to ops — certificate_issued is the flag."""
+    from app.models.certificate import Certificate
+    from app.models.enums import CertificateType
+
+    cohort = await _make_cohort(db)
+    student = _new_contact(full_name="Emailed Cert Student")
+    db.add(student)
+    await db.flush()
+    registration = await register(db, contact_id=student.id, cohort_id=cohort.id, registered_via="desk")
+    db.add(Certificate(
+        id=uuid.uuid4(), contact_id=student.id, registration_id=registration.id,
+        type=CertificateType.student_completion, workshop_name=cohort.name,
+        file_url=None, bucket=None, file_path=None,
+    ))
+    await db.commit()
+
+    resp = await client.get(f"/sessions/cohorts/{cohort.id}/registrations", headers=operations_headers)
+    assert resp.status_code == 200, resp.text
+    row = resp.json()[0]
+    assert row["certificate_issued"] is True
+    assert row["certificate_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_registration_without_a_certificate_reports_not_issued(db, client, operations_headers):
+    cohort = await _make_cohort(db)
+    student = _new_contact(full_name="No Cert Student")
+    db.add(student)
+    await db.flush()
+    await register(db, contact_id=student.id, cohort_id=cohort.id, registered_via="desk")
+    await db.commit()
+
+    resp = await client.get(f"/sessions/cohorts/{cohort.id}/registrations", headers=operations_headers)
+    assert resp.json()[0]["certificate_issued"] is False
+
+
 # ── Ticket / payment / cancel actions ────────────────────────────────────────
 
 @pytest.mark.asyncio

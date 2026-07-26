@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, Pencil, X, CalendarPlus, UserPlus, Upload, Ticket, Wallet, Ban, FileText, Download, CheckCircle2, Award } from "lucide-react"
+import { Plus, Pencil, X, CalendarPlus, UserPlus, Upload, Ticket, Wallet, Ban, FileText, Download, CheckCircle2, Award, Trash2 } from "lucide-react"
 import type {
   Cohort, CohortStatus, CohortVisibility, Program, Session,
   Registration, RegistrationStatus, PaymentStatus, StaffingStatus, EligibleInstructor,
@@ -14,6 +14,7 @@ import {
   generateSessionsApi, getSessionsApi, addSessionApi, updateSessionApi,
   assignInstructorApi, unassignInstructorApi,
   getRegistrationsApi, deskRegisterApi, resendTicketApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
+  deleteCohortApi, deleteSessionApi, deleteRegistrationApi,
 } from "@/api/sessions/cohorts"
 import {
   openCallApi, openCallForCohortApi, reopenStaffingApi, listEligibleInstructorsApi, selectInstructorsApi, closeCallApi,
@@ -82,6 +83,18 @@ export default function Cohorts() {
   const [createOpen, setCreateOpen] = useState(false)
   const [editCohort, setEditCohort] = useState<Cohort | null>(null)
   const [detailCohort, setDetailCohort] = useState<Cohort | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // Refused server-side if anyone has registered — cancelling the cohort is
+  // the right move there, and the API says so.
+  const deleteCohortMutation = useMutation({
+    mutationFn: deleteCohortApi,
+    onSuccess: () => {
+      setDeleteError(null)
+      queryClient.invalidateQueries({ queryKey: ["sessions-cohorts"] })
+    },
+    onError: (e: any) => setDeleteError(e?.response?.data?.detail ?? "Failed to delete cohort"),
+  })
 
   const { data: programs = [] } = useQuery<Program[]>({ queryKey: ["sessions-programs"], queryFn: getProgramsApi })
   const { data: cohorts = [], isLoading } = useQuery<Cohort[]>({
@@ -105,6 +118,12 @@ export default function Cohorts() {
           <Plus size={14} /> New cohort
         </button>
       </div>
+
+      {deleteError && (
+        <div className="text-xs text-red-600 dark:text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">
+          {deleteError}
+        </div>
+      )}
 
       <select
         value={programFilter} onChange={(e) => setProgramFilter(e.target.value)}
@@ -134,13 +153,27 @@ export default function Cohorts() {
                 {c.capacity != null ? ` · cap ${c.capacity}` : ""}
               </p>
             </button>
-            <button
-              onClick={() => setEditCohort(c)}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors flex-shrink-0 ml-3"
-              title="Edit cohort"
-            >
-              <Pencil size={14} />
-            </button>
+            <div className="flex items-center gap-1 flex-shrink-0 ml-3">
+              <button
+                onClick={() => setEditCohort(c)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title="Edit cohort"
+              >
+                <Pencil size={14} />
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm(`Delete the cohort "${c.name}"? This only works if nobody has registered.`)) {
+                    deleteCohortMutation.mutate(c.id)
+                  }
+                }}
+                disabled={deleteCohortMutation.isPending}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                title="Delete cohort"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
           </div>
         ))}
         {cohorts.length === 0 && (
@@ -318,6 +351,7 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
   const [generateOpen, setGenerateOpen] = useState(false)
   const [addSessionOpen, setAddSessionOpen] = useState(false)
   const [sessionDetail, setSessionDetail] = useState<Session | null>(null)
+  const [drawerError, setDrawerError] = useState<string | null>(null)
   const [registerOpen, setRegisterOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [paymentTarget, setPaymentTarget] = useState<Registration | null>(null)
@@ -343,6 +377,14 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
   const resendMutation = useMutation({ mutationFn: resendTicketApi, onSuccess: invalidateRegistrations })
   const cancelMutation = useMutation({ mutationFn: cancelRegistrationApi, onSuccess: invalidateRegistrations })
   const giveCertificateMutation = useMutation({ mutationFn: giveCertificateApi, onSuccess: invalidateRegistrations })
+  // Both refuse server-side once real history is attached (attendance, a
+  // certificate) — show the API's reason instead of failing quietly.
+  const deleteRegistrationMutation = useMutation({
+    mutationFn: deleteRegistrationApi,
+    onSuccess: () => { setDrawerError(null); invalidateRegistrations() },
+    onError: (e: any) => setDrawerError(e?.response?.data?.detail ?? "Failed to delete registration"),
+  })
+
   const openCallForCohortMutation = useMutation({
     mutationFn: () => openCallForCohortApi(cohort.id),
     onSuccess: invalidateSessions,
@@ -458,6 +500,11 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             Registrations{registrations.length > 0 ? ` (${registrations.length})` : ""}
           </p>
+          {drawerError && (
+            <div className="text-xs text-red-600 dark:text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2 mb-2">
+              {drawerError}
+            </div>
+          )}
           {isLoading ? <Spinner /> : registrations.length === 0 ? (
             <div className="flex items-center justify-center h-24 border border-dashed border-border rounded-2xl">
               <p className="text-sm text-muted-foreground">No registrations yet</p>
@@ -486,6 +533,28 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
                           Checked in
                         </span>
                       )}
+                      <span
+                        className={`text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 shrink-0 ${
+                          r.ticket_sent
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                        title={r.ticket_sent ? "The QR ticket email was sent" : "No ticket email has been sent yet"}
+                      >
+                        <Ticket size={11} /> {r.ticket_sent ? "Ticket sent" : "No ticket"}
+                      </span>
+                      {/* certificate_issued, not certificate_url — student certs
+                          are emailed and never stored, so they have no URL. */}
+                      <span
+                        className={`text-[11px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 shrink-0 ${
+                          r.certificate_issued
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                        title={r.certificate_issued ? "A completion certificate has been issued" : "No certificate issued yet"}
+                      >
+                        <Award size={11} /> {r.certificate_issued ? "Certificate" : "No certificate"}
+                      </span>
                       {r.total_cohort_sessions_count && r.total_cohort_sessions_count > 0 ? (
                         <button
                           type="button"
@@ -509,7 +578,6 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
                       {r.student_organization_name ? ` · ${r.student_organization_name}` : ""}
                       {r.guardian_name ? ` · Guardian: ${r.guardian_name} (${r.guardian_phone ?? "—"})` : ""}
                       {r.price_charged != null ? ` · AED ${r.price_charged}` : ""}
-                      {r.ticket_sent ? " · Ticket sent" : ""}
                     </p>
                   </div>
                   <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -528,7 +596,7 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
                       >
                         <Award size={14} />
                       </a>
-                    ) : r.status !== "cancelled" && (
+                    ) : !r.certificate_issued && r.status !== "cancelled" && (
                       <button
                         onClick={() => {
                           if (confirm(`Give ${r.student_name} a completion certificate? Use this if they didn't meet the program's attendance requirement but still earned one.`)) {
@@ -564,6 +632,18 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
                       title="Cancel registration"
                     >
                       <Ban size={14} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Remove ${r.student_name} from this cohort entirely? Use Cancel instead if they really did sign up and then dropped out — this is for rows that shouldn't exist.`)) {
+                          deleteRegistrationMutation.mutate(r.id)
+                        }
+                      }}
+                      disabled={deleteRegistrationMutation.isPending}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                      title="Delete registration"
+                    >
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 </div>
@@ -878,6 +958,13 @@ function SessionDetailModal({ cohort, session, onClose, onChanged }: {
     onSuccess: onChanged,
   })
 
+  // Refused server-side once attendance exists for this session.
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteSessionApi(cohort.id, session.id),
+    onSuccess: () => { onChanged(); onClose() },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to delete session"),
+  })
+
   return (
     <Modal title={`Session — ${session.meeting_date}`} onClose={onClose} maxWidth="max-w-2xl">
       <div className="flex flex-col gap-3">
@@ -953,6 +1040,20 @@ function SessionDetailModal({ cohort, session, onClose, onChanged }: {
         </div>
 
         <SessionAttendanceRosterSection sessionId={session.id} />
+
+        <div className="border-t border-border pt-3 mt-1 flex justify-end">
+          <button
+            onClick={() => {
+              if (confirm(`Delete the session on ${session.meeting_date}? This only works if no attendance has been recorded for it.`)) {
+                deleteMutation.mutate()
+              }
+            }}
+            disabled={deleteMutation.isPending}
+            className="text-xs font-medium text-red-600 dark:text-red-400 hover:opacity-80 transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+          >
+            <Trash2 size={13} /> Delete this session
+          </button>
+        </div>
       </div>
     </Modal>
   )
@@ -1606,13 +1707,11 @@ function StudentAttendanceModal({
 }) {
   const records = registration.attendance_records ?? []
   const total = registration.total_cohort_sessions_count ?? records.length
-  const attended = registration.attended_sessions_count ?? records.filter((r) => ["present", "late"].includes(r.att_status)).length
+  const attended = registration.attended_sessions_count ?? records.filter((r) => r.att_status === "present").length
   const pct = total > 0 ? Math.round((attended / total) * 100) : 0
 
   const statusBadges: Record<string, { label: string; cls: string }> = {
     present: { label: "Present", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400" },
-    late: { label: "Late", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400" },
-    excused: { label: "Excused", cls: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400" },
     absent: { label: "Absent", cls: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400" },
     unrecorded: { label: "Unrecorded", cls: "bg-muted text-muted-foreground" },
   }
@@ -1682,8 +1781,6 @@ function SessionAttendanceRosterSection({ sessionId }: { sessionId: string }) {
 
   const statusColors: Record<string, string> = {
     present: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 border-emerald-500/30",
-    late: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400 border-amber-500/30",
-    excused: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400 border-blue-500/30",
     absent: "bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400 border-red-500/30",
   }
 
@@ -1710,7 +1807,7 @@ function SessionAttendanceRosterSection({ sessionId }: { sessionId: string }) {
               </div>
 
               <div className="flex items-center gap-1.5 flex-wrap">
-                {(["present", "late", "excused", "absent"] as AttendanceStatus[]).map((st) => {
+                {(["present", "absent"] as AttendanceStatus[]).map((st) => {
                   const isActive = entry.att_status === st
                   return (
                     <button

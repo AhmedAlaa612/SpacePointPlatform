@@ -16,8 +16,6 @@ import { cn } from "@/lib/utils"
 
 const STATUS_OPTIONS: { value: AttendanceStatus; label: string; activeClass: string }[] = [
   { value: "present", label: "Present", activeClass: "bg-emerald-600 text-white border-emerald-600" },
-  { value: "late", label: "Late", activeClass: "bg-amber-500 text-white border-amber-500" },
-  { value: "excused", label: "Excused", activeClass: "bg-blue-500 text-white border-blue-500" },
   { value: "absent", label: "Absent", activeClass: "bg-red-500 text-white border-red-500" },
 ]
 

@@ -1,8 +1,8 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, Pencil } from "lucide-react"
+import { Plus, Pencil, Trash2 } from "lucide-react"
 import type { Program, ProgramType, PricingModel, CompletionRuleType } from "@/types/sessions"
-import { getProgramsApi, createProgramApi, updateProgramApi } from "@/api/sessions/programs"
+import { getProgramsApi, createProgramApi, updateProgramApi, deleteProgramApi } from "@/api/sessions/programs"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
 
 const PROGRAM_TYPES: ProgramType[] = ["workshop", "course", "info_session"]
@@ -32,6 +32,19 @@ export default function Programs() {
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [editProgram, setEditProgram] = useState<Program | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  // The API refuses to delete a program that has cohorts (it would cascade
+  // them, and their registrations, away) — surface that reason rather than
+  // failing silently.
+  const deleteMutation = useMutation({
+    mutationFn: deleteProgramApi,
+    onSuccess: () => {
+      setDeleteError(null)
+      queryClient.invalidateQueries({ queryKey: ["sessions-programs"] })
+    },
+    onError: (e: any) => setDeleteError(e?.response?.data?.detail ?? "Failed to delete program"),
+  })
 
   const { data: programs = [], isLoading } = useQuery<Program[]>({
     queryKey: ["sessions-programs"],
@@ -55,6 +68,12 @@ export default function Programs() {
         </button>
       </div>
 
+      {deleteError && (
+        <div className="text-xs text-red-600 dark:text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">
+          {deleteError}
+        </div>
+      )}
+
       <div className="flex flex-col gap-2">
         {programs.map((p) => (
           <div
@@ -73,13 +92,27 @@ export default function Programs() {
                 {p.pricing_model === "free" ? "Free" : `AED ${p.price ?? "—"}`}
               </p>
             </div>
-            <button
-              onClick={() => setEditProgram(p)}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors flex-shrink-0 ml-3"
-              title="Edit program"
-            >
-              <Pencil size={14} />
-            </button>
+            <div className="flex items-center gap-1 flex-shrink-0 ml-3">
+              <button
+                onClick={() => setEditProgram(p)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title="Edit program"
+              >
+                <Pencil size={14} />
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm(`Delete the program "${p.name}"? This only works if it has no cohorts.`)) {
+                    deleteMutation.mutate(p.id)
+                  }
+                }}
+                disabled={deleteMutation.isPending}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                title="Delete program"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
           </div>
         ))}
         {programs.length === 0 && (

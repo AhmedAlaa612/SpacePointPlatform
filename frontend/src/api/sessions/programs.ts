@@ -35,3 +35,8 @@ export const updateProgramApi = (
     completion_rule_value: number
   }>
 ) => api.patch<Program>(`/sessions/programs/${id}`, data).then((r) => r.data)
+
+/** 409 if the program still has cohorts — the API refuses rather than
+ *  cascading them (and their registrations) away silently. */
+export const deleteProgramApi = (id: string) =>
+  api.delete<void>(`/sessions/programs/${id}`).then((r) => r.data)

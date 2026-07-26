@@ -157,8 +157,8 @@ async def _sessions_covered(db: AsyncSession, cohort_id: UUID, registration_id: 
 
 
 async def _present_count(db: AsyncSession, registration_id: UUID) -> int:
-    # Literal reading of V1's "attendance_rate = present/total meetings" —
-    # only the 'present' status counts, not late/excused/absent.
+    # attendance_rate = present / total sessions. With attendance now binary
+    # (present|absent), this is simply the count of sessions attended.
     return await db.scalar(
         select(func.count()).select_from(AttendanceRecord).where(
             AttendanceRecord.registration_id == registration_id, AttendanceRecord.att_status == "present",

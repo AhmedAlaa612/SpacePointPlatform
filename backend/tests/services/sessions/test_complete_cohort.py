@@ -133,14 +133,14 @@ async def test_at_threshold_marked_completed_with_certificate(db):
 
 
 @pytest.mark.asyncio
-async def test_only_present_counts_not_late_or_excused(db):
-    """Literal reading of V1's 'attendance_rate = present/total meetings' —
-    late/excused don't count toward the numerator."""
+async def test_absent_sessions_do_not_count_toward_completion(db):
+    """attendance_rate = present / total sessions. Marking someone absent for
+    a session is not partial credit — it's a zero."""
     cohort, program, sessions = await _make_cohort_with_sessions(db, 10)
     reg = await _make_registration(db, cohort)
     actor = (await _make_actor(db)).id
     for s in sessions[:7]:
-        await _mark(db, s, reg, "late", actor)  # 7 late, 0 present
+        await _mark(db, s, reg, "absent", actor)  # 7 absent, 0 present
 
     await delivery.complete_cohort(db, cohort.id, actor)
 

@@ -8,11 +8,12 @@ invitation-code endpoints). Every route is gated by require_operations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_operations
 from app.db.session import get_db
+from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.schemas.sessions.programs import ProgramCreate, ProgramOut, ProgramUpdate
@@ -80,3 +81,36 @@ async def update_program(
     await db.commit()
     await db.refresh(program)
     return program
+
+
+@router.delete("/programs/{program_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_program(
+    program_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Only ever deletes an empty program.
+
+    cohorts.program_id cascades, so an unguarded delete here would silently
+    take every cohort, session, registration and attendance record with it.
+    A program that has been run is history, not a mistake — deactivate it
+    (PATCH active=false) instead, which keeps it out of the pickers.
+    """
+    program = await db.get(Program, program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+
+    cohort_count = await db.scalar(
+        select(func.count()).select_from(Cohort).where(Cohort.program_id == program_id)
+    )
+    if cohort_count:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"This program has {cohort_count} cohort(s) and can't be deleted. "
+                "Delete those first, or set the program to inactive to hide it."
+            ),
+        )
+
+    await db.delete(program)
+    await db.commit()
