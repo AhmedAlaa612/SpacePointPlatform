@@ -118,6 +118,9 @@ export interface AvailableSession {
   cohort_id: string;
   cohort_name: string;
   program_name: string;
+  /** What the session actually is. Program + cohort alone don't tell an
+   *  instructor what they'd be teaching on the day. */
+  title?: string | null;
   location?: string | null;
   meeting_date: string;
   starts_at?: string | null;
@@ -132,6 +135,7 @@ export interface MySession {
   cohort_id: string;
   cohort_name: string;
   program_name: string;
+  title?: string | null;
   location?: string | null;
   meeting_date: string;
   starts_at?: string | null;
@@ -195,6 +199,7 @@ export interface SessionDelivery {
   meeting_date: string;
   starts_at?: string | null;
   title?: string | null;
+  material_url?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
   roster: RosterEntry[];

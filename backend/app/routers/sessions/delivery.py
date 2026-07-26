@@ -51,7 +51,7 @@ async def _session_delivery_out(db: AsyncSession, session_id: uuid.UUID, user: U
     return SessionDeliveryOut(
         id=session.id, cohort_id=cohort.id, cohort_name=cohort.name, program_name=program.name,
         location=cohort.location, meeting_date=session.meeting_date, starts_at=session.starts_at,
-        title=session.title, started_at=session.started_at, completed_at=session.completed_at,
+        title=session.title, material_url=session.material_url, started_at=session.started_at, completed_at=session.completed_at,
         roster=[
             RosterEntryOut(
                 registration_id=reg.id, contact_id=contact.id, student_name=contact.full_name,

@@ -43,6 +43,7 @@ class SessionDeliveryOut(BaseModel):
     meeting_date: date
     starts_at: time | None = None
     title: str | None = None
+    material_url: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
     roster: list[RosterEntryOut]

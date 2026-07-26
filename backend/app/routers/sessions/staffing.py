@@ -168,6 +168,7 @@ async def list_available_sessions(
     return [
         AvailableSessionOut(
             session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,
+            title=s.title,
             location=c.location, meeting_date=s.meeting_date, starts_at=s.starts_at,
             interested_count=count, my_interest=interest is not None,
             my_note=interest.note if interest else None,
@@ -185,6 +186,7 @@ async def list_my_sessions(
     return [
         MySessionOut(
             session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,
+            title=s.title,
             location=c.location, meeting_date=s.meeting_date, starts_at=s.starts_at,
             my_role=role, staffing_status=s.staffing_status,
             started_at=s.started_at, completed_at=s.completed_at,

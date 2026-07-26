@@ -57,6 +57,9 @@ class AvailableSessionOut(BaseModel):
     cohort_id: UUID
     cohort_name: str
     program_name: str
+    # What the session actually is ("Intro to Orbits"). Program + cohort alone
+    # don't tell an instructor what they'd be teaching on the day.
+    title: str | None = None
     location: str | None = None
     meeting_date: date
     starts_at: time | None = None
@@ -71,6 +74,7 @@ class MySessionOut(BaseModel):
     cohort_id: UUID
     cohort_name: str
     program_name: str
+    title: str | None = None
     location: str | None = None
     meeting_date: date
     starts_at: time | None = None

@@ -2,7 +2,7 @@ import { useCallback, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, Calendar, Camera, CheckCircle2, Download, FileText, MapPin, QrCode, X } from "lucide-react"
+import { ArrowLeft, BookOpen, Calendar, Camera, CheckCircle2, Download, ExternalLink, FileText, MapPin, QrCode, X } from "lucide-react"
 import {
   getSessionDeliveryApi, markAttendanceApi, markSessionDoneApi, scanAttendanceApi, startSessionApi,
   uploadSessionReportApi,
@@ -99,7 +99,10 @@ export default function SessionDetail() {
         <ArrowLeft size={14} /> My sessions
       </Link>
 
-      <PageHeader title={s.program_name} subtitle={s.cohort_name} />
+      <PageHeader
+        title={s.title || s.program_name}
+        subtitle={s.title ? `${s.program_name} · ${s.cohort_name}` : s.cohort_name}
+      />
 
       <Card>
         <CardContent className="p-4 flex flex-col gap-2">
@@ -110,6 +113,14 @@ export default function SessionDetail() {
           </span>
           {s.location && (
             <span className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin size={14} /> {s.location}</span>
+          )}
+          {s.material_url && (
+            <a
+              href={s.material_url} target="_blank" rel="noreferrer"
+              className="flex items-center gap-1.5 text-sm font-medium text-primary hover:opacity-80 transition-colors w-fit"
+            >
+              <BookOpen size={14} /> Session material <ExternalLink size={12} />
+            </a>
           )}
           <div className="flex flex-wrap gap-2 mt-1">
             {s.started_at ? (

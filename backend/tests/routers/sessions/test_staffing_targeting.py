@@ -169,3 +169,74 @@ async def test_reopen_keeps_targeting_unless_told_otherwise(
         f"/sessions/{session.id}/staffing/reopen", json={"user_ids": []}, headers=operations_headers,
     )
     assert resp.status_code in (200, 409), resp.text
+
+
+# ── Session title must reach the instructor (operator, 2026-07-26) ───────────
+# Found live during a CEO presentation: instructors saw only program + cohort,
+# never what the session actually was.
+
+@pytest.mark.asyncio
+async def test_available_sessions_include_the_session_title(
+    db, client, operations_headers, instructor_headers,
+):
+    session = await _make_session(db)
+    session.title = "Intro to Orbits"
+    await db.commit()
+
+    await client.post(
+        f"/sessions/{session.id}/staffing/open-call", headers=operations_headers,
+    )
+
+    resp = await client.get("/sessions/available", headers=instructor_headers)
+    assert resp.status_code == 200, resp.text
+    row = next(r for r in resp.json() if r["session_id"] == str(session.id))
+    assert row["title"] == "Intro to Orbits"
+
+
+@pytest.mark.asyncio
+async def test_my_sessions_include_the_session_title(
+    db, client, operations_headers, instructor_headers, instructor_user: User,
+):
+    session = await _make_session(db)
+    session.title = "Payload Assembly"
+    await db.commit()
+
+    await client.post(
+        f"/sessions/{session.id}/staffing/open-call", headers=operations_headers,
+    )
+    await client.post(
+        f"/sessions/{session.id}/staffing/select",
+        json={"user_ids": [str(instructor_user.id)], "role": "lead"},
+        headers=operations_headers,
+    )
+
+    resp = await client.get("/sessions/mine", headers=instructor_headers)
+    assert resp.status_code == 200, resp.text
+    row = next(r for r in resp.json() if r["session_id"] == str(session.id))
+    assert row["title"] == "Payload Assembly"
+
+
+@pytest.mark.asyncio
+async def test_session_delivery_includes_title_and_material(
+    db, client, operations_headers, instructor_headers, instructor_user: User,
+):
+    """The portal an instructor stands in front of while teaching."""
+    session = await _make_session(db)
+    session.title = "Ground Station Setup"
+    session.material_url = "https://example.test/slides.pdf"
+    await db.commit()
+
+    await client.post(
+        f"/sessions/{session.id}/staffing/open-call", headers=operations_headers,
+    )
+    await client.post(
+        f"/sessions/{session.id}/staffing/select",
+        json={"user_ids": [str(instructor_user.id)], "role": "lead"},
+        headers=operations_headers,
+    )
+
+    resp = await client.get(f"/sessions/{session.id}/delivery", headers=instructor_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["title"] == "Ground Station Setup"
+    assert body["material_url"] == "https://example.test/slides.pdf"
