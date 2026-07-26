@@ -7,10 +7,11 @@ export type Role =
   | "instructor"
   | "facilitator"
   | "ambassador"
-  | "teacher";
+  | "teacher"
+  | "operations";
 
 /** Which navbar domain a role routes into. */
-export type Domain = "interns" | "instructors" | "ambassadors" | "admin";
+export type Domain = "interns" | "instructors" | "ambassadors" | "admin" | "operations";
 
 export const ROLE_DOMAIN: Record<Role, Domain> = {
   admin: "admin",
@@ -21,6 +22,10 @@ export const ROLE_DOMAIN: Record<Role, Domain> = {
   facilitator: "instructors",
   ambassador: "ambassadors",
   teacher: "ambassadors",
+  // V2 S6-2: dedicated operations domain with its own sidebar + route tree.
+  // The split was always needed (R1-1 note: "interim placeholder, pending
+  // registration desk"); W6 is when it actually happens.
+  operations: "operations",
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -32,6 +37,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   facilitator: "Facilitator",
   ambassador: "Ambassador",
   teacher: "Teacher",
+  operations: "Operations",
 };
 
 export interface User {

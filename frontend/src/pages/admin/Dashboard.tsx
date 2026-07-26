@@ -94,7 +94,7 @@ export default function AdminHub() {
 
   const getNotificationDomain = (n: Notification) => {
     if (n.type === "ambassador") return "ambassadors"
-    if (n.type === "instructor") return "instructors"
+    if (n.type === "instructor" || (n.type && n.type.startsWith("staffing_"))) return "instructors"
     if (n.type === "intern") return "interns"
 
     const text = (n.title + " " + (n.body || "")).toLowerCase()
@@ -102,7 +102,11 @@ export default function AdminHub() {
       text.includes("instructor") ||
       text.includes("payment") ||
       text.includes("contract") ||
-      text.includes("workshop")
+      text.includes("workshop") ||
+      text.includes("session") ||
+      text.includes("open for interest") ||
+      text.includes("assigned (") ||
+      text.includes("assigned to a session")
     ) {
       return "instructors"
     }

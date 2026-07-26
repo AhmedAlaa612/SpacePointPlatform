@@ -6,6 +6,7 @@ const DOMAIN_LABELS: Record<string, string> = {
   ambassadors: "Ambassadors",
   instructors: "Instructors",
   admin: "Admin",
+  operations: "Operations",
 };
 
 export function DomainIcon({ className }: { className?: string }) {

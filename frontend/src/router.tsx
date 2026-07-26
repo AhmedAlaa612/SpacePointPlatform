@@ -67,6 +67,9 @@ import ApplicantReviewPage from "@/pages/instructors/ApplicantReview";
 import FacilitatorTraining from "@/pages/instructors/facilitator/Training";
 import FacilitatorLibrary from "@/pages/instructors/facilitator/Library";
 import FacilitatorApplication from "@/pages/instructors/facilitator/Application";
+import InstructorAvailableSessions from "@/pages/instructors/AvailableSessions";
+import InstructorMySessions from "@/pages/instructors/MySessions";
+import InstructorSessionDetail from "@/pages/instructors/SessionDetail";
 
 // Admin hub
 import AdminHub from "@/pages/admin/Dashboard";
@@ -74,6 +77,15 @@ import AdminUsers from "@/pages/admin/Users";
 import AdminDocuments from "@/pages/admin/Documents";
 import AdminApplications from "@/pages/admin/Applications";
 import Settings from "@/pages/admin/Settings";
+
+// Sessions/spine domain pages (V2 R2-3/R2-4/R2-5)
+import AdminPrograms from "@/pages/admin/Programs";
+import AdminCohorts from "@/pages/admin/Cohorts";
+import AdminContacts from "@/pages/admin/Contacts";
+import AdminMergeReviews from "@/pages/admin/MergeReviews";
+import AdminCheckIn from "@/pages/admin/CheckIn";
+import SessionsCalendar from "@/pages/sessions/Calendar";
+import OpsDashboard from "@/pages/sessions/OpsDashboard";
 
 // Unified apply flow
 import ApplyFlow from "@/pages/apply/ApplyFlow";
@@ -157,6 +169,9 @@ const indexRoute = createRoute({
       throw redirect({ to: "/instructors/dashboard" });
     } else if (role === "facilitator") {
       throw redirect({ to: "/instructors/facilitator/training" });
+    } else if (role === "operations") {
+      // V2 S6-2: dedicated operations domain with own dashboard + sidebar.
+      throw redirect({ to: "/operations/dashboard" });
     } else {
       throw redirect({ to: "/interns" });
     }
@@ -420,6 +435,9 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/facilitator/training", component: FacilitatorTraining }),
   createRoute({ getParentRoute: pi, path: "/facilitator/library", component: FacilitatorLibrary }),
   createRoute({ getParentRoute: pi, path: "/facilitator/application", component: FacilitatorApplication }),
+  createRoute({ getParentRoute: pi, path: "/available-sessions", component: InstructorAvailableSessions }),
+  createRoute({ getParentRoute: pi, path: "/my-sessions", component: InstructorMySessions }),
+  createRoute({ getParentRoute: pi, path: "/sessions/$sessionId", component: InstructorSessionDetail }),
   createRoute({
     getParentRoute: pi,
     path: "/admin",
@@ -472,6 +490,63 @@ const adminApplicationsRoute = createRoute({
   path: "/admin/applications",
   component: AdminApplications,
 });
+
+// Sessions/spine domain routes (V2 R2-3/R2-4/R2-5)
+const adminProgramsRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/admin/programs",
+  component: AdminPrograms,
+});
+const adminCohortsRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/admin/cohorts",
+  component: AdminCohorts,
+});
+const adminContactsRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/admin/contacts",
+  component: AdminContacts,
+});
+const adminMergeReviewsRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/admin/merge-reviews",
+  component: AdminMergeReviews,
+});
+const adminCheckInRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/admin/checkin",
+  component: AdminCheckIn,
+});
+const sessionsCalendarRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/sessions/calendar",
+  component: SessionsCalendar,
+});
+
+// ── Operations domain (V2 S6-2) — dedicated route tree, separate from admin ──
+const operationsLayoutRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/operations",
+  beforeLoad: () => {
+    const role = localStorage.getItem("active_role");
+    if (role !== "operations" && role !== "admin") {
+      throw redirect({ to: "/" });
+    }
+  },
+  component: () => <Outlet />,
+});
+
+const po = () => operationsLayoutRoute;
+const operationsRoutes = [
+  createRoute({ getParentRoute: po, path: "/dashboard", component: OpsDashboard }),
+  createRoute({ getParentRoute: po, path: "/programs", component: AdminPrograms }),
+  createRoute({ getParentRoute: po, path: "/cohorts", component: AdminCohorts }),
+  createRoute({ getParentRoute: po, path: "/contacts", component: AdminContacts }),
+  createRoute({ getParentRoute: po, path: "/merge-reviews", component: AdminMergeReviews }),
+  createRoute({ getParentRoute: po, path: "/checkin", component: AdminCheckIn }),
+  createRoute({ getParentRoute: po, path: "/calendar", component: SessionsCalendar }),
+  createRoute({ getParentRoute: po, path: "/profile", component: SharedProfile }),
+];
 
 // Apply routes — all use shared ApplyFlow (instructor uses InstructorApply for its own pipeline)
 const applyAmbassadorRoute = createRoute({
@@ -557,7 +632,14 @@ const routeTree = rootRoute.addChildren([
     adminDocumentsRoute,
     adminApplicationsRoute,
     adminSettingsRoute,
+    adminProgramsRoute,
+    adminCohortsRoute,
+    adminContactsRoute,
+    adminMergeReviewsRoute,
+    adminCheckInRoute,
+    sessionsCalendarRoute,
     adminProfileRoute,
+    operationsLayoutRoute.addChildren(operationsRoutes),
     internsLayoutRoute.addChildren(internsRoutes),
     ambassadorsLayoutRoute.addChildren(ambassadorsRoutes),
     instructorsLayoutRoute.addChildren(instructorsRoutes),

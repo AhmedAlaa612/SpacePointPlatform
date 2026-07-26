@@ -6,11 +6,13 @@ import {
   Award,
   Bell,
   BookOpen,
+  CalendarDays,
   ChevronDown,
   ClipboardList,
   CreditCard,
   FileText,
   FolderOpen,
+  GitMerge,
   GraduationCap,
   LayoutGrid,
   LayoutList,
@@ -19,6 +21,7 @@ import {
   LogOut,
   Menu,
   PlayCircle,
+  QrCode,
   Settings as SettingsIcon,
   Share2,
   Target,
@@ -69,6 +72,8 @@ const ICONS: Record<string, LucideIcon> = {
   Materials: FolderOpen,
   Leaderboard: Trophy,
   "My Sessions": GraduationCap,
+  Sessions: CalendarDays,
+  "Sessions Calendar": CalendarDays,
   Training: PlayCircle,
   "SatKit Training": PlayCircle,
   Library: BookOpen,
@@ -85,7 +90,11 @@ const ICONS: Record<string, LucideIcon> = {
   Certificates: Award,
   Titles: Award,
   Badges: Trophy,
-  Sessions: GraduationCap,
+  Programs: BookOpen,
+  Cohorts: GraduationCap,
+  Contacts: Users,
+  "Merge Reviews": GitMerge,
+  "Check-in": QrCode,
 };
 
 const mk = (label: string, to: string): NavItem => ({ label, to, icon: ICONS[label] ?? FileText });
@@ -95,6 +104,7 @@ const DOMAIN_TITLE: Record<string, string> = {
   ambassadors: "Ambassadors",
   instructors: "Instructors",
   admin: "Admin",
+  operations: "Operations",
 };
 
 /**
@@ -103,6 +113,19 @@ const DOMAIN_TITLE: Record<string, string> = {
  * each item now carries a lucide icon via `mk`.
  */
 function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
+  // V2 S6-2: operations domain — dedicated sidebar, no longer piggybacking on admin.
+  if (pathname.startsWith("/operations")) {
+    return [
+      mk("Dashboard", "/operations/dashboard"),
+      mk("Programs", "/operations/programs"),
+      mk("Cohorts", "/operations/cohorts"),
+      mk("Contacts", "/operations/contacts"),
+      mk("Merge Reviews", "/operations/merge-reviews"),
+      mk("Check-in", "/operations/checkin"),
+      mk("Sessions Calendar", "/operations/calendar"),
+      mk("Profile & Settings", "/operations/profile"),
+    ];
+  }
   if (pathname.startsWith("/admin")) {
     return [
       mk("Dashboard", "/admin"),
@@ -159,10 +182,11 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     }
     if (activeRole === "facilitator") {
       return [
+        mk("Sessions", "/instructors/my-sessions"),
         mk("Training", "/instructors/facilitator/training"),
         mk("Library", "/instructors/facilitator/library"),
         mk("Personal Documents", "/instructors/personal-documents"),
-        mk("Profile & Settings", "/instructors/profile"),
+        mk("Instructor ID Card", "/instructors/id-card"),
         mk("Application", "/instructors/facilitator/application"),
       ];
     }
@@ -175,10 +199,10 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     }
     return [
       mk("Overview", "/instructors/dashboard"),
+      mk("Sessions", "/instructors/my-sessions"),
       mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
       mk("Personal Documents", "/instructors/personal-documents"),
-      mk("Profile & Settings", "/instructors/profile"),
       mk("Instructor ID Card", "/instructors/id-card"),
       mk("Payments", "/instructors/payments"),
     ];
@@ -231,16 +255,19 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   if (activeRole === "instructor") {
     return [
       mk("Overview", "/instructors/dashboard"),
+      mk("Sessions", "/instructors/my-sessions"),
       mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
       mk("Personal Documents", "/instructors/personal-documents"),
-      mk("Profile & Settings", "/instructors/profile"),
       mk("Instructor ID Card", "/instructors/id-card"),
       mk("Payments", "/instructors/payments"),
     ];
   }
   if (activeRole === "facilitator") {
     return [
+      mk("Available Sessions", "/instructors/available-sessions"),
+      mk("My Sessions", "/instructors/my-sessions"),
+      mk("Sessions Calendar", "/sessions/calendar"),
       mk("Training", "/instructors/facilitator/training"),
       mk("Library", "/instructors/facilitator/library"),
       mk("Personal Documents", "/instructors/personal-documents"),
@@ -255,6 +282,18 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
       mk("Settings", "/admin/settings"),
+    ];
+  }
+  if (activeRole === "operations") {
+    return [
+      mk("Dashboard", "/operations/dashboard"),
+      mk("Programs", "/operations/programs"),
+      mk("Cohorts", "/operations/cohorts"),
+      mk("Contacts", "/operations/contacts"),
+      mk("Merge Reviews", "/operations/merge-reviews"),
+      mk("Check-in", "/operations/checkin"),
+      mk("Sessions Calendar", "/operations/calendar"),
+      mk("Profile & Settings", "/operations/profile"),
     ];
   }
   if (activeRole === "intern" || activeRole === "leader") {
@@ -503,6 +542,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const profileTo =
     activeRole === "admin"
       ? "/admin/profile"
+      : activeRole === "operations"
+      ? "/operations/profile"
       : activeRole === "ambassador" || activeRole === "teacher"
       ? "/ambassadors/profile"
       : activeRole === "applicant"

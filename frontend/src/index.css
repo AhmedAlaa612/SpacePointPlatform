@@ -97,7 +97,7 @@
 }
 
 @layer base {
-  input,
+  input:not([type="checkbox"]):not([type="radio"]),
   select,
   textarea {
     display: flex;
@@ -113,7 +113,19 @@
     transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
   }
 
-  input:focus,
+  input[type="checkbox"],
+  input[type="radio"] {
+    display: inline-block;
+    width: 1rem !important;
+    height: 1rem !important;
+    padding: 0 !important;
+    margin: 0;
+    accent-color: hsl(var(--primary));
+    cursor: pointer;
+    border-radius: 0.25rem;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):focus,
   select:focus,
   textarea:focus {
     border-color: hsl(var(--ring));

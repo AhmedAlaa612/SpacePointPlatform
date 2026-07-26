@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { createPortal } from "react-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { X, FileText, ExternalLink, CreditCard, Trash2 } from "lucide-react"
 import { getUserProfileApi, getUserStatsApi } from "@/api/auth"
@@ -19,23 +20,37 @@ function IdCardDialog({ userId, role, onClose }: { userId: string; role: string;
     queryKey: ["admin-user-id-card", userId, role],
     queryFn: () => getUserIdCardApi(userId, role),
   })
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-card rounded-2xl p-5 max-w-lg w-full flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold text-foreground">{data?.card_id ?? "ID Card"}</p>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted"><X size={16} /></button>
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-md p-4" onClick={onClose}>
+      <div className="bg-card border border-border rounded-2xl p-5 max-w-xl w-full flex flex-col gap-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between pb-2 border-b border-border">
+          <div>
+            <p className="text-base font-bold text-foreground">Official ID Card — {role.toUpperCase()}</p>
+            <p className="text-xs text-muted-foreground">{data?.card_id ?? "Loading ID..."}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:bg-muted"><X size={18} /></button>
         </div>
         {isLoading ? (
-          <div className="py-10 flex justify-center"><div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
+          <div className="py-16 flex justify-center"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {data?.front_b64 && <img src={`data:image/png;base64,${data.front_b64}`} alt="Front" className="w-full rounded-lg border border-border" />}
-            {data?.back_b64 && <img src={`data:image/png;base64,${data.back_b64}`} alt="Back" className="w-full rounded-lg border border-border" />}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {data?.front_b64 ? (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-1.5 uppercase tracking-wider">Front Side</p>
+                <img src={`data:image/png;base64,${data.front_b64}`} alt="Front" className="w-full rounded-xl border border-border shadow-md" />
+              </div>
+            ) : null}
+            {data?.back_b64 ? (
+              <div>
+                <p className="text-xs font-semibold text-muted-foreground mb-1.5 uppercase tracking-wider">Back Side</p>
+                <img src={`data:image/png;base64,${data.back_b64}`} alt="Back" className="w-full rounded-xl border border-border shadow-md" />
+              </div>
+            ) : null}
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
@@ -138,7 +153,7 @@ export function UserProfileModal({ userId, onClose }: Props) {
 
   const isLoading = loadingUser || loadingStats
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
@@ -238,6 +253,7 @@ export function UserProfileModal({ userId, onClose }: Props) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

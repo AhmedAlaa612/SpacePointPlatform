@@ -2,10 +2,10 @@ import { X } from "lucide-react"
 
 export { Spinner } from "@/components/ui/primitives"
 
-export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function Modal({ title, onClose, children, maxWidth = "max-w-sm" }: { title: string; onClose: () => void; children: React.ReactNode; maxWidth?: string }) {
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div className={`w-full ${maxWidth} bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 shadow-2xl max-h-[90vh] overflow-y-auto`}>
         <div className="flex items-center justify-between">
           <p className="text-base font-semibold text-foreground">{title}</p>
           <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
