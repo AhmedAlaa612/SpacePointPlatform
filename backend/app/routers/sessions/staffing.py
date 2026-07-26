@@ -1,0 +1,303 @@
+"""Staffing marketplace routers (V2 W4 S4-2). Session-scoped — see
+services/sessions/staffing.py's module docstring for why. Layered on top of
+the pre-existing direct-assign endpoints in cohorts.py (assign_instructor/
+unassign_instructor), which stay untouched and fully working.
+
+Notifications per the S4-2 spec: on open_call -> notify every instructor|
+facilitator user; on selection -> assignment email (transactional, no
+consent gate) + in-app notification; on removal -> notify (handled in
+cohorts.py's unassign_instructor, the only place instructors are removed).
+"""
+
+from __future__ import annotations
+
+import uuid
+
+from arq.connections import ArqRedis
+from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.dependencies import require_instructor_or_facilitator, require_operations
+from app.db.session import get_db
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.session import Session, SessionInstructor
+from app.models.user import User
+from app.schemas.sessions.cohorts import SessionInstructorOut, SessionOut
+from app.schemas.sessions.staffing import (
+    AvailableSessionOut,
+    EligibleInstructorOut,
+    InterestOut,
+    MySessionOut,
+    RegisterInterestRequest,
+    SelectInstructorsRequest,
+    SelectInstructorsResponse,
+)
+from app.services.notification import create_notification
+from app.services.sessions import staffing
+from app.workers.settings import get_arq_redis, safe_enqueue
+
+router = APIRouter(prefix="/sessions", tags=["sessions-staffing"])
+
+
+async def _session_out(db: AsyncSession, session: Session) -> SessionOut:
+    rows = (await db.execute(
+        select(SessionInstructor, User.full_name)
+        .join(User, User.id == SessionInstructor.user_id)
+        .where(SessionInstructor.session_id == session.id)
+    )).all()
+    out = SessionOut.model_validate(session)
+    out.instructors = [
+        SessionInstructorOut(user_id=si.user_id, full_name=name, role=si.role) for si, name in rows
+    ]
+    return out
+
+
+# ── Ops: open call / reopen ─────────────────────────────────────────────────
+
+class OpenCallRequest(BaseModel):
+    user_ids: list[uuid.UUID] | None = None
+
+
+@router.post("/{session_id}/staffing/open-call", response_model=SessionOut)
+async def open_call(
+    session_id: uuid.UUID,
+    body: OpenCallRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    session = await staffing.open_call(db, session_id)
+
+    query = select(User).where(User.roles.any("instructor") | User.roles.any("facilitator"))
+    if body and body.user_ids:
+        query = query.where(User.id.in_(body.user_ids))
+
+    eligible = (await db.execute(query)).scalars().all()
+    for user in eligible:
+        await create_notification(
+            db, user.id, "New session open for interest",
+            body=f"A session on {session.meeting_date} is open for interest — register if you'd like it.",
+            type="staffing_open_call",
+        )
+
+    await db.commit()
+    await db.refresh(session)
+    return await _session_out(db, session)
+
+
+@router.post("/cohorts/{cohort_id}/staffing/open-call", response_model=list[SessionOut])
+async def open_call_for_cohort(
+    cohort_id: uuid.UUID,
+    body: OpenCallRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    sessions = await staffing.open_call_for_cohort(db, cohort_id)
+
+    if sessions:
+        query = select(User).where(User.roles.any("instructor") | User.roles.any("facilitator"))
+        if body and body.user_ids:
+            query = query.where(User.id.in_(body.user_ids))
+
+        eligible = (await db.execute(query)).scalars().all()
+        for user in eligible:
+            await create_notification(
+                db, user.id, "New sessions open for interest",
+                body=f"{len(sessions)} session(s) are open for interest — register if you'd like one.",
+                type="staffing_open_call",
+            )
+
+    await db.commit()
+    return [await _session_out(db, s) for s in sessions]
+
+
+@router.post("/{session_id}/staffing/reopen", response_model=SessionOut)
+async def reopen(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    session = await staffing.reopen(db, session_id)
+    await db.commit()
+    await db.refresh(session)
+    return await _session_out(db, session)
+
+
+class CloseCallRequest(BaseModel):
+    clear_interest: bool = False
+
+
+@router.post("/{session_id}/staffing/close-call", response_model=SessionOut)
+async def close_call(
+    session_id: uuid.UUID,
+    body: CloseCallRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    clear_interest = body.clear_interest if body else False
+    session = await staffing.close_call(db, session_id, clear_interest=clear_interest)
+    await db.commit()
+    await db.refresh(session)
+    return await _session_out(db, session)
+
+
+# ── Instructor: available sessions / my sessions ────────────────────────────
+
+@router.get("/available", response_model=list[AvailableSessionOut])
+async def list_available_sessions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_instructor_or_facilitator),
+):
+    rows = await staffing.list_available_sessions(db, current_user)
+    return [
+        AvailableSessionOut(
+            session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,
+            location=c.location, meeting_date=s.meeting_date, starts_at=s.starts_at,
+            interested_count=count, my_interest=interest is not None,
+            my_note=interest.note if interest else None,
+        )
+        for s, c, p, count, interest in rows
+    ]
+
+
+@router.get("/mine", response_model=list[MySessionOut])
+async def list_my_sessions(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_instructor_or_facilitator),
+):
+    rows = await staffing.list_my_sessions(db, current_user)
+    return [
+        MySessionOut(
+            session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,
+            location=c.location, meeting_date=s.meeting_date, starts_at=s.starts_at,
+            my_role=role, staffing_status=s.staffing_status,
+            started_at=s.started_at, completed_at=s.completed_at,
+        )
+        for s, c, p, role in rows
+    ]
+
+
+# ── Instructor: register / withdraw interest ────────────────────────────────
+
+@router.post("/{session_id}/staffing/interest", response_model=InterestOut, status_code=status.HTTP_201_CREATED)
+async def register_interest(
+    session_id: uuid.UUID,
+    body: RegisterInterestRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_instructor_or_facilitator),
+):
+    interest = await staffing.register_interest(db, session_id, current_user, note=body.note)
+    await db.commit()
+    return InterestOut(
+        user_id=current_user.id, full_name=current_user.full_name, email=current_user.email,
+        note=interest.note, created_at=interest.created_at,
+    )
+
+
+class DeclineAssignmentRequest(BaseModel):
+    reason: str | None = None
+
+
+@router.post("/{session_id}/staffing/decline")
+async def decline_assignment(
+    session_id: uuid.UUID,
+    body: DeclineAssignmentRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_instructor_or_facilitator),
+):
+    """Instructor declines an assigned session with an optional excuse reason."""
+    si = await db.scalar(
+        select(SessionInstructor).where(
+            SessionInstructor.session_id == session_id,
+            SessionInstructor.user_id == current_user.id,
+        )
+    )
+    if si is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
+
+    await db.delete(si)
+
+    session = await db.get(Session, session_id)
+    ops_users = (await db.execute(
+        select(User).where(User.roles.any("operations") | User.roles.any("admin"))
+    )).scalars().all()
+
+    for ops in ops_users:
+        await create_notification(
+            db, ops.id, "Instructor requested excuse",
+            body=f"{current_user.full_name} declined assignment for session on {session.meeting_date if session else 'session'}."
+                 + (f" Reason: {body.reason}" if body.reason else ""),
+            type="staffing_open_call",
+        )
+
+    await db.commit()
+    return {"status": "declined"}
+
+
+@router.delete("/{session_id}/staffing/interest", status_code=status.HTTP_204_NO_CONTENT)
+async def withdraw_interest(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_instructor_or_facilitator),
+):
+    await staffing.withdraw_interest(db, session_id, current_user)
+    await db.commit()
+
+
+# ── Ops: interest list, full eligible roster, select ────────────────────────
+
+@router.get("/{session_id}/staffing/interest", response_model=list[InterestOut])
+async def list_interest(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    rows = await staffing.list_interest(db, session_id)
+    return [
+        InterestOut(user_id=u.id, full_name=u.full_name, email=u.email, note=i.note, created_at=i.created_at)
+        for i, u in rows
+    ]
+
+
+@router.get("/{session_id}/staffing/eligible-instructors", response_model=list[EligibleInstructorOut])
+async def list_eligible_instructors(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Full instructor|facilitator roster for the ops select screen — not
+    interest-only (operator requirement 2026-07-24)."""
+    rows = await staffing.list_eligible_instructors(db, session_id)
+    return [
+        EligibleInstructorOut(
+            user_id=u.id, full_name=u.full_name or u.email, email=u.email, photo_url=u.photo_url,
+            interested=interest is not None, note=interest.note if interest else None,
+        )
+        for u, interest in rows
+    ]
+
+
+@router.post("/{session_id}/staffing/select", response_model=SelectInstructorsResponse)
+async def select_instructors(
+    session_id: uuid.UUID,
+    body: SelectInstructorsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
+):
+    assignments, without_interest = await staffing.select_instructors(db, session_id, body.user_ids, body.role)
+
+    session = await db.get(Session, session_id)
+    cohort = await db.get(Cohort, session.cohort_id) if session else None
+    for assignment in assignments:
+        await create_notification(
+            db, assignment.user_id, "You've been assigned to a session",
+            body=f"You're assigned ({assignment.role}) to a session on {session.meeting_date}"
+                 + (f" at {cohort.location}." if cohort and cohort.location else "."),
+            type="staffing_assigned",
+        )
+        await safe_enqueue(arq_redis, "send_assignment_email", str(session_id), str(assignment.user_id))
+
+    await db.commit()
+    return SelectInstructorsResponse(assigned=[a.user_id for a in assignments], without_interest=without_interest)
