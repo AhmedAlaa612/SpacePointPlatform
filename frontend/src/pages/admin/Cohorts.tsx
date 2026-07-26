@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, Pencil, X, CalendarPlus, UserPlus, Upload, Ticket, Wallet, Ban, FileText, Download, CheckCircle2, Award, Trash2 } from "lucide-react"
+import { Plus, Pencil, X, CalendarPlus, UserPlus, Upload, Ticket, Wallet, Ban, FileText, Download, CheckCircle2, Award, Trash2, Search } from "lucide-react"
 import type {
   Cohort, CohortStatus, CohortVisibility, Program, Session,
   Registration, RegistrationStatus, PaymentStatus, StaffingStatus, EligibleInstructor,
@@ -352,6 +352,7 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
   const [addSessionOpen, setAddSessionOpen] = useState(false)
   const [sessionDetail, setSessionDetail] = useState<Session | null>(null)
   const [drawerError, setDrawerError] = useState<string | null>(null)
+  const [regSearch, setRegSearch] = useState("")
   const [registerOpen, setRegisterOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [paymentTarget, setPaymentTarget] = useState<Registration | null>(null)
@@ -368,6 +369,19 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
   const { data: cohortReports = [] } = useQuery<SessionReport[]>({
     queryKey: ["sessions-cohort-reports", cohort.id],
     queryFn: () => listCohortReportsApi(cohort.id),
+  })
+
+  // Ops open this on a phone at a venue door, where a cohort can easily run to
+  // dozens of rows — searching beats scrolling. Matches every field shown on
+  // the row so "the school" or "the parent's number" both work.
+  const filteredRegistrations = registrations.filter((r) => {
+    const q = regSearch.trim().toLowerCase()
+    if (!q) return true
+    return [
+      r.student_name, r.student_phone, r.student_email, r.student_grade,
+      r.student_organization_name, r.guardian_name, r.guardian_phone,
+      r.status, r.payment_status,
+    ].some((v) => (v ?? "").toString().toLowerCase().includes(q))
   })
 
   const invalidateRegistrations = () => queryClient.invalidateQueries({ queryKey: ["sessions-registrations", cohort.id] })
@@ -405,11 +419,14 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
   const unstaffedCount = sessions.filter((s) => s.staffing_status === "unstaffed").length
 
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
-      <div className="w-full max-w-4xl bg-card border border-border rounded-2xl p-6 flex flex-col gap-5 shadow-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-base font-semibold text-foreground">{cohort.name}</p>
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      {/* Bottom sheet on phones (no side gutters, square top corners against
+          the screen edge), centred dialog from sm up. 6 units of padding is a
+          lot of a 390px viewport — halve it on mobile. */}
+      <div className="w-full max-w-4xl bg-card border border-border rounded-t-2xl sm:rounded-2xl p-4 sm:p-6 flex flex-col gap-5 shadow-2xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-base font-semibold text-foreground break-words">{cohort.name}</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {cohort.program_name ?? "—"} ·{" "}
               <span className={`px-2 py-0.5 rounded-full font-semibold ${COHORT_STATUS_COLOR[cohort.status]}`}>
@@ -417,7 +434,7 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
               </span>
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors">
+          <button onClick={onClose} className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors shrink-0">
             <X size={16} />
           </button>
         </div>
@@ -500,6 +517,17 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
             Registrations{registrations.length > 0 ? ` (${registrations.length})` : ""}
           </p>
+          {registrations.length > 0 && (
+            <div className="relative mb-2">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <input
+                value={regSearch}
+                onChange={(e) => setRegSearch(e.target.value)}
+                placeholder="Search name, phone, email, school…"
+                className="w-full h-9 pl-9 pr-3 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+          )}
           {drawerError && (
             <div className="text-xs text-red-600 dark:text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2 mb-2">
               {drawerError}
@@ -509,19 +537,23 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
             <div className="flex items-center justify-center h-24 border border-dashed border-border rounded-2xl">
               <p className="text-sm text-muted-foreground">No registrations yet</p>
             </div>
+          ) : filteredRegistrations.length === 0 ? (
+            <div className="flex items-center justify-center h-24 border border-dashed border-border rounded-2xl">
+              <p className="text-sm text-muted-foreground">No registrations match "{regSearch}"</p>
+            </div>
           ) : (
             <div className="flex flex-col gap-2">
-              {registrations.map((r) => (
+              {filteredRegistrations.map((r) => (
                 <div
                   key={r.id}
-                  className="flex flex-wrap items-center justify-between gap-3 p-3 bg-background border border-border rounded-xl"
+                  className="flex flex-col gap-2 p-3 bg-background border border-border rounded-xl sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-3"
                 >
                   <div
                     className="min-w-0 flex-1 cursor-pointer group"
                     onClick={() => setEditRegistrationTarget(r)}
                   >
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">{r.student_name}</p>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-sm font-medium text-foreground group-hover:text-primary transition-colors break-words w-full sm:w-auto">{r.student_name}</p>
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${REG_STATUS_COLOR[r.status]}`}>
                         {r.status}
                       </span>
@@ -580,7 +612,7 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
                       {r.price_charged != null ? ` · AED ${r.price_charged}` : ""}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <div className="flex items-center gap-1.5 flex-shrink-0 justify-end border-t border-border/60 pt-2 sm:border-0 sm:pt-0">
                     <button
                       onClick={() => setEditRegistrationTarget(r)}
                       className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"

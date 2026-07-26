@@ -40,8 +40,8 @@ export default function AvailableSessions() {
                 <CardContent className="p-5">
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div className="min-w-0">
-                      <p className="font-semibold truncate">{s.program_name}</p>
-                      <p className="text-xs text-muted-foreground truncate">{s.cohort_name}</p>
+                      <p className="font-semibold break-words">{s.program_name}</p>
+                      <p className="text-xs text-muted-foreground break-words">{s.cohort_name}</p>
                     </div>
                     <span className="shrink-0 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full border bg-blue-50 text-blue-600 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-900/50">
                       <Users size={12} /> {s.interested_count} interested

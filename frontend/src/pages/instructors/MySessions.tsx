@@ -125,7 +125,7 @@ export default function MySessions() {
                   <div className="flex items-start justify-between gap-3 mb-3 flex-wrap">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <Link to="/instructors/sessions/$sessionId" params={{ sessionId: s.session_id }} className="font-semibold text-foreground hover:text-primary transition-colors text-base truncate">
+                        <Link to="/instructors/sessions/$sessionId" params={{ sessionId: s.session_id }} className="font-semibold text-foreground hover:text-primary transition-colors text-base break-words w-full sm:w-auto">
                           {s.program_name}
                         </Link>
 
@@ -145,7 +145,7 @@ export default function MySessions() {
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-muted-foreground truncate mt-0.5">{s.cohort_name}</p>
+                      <p className="text-xs text-muted-foreground break-words mt-0.5">{s.cohort_name}</p>
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
