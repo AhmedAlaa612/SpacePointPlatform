@@ -5,8 +5,12 @@ Entry point for anyone (human or agent) picking up work on this codebase. Domain
 - [`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md) — applicant pipeline, contracts, payments, certificates.
 - [`HANDOFF_INTERNS.md`](./HANDOFF_INTERNS.md) — projects/epics/tasks, kanban board, teams, submissions.
 - [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) — leads, points/titles/badges, teacher sessions.
+- [`HANDOFF_SPINE.md`](./HANDOFF_SPINE.md) — the one contact identity behind every role (**schema only so far** — see status note in the file).
+- [`HANDOFF_SESSIONS.md`](./HANDOFF_SESSIONS.md) — registration system + instructor staffing marketplace (**schema only so far**).
 
 Credentials and the production env are in `secrets.md`, kept out of version control (it lives one directory above this repo). The live env file is at `/etc/spacepoint/env` on the server.
+
+> **This repo is mid-buildout of a new registration/sessions/inventory/LMS/CRM roadmap** approved by the CEO on 2026-07-18. The week-by-week plan, status board, and running discoveries/work log are NOT in this repo — they live in `MASTER_EXECUTION_PLAN_V2.md` in a separate `spaceCRM` planning repo the operator maintains outside this codebase. Read that file's §D (status board) and §DISCOVERIES before starting any new work in the `spine` or `sessions` domains below.
 
 ---
 
@@ -86,13 +90,13 @@ frontend/
 
 ## Roles
 
-8 roles total (`backend/app/models/enums.py`, `UserRole`): `admin`, `intern`, `leader`, `applicant`, `instructor`, `facilitator`, `ambassador`, `teacher`.
+9 roles total (`backend/app/models/enums.py`, `UserRole`): `admin`, `intern`, `leader`, `applicant`, `instructor`, `facilitator`, `ambassador`, `teacher`, `operations`.
 
 A user holds an array of roles (`users.roles`); there is no single "role" column. The **active role** is a client-side-only choice (`localStorage`), not a server concept — the backend authorizes every request purely on which roles are in the array, regardless of what's "active" in the UI.
 
 | Role | Domain |
 |---|---|
-| `admin` | All three domains — full oversight everywhere |
+| `admin` | All domains — full oversight everywhere |
 | `intern` | Interns |
 | `leader` | Interns (team lead) |
 | `applicant` | Instructors (pre-approval) |
@@ -100,17 +104,20 @@ A user holds an array of roles (`users.roles`); there is no single "role" column
 | `facilitator` | Instructors (content management) |
 | `ambassador` | Ambassadors |
 | `teacher` | Ambassadors (recruited by an ambassador) |
+| `operations` | Sessions/inventory (V2 roadmap — no dedicated UI yet; lands with the registration desk, see `HANDOFF_SESSIONS.md`). Frontend `ROLE_DOMAIN` maps it to `admin` as an interim placeholder. |
 
 See the role files linked at the top for what each role can actually do.
 
 ## Database
 
-PostgreSQL 16, ~57 tables, UUID primary keys everywhere. `users` is the shared identity table across all domains (one row per person, roles as an array). `notifications` and the document tables (`documents`, `document_requests`, `document_templates`, `certificates`) are shared/top-level — used across domains, not owned by one.
+PostgreSQL 16, 74 tables (55 pre-existing + 19 added by the spine/sessions domains below), UUID primary keys everywhere. `users` is the shared identity table across all domains (one row per person, roles as an array). `notifications` and the document tables (`documents`, `document_requests`, `document_templates`, `certificates`) are shared/top-level — used across domains, not owned by one.
 
 Per-domain table groups (see each role file for details, or the model files for exact columns):
 - **Interns**: `projects`, `teams`, `epics`, `modules`, `tasks`, `task_submissions`, `proposals`, `mind_map_layouts`, plus join tables (`project_teams`, `team_members`, `task_assignees`).
 - **Ambassadors**: `leads`, `lead_comments`, `points_transactions`, `titles`, `badge_definitions`, `achievements`, `teacher_sessions`, `ambassador_tasks`, `materials`, `system_settings`.
 - **Instructors**: `applicant_profiles`, `application_reviews`, `video_submissions`, `checklist_modules`/`module_sections`/`checklist_items`, `module_submissions`, `presentation_submissions`, `assessment_submissions`, `invitation_codes`, `instructor_profiles`, `instructor_documents`, `training_modules`/`training_videos`, `library_modules`/`library_resources`, `payment_batches`, `payment_letters`, `payment_sessions`, `payment_addons`, `instructor_bank_details`.
+- **Spine** (schema only, see `HANDOFF_SPINE.md`): `contacts`, `contact_relationships`, `organizations`, `consent_records`, `touchpoints`, `identity_aliases`, `merge_reviews`.
+- **Sessions** (schema only, see `HANDOFF_SESSIONS.md`): `programs`, `cohorts`, `cohort_instructors`, `session_meetings`, `registrations`, `attendance_records`, `instructor_interests`, `session_reports`, `import_batches`, `activities`, `activity_versions`, `activity_assignments`.
 
 ## Migrations
 

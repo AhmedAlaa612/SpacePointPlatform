@@ -52,6 +52,11 @@ yarn-error.log*
 backend/app/static/generated/
 backend/uploads/
 
+# Local storage backend root (STORAGE_ROOT when running the app locally) —
+# real generated certificates/reports/tickets land here. Production writes to
+# /var/lib/spacepoint/storage on the VPS, never into the repo.
+backend/storage/
+
 # Legacy ETL (GO_LIVE.md A4) id-maps — audit artifacts from migrate_legacy.py
 # runs. Even the "safe-looking" tables can carry real names/emails/titles
 # depending on the source DB, so the whole directory is gitignored rather
