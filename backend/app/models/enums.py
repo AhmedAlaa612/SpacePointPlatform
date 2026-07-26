@@ -10,6 +10,7 @@ class UserRole(str, enum.Enum):
     facilitator = "facilitator"
     ambassador = "ambassador"
     teacher = "teacher"
+    operations = "operations"
 
 
 # ── Interns domain ───────────────────────────────────────────────────────────
@@ -63,3 +64,4 @@ class CertificateType(str, enum.Enum):
     workshop_delivery = "workshop_delivery"
     internship_completion = "internship_completion"
     instructor_completion = "instructor_completion"
+    student_completion = "student_completion"  # W5 S5-3 — cohort completion, contact-owned

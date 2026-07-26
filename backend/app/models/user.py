@@ -48,6 +48,14 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Every user is also a spine contact (V2 R2-6) — lets staff (instructors,
+    # ambassadors, etc.) show up in Contacts/merge-review flows the same way
+    # public registrants do. Backfilled by scripts/backfill_user_contacts.py;
+    # repointed on merge via identity.MERGE_FK_REGISTRY.
+    contact_id = Column(
+        UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="SET NULL", name="fk_users_contact_id"), nullable=True
+    )
+
     @property
     def role_values(self) -> list[str]:
         """Roles as plain strings, regardless of how the driver hydrates the array."""
