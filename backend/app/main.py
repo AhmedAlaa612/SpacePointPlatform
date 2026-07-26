@@ -1,4 +1,8 @@
-from fastapi import FastAPI
+import logging
+from contextlib import asynccontextmanager
+
+from arq import create_pool
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
@@ -11,13 +15,55 @@ from app.routers.interns import leader as interns_leader
 from app.routers.interns import shared as interns_shared
 from app.routers.ambassadors import router as ambassadors_router
 from app.routers.instructors import router as instructors_router
+from app.routers.sessions import router as sessions_router
+from app.routers.spine import router as spine_router
+from app.workers.heartbeat import HEARTBEAT_KEY
+from app.workers.settings import redis_settings
 
 
-app = FastAPI(title=settings.PROJECT_NAME)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ARQ connection pool for *enqueueing* jobs from the web process (V2
+    # R2-1) — separate from the worker process itself (app/workers/main.py),
+    # which consumes them. Stored on app.state so routers can reach it via
+    # the get_arq_redis dependency below.
+    #
+    # Redis being unreachable must never take the whole API down with it
+    # (2026-07-24) — local dev without Docker running, or a real Redis blip
+    # in production, should still serve every non-ARQ route. `app.state.arq_redis`
+    # is None in that case; callers use workers.settings.safe_enqueue, which
+    # no-ops (logged) instead of raising — same "a failed side-effect must
+    # never undo a successful request" convention issue_ticket() already
+    # follows for email sends.
+    try:
+        app.state.arq_redis = await create_pool(redis_settings())
+    except Exception:
+        logger.warning(
+            "Could not connect to Redis at startup — ticket/import-batch emails "
+            "will be skipped until it's available. The API itself still starts.",
+            exc_info=True,
+        )
+        app.state.arq_redis = None
+    yield
+    if app.state.arq_redis is not None:
+        await app.state.arq_redis.close()
+
+
+app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    # FastAPI's CORSMiddleware is one global policy for the whole app — there's
+    # no clean per-route override — so the public-form allowlist (V2 R1-5;
+    # the marketing site, a different origin than the portal frontend) is
+    # unioned in here rather than given its own middleware. This doesn't widen
+    # what those origins can DO — every other endpoint still requires a valid
+    # JWT regardless of Origin; CORS only affects whether browser JS can read
+    # a cross-origin response.
+    allow_origins=list(dict.fromkeys(settings.cors_origins + settings.public_form_origins)),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -44,7 +90,21 @@ app.include_router(ambassadors_router, prefix="/ambassadors")
 # instructor pipeline convention, not a separate /apply/* router)
 app.include_router(instructors_router, prefix="/instructors")
 
+# Sessions domain (V2 R1-5+): /public/register/{cohort_key}, /sessions/*
+app.include_router(sessions_router)
+
+# Spine domain (V2 R2-4): /spine/contacts/*, /spine/organizations/*, /spine/merge-reviews/*
+app.include_router(spine_router)
+
 
 @app.get("/health", tags=["health"])
 async def health():
     return {"status": "ok", "service": settings.PROJECT_NAME}
+
+
+@app.get("/health/worker", tags=["health"])
+async def health_worker(request: Request):
+    if request.app.state.arq_redis is None:
+        return {"status": "down", "last_heartbeat": None}
+    last_beat = await request.app.state.arq_redis.get(HEARTBEAT_KEY)
+    return {"status": "ok" if last_beat else "down", "last_heartbeat": last_beat}

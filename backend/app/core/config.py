@@ -9,6 +9,12 @@ class Settings(BaseSettings):
     # Database — async driver, e.g.
     # postgresql+asyncpg://postgres:postgres@host:5432/postgres
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/spacepoint"
+    # Dedicated test database — pytest fixtures use this, never DATABASE_URL.
+    DATABASE_URL_TEST: str = ""
+
+    # Background job queue (V2 R2-1) — ARQ + Redis, bound to 127.0.0.1 only in prod.
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL_TEST: str = ""
 
     # JWT auth
     SECRET_KEY: str = "supersecretkey-change-in-production"
@@ -48,10 +54,18 @@ class Settings(BaseSettings):
 
     # CORS — comma-separated list of allowed origins
     CORS_ORIGINS: str = "http://localhost:5173"
+    # Separate allowlist for public, unauthenticated form endpoints (V2 R1-5) —
+    # the marketing site (spacepoint.ae) needs to POST here from the browser,
+    # a different origin than the portal frontend above.
+    PUBLIC_FORM_ORIGINS: str = ""
 
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @property
+    def public_form_origins(self) -> list[str]:
+        return [o.strip() for o in self.PUBLIC_FORM_ORIGINS.split(",") if o.strip()]
 
 
 settings = Settings()

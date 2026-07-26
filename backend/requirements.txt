@@ -8,6 +8,20 @@ asyncpg
 alembic
 psycopg2-binary  # sync driver used only by scripts/migrate_legacy.py to read the legacy DB
 
+# Phone normalization (spine identity matching, V2 R1-3)
+phonenumbers
+
+# Background job queue (V2 R2-1) — ticket emails + bulk imports run here, not
+# synchronously in the request
+arq
+redis
+
+# Tests (bootstrapped in V2 R1-3 — no harness existed before; deferred full CI/monorepo
+# test setup is still V2 C0-2, this is just enough to run `pytest` locally against a
+# dedicated test database)
+pytest
+pytest-asyncio
+
 # Validation / settings
 pydantic[email]
 pydantic-settings
