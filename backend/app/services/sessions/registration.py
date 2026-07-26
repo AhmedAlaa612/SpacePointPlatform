@@ -19,7 +19,7 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -93,6 +93,43 @@ async def register(
     if payment_status is None:
         program = await db.get(Program, cohort.program_id)
         payment_status = "waived" if program is not None and program.pricing_model == "free" else "unpaid"
+
+    # A cancelled registration still occupies the UNIQUE(contact_id, cohort_id)
+    # slot, so re-registering someone who dropped out used to fail with "already
+    # registered" — and nothing could move a row out of `cancelled`, making the
+    # cancel button a one-way trap. Reinstate the existing row instead: the
+    # student keeps their original created_at, touchpoint history and ticket
+    # token, and clearing ticket_sent_at lets the caller send it to them again.
+    # An *active* duplicate still 409s below, exactly as before.
+    existing = (await db.execute(
+        select(Registration).where(
+            Registration.contact_id == contact_id, Registration.cohort_id == cohort_id,
+        )
+    )).scalars().first()
+    if existing is not None and existing.status == "cancelled":
+        existing.status = "registered"
+        existing.ticket_sent_at = None
+        existing.registered_via = registered_via
+        if payment_status is not None:
+            existing.payment_status = payment_status
+        await db.flush()
+        if session_ids:
+            # Replace any coverage from the previous life of this row rather
+            # than adding to it — the caller is stating the full set.
+            await db.execute(
+                sa_delete(RegistrationSession).where(RegistrationSession.registration_id == existing.id)
+            )
+            for session_id in session_ids:
+                db.add(RegistrationSession(id=uuid4(), registration_id=existing.id, session_id=session_id))
+        db.add(Touchpoint(
+            contact_id=contact_id,
+            channel=_CHANNEL_BY_REGISTERED_VIA[registered_via],
+            touchpoint_type="registration",
+            occurred_at=datetime.now(timezone.utc),
+            raw_platform_id=f"registration:{existing.id}:reinstated:{uuid4()}",
+        ))
+        await db.flush()
+        return existing
 
     registration = Registration(
         id=uuid4(),

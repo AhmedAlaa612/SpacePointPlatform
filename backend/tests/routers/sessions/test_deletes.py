@@ -29,12 +29,14 @@ from app.workers.settings import get_arq_redis
 
 
 @pytest.fixture
-async def client(db, arq_redis):
+async def client(db):
+    """Redis-free: none of the delete endpoints enqueue a job, so requiring a
+    live Redis to test them only makes the suite fragile."""
     async def _override_get_db():
         yield db
 
     async def _override_get_arq_redis():
-        return arq_redis
+        return None
 
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_arq_redis] = _override_get_arq_redis
@@ -245,9 +247,13 @@ async def test_delete_registration_leaves_the_contact_alone(db, client, operatio
 
 
 @pytest.mark.asyncio
-async def test_delete_registration_with_attendance_refused(
+async def test_delete_registration_takes_attendance_and_certificate_with_it(
     db, client, operations_headers, operations_user: User,
 ):
+    """Delete is the destructive option (operator, 2026-07-26) — it no longer
+    holds back once attendance exists. Certificates are removed explicitly:
+    certificates.registration_id is SET NULL, so they'd otherwise survive as
+    orphans pointing at nobody."""
     program = await _make_program(db)
     cohort = await _make_cohort(db, program)
     session = await _make_session(db, cohort)
@@ -256,29 +262,89 @@ async def test_delete_registration_with_attendance_refused(
         id=uuid.uuid4(), registration_id=registration.id, session_id=session.id,
         att_status="present", method="manual", recorded_by_user_id=operations_user.id,
     ))
-    await db.commit()
-
-    resp = await client.delete(
-        f"/sessions/registrations/{registration.id}", headers=operations_headers,
-    )
-    assert resp.status_code == 409, resp.text
-    assert "cancel" in resp.json()["detail"].lower()
-    assert await db.get(Registration, registration.id) is not None
-
-
-@pytest.mark.asyncio
-async def test_delete_registration_with_certificate_refused(db, client, operations_headers):
-    program = await _make_program(db)
-    cohort = await _make_cohort(db, program)
-    registration = await _make_registration(db, cohort)
     db.add(Certificate(
         id=uuid.uuid4(), contact_id=registration.contact_id, registration_id=registration.id,
         type=CertificateType.student_completion, workshop_name=program.name,
     ))
     await db.commit()
+    registration_id, contact_id = registration.id, registration.contact_id
 
     resp = await client.delete(
-        f"/sessions/registrations/{registration.id}", headers=operations_headers,
+        f"/sessions/registrations/{registration_id}", headers=operations_headers,
+    )
+    assert resp.status_code == 204, resp.text
+
+    db.expunge_all()
+    assert (await db.execute(
+        select(Registration).where(Registration.id == registration_id)
+    )).scalars().first() is None
+    assert (await db.execute(
+        select(AttendanceRecord).where(AttendanceRecord.registration_id == registration_id)
+    )).scalars().first() is None
+    assert (await db.execute(
+        select(Certificate).where(Certificate.registration_id == registration_id)
+    )).scalars().first() is None
+    # The person stays unless explicitly asked for.
+    assert await db.get(Contact, contact_id) is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_registration_can_also_delete_the_contact(db, client, operations_headers):
+    program = await _make_program(db)
+    cohort = await _make_cohort(db, program)
+    registration = await _make_registration(db, cohort)
+    await db.commit()
+    contact_id = registration.contact_id
+
+    resp = await client.delete(
+        f"/sessions/registrations/{registration.id}?delete_contact=true", headers=operations_headers,
+    )
+    assert resp.status_code == 204, resp.text
+
+    db.expunge_all()
+    assert (await db.execute(
+        select(Contact).where(Contact.id == contact_id)
+    )).scalars().first() is None
+
+
+@pytest.mark.asyncio
+async def test_delete_contact_refused_when_registered_elsewhere(db, client, operations_headers):
+    """contacts.id cascades to nine tables, so this would silently erase the
+    other cohort's registration and its attendance."""
+    program = await _make_program(db)
+    cohort_a = await _make_cohort(db, program)
+    cohort_b = await _make_cohort(db, program, name="Other Cohort")
+    registration = await _make_registration(db, cohort_a)
+    db.add(Registration(
+        id=uuid.uuid4(), contact_id=registration.contact_id, cohort_id=cohort_b.id,
+        ticket_token=uuid.uuid4().hex, registered_via="desk",
+    ))
+    await db.commit()
+
+    resp = await client.delete(
+        f"/sessions/registrations/{registration.id}?delete_contact=true", headers=operations_headers,
     )
     assert resp.status_code == 409, resp.text
+    assert "other cohort" in resp.json()["detail"].lower()
+    assert await db.get(Contact, registration.contact_id) is not None
+    # Refused before anything was removed.
+    assert await db.get(Registration, registration.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_delete_contact_refused_for_a_staff_account(
+    db, client, operations_headers, operations_user: User,
+):
+    """Never delete the person record behind a real login."""
+    program = await _make_program(db)
+    cohort = await _make_cohort(db, program)
+    registration = await _make_registration(db, cohort)
+    operations_user.contact_id = registration.contact_id
+    await db.commit()
+
+    resp = await client.delete(
+        f"/sessions/registrations/{registration.id}?delete_contact=true", headers=operations_headers,
+    )
+    assert resp.status_code == 409, resp.text
+    assert "staff account" in resp.json()["detail"].lower()
     assert await db.get(Registration, registration.id) is not None

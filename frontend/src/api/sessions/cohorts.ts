@@ -99,7 +99,11 @@ export const deleteCohortApi = (id: string) =>
 export const deleteSessionApi = (cohortId: string, sessionId: string) =>
   api.delete<void>(`/sessions/cohorts/${cohortId}/sessions/${sessionId}`).then((r) => r.data)
 
-/** Removes a sign-up outright (wrong cohort, duplicate entry). 409 once there
- *  is attendance or a certificate attached — cancel it instead. */
-export const deleteRegistrationApi = (registrationId: string) =>
-  api.delete<void>(`/sessions/registrations/${registrationId}`).then((r) => r.data)
+/** Erases a sign-up along with its attendance and certificate — the
+ *  destructive counterpart to cancel, for rows that shouldn't exist.
+ *  deleteContact also removes the person from Contacts; that 409s if they hold
+ *  a staff account or are registered in other cohorts. */
+export const deleteRegistrationApi = (registrationId: string, deleteContact = false) =>
+  api
+    .delete<void>(`/sessions/registrations/${registrationId}`, { params: { delete_contact: deleteContact } })
+    .then((r) => r.data)

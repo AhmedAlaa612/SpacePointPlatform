@@ -353,6 +353,7 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
   const [sessionDetail, setSessionDetail] = useState<Session | null>(null)
   const [drawerError, setDrawerError] = useState<string | null>(null)
   const [regSearch, setRegSearch] = useState("")
+  const [deleteTarget, setDeleteTarget] = useState<Registration | null>(null)
   const [registerOpen, setRegisterOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [paymentTarget, setPaymentTarget] = useState<Registration | null>(null)
@@ -394,8 +395,15 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
   // Both refuse server-side once real history is attached (attendance, a
   // certificate) — show the API's reason instead of failing quietly.
   const deleteRegistrationMutation = useMutation({
-    mutationFn: deleteRegistrationApi,
-    onSuccess: () => { setDrawerError(null); invalidateRegistrations() },
+    mutationFn: ({ id, deleteContact }: { id: string; deleteContact: boolean }) =>
+      deleteRegistrationApi(id, deleteContact),
+    onSuccess: () => {
+      setDrawerError(null)
+      setDeleteTarget(null)
+      invalidateRegistrations()
+      // Deleting a contact changes the Contacts page too.
+      queryClient.invalidateQueries({ queryKey: ["spine-contacts"] })
+    },
     onError: (e: any) => setDrawerError(e?.response?.data?.detail ?? "Failed to delete registration"),
   })
 
@@ -666,11 +674,7 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
                       <Ban size={14} />
                     </button>
                     <button
-                      onClick={() => {
-                        if (confirm(`Remove ${r.student_name} from this cohort entirely? Use Cancel instead if they really did sign up and then dropped out — this is for rows that shouldn't exist.`)) {
-                          deleteRegistrationMutation.mutate(r.id)
-                        }
-                      }}
+                      onClick={() => { setDrawerError(null); setDeleteTarget(r) }}
                       disabled={deleteRegistrationMutation.isPending}
                       className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors disabled:opacity-50"
                       title="Delete registration"
@@ -807,7 +811,82 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
           onClose={() => setAttendanceTarget(null)}
         />
       )}
+
+      {deleteTarget && (
+        <DeleteRegistrationModal
+          registration={deleteTarget}
+          pending={deleteRegistrationMutation.isPending}
+          error={drawerError}
+          onCancel={() => { setDeleteTarget(null); setDrawerError(null) }}
+          onConfirm={(deleteContact) =>
+            deleteRegistrationMutation.mutate({ id: deleteTarget.id, deleteContact })
+          }
+        />
+      )}
     </div>
+  )
+}
+
+
+/* ================================================================== */
+/* Delete registration — destructive, so it spells out what goes      */
+/* ================================================================== */
+function DeleteRegistrationModal({ registration, pending, error, onCancel, onConfirm }: {
+  registration: Registration
+  pending: boolean
+  error: string | null
+  onCancel: () => void
+  onConfirm: (deleteContact: boolean) => void
+}) {
+  const [alsoDeleteContact, setAlsoDeleteContact] = useState(false)
+
+  return (
+    <Modal title={`Delete ${registration.student_name}'s registration?`} onClose={onCancel} maxWidth="max-w-md">
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-muted-foreground">
+          This erases the sign-up along with any attendance recorded for it and any
+          certificate issued from it. It can't be undone.
+        </p>
+        <p className="text-sm text-muted-foreground">
+          If they genuinely signed up and then dropped out, use <strong className="text-foreground">Cancel</strong> instead —
+          that frees the seat but keeps the record, and you can register them again later.
+        </p>
+
+        <label className="flex items-start gap-2 cursor-pointer select-none p-3 border border-border rounded-xl">
+          <input
+            type="checkbox" checked={alsoDeleteContact} onChange={(e) => setAlsoDeleteContact(e.target.checked)}
+            className="rounded text-primary focus:ring-primary border-border bg-background shrink-0 mt-0.5"
+          />
+          <span className="text-xs text-muted-foreground leading-snug">
+            <span className="text-foreground font-medium">Also delete {registration.student_name} from Contacts.</span>
+            {" "}Removes the person entirely — their touchpoints, role history and household links.
+            Refused if they hold a staff account or are registered in another cohort.
+          </span>
+        </label>
+
+        {error && (
+          <div className="text-xs text-red-600 dark:text-red-400 bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">
+            {error}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            Keep it
+          </button>
+          <button
+            onClick={() => onConfirm(alsoDeleteContact)}
+            disabled={pending}
+            className="h-9 px-4 bg-red-600 text-white rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+          >
+            {pending ? "Deleting…" : alsoDeleteContact ? "Delete registration + contact" : "Delete registration"}
+          </button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

@@ -4,7 +4,7 @@ not-covered-by-registration.
 """
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.sessions.registration import Registration
 from app.models.sessions.session import Session
 from app.models.spine.contact import Contact
 from app.models.spine.touchpoint import Touchpoint
@@ -218,3 +219,72 @@ async def test_check_in_already_recorded_raises_409(db):
     with pytest.raises(HTTPException) as exc_info:
         await check_in(db, token=registration.ticket_token, session_id=session.id, actor_user_id=staff.id)
     assert exc_info.value.status_code == 409
+
+
+# ── Cancel is no longer a one-way trap (operator, 2026-07-26) ────────────────
+
+@pytest.mark.asyncio
+async def test_re_registering_a_cancelled_student_reinstates_the_same_row(db):
+    """A cancelled registration still occupies UNIQUE(contact_id, cohort_id),
+    and nothing could move a row out of `cancelled` — so a student who dropped
+    out and changed their mind hit "already registered" with no way back."""
+    cohort = await _make_cohort(db)
+    contact = _new_contact()
+    db.add(contact)
+    await db.flush()
+
+    original = await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="form")
+    original_id, original_token = original.id, original.ticket_token
+    original.status = "cancelled"
+    original.ticket_sent_at = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    await db.flush()
+
+    again = await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="desk")
+
+    assert again.id == original_id, "should reinstate the row, not create a second one"
+    assert again.status == "registered"
+    assert again.ticket_token == original_token, "the ticket they already hold stays valid"
+    assert again.ticket_sent_at is None, "cleared so the caller can send it to them again"
+    assert again.registered_via == "desk"
+
+    rows = (await db.execute(
+        select(Registration).where(
+            Registration.contact_id == contact.id, Registration.cohort_id == cohort.id,
+        )
+    )).scalars().all()
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_active_duplicate_registration_still_rejected(db):
+    """Reinstating must not weaken the duplicate guard for a live sign-up."""
+    cohort = await _make_cohort(db)
+    contact = _new_contact()
+    db.add(contact)
+    await db.flush()
+    await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="form")
+
+    with pytest.raises(HTTPException) as exc:
+        await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="form")
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_reinstating_respects_capacity(db):
+    """The cancelled row isn't counted while cancelled, so reinstating it has
+    to pass the same capacity check as a brand-new sign-up."""
+    cohort = await _make_cohort(db, capacity=1)
+    dropped, replacement = _new_contact(), _new_contact(email="replacement@example.com")
+    db.add_all([dropped, replacement])
+    await db.flush()
+
+    first = await register(db, contact_id=dropped.id, cohort_id=cohort.id, registered_via="form")
+    first.status = "cancelled"
+    await db.flush()
+
+    await register(db, contact_id=replacement.id, cohort_id=cohort.id, registered_via="form")
+
+    with pytest.raises(HTTPException) as exc:
+        await register(db, contact_id=dropped.id, cohort_id=cohort.id, registered_via="form")
+    assert exc.value.status_code == 409
+    assert "full" in exc.value.detail.lower()

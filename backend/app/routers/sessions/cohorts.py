@@ -22,7 +22,7 @@ from datetime import date, timedelta
 
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -738,49 +738,78 @@ async def cancel_registration(
 @router.delete("/registrations/{registration_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_registration(
     registration_id: uuid.UUID,
+    delete_contact: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    """Removes a sign-up outright — for the wrong-cohort/duplicate-entry case.
+    """Erases a sign-up — attendance and any certificate for it go too.
 
-    Cancel (above) is the right action for someone who really did sign up and
-    then dropped out: it keeps the row, and the seat is freed either way since
-    cancelled registrations don't count against capacity. This is for rows that
-    shouldn't exist at all, so it refuses once there's anything real attached —
-    attendance taken or a certificate issued. The Contact itself is never
-    touched; only this cohort's sign-up goes.
+    Cancel (above) is the safe option: it keeps the row and the history, and
+    frees the seat either way since cancelled registrations don't count against
+    capacity. Delete is the destructive one, for rows that shouldn't exist —
+    a wrong cohort, a duplicate, a typo — and it does not hold back once
+    attendance has been taken (operator decision, 2026-07-26). Certificates are
+    removed explicitly because certificates.registration_id is SET NULL, so
+    they'd otherwise survive as orphans pointing at nobody.
+
+    `delete_contact=true` additionally removes the person from Contacts. Two
+    things are refused rather than done quietly, because contacts.id cascades
+    to nine tables and a contact is shared across every cohort:
+
+      · a contact linked to a staff user account — deleting the person record
+        behind a real login is never what's meant here
+      · a contact with registrations in other cohorts — those, and their
+        attendance and certificates, would vanish with no warning
+
+    In both cases the operator is told what's attached; deleting the other
+    registrations first still gets them a clean removal.
     """
     registration = await db.get(Registration, registration_id)
     if registration is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
 
-    attendance_count = await db.scalar(
-        select(func.count()).select_from(AttendanceRecord)
-        .where(AttendanceRecord.registration_id == registration_id)
-    )
-    if attendance_count:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail=(
-                "This student has attendance recorded for this cohort, so the registration "
-                "can't be deleted. Cancel it instead — that keeps the record."
-            ),
-        )
+    contact_id = registration.contact_id
 
-    certificate_count = await db.scalar(
-        select(func.count()).select_from(Certificate)
-        .where(Certificate.registration_id == registration_id)
-    )
-    if certificate_count:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail=(
-                "A certificate has been issued for this registration, so it can't be deleted. "
-                "Cancel it instead."
-            ),
+    if delete_contact:
+        linked_users = await db.scalar(
+            select(func.count()).select_from(User).where(User.contact_id == contact_id)
         )
+        if linked_users:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=(
+                    "This person has a staff account on the platform, so their contact can't "
+                    "be deleted. The registration alone can still be removed."
+                ),
+            )
 
+        other_registrations = await db.scalar(
+            select(func.count()).select_from(Registration).where(
+                Registration.contact_id == contact_id, Registration.id != registration_id,
+            )
+        )
+        if other_registrations:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=(
+                    f"This person is registered in {other_registrations} other cohort(s). "
+                    "Deleting their contact would erase those registrations and their "
+                    "attendance too. Remove those registrations first, or delete this one "
+                    "without deleting the contact."
+                ),
+            )
+
+    await db.execute(
+        sa_delete(Certificate).where(Certificate.registration_id == registration_id)
+    )
     await db.delete(registration)
+    await db.flush()
+
+    if delete_contact:
+        contact = await db.get(Contact, contact_id)
+        if contact is not None:
+            await db.delete(contact)
+
     await db.commit()
 
 
