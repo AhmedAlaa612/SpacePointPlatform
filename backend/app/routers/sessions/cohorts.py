@@ -62,6 +62,7 @@ from app.schemas.sessions.reports import SessionReportOut
 from app.services import storage
 from app.services.notification import create_notification
 from app.services.sessions import delivery
+from app.services.sessions import staffing as staffing_service
 from app.services.sessions import reports as reports_service
 from app.services.sessions.registration import register
 from app.services.spine.identity import resolve_or_create_contact
@@ -214,6 +215,7 @@ async def _session_out(db: AsyncSession, session: Session) -> SessionOut:
     out.instructors = [
         SessionInstructorOut(user_id=si.user_id, full_name=name, role=si.role) for si, name in rows
     ]
+    out.target_user_ids = await staffing_service.call_target_ids(db, session.id)
     out.interested_count = interest_count
     return out
 

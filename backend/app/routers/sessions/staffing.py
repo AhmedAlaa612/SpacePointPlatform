@@ -51,6 +51,7 @@ async def _session_out(db: AsyncSession, session: Session) -> SessionOut:
     out.instructors = [
         SessionInstructorOut(user_id=si.user_id, full_name=name, role=si.role) for si, name in rows
     ]
+    out.target_user_ids = await staffing.call_target_ids(db, session.id)
     return out
 
 
@@ -67,11 +68,15 @@ async def open_call(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    session = await staffing.open_call(db, session_id)
+    # The picked instructors are now the call's audience in the real sense —
+    # only they can see the session or register interest. No selection means
+    # a call open to everyone, exactly as before.
+    target_ids = list(body.user_ids) if body and body.user_ids else []
+    session = await staffing.open_call(db, session_id, target_user_ids=target_ids)
 
     query = select(User).where(User.roles.any("instructor") | User.roles.any("facilitator"))
-    if body and body.user_ids:
-        query = query.where(User.id.in_(body.user_ids))
+    if target_ids:
+        query = query.where(User.id.in_(target_ids))
 
     eligible = (await db.execute(query)).scalars().all()
     for user in eligible:
@@ -95,10 +100,14 @@ async def open_call_for_cohort(
 ):
     sessions = await staffing.open_call_for_cohort(db, cohort_id)
 
+    target_ids = list(body.user_ids) if body and body.user_ids else []
     if sessions:
+        for opened in sessions:
+            await staffing.set_call_targets(db, opened.id, target_ids)
+
         query = select(User).where(User.roles.any("instructor") | User.roles.any("facilitator"))
-        if body and body.user_ids:
-            query = query.where(User.id.in_(body.user_ids))
+        if target_ids:
+            query = query.where(User.id.in_(target_ids))
 
         eligible = (await db.execute(query)).scalars().all()
         for user in eligible:
@@ -115,10 +124,16 @@ async def open_call_for_cohort(
 @router.post("/{session_id}/staffing/reopen", response_model=SessionOut)
 async def reopen(
     session_id: uuid.UUID,
+    body: OpenCallRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    session = await staffing.reopen(db, session_id)
+    """Targeting carries over — reopening a call aimed at three instructors
+    keeps it aimed at them rather than quietly going public. Send user_ids to
+    change the audience, or an empty list to open it to everyone."""
+    session = await staffing.reopen(
+        db, session_id, target_user_ids=list(body.user_ids) if body and body.user_ids is not None else None,
+    )
     await db.commit()
     await db.refresh(session)
     return await _session_out(db, session)

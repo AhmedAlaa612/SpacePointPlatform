@@ -99,6 +99,9 @@ class SessionOut(BaseModel):
     # this specific session (see SessionInstructor).
     instructors: list[SessionInstructorOut] = []
     interested_count: int = 0
+    # Instructors this open call is restricted to. Empty means unrestricted —
+    # visible to every instructor/facilitator (see SessionCallTarget).
+    target_user_ids: list[UUID] = []
 
     class Config:
         from_attributes = True

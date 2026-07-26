@@ -510,6 +510,14 @@ function CohortDetailDrawer({ cohort, onClose }: { cohort: Cohort; onClose: () =
                   {s.meeting_date}{s.starts_at ? ` · ${s.starts_at.slice(0, 5)}` : ""}
                   {s.title ? ` · ${s.title}` : ""}
                   {s.instructors.length > 0 ? ` · ${s.instructors.map((i) => i.full_name).join(", ")}` : ""}
+                  {s.target_user_ids?.length > 0 && (
+                    <span
+                      className="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/20"
+                      title={`This call is restricted to ${s.target_user_ids.length} instructor(s) — nobody else can see or take it`}
+                    >
+                      Targeted · {s.target_user_ids.length}
+                    </span>
+                  )}
                   {s.interested_count && s.interested_count > 0 ? (
                     <span className="ml-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20">
                       ★ {s.interested_count} interested
@@ -1227,7 +1235,7 @@ function StaffingSection({ session, onChanged }: {
   })
 
   const reopenMutation = useMutation({
-    mutationFn: () => reopenStaffingApi(session.id),
+    mutationFn: (targetUserIds?: string[]) => reopenStaffingApi(session.id, targetUserIds),
     onSuccess: invalidate,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to reopen"),
   })
@@ -1301,13 +1309,28 @@ function StaffingSection({ session, onChanged }: {
       )}
 
       {session.staffing_status === "staffed" && (
-        <button
-          onClick={() => { setError(""); reopenMutation.mutate() }}
-          disabled={reopenMutation.isPending}
-          className="w-full h-9 border border-border rounded-xl text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
-        >
-          Reopen Call for More Interest
-        </button>
+        <div className="flex flex-col gap-1.5">
+          <button
+            onClick={() => { setError(""); reopenMutation.mutate(undefined) }}
+            disabled={reopenMutation.isPending}
+            className="w-full h-9 border border-border rounded-xl text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+          >
+            {session.target_user_ids?.length > 0
+              ? `Reopen for the same ${session.target_user_ids.length} instructor(s)`
+              : "Reopen Call for More Interest"}
+          </button>
+          {/* Without this the only reopen keeps the original restriction, and
+              there'd be no way to widen a targeted call short of closing it. */}
+          {session.target_user_ids?.length > 0 && (
+            <button
+              onClick={() => { setError(""); reopenMutation.mutate([]) }}
+              disabled={reopenMutation.isPending}
+              className="w-full h-8 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              …or reopen it to all instructors
+            </button>
+          )}
+        </div>
       )}
 
       {isOpenCall && (
@@ -2001,7 +2024,9 @@ function TargetedOpenCallModal({
     <Modal title="Open Call for Instructor Interest" onClose={onClose} maxWidth="max-w-md">
       <div className="flex flex-col gap-4">
         <p className="text-xs text-muted-foreground">
-          Choose whether to notify all instructors across the platform or send an open call notification to specific instructors only.
+          Picking specific instructors <strong className="text-foreground">restricts</strong> the call to them:
+          the session only appears on their Available Sessions page, and only they can register
+          interest. Opening it to everyone leaves it visible to all instructors and facilitators.
         </p>
 
         <div className="flex items-center justify-between pb-2 border-b border-border">
@@ -2011,7 +2036,7 @@ function TargetedOpenCallModal({
               checked={instructors.length > 0 && selectedUserIds.length === instructors.length}
               onChange={toggleAll}
             />
-            Select all platform instructors ({instructors.length})
+            Select all ({instructors.length})
           </label>
         </div>
 
@@ -2043,14 +2068,14 @@ function TargetedOpenCallModal({
             disabled={selectedUserIds.length === 0 || mutation.isPending}
             className="w-full h-10 bg-primary text-primary-foreground font-semibold rounded-xl text-xs hover:opacity-90 transition-colors disabled:opacity-50"
           >
-            {mutation.isPending ? "Notifying..." : `Launch Open Call for Selected (${selectedUserIds.length})`}
+            {mutation.isPending ? "Opening…" : `Open call for these ${selectedUserIds.length} only`}
           </button>
           <button
             onClick={() => mutation.mutate(undefined)}
             disabled={mutation.isPending}
             className="w-full h-9 border border-border text-muted-foreground font-medium rounded-xl text-xs hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
           >
-            Notify ALL Instructors ({instructors.length})
+            Open to all instructors ({instructors.length})
           </button>
         </div>
       </div>

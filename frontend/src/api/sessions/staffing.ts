@@ -27,8 +27,15 @@ export const openCallApi = (sessionId: string, userIds?: string[]) =>
 export const openCallForCohortApi = (cohortId: string, userIds?: string[]) =>
   api.post<Session[]>(`/sessions/cohorts/${cohortId}/staffing/open-call`, { user_ids: userIds }).then((r) => r.data)
 
-export const reopenStaffingApi = (sessionId: string) =>
-  api.post<Session>(`/sessions/${sessionId}/staffing/reopen`).then((r) => r.data)
+/** Targeting carries over by default. Pass [] to widen the call to everyone,
+ *  or a list of user ids to re-aim it. */
+export const reopenStaffingApi = (sessionId: string, targetUserIds?: string[]) =>
+  api
+    .post<Session>(
+      `/sessions/${sessionId}/staffing/reopen`,
+      targetUserIds === undefined ? undefined : { user_ids: targetUserIds },
+    )
+    .then((r) => r.data)
 
 export const closeCallApi = (sessionId: string, clearInterest: boolean = false) =>
   api.post<Session>(`/sessions/${sessionId}/staffing/close-call`, { clear_interest: clearInterest }).then((r) => r.data)

@@ -360,3 +360,89 @@ async def test_select_instructors_closes_the_call_by_default(db):
     await staffing.select_instructors(db, session.id, [instructor.id], "lead")
 
     assert session.staffing_status == "staffed"
+
+
+# ── Targeted open calls are a real gate (operator, 2026-07-26) ───────────────
+
+@pytest.mark.asyncio
+async def test_untargeted_call_is_visible_to_every_instructor(db):
+    """Absence of targets means unrestricted — the behaviour every existing
+    open call has, and what the plain button still does."""
+    cohort, session = await _make_cohort_with_session(db)
+    picked = await _make_user(db, ["instructor"])
+    other = await _make_user(db, ["instructor"])
+    await staffing.open_call(db, session.id)
+
+    for user in (picked, other):
+        visible = await staffing.list_available_sessions(db, user)
+        assert session.id in [s.id for s, *_ in visible]
+
+
+@pytest.mark.asyncio
+async def test_targeted_call_is_hidden_from_everyone_else(db):
+    cohort, session = await _make_cohort_with_session(db)
+    picked = await _make_user(db, ["instructor"])
+    other = await _make_user(db, ["instructor"])
+
+    await staffing.open_call(db, session.id, target_user_ids=[picked.id])
+
+    assert session.id in [s.id for s, *_ in await staffing.list_available_sessions(db, picked)]
+    assert session.id not in [s.id for s, *_ in await staffing.list_available_sessions(db, other)]
+
+
+@pytest.mark.asyncio
+async def test_untargeted_instructor_cannot_register_interest(db):
+    """Before this, targeting only filtered the notification — an untargeted
+    instructor could still find the session and take it."""
+    cohort, session = await _make_cohort_with_session(db)
+    picked = await _make_user(db, ["instructor"])
+    other = await _make_user(db, ["instructor"])
+    await staffing.open_call(db, session.id, target_user_ids=[picked.id])
+
+    with pytest.raises(HTTPException) as exc:
+        await staffing.register_interest(db, session.id, other)
+    assert exc.value.status_code == 404  # don't leak that it exists
+
+    interest = await staffing.register_interest(db, session.id, picked)
+    assert interest.user_id == picked.id
+
+
+@pytest.mark.asyncio
+async def test_reopen_keeps_the_original_targets(db):
+    """Reopening a call aimed at specific people must not quietly go public."""
+    cohort, session = await _make_cohort_with_session(db)
+    picked = await _make_user(db, ["instructor"])
+    other = await _make_user(db, ["instructor"])
+    await staffing.open_call(db, session.id, target_user_ids=[picked.id])
+    await staffing.select_instructors(db, session.id, [picked.id], "lead")
+
+    await staffing.reopen(db, session.id)
+
+    assert await staffing.call_target_ids(db, session.id) == [picked.id]
+    assert session.id not in [s.id for s, *_ in await staffing.list_available_sessions(db, other)]
+
+
+@pytest.mark.asyncio
+async def test_reopen_can_widen_the_call_to_everyone(db):
+    cohort, session = await _make_cohort_with_session(db)
+    picked = await _make_user(db, ["instructor"])
+    other = await _make_user(db, ["instructor"])
+    await staffing.open_call(db, session.id, target_user_ids=[picked.id])
+    await staffing.select_instructors(db, session.id, [picked.id], "lead")
+
+    await staffing.reopen(db, session.id, target_user_ids=[])
+
+    assert await staffing.call_target_ids(db, session.id) == []
+    assert session.id in [s.id for s, *_ in await staffing.list_available_sessions(db, other)]
+
+
+@pytest.mark.asyncio
+async def test_targets_are_replaced_not_appended(db):
+    cohort, session = await _make_cohort_with_session(db)
+    first = await _make_user(db, ["instructor"])
+    second = await _make_user(db, ["instructor"])
+    await staffing.open_call(db, session.id, target_user_ids=[first.id])
+
+    await staffing.set_call_targets(db, session.id, [second.id])
+
+    assert await staffing.call_target_ids(db, session.id) == [second.id]

@@ -23,13 +23,13 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.program import Program
-from app.models.sessions.session import Session, SessionInstructor
+from app.models.sessions.session import Session, SessionCallTarget, SessionInstructor
 from app.models.spine.touchpoint import Touchpoint
 from app.models.user import User
 
@@ -60,13 +60,40 @@ async def _get_session(db: AsyncSession, session_id: UUID) -> Session:
     return session
 
 
-async def open_call(db: AsyncSession, session_id: UUID) -> Session:
+async def set_call_targets(db: AsyncSession, session_id: UUID, user_ids: list[UUID] | None) -> None:
+    """Replace this session's target list. `None` leaves it alone; an empty
+    list clears it, making the call open to everyone again.
+
+    Absent targets means unrestricted — see SessionCallTarget's own docstring."""
+    if user_ids is None:
+        return
+    await db.execute(
+        delete(SessionCallTarget).where(SessionCallTarget.session_id == session_id)
+    )
+    for user_id in dict.fromkeys(user_ids):  # de-dupe, keep order
+        db.add(SessionCallTarget(id=uuid4(), session_id=session_id, user_id=user_id))
+    await db.flush()
+
+
+async def call_target_ids(db: AsyncSession, session_id: UUID) -> list[UUID]:
+    return list((await db.execute(
+        select(SessionCallTarget.user_id).where(SessionCallTarget.session_id == session_id)
+    )).scalars().all())
+
+
+async def open_call(
+    db: AsyncSession, session_id: UUID, target_user_ids: list[UUID] | None = None,
+) -> Session:
+    """`target_user_ids` restricts the call to those instructors — they become
+    the only ones who can see the session or register interest. Omit it (or
+    pass an empty list) for a call open to every instructor/facilitator."""
     session = await _get_session(db, session_id)
     if session.staffing_status != "unstaffed":
         raise HTTPException(
             status.HTTP_409_CONFLICT, detail=f"Session is already {session.staffing_status}, not unstaffed",
         )
     session.staffing_status = "open_call"
+    await set_call_targets(db, session_id, target_user_ids or [])
     await db.flush()
     return session
 
@@ -108,14 +135,22 @@ async def close_call(db: AsyncSession, session_id: UUID, clear_interest: bool = 
     return session
 
 
-async def reopen(db: AsyncSession, session_id: UUID) -> Session:
+async def reopen(
+    db: AsyncSession, session_id: UUID, target_user_ids: list[UUID] | None = None,
+) -> Session:
     """staffed -> open_call. Explicit and separate from removing an
     instructor — reopening never removes anyone already assigned; that's
-    remove_instructor's job, called on its own."""
+    remove_instructor's job, called on its own.
+
+    Targeting carries over by default: reopening a call that was aimed at three
+    specific instructors keeps it aimed at them, rather than silently going
+    public. Pass `target_user_ids` to change it, or `[]` to open it to
+    everyone."""
     session = await _get_session(db, session_id)
     if session.staffing_status != "staffed":
         raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Session is {session.staffing_status}, not staffed")
     session.staffing_status = "open_call"
+    await set_call_targets(db, session_id, target_user_ids)
     await db.flush()
     return session
 
@@ -126,11 +161,20 @@ async def list_available_sessions(
     """Every open-call session, cohort/program joined in for display, plus
     an interest count and this user's own interest row (if any) — the S4-3
     "Available sessions" instructor page."""
+    # A session with no target rows is open to everyone; one with targets is
+    # visible only to those instructors. Same "absent means all" shape as
+    # registration_sessions coverage.
+    has_targets = exists().where(SessionCallTarget.session_id == Session.id)
+    i_am_targeted = exists().where(
+        SessionCallTarget.session_id == Session.id,
+        SessionCallTarget.user_id == user.id,
+    )
+
     rows = (await db.execute(
         select(Session, Cohort, Program)
         .join(Cohort, Cohort.id == Session.cohort_id)
         .join(Program, Program.id == Cohort.program_id)
-        .where(Session.staffing_status == "open_call")
+        .where(Session.staffing_status == "open_call", or_(~has_targets, i_am_targeted))
         .order_by(Session.meeting_date.asc())
     )).all()
     session_ids = [s.id for s, _, _ in rows]
@@ -173,6 +217,14 @@ async def register_interest(db: AsyncSession, session_id: UUID, user: User, note
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This session isn't open for interest right now")
     if not any(r in user.role_values for r in ("instructor", "facilitator")):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Only instructors or facilitators can register interest")
+
+    # A targeted call is a real restriction, not just a narrower notification
+    # list (operator, 2026-07-26). 404 rather than 403 so an untargeted
+    # instructor can't probe which sessions exist — the same don't-leak-existence
+    # convention the delivery routes follow.
+    targets = await call_target_ids(db, session_id)
+    if targets and user.id not in targets:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
 
     existing = (await db.execute(
         select(InstructorInterest).where(

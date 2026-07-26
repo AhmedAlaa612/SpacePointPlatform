@@ -60,3 +60,29 @@ class SessionInstructor(Base):
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     role = Column(String(16), nullable=False, default="lead")  # lead|co
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class SessionCallTarget(Base):
+    """Restricts an open call to specific instructors (operator, 2026-07-26).
+
+    Semantics are deliberately "absent means unrestricted": a session with no
+    rows here is open to every instructor/facilitator, which is what every
+    existing open call is and what the plain "open call" button still does.
+    Rows here make it a real gate — targeted users are the only ones who see
+    the session on Available Sessions and the only ones who may register
+    interest.
+
+    Before this table, the instructor picker on the open-call dialog only
+    filtered who got *notified*; the session itself was visible to everyone,
+    so "targeted" was a mailing list rather than a restriction.
+    """
+
+    __tablename__ = "session_call_targets"
+    __table_args__ = (
+        UniqueConstraint("session_id", "user_id", name="uq_session_call_target"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

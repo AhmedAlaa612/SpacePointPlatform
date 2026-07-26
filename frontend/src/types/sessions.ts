@@ -77,6 +77,8 @@ export interface Session {
   created_at: string;
   instructors: SessionInstructor[];
   interested_count?: number;
+  /** Instructors this open call is restricted to. Empty = open to everyone. */
+  target_user_ids: string[];
 }
 
 export interface GenerateSessionsResult {
