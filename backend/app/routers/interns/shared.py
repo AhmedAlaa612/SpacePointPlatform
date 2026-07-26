@@ -6,7 +6,7 @@ from uuid import UUID
 from app.db.session import get_db
 from app.models.user import User
 from app.core.dependencies import get_current_user
-from app.schemas.user import UserOut, UserUpdate
+from app.schemas.user import UserOut, UserSelfUpdate
 from app.schemas.interns.team import TeamOut
 
 from app.services import user as user_service
@@ -19,9 +19,8 @@ async def read_users_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 @router.patch("/users/me", response_model=UserOut)
-async def update_users_me(user_in: UserUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    # User can only update their own details, not role
-    user_in.roles = None
+async def update_users_me(user_in: UserSelfUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    # UserSelfUpdate has no `roles` field, so a client can't touch role assignment here.
     return await user_service.update_user(db, current_user.id, user_in)
 
 @router.get("/teams/{id}/members", response_model=List[UserOut])

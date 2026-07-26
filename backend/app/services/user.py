@@ -4,8 +4,10 @@ from sqlalchemy import text
 from fastapi import HTTPException, status
 from uuid import UUID
 from app.models.user import User
-from app.schemas.user import UserCreate, UserUpdate
+from app.schemas.user import UserCreate, UserSelfUpdate, UserUpdate
 from app.core.security import get_password_hash
+from app.services.spine.identity import contact_roles_for_user, ensure_user_contact
+from app.services.spine.role_history import record_role_diff
 
 
 async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
@@ -21,6 +23,14 @@ async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
         phone=user_in.phone,
     )
     db.add(db_user)
+    await db.flush()
+
+    # Create the linked contact now (rather than waiting for the periodic
+    # backfill script) so a role assigned at account-creation time — e.g.
+    # "applicant" — has a role-history entry from day one, not a gap until
+    # the next backfill run or role edit.
+    await ensure_user_contact(db, db_user, source="user_created")
+
     await db.commit()
     await db.refresh(db_user)
     return db_user
@@ -39,15 +49,46 @@ async def get_user_by_id(db: AsyncSession, user_id: UUID) -> User:
     return user
 
 
-async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate) -> User:
+async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | UserSelfUpdate, actor_user_id: UUID | None = None) -> User:
     user = await get_user_by_id(db, user_id)
     update_data = user_in.dict(exclude_unset=True)
 
     if "password" in update_data:
         update_data["password_hash"] = get_password_hash(update_data.pop("password"))
 
+    # Capture the raw role list before it's overwritten (PATCH replaces the
+    # whole array) so a role-history event can be recorded — see
+    # services/spine/role_history.py. Uses the actual role strings
+    # (applicant/instructor/intern/...), not the collapsed contact_roles
+    # bucket, since that's what an admin actually assigned/removed.
+    # `update_data.get("roles") is not None` (not just "roles" in update_data):
+    # UserSelfUpdate (routers/interns/shared.py's self-service PATCH /users/me)
+    # has no `roles` field at all, so that path never puts "roles" in
+    # update_data. This guard just protects against a bare `roles=None` from
+    # any UserUpdate caller being treated as "remove every role" — Pydantic v2
+    # marks an explicitly-passed None as "set", same as any other field.
+    roles_before = list(user.role_values) if update_data.get("roles") is not None else None
+
     for field, value in update_data.items():
         setattr(user, field, value)
+
+    if roles_before is not None:
+        roles_after = list(user.role_values)
+        if roles_before != roles_after:
+            contact = await ensure_user_contact(db, user, source="user_role_edit")
+            await record_role_diff(
+                db, contact.id, roles_before, roles_after,
+                source="user_role_edit", changed_by_user_id=actor_user_id,
+            )
+            # Additive-only sync onto contact_roles (the coarser bucket used
+            # for Contacts search/filter) — same safety policy as the
+            # backfill script's re-sync: never removes a role the contact
+            # already has. No separate history event for this: the row
+            # above already narrates *why* — this is just keeping the
+            # derived filter field caught up, not a second human action.
+            mapped_needed = set(contact_roles_for_user(user)) - set(contact.contact_roles or [])
+            if mapped_needed:
+                contact.contact_roles = sorted(set(contact.contact_roles or []) | mapped_needed)
 
     await db.commit()
     await db.refresh(user)

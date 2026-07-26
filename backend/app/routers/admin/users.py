@@ -53,7 +53,7 @@ async def read_users(db: AsyncSession = Depends(get_db), current_user: User = De
 
 @router.patch("/{id}", response_model=UserOut)
 async def update_user(id: UUID, user_in: UserUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    return await user_service.update_user(db, id, user_in)
+    return await user_service.update_user(db, id, user_in, actor_user_id=current_user.id)
 
 
 @router.delete("/{id}")

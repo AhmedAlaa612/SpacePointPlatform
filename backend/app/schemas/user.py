@@ -25,6 +25,20 @@ class UserUpdate(BaseModel):
     phone: str | None = None
 
 
+class UserSelfUpdate(BaseModel):
+    """PATCH /interns/users/me (self-service profile edit) — deliberately has
+    no `roles` field, unlike UserUpdate, so a client can never smuggle a role
+    change through their own profile update. An earlier version of that
+    endpoint tried to guard this by force-setting `user_in.roles = None` on a
+    UserUpdate instance, but Pydantic v2 still marks that as "set", so it flowed
+    through into an IntegrityError on the NOT NULL users.roles column."""
+
+    full_name: str | None = None
+    email: EmailStr | None = None
+    password: str | None = None
+    phone: str | None = None
+
+
 class UserOut(UserBase):
     id: UUID
     roles: list[UserRole] = []

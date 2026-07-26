@@ -7,6 +7,10 @@ email types is wired in Phase 3 (instructors domain). Credentials come from env
 
 import logging
 from email.message import EmailMessage
+from email.mime.application import MIMEApplication
+from email.mime.image import MIMEImage
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 import aiosmtplib
 
@@ -21,20 +25,26 @@ async def send_email(
     body: str,
     html: bool = False,
     attachments: list[tuple[str, bytes, str]] | None = None,
+    inline_images: dict[str, tuple[bytes, str, str]] | None = None,
 ) -> None:
     """`attachments` is a list of (filename, data, mime_subtype) e.g.
-    ("contract.pdf", pdf_bytes, "pdf")."""
+    ("contract.pdf", pdf_bytes, "pdf").
+
+    `inline_images` is a dict mapping Content-ID -> (data, maintype, subtype)
+    used for CID-embedded images in HTML email, e.g.
+    {"ticket": (png_bytes, "image", "png")}.
+    """
     if not settings.SMTP_USER or not settings.SMTP_PASSWORD:
         raise RuntimeError("SMTP_USER and SMTP_PASSWORD must be set")
 
-    message = EmailMessage()
+    message = _build_message(to, subject, body, html, attachments, inline_images)
+
     message["From"] = settings.SMTP_FROM or settings.SMTP_USER
     message["To"] = to
     message["Subject"] = subject
-    message.set_content(body, subtype="html" if html else "plain")
 
-    for filename, data, subtype in attachments or []:
-        message.add_attachment(data, maintype="application", subtype=subtype, filename=filename)
+    use_tls = settings.SMTP_PORT == 465
+    start_tls = settings.SMTP_PORT == 587 or (not use_tls and settings.SMTP_PORT != 25)
 
     await aiosmtplib.send(
         message,
@@ -42,8 +52,62 @@ async def send_email(
         port=settings.SMTP_PORT,
         username=settings.SMTP_USER,
         password=settings.SMTP_PASSWORD,
-        start_tls=True,
+        use_tls=use_tls,
+        start_tls=start_tls,
     )
+
+
+def _build_message(
+    to: str,
+    subject: str,
+    body: str,
+    html: bool,
+    attachments: list[tuple[str, bytes, str]] | None,
+    inline_images: dict[str, tuple[bytes, str, str]] | None,
+) -> EmailMessage:
+    """Construct the appropriate MIME tree depending on whether inline images
+    and/or regular attachments are present."""
+    subtype = "html" if html else "plain"
+
+    if inline_images:
+        # multipart/related so CID references in the HTML resolve
+        related = MIMEMultipart("related")
+        html_part = MIMEText(body, subtype)
+        related.attach(html_part)
+
+        for cid, (data, maintype, mime_subtype) in inline_images.items():
+            if maintype == "image" and mime_subtype == "png":
+                img = MIMEImage(data, _subtype="png")
+            elif maintype == "image" and mime_subtype == "jpeg":
+                img = MIMEImage(data, _subtype="jpeg")
+            else:
+                continue
+            img.add_header("Content-ID", f"<{cid}>")
+            img.add_header("Content-Disposition", "inline")
+            related.attach(img)
+
+        if attachments:
+            mixed = MIMEMultipart("mixed")
+            mixed.attach(related)
+            for filename, data, mime_subtype in attachments:
+                if mime_subtype in ("png", "jpeg"):
+                    att = MIMEImage(data, _subtype=mime_subtype)
+                elif mime_subtype == "pdf":
+                    att = MIMEApplication(data, _subtype="pdf")
+                else:
+                    att = MIMEApplication(data, _subtype=mime_subtype)
+                att.add_header("Content-Disposition", "attachment", filename=filename)
+                mixed.attach(att)
+            return mixed
+
+        return related
+
+    # No inline images — plain or HTML with optional attachments
+    message = EmailMessage()
+    message.set_content(body, subtype=subtype)
+    for filename, data, mime_subtype in attachments or []:
+        message.add_attachment(data, maintype="application", subtype=mime_subtype, filename=filename)
+    return message
 
 
 async def try_send_email(to: str, subject: str, body: str, **kwargs) -> bool:
@@ -165,6 +229,22 @@ async def send_signed_contract_email(to_email: str, name: str, signed_pdf: bytes
     body = f"Hi {name},\n\nAttached is your fully signed SpacePoint Instructor Agreement.\n\n— SpacePoint"
     attachments = [("SpacePoint_Instructor_Agreement_Signed.pdf", signed_pdf, "pdf")]
     return await try_send_email(to_email, "Your Signed SpacePoint Instructor Agreement", body, attachments=attachments)
+
+
+async def send_session_assignment_email(
+    to_email: str, name: str, program_name: str, meeting_date: str, location: str | None,
+) -> bool:
+    """V2 W4 S4-2 — sent when ops selects an instructor for a session
+    (whether through the marketplace or a direct assign). Transactional,
+    not a marketing send, so it never goes through a consent gate."""
+    where = f" at {location}" if location else ""
+    body = (
+        f"Hi {name},\n\n"
+        f"You've been assigned to a session of \"{program_name}\" on {meeting_date}{where}.\n\n"
+        f"See it on your calendar: {settings.FRONTEND_URL}/instructors/my-sessions\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, f"You're assigned: {program_name}", body)
 
 
 async def send_recommendation_letter_email(to_email: str, name: str) -> bool:
