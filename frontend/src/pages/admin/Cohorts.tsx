@@ -1071,6 +1071,9 @@ function StaffingSection({ session, onChanged }: {
 }) {
   const queryClient = useQueryClient()
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  // Assigning used to close the open call unconditionally, which blocked
+  // further interest even when ops still wanted more people (2026-07-26).
+  const [closeCall, setCloseCall] = useState(true)
   const [role, setRole] = useState<"lead" | "co">("lead")
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const [showAllInstructors, setShowAllInstructors] = useState(false)
@@ -1119,7 +1122,7 @@ function StaffingSection({ session, onChanged }: {
   })
 
   const selectMutation = useMutation({
-    mutationFn: () => selectInstructorsApi(session.id, selectedIds, role),
+    mutationFn: () => selectInstructorsApi(session.id, selectedIds, role, closeCall),
     onSuccess: (result) => {
       setLastResult({ assigned: result.assigned.length, withoutInterest: result.without_interest.length })
       setSelectedIds([])
@@ -1317,6 +1320,18 @@ function StaffingSection({ session, onChanged }: {
                         </div>
                       ))}
                     </div>
+
+                    <label className="flex items-start gap-2 mt-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox" checked={closeCall} onChange={(e) => setCloseCall(e.target.checked)}
+                        className="rounded text-primary focus:ring-primary border-border bg-background shrink-0 mt-0.5"
+                      />
+                      <span className="text-[11px] text-muted-foreground leading-snug">
+                        Close the open call after assigning.
+                        {" "}Untick to keep collecting interest — useful when you want to pick
+                        several instructors over time rather than all at once.
+                      </span>
+                    </label>
 
                     <button
                       onClick={() => { setError(""); setLastResult(null); selectMutation.mutate() }}

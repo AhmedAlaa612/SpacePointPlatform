@@ -52,5 +52,7 @@ export const listInterestApi = (sessionId: string) =>
 export const listEligibleInstructorsApi = (sessionId: string) =>
   api.get<EligibleInstructor[]>(`/sessions/${sessionId}/staffing/eligible-instructors`).then((r) => r.data)
 
-export const selectInstructorsApi = (sessionId: string, userIds: string[], role: "lead" | "co" = "lead") =>
-  api.post<SelectInstructorsResult>(`/sessions/${sessionId}/staffing/select`, { user_ids: userIds, role }).then((r) => r.data)
+/** closeCall=false leaves the session at open_call so more instructors can
+ *  still register interest while ops assigns people one at a time. */
+export const selectInstructorsApi = (sessionId: string, userIds: string[], role: "lead" | "co" = "lead", closeCall = true) =>
+  api.post<SelectInstructorsResult>(`/sessions/${sessionId}/staffing/select`, { user_ids: userIds, role, close_call: closeCall }).then((r) => r.data)

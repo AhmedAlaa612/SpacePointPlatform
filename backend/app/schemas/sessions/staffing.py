@@ -39,6 +39,9 @@ class EligibleInstructorOut(BaseModel):
 class SelectInstructorsRequest(BaseModel):
     user_ids: list[UUID]
     role: Literal["lead", "co"] = "lead"
+    # False keeps the session at open_call so more instructors can still
+    # register interest while ops picks people one at a time.
+    close_call: bool = True
 
 
 class SelectInstructorsResponse(BaseModel):

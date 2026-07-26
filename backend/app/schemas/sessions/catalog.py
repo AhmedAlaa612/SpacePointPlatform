@@ -32,3 +32,19 @@ class CatalogCohortOut(BaseModel):
     is_limited: bool = False
     # Where the website's own registration form should POST to (V2 R1-5).
     registration_endpoint: str
+
+
+class PublicTicketOut(BaseModel):
+    """What the public ticket page (/t/{token}) shows. Deliberately narrow —
+    this endpoint needs no auth (the token in the URL is the credential), so
+    it exposes only what's already printed on the ticket the student was
+    emailed: no contact id, no phone, no email, no payment detail."""
+
+    student_name: str
+    program_name: str
+    cohort_name: str
+    dates: str
+    location: str | None = None
+    ticket_token: str
+    status: str
+    checked_in: bool

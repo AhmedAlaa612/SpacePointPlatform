@@ -312,3 +312,16 @@ export interface DeskRegistrationInput {
   session_ids?: string[];
   send_ticket_email?: boolean;
 }
+
+/** Public ticket page payload (/t/:token). Deliberately narrow — no contact
+ *  id, phone, email or payment detail, since the endpoint needs no auth. */
+export interface PublicTicket {
+  student_name: string;
+  program_name: string;
+  cohort_name: string;
+  dates: string;
+  location?: string | null;
+  ticket_token: string;
+  status: string;
+  checked_in: boolean;
+}

@@ -353,3 +353,36 @@ async def test_template_download_has_expected_headers():
     wb = openpyxl.load_workbook(io.BytesIO(generate_template_xlsx()))
     headers = [c.value for c in wb.active[1]]
     assert headers == [name for name, _ in TEMPLATE_COLUMNS]
+
+
+# ── Excel numeric coercion (operator report 2026-07-26) ──────────────────────
+
+def test_clean_str_narrows_whole_floats():
+    """Excel stores anything numeric as a number, so a phone typed as
+    1119394400 arrives as a float and str() gave '1119394400.0' — which no
+    phone parser accepts, producing a baffling error on a sane-looking sheet."""
+    from app.services.sessions.importer import _clean_str
+
+    assert _clean_str(1119394400.0) == "1119394400"
+    assert _clean_str(971501234567.0) == "971501234567"
+    assert _clean_str("0501234567") == "0501234567"
+    assert _clean_str(12.5) == "12.5"  # genuinely fractional, left alone
+    assert _clean_str(None) is None
+    assert _clean_str("   ") is None
+
+
+def test_parse_date_of_birth_accepts_excel_serial_and_more_formats():
+    from datetime import date
+
+    from app.services.sessions.importer import _parse_date_of_birth
+
+    # A cell never formatted as a date arrives as a serial number.
+    assert _parse_date_of_birth(40000) == date(2009, 7, 6)
+    assert _parse_date_of_birth("2009-07-06") == date(2009, 7, 6)
+    assert _parse_date_of_birth("06/07/2009") == date(2009, 7, 6)
+    assert _parse_date_of_birth("2009/07/06") == date(2009, 7, 6)
+    assert _parse_date_of_birth("06-07-2009") == date(2009, 7, 6)
+    # Out of range / nonsense is dropped, never guessed at.
+    assert _parse_date_of_birth(12) is None
+    assert _parse_date_of_birth("not a date") is None
+    assert _parse_date_of_birth(None) is None

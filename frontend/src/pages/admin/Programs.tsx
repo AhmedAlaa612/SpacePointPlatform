@@ -233,12 +233,19 @@ function ProgramModal({ program, onClose, onSuccess }: {
             >
               {COMPLETION_RULE_TYPES.map((t) => <option key={t} value={t}>{COMPLETION_RULE_LABEL[t]}</option>)}
             </select>
-            <input
-              value={completionRuleValue} onChange={(e) => setCompletionRuleValue(e.target.value)}
-              type="number" min={0} max={completionRuleType === "percentage" ? 100 : undefined}
-              placeholder={completionRuleType === "percentage" ? "70" : "5"}
-              className="w-24 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
+            {/* The number alone is ambiguous — "70" reads identically whether it
+                means 70% or 70 sessions. Show the unit against the field. */}
+            <div className="relative w-32 shrink-0">
+              <input
+                value={completionRuleValue} onChange={(e) => setCompletionRuleValue(e.target.value)}
+                type="number" min={0} max={completionRuleType === "percentage" ? 100 : undefined}
+                placeholder={completionRuleType === "percentage" ? "70" : "5"}
+                className="w-full h-10 pl-3 pr-14 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-muted-foreground pointer-events-none">
+                {completionRuleType === "percentage" ? "%" : "sessions"}
+              </span>
+            </div>
           </div>
           <p className="text-xs text-muted-foreground mt-1">
             {completionRuleType === "percentage"

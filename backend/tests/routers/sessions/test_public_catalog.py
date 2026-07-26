@@ -201,3 +201,69 @@ async def test_catalog_surfaces_info_session_program_type(db, client):
     resp = await client.get("/public/catalog")
     match = next(i for i in resp.json() if i["cohort_id"] == str(cohort.id))
     assert match["program_type"] == "info_session"
+
+
+# ── Public ticket page (operator report 2026-07-26: emailed link 404'd) ──────
+
+@pytest.mark.asyncio
+async def test_public_ticket_returns_the_details_printed_on_the_ticket(db, client):
+    """The emailed link and the QR both point at /t/{token}; that route had no
+    backing endpoint, so every student clicking their ticket got a 404."""
+    import uuid as _uuid
+
+    from app.models.sessions.registration import Registration
+    from app.models.spine.contact import Contact
+
+    program = await _make_program(db, name="Rocketry 101")
+    cohort = await _make_cohort(db, program, name="July Cohort", location="Dubai")
+    contact = Contact(id=_uuid.uuid4(), full_name="Ticket Holder", email="holder@example.com")
+    db.add(contact)
+    await db.flush()
+    registration = Registration(
+        id=_uuid.uuid4(), contact_id=contact.id, cohort_id=cohort.id,
+        ticket_token="tok_" + _uuid.uuid4().hex, registered_via="desk",
+    )
+    db.add(registration)
+    await db.commit()
+
+    resp = await client.get(f"/public/ticket/{registration.ticket_token}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["student_name"] == "Ticket Holder"
+    assert body["program_name"] == "Rocketry 101"
+    assert body["location"] == "Dubai"
+    assert body["checked_in"] is False
+    # No auth on this route, so it must not leak anything beyond the ticket.
+    assert "student_email" not in body
+    assert "contact_id" not in body
+
+
+@pytest.mark.asyncio
+async def test_public_ticket_unknown_token_is_404(db, client):
+    resp = await client.get("/public/ticket/definitely-not-a-real-token")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_public_ticket_qr_renders_a_png(db, client):
+    import uuid as _uuid
+
+    from app.models.sessions.registration import Registration
+    from app.models.spine.contact import Contact
+
+    program = await _make_program(db)
+    cohort = await _make_cohort(db, program)
+    contact = Contact(id=_uuid.uuid4(), full_name="QR Holder", email="qr@example.com")
+    db.add(contact)
+    await db.flush()
+    registration = Registration(
+        id=_uuid.uuid4(), contact_id=contact.id, cohort_id=cohort.id,
+        ticket_token="tok_" + _uuid.uuid4().hex, registered_via="desk",
+    )
+    db.add(registration)
+    await db.commit()
+
+    resp = await client.get(f"/public/ticket/{registration.ticket_token}/qr.png")
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "image/png"
+    assert resp.content[:8] == b"\x89PNG\r\n\x1a\n"

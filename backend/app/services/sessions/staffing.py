@@ -234,13 +234,20 @@ async def list_eligible_instructors(db: AsyncSession, session_id: UUID) -> list[
 
 async def select_instructors(
     db: AsyncSession, session_id: UUID, user_ids: list[UUID], role: Literal["lead", "co"],
+    close_call: bool = True,
 ) -> tuple[list[SessionInstructor], list[UUID]]:
     """The marketplace's confirm step — writes SessionInstructor (same table
-    the pre-existing direct-assign path uses) and flips staffing_status to
-    staffed. Returns (assignments, user_ids_without_interest) so the caller
-    can surface an ops override rather than block it — mandatory per S4-1's
-    spec: selecting someone who never registered interest is allowed, just
-    flagged in the response."""
+    the pre-existing direct-assign path uses). Returns (assignments,
+    user_ids_without_interest) so the caller can surface an ops override
+    rather than block it — mandatory per S4-1's spec: selecting someone who
+    never registered interest is allowed, just flagged in the response.
+
+    `close_call=False` keeps staffing_status at open_call so ops can pick
+    people out of the interest list incrementally — assigning one instructor
+    used to close the call unconditionally, which stopped everyone else from
+    registering interest even when more were still wanted (operator, 2026-07-26).
+    Assignments themselves are unaffected either way: this only controls
+    whether the session stays open to new interest."""
     session = await _get_session(db, session_id)
     if not user_ids:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Select at least one instructor")
@@ -270,7 +277,8 @@ async def select_instructors(
             assignments.append(assignment)
             await _write_touchpoint(db, selected_user, f"session_assigned:{session_id}")
 
-    session.staffing_status = "staffed"
+    if close_call:
+        session.staffing_status = "staffed"
     await db.flush()
     return assignments, without_interest
 

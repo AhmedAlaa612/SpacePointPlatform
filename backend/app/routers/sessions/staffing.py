@@ -286,7 +286,9 @@ async def select_instructors(
     current_user: User = Depends(require_operations),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
-    assignments, without_interest = await staffing.select_instructors(db, session_id, body.user_ids, body.role)
+    assignments, without_interest = await staffing.select_instructors(
+        db, session_id, body.user_ids, body.role, close_call=body.close_call,
+    )
 
     session = await db.get(Session, session_id)
     cohort = await db.get(Cohort, session.cohort_id) if session else None

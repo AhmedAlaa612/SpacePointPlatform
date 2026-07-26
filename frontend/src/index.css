@@ -14,6 +14,11 @@
    tint, same heliotrope accent, glass panels over a light backdrop.
    (Dark is the default / near-1:1 with the original instructors theme — see .dark.) */
 :root {
+  /* Tells the browser to render native controls (date/time pickers, their
+     calendar icons, scrollbars, spinners) for a light background. Without
+     this the date picker indicator is drawn near-black, which is invisible
+     against the dark theme's card colour. */
+  color-scheme: light;
   --radius: 0.75rem;
   --background: 258 40% 98%;
   --foreground: 260 30% 10%;
@@ -37,6 +42,7 @@
 /* The original instructors "space" theme, near-1:1. Background #05030A with
    purple radial glows (applied on body below), glass panels #1A0F26. */
 .dark {
+  color-scheme: dark;
   --background: 257 54% 3%;   /* #05030A */
   --foreground: 0 0% 98%;
   --card: 269 43% 10%;        /* #1A0F26 */
@@ -97,24 +103,38 @@
 }
 
 @layer base {
-  input:not([type="checkbox"]):not([type="radio"]),
-  select,
-  textarea {
+  /* These element selectors are MORE specific than Tailwind's single-class
+     utilities (0,2,1 and 0,1,1 vs 0,1,0), so they silently beat them. The
+     :not(.hidden):not(.sr-only) guards exist because without them
+     `display: flex` / `display: inline-block` override `.hidden`, which is
+     how a "hidden" file input rendered as a full-width Choose File block and
+     "hidden" role checkboxes showed up inside their chips. */
+  input:not([type="checkbox"]):not([type="radio"]):not(.hidden):not(.sr-only),
+  select:not(.hidden):not(.sr-only),
+  textarea:not(.hidden):not(.sr-only) {
     display: flex;
     width: 100%;
     border-radius: var(--radius);
     border: 1px solid hsl(var(--border));
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
-    padding: 0.5rem 0.75rem;
     font-size: 0.875rem;
     line-height: 1.25rem;
     outline: none;
     transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
   }
 
-  input[type="checkbox"],
-  input[type="radio"] {
+  /* Padding lives in :where() (zero specificity) so padding utilities can
+     actually win — `pl-9` on a search field was being overridden back to
+     0.75rem, dropping the text on top of the search icon. */
+  :where(input:not([type="checkbox"]):not([type="radio"])),
+  :where(select),
+  :where(textarea) {
+    padding: 0.5rem 0.75rem;
+  }
+
+  input[type="checkbox"]:not(.hidden):not(.sr-only),
+  input[type="radio"]:not(.hidden):not(.sr-only) {
     display: inline-block;
     width: 1rem !important;
     height: 1rem !important;

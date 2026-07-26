@@ -93,6 +93,7 @@ import ApplyFlow from "@/pages/apply/ApplyFlow";
 // Public landing pages (no auth) — shown at bare /instructors and /interns when logged out
 import InstructorsLanding from "@/pages/public/InstructorsLanding";
 import InternsLanding from "@/pages/public/InternsLanding";
+import Ticket from "@/pages/public/Ticket";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -100,6 +101,15 @@ const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   component: Login,
+});
+
+/** Public ticket page. Sits at the root (not under the auth shell) because a
+ * student holding a QR code has no account — the token in the path is the
+ * credential, exactly as it is when staff scan the same code at the door. */
+const ticketRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/t/$ticketToken",
+  component: Ticket,
 });
 
 import { useAuth } from "@/context/AuthContext";
@@ -614,6 +624,7 @@ const applyInstructorWithCodeRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
+  ticketRoute,
   loginRoute,
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,

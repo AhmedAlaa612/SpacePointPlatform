@@ -8,7 +8,7 @@ routers/ambassadors/public.py.
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,14 +16,16 @@ from arq.connections import ArqRedis
 
 from app.db.session import get_db
 from app.core.rate_limit import enforce_rate_limit
+from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
-from app.models.spine.contact import ContactRelationship
-from app.schemas.sessions.catalog import CatalogCohortOut
+from app.models.spine.contact import Contact, ContactRelationship
+from app.schemas.sessions.catalog import CatalogCohortOut, PublicTicketOut
 from app.schemas.sessions.public_registration import PublicRegistrationRequest
+from app.services.documents.ticket import generate_ticket_qr_png
 from app.services.spine.identity import resolve_or_create_contact
-from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES, register
+from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES, format_cohort_dates, register
 from app.workers.settings import get_arq_redis, safe_enqueue
 
 router = APIRouter(prefix="/public", tags=["public-registration"])
@@ -178,3 +180,58 @@ def _mask_email(email: str) -> str:
     else:
         masked = name[:2] + "***"
     return f"{masked}@{domain}"
+
+
+@router.get("/ticket/{ticket_token}", response_model=PublicTicketOut)
+async def public_ticket(ticket_token: str, db: AsyncSession = Depends(get_db)):
+    """The page the emailed ticket link and the QR code both point at.
+
+    No auth by design: the token *is* the credential, exactly as it is when a
+    staff member scans the QR at the door. It's a 64-char urlsafe random, and
+    the response deliberately carries nothing beyond what's already printed on
+    the student's own ticket. An unknown token is a flat 404 — no hint as to
+    whether it ever existed.
+    """
+    registration = (await db.execute(
+        select(Registration).where(Registration.ticket_token == ticket_token)
+    )).scalars().first()
+    if registration is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+
+    contact = await db.get(Contact, registration.contact_id)
+    cohort = await db.get(Cohort, registration.cohort_id)
+    program = await db.get(Program, cohort.program_id) if cohort else None
+
+    checked_in = (await db.scalar(
+        select(func.count()).select_from(AttendanceRecord)
+        .where(AttendanceRecord.registration_id == registration.id)
+    )) or 0
+
+    return PublicTicketOut(
+        student_name=contact.full_name if contact else "—",
+        program_name=program.name if program else "Workshop",
+        cohort_name=cohort.name if cohort else "—",
+        dates=format_cohort_dates(cohort),
+        location=cohort.location if cohort else None,
+        ticket_token=registration.ticket_token,
+        status=registration.status,
+        checked_in=bool(checked_in),
+    )
+
+
+@router.get("/ticket/{ticket_token}/qr.png")
+async def public_ticket_qr(ticket_token: str, db: AsyncSession = Depends(get_db)):
+    """The QR itself, as a PNG — same image the ticket email embeds, so the
+    page and the email can't drift apart. Same no-auth reasoning as above."""
+    exists = await db.scalar(
+        select(func.count()).select_from(Registration)
+        .where(Registration.ticket_token == ticket_token)
+    )
+    if not exists:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+
+    return Response(
+        content=generate_ticket_qr_png(ticket_token),
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )

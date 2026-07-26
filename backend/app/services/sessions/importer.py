@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -107,8 +107,22 @@ def parse_workbook(file_bytes: bytes) -> list[dict]:
 
 
 def _clean_str(value) -> str | None:
+    """Cell value -> trimmed string, or None if empty.
+
+    Excel stores anything that looks numeric as a number, so a phone typed as
+    `1119394400` comes back from openpyxl as the float 1119394400.0 and a naive
+    str() yields "1119394400.0" — which no phone parser will accept, and which
+    produced the confusing "could not be parsed as a valid number" error on
+    perfectly reasonable-looking sheets. Whole-number floats are narrowed back
+    to int before stringifying. (The real fix for users is formatting the
+    column as Text, but the importer shouldn't punish them for not knowing.)
+    """
     if value is None:
         return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
     s = str(value).translate(ARABIC_INDIC_DIGITS).strip()
     return s or None
 
@@ -118,12 +132,26 @@ def _parse_date_of_birth(value) -> date | None:
     informational (2026-07-24), so an unparseable value is silently dropped
     rather than failing the whole row. By the time this runs, a real Excel
     date cell has already gone through _json_safe_raw and arrived as an ISO
-    string, not a date/datetime object."""
+    string, not a date/datetime object.
+
+    A cell the author never formatted as a date arrives as an Excel serial
+    number instead (days since 1899-12-30), which none of the string parsers
+    below can read — so that's handled explicitly. The range guard keeps it
+    from turning an unrelated number into a spurious birthday: 1000-80000 is
+    roughly 1902-2119.
+    """
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if 1000 <= float(value) <= 80000:
+            return date(1899, 12, 30) + timedelta(days=int(value))
+        return None
+
     s = _clean_str(value)
     if not s:
         return None
     for parser in (date.fromisoformat, lambda v: datetime.strptime(v, "%d/%m/%Y").date(),
-                   lambda v: datetime.strptime(v, "%m/%d/%Y").date()):
+                   lambda v: datetime.strptime(v, "%m/%d/%Y").date(),
+                   lambda v: datetime.strptime(v, "%Y/%m/%d").date(),
+                   lambda v: datetime.strptime(v, "%d-%m-%Y").date()):
         try:
             return parser(s)
         except ValueError:
@@ -179,7 +207,12 @@ async def _process_row(
         if not phone_raw:
             raise ValueError("phone is required")
         if normalize_phone(phone_raw) is None:
-            raise ValueError(f"phone {phone_raw!r} could not be parsed as a valid number")
+            raise ValueError(
+                f"phone {phone_raw!r} isn't a valid number. Use a local UAE number "
+                "(050 123 4567) or full international format with the country code "
+                "(+20 10 1234 5678). Formatting the column as Text in Excel avoids "
+                "digits being mangled."
+            )
         city = _clean_str(raw.get("city"))
         if not city:
             raise ValueError("city is required")

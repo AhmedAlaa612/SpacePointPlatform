@@ -329,3 +329,34 @@ async def test_list_my_sessions_only_shows_assigned(db):
     assert s.id == assigned_session.id
     assert role == "co"
     assert other_session.id not in {r[0].id for r in rows}
+
+
+# ── close_call is a choice, not automatic (operator 2026-07-26) ──────────────
+
+@pytest.mark.asyncio
+async def test_select_instructors_can_keep_the_call_open(db):
+    """Assigning used to close the open call unconditionally, so picking one
+    person out of several interested blocked everyone else from registering
+    interest — even when ops wanted more."""
+    cohort, session = await _make_cohort_with_session(db)
+    instructor = await _make_user(db, ["instructor"])
+    await staffing.open_call(db, session.id)
+
+    await staffing.select_instructors(db, session.id, [instructor.id], "lead", close_call=False)
+
+    assert session.staffing_status == "open_call"
+    assigned = (await db.execute(
+        select(SessionInstructor).where(SessionInstructor.session_id == session.id)
+    )).scalars().all()
+    assert len(assigned) == 1
+
+
+@pytest.mark.asyncio
+async def test_select_instructors_closes_the_call_by_default(db):
+    cohort, session = await _make_cohort_with_session(db)
+    instructor = await _make_user(db, ["instructor"])
+    await staffing.open_call(db, session.id)
+
+    await staffing.select_instructors(db, session.id, [instructor.id], "lead")
+
+    assert session.staffing_status == "staffed"
