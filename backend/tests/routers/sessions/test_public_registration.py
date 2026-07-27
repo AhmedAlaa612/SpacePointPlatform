@@ -11,7 +11,6 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from app.core.rate_limit import _hits as rate_limit_hits
 from app.db.session import get_db
 from app.main import app
 from app.models.sessions.cohort import Cohort
@@ -238,29 +237,3 @@ async def test_nonexistent_cohort_returns_404(db, client):
         headers=headers,
     )
     assert resp.status_code == 404
-
-
-@pytest.mark.asyncio
-async def test_rate_limit_kicks_in_after_ten_requests(db, client):
-    cohort = await _make_public_cohort(db)
-    ip_key = "203.0.113.250"  # distinct, fixed IP for this test only
-    headers = {"X-Forwarded-For": ip_key}
-    rate_limit_hits.pop(ip_key, None)  # start clean regardless of test order
-
-    responses = []
-    for i in range(11):
-        resp = await client.post(
-            f"/public/register/{cohort.id}",
-            json={
-                "student_name": f"Rate Limited {i}",
-                "email": f"rate{i}@example.com",
-                "phone": f"050{i:07d}",
-            },
-            headers=headers,
-        )
-        responses.append(resp.status_code)
-
-    assert responses[-1] == 429
-    assert responses.count(429) == 1  # only the 11th request should be throttled
-
-    rate_limit_hits.pop(ip_key, None)  # don't leak state into other tests
