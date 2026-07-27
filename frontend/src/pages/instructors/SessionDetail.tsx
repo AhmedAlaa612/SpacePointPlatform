@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
@@ -19,15 +19,27 @@ const STATUS_OPTIONS: { value: AttendanceStatus; label: string; activeClass: str
   { value: "absent", label: "Absent", activeClass: "bg-red-500 text-white border-red-500" },
 ]
 
+/** How long a scan result stays on screen. The camera is paused for exactly
+ *  this window, so the two can't drift apart. */
+const SCAN_FEEDBACK_MS = 2000
+/** Ignore the same ticket for this long — covers the ticket still being in
+ *  frame when the feedback clears. */
+const SAME_TICKET_COOLDOWN_MS = 10000
+
 export default function SessionDetail() {
   const { sessionId } = useParams({ strict: false }) as { sessionId: string }
   const qc = useQueryClient()
   const [scannerOpen, setScannerOpen] = useState(false)
-  const [scanFeedback, setScanFeedback] = useState<{ ok: boolean; text: string } | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [scanFeedback, setScanFeedback] = useState<{ kind: "ok" | "info" | "error"; text: string } | null>(null)
   const [rosterSearch, setRosterSearch] = useState("")
   const [reportNotes, setReportNotes] = useState("")
   const [selectedStudent, setSelectedStudent] = useState<RosterEntry | null>(null)
   const busyRef = useRef(false)
+  // The same ticket held in front of the camera is re-detected every frame.
+  // Remembering the last one stops a second request firing for it at all,
+  // rather than firing it and having the server reject it.
+  const lastTokenRef = useRef<{ token: string; at: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const delivery = useQuery({
@@ -53,22 +65,52 @@ export default function SessionDetail() {
     },
   })
 
+  // Pause the camera for as long as feedback is on screen, not just while the
+  // request is in flight. Releasing it in `finally` (as this used to) reopened
+  // the scanner milliseconds after a successful check-in, while the same QR was
+  // still in frame — so the next frame re-submitted the same ticket, the server
+  // correctly answered "already recorded", and the green success was overwritten
+  // by a red error for a student who HAD just been checked in. The ops check-in
+  // desk never had this because it derives busy from state the same way.
+  useEffect(() => {
+    busyRef.current = scanning || scanFeedback !== null
+  }, [scanning, scanFeedback])
+
+  useEffect(() => {
+    if (!scanFeedback) return
+    const timer = window.setTimeout(() => setScanFeedback(null), SCAN_FEEDBACK_MS)
+    return () => window.clearTimeout(timer)
+  }, [scanFeedback])
+
   const handleScan = useCallback(
     async (rawValue: string) => {
       if (busyRef.current) return
       const token = extractQrToken(rawValue)
       if (!token) return
-      busyRef.current = true
+
+      // Second guard, for the case the first can't cover: the ticket is still
+      // in frame when the feedback clears and the camera reopens.
+      const last = lastTokenRef.current
+      if (last && last.token === token && Date.now() - last.at < SAME_TICKET_COOLDOWN_MS) return
+      lastTokenRef.current = { token, at: Date.now() }
+
+      setScanning(true)
       try {
         const result = await scanAttendanceApi(sessionId, token)
-        setScanFeedback({ ok: true, text: `${result.student_name} — checked in` })
+        setScanFeedback({ kind: "ok", text: `${result.student_name} — checked in` })
         invalidate()
       } catch (err) {
         const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-        setScanFeedback({ ok: false, text: detail ?? "Scan failed — try again" })
+        // Already recorded isn't a failure — a student re-presenting their
+        // ticket at a busy door is normal, and flashing red at the instructor
+        // makes a working system look broken.
+        const alreadyIn = typeof detail === "string" && detail.toLowerCase().includes("already recorded")
+        setScanFeedback({
+          kind: alreadyIn ? "info" : "error",
+          text: alreadyIn ? "Already checked in" : detail ?? "Scan failed — try again",
+        })
       } finally {
-        busyRef.current = false
-        window.setTimeout(() => setScanFeedback(null), 2000)
+        setScanning(false)
       }
     },
     [sessionId],
@@ -167,7 +209,12 @@ export default function SessionDetail() {
               </div>
             )}
             {scanFeedback && (
-              <p className={cn("text-center text-sm font-semibold", scanFeedback.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-500")}>
+              <p className={cn(
+                "text-center text-sm font-semibold",
+                scanFeedback.kind === "ok" && "text-emerald-600 dark:text-emerald-400",
+                scanFeedback.kind === "info" && "text-amber-600 dark:text-amber-400",
+                scanFeedback.kind === "error" && "text-red-500",
+              )}>
                 {scanFeedback.text}
               </p>
             )}
