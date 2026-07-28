@@ -168,27 +168,61 @@ async def onboard_application(
         raise HTTPException(status_code=400, detail="Only intern applications can be sent to onboarding")
 
     import secrets
-    new_user = User(
-        full_name=app.full_name,
-        email=app.email,
-        password_hash=app.password_hash,
-        phone=app.phone,
-        country=app.country,
-        roles=[UserRole.applicant],
-        status="active",
-        invite_code=secrets.token_hex(4).upper(),
-        invited_by_id=app.invited_by_id,
-    )
-    db.add(new_user)
-    await db.flush()
 
-    db.add(ApplicantProfile(
-        user_id=new_user.id,
-        cv_path=app.cv_path,
-        country=app.country or "United Arab Emirates",
-        also_grant_role="intern",
-    ))
-    db.add(ApplicationReview(user_id=new_user.id))
+    # This person may already have an account — which is not an edge case, it's
+    # the normal shape of the thing this endpoint exists for. Someone who
+    # applied through the instructor flow already has a User with the applicant
+    # role; routing their *intern* application into the same pipeline is exactly
+    # how they end up holding both roles. Blindly inserting a second User hit
+    # the unique index on users.email and returned a bare 500.
+    new_user = (await db.execute(
+        select(User).where(func.lower(User.email) == app.email.lower())
+    )).scalars().first()
+
+    if new_user is None:
+        new_user = User(
+            full_name=app.full_name,
+            email=app.email,
+            password_hash=app.password_hash,
+            phone=app.phone,
+            country=app.country,
+            roles=[UserRole.applicant],
+            status="active",
+            invite_code=secrets.token_hex(4).upper(),
+            invited_by_id=app.invited_by_id,
+        )
+        db.add(new_user)
+        await db.flush()
+    else:
+        # Reassign rather than append — SQLAlchemy doesn't track in-place
+        # mutation of an ARRAY column.
+        if "applicant" not in new_user.role_values:
+            new_user.roles = list(new_user.roles or []) + [UserRole.applicant]
+        await db.flush()
+
+    # applicant_profiles.user_id is the PK and application_reviews.user_id is
+    # unique, so both are one-per-user: update in place if the instructor
+    # pipeline already created them.
+    profile = await db.get(ApplicantProfile, new_user.id)
+    if profile is None:
+        db.add(ApplicantProfile(
+            user_id=new_user.id,
+            cv_path=app.cv_path,
+            country=app.country or "United Arab Emirates",
+            also_grant_role="intern",
+        ))
+    else:
+        # The point of routing them here: completing instructor onboarding
+        # must also grant intern (see review_applicant in instructors/admin.py).
+        profile.also_grant_role = "intern"
+        if not profile.cv_path and app.cv_path:
+            profile.cv_path = app.cv_path
+
+    existing_review = (await db.execute(
+        select(ApplicationReview).where(ApplicationReview.user_id == new_user.id)
+    )).scalars().first()
+    if existing_review is None:
+        db.add(ApplicationReview(user_id=new_user.id))
 
     app.status = "onboarding"
     app.admin_notes = body.admin_notes
