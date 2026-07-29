@@ -23,6 +23,7 @@ from app.models.inventory.location import Location
 from app.models.inventory.movement import Movement
 from app.models.user import User
 from app.schemas.inventory.kits import (
+    HolderOut,
     KitBulkCreate,
     KitContentOut,
     KitCreate,
@@ -302,6 +303,33 @@ async def kit_history(
         )
         .order_by(Movement.created_at.desc())
     )).scalars().all()
+
+
+@router.get("/holders", response_model=list[HolderOut])
+async def list_holders(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    """People a kit can be handed to.
+
+    Its own endpoint rather than reusing `/admin/users`, which is
+    `require_admin` — ops needs to pick a recipient without being handed the
+    whole user-management surface. Returns only roles that plausibly carry
+    equipment, so the picker isn't every account in the company.
+    """
+    users = (await db.execute(
+        select(User).where(
+            User.roles.any("instructor")
+            | User.roles.any("facilitator")
+            | User.roles.any("operations")
+            | User.roles.any("storekeeper")
+        ).order_by(User.full_name)
+    )).scalars().all()
+    return [
+        HolderOut(id=u.id, full_name=u.full_name, roles=u.role_values)
+        for u in users
+        if u.status == "active"
+    ]
 
 
 # ── instructor-facing ───────────────────────────────────────────────────────

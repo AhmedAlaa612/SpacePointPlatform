@@ -107,7 +107,8 @@ app sees the request.
 
 **Frontend** domains — each has its own sidebar in `Sidebar.tsx::getNavItems`:
 `/interns` · `/ambassadors` · `/instructors` · `/admin` (platform management) ·
-`/operations` (running the business: programs, cohorts, contacts, check-in, calendar).
+`/operations` (running the business: programs, cohorts, contacts, check-in, calendar, and
+`/operations/inventory/*` for kits, stock and the catalogue).
 Public, no auth: `/login`, `/apply/*`, `/t/{ticketToken}`.
 
 ---
@@ -125,8 +126,8 @@ the array.
 |---|---|---|
 | `admin` | all | **Passes every `RequireRole` check unconditionally** |
 | `operations` | `/operations` | Runs the business — programs, cohorts, registrations, contacts, check-in, calendar |
-| `coo` | — | Approves inventory purchases and cross-border transfers. **Not** an ops account: `require_operations` rejects it |
-| `storekeeper` | — | Restocks kits, receives goods, records stock movements. **Deliberately narrow** — no session assignments, no kit create/edit/delete. Enforced by `require_operations` not listing it |
+| `coo` | `/operations/inventory` | Approves inventory purchases and cross-border transfers. **Not** an ops account: `require_operations` rejects it |
+| `storekeeper` | `/operations/inventory/stock` | Restocks kits, receives goods, records stock movements. **Deliberately narrow** — no session assignments, no kit create/edit/delete. Enforced by `require_operations` not listing it, and its sidebar is two items because everything else would 403 |
 | `instructor` / `facilitator` | `/instructors` | Delivery: their assigned sessions, attendance, reports |
 | `applicant` | `/instructors` | Pre-approval pipeline; gets a minimal shell, no sidebar |
 | `intern` / `leader` | `/interns` | |

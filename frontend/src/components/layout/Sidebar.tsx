@@ -6,6 +6,7 @@ import {
   Award,
   Bell,
   BookOpen,
+  Boxes,
   CalendarDays,
   ChevronDown,
   ClipboardList,
@@ -98,7 +99,17 @@ const ICONS: Record<string, LucideIcon> = {
   "Check-in": QrCode,
   Operations: Warehouse,
   "Admin Hub": UserCog,
+  Kits: Boxes,
+  Stock: LayoutList,
+  Catalogue: ClipboardList,
 };
+
+/** Inventory nav, shared by every role that can see it (I1-4). */
+const INVENTORY_NAV = [
+  ["Kits", "/operations/inventory"],
+  ["Stock", "/operations/inventory/stock"],
+  ["Catalogue", "/operations/inventory/catalog"],
+] as const;
 
 const mk = (label: string, to: string): NavItem => ({ label, to, icon: ICONS[label] ?? FileText });
 
@@ -118,6 +129,23 @@ const DOMAIN_TITLE: Record<string, string> = {
 function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   // V2 S6-2: operations domain — dedicated sidebar, no longer piggybacking on admin.
   if (pathname.startsWith("/operations")) {
+    // I1-4: a storekeeper restocks and receives, nothing else. Everything the
+    // ops nav offers below would 403 for them (require_operations doesn't
+    // list the role), so offering it would be a menu of dead ends.
+    if (activeRole === "storekeeper") {
+      return [
+        mk("Stock", "/operations/inventory/stock"),
+        mk("Profile & Settings", "/operations/profile"),
+      ];
+    }
+    // I1-4: the COO approves inventory movement. Sessions and registrations
+    // aren't theirs — `require_operations` rejects `coo` too.
+    if (activeRole === "coo") {
+      return [
+        ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+        mk("Profile & Settings", "/operations/profile"),
+      ];
+    }
     return [
       mk("Dashboard", "/operations/dashboard"),
       mk("Programs", "/operations/programs"),
@@ -126,6 +154,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Merge Reviews", "/operations/merge-reviews"),
       mk("Check-in", "/operations/checkin"),
       mk("Sessions Calendar", "/operations/calendar"),
+      ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
       mk("Profile & Settings", "/operations/profile"),
       // I0-1: an admin who walks into /operations otherwise has no way back —
       // the sidebar is chosen by path, so it swaps entirely. Only admins see
@@ -305,6 +334,19 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Merge Reviews", "/operations/merge-reviews"),
       mk("Check-in", "/operations/checkin"),
       mk("Sessions Calendar", "/operations/calendar"),
+      ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+      mk("Profile & Settings", "/operations/profile"),
+    ];
+  }
+  if (activeRole === "storekeeper") {
+    return [
+      mk("Stock", "/operations/inventory/stock"),
+      mk("Profile & Settings", "/operations/profile"),
+    ];
+  }
+  if (activeRole === "coo") {
+    return [
+      ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
       mk("Profile & Settings", "/operations/profile"),
     ];
   }
@@ -554,7 +596,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const profileTo =
     activeRole === "admin"
       ? "/admin/profile"
-      : activeRole === "operations"
+      : activeRole === "operations" || activeRole === "coo" || activeRole === "storekeeper"
       ? "/operations/profile"
       : activeRole === "ambassador" || activeRole === "teacher"
       ? "/ambassadors/profile"

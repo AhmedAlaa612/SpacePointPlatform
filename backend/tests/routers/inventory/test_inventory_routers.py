@@ -411,6 +411,32 @@ async def test_an_instructor_cannot_browse_the_whole_fleet(db, client, instructo
     assert resp.status_code == 403
 
 
+@pytest.mark.asyncio
+async def test_holders_lists_people_who_can_carry_equipment(db, client, ops_headers):
+    """Its own endpoint rather than /admin/users, which is admin-only — ops
+    needs a recipient picker without the whole user-management surface."""
+    instructor = await _make_user(db, "instructor")
+    facilitator = await _make_user(db, "facilitator")
+    intern = await _make_user(db, "intern")
+    await db.commit()
+
+    ids = [h["id"] for h in (await client.get("/inventory/holders", headers=ops_headers)).json()]
+    assert str(instructor.id) in ids
+    assert str(facilitator.id) in ids
+    assert str(intern.id) not in ids, "an intern doesn't carry kits"
+
+
+@pytest.mark.asyncio
+async def test_holders_excludes_inactive_accounts(db, client, ops_headers):
+    """A departed instructor shouldn't still be offered a kit."""
+    gone = await _make_user(db, "instructor")
+    gone.status = "inactive"
+    await db.commit()
+
+    ids = [h["id"] for h in (await client.get("/inventory/holders", headers=ops_headers)).json()]
+    assert str(gone.id) not in ids
+
+
 # ── role guards: the storekeeper's negative space ───────────────────────────
 
 @pytest.mark.asyncio

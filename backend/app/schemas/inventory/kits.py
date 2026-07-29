@@ -164,6 +164,14 @@ class MovementOut(BaseModel):
     confirmed_at: datetime | None
 
 
+class HolderOut(BaseModel):
+    """Someone a kit can be handed to."""
+
+    id: uuid.UUID
+    full_name: str
+    roles: list[str]
+
+
 class MyKitOut(BaseModel):
     """What an instructor sees for a kit they are holding."""
 

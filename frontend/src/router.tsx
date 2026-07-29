@@ -87,6 +87,12 @@ import AdminCheckIn from "@/pages/admin/CheckIn";
 import SessionsCalendar from "@/pages/sessions/Calendar";
 import OpsDashboard from "@/pages/sessions/OpsDashboard";
 
+// Inventory (I1-4)
+import InventoryKits from "@/pages/operations/inventory/Kits";
+import InventoryKitDetail from "@/pages/operations/inventory/KitDetail";
+import InventoryStock from "@/pages/operations/inventory/Stock";
+import InventoryCatalog from "@/pages/operations/inventory/Catalog";
+
 // Unified apply flow
 import ApplyFlow from "@/pages/apply/ApplyFlow";
 
@@ -182,6 +188,13 @@ const indexRoute = createRoute({
     } else if (role === "operations") {
       // V2 S6-2: dedicated operations domain with own dashboard + sidebar.
       throw redirect({ to: "/operations/dashboard" });
+    } else if (role === "coo") {
+      // I1-4: the COO's job is approving inventory movement, so the fleet is
+      // the landing page. The ops dashboard would 403 — it's require_operations.
+      throw redirect({ to: "/operations/inventory" });
+    } else if (role === "storekeeper") {
+      // I1-4: they restock and receive, nothing else. Stock is their whole day.
+      throw redirect({ to: "/operations/inventory/stock" });
     } else {
       throw redirect({ to: "/interns" });
     }
@@ -579,12 +592,17 @@ const sessionsCalendarRoute = createRoute({
 });
 
 // ── Operations domain (V2 S6-2) — dedicated route tree, separate from admin ──
+/** Roles that live in the operations domain. `coo` and `storekeeper` (I1-4)
+ *  only reach the inventory pages inside it — the rest 403 at the API, so the
+ *  sidebar doesn't offer them (see Sidebar.tsx::getNavItems). */
+const OPERATIONS_DOMAIN_ROLES = new Set(["operations", "admin", "coo", "storekeeper"]);
+
 const operationsLayoutRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/operations",
   beforeLoad: () => {
     const role = localStorage.getItem("active_role");
-    if (role !== "operations" && role !== "admin") {
+    if (!role || !OPERATIONS_DOMAIN_ROLES.has(role)) {
       throw redirect({ to: "/" });
     }
   },
@@ -601,6 +619,11 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/checkin", component: AdminCheckIn }),
   createRoute({ getParentRoute: po, path: "/calendar", component: SessionsCalendar }),
   createRoute({ getParentRoute: po, path: "/profile", component: SharedProfile }),
+  // Inventory (I1-4)
+  createRoute({ getParentRoute: po, path: "/inventory", component: InventoryKits }),
+  createRoute({ getParentRoute: po, path: "/inventory/kits/$kitId", component: InventoryKitDetail }),
+  createRoute({ getParentRoute: po, path: "/inventory/stock", component: InventoryStock }),
+  createRoute({ getParentRoute: po, path: "/inventory/catalog", component: InventoryCatalog }),
 ];
 
 // Apply routes — all use shared ApplyFlow (instructor uses InstructorApply for its own pipeline)
