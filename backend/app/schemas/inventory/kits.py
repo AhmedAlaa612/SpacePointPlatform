@@ -164,6 +164,18 @@ class MovementOut(BaseModel):
     confirmed_at: datetime | None
 
 
+class PublicKitOut(BaseModel):
+    """What an unauthenticated scan reveals. Deliberately no location, no
+    holder and no contents — a QR on a box that leaves the building is
+    readable by whoever picks it up."""
+
+    label: str
+    template_name: str
+    status: str
+    owner: str
+    contact_email: str
+
+
 class HolderOut(BaseModel):
     """Someone a kit can be handed to."""
 

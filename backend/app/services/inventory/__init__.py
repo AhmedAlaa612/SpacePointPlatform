@@ -19,6 +19,15 @@ from app.services.inventory.checks import (
     unassign_kit,
 )
 from app.services.inventory.completeness import is_complete, kit_shortages, shortages_for_kits
+from app.services.inventory.custody import (
+    confirm_collected,
+    held_by_user,
+    issue_merch,
+    issue_session_kits,
+    return_merch,
+    return_session_kits,
+    unconfirmed_handovers,
+)
 from app.services.inventory.movements import MOVEMENT_REASONS, confirm, move, overdue
 from app.services.inventory.stock import adjust_stock
 
@@ -40,4 +49,12 @@ __all__ = [
     "outstanding_post_checks",
     "check_history",
     "CHECK_PHASES",
+    # custody + merch (I2-3/I2-4)
+    "issue_session_kits",
+    "confirm_collected",
+    "return_session_kits",
+    "issue_merch",
+    "return_merch",
+    "held_by_user",
+    "unconfirmed_handovers",
 ]
