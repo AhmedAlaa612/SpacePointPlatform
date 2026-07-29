@@ -26,6 +26,8 @@ const SCAN_FEEDBACK_MS = 2000
  *  frame when the feedback clears. */
 const SAME_TICKET_COOLDOWN_MS = 10000
 
+import { SessionKitsPanel } from "@/pages/instructors/components/SessionKitsPanel"
+
 export default function SessionDetail() {
   const { sessionId } = useParams({ strict: false }) as { sessionId: string }
   const qc = useQueryClient()
@@ -35,6 +37,7 @@ export default function SessionDetail() {
   const [rosterSearch, setRosterSearch] = useState("")
   const [reportNotes, setReportNotes] = useState("")
   const [selectedStudent, setSelectedStudent] = useState<RosterEntry | null>(null)
+  const [doneError, setDoneError] = useState<string | null>(null)
   const busyRef = useRef(false)
   // The same ticket held in front of the camera is re-detected every frame.
   // Remembering the last one stops a second request firing for it at all,
@@ -50,7 +53,17 @@ export default function SessionDetail() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ["session-delivery", sessionId] })
 
   const start = useMutation({ mutationFn: () => startSessionApi(sessionId), onSuccess: invalidate })
-  const done = useMutation({ mutationFn: () => markSessionDoneApi(sessionId), onSuccess: invalidate })
+  // I2-2: finishing is refused (409) while any assigned kit is uncounted, and
+  // the message names them. Without an onError the button would appear to do
+  // nothing, which is worse than the refusal itself.
+  const done = useMutation({
+    mutationFn: () => markSessionDoneApi(sessionId),
+    onSuccess: () => { setDoneError(null); invalidate() },
+    onError: (e: unknown) => {
+      const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      setDoneError(detail ?? "Couldn't mark the session completed")
+    },
+  })
   const mark = useMutation({
     mutationFn: ({ registrationId, status }: { registrationId: string; status: AttendanceStatus }) =>
       markAttendanceApi(sessionId, registrationId, status),
@@ -187,8 +200,17 @@ export default function SessionDetail() {
               <QrCode size={14} className="mr-1.5" /> {scannerOpen ? "Close scanner" : "Scan QR"}
             </Button>
           </div>
+          {doneError && (
+            <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
+              {doneError}
+            </p>
+          )}
         </CardContent>
       </Card>
+
+      {/* I2-2: renders nothing when no kits are assigned, which is most
+          sessions — they must look exactly as they did before. */}
+      <SessionKitsPanel sessionId={sessionId} isStarted={!!s.started_at} onChanged={invalidate} />
 
       {scannerOpen && (
         <Card>

@@ -100,6 +100,7 @@ import ApplyFlow from "@/pages/apply/ApplyFlow";
 import InstructorsLanding from "@/pages/public/InstructorsLanding";
 import InternsLanding from "@/pages/public/InternsLanding";
 import Ticket from "@/pages/public/Ticket";
+import KitScan from "@/pages/public/KitScan";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -116,6 +117,15 @@ const ticketRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/t/$ticketToken",
   component: Ticket,
+});
+
+/** Public kit scan (I2-6). Same reasoning as the ticket page above: whoever is
+ *  holding the box has the code, and the page tells them nothing they can't
+ *  already read off the sticker. */
+const kitScanRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/k/$kitToken",
+  component: KitScan,
 });
 
 import { useAuth } from "@/context/AuthContext";
@@ -693,6 +703,7 @@ const applyInstructorWithCodeRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   ticketRoute,
+  kitScanRoute,
   loginRoute,
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,

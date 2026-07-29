@@ -142,7 +142,89 @@ export const getOverdueApi = () =>
 export const confirmMovementApi = (id: string) =>
   api.post<Movement>(`/inventory/movements/${id}/confirm`).then((r) => r.data)
 
+/* ── the session loop ──────────────────────────────────────────────────── */
+
+export interface SessionKitStatus {
+  kits: {
+    kit_id: string
+    label: string
+    template_name: string
+    status: string
+    location_name: string
+    holder_name: string | null
+    pre_checked: boolean
+    post_checked: boolean
+  }[]
+  outstanding_post_checks: string[]
+  /** Mirrors exactly what mark_done enforces, so the UI can disable the
+   *  button rather than let someone press it and get a 409. */
+  can_finish: boolean
+}
+
+export interface ExpectedCount {
+  item_id: string
+  item_name: string
+  required: number
+  expected: number
+}
+
+export const getSessionKitsApi = (sessionId: string) =>
+  api.get<SessionKitStatus>(`/inventory/sessions/${sessionId}/kits`).then((r) => r.data)
+
+export const setSessionKitsApi = ({ sessionId, kitIds }: { sessionId: string; kitIds: string[] }) =>
+  api.put<SessionKitStatus>(`/inventory/sessions/${sessionId}/kits`, { kit_ids: kitIds })
+    .then((r) => r.data)
+
+export const removeSessionKitApi = ({ sessionId, kitId }: { sessionId: string; kitId: string }) =>
+  api.delete<SessionKitStatus>(`/inventory/sessions/${sessionId}/kits/${kitId}`).then((r) => r.data)
+
+export const getCheckFormApi = ({ sessionId, kitId }: { sessionId: string; kitId: string }) =>
+  api.get<ExpectedCount[]>(`/inventory/sessions/${sessionId}/kits/${kitId}/check`).then((r) => r.data)
+
+export const submitCheckApi = ({ sessionId, kitId, ...body }: {
+  sessionId: string
+  kitId: string
+  phase: "pre" | "post" | "adhoc"
+  counts?: Record<string, number>
+  skipped?: boolean
+  note?: string | null
+}) => api.post(`/inventory/sessions/${sessionId}/kits/${kitId}/check`, body).then((r) => r.data)
+
+export const issueSessionKitsApi = ({ sessionId, ...body }: {
+  sessionId: string
+  to_user_id?: string
+  due_back_on?: string | null
+}) => api.post<Movement[]>(`/inventory/sessions/${sessionId}/kits/issue`, body).then((r) => r.data)
+
+export const confirmCollectedApi = (sessionId: string) =>
+  api.post<Movement[]>(`/inventory/sessions/${sessionId}/kits/collected`).then((r) => r.data)
+
+export const returnSessionKitsApi = ({ sessionId, toLocationId }: {
+  sessionId: string
+  toLocationId: string
+}) => api.post<Movement[]>(`/inventory/sessions/${sessionId}/kits/return`, {
+  to_location_id: toLocationId,
+}).then((r) => r.data)
+
 /* ── instructor-facing ─────────────────────────────────────────────────── */
 
 export const getMyKitsApi = () =>
   api.get<MyKit[]>("/inventory/my-kits").then((r) => r.data)
+
+export const getMyMerchApi = () =>
+  api.get<{ item_id: string; item_name: string; qty: number; due_back_on: string | null }[]>(
+    "/inventory/my-merch",
+  ).then((r) => r.data)
+
+/* ── public scan (no auth) ─────────────────────────────────────────────── */
+
+export interface PublicKit {
+  label: string
+  template_name: string
+  status: string
+  owner: string
+  contact_email: string
+}
+
+export const getPublicKitApi = (token: string) =>
+  api.get<PublicKit>(`/public/kit/${token}`).then((r) => r.data)

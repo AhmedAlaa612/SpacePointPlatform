@@ -9,6 +9,7 @@ import type {
 import type { User } from "@/types/shared"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { getUsersApi } from "@/api/admin/users"
+import { SessionKitAssignment } from "@/pages/admin/components/SessionKitAssignment"
 import {
   getCohortsApi, createCohortApi, updateCohortApi,
   generateSessionsApi, getSessionsApi, addSessionApi, updateSessionApi,
@@ -1113,6 +1114,8 @@ function SessionDetailModal({ cohort, session, onClose, onChanged }: {
         />
 
         <StaffingSection session={session} onChanged={onChanged} />
+        {/* I2-1: its own file, not more bulk in this one. */}
+        <SessionKitAssignment sessionId={session.id} onChanged={onChanged} />
 
         <div className="border-t border-border pt-3">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Instructor(s)</p>
