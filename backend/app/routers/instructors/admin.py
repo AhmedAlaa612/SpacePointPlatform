@@ -281,21 +281,29 @@ async def review_applicant(
     elif body.status == ApplicationStatus.approved:
         profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == user_id))).scalars().first()
 
-        # Promote to instructor: 'applicant' is deliberately dropped here, same as
-        # before (PLAN §9.2 / docs/HANDOFF_INSTRUCTORS.md — "promotes the user's role
-        # from applicant to instructor"). The only change from the old unconditional
-        # `user.roles = [UserRole.instructor]` is also_grant_role: applicants routed in
-        # from another role's application (e.g. an intern sent to onboarding —
-        # routers/admin/applications.py::onboard_application) carry it, and it's added
-        # alongside instructor so they end up with both roles instead of losing the one
-        # they already had (PLAN §1: intern + instructor is a documented valid combination).
-        new_roles = {UserRole.instructor}
+        # Promote to instructor: swap 'applicant' for 'instructor' and leave every
+        # other role the person already holds untouched.
+        #
+        # This used to assign a fresh set (`user.roles = [UserRole.instructor]`),
+        # which silently destroyed anything else they had — an ambassador who
+        # completed instructor onboarding stopped being an ambassador. It also made
+        # holding two roles impossible in general, which is why `also_grant_role`
+        # exists at all: a single extra role smuggled through the wipe.
+        #
+        # The underlying confusion is that 'applicant' isn't a capability like the
+        # others, it's pipeline state (already tracked on application_reviews.status).
+        # Dropping just that one and adding to the rest is what "promotion" actually
+        # means. also_grant_role still applies — it carries a role the person was
+        # approved for elsewhere but never held yet (an intern application routed
+        # into this pipeline; see routers/admin/applications.py::onboard_application).
+        kept = {r for r in user.role_values if r != UserRole.applicant.value}
+        kept.add(UserRole.instructor.value)
         if profile and profile.also_grant_role:
             try:
-                new_roles.add(UserRole(profile.also_grant_role))
+                kept.add(UserRole(profile.also_grant_role).value)
             except ValueError:
                 pass
-        user.roles = list(new_roles)
+        user.roles = sorted(kept)
 
         living_area = (profile.city_of_residence if profile and profile.city_of_residence else None) or \
             (profile.country if profile else "United Arab Emirates")
