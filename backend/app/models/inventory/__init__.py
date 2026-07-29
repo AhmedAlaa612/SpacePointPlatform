@@ -18,6 +18,7 @@ from app.models.inventory.kit import Kit, KitItem
 from app.models.inventory.kit_template import KitTemplate, KitTemplateItem
 from app.models.inventory.location import Location
 from app.models.inventory.movement import Movement
+from app.models.inventory.session_kit import KitCheck, SessionKit
 from app.models.inventory.stock import StockLevel
 
 __all__ = [
@@ -29,4 +30,6 @@ __all__ = [
     "KitItem",
     "StockLevel",
     "Movement",
+    "SessionKit",
+    "KitCheck",
 ]

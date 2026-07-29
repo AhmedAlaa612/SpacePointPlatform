@@ -8,6 +8,16 @@ Completeness is computed, never stored — the legacy system stored it and it
 went stale in production.
 """
 
+from app.services.inventory.checks import (
+    CHECK_PHASES,
+    assign_kits,
+    assigned_kits,
+    check_history,
+    expected_counts,
+    outstanding_post_checks,
+    record_check,
+    unassign_kit,
+)
 from app.services.inventory.completeness import is_complete, kit_shortages, shortages_for_kits
 from app.services.inventory.movements import MOVEMENT_REASONS, confirm, move, overdue
 from app.services.inventory.stock import adjust_stock
@@ -21,4 +31,13 @@ __all__ = [
     "overdue",
     "MOVEMENT_REASONS",
     "adjust_stock",
+    # session loop (I2-1/I2-2)
+    "assign_kits",
+    "unassign_kit",
+    "assigned_kits",
+    "expected_counts",
+    "record_check",
+    "outstanding_post_checks",
+    "check_history",
+    "CHECK_PHASES",
 ]

@@ -95,9 +95,36 @@ async def start_session(db: AsyncSession, session_id: UUID, user: User) -> Sessi
 
 
 async def mark_done(db: AsyncSession, session_id: UUID, user: User) -> Session:
-    """Idempotent, same reasoning as start_session."""
+    """Idempotent, same reasoning as start_session.
+
+    **Gated on the post-session kit check (I2-2).** If kits were assigned to
+    this session, each one must have been counted before the session can be
+    closed out. This is the one hard gate in the inventory work, and it is
+    here rather than on `start_session` deliberately: closing out is
+    asynchronous — the workshop is over, they are sitting down — whereas
+    starting happens live in front of students, where a form that blocks gets
+    faked or the whole system abandoned.
+
+    A session with no kits assigned is completely unaffected, which is most of
+    them.
+    """
     session = await _get_deliverable_session(db, session_id, user)
     if session.completed_at is None:
+        # Imported here, not at module scope: the sessions domain does not
+        # otherwise depend on inventory, and a top-level import would make
+        # that a circular one via the shared models package.
+        from app.services.inventory.checks import outstanding_post_checks
+
+        uncounted = await outstanding_post_checks(db, session_id)
+        if uncounted:
+            labels = ", ".join(k.label for k in uncounted)
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Count {'this kit' if len(uncounted) == 1 else 'these kits'} before "
+                    f"finishing the session: {labels}"
+                ),
+            )
         session.completed_at = datetime.now(timezone.utc)
         await db.flush()
     return session
