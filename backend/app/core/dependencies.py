@@ -66,6 +66,23 @@ require_instructor_or_facilitator = RequireRole(["instructor", "facilitator"])
 require_ambassador = RequireRole(["ambassador"])
 require_teacher = RequireRole(["teacher"])
 require_operations = RequireRole(["operations"])  # V2 sessions/spine domains (R2-3+)
+
+# ── Inventory phase (I0-2) ──────────────────────────────────────────────────
+# `storekeeper` restocks kits, receives goods and records stock movements —
+# and nothing else. The restriction is the point of the role: it must not
+# reach session assignments, kit create/edit/delete, programs, cohorts,
+# registrations or contacts. That is enforced by `require_operations` simply
+# not listing it, so no extra machinery is needed.
+#
+# Operations is included here because ops can obviously also restock — the
+# narrowness is the storekeeper's, not an exclusive claim on the action.
+require_storekeeper = RequireRole(["storekeeper", "operations"])
+
+# Approvals (purchases, cross-border transfers). `admin` passes every
+# RequireRole check, which is exactly what "the CEO can approve in the COO's
+# absence without changing the workflow" needs — no delegation table, no
+# expiry. The approval record stores who actually signed.
+require_inventory_approval = RequireRole(["coo"])
 # W5 S5-1 — instructor delivery actions (start/attendance/done) are allowed
 # for the assigned instructor/facilitator OR ops; the per-session assignment
 # check itself (for the non-ops case) happens in services/sessions/delivery.py,

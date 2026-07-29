@@ -8,7 +8,13 @@ export type Role =
   | "facilitator"
   | "ambassador"
   | "teacher"
-  | "operations";
+  | "operations"
+  // Inventory phase (I0-2). NOTE: neither has a frontend home yet — the pages
+  // they need land in I1-4. Assignable so an admin can prepare accounts, but
+  // a user holding only one of these has nowhere useful to be redirected to
+  // until then. See INVENTORY_EXECUTION_PLAN.md.
+  | "coo"
+  | "storekeeper";
 
 /**
  * There is deliberately no `ROLE_DOMAIN` map. One existed until I0-1
@@ -32,6 +38,8 @@ export const ROLE_LABEL: Record<Role, string> = {
   ambassador: "Ambassador",
   teacher: "Teacher",
   operations: "Operations",
+  coo: "COO",
+  storekeeper: "Storekeeper",
 };
 
 export interface User {

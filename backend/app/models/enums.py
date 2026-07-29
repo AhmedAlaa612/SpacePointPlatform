@@ -11,6 +11,11 @@ class UserRole(str, enum.Enum):
     ambassador = "ambassador"
     teacher = "teacher"
     operations = "operations"
+    # Inventory phase (I0-2). `coo` approves; `storekeeper` is deliberately
+    # narrow — refill/receive/move stock only, no session assignments, no kit
+    # create/edit/delete. See core/dependencies.py.
+    coo = "coo"
+    storekeeper = "storekeeper"
 
 
 # ── Interns domain ───────────────────────────────────────────────────────────

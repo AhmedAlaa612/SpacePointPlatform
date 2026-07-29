@@ -12,7 +12,7 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `b3e8a41d0014` — single Alembic head |
+| **Schema head** | `c4f9b25e0015` — single Alembic head. Production is still on `b3e8a41d0014` until the next deploy |
 | **Branch** | `main` = production. `v2-dev` tracks it |
 | **What's live** | Registration, bulk import, check-in, staffing marketplace, instructor delivery, attendance, certificates, calendar, ops dashboard — plus the pre-existing interns / ambassadors / instructors domains |
 | **Tests** | ~330, `pytest` from `backend/` |
@@ -113,8 +113,8 @@ Public, no auth: `/login`, `/apply/*`, `/t/{ticketToken}`.
 
 ## 6. Roles
 
-9 roles (`backend/app/models/enums.py::UserRole`): `admin`, `intern`, `leader`, `applicant`,
-`instructor`, `facilitator`, `ambassador`, `teacher`, `operations`.
+11 roles (`backend/app/models/enums.py::UserRole`): `admin`, `intern`, `leader`, `applicant`,
+`instructor`, `facilitator`, `ambassador`, `teacher`, `operations`, `coo`, `storekeeper`.
 
 A user holds an **array** of roles (`users.roles`) — there is no single role column. The
 "active role" is a client-side choice only (`localStorage`); the backend authorizes purely on
@@ -124,6 +124,8 @@ the array.
 |---|---|---|
 | `admin` | all | **Passes every `RequireRole` check unconditionally** |
 | `operations` | `/operations` | Runs the business — programs, cohorts, registrations, contacts, check-in, calendar |
+| `coo` | — | Approves inventory purchases and cross-border transfers. **Not** an ops account: `require_operations` rejects it |
+| `storekeeper` | — | Restocks kits, receives goods, records stock movements. **Deliberately narrow** — no session assignments, no kit create/edit/delete. Enforced by `require_operations` not listing it |
 | `instructor` / `facilitator` | `/instructors` | Delivery: their assigned sessions, attendance, reports |
 | `applicant` | `/instructors` | Pre-approval pipeline; gets a minimal shell, no sidebar |
 | `intern` / `leader` | `/interns` | |
