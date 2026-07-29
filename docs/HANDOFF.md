@@ -100,6 +100,7 @@ app sees the request.
 | `/interns/*` · `/ambassadors/*` · `/instructors/*` | the three original domains |
 | `/sessions/*` | programs, cohorts, registrations, staffing, delivery, check-in, calendar, dashboard, imports |
 | `/spine/*` | contacts, merge reviews |
+| `/inventory/*` | locations, item catalogue, kit templates, kits, stock, movements, `/my-kits` |
 | `/public/*` | registration form, catalog, ticket — **no auth** |
 | `/apply/*` · `/files/*` · `/documents/*` · `/notifications/*` | shared |
 | `/health`, `/health/worker` | liveness + ARQ heartbeat |
@@ -142,7 +143,7 @@ Alembic is the source of truth for the exact schema — this is orientation, not
 | **Shared** | `users`, `notifications`, `documents`, `document_requests`, `document_templates`, `certificates`, `applications`, `application_questions`, `id_cards`, `portal_settings` |
 | **Spine** | `contacts`, `contact_relationships`, `organizations`, `identity_aliases`, `merge_reviews`, `touchpoints`, `contact_role_events`, `consent_records` *(schema only — nothing writes to it)* |
 | **Sessions** | `programs`, `cohorts`, `sessions`, `session_instructors`, `session_call_targets`, `registrations`, `registration_sessions`, `attendance_records`, `instructor_interests`, `session_reports`, `import_batches`, `activities` / `activity_versions` / `activity_assignments` *(quiz — schema only until W13–14)* |
-| **Inventory** | `locations`, `items`, `kit_templates`, `kit_template_items`, `kits`, `kit_items`, `stock_levels`, `movements` — **schema only so far** (I1-1); services and routers land in I1-2/I1-3. `movements` is the single ledger every physical thing passes through; custody keys on `users`, so nothing here touches `MERGE_FK_REGISTRY` |
+| **Inventory** | `locations`, `items`, `kit_templates`, `kit_template_items`, `kits`, `kit_items`, `stock_levels`, `movements`. Backend is live (I1-1…I1-3); **no UI yet** (I1-4). `movements` is the single ledger every physical thing passes through — issue, return, transfer, refill, receive, write-off, adjust — and either side of it can be a location, a person or a kit. Custody keys on `users`, so nothing here touches `MERGE_FK_REGISTRY` |
 | **Instructors** | `applicant_profiles`, `application_reviews`, `video_submissions`, `checklist_*`, `module_submissions`, `presentation_submissions`, `assessment_submissions`, `invitation_codes`, `instructor_profiles`, `instructor_documents`, `training_*`, `library_*`, `payment_batches`, `payment_letters`, `payment_sessions`, `payment_addons`, `instructor_bank_details` |
 | **Interns** | `projects`, `teams`, `epics`, `modules`, `tasks`, `task_submissions`, `proposals`, `mind_map_layouts` + join tables |
 | **Ambassadors** | `leads`, `lead_comments`, `points_transactions`, `titles`, `badge_definitions`, `achievements`, `teacher_sessions`, `ambassador_tasks`, `materials`, `system_settings` |

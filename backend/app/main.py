@@ -15,6 +15,7 @@ from app.routers.interns import leader as interns_leader
 from app.routers.interns import shared as interns_shared
 from app.routers.ambassadors import router as ambassadors_router
 from app.routers.instructors import router as instructors_router
+from app.routers.inventory import router as inventory_router
 from app.routers.sessions import router as sessions_router
 from app.routers.spine import router as spine_router
 from app.workers.heartbeat import HEARTBEAT_KEY
@@ -95,6 +96,9 @@ app.include_router(sessions_router)
 
 # Spine domain (V2 R2-4): /spine/contacts/*, /spine/organizations/*, /spine/merge-reviews/*
 app.include_router(spine_router)
+
+# Inventory domain (I1-3): /inventory/*
+app.include_router(inventory_router)
 
 
 @app.get("/health", tags=["health"])
