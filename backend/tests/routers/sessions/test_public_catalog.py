@@ -19,16 +19,9 @@ from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 
 
-@pytest.fixture
-async def client(db):
-    async def _override_get_db():
-        yield db
-
-    app.dependency_overrides[get_db] = _override_get_db
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        yield c
-    app.dependency_overrides.clear()
+# Uses the shared Redis-free `client` from tests/conftest.py (I0-1b). The local
+# copy here didn't override get_arq_redis at all, which happened to work only
+# because this endpoint never enqueues; the shared one pins it to None.
 
 
 async def _make_program(db, **overrides) -> Program:

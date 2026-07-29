@@ -38,20 +38,9 @@ async def _make_public_cohort(db) -> Cohort:
     return cohort
 
 
-@pytest.fixture
-async def client(db, arq_redis):
-    async def _override_get_db():
-        yield db
-
-    async def _override_get_arq_redis():
-        return arq_redis
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_arq_redis] = _override_get_arq_redis
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        yield c
-    app.dependency_overrides.clear()
+# `client` (Redis-free) and `arq_client` (real ARQ pool) live in
+# tests/conftest.py. The local copy that used to be here bound *every* test in
+# this file to a live Redis, including ones that never enqueue anything (I0-1b).
 
 
 def _unique_ip_headers(tag: str) -> dict:
@@ -62,11 +51,13 @@ def _unique_ip_headers(tag: str) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_registration_creates_everything_correctly(db, client, arq_redis):
+async def test_registration_creates_everything_correctly(db, arq_client, arq_redis):
+    # arq_client (not client): this test asserts the ticket job actually
+    # reached the queue, so it needs a real ARQ pool wired into the app.
     cohort = await _make_public_cohort(db)
     headers = _unique_ip_headers("registration")
 
-    resp = await client.post(
+    resp = await arq_client.post(
         f"/public/register/{cohort.id}",
         json={
             "student_name": "New Student",

@@ -22,20 +22,9 @@ from app.services.sessions.registration import register
 from app.workers.settings import get_arq_redis
 
 
-@pytest.fixture
-async def client(db, arq_redis):
-    async def _override_get_db():
-        yield db
-
-    async def _override_get_arq_redis():
-        return arq_redis
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_arq_redis] = _override_get_arq_redis
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        yield c
-    app.dependency_overrides.clear()
+# `client` (Redis-free) and `arq_client` (real ARQ pool) live in
+# tests/conftest.py. The local copy that used to be here bound *every* test in
+# this file to a live Redis, including ones that never enqueue anything (I0-1b).
 
 
 async def _make_cohort(db, **overrides) -> Cohort:
@@ -68,10 +57,11 @@ def _new_contact(**overrides) -> Contact:
 # ── Manual (desk) registration ───────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_desk_register_creates_contact_registration_and_touchpoint(db, client, operations_headers, arq_redis):
+async def test_desk_register_creates_contact_registration_and_touchpoint(db, arq_client, operations_headers, arq_redis):
+    # arq_client (not client): asserts the ticket job reached the queue.
     cohort = await _make_cohort(db)
 
-    resp = await client.post(
+    resp = await arq_client.post(
         f"/sessions/cohorts/{cohort.id}/registrations",
         json={
             "student_name": "Desk Student",
@@ -107,10 +97,12 @@ async def test_desk_register_creates_contact_registration_and_touchpoint(db, cli
 
 
 @pytest.mark.asyncio
-async def test_desk_register_can_skip_ticket_email(db, client, operations_headers, arq_redis):
+async def test_desk_register_can_skip_ticket_email(db, arq_client, operations_headers, arq_redis):
+    # arq_client (not client): asserts the queue stayed EMPTY. With a
+    # Redis-free client that would pass vacuously — nothing can ever enqueue.
     cohort = await _make_cohort(db)
 
-    resp = await client.post(
+    resp = await arq_client.post(
         f"/sessions/cohorts/{cohort.id}/registrations",
         json={
             "student_name": "No Email Student",
@@ -310,7 +302,7 @@ async def test_registration_without_a_certificate_reports_not_issued(db, client,
 # ── Ticket / payment / cancel actions ────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_resend_ticket_enqueues_job(db, client, operations_headers, arq_redis):
+async def test_resend_ticket_enqueues_job(db, arq_client, operations_headers, arq_redis):
     cohort = await _make_cohort(db)
     contact = _new_contact()
     db.add(contact)
@@ -322,7 +314,7 @@ async def test_resend_ticket_enqueues_job(db, client, operations_headers, arq_re
     # endpoints do), so the queue should be empty before we call resend.
     assert await arq_redis.zrange("arq:queue", 0, -1) == []
 
-    resp = await client.post(f"/sessions/registrations/{registration.id}/resend-ticket", headers=operations_headers)
+    resp = await arq_client.post(f"/sessions/registrations/{registration.id}/resend-ticket", headers=operations_headers)
     assert resp.status_code == 200, resp.text
 
     queued_jobs = await arq_redis.zrange("arq:queue", 0, -1)

@@ -1,8 +1,12 @@
 """Endpoint tests for the staffing marketplace routers (V2 W4 S4-2).
 Mandatory per the plan spec: role guards on every endpoint, and the
-assignment email actually gets enqueued on select. Redis-dependent (the
-select endpoint enqueues via ARQ) — follows test_programs_cohorts.py's real
-arq_redis-pool pattern rather than a Redis-free client.
+assignment email actually gets enqueued on select.
+
+Everything here uses the shared Redis-free `client`. Exactly one test —
+test_select_instructors_assigns_notifies_and_enqueues_email — takes
+`arq_client`/`arq_redis` instead, because it asserts the job reached the
+queue. Until I0-1b the whole file needed a live Redis, so a role-guard 403
+couldn't be tested without a broker.
 """
 
 import uuid
@@ -22,20 +26,9 @@ from app.models.sessions.session import Session, SessionInstructor
 from app.workers.settings import get_arq_redis
 
 
-@pytest.fixture
-async def client(db, arq_redis):
-    async def _override_get_db():
-        yield db
-
-    async def _override_get_arq_redis():
-        return arq_redis
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_arq_redis] = _override_get_arq_redis
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        yield c
-    app.dependency_overrides.clear()
+# `client` (Redis-free) and `arq_client` (real ARQ pool) live in
+# tests/conftest.py. The local copy that used to be here bound *every* test in
+# this file to a live Redis, including ones that never enqueue anything (I0-1b).
 
 
 async def _make_cohort_with_session(db, **session_overrides) -> tuple[Cohort, Session]:
@@ -129,10 +122,11 @@ async def test_eligible_instructors_lists_full_roster_with_interest_flag(db, cli
 
 
 @pytest.mark.asyncio
-async def test_select_instructors_assigns_notifies_and_enqueues_email(db, client, arq_redis, operations_headers, instructor_user):
+async def test_select_instructors_assigns_notifies_and_enqueues_email(db, arq_client, arq_redis, operations_headers, instructor_user):
+    # arq_client (not client): asserts the assignment email reached the queue.
     _, session = await _make_cohort_with_session(db, staffing_status="open_call")
 
-    resp = await client.post(
+    resp = await arq_client.post(
         f"/sessions/{session.id}/staffing/select",
         json={"user_ids": [str(instructor_user.id)], "role": "lead"},
         headers=operations_headers,

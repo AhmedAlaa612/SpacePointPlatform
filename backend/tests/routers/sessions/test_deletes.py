@@ -28,22 +28,8 @@ from app.models.user import User
 from app.workers.settings import get_arq_redis
 
 
-@pytest.fixture
-async def client(db):
-    """Redis-free: none of the delete endpoints enqueue a job, so requiring a
-    live Redis to test them only makes the suite fragile."""
-    async def _override_get_db():
-        yield db
-
-    async def _override_get_arq_redis():
-        return None
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_arq_redis] = _override_get_arq_redis
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        yield c
-    app.dependency_overrides.clear()
+# Uses the shared Redis-free `client` from tests/conftest.py — this file's
+# local copy was identical to it (I0-1b).
 
 
 async def _make_program(db, **overrides) -> Program:

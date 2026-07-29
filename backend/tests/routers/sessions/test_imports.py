@@ -22,20 +22,9 @@ from app.services.sessions.importer import TEMPLATE_COLUMNS
 from app.workers.settings import get_arq_redis
 
 
-@pytest.fixture
-async def client(db, arq_redis):
-    async def _override_get_db():
-        yield db
-
-    async def _override_get_arq_redis():
-        return arq_redis
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_arq_redis] = _override_get_arq_redis
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        yield c
-    app.dependency_overrides.clear()
+# `client` (Redis-free) and `arq_client` (real ARQ pool) live in
+# tests/conftest.py. The local copy that used to be here bound *every* test in
+# this file to a live Redis, including ones that never enqueue anything (I0-1b).
 
 
 async def _make_cohort(db) -> Cohort:

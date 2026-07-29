@@ -1,9 +1,9 @@
 """Router-level coverage for targeted open calls (operator, 2026-07-26).
 
-Separate from test_staffing_router.py because that file's client fixture needs
-a live Redis (one of its tests asserts on the ARQ queue). Nothing here enqueues
-anything, so this uses a Redis-free client instead — routing and access control
-shouldn't need a message broker to test.
+Originally split out from test_staffing_router.py because that file's client
+fixture required a live Redis for every test in it. That's no longer true
+(I0-1b) — both files now use the shared Redis-free `client`. The split is kept
+because the targeting rules are worth reading as their own set.
 """
 
 import uuid
@@ -21,20 +21,8 @@ from app.models.user import User
 from app.workers.settings import get_arq_redis
 
 
-@pytest.fixture
-async def client(db):
-    async def _override_get_db():
-        yield db
-
-    async def _override_get_arq_redis():
-        return None
-
-    app.dependency_overrides[get_db] = _override_get_db
-    app.dependency_overrides[get_arq_redis] = _override_get_arq_redis
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
-        yield c
-    app.dependency_overrides.clear()
+# Uses the shared Redis-free `client` from tests/conftest.py — this file's
+# local copy was identical to it (I0-1b).
 
 
 async def _make_session(db) -> Session:

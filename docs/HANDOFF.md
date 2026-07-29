@@ -171,8 +171,13 @@ Every one of these has already caused a real bug. Fuller accounts in
    code still in front of it.
 8. **Client-side route guards are cosmetic** — they read `localStorage` directly. The backend
    guard is the real one. Never rely on the router for authorization.
-9. **Tests are Redis-free** unless genuinely exercising the queue — pattern in
-   `tests/routers/sessions/test_staffing_targeting.py`.
+9. **Tests are Redis-free.** `tests/conftest.py` gives you two HTTP clients: **`client`**
+   (default — `get_arq_redis` pinned to `None`, exactly as the app behaves when Redis is
+   unreachable) and **`arq_client`** (real ARQ pool, needs a running broker). Use `client`.
+   Only take `arq_client` + `arq_redis` if you are asserting a job actually landed on
+   `arq:queue` — five tests do. The whole suite runs with no broker except those five.
+   **Do not write a local `client` fixture**; five files used to and it bound every role-guard
+   and 404 test in them to a live Redis.
 10. **Never `alembic downgrade`.** Two revisions fail exactly when the system has been used, and
     downgrading drops ~20 tables. Roll back the image, leave the database migrated.
 11. **Circular FKs need hand-splitting** after autogenerate (`contacts`↔`touchpoints`,
