@@ -31,6 +31,7 @@ import {
   Users,
   Video,
   Wallet,
+  Warehouse,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -95,6 +96,8 @@ const ICONS: Record<string, LucideIcon> = {
   Contacts: Users,
   "Merge Reviews": GitMerge,
   "Check-in": QrCode,
+  Operations: Warehouse,
+  "Admin Hub": UserCog,
 };
 
 const mk = (label: string, to: string): NavItem => ({ label, to, icon: ICONS[label] ?? FileText });
@@ -124,6 +127,10 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Check-in", "/operations/checkin"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Profile & Settings", "/operations/profile"),
+      // I0-1: an admin who walks into /operations otherwise has no way back —
+      // the sidebar is chosen by path, so it swaps entirely. Only admins see
+      // this; an `operations` user has no business in /admin.
+      ...(activeRole === "admin" ? [mk("Admin Hub", "/admin")] : []),
     ];
   }
   if (pathname.startsWith("/admin")) {
@@ -133,6 +140,10 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
       mk("Settings", "/admin/settings"),
+      // I0-1: admin previously had NO navigational path into the registration/
+      // sessions system at all — S6-2 stripped these pages from the admin
+      // sidebar but never linked the domain that replaced them.
+      mk("Operations", "/operations/dashboard"),
     ];
   }
   if (pathname.startsWith("/ambassadors")) {
@@ -282,6 +293,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
       mk("Settings", "/admin/settings"),
+      mk("Operations", "/operations/dashboard"),
     ];
   }
   if (activeRole === "operations") {

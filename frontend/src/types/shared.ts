@@ -10,23 +10,17 @@ export type Role =
   | "teacher"
   | "operations";
 
-/** Which navbar domain a role routes into. */
-export type Domain = "interns" | "instructors" | "ambassadors" | "admin" | "operations";
-
-export const ROLE_DOMAIN: Record<Role, Domain> = {
-  admin: "admin",
-  intern: "interns",
-  leader: "interns",
-  applicant: "instructors",
-  instructor: "instructors",
-  facilitator: "instructors",
-  ambassador: "ambassadors",
-  teacher: "ambassadors",
-  // V2 S6-2: dedicated operations domain with its own sidebar + route tree.
-  // The split was always needed (R1-1 note: "interim placeholder, pending
-  // registration desk"); W6 is when it actually happens.
-  operations: "operations",
-};
+/**
+ * There is deliberately no `ROLE_DOMAIN` map. One existed until I0-1
+ * (2026-07-28) but nothing ever imported it, so it drifted and the plan's
+ * decision register ended up citing a constant that did nothing.
+ *
+ * Role → domain routing actually lives in two places, and those are the ones to
+ * edit:
+ *   - `router.tsx` `indexRoute.beforeLoad` — where "/" sends each active role.
+ *   - `components/layout/Sidebar.tsx` `getNavItems(pathname, activeRole)` —
+ *     which nav set renders, chosen by URL path first and active role second.
+ */
 
 export const ROLE_LABEL: Record<Role, string> = {
   admin: "Admin",

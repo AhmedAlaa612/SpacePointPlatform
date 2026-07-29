@@ -465,68 +465,113 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/admin/certificates", component: InstructorsAdminCertificates }),
 ];
 
+/**
+ * Guard for the flat `/admin/*` routes. Until I0-1 none of them had one at all —
+ * any authenticated user (an intern, an applicant) could navigate to
+ * `/admin/users` and render the shell; only the backend's 403 stopped them
+ * seeing data. Client-side guards are cosmetic by design in this app (they read
+ * localStorage, and the backend is the real authorization boundary) — but a
+ * redirect beats a page full of failed requests.
+ */
+const requireAdminRole = () => {
+  if (localStorage.getItem("active_role") !== "admin") {
+    throw redirect({ to: "/" });
+  }
+};
+
 const adminHubRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/admin",
+  beforeLoad: requireAdminRole,
   component: AdminHub,
 });
 
 const adminUsersRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/admin/users",
+  beforeLoad: requireAdminRole,
   component: AdminUsers,
 });
 
 const adminDocumentsRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/admin/documents",
+  beforeLoad: requireAdminRole,
   component: AdminDocuments,
 });
 
 const adminSettingsRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/admin/settings",
+  beforeLoad: requireAdminRole,
   component: Settings,
 });
 
 const adminProfileRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/admin/profile",
+  beforeLoad: requireAdminRole,
   component: SharedProfile,
 });
 
 const adminApplicationsRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/admin/applications",
+  beforeLoad: requireAdminRole,
   component: AdminApplications,
 });
 
-// Sessions/spine domain routes (V2 R2-3/R2-4/R2-5)
+/**
+ * Legacy `/admin/*` aliases for pages that live in the operations domain.
+ * S6-2 created `/operations/*` but left these behind pointing at the same
+ * components, so every ops page had two URLs and the `/admin` copy had no role
+ * guard. Kept as redirects rather than deleted outright so existing bookmarks
+ * and any pasted links still land somewhere useful. Nothing in the app links
+ * here any more (verified 2026-07-28).
+ *
+ * NOTE: `/sessions/calendar` is deliberately NOT in this list — it is the
+ * shared calendar for instructors/facilitators (linked from `Sidebar.tsx` and
+ * `SessionsSubNav.tsx`, backend guard is any authenticated user). Redirecting
+ * it to `/operations/calendar` would bounce every non-ops user to `/`.
+ */
 const adminProgramsRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/admin/programs",
-  component: AdminPrograms,
+  beforeLoad: () => {
+    throw redirect({ to: "/operations/programs" });
+  },
 });
 const adminCohortsRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/admin/cohorts",
-  component: AdminCohorts,
+  beforeLoad: () => {
+    throw redirect({ to: "/operations/cohorts" });
+  },
 });
 const adminContactsRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/admin/contacts",
-  component: AdminContacts,
+  beforeLoad: () => {
+    throw redirect({ to: "/operations/contacts" });
+  },
 });
 const adminMergeReviewsRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/admin/merge-reviews",
-  component: AdminMergeReviews,
+  beforeLoad: () => {
+    throw redirect({ to: "/operations/merge-reviews" });
+  },
 });
 const adminCheckInRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/admin/checkin",
-  component: AdminCheckIn,
+  beforeLoad: () => {
+    throw redirect({ to: "/operations/checkin" });
+  },
 });
+
+/** Shared calendar — instructors/facilitators/ops all read it; the backend
+ *  scopes what each of them sees. Distinct from `/operations/calendar`. */
 const sessionsCalendarRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/sessions/calendar",

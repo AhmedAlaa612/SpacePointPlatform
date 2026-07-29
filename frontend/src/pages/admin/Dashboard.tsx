@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { Briefcase, GraduationCap, Network, CheckCircle2, ClipboardList } from "lucide-react"
+import { Briefcase, GraduationCap, Network, CheckCircle2, ClipboardList, Warehouse } from "lucide-react"
 import { getNotificationsApi } from "@/api/notifications"
 import { getApplicationCountsApi } from "@/api/apply"
 import { type Notification } from "@/types/shared"
@@ -153,6 +153,25 @@ export default function AdminHub() {
           notifications={internNotifications}
           isLoading={isLoading}
         />
+      </div>
+
+      {/* Operations quick-link (I0-1). Not a DomainCard: operations has no
+          notification bucket in getNotificationDomain, and admin previously had
+          no path into the registration/sessions system at all. */}
+      <div className="mt-6">
+        <Link to="/operations/dashboard">
+          <Card className="hover:border-primary/50 transition-all shadow-sm border-border">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <Warehouse size={20} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-foreground">Operations</p>
+                <p className="text-xs text-muted-foreground">Programs, cohorts, registrations, contacts, check-in and the sessions calendar</p>
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
       </div>
 
       {/* Applications quick-link */}
