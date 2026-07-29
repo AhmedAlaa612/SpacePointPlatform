@@ -71,12 +71,23 @@ class Movement(Base):
     # NULL for a kit (a kit is one thing); required for a bulk item.
     qty = Column(Integer, nullable=True)
 
-    # Where it came from / went to. Either side may be a location or a person,
-    # and either may be absent (goods arriving from a supplier have no `from`).
+    # Where it came from / went to. Either side may be a location, a person or
+    # a **kit** — a kit is a container, not only a subject: components go into
+    # one on a refill, and come out of one when a kit is cannibalised to make
+    # another complete before a workshop. Either side may also be absent
+    # (goods arriving from a supplier have no `from`).
+    #
+    # SET NULL on the kit sides, unlike the CASCADE on the subject `kit_id`
+    # above. The distinction is real: `kit_id` means "this movement is *about*
+    # this kit" and has no meaning without it, but `to_kit_id` means "these
+    # parts went into that kit" — and the fact that the stock left the
+    # warehouse is still true if the kit is later deleted.
     from_location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True)
     from_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    from_kit_id = Column(UUID(as_uuid=True), ForeignKey("kits.id", ondelete="SET NULL"), nullable=True, index=True)
     to_location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True)
     to_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    to_kit_id = Column(UUID(as_uuid=True), ForeignKey("kits.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Which session this movement was for, when it was for one. SET NULL so
     # deleting a session never destroys the custody record of a physical kit.

@@ -448,6 +448,87 @@ async def test_adjustment_refuses_negative_and_no_op(db):
     assert exc.value.status_code == 409
 
 
+# ── a kit as a container: refill and cannibalise ────────────────────────────
+
+@pytest.mark.asyncio
+async def test_refilling_moves_stock_out_of_the_warehouse_and_into_the_kit(db):
+    """The storekeeper's whole job. One call updates both sides."""
+    dubai = await _loc(db)
+    actor = await _user(db)
+    mpu = await _item(db, name="MPU-9250")
+    kit, _ = await _kit_with_template(db, dubai, required={mpu: 1})
+    shelf = await _stock(db, mpu, dubai, 10)
+
+    await move(db, actor_user_id=actor.id, reason="refill", item_id=mpu.id, qty=1,
+               from_location_id=dubai.id, to_kit_id=kit.id)
+
+    contents = (await db.execute(select(KitItem).where(
+        KitItem.kit_id == kit.id, KitItem.item_id == mpu.id
+    ))).scalars().first()
+    assert shelf.qty == 9
+    assert contents is not None and contents.qty == 1
+    assert await is_complete(db, kit) is True
+
+
+@pytest.mark.asyncio
+async def test_cannibalising_takes_parts_back_out_of_a_kit(db):
+    """Stripping one kit to make another complete before a workshop — it
+    happens, and the ledger should be able to say so."""
+    dubai = await _loc(db)
+    actor = await _user(db)
+    board = await _item(db, name="ADCS Board")
+    donor, _ = await _kit_with_template(db, dubai, required={board: 1})
+    db.add(KitItem(id=uuid.uuid4(), kit_id=donor.id, item_id=board.id, qty=1))
+    await db.flush()
+    receiver, _ = await _kit_with_template(db, dubai, required={board: 1})
+
+    await move(db, actor_user_id=actor.id, reason="transfer", item_id=board.id, qty=1,
+               from_kit_id=donor.id, to_kit_id=receiver.id)
+
+    assert await is_complete(db, receiver) is True
+    assert await is_complete(db, donor) is False
+
+
+@pytest.mark.asyncio
+async def test_a_kit_cannot_give_what_it_does_not_have(db):
+    dubai = await _loc(db)
+    actor = await _user(db)
+    board = await _item(db)
+    donor, _ = await _kit_with_template(db, dubai, required={board: 1})
+
+    with pytest.raises(HTTPException) as exc:
+        await move(db, actor_user_id=actor.id, reason="transfer", item_id=board.id, qty=1,
+                   from_kit_id=donor.id, to_location_id=dubai.id)
+    assert exc.value.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_a_kit_cannot_go_inside_a_kit(db):
+    dubai = await _loc(db)
+    actor = await _user(db)
+    outer, _ = await _kit_with_template(db, dubai, required={})
+    inner, _ = await _kit_with_template(db, dubai, required={})
+
+    with pytest.raises(HTTPException) as exc:
+        await move(db, actor_user_id=actor.id, reason="transfer", kit_id=inner.id,
+                   to_kit_id=outer.id)
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_a_movement_has_one_destination_of_three_kinds(db):
+    dubai = await _loc(db)
+    actor = await _user(db)
+    holder = await _user(db)
+    mpu = await _item(db)
+    kit, _ = await _kit_with_template(db, dubai, required={})
+
+    with pytest.raises(HTTPException) as exc:
+        await move(db, actor_user_id=actor.id, reason="refill", item_id=mpu.id, qty=1,
+                   to_kit_id=kit.id, to_user_id=holder.id)
+    assert exc.value.status_code == 400
+
+
 @pytest.mark.asyncio
 async def test_every_movement_lands_in_the_one_ledger(db):
     """Transfers, receipts and corrections all end up queryable together —

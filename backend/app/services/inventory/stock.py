@@ -5,11 +5,11 @@ adjustments table. The legacy system had `component_logs` alongside
 `components`; keeping one ledger means "why is there one fewer of these than
 last week" has a single place to look.
 
-NOTE: refilling a kit from warehouse stock is deliberately NOT here. It
-belongs to the storekeeper fulfilment loop (I3-1), and it needs a schema
-decision first — see INVENTORY_EXECUTION_PLAN.md §DISCOVERIES (I1-2): a
-movement's destination can currently be a location or a person, but not a
-kit, so "5 MPUs went into SP-SATKIT-0012" has nowhere to live.
+Refilling a kit is `move(item_id=…, from_location_id=…, to_kit_id=…)` — the
+schema gap that blocked it is closed (migration e6b2d84a0017). The storekeeper
+*workflow* around it (a shortage becoming a task, and closing that task) is
+still I3-1; the mechanic itself lives in `move()`, so there is one write path
+rather than two.
 """
 
 import uuid

@@ -16,7 +16,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.inventory.kit import Kit
+from app.models.inventory.kit import Kit, KitItem
 from app.models.inventory.movement import Movement
 from app.models.inventory.stock import StockLevel
 
@@ -47,8 +47,10 @@ async def move(
     qty: int | None = None,
     from_location_id: uuid.UUID | None = None,
     from_user_id: uuid.UUID | None = None,
+    from_kit_id: uuid.UUID | None = None,
     to_location_id: uuid.UUID | None = None,
     to_user_id: uuid.UUID | None = None,
+    to_kit_id: uuid.UUID | None = None,
     session_id: uuid.UUID | None = None,
     due_back_on: date | None = None,
     note: str | None = None,
@@ -56,7 +58,8 @@ async def move(
     """Record one movement and apply its consequences.
 
     A kit move updates the kit's position. A bulk item move moves quantity
-    between stock levels. Both write the same row shape.
+    between stock levels and/or in and out of a kit's contents. Both write the
+    same row shape.
     """
     if reason not in MOVEMENT_REASONS:
         raise HTTPException(400, detail=f"Unknown movement reason '{reason}'")
@@ -64,11 +67,16 @@ async def move(
     if (kit_id is None) == (item_id is None):
         raise HTTPException(400, detail="A movement is of exactly one kit or one item, not both or neither")
 
-    if to_location_id is not None and to_user_id is not None:
-        raise HTTPException(400, detail="A movement goes to a location or a person, not both")
+    destinations = [d for d in (to_location_id, to_user_id, to_kit_id) if d is not None]
+    if len(destinations) > 1:
+        raise HTTPException(400, detail="A movement goes to one place: a location, a person, or a kit")
 
-    if to_location_id is None and to_user_id is None and reason not in _NO_DESTINATION_OK:
+    if not destinations and reason not in _NO_DESTINATION_OK:
         raise HTTPException(400, detail=f"A '{reason}' movement needs a destination")
+
+    if kit_id is not None and (to_kit_id is not None or from_kit_id is not None):
+        # A kit is not a component of another kit.
+        raise HTTPException(400, detail="A kit cannot go inside a kit")
 
     if item_id is not None:
         if qty is None or qty <= 0:
@@ -88,8 +96,10 @@ async def move(
         qty=qty,
         from_location_id=from_location_id,
         from_user_id=from_user_id,
+        from_kit_id=from_kit_id,
         to_location_id=to_location_id,
         to_user_id=to_user_id,
+        to_kit_id=to_kit_id,
         session_id=session_id,
         reason=reason,
         due_back_on=due_back_on,
@@ -104,6 +114,7 @@ async def move(
         await _apply_to_stock(
             db, item_id=item_id, qty=qty,
             from_location_id=from_location_id, to_location_id=to_location_id,
+            from_kit_id=from_kit_id, to_kit_id=to_kit_id,
         )
 
     await db.flush()
@@ -140,7 +151,11 @@ async def _apply_to_stock(
     qty: int,
     from_location_id: uuid.UUID | None,
     to_location_id: uuid.UUID | None,
+    from_kit_id: uuid.UUID | None = None,
+    to_kit_id: uuid.UUID | None = None,
 ) -> None:
+    """Quantity leaves one side and arrives at the other. Either side can be a
+    warehouse shelf (`stock_levels`) or the inside of a kit (`kit_items`)."""
     if from_location_id is not None:
         level = await _level(db, item_id, from_location_id)
         if level is None or level.qty < qty:
@@ -151,6 +166,16 @@ async def _apply_to_stock(
             )
         level.qty -= qty
 
+    if from_kit_id is not None:
+        contents = await _contents(db, item_id, from_kit_id)
+        if contents is None or contents.qty < qty:
+            available = 0 if contents is None else contents.qty
+            raise HTTPException(
+                409,
+                detail=f"The kit doesn't hold that many: {available} present, {qty} requested",
+            )
+        contents.qty -= qty
+
     if to_location_id is not None:
         level = await _level(db, item_id, to_location_id)
         if level is None:
@@ -158,12 +183,27 @@ async def _apply_to_stock(
             db.add(level)
         level.qty += qty
 
+    if to_kit_id is not None:
+        if await db.get(Kit, to_kit_id) is None:
+            raise HTTPException(404, detail="Kit not found")
+        contents = await _contents(db, item_id, to_kit_id)
+        if contents is None:
+            contents = KitItem(id=uuid.uuid4(), kit_id=to_kit_id, item_id=item_id, qty=0)
+            db.add(contents)
+        contents.qty += qty
+
 
 async def _level(db: AsyncSession, item_id: uuid.UUID, location_id: uuid.UUID) -> StockLevel | None:
     return (await db.execute(
         select(StockLevel).where(
             StockLevel.item_id == item_id, StockLevel.location_id == location_id
         )
+    )).scalars().first()
+
+
+async def _contents(db: AsyncSession, item_id: uuid.UUID, kit_id: uuid.UUID) -> KitItem | None:
+    return (await db.execute(
+        select(KitItem).where(KitItem.kit_id == kit_id, KitItem.item_id == item_id)
     )).scalars().first()
 
 

@@ -12,7 +12,7 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `d5a1c73f0016` — single Alembic head. Production is still on `b3e8a41d0014` until the next deploy |
+| **Schema head** | `e6b2d84a0017` — single Alembic head. Production is still on `b3e8a41d0014` until the next deploy |
 | **Branch** | `main` = production. `v2-dev` tracks it |
 | **What's live** | Registration, bulk import, check-in, staffing marketplace, instructor delivery, attendance, certificates, calendar, ops dashboard — plus the pre-existing interns / ambassadors / instructors domains |
 | **Tests** | ~330, `pytest` from `backend/` |
