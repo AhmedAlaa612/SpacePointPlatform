@@ -164,12 +164,13 @@ async def add_session(
     letter = (await db.execute(select(PaymentLetter).where(PaymentLetter.id == letter_id))).scalars().first()
     if not letter:
         raise HTTPException(status_code=404, detail="Letter not found")
+    _refuse_if_signed(letter)
     db.add(PaymentSession(payment_letter_id=letter_id, **body.model_dump()))
     await db.commit()
     return await _letter_with_children(db, letter)
 
 
-def _refuse_if_signed(letter: PaymentLetter) -> None:
+def _refuse_if_signed(letter: PaymentLetter | None) -> None:
     """A signed letter is what the instructor put their name to.
 
     Editing a line afterwards would leave the stored signed PDF saying one
@@ -177,7 +178,7 @@ def _refuse_if_signed(letter: PaymentLetter) -> None:
     and the workshop-delivery certificates are built from. Correcting a signed
     letter is a new letter, not an edit.
     """
-    if letter.status == PaymentLetterStatus.signed:
+    if letter is not None and letter.status == PaymentLetterStatus.signed:
         raise HTTPException(
             status_code=409,
             detail="This letter is signed — issue a corrected letter rather than editing it",
@@ -234,6 +235,10 @@ async def delete_session(
     session_row = (await db.execute(select(PaymentSession).where(PaymentSession.id == session_id))).scalars().first()
     if not session_row:
         raise HTTPException(status_code=404, detail="Session not found")
+    letter = (await db.execute(
+        select(PaymentLetter).where(PaymentLetter.id == session_row.payment_letter_id)
+    )).scalars().first()
+    _refuse_if_signed(letter)
     await db.delete(session_row)
     await db.commit()
     return {"status": "deleted"}
@@ -247,6 +252,7 @@ async def add_addon(
     letter = (await db.execute(select(PaymentLetter).where(PaymentLetter.id == letter_id))).scalars().first()
     if not letter:
         raise HTTPException(status_code=404, detail="Letter not found")
+    _refuse_if_signed(letter)
     db.add(PaymentAddon(payment_letter_id=letter_id, **body.model_dump()))
     await db.commit()
     return await _letter_with_children(db, letter)
@@ -259,6 +265,10 @@ async def delete_addon(
     addon = (await db.execute(select(PaymentAddon).where(PaymentAddon.id == addon_id))).scalars().first()
     if not addon:
         raise HTTPException(status_code=404, detail="Add-on not found")
+    letter = (await db.execute(
+        select(PaymentLetter).where(PaymentLetter.id == addon.payment_letter_id)
+    )).scalars().first()
+    _refuse_if_signed(letter)
     await db.delete(addon)
     await db.commit()
     return {"status": "deleted"}

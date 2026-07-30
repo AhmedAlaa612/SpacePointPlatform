@@ -149,6 +149,63 @@ async def test_a_signed_letter_cannot_be_rewritten_under_the_signature(client, d
 
 
 @pytest.mark.asyncio
+async def test_every_write_path_is_shut_once_the_letter_is_signed(client, db):
+    """Not just editing. Adding a line to a signed letter, or deleting one off
+    it, changes the document just as much — and the delete paths predate I5-1
+    with no guard at all. All four are enumerated here because this is the
+    kind of restriction a later change quietly reopens."""
+    admin = await _user(db, "admin")
+    instructor = await _user(db, "instructor")
+    letter = await _letter(db, instructor, status=PaymentLetterStatus.signed)
+    row = await _row(db, letter)
+    addon = PaymentAddon(
+        id=uuid.uuid4(), payment_letter_id=letter.id,
+        description="Poster printing", amount_aed=200, sort_order=1,
+    )
+    db.add(addon)
+    await db.flush()
+
+    calls = [
+        client.post(f"/instructors/admin/payments/letters/{letter.id}/sessions",
+                    json={"workshop_description": "Sneaked in", "role": "Facilitator",
+                          "compensation_aed": 100}, headers=_headers(admin)),
+        client.post(f"/instructors/admin/payments/letters/{letter.id}/addons",
+                    json={"description": "Sneaked in", "amount_aed": 100},
+                    headers=_headers(admin)),
+        client.delete(f"/instructors/admin/payments/sessions/{row.id}", headers=_headers(admin)),
+        client.delete(f"/instructors/admin/payments/addons/{addon.id}", headers=_headers(admin)),
+    ]
+    for call in calls:
+        assert (await call).status_code == 409
+
+    # And nothing actually changed underneath the signature.
+    r = await client.get("/instructors/admin/payments/letters", headers=_headers(admin))
+    [out] = [x for x in r.json() if x["id"] == str(letter.id)]
+    assert len(out["sessions"]) == 1 and len(out["addons"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_draft_letters_lines_can_still_be_added_and_deleted(client, db):
+    """The guard must not seize up the normal case."""
+    admin = await _user(db, "admin")
+    instructor = await _user(db, "instructor")
+    letter = await _letter(db, instructor)
+    row = await _row(db, letter)
+
+    r = await client.post(
+        f"/instructors/admin/payments/letters/{letter.id}/sessions",
+        json={"workshop_description": "Second", "role": "Facilitator", "compensation_aed": 100},
+        headers=_headers(admin),
+    )
+    assert r.status_code == 201 and len(r.json()["sessions"]) == 2
+
+    r = await client.delete(
+        f"/instructors/admin/payments/sessions/{row.id}", headers=_headers(admin)
+    )
+    assert r.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_addons_are_editable_on_the_same_terms(client, db):
     admin = await _user(db, "admin")
     instructor = await _user(db, "instructor")
