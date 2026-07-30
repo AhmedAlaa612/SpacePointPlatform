@@ -3,14 +3,17 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from app.models.enums import PaymentLetterStatus, PaymentSessionRole
+from app.models.enums import PaymentLetterStatus
 
 
 class PaymentSessionOut(BaseModel):
     id: UUID
     session_date: Optional[str] = None
     workshop_description: str
-    role: PaymentSessionRole
+    # I5-3: the role *name* as a plain string, snapshotted on the document.
+    # Not an FK and not an enum — a signed letter keeps saying what it said,
+    # and a role ops adds tomorrow prints without a migration.
+    role: str
     location: Optional[str] = None
     duration_hours: Optional[float] = None
     compensation_aed: float
@@ -70,7 +73,10 @@ class PaymentLetterCreate(BaseModel):
 class PaymentSessionCreate(BaseModel):
     session_date: Optional[str] = None
     workshop_description: str
-    role: PaymentSessionRole
+    # I5-3: the role *name* as a plain string, snapshotted on the document.
+    # Not an FK and not an enum — a signed letter keeps saying what it said,
+    # and a role ops adds tomorrow prints without a migration.
+    role: str
     location: Optional[str] = None
     duration_hours: Optional[float] = None
     compensation_aed: float = 0
@@ -94,7 +100,7 @@ class PaymentAddonCreate(BaseModel):
 class PaymentSessionUpdate(BaseModel):
     session_date: Optional[str] = None
     workshop_description: Optional[str] = None
-    role: Optional[PaymentSessionRole] = None
+    role: Optional[str] = None
     location: Optional[str] = None
     duration_hours: Optional[float] = None
     compensation_aed: Optional[float] = None

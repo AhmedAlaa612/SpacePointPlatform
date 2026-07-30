@@ -298,7 +298,7 @@ async def generate_pdf(
         pdf_bytes = await asyncio.to_thread(
             generate_payment_letter_pdf,
             instructor_name=instructor.full_name, reference=letter.reference, letter_date=letter.letter_date or "",
-            sessions=[{"session_date": s.session_date, "workshop_description": s.workshop_description, "role": s.role.value,
+            sessions=[{"session_date": s.session_date, "workshop_description": s.workshop_description, "role": s.role,
                        "location": s.location, "duration_hours": s.duration_hours, "compensation_aed": s.compensation_aed} for s in sessions],
             addons=[{"description": a.description, "amount_aed": a.amount_aed, "notes": a.notes} for a in addons],
             bank={"account_holder_name": bank.account_holder_name, "bank_name": bank.bank_name, "iban": bank.iban,

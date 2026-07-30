@@ -28,6 +28,8 @@ class Session(Base):
     title = Column(String(256), nullable=True)
     material_url = Column(Text, nullable=True)
     price = Column(Numeric(10, 2), nullable=True)
+    # I5-2. NULL = inherit from the cohort, then the program.
+    duration_hours = Column(Numeric(5, 2), nullable=True)
     # Free-text comments from whoever delivered the session (I2-7, operator
     # 2026-07-30). Deliberately one editable blob rather than a comment log:
     # the ask was "a simple comments text area", and the job it has to do is
@@ -65,7 +67,12 @@ class SessionInstructor(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    role = Column(String(16), nullable=False, default="lead")  # lead|co
+    # I5-3: roles are data now (`delivery_roles`), not a `lead|co` string.
+    # The old column is remapped by migration `c2a7b49e0022`, not dropped
+    # blind — production holds real rows.
+    role_id = Column(
+        UUID(as_uuid=True), ForeignKey("delivery_roles.id", ondelete="RESTRICT"), nullable=False
+    )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

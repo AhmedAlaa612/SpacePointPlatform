@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, St
 from sqlalchemy.dialects.postgresql import ENUM, UUID
 
 from app.db.base import Base
-from app.models.enums import PaymentLetterStatus, PaymentSessionRole
+from app.models.enums import PaymentLetterStatus
 
 
 class PaymentBatch(Base):
@@ -58,15 +58,13 @@ class PaymentSession(Base):
     )
     session_date = Column(String(50), nullable=True)
     workshop_description = Column(String(255), nullable=False)
-    # values_callable: this enum's values are human-readable display strings
-    # ("Lead Facilitator") that don't match the Python member names
-    # (lead_facilitator) — without this, SQLAlchemy sends the member *name*
-    # to Postgres and every insert fails with "invalid input value for enum".
-    role = Column(
-        ENUM(PaymentSessionRole, name="payment_session_role", create_type=False,
-             values_callable=lambda enum_cls: [e.value for e in enum_cls]),
-        nullable=False,
-    )
+    # I5-3: a plain String holding the role *name* at the time, no longer the
+    # `payment_session_role` enum. **Deliberately a snapshot, not an FK to
+    # `delivery_roles`:** a signed letter has to keep saying what it said,
+    # even if someone renames a role two years later. Documents freeze; live
+    # assignments don't. Widening it to a string also means a role ops adds
+    # tomorrow can be printed without an enum migration.
+    role = Column(String(64), nullable=False)
     location = Column(String(255), nullable=True)
     duration_hours = Column(Float, nullable=True)
     compensation_aed = Column(Float, nullable=False, default=0)

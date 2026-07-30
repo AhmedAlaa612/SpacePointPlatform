@@ -118,7 +118,7 @@ async def sign_letter(
             letter_date=letter.letter_date or now.strftime("%d/%m/%Y"),
             sessions=[{
                 "session_date": s.session_date, "workshop_description": s.workshop_description,
-                "role": s.role.value, "location": s.location, "duration_hours": s.duration_hours,
+                "role": s.role, "location": s.location, "duration_hours": s.duration_hours,
                 "compensation_aed": s.compensation_aed,
             } for s in sessions],
             addons=[{"description": a.description, "amount_aed": a.amount_aed, "notes": a.notes} for a in addons],
