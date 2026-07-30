@@ -41,6 +41,10 @@ class PaymentLetter(Base):
     instructor_signature_data = Column(Text, nullable=True)  # base64 PNG, re-embedded into the PDF on each sign
     signed_at = Column(DateTime(timezone=True), nullable=True)
     admin_notes = Column(Text, nullable=True)
+    # I5-7. Certificates already generate on signing, one per payment session.
+    # The CEO asked to make that optional — set at letter-prep, honoured at
+    # signing. Defaults true so existing behaviour is unchanged.
+    issue_certificates = Column(Boolean, nullable=False, default=True, server_default="true")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime(timezone=True),
@@ -55,6 +59,13 @@ class PaymentSession(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     payment_letter_id = Column(
         UUID(as_uuid=True), ForeignKey("payment_letters.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # I5-8. Nullable FK — manual lines keep working, and this is what stops a
+    # completed session being billed twice. SET NULL rather than CASCADE: a
+    # deleted session must not erase a payment record.
+    session_id = Column(
+        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="SET NULL"),
+        nullable=True, index=True,
     )
     session_date = Column(String(50), nullable=True)
     workshop_description = Column(String(255), nullable=False)

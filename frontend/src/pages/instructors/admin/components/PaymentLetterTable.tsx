@@ -4,6 +4,9 @@ import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react"
 import {
   addAddonApi,
   addSessionApi,
+  billSessionsApi,
+  getBillableSessionsApi,
+  updateLetterApi,
   deleteAddonApi,
   deleteSessionApi,
   updateAddonApi,
@@ -96,6 +99,28 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
     saveAddon.mutate({ id: a.id, sort_order: b.sort_order })
     saveAddon.mutate({ id: b.id, sort_order: a.sort_order })
   }
+
+  // I5-8: completed sessions with no payment line yet.
+  const { data: billable = [] } = useQuery({
+    queryKey: ["billable", letter.id],
+    queryFn: () => getBillableSessionsApi(letter.id),
+    enabled: !locked,
+  })
+  const bill = useMutation({
+    mutationFn: (ids: string[]) => billSessionsApi({ letterId: letter.id, sessionIds: ids }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["billable", letter.id] })
+      refresh()
+    },
+    onError,
+  })
+  // I5-7: certificates are opt-out, set here and honoured at signing. Editable
+  // even on a signed letter — it changes nothing the instructor agreed to.
+  const setCertificates = useMutation({
+    mutationFn: (on: boolean) => updateLetterApi({ id: letter.id, issue_certificates: on }),
+    onSuccess: refresh,
+    onError,
+  })
 
   const total =
     letter.sessions.reduce((s, x) => s + (x.compensation_aed || 0), 0) +
@@ -305,6 +330,54 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
           </Button>
         )}
       </div>
+
+      {billable.length > 0 && (
+        <div className="rounded-xl border border-dashed border-border p-3 flex flex-col gap-2">
+          <p className="text-xs font-semibold text-foreground">
+            {billable.length} delivered session{billable.length === 1 ? "" : "s"} not on any letter
+          </p>
+          <div className="flex flex-col gap-1">
+            {billable.map((b) => (
+              <div key={b.session_id} className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-foreground truncate">
+                  {b.session_date} · {b.workshop_description}
+                  <span className="text-xs text-muted-foreground">
+                    {" "}· {b.role}{b.location ? ` · ${b.location}` : ""}
+                  </span>
+                </span>
+                <button
+                  onClick={() => bill.mutate([b.session_id])}
+                  disabled={bill.isPending}
+                  className="h-7 px-2.5 text-xs border border-border rounded-lg hover:bg-muted shrink-0 disabled:opacity-40"
+                >
+                  Add
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => bill.mutate(billable.map((b) => b.session_id))}
+            disabled={bill.isPending}
+            className="self-start h-8 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 disabled:opacity-40"
+          >
+            {bill.isPending ? "Adding…" : "Add all"}
+          </button>
+          <p className="text-xs text-muted-foreground">
+            Date, workshop, role, location and hours are filled in from the session. The
+            amount stays blank — that&apos;s yours to set.
+          </p>
+        </div>
+      )}
+
+      <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={letter.issue_certificates ?? true}
+          onChange={(e) => setCertificates.mutate(e.target.checked)}
+          className="rounded text-primary focus:ring-primary border-border bg-background"
+        />
+        Issue a workshop-delivery certificate per session when this is signed
+      </label>
 
       <div className="flex items-center justify-between border-t border-border pt-2">
         <span className="text-xs text-muted-foreground">

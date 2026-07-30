@@ -23,6 +23,9 @@ class Cohort(Base):
     starts_on = Column(Date, nullable=True)
     ends_on = Column(Date, nullable=True)
     location = Column(String(128), nullable=True)
+    # I5-5. A Google Maps link alongside the text — instructors were being
+    # sent an address and left to find it themselves.
+    location_map_url = Column(Text, nullable=True)
     capacity = Column(Integer, nullable=True)
     # I5-2. NULL = inherit from the program. See Program.duration_hours.
     duration_hours = Column(Numeric(5, 2), nullable=True)

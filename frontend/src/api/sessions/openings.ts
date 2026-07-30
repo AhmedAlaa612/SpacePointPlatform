@@ -97,3 +97,80 @@ export const decideAddonApi = ({ addonId, status }: {
   addonId: string
   status: "agreed" | "declined"
 }) => api.put<SessionAddon>(`/sessions/addons/${addonId}/decision`, { status }).then((r) => r.data)
+
+/* ── materials, responsibilities, payment bridge (I5-5 … I5-8) ──────────── */
+
+export interface Material {
+  id: string
+  program_id: string | null
+  cohort_id: string | null
+  session_id: string | null
+  title: string
+  notes: string | null
+  /** Signed link for stored files, raw one for external links. */
+  url: string | null
+  filename: string | null
+  sort_order: number
+  created_at: string | null
+}
+
+export interface SessionMaterials {
+  /** program|cohort|session|none — which level these came from. Lets the UI
+   *  say "inherited from the program" rather than leaving ops guessing. */
+  level: string
+  materials: Material[]
+}
+
+export type MaterialOwner =
+  | { program_id: string }
+  | { cohort_id: string }
+  | { session_id: string }
+
+export const getMaterialsApi = (owner: MaterialOwner) =>
+  api.get<Material[]>("/sessions/materials", { params: owner }).then((r) => r.data)
+
+export const getSessionMaterialsApi = (sessionId: string) =>
+  api.get<SessionMaterials>(`/sessions/${sessionId}/materials`).then((r) => r.data)
+
+export const addMaterialLinkApi = ({ owner, ...body }: {
+  owner: MaterialOwner
+  title: string
+  url: string
+  notes?: string | null
+}) => api.post<Material>("/sessions/materials/link", body, { params: owner }).then((r) => r.data)
+
+export const addMaterialFileApi = ({ owner, title, file, notes }: {
+  owner: MaterialOwner
+  title: string
+  file: File
+  notes?: string | null
+}) => {
+  const form = new FormData()
+  form.append("title", title)
+  form.append("file", file)
+  if (notes) form.append("notes", notes)
+  Object.entries(owner).forEach(([k, v]) => form.append(k, v as string))
+  return api.post<Material>("/sessions/materials/file", form).then((r) => r.data)
+}
+
+export const deleteMaterialApi = (id: string) =>
+  api.delete(`/sessions/materials/${id}`).then((r) => r.data)
+
+export interface Responsibilities {
+  text: string
+  /** Hash of the text — changes exactly when the words do. */
+  version: string
+  payment_terms_note: string
+}
+
+export const getResponsibilitiesApi = () =>
+  api.get<Responsibilities>("/sessions/responsibilities").then((r) => r.data)
+
+export const setResponsibilitiesApi = (text: string) =>
+  api.put<Responsibilities>("/sessions/responsibilities", { text }).then((r) => r.data)
+
+/** Ticked on the invite. A stale version is refused server-side. */
+export const acceptResponsibilitiesApi = ({ sessionId, version }: {
+  sessionId: string
+  version: string
+}) => api.post(`/sessions/${sessionId}/responsibilities/accept`, { version }).then((r) => r.data)

@@ -168,6 +168,8 @@ export type PaymentSessionRole = string
 
 export interface PaymentSession {
   id: string
+  /** I5-8: set when the line came from a real delivered session. */
+  session_id?: string | null
   session_date: string | null
   workshop_description: string
   role: string
@@ -195,6 +197,8 @@ export interface PaymentLetter {
   reference: string
   status: PaymentLetterStatus
   is_published: boolean
+  /** I5-7: whether signing generates certificates. */
+  issue_certificates?: boolean
   pdf_url: string | null
   signed_pdf_url: string | null
   admin_notes?: string | null

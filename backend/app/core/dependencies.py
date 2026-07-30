@@ -88,3 +88,9 @@ require_inventory_approval = RequireRole(["coo"])
 # check itself (for the non-ops case) happens in services/sessions/delivery.py,
 # not here — this dependency only gates "logged in as one of these roles".
 require_session_delivery = RequireRole(["instructor", "facilitator", "operations"])
+
+# I5-6 — teaching materials are maintained by ops, facilitators and admin
+# (operator, 2026-07-30). Facilitators are included because they are the ones
+# who actually write the material; plain instructors are not, so a session's
+# files can't be changed by whoever happens to be teaching it that day.
+require_materials_manager = RequireRole(["operations", "facilitator"])

@@ -26,7 +26,10 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.schemas.sessions.cohorts import SessionInstructorOut, SessionOut
+from app.services.sessions import openings as openings_svc
 from app.schemas.sessions.staffing import (
+    AddonSummary,
+    OpeningSummary,
     AvailableSessionOut,
     EligibleInstructorOut,
     InterestOut,
@@ -168,16 +171,44 @@ async def list_available_sessions(
     current_user: User = Depends(require_instructor_or_facilitator),
 ):
     rows = await staffing.list_available_sessions(db, current_user)
-    return [
-        AvailableSessionOut(
+    out = []
+    for s, c, p, count, interest in rows:
+        # I5-5: the invite carries the offer, not just the date and place.
+        openings = await openings_svc.openings_for_session(db, s.id)
+        addons = [
+            a for a in await openings_svc.addons_for_session(db, s.id)
+            if a["user_id"] is None and a["status"] == "agreed"
+        ]
+        out.append(AvailableSessionOut(
             session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,
             title=s.title,
             location=c.location, meeting_date=s.meeting_date, starts_at=s.starts_at,
             interested_count=count, my_interest=interest is not None,
             my_note=interest.note if interest else None,
-        )
-        for s, c, p, count, interest in rows
-    ]
+            program_type=p.program_type,
+            description=p.description,
+            location_map_url=c.location_map_url,
+            duration_hours=float(await openings_svc.resolve_duration(db, s) or 0) or None,
+            openings=[
+                OpeningSummary(
+                    role_id=o["role_id"], role_name=o["role_name"],
+                    slots=o["slots"], remaining=o["remaining"],
+                    amount_aed=float(o["amount_aed"]) if o["amount_aed"] is not None else None,
+                    notes=o["notes"],
+                )
+                for o in openings
+            ],
+            addons=[
+                AddonSummary(
+                    description=a["description"], amount_aed=float(a["amount_aed"]), notes=a["notes"]
+                )
+                for a in addons
+            ],
+            responsibilities_accepted=bool(
+                interest and interest.responsibilities_accepted_at is not None
+            ),
+        ))
+    return out
 
 
 @router.get("/mine", response_model=list[MySessionOut])

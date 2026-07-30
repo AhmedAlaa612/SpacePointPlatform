@@ -33,8 +33,11 @@ from app.schemas.instructors.payment import (
     PaymentLetterOut,
     PaymentSessionCreate,
     PaymentAddonUpdate,
+    PaymentLetterUpdate,
     PaymentSessionUpdate,
 )
+from app.schemas.sessions.journey import BillSessionsIn, UnbilledSessionOut
+from app.services.sessions.journey import unbilled_sessions
 from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.payment_letter import (
@@ -141,6 +144,83 @@ async def create_letter(
     db.add(letter)
     await db.commit()
     await db.refresh(letter)
+    return await _letter_with_children(db, letter)
+
+
+@router.patch("/letters/{letter_id}", response_model=PaymentLetterOut)
+async def update_letter(
+    letter_id: uuid.UUID, body: PaymentLetterUpdate,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin),
+):
+    """I5-7: the certificate checkbox, plus admin notes. Allowed on a signed
+    letter — unlike the line items, these change nothing the instructor put
+    their name to, and turning certificates off after the fact is exactly the
+    correction somebody will want."""
+    letter = (await db.execute(select(PaymentLetter).where(PaymentLetter.id == letter_id))).scalars().first()
+    if not letter:
+        raise HTTPException(status_code=404, detail="Letter not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(letter, field, value)
+    await db.commit()
+    return await _letter_with_children(db, letter)
+
+
+@router.get("/letters/{letter_id}/billable", response_model=list[UnbilledSessionOut])
+async def letter_billable_sessions(
+    letter_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin),
+):
+    """I5-8: completed sessions this instructor delivered that no payment line
+    covers yet."""
+    letter = (await db.execute(select(PaymentLetter).where(PaymentLetter.id == letter_id))).scalars().first()
+    if not letter:
+        raise HTTPException(status_code=404, detail="Letter not found")
+    return [UnbilledSessionOut(**r) for r in await unbilled_sessions(db, letter.instructor_user_id)]
+
+
+@router.post("/letters/{letter_id}/bill-sessions", response_model=PaymentLetterOut, status_code=201)
+async def bill_sessions(
+    letter_id: uuid.UUID, body: BillSessionsIn,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin),
+):
+    """I5-8: turn chosen completed sessions into payment lines, prefilled with
+    date, description, location, role and duration from real data.
+
+    The amount is **not** filled in — it stays 0 for ops to type. Everything
+    else on the line is a fact the system knows; the money is a decision, and
+    a plausible-looking number nobody chose is how a wrong figure reaches a
+    signature.
+    """
+    letter = (await db.execute(select(PaymentLetter).where(PaymentLetter.id == letter_id))).scalars().first()
+    if not letter:
+        raise HTTPException(status_code=404, detail="Letter not found")
+    _refuse_if_signed(letter)
+
+    available = {r["session_id"]: r for r in await unbilled_sessions(db, letter.instructor_user_id)}
+    highest = (await db.execute(
+        select(func.max(PaymentSession.sort_order)).where(PaymentSession.payment_letter_id == letter_id)
+    )).scalar() or 0
+
+    for offset, session_id in enumerate(body.session_ids, start=1):
+        row = available.get(session_id)
+        if row is None:
+            # Either not theirs, not finished, or already on a letter — all
+            # three mean the same thing to the caller and naming which would
+            # leak who else has been paid for it.
+            raise HTTPException(status_code=409, detail="That session isn't available to bill")
+        db.add(PaymentSession(
+            payment_letter_id=letter_id,
+            session_id=row["session_id"],
+            session_date=row["session_date"],
+            workshop_description=row["workshop_description"],
+            role=row["role"],
+            location=row["location"],
+            duration_hours=row["duration_hours"],
+            compensation_aed=0,
+            sort_order=highest + offset,
+        ))
+
+    await db.commit()
     return await _letter_with_children(db, letter)
 
 

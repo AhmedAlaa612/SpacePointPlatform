@@ -1,7 +1,8 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Calendar, MapPin, Users } from "lucide-react"
+import { Calendar, Clock, ExternalLink, MapPin, Users } from "lucide-react"
 import { listAvailableSessionsApi, registerInterestApi, withdrawInterestApi } from "@/api/sessions/staffing"
+import { acceptResponsibilitiesApi, getResponsibilitiesApi } from "@/api/sessions/openings"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
@@ -12,10 +13,30 @@ export default function AvailableSessions() {
   const [notes, setNotes] = useState<Record<string, string>>({})
 
   const sessions = useQuery({ queryKey: ["staffing-available-sessions"], queryFn: listAvailableSessionsApi })
+  // I5-5: shown with every invite, ticked before registering interest.
+  const { data: responsibilities } = useQuery({
+    queryKey: ["responsibilities"], queryFn: getResponsibilitiesApi,
+  })
+  const [agreed, setAgreed] = useState<Record<string, boolean>>({})
+  const [error, setError] = useState("")
+
+  const accept = useMutation({ mutationFn: acceptResponsibilitiesApi })
 
   const register = useMutation({
-    mutationFn: (sessionId: string) => registerInterestApi(sessionId, notes[sessionId]),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["staffing-available-sessions"] }),
+    mutationFn: async (sessionId: string) => {
+      await registerInterestApi(sessionId, notes[sessionId])
+      // Recorded against the version that was on screen — the server refuses
+      // a stale one rather than accepting agreement to unread wording.
+      if (responsibilities?.text) {
+        await accept.mutateAsync({ sessionId, version: responsibilities.version })
+      }
+    },
+    onSuccess: () => {
+      setError("")
+      qc.invalidateQueries({ queryKey: ["staffing-available-sessions"] })
+    },
+    onError: (e: any) =>
+      setError(e?.response?.data?.detail ?? "Could not register your interest"),
   })
   const withdraw = useMutation({
     mutationFn: (sessionId: string) => withdrawInterestApi(sessionId),
@@ -59,9 +80,51 @@ export default function AvailableSessions() {
                       {s.starts_at ? ` · ${s.starts_at.slice(0, 5)}` : ""}
                     </span>
                     {s.location && (
-                      <span className="flex items-center gap-1.5"><MapPin size={14} /> {s.location}</span>
+                      <span className="flex items-center gap-1.5">
+                        <MapPin size={14} /> {s.location}
+                        {s.location_map_url && (
+                          <a href={s.location_map_url} target="_blank" rel="noreferrer"
+                             className="inline-flex items-center gap-0.5 text-primary hover:underline">
+                            map <ExternalLink size={11} />
+                          </a>
+                        )}
+                      </span>
+                    )}
+                    {s.duration_hours != null && (
+                      <span className="flex items-center gap-1.5"><Clock size={14} /> {s.duration_hours}h</span>
                     )}
                   </div>
+
+                  {s.description && (
+                    <p className="text-sm text-muted-foreground mb-3 whitespace-pre-line">{s.description}</p>
+                  )}
+
+                  {/* I5-5: the offer itself — per role, with what is left. */}
+                  {s.openings.length > 0 && (
+                    <div className="mb-3 flex flex-col gap-1">
+                      {s.openings.map((o) => (
+                        <div key={o.role_id} className="flex items-center justify-between gap-3 text-sm">
+                          <span className="text-foreground">
+                            {o.role_name}
+                            <span className="text-xs text-muted-foreground">
+                              {" "}&middot; {o.remaining > 0 ? `${o.remaining} of ${o.slots} left` : "full \u2014 waitlist"}
+                            </span>
+                          </span>
+                          {o.amount_aed != null && (
+                            <span className="text-sm font-semibold tabular-nums">
+                              AED {o.amount_aed.toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                      {s.addons.map((a, i) => (
+                        <div key={i} className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                          <span>+ {a.description}</span>
+                          <span className="tabular-nums">AED {a.amount_aed.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {s.my_interest ? (
                     <div className="flex items-center gap-3">
@@ -71,16 +134,43 @@ export default function AvailableSessions() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="flex flex-col sm:flex-row gap-2">
-                      <input
-                        className="input flex-1"
-                        placeholder="Optional note to ops (why you'd like this one)…"
-                        value={notes[s.session_id] ?? ""}
-                        onChange={(e) => setNotes({ ...notes, [s.session_id]: e.target.value })}
-                      />
-                      <Button size="sm" disabled={pending} onClick={() => register.mutate(s.session_id)}>
-                        {pending ? "Registering…" : "Register interest"}
-                      </Button>
+                    <div className="flex flex-col gap-2">
+                      {responsibilities?.text && (
+                        <div className="rounded-xl border border-border bg-background/50 p-3 flex flex-col gap-2">
+                          <p className="text-xs font-semibold text-foreground">Responsibilities</p>
+                          <p className="text-xs text-muted-foreground whitespace-pre-line max-h-32 overflow-y-auto">
+                            {responsibilities.text}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {responsibilities.payment_terms_note}
+                          </p>
+                          <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={agreed[s.session_id] ?? false}
+                              onChange={(e) => setAgreed({ ...agreed, [s.session_id]: e.target.checked })}
+                              className="rounded text-primary focus:ring-primary border-border bg-background"
+                            />
+                            I have read and agree to these
+                          </label>
+                        </div>
+                      )}
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          className="input flex-1"
+                          placeholder="Optional note to ops (why you'd like this one)…"
+                          value={notes[s.session_id] ?? ""}
+                          onChange={(e) => setNotes({ ...notes, [s.session_id]: e.target.value })}
+                        />
+                        <Button
+                          size="sm"
+                          disabled={pending || (!!responsibilities?.text && !agreed[s.session_id])}
+                          onClick={() => { setError(""); register.mutate(s.session_id) }}
+                        >
+                          {pending ? "Registering…" : "Register interest"}
+                        </Button>
+                      </div>
+                      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
                     </div>
                   )}
                 </CardContent>

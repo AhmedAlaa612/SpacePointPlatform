@@ -103,6 +103,7 @@ const ICONS: Record<string, LucideIcon> = {
   Kits: Boxes,
   Stock: LayoutList,
   Fulfilment: Wrench,
+  "Delivery Settings": SettingsIcon,
   Catalogue: ClipboardList,
 };
 
@@ -158,6 +159,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Merge Reviews", "/operations/merge-reviews"),
       mk("Check-in", "/operations/checkin"),
       mk("Sessions Calendar", "/operations/calendar"),
+      mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
       mk("Profile & Settings", "/operations/profile"),
       // I0-1: an admin who walks into /operations otherwise has no way back —
@@ -338,6 +340,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Merge Reviews", "/operations/merge-reviews"),
       mk("Check-in", "/operations/checkin"),
       mk("Sessions Calendar", "/operations/calendar"),
+      mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
       mk("Profile & Settings", "/operations/profile"),
     ];

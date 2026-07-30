@@ -67,6 +67,34 @@ class AvailableSessionOut(BaseModel):
     my_interest: bool
     my_note: str | None = None
 
+    # I5-5 — everything below is what an instructor needs to decide, and none
+    # of it reached them before: they got a cohort name, a date and a place.
+    program_type: str | None = None
+    description: str | None = None
+    location_map_url: str | None = None
+    duration_hours: float | None = None
+    # Per role: what is on offer, how many slots, how many are left.
+    openings: list["OpeningSummary"] = []
+    # Add-ons attached to the offer (not yet to a person).
+    addons: list["AddonSummary"] = []
+    # Whether this person has already ticked read-and-agree for this session.
+    responsibilities_accepted: bool = False
+
+
+class OpeningSummary(BaseModel):
+    role_id: UUID
+    role_name: str
+    slots: int
+    remaining: int
+    amount_aed: float | None = None
+    notes: str | None = None
+
+
+class AddonSummary(BaseModel):
+    description: str
+    amount_aed: float
+    notes: str | None = None
+
 
 class MySessionOut(BaseModel):
     """S4-3 "My sessions" instructor page — one session this user is assigned to."""

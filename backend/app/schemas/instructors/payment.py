@@ -8,6 +8,9 @@ from app.models.enums import PaymentLetterStatus
 
 class PaymentSessionOut(BaseModel):
     id: UUID
+    # I5-8: set when this line came from a real delivered session. Its
+    # presence is what stops that session being billed twice.
+    session_id: Optional[UUID] = None
     session_date: Optional[str] = None
     workshop_description: str
     # I5-3: the role *name* as a plain string, snapshotted on the document.
@@ -45,6 +48,8 @@ class PaymentLetterOut(BaseModel):
     reference: str
     status: PaymentLetterStatus
     is_published: bool
+    # I5-7: whether signing generates workshop-delivery certificates.
+    issue_certificates: bool = True
     pdf_url: Optional[str] = None
     signed_pdf_url: Optional[str] = None
     admin_notes: Optional[str] = None
@@ -61,6 +66,13 @@ class PaymentSummaryOut(BaseModel):
 
 class SignLetterRequest(BaseModel):
     signature: str  # data:image/png;base64,...
+
+
+class PaymentLetterUpdate(BaseModel):
+    """I5-7 — the certificate checkbox at payment prep."""
+
+    issue_certificates: Optional[bool] = None
+    admin_notes: Optional[str] = None
 
 
 class PaymentLetterCreate(BaseModel):

@@ -3,6 +3,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.opening import SessionAddon, SessionOpening
+from app.models.sessions.material import Material
 from app.models.sessions.import_batch import ImportBatch
 from app.models.sessions.registration import Registration, RegistrationSession
 from app.models.sessions.attendance import AttendanceRecord
@@ -18,6 +19,7 @@ __all__ = [
     "DeliveryRole",
     "SessionOpening",
     "SessionAddon",
+    "Material",
     "ImportBatch",
     "Registration",
     "RegistrationSession",

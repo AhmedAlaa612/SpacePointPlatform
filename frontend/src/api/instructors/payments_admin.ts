@@ -111,3 +111,35 @@ export const deleteCertificateApi = (id: string) =>
 
 export const emailCertificateApi = (id: string) =>
   api.post<{ status: string; to: string }>(`/instructors/admin/payments/certificates/${id}/email`).then((r) => r.data)
+
+/* ── I5-7 / I5-8 ───────────────────────────────────────────────────────── */
+
+export interface UnbilledSession {
+  session_id: string
+  session_date: string
+  workshop_description: string
+  role: string
+  location: string | null
+  duration_hours: number | null
+  cohort_name: string | null
+}
+
+/** The certificate checkbox, plus admin notes. Allowed on a signed letter —
+ *  neither changes what the instructor put their name to. */
+export const updateLetterApi = ({ id, ...body }: {
+  id: string
+  issue_certificates?: boolean
+  admin_notes?: string | null
+}) => api.patch<PaymentLetter>(`/instructors/admin/payments/letters/${id}`, body).then((r) => r.data)
+
+export const getBillableSessionsApi = (letterId: string) =>
+  api.get<UnbilledSession[]>(`/instructors/admin/payments/letters/${letterId}/billable`)
+    .then((r) => r.data)
+
+/** Prefills date, description, location, role and duration from real data.
+ *  The amount stays 0 — that's a decision, not a fact. */
+export const billSessionsApi = ({ letterId, sessionIds }: {
+  letterId: string
+  sessionIds: string[]
+}) => api.post<PaymentLetter>(`/instructors/admin/payments/letters/${letterId}/bill-sessions`,
+  { session_ids: sessionIds }).then((r) => r.data)

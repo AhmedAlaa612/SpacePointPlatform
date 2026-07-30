@@ -93,6 +93,7 @@ import InventoryKitDetail from "@/pages/operations/inventory/KitDetail";
 import InventoryStock from "@/pages/operations/inventory/Stock";
 import InventoryCatalog from "@/pages/operations/inventory/Catalog";
 import InventoryFulfilment from "@/pages/operations/inventory/Fulfilment";
+import DeliverySettings from "@/pages/operations/DeliverySettings";
 
 // Unified apply flow
 import ApplyFlow from "@/pages/apply/ApplyFlow";
@@ -636,6 +637,7 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/inventory/stock", component: InventoryStock }),
   createRoute({ getParentRoute: po, path: "/inventory/catalog", component: InventoryCatalog }),
   createRoute({ getParentRoute: po, path: "/inventory/fulfilment", component: InventoryFulfilment }),
+  createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),
 ];
 
 // Apply routes — all use shared ApplyFlow (instructor uses InstructorApply for its own pipeline)

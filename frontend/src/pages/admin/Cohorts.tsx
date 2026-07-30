@@ -10,6 +10,8 @@ import type { User } from "@/types/shared"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { getUsersApi } from "@/api/admin/users"
 import { SessionKitAssignment } from "@/pages/admin/components/SessionKitAssignment"
+import { SessionOpeningsPanel } from "@/pages/admin/components/SessionOpeningsPanel"
+import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import {
   getCohortsApi, createCohortApi, updateCohortApi,
   generateSessionsApi, getSessionsApi, addSessionApi, updateSessionApi,
@@ -1169,6 +1171,18 @@ function SessionDetailModal({ cohort, session, onClose, onChanged }: {
               Assign as {deliveryRoles.find((r) => r.id === assignRoleId)?.name ?? "…"}
             </button>
           </div>
+        </div>
+
+        {/* I5-4 / §G-addons: what the session is offering, per role. */}
+        <SessionOpeningsPanel sessionId={session.id} />
+
+        {/* I5-6: session-level materials override the cohort's, which override
+            the program's. */}
+        <div className="rounded-2xl border border-border bg-card p-4">
+          <MaterialsPanel
+            owner={{ session_id: session.id }}
+            inheritedNote="Leave empty to use the cohort's (or the program's)."
+          />
         </div>
 
         <SessionAttendanceRosterSection sessionId={session.id} />

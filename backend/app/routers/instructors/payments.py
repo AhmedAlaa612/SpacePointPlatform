@@ -150,7 +150,10 @@ async def sign_letter(
         select(DocumentTemplate).where(DocumentTemplate.key == "workshop_delivery")
     )).scalars().first()
     cert_pdfs = []
-    for s in sessions:
+    # I5-7: certificates are opt-out, set at letter-prep and honoured here.
+    # Defaults true, so a letter created before this flag existed behaves as
+    # it always did.
+    for s in (sessions if letter.issue_certificates else []):
         body = (wd_template.body_text if wd_template else "") \
             .replace("{name}", escape(current_user.full_name)) \
             .replace("{workshop_name}", escape(s.workshop_description or "")) \

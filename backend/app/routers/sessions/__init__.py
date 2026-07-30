@@ -10,6 +10,7 @@ from app.routers.sessions.public import router as public_router
 from app.routers.sessions.staffing import router as staffing_router
 from app.routers.sessions.dashboard import router as dashboard_router
 from app.routers.sessions.openings import router as openings_router
+from app.routers.sessions.journey import router as journey_router
 
 # Aggregate all sessions sub-routers under a single router main.py mounts.
 # Every sub-router already carries its own prefix (public="/public", the rest
@@ -20,6 +21,10 @@ router.include_router(public_router)
 # `/sessions/addons/...` are literal paths that a `{session_id}` route would
 # otherwise try to parse as a UUID and reject with a 422.
 router.include_router(openings_router)
+# Same reason as above: /sessions/materials, /sessions/responsibilities and
+# /sessions/billable are literal paths that a {session_id} route would try to
+# parse as a UUID.
+router.include_router(journey_router)
 router.include_router(programs_router)
 router.include_router(cohorts_router)
 router.include_router(checkin_router)

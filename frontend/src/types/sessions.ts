@@ -128,6 +128,23 @@ export interface AvailableSession {
   interested_count: number;
   my_interest: boolean;
   my_note?: string | null;
+
+  /** I5-5 — what an instructor needs to decide. None of this reached them
+   *  before: they got a cohort name, a date and a place. */
+  program_type?: string | null;
+  description?: string | null;
+  location_map_url?: string | null;
+  duration_hours?: number | null;
+  openings: {
+    role_id: string;
+    role_name: string;
+    slots: number;
+    remaining: number;
+    amount_aed?: number | null;
+    notes?: string | null;
+  }[];
+  addons: { description: string; amount_aed: number; notes?: string | null }[];
+  responsibilities_accepted: boolean;
 }
 
 /** S4-3 "My sessions" instructor page — one session this user is assigned to. */

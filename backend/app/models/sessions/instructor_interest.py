@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -28,4 +28,10 @@ class InstructorInterest(Base):
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     note = Column(Text, nullable=True)
+    # I5-5. "I have read and agree to the responsibilities." The text itself
+    # is versioned in `portal_settings` (key `instructor.responsibilities`);
+    # this records *when* they agreed and to *which* version, so a later edit
+    # to the text cannot retroactively change what someone accepted.
+    responsibilities_accepted_at = Column(DateTime(timezone=True), nullable=True)
+    responsibilities_version = Column(String(32), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
