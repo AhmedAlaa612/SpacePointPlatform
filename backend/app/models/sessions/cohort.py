@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -24,6 +24,8 @@ class Cohort(Base):
     ends_on = Column(Date, nullable=True)
     location = Column(String(128), nullable=True)
     capacity = Column(Integer, nullable=True)
+    # I5-2. NULL = inherit from the program. See Program.duration_hours.
+    duration_hours = Column(Numeric(5, 2), nullable=True)
     lead_instructor_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     # planned|registration_open|running|completed|cancelled

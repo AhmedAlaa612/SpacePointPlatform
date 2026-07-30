@@ -21,6 +21,10 @@ class Program(Base):
     program_type = Column(String(24), nullable=False)  # workshop|course|session
     description = Column(Text, nullable=True)
     price = Column(Numeric(10, 2), nullable=True)
+    # I5-2. Same three-level fallback shape as `price`: set here, overridable
+    # on the cohort, overridable again on the session. The payment line
+    # prefills from whatever the chain resolves to.
+    duration_hours = Column(Numeric(5, 2), nullable=True)
     pricing_model = Column(String(24), nullable=False)  # paid|free
     default_capacity = Column(Integer, nullable=True)
     active = Column(Boolean, nullable=False, default=True)
