@@ -2,10 +2,11 @@ import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Download, Plus, Trash2 } from "lucide-react"
 import {
-  addAddonApi, addSessionApi, bulkImportConfirmApi, bulkImportPreviewApi, createBatchApi, createLetterApi,
+  bulkImportConfirmApi, bulkImportPreviewApi, createBatchApi, createLetterApi,
   deleteBatchApi, deleteLetterApi, downloadBulkImportTemplateApi, generateLetterPdfApi, listAdminLettersApi,
   listBatchesApi, markPaidApi, paymentsInstructorDropdownApi, publishLetterApi,
 } from "@/api/instructors/payments_admin"
+import { PaymentLetterTable } from "@/pages/instructors/admin/components/PaymentLetterTable"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -89,23 +90,6 @@ export default function InstructorsAdminPayments() {
   const [manageLetterId, setManageLetterId] = useState<string | null>(null)
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const manageLetter = (letters ?? []).find((l) => l.id === manageLetterId) ?? null
-  const [sessionForm, setSessionForm] = useState({ workshop_description: "", role: "Facilitator" as const, compensation_aed: 0 })
-  const [addonForm, setAddonForm] = useState({ description: "", amount_aed: 0 })
-
-  const addSession = useMutation({
-    mutationFn: () => addSessionApi(manageLetterId!, sessionForm),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-payment-letters"] })
-      setSessionForm({ workshop_description: "", role: "Facilitator", compensation_aed: 0 })
-    },
-  })
-  const addAddon = useMutation({
-    mutationFn: () => addAddonApi(manageLetterId!, addonForm),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin-payment-letters"] })
-      setAddonForm({ description: "", amount_aed: 0 })
-    },
-  })
 
   if (isLoading) return <Spinner />
 
@@ -304,48 +288,15 @@ export default function InstructorsAdminPayments() {
         <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />
       )}
 
+      {/* Wider than the default sm:max-w-sm — six editable columns don't fit
+          in a small dialog, and the table is the point of this screen. */}
       <Dialog open={!!manageLetterId} onOpenChange={(open) => !open && setManageLetterId(null)}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-4xl">
           <DialogHeader><DialogTitle>{manageLetter?.instructor_name} — {manageLetter?.reference}</DialogTitle></DialogHeader>
-          {manageLetter && (
-            <div className="space-y-4">
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground mb-2">Sessions</p>
-                <div className="space-y-1 mb-2">
-                  {manageLetter.sessions.map((s) => (
-                    <p key={s.id} className="text-sm">{s.workshop_description} — {s.role} — AED {s.compensation_aed}</p>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex-1"><input className="input" placeholder="Workshop description" value={sessionForm.workshop_description}
-                    onChange={(e) => setSessionForm({ ...sessionForm, workshop_description: e.target.value })} /></div>
-                  <div className="w-24"><input className="input" type="number" placeholder="AED" value={sessionForm.compensation_aed}
-                    onChange={(e) => setSessionForm({ ...sessionForm, compensation_aed: Number(e.target.value) })} /></div>
-                  <Button size="sm" onClick={() => addSession.mutate()} disabled={!sessionForm.workshop_description || addSession.isPending}>
-                    <Plus size={14} />
-                  </Button>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs font-semibold text-muted-foreground mb-2">Add-ons</p>
-                <div className="space-y-1 mb-2">
-                  {manageLetter.addons.map((a) => (
-                    <p key={a.id} className="text-sm">{a.description} — AED {a.amount_aed}</p>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex-1"><input className="input" placeholder="Description" value={addonForm.description}
-                    onChange={(e) => setAddonForm({ ...addonForm, description: e.target.value })} /></div>
-                  <div className="w-24"><input className="input" type="number" placeholder="AED" value={addonForm.amount_aed}
-                    onChange={(e) => setAddonForm({ ...addonForm, amount_aed: Number(e.target.value) })} /></div>
-                  <Button size="sm" onClick={() => addAddon.mutate()} disabled={!addonForm.description || addAddon.isPending}>
-                    <Plus size={14} />
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
+          {/* I5-1: every column the document prints, editable. This used to be
+              a read-only paragraph plus a three-field add form, which is why
+              the letter was finished by hand in Word. */}
+          {manageLetter && <PaymentLetterTable letter={manageLetter} />}
         </DialogContent>
       </Dialog>
     </div>

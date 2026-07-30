@@ -32,6 +32,8 @@ from app.schemas.instructors.payment import (
     PaymentLetterCreate,
     PaymentLetterOut,
     PaymentSessionCreate,
+    PaymentAddonUpdate,
+    PaymentSessionUpdate,
 )
 from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
@@ -163,6 +165,64 @@ async def add_session(
     if not letter:
         raise HTTPException(status_code=404, detail="Letter not found")
     db.add(PaymentSession(payment_letter_id=letter_id, **body.model_dump()))
+    await db.commit()
+    return await _letter_with_children(db, letter)
+
+
+def _refuse_if_signed(letter: PaymentLetter) -> None:
+    """A signed letter is what the instructor put their name to.
+
+    Editing a line afterwards would leave the stored signed PDF saying one
+    thing and the table another, and the table is what a regenerated document
+    and the workshop-delivery certificates are built from. Correcting a signed
+    letter is a new letter, not an edit.
+    """
+    if letter.status == PaymentLetterStatus.signed:
+        raise HTTPException(
+            status_code=409,
+            detail="This letter is signed — issue a corrected letter rather than editing it",
+        )
+
+
+@router.patch("/sessions/{session_id}", response_model=PaymentLetterOut)
+async def update_session(
+    session_id: uuid.UUID, body: PaymentSessionUpdate,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin),
+):
+    """Edit one row of the letter's table (I5-1).
+
+    Partial: `exclude_unset` means an omitted field is left alone while an
+    explicit null clears it, so the table can save a single cell.
+    """
+    row = (await db.execute(select(PaymentSession).where(PaymentSession.id == session_id))).scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Session not found")
+    letter = (await db.execute(
+        select(PaymentLetter).where(PaymentLetter.id == row.payment_letter_id)
+    )).scalars().first()
+    _refuse_if_signed(letter)
+
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(row, field, value)
+    await db.commit()
+    return await _letter_with_children(db, letter)
+
+
+@router.patch("/addons/{addon_id}", response_model=PaymentLetterOut)
+async def update_addon(
+    addon_id: uuid.UUID, body: PaymentAddonUpdate,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin),
+):
+    row = (await db.execute(select(PaymentAddon).where(PaymentAddon.id == addon_id))).scalars().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Add-on not found")
+    letter = (await db.execute(
+        select(PaymentLetter).where(PaymentLetter.id == row.payment_letter_id)
+    )).scalars().first()
+    _refuse_if_signed(letter)
+
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(row, field, value)
     await db.commit()
     return await _letter_with_children(db, letter)
 

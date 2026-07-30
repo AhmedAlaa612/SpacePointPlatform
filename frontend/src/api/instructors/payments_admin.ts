@@ -46,10 +46,22 @@ export const addSessionApi = (letterId: string, data: {
   location?: string; duration_hours?: number; compensation_aed: number
 }) => api.post<PaymentLetter>(`/instructors/admin/payments/letters/${letterId}/sessions`, data).then((r) => r.data)
 
+/** Partial (I5-1): omitted fields are left alone, so the table can save one
+ *  cell. Refused with 409 once the letter is signed. */
+export const updateSessionApi = (sessionId: string, data: {
+  workshop_description?: string; role?: PaymentSessionRole; session_date?: string | null
+  location?: string | null; duration_hours?: number | null; compensation_aed?: number
+  sort_order?: number
+}) => api.patch<PaymentLetter>(`/instructors/admin/payments/sessions/${sessionId}`, data).then((r) => r.data)
+
 export const deleteSessionApi = (sessionId: string) => api.delete(`/instructors/admin/payments/sessions/${sessionId}`).then((r) => r.data)
 
 export const addAddonApi = (letterId: string, data: { description: string; amount_aed: number; notes?: string }) =>
   api.post<PaymentLetter>(`/instructors/admin/payments/letters/${letterId}/addons`, data).then((r) => r.data)
+
+export const updateAddonApi = (addonId: string, data: {
+  description?: string; amount_aed?: number; notes?: string | null; sort_order?: number
+}) => api.patch<PaymentLetter>(`/instructors/admin/payments/addons/${addonId}`, data).then((r) => r.data)
 
 export const deleteAddonApi = (addonId: string) => api.delete(`/instructors/admin/payments/addons/${addonId}`).then((r) => r.data)
 

@@ -14,6 +14,9 @@ class PaymentSessionOut(BaseModel):
     location: Optional[str] = None
     duration_hours: Optional[float] = None
     compensation_aed: float
+    # I5-1: exposed so the editable table can render rows in the order the
+    # document prints them, and reorder without inventing its own.
+    sort_order: int = 1
 
     class Config:
         from_attributes = True
@@ -24,6 +27,7 @@ class PaymentAddonOut(BaseModel):
     description: str
     amount_aed: float
     notes: Optional[str] = None
+    sort_order: int = 1
 
     class Config:
         from_attributes = True
@@ -70,12 +74,38 @@ class PaymentSessionCreate(BaseModel):
     location: Optional[str] = None
     duration_hours: Optional[float] = None
     compensation_aed: float = 0
+    sort_order: int = 1
 
 
 class PaymentAddonCreate(BaseModel):
     description: str
     amount_aed: float = 0
     notes: Optional[str] = None
+    sort_order: int = 1
+
+
+# I5-1. The model always carried every column the document prints; only the
+# *add* form ever set three of them, and existing rows were read-only — which
+# is why the finished letter was being hand-fixed in Word every time. These
+# are partial: every field optional, unset fields left alone, so the table can
+# save one cell without resubmitting the row.
+
+
+class PaymentSessionUpdate(BaseModel):
+    session_date: Optional[str] = None
+    workshop_description: Optional[str] = None
+    role: Optional[PaymentSessionRole] = None
+    location: Optional[str] = None
+    duration_hours: Optional[float] = None
+    compensation_aed: Optional[float] = None
+    sort_order: Optional[int] = None
+
+
+class PaymentAddonUpdate(BaseModel):
+    description: Optional[str] = None
+    amount_aed: Optional[float] = None
+    notes: Optional[str] = None
+    sort_order: Optional[int] = None
 
 
 class PaymentBatchCreate(BaseModel):

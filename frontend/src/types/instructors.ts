@@ -172,6 +172,8 @@ export interface PaymentSession {
   location: string | null
   duration_hours: number | null
   compensation_aed: number
+  /** The order the document prints these in (I5-1). */
+  sort_order: number
 }
 
 export interface PaymentAddon {
@@ -179,6 +181,7 @@ export interface PaymentAddon {
   description: string
   amount_aed: number
   notes: string | null
+  sort_order: number
 }
 
 export interface PaymentLetter {
