@@ -1,10 +1,22 @@
 """Stock levels, stock movements and the movement ledger (I1-3).
 
-Reads are `require_operations`. The three *writes* here — moving stock,
-adjusting a count, confirming a movement — are `require_storekeeper`, which
-admits `storekeeper` **or** `operations`. That is the whole shape of the
-storekeeper role: they can do these and nothing else, because every other
-inventory endpoint is `require_operations` and that guard does not list them.
+The writes here — moving stock, adjusting a count, confirming a movement —
+are `require_storekeeper`, which admits `storekeeper` **or** `operations`.
+
+**`GET /stock` and `GET /overdue` are `require_storekeeper` too** (fixed
+2026-07-30). They were `require_operations`, which meant the storekeeper's
+own landing page — the only page in their two-item sidebar — returned 403 for
+every call it made and rendered "nothing on the shelves yet" no matter what
+was on them. The role was unusable in practice from I1-4 until this was
+caught in the browser.
+
+`GET /movements` stays `require_operations`: the full ledger is an audit
+surface, and nothing a storekeeper does needs it.
+
+The shape of the role is what they *cannot* reach — kits, the catalogue,
+session assignments — and that is enforced by `require_operations` simply not
+listing them, pinned by
+`test_a_storekeeper_cannot_touch_the_catalogue_or_the_kits`.
 """
 
 import uuid
@@ -37,7 +49,7 @@ async def list_stock(
     location_id: uuid.UUID | None = None,
     item_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     stmt = (
         select(StockLevel, Item, Location)
@@ -158,7 +170,7 @@ async def confirm_movement(
 async def list_overdue(
     as_of: date | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     """Issued to a person, past its due date, not yet returned. Nothing
     without a deadline ever appears — otherwise the list becomes noise and

@@ -5,6 +5,12 @@ matching routers/sessions/programs.py. Everything here is `require_operations`
 (admin passes automatically): the storekeeper restocks, they don't redefine
 what a kit is.
 
+**One exception: `GET /locations` is `require_storekeeper`.** Naming a
+warehouse is a precondition of every job a storekeeper has — recording a
+count, fulfilling a kit, receiving goods — so withholding the list of
+warehouses made all three unusable while leaving the writes correctly shut.
+Creating and editing locations remain `require_operations`.
+
 No `/api` prefix — nginx strips it before the app sees the request.
 """
 
@@ -14,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_operations
+from app.core.dependencies import require_operations, require_storekeeper
 from app.db.session import get_db
 from app.models.inventory.item import Item
 from app.models.inventory.kit import Kit, KitItem
@@ -46,7 +52,11 @@ router = APIRouter(prefix="/inventory", tags=["inventory-catalog"])
 async def list_locations(
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    # Read-only, and `require_storekeeper` admits storekeeper *or* operations.
+    # Every write below stays `require_operations`. A storekeeper cannot record
+    # a count, fulfil a kit or receive goods without naming a warehouse, so
+    # withholding the *list* of warehouses made all three unusable.
+    _: User = Depends(require_storekeeper),
 ):
     stmt = select(Location).order_by(Location.country, Location.name)
     if not include_inactive:
