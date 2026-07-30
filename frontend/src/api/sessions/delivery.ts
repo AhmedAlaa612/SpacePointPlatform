@@ -13,6 +13,11 @@ export const startSessionApi = (sessionId: string) =>
 export const markSessionDoneApi = (sessionId: string) =>
   api.post<SessionDelivery>(`/sessions/${sessionId}/delivery/done`).then((r) => r.data)
 
+/** The session's comment box. Sends the whole text — it is one text area,
+ *  not a log. An empty string clears it. */
+export const updateSessionNotesApi = (sessionId: string, notes: string) =>
+  api.put<SessionDelivery>(`/sessions/${sessionId}/delivery/notes`, { notes }).then((r) => r.data)
+
 export const markAttendanceApi = (sessionId: string, registrationId: string, attStatus: AttendanceStatus) =>
   api.put<AttendanceResult>(`/sessions/${sessionId}/delivery/attendance/${registrationId}`, { att_status: attStatus }).then((r) => r.data)
 

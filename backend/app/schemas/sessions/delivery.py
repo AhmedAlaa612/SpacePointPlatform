@@ -46,8 +46,16 @@ class SessionDeliveryOut(BaseModel):
     material_url: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    notes: str | None = None
     roster: list[RosterEntryOut]
     reports: list[SessionReportOut] = []
+
+
+class UpdateSessionNotesRequest(BaseModel):
+    """The whole comment box, not a diff — it is one text area, so the client
+    sends what is now in it. Empty string clears it."""
+
+    notes: str | None = None
 
 
 class MarkAttendanceRequest(BaseModel):

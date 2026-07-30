@@ -215,7 +215,7 @@ export default function SessionDetail() {
 
       {/* I2-7: non-kit equipment. Unlike the kits panel this shows even when
           nothing has been taken — taking something is the action offered. */}
-      <SessionEquipmentPanel sessionId={sessionId} onChanged={invalidate} />
+      <SessionEquipmentPanel sessionId={sessionId} notes={s.notes} onChanged={invalidate} />
 
       {scannerOpen && (
         <Card>

@@ -202,6 +202,8 @@ export interface SessionDelivery {
   material_url?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
+  /** Free-text comment box on the session. One editable blob, not a log. */
+  notes?: string | null;
   roster: RosterEntry[];
   reports: SessionReport[];
 }

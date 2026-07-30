@@ -28,6 +28,13 @@ class Session(Base):
     title = Column(String(256), nullable=True)
     material_url = Column(Text, nullable=True)
     price = Column(Numeric(10, 2), nullable=True)
+    # Free-text comments from whoever delivered the session (I2-7, operator
+    # 2026-07-30). Deliberately one editable blob rather than a comment log:
+    # the ask was "a simple comments text area", and the job it has to do is
+    # give an instructor somewhere to put a fact the system can't model yet —
+    # "took a speaker that isn't in the list" — instead of silently dropping
+    # it. Ops reads it on the session; nothing notifies them (operator's call).
+    notes = Column(Text, nullable=True)
     # unstaffed|open_call|staffed — the staffing marketplace pipeline (W4).
     # Lives on Session, not Cohort (moved 2026-07-24): assignment is per-
     # session, so the open-call/interest/select state has to be too, or a

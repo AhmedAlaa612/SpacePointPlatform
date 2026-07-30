@@ -9,6 +9,7 @@ import {
   takeEquipmentApi,
   type EquipmentSearchResult,
 } from "@/api/inventory"
+import { updateSessionNotesApi } from "@/api/sessions/delivery"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Modal, Field, ModalActions } from "@/pages/admin/components/common"
@@ -36,9 +37,11 @@ import { Modal, Field, ModalActions } from "@/pages/admin/components/common"
  */
 export function SessionEquipmentPanel({
   sessionId,
+  notes,
   onChanged,
 }: {
   sessionId: string
+  notes: string | null | undefined
   onChanged: () => void
 }) {
   const qc = useQueryClient()
@@ -114,6 +117,8 @@ export function SessionEquipmentPanel({
             </Button>
           )}
         </div>
+
+        <SessionNotes sessionId={sessionId} notes={notes} onSaved={onChanged} />
       </CardContent>
 
       {adding && (
@@ -136,6 +141,69 @@ export function SessionEquipmentPanel({
         />
       )}
     </Card>
+  )
+}
+
+/**
+ * The catch-all comment box (operator, 2026-07-30).
+ *
+ * Its immediate job is to absorb what the rest of this panel cannot model:
+ * equipment search can only offer what `stock_levels` knows about, so until
+ * ops has entered the co-working stock, "I took a speaker that isn't in the
+ * list" has nowhere to go. Without this the fact is just lost — and a system
+ * that silently drops what people tell it is how the last one ended up with
+ * four empty tables.
+ *
+ * One text area, saved on blur. Deliberately not a comment log: the ask was
+ * for something simple, and the known cost — a lead and a co-instructor
+ * saving at the same moment overwrite each other — was accepted for that
+ * simplicity. Saving on blur rather than per keystroke is the only mitigation
+ * that costs nothing.
+ */
+function SessionNotes({ sessionId, notes, onSaved }: {
+  sessionId: string
+  notes: string | null | undefined
+  onSaved: () => void
+}) {
+  const [error, setError] = useState("")
+  const [saved, setSaved] = useState(false)
+
+  const save = useMutation({
+    mutationFn: (text: string) => updateSessionNotesApi(sessionId, text),
+    onSuccess: () => {
+      setError("")
+      setSaved(true)
+      onSaved()
+    },
+    onError: (e: any) =>
+      setError(e?.response?.data?.detail ?? "Could not save that note"),
+  })
+
+  return (
+    <div className="flex flex-col gap-1 border-t border-border pt-3">
+      <label htmlFor={`notes-${sessionId}`} className="text-xs font-medium text-foreground">
+        Comments
+      </label>
+      <textarea
+        id={`notes-${sessionId}`}
+        defaultValue={notes ?? ""}
+        rows={3}
+        placeholder="Anything worth noting — including things you took that aren't in the list yet."
+        onFocus={() => setSaved(false)}
+        onBlur={(e) => {
+          if (e.target.value !== (notes ?? "")) save.mutate(e.target.value)
+        }}
+        className="w-full px-3 py-2 border border-border bg-background text-foreground rounded-xl text-sm resize-y"
+      />
+      <p className="text-xs text-muted-foreground">
+        {save.isPending
+          ? "Saving…"
+          : saved
+            ? "Saved — operations will see this on the session."
+            : "Operations reads this on the session."}
+      </p>
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
   )
 }
 

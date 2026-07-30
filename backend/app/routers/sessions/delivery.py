@@ -23,6 +23,7 @@ from app.schemas.sessions.delivery import (
     RosterEntryOut,
     ScanAttendanceRequest,
     SessionDeliveryOut,
+    UpdateSessionNotesRequest,
 )
 from app.schemas.sessions.reports import SessionReportOut
 from app.services.sessions import delivery
@@ -52,6 +53,7 @@ async def _session_delivery_out(db: AsyncSession, session_id: uuid.UUID, user: U
         id=session.id, cohort_id=cohort.id, cohort_name=cohort.name, program_name=program.name,
         location=cohort.location, meeting_date=session.meeting_date, starts_at=session.starts_at,
         title=session.title, material_url=session.material_url, started_at=session.started_at, completed_at=session.completed_at,
+        notes=session.notes,
         roster=[
             RosterEntryOut(
                 registration_id=reg.id, contact_id=contact.id, student_name=contact.full_name,
@@ -106,6 +108,32 @@ async def mark_session_done(
     current_user: User = Depends(require_session_delivery),
 ):
     await delivery.mark_done(db, session_id, current_user)
+    await db.commit()
+    return await _session_delivery_out(db, session_id, current_user)
+
+
+@router.put("/{session_id}/delivery/notes", response_model=SessionDeliveryOut)
+async def update_session_notes(
+    session_id: uuid.UUID,
+    body: UpdateSessionNotesRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_session_delivery),
+):
+    """The session's comment box.
+
+    Its immediate job is to catch what the rest of the system cannot model
+    yet: equipment pickup can only offer what `stock_levels` knows about, so
+    an instructor who took something the register has never heard of needs
+    somewhere to say so rather than losing the fact.
+
+    Goes through `_get_deliverable_session`, so an instructor can only write
+    on a session they are actually teaching and an unrelated one is a 404.
+    Stays writable after the session is marked done — a note remembered on
+    the drive home is exactly the note worth keeping.
+    """
+    session = await delivery._get_deliverable_session(db, session_id, current_user)
+    notes = (body.notes or "").strip()
+    session.notes = notes or None
     await db.commit()
     return await _session_delivery_out(db, session_id, current_user)
 
