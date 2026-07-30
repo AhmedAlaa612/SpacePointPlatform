@@ -206,6 +206,67 @@ export const returnSessionKitsApi = ({ sessionId, toLocationId }: {
   to_location_id: toLocationId,
 }).then((r) => r.data)
 
+/* ── equipment pickup (I2-7) ───────────────────────────────────────────── */
+
+export interface EquipmentSearchResult {
+  item_id: string
+  item_name: string
+  category: string
+  available: number
+  returnable: boolean
+}
+
+export interface TakenEquipment {
+  item_id: string
+  item_name: string
+  qty_taken: number
+  qty_returned: number
+  outstanding: number
+  returnable: boolean
+}
+
+export interface SessionEquipment {
+  /** Derived from the assigned kits — ops moves them to the session's
+   *  warehouse first, so that is where the instructor collects. Null when
+   *  there is nothing to derive from, which is the only time the UI asks. */
+  location_id: string | null
+  location_name: string | null
+  lines: TakenEquipment[]
+  outstanding_count: number
+}
+
+export const getSessionEquipmentApi = (sessionId: string) =>
+  api.get<SessionEquipment>(`/inventory/sessions/${sessionId}/equipment`).then((r) => r.data)
+
+/** Returns nothing for a query under two characters — the section starts
+ *  empty by design, never as a rendered list of the location's shelf. */
+export const searchEquipmentApi = ({ sessionId, q, locationId }: {
+  sessionId: string
+  q: string
+  locationId?: string | null
+}) => api.get<EquipmentSearchResult[]>(`/inventory/sessions/${sessionId}/equipment/search`, {
+  params: { q, ...(locationId ? { location_id: locationId } : {}) },
+}).then((r) => r.data)
+
+export const takeEquipmentApi = ({ sessionId, lines, locationId, note }: {
+  sessionId: string
+  lines: { item_id: string; qty: number }[]
+  locationId?: string | null
+  note?: string | null
+}) => api.post<Movement[]>(`/inventory/sessions/${sessionId}/equipment/take`, {
+  lines, location_id: locationId ?? null, note: note ?? null,
+}).then((r) => r.data)
+
+/** Lines left out stay outstanding — that is how "returning later" is
+ *  recorded, because it is what actually happened. */
+export const returnEquipmentApi = ({ sessionId, lines, toLocationId }: {
+  sessionId: string
+  lines: { item_id: string; qty: number }[]
+  toLocationId?: string | null
+}) => api.post<Movement[]>(`/inventory/sessions/${sessionId}/equipment/return`, {
+  lines, to_location_id: toLocationId ?? null,
+}).then((r) => r.data)
+
 /* ── instructor-facing ─────────────────────────────────────────────────── */
 
 export const getMyKitsApi = () =>

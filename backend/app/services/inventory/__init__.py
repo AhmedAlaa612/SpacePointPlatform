@@ -28,6 +28,13 @@ from app.services.inventory.custody import (
     return_session_kits,
     unconfirmed_handovers,
 )
+from app.services.inventory.equipment import (
+    pickup_location,
+    return_equipment,
+    search_equipment,
+    session_equipment,
+    take_equipment,
+)
 from app.services.inventory.movements import MOVEMENT_REASONS, confirm, move, overdue
 from app.services.inventory.stock import adjust_stock
 
@@ -57,4 +64,10 @@ __all__ = [
     "return_merch",
     "held_by_user",
     "unconfirmed_handovers",
+    # equipment pickup (I2-7)
+    "pickup_location",
+    "search_equipment",
+    "take_equipment",
+    "session_equipment",
+    "return_equipment",
 ]

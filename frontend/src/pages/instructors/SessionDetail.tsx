@@ -27,6 +27,7 @@ const SCAN_FEEDBACK_MS = 2000
 const SAME_TICKET_COOLDOWN_MS = 10000
 
 import { SessionKitsPanel } from "@/pages/instructors/components/SessionKitsPanel"
+import { SessionEquipmentPanel } from "@/pages/instructors/components/SessionEquipmentPanel"
 
 export default function SessionDetail() {
   const { sessionId } = useParams({ strict: false }) as { sessionId: string }
@@ -211,6 +212,10 @@ export default function SessionDetail() {
       {/* I2-2: renders nothing when no kits are assigned, which is most
           sessions — they must look exactly as they did before. */}
       <SessionKitsPanel sessionId={sessionId} isStarted={!!s.started_at} onChanged={invalidate} />
+
+      {/* I2-7: non-kit equipment. Unlike the kits panel this shows even when
+          nothing has been taken — taking something is the action offered. */}
+      <SessionEquipmentPanel sessionId={sessionId} onChanged={invalidate} />
 
       {scannerOpen && (
         <Card>
