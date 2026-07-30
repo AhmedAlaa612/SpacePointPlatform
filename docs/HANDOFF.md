@@ -3,7 +3,7 @@
 **Entry point for anyone (human or agent) picking up this codebase.** This file is a *map*:
 where everything is and what it does. Depth lives in the per-domain files linked below.
 
-**Last verified against the code: 2026-07-28.**
+**Last verified against the code: 2026-07-30.**
 
 ---
 
@@ -12,10 +12,10 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `e6b2d84a0017` — single Alembic head. Production is still on `b3e8a41d0014` until the next deploy |
+| **Schema head** | `f7c3e95b0018` — single Alembic head. Production is still on `b3e8a41d0014` until the next deploy |
 | **Branch** | `main` = production. `v2-dev` tracks it |
 | **What's live** | Registration, bulk import, check-in, staffing marketplace, instructor delivery, attendance, certificates, calendar, ops dashboard — plus the pre-existing interns / ambassadors / instructors domains |
-| **Tests** | ~330, `pytest` from `backend/` |
+| **Tests** | 494 collected, `pytest` from `backend/`. Five need a live Redis and error without one — everything else is broker-free |
 | **In flight** | Inventory (see `INVENTORY_EXECUTION_PLAN.md` in the planning repo) |
 
 ## 2. Read next
@@ -100,7 +100,7 @@ app sees the request.
 | `/interns/*` · `/ambassadors/*` · `/instructors/*` | the three original domains |
 | `/sessions/*` | programs, cohorts, registrations, staffing, delivery, check-in, calendar, dashboard, imports |
 | `/spine/*` | contacts, merge reviews |
-| `/inventory/*` | locations, item catalogue, kit templates, kits, stock, movements, `/my-kits` |
+| `/inventory/*` | locations, item catalogue, kit templates, kits, stock, movements, `/my-kits`, the session loop (`/sessions/{id}/kits`, checks, custody) and equipment pickup (`/sessions/{id}/equipment`) |
 | `/public/*` | registration form, catalog, ticket — **no auth** |
 | `/apply/*` · `/files/*` · `/documents/*` · `/notifications/*` | shared |
 | `/health`, `/health/worker` | liveness + ARQ heartbeat |
@@ -144,7 +144,7 @@ Alembic is the source of truth for the exact schema — this is orientation, not
 | **Shared** | `users`, `notifications`, `documents`, `document_requests`, `document_templates`, `certificates`, `applications`, `application_questions`, `id_cards`, `portal_settings` |
 | **Spine** | `contacts`, `contact_relationships`, `organizations`, `identity_aliases`, `merge_reviews`, `touchpoints`, `contact_role_events`, `consent_records` *(schema only — nothing writes to it)* |
 | **Sessions** | `programs`, `cohorts`, `sessions`, `session_instructors`, `session_call_targets`, `registrations`, `registration_sessions`, `attendance_records`, `instructor_interests`, `session_reports`, `import_batches`, `activities` / `activity_versions` / `activity_assignments` *(quiz — schema only until W13–14)* |
-| **Inventory** | `locations`, `items`, `kit_templates`, `kit_template_items`, `kits`, `kit_items`, `stock_levels`, `movements`. Backend is live (I1-1…I1-3); **no UI yet** (I1-4). `movements` is the single ledger every physical thing passes through — issue, return, transfer, refill, receive, write-off, adjust — and either side of it can be a location, a person or a kit. Custody keys on `users`, so nothing here touches `MERGE_FK_REGISTRY` |
+| **Inventory** | `locations`, `items`, `kit_templates`, `kit_template_items`, `kits`, `kit_items`, `stock_levels`, `movements`, plus `session_kits` / `kit_checks` (I2-1/I2-2). Backend and UI are both built through Phase 2 — including non-kit **equipment pickup** (I2-7), which adds **no tables**: it is a form over `items` + `stock_levels` + `movements`, and its collection point is *derived* from the assigned kits' location rather than stored. `movements` is the single ledger every physical thing passes through — issue, return, transfer, refill, receive, write-off, adjust — and either side of it can be a location, a person or a kit. Custody keys on `users`, so nothing here touches `MERGE_FK_REGISTRY` |
 | **Instructors** | `applicant_profiles`, `application_reviews`, `video_submissions`, `checklist_*`, `module_submissions`, `presentation_submissions`, `assessment_submissions`, `invitation_codes`, `instructor_profiles`, `instructor_documents`, `training_*`, `library_*`, `payment_batches`, `payment_letters`, `payment_sessions`, `payment_addons`, `instructor_bank_details` |
 | **Interns** | `projects`, `teams`, `epics`, `modules`, `tasks`, `task_submissions`, `proposals`, `mind_map_layouts` + join tables |
 | **Ambassadors** | `leads`, `lead_comments`, `points_transactions`, `titles`, `badge_definitions`, `achievements`, `teacher_sessions`, `ambassador_tasks`, `materials`, `system_settings` |
@@ -158,7 +158,7 @@ Alembic is the source of truth for the exact schema — this is orientation, not
 ## 8. Conventions that will bite you
 
 Every one of these has already caused a real bug. Fuller accounts in
-`MASTER_EXECUTION_PLAN_V2.md` §DISCOVERIES.
+`MASTER_EXECUTION_PLAN_V2.md` §DISCOVERIES and `INVENTORY_EXECUTION_PLAN.md` §DISCOVERIES.
 
 1. **No `/api` prefix anywhere.** Spec text that writes `/api/...` is wrong about this codebase.
 2. **`admin` passes every role guard.** Never add a per-route admin bypass.
@@ -197,7 +197,14 @@ Every one of these has already caused a real bug. Fuller accounts in
     test a DB-side `ON DELETE SET NULL`: Postgres nulls the FK, not the ORM, so the cached object
     is stale — but reading an expired attribute triggers a sync lazy-load outside the greenlet.
     Use `await db.refresh(obj)` to re-read after the database has changed a row underneath you.
-14. **`create_notification` takes `type=`, not `notif_type=`.** Easy to get wrong from memory,
+14. **Test-file basenames must be unique across the whole suite.** `tests/` has no
+    `__init__.py`, so two files called `test_equipment.py` in different directories abort
+    collection with "import file mismatch" — not one failure, the *entire run*. Name the
+    router-level one `test_<thing>_routes.py` (precedent: `test_custody_and_public.py`).
+15. **`DialogContent` defaults to `sm:max-w-sm`.** Anything wider than a short form — a table,
+    a multi-column editor — needs an explicit `className="sm:max-w-4xl"` or it renders in a
+    box the content cannot fit. Pair it with an `overflow-x-auto` wrapper on the table itself.
+16. **`create_notification` takes `type=`, not `notif_type=`.** Easy to get wrong from memory,
     and in a cron job the resulting `TypeError` is invisible for weeks. Check service signatures
     rather than assuming them.
 
