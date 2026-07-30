@@ -35,6 +35,11 @@ from app.services.inventory.equipment import (
     session_equipment,
     take_equipment,
 )
+from app.services.inventory.fulfilment import (
+    fulfil_kit,
+    fulfilment_queue,
+    set_awaiting_parts,
+)
 from app.services.inventory.movements import MOVEMENT_REASONS, confirm, move, overdue
 from app.services.inventory.stock import adjust_stock
 
@@ -70,4 +75,8 @@ __all__ = [
     "take_equipment",
     "session_equipment",
     "return_equipment",
+    # storekeeper fulfilment (I3-1)
+    "fulfilment_queue",
+    "fulfil_kit",
+    "set_awaiting_parts",
 ]

@@ -206,6 +206,57 @@ export const returnSessionKitsApi = ({ sessionId, toLocationId }: {
   to_location_id: toLocationId,
 }).then((r) => r.data)
 
+/* ── storekeeper fulfilment (I3-1) ─────────────────────────────────────── */
+
+export interface FulfilmentShortage {
+  item_id: string
+  item_name: string
+  required: number
+  actual: number
+  short_by: number
+  /** On the shelf at this kit's own location — what makes the queue
+   *  actionable rather than merely informative. */
+  available: number
+}
+
+export interface FulfilmentKit {
+  kit_id: string
+  label: string
+  template_name: string
+  status: string
+  location_id: string
+  location_name: string
+  out_with_someone: boolean
+  /** Set = someone looked and the shelf was empty. Null = nobody has been to
+   *  it yet. That difference is the only thing this queue stores. */
+  awaiting_parts_since: string | null
+  awaiting_parts_note: string | null
+  shortages: FulfilmentShortage[]
+  fixable_now: number
+}
+
+export const getFulfilmentQueueApi = (locationId?: string) =>
+  api.get<FulfilmentKit[]>("/inventory/fulfilment", {
+    params: locationId ? { location_id: locationId } : {},
+  }).then((r) => r.data)
+
+/** `fromLocationId` omitted means the kit's own shelf. */
+export const fulfilKitApi = ({ kitId, lines, fromLocationId }: {
+  kitId: string
+  lines: { item_id: string; qty: number }[]
+  fromLocationId?: string | null
+}) => api.post<Movement[]>(`/inventory/fulfilment/${kitId}/fulfil`, {
+  lines, from_location_id: fromLocationId ?? null,
+}).then((r) => r.data)
+
+export const setAwaitingPartsApi = ({ kitId, awaiting, note }: {
+  kitId: string
+  awaiting: boolean
+  note?: string | null
+}) => api.put<FulfilmentKit>(`/inventory/fulfilment/${kitId}/awaiting`, {
+  awaiting, note: note ?? null,
+}).then((r) => r.data)
+
 /* ── equipment pickup (I2-7) ───────────────────────────────────────────── */
 
 export interface EquipmentSearchResult {

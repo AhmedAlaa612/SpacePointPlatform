@@ -33,6 +33,7 @@ import {
   Video,
   Wallet,
   Warehouse,
+  Wrench,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -101,6 +102,7 @@ const ICONS: Record<string, LucideIcon> = {
   "Admin Hub": UserCog,
   Kits: Boxes,
   Stock: LayoutList,
+  Fulfilment: Wrench,
   Catalogue: ClipboardList,
 };
 
@@ -108,6 +110,7 @@ const ICONS: Record<string, LucideIcon> = {
 const INVENTORY_NAV = [
   ["Kits", "/operations/inventory"],
   ["Stock", "/operations/inventory/stock"],
+  ["Fulfilment", "/operations/inventory/fulfilment"],
   ["Catalogue", "/operations/inventory/catalog"],
 ] as const;
 
@@ -135,6 +138,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     if (activeRole === "storekeeper") {
       return [
         mk("Stock", "/operations/inventory/stock"),
+        mk("Fulfilment", "/operations/inventory/fulfilment"),
         mk("Profile & Settings", "/operations/profile"),
       ];
     }
@@ -341,6 +345,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   if (activeRole === "storekeeper") {
     return [
       mk("Stock", "/operations/inventory/stock"),
+      mk("Fulfilment", "/operations/inventory/fulfilment"),
       mk("Profile & Settings", "/operations/profile"),
     ];
   }

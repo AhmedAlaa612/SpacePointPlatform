@@ -59,6 +59,20 @@ class Kit(Base):
         nullable=True, index=True,
     )
 
+    # I3-1. "The storekeeper looked, and the shelf was empty." Deliberately
+    # NOT a fulfilment-task table: the task *is* the shortage, which is
+    # computed, and fulfilling one makes it disappear on its own. The only
+    # thing that cannot be derived is this judgment — stock can be replenished
+    # tomorrow, so an empty shelf today is not the same fact as someone having
+    # checked. §5 collapsed four legacy tables into the movement ledger for
+    # exactly this reason; a task table would have been the fifth.
+    #
+    # A timestamp rather than a boolean, because "waiting three weeks" is the
+    # part worth seeing. When procurement lands (I4-*), this column is the
+    # purchase trigger rather than a dead end.
+    awaiting_parts_since = Column(DateTime(timezone=True), nullable=True)
+    awaiting_parts_note = Column(Text, nullable=True)
+
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 

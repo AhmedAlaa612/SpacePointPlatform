@@ -12,10 +12,10 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `a8d4f16c0019` — single Alembic head. Production is still on `b3e8a41d0014` until the next deploy |
+| **Schema head** | `b1f6a38d0020` — single Alembic head. Production is still on `b3e8a41d0014` until the next deploy |
 | **Branch** | `main` = production. `v2-dev` tracks it |
 | **What's live** | Registration, bulk import, check-in, staffing marketplace, instructor delivery, attendance, certificates, calendar, ops dashboard — plus the pre-existing interns / ambassadors / instructors domains |
-| **Tests** | 509 collected, `pytest` from `backend/`. Five need a live Redis and error without one — everything else is broker-free |
+| **Tests** | 532 collected, `pytest` from `backend/`. Five need a live Redis and error without one — everything else is broker-free |
 | **In flight** | Inventory (see `INVENTORY_EXECUTION_PLAN.md` in the planning repo) |
 
 ## 2. Read next
@@ -100,7 +100,7 @@ app sees the request.
 | `/interns/*` · `/ambassadors/*` · `/instructors/*` | the three original domains |
 | `/sessions/*` | programs, cohorts, registrations, staffing, delivery, check-in, calendar, dashboard, imports |
 | `/spine/*` | contacts, merge reviews |
-| `/inventory/*` | locations, item catalogue, kit templates, kits, stock, movements, `/my-kits`, the session loop (`/sessions/{id}/kits`, checks, custody) and equipment pickup (`/sessions/{id}/equipment`) |
+| `/inventory/*` | locations, item catalogue, kit templates, kits, stock, movements, `/my-kits`, the session loop (`/sessions/{id}/kits`, checks, custody), equipment pickup (`/sessions/{id}/equipment`) and the storekeeper queue (`/fulfilment`) |
 | `/public/*` | registration form, catalog, ticket — **no auth** |
 | `/apply/*` · `/files/*` · `/documents/*` · `/notifications/*` | shared |
 | `/health`, `/health/worker` | liveness + ARQ heartbeat |
@@ -108,7 +108,7 @@ app sees the request.
 **Frontend** domains — each has its own sidebar in `Sidebar.tsx::getNavItems`:
 `/interns` · `/ambassadors` · `/instructors` · `/admin` (platform management) ·
 `/operations` (running the business: programs, cohorts, contacts, check-in, calendar, and
-`/operations/inventory/*` for kits, stock and the catalogue).
+`/operations/inventory/*` for kits, stock, fulfilment and the catalogue).
 Public, no auth: `/login`, `/apply/*`, `/t/{ticketToken}`.
 
 ---
@@ -127,7 +127,7 @@ the array.
 | `admin` | all | **Passes every `RequireRole` check unconditionally** |
 | `operations` | `/operations` | Runs the business — programs, cohorts, registrations, contacts, check-in, calendar |
 | `coo` | `/operations/inventory` | Approves inventory purchases and cross-border transfers. **Not** an ops account: `require_operations` rejects it |
-| `storekeeper` | `/operations/inventory/stock` | Restocks kits, receives goods, records stock movements. **Deliberately narrow** — no session assignments, no kit create/edit/delete. Enforced by `require_operations` not listing it, and its sidebar is two items because everything else would 403 |
+| `storekeeper` | `/operations/inventory/stock` · `/fulfilment` | Restocks kits, receives goods, records stock movements, works the fulfilment queue. **Deliberately narrow** — no session assignments, no kit create/edit/delete, no catalogue, no full ledger. Enforced by `require_operations` not listing it. Its sidebar is three items because everything else would 403 — but the reads those three pages need (`/inventory/stock`, `/overdue`, `/locations`, `/fulfilment`) are `require_storekeeper`. Getting that wrong made the role unusable for two days without erroring |
 | `instructor` / `facilitator` | `/instructors` | Delivery: their assigned sessions, attendance, reports |
 | `applicant` | `/instructors` | Pre-approval pipeline; gets a minimal shell, no sidebar |
 | `intern` / `leader` | `/interns` | |
@@ -204,7 +204,12 @@ Every one of these has already caused a real bug. Fuller accounts in
 15. **`DialogContent` defaults to `sm:max-w-sm`.** Anything wider than a short form — a table,
     a multi-column editor — needs an explicit `className="sm:max-w-4xl"` or it renders in a
     box the content cannot fit. Pair it with an `overflow-x-auto` wrapper on the table itself.
-16. **`create_notification` takes `type=`, not `notif_type=`.** Easy to get wrong from memory,
+16. **Walk a role's pages *as that role*, never as admin.** `admin` passes every `RequireRole`
+    check, so an admin walkthrough proves a page renders — not that its owner can reach it.
+    The `storekeeper` role shipped with all three of its landing page's API calls returning
+    403; the page showed an ordinary empty state, so nothing looked broken. Caught only by
+    logging in as one.
+17. **`create_notification` takes `type=`, not `notif_type=`.** Easy to get wrong from memory,
     and in a cron job the resulting `TypeError` is invisible for weeks. Check service signatures
     rather than assuming them.
 
