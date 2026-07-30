@@ -17,6 +17,17 @@ from app.models.sessions.session import Session, SessionInstructor
 from app.services.sessions import reports as reports_service
 
 
+async def _role_id(db, name: str = "Lead Facilitator"):
+    """I5-3: roles are rows now. The three are seeded by migration
+    `c2a7b49e0022`, so tests look them up rather than inventing their own."""
+    from sqlalchemy import select
+
+    from app.models.sessions.delivery_role import DeliveryRole
+
+    return await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == name))
+
+
+
 @pytest.fixture(autouse=True)
 def _stub_storage(monkeypatch):
     async def _fake_upload(bucket, path, data, content_type):
@@ -93,7 +104,7 @@ async def test_unassigned_instructor_cannot_upload(db, client, instructor_header
 @pytest.mark.asyncio
 async def test_assigned_instructor_can_upload_with_notes(db, client, instructor_headers, instructor_user):
     cohort, session = await _make_cohort_with_session(db)
-    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor_user.id, role="lead"))
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor_user.id, role_id=await _role_id(db)))
     await db.flush()
 
     resp = await client.post(

@@ -38,7 +38,7 @@ class EligibleInstructorOut(BaseModel):
 
 class SelectInstructorsRequest(BaseModel):
     user_ids: list[UUID]
-    role: Literal["lead", "co"] = "lead"
+    role_id: UUID | None = None
     # False keeps the session at open_call so more instructors can still
     # register interest while ops picks people one at a time.
     close_call: bool = True
@@ -78,7 +78,7 @@ class MySessionOut(BaseModel):
     location: str | None = None
     meeting_date: date
     starts_at: time | None = None
-    my_role: Literal["lead", "co"]
+    my_role: str
     staffing_status: StaffingStatus
     started_at: datetime | None = None
     completed_at: datetime | None = None

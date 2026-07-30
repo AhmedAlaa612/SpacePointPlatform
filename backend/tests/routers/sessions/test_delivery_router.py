@@ -21,6 +21,17 @@ from app.services.sessions.registration import register
 from app.models.spine.contact import Contact
 
 
+async def _role_id(db, name: str = "Lead Facilitator"):
+    """I5-3: roles are rows now. The three are seeded by migration
+    `c2a7b49e0022`, so tests look them up rather than inventing their own."""
+    from sqlalchemy import select
+
+    from app.models.sessions.delivery_role import DeliveryRole
+
+    return await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == name))
+
+
+
 @pytest.fixture
 async def client(db):
     async def _override_get_db():
@@ -65,7 +76,7 @@ async def _make_registration(db, cohort: Cohort, *, name: str = "Router Test Stu
 
 
 async def _assign(db, session: Session, user_id):
-    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=user_id, role="lead"))
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=user_id, role_id=await _role_id(db)))
     await db.flush()
 
 

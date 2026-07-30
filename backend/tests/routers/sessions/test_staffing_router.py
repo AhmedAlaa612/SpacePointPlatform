@@ -26,6 +26,17 @@ from app.models.sessions.session import Session, SessionInstructor
 from app.workers.settings import get_arq_redis
 
 
+async def _role_id(db, name: str = "Lead Facilitator"):
+    """I5-3: roles are rows now. The three are seeded by migration
+    `c2a7b49e0022`, so tests look them up rather than inventing their own."""
+    from sqlalchemy import select
+
+    from app.models.sessions.delivery_role import DeliveryRole
+
+    return await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == name))
+
+
+
 # `client` (Redis-free) and `arq_client` (real ARQ pool) live in
 # tests/conftest.py. The local copy that used to be here bound *every* test in
 # this file to a live Redis, including ones that never enqueue anything (I0-1b).
@@ -212,7 +223,7 @@ async def test_my_sessions_shows_only_assigned(db, client, operations_headers, i
 @pytest.mark.asyncio
 async def test_reopen_after_staffed_then_removal_notifies(db, client, operations_headers, instructor_user):
     cohort, session = await _make_cohort_with_session(db, staffing_status="staffed")
-    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor_user.id, role="lead"))
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor_user.id, role_id=await _role_id(db)))
     await db.flush()
 
     resp = await client.delete(f"/sessions/cohorts/{cohort.id}/sessions/{session.id}/instructors/{instructor_user.id}", headers=operations_headers)

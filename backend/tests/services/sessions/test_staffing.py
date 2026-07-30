@@ -21,6 +21,17 @@ from app.models.user import User
 from app.services.sessions import staffing
 
 
+async def _role_id(db, name: str = "Lead Facilitator"):
+    """I5-3: roles are rows now. The three are seeded by migration
+    `c2a7b49e0022`, so tests look them up rather than inventing their own."""
+    from sqlalchemy import select
+
+    from app.models.sessions.delivery_role import DeliveryRole
+
+    return await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == name))
+
+
+
 async def _make_cohort_with_session(db, **session_overrides) -> tuple[Cohort, Session]:
     program = Program(
         id=uuid.uuid4(), code=f"STAFF-{uuid.uuid4().hex[:8]}", name="Staffing Test Program",
@@ -95,7 +106,7 @@ async def test_reopen_from_unstaffed_rejected(db):
 async def test_reopen_keeps_existing_assignments(db):
     _, session = await _make_cohort_with_session(db, staffing_status="staffed")
     instructor = await _make_user(db, ["instructor"])
-    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor.id, role="lead"))
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor.id, role_id=await _role_id(db)))
     await db.flush()
 
     await staffing.reopen(db, session.id)
@@ -186,7 +197,7 @@ async def test_select_instructors_writes_assignment_and_flips_to_staffed(db):
     instructor = await _make_user(db, ["instructor"])
     await staffing.register_interest(db, session.id, instructor)
 
-    assignments, without_interest = await staffing.select_instructors(db, session.id, [instructor.id], "lead")
+    assignments, without_interest = await staffing.select_instructors(db, session.id, [instructor.id], await _role_id(db))
 
     assert len(assignments) == 1
     assert without_interest == []
@@ -202,7 +213,7 @@ async def test_select_instructors_supports_multiple_with_select_all(db):
     await staffing.register_interest(db, session.id, a)
     await staffing.register_interest(db, session.id, b)
 
-    assignments, without_interest = await staffing.select_instructors(db, session.id, [a.id, b.id], "co")
+    assignments, without_interest = await staffing.select_instructors(db, session.id, [a.id, b.id], await _role_id(db, "Facilitator"))
 
     assert len(assignments) == 2
     assert without_interest == []
@@ -215,7 +226,7 @@ async def test_select_instructor_without_interest_allowed_but_flagged(db):
     _, session = await _make_cohort_with_session(db, staffing_status="open_call")
     never_interested = await _make_user(db, ["instructor"])
 
-    assignments, without_interest = await staffing.select_instructors(db, session.id, [never_interested.id], "lead")
+    assignments, without_interest = await staffing.select_instructors(db, session.id, [never_interested.id], await _role_id(db))
 
     assert len(assignments) == 1
     assert without_interest == [never_interested.id]
@@ -225,7 +236,7 @@ async def test_select_instructor_without_interest_allowed_but_flagged(db):
 async def test_select_instructors_requires_at_least_one(db):
     _, session = await _make_cohort_with_session(db, staffing_status="open_call")
     with pytest.raises(HTTPException) as exc:
-        await staffing.select_instructors(db, session.id, [], "lead")
+        await staffing.select_instructors(db, session.id, [], await _role_id(db))
     assert exc.value.status_code == 400
 
 
@@ -239,7 +250,7 @@ async def test_select_instructors_writes_touchpoint_when_contact_linked(db):
     _, session = await _make_cohort_with_session(db, staffing_status="open_call")
     instructor = await _make_user(db, ["instructor"], contact_id=contact.id)
 
-    await staffing.select_instructors(db, session.id, [instructor.id], "lead")
+    await staffing.select_instructors(db, session.id, [instructor.id], await _role_id(db))
 
     touchpoint = (await db.execute(
         select(Touchpoint).where(Touchpoint.contact_id == contact.id, Touchpoint.touchpoint_type == "staffing")
@@ -256,7 +267,7 @@ async def test_select_instructors_no_touchpoint_when_user_not_linked_to_a_contac
     instructor = await _make_user(db, ["instructor"])  # contact_id left None
     assert instructor.contact_id is None
 
-    assignments, _ = await staffing.select_instructors(db, session.id, [instructor.id], "lead")
+    assignments, _ = await staffing.select_instructors(db, session.id, [instructor.id], await _role_id(db))
     assert len(assignments) == 1  # didn't raise
 
 
@@ -264,7 +275,7 @@ async def test_select_instructors_no_touchpoint_when_user_not_linked_to_a_contac
 async def test_remove_instructor_deletes_assignment(db):
     _, session = await _make_cohort_with_session(db, staffing_status="staffed")
     instructor = await _make_user(db, ["instructor"])
-    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor.id, role="lead"))
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor.id, role_id=await _role_id(db)))
     await db.flush()
 
     await staffing.remove_instructor(db, session.id, instructor.id)
@@ -319,7 +330,7 @@ async def test_list_my_sessions_only_shows_assigned(db):
     _, assigned_session = await _make_cohort_with_session(db, staffing_status="staffed")
     _, other_session = await _make_cohort_with_session(db, staffing_status="staffed")
     instructor = await _make_user(db, ["instructor"])
-    db.add(SessionInstructor(id=uuid.uuid4(), session_id=assigned_session.id, user_id=instructor.id, role="co"))
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=assigned_session.id, user_id=instructor.id, role_id=await _role_id(db, "Facilitator")))
     await db.flush()
 
     rows = await staffing.list_my_sessions(db, instructor)
@@ -327,7 +338,7 @@ async def test_list_my_sessions_only_shows_assigned(db):
     assert len(rows) == 1
     s, _, _, role = rows[0]
     assert s.id == assigned_session.id
-    assert role == "co"
+    assert role == "Facilitator"
     assert other_session.id not in {r[0].id for r in rows}
 
 
@@ -342,7 +353,7 @@ async def test_select_instructors_can_keep_the_call_open(db):
     instructor = await _make_user(db, ["instructor"])
     await staffing.open_call(db, session.id)
 
-    await staffing.select_instructors(db, session.id, [instructor.id], "lead", close_call=False)
+    await staffing.select_instructors(db, session.id, [instructor.id], await _role_id(db), close_call=False)
 
     assert session.staffing_status == "open_call"
     assigned = (await db.execute(
@@ -357,7 +368,7 @@ async def test_select_instructors_closes_the_call_by_default(db):
     instructor = await _make_user(db, ["instructor"])
     await staffing.open_call(db, session.id)
 
-    await staffing.select_instructors(db, session.id, [instructor.id], "lead")
+    await staffing.select_instructors(db, session.id, [instructor.id], await _role_id(db))
 
     assert session.staffing_status == "staffed"
 
@@ -414,7 +425,7 @@ async def test_reopen_keeps_the_original_targets(db):
     picked = await _make_user(db, ["instructor"])
     other = await _make_user(db, ["instructor"])
     await staffing.open_call(db, session.id, target_user_ids=[picked.id])
-    await staffing.select_instructors(db, session.id, [picked.id], "lead")
+    await staffing.select_instructors(db, session.id, [picked.id], await _role_id(db))
 
     await staffing.reopen(db, session.id)
 
@@ -428,7 +439,7 @@ async def test_reopen_can_widen_the_call_to_everyone(db):
     picked = await _make_user(db, ["instructor"])
     other = await _make_user(db, ["instructor"])
     await staffing.open_call(db, session.id, target_user_ids=[picked.id])
-    await staffing.select_instructors(db, session.id, [picked.id], "lead")
+    await staffing.select_instructors(db, session.id, [picked.id], await _role_id(db))
 
     await staffing.reopen(db, session.id, target_user_ids=[])
 

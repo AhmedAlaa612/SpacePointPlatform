@@ -24,11 +24,22 @@ from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.services.inventory import assign_kits, issue_merch, record_check
 from app.workers.tasks.inventory import (
+
     OVERDUE_TYPE,
     UNCOUNTED_TYPE,
     _remind_overdue,
     _remind_uncounted,
 )
+
+async def _role_id(db, name: str = "Lead Facilitator"):
+    """I5-3: roles are rows now. The three are seeded by migration
+    `c2a7b49e0022`, so tests look them up rather than inventing their own."""
+    from sqlalchemy import select
+
+    from app.models.sessions.delivery_role import DeliveryRole
+
+    return await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == name))
+
 
 
 async def _user(db, *roles: str) -> User:
@@ -55,7 +66,7 @@ async def _session_with_kit(db, lead: User, *, meeting_date: date) -> tuple[Sess
     session = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=meeting_date)
     db.add(session)
     await db.flush()
-    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=lead.id, role="lead"))
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=lead.id, role_id=await _role_id(db)))
 
     loc = Location(id=uuid.uuid4(), name="Dubai", country="AE")
     tpl = KitTemplate(id=uuid.uuid4(), name="SatKit", code=f"T{uuid.uuid4().hex[:5]}")
@@ -147,7 +158,7 @@ async def test_a_session_with_no_kits_is_never_nudged(db):
     )
     db.add(session)
     await db.flush()
-    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=lead.id, role="lead"))
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=lead.id, role_id=await _role_id(db)))
     await db.flush()
 
     assert await _remind_uncounted(db) == 0

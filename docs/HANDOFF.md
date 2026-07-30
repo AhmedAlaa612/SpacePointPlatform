@@ -12,10 +12,10 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `b1f6a38d0020` — single Alembic head. Production is still on `b3e8a41d0014` until the next deploy |
+| **Schema head** | `c3d8e51a0023` — single Alembic head. Production is still on `b3e8a41d0014` until the next deploy |
 | **Branch** | `main` = production. `v2-dev` tracks it |
 | **What's live** | Registration, bulk import, check-in, staffing marketplace, instructor delivery, attendance, certificates, calendar, ops dashboard — plus the pre-existing interns / ambassadors / instructors domains |
-| **Tests** | 532 collected, `pytest` from `backend/`. Five need a live Redis and error without one — everything else is broker-free |
+| **Tests** | 558 collected, `pytest` from `backend/`. Five need a live Redis and error without one — everything else is broker-free |
 | **In flight** | Inventory (see `INVENTORY_EXECUTION_PLAN.md` in the planning repo) |
 
 ## 2. Read next
@@ -143,7 +143,7 @@ Alembic is the source of truth for the exact schema — this is orientation, not
 |---|---|
 | **Shared** | `users`, `notifications`, `documents`, `document_requests`, `document_templates`, `certificates`, `applications`, `application_questions`, `id_cards`, `portal_settings` |
 | **Spine** | `contacts`, `contact_relationships`, `organizations`, `identity_aliases`, `merge_reviews`, `touchpoints`, `contact_role_events`, `consent_records` *(schema only — nothing writes to it)* |
-| **Sessions** | `programs`, `cohorts`, `sessions`, `session_instructors`, `session_call_targets`, `registrations`, `registration_sessions`, `attendance_records`, `instructor_interests`, `session_reports`, `import_batches`, `activities` / `activity_versions` / `activity_assignments` *(quiz — schema only until W13–14)* |
+| **Sessions** | `programs`, `cohorts`, `sessions`, `session_instructors` (`role_id` → `delivery_roles`, not a `lead\|co` string since I5-3), `delivery_roles`, `session_openings`, `session_addons`, `session_call_targets`, `registrations`, `registration_sessions`, `attendance_records`, `instructor_interests`, `session_reports`, `import_batches`, `activities` / `activity_versions` / `activity_assignments` *(quiz — schema only until W13–14)* |
 | **Inventory** | `locations`, `items`, `kit_templates`, `kit_template_items`, `kits`, `kit_items`, `stock_levels`, `movements`, plus `session_kits` / `kit_checks` (I2-1/I2-2). Backend and UI are both built through Phase 2 — including non-kit **equipment pickup** (I2-7), which adds **no tables**: it is a form over `items` + `stock_levels` + `movements`, and its collection point is *derived* from the assigned kits' location rather than stored. `movements` is the single ledger every physical thing passes through — issue, return, transfer, refill, receive, write-off, adjust — and either side of it can be a location, a person or a kit. Custody keys on `users`, so nothing here touches `MERGE_FK_REGISTRY` |
 | **Instructors** | `applicant_profiles`, `application_reviews`, `video_submissions`, `checklist_*`, `module_submissions`, `presentation_submissions`, `assessment_submissions`, `invitation_codes`, `instructor_profiles`, `instructor_documents`, `training_*`, `library_*`, `payment_batches`, `payment_letters`, `payment_sessions`, `payment_addons`, `instructor_bank_details` |
 | **Interns** | `projects`, `teams`, `epics`, `modules`, `tasks`, `task_submissions`, `proposals`, `mind_map_layouts` + join tables |
@@ -204,12 +204,17 @@ Every one of these has already caused a real bug. Fuller accounts in
 15. **`DialogContent` defaults to `sm:max-w-sm`.** Anything wider than a short form — a table,
     a multi-column editor — needs an explicit `className="sm:max-w-4xl"` or it renders in a
     box the content cannot fit. Pair it with an `overflow-x-auto` wrapper on the table itself.
-16. **Walk a role's pages *as that role*, never as admin.** `admin` passes every `RequireRole`
+16. **`session_instructors.role` no longer exists.** Roles are rows in `delivery_roles`
+    (I5-3) and the column is `role_id`. "The lead" is the lowest `sort_order`, **never** a name
+    match — renaming or inserting a role must not change who is in charge. `payment_sessions.role`
+    is deliberately the opposite: a plain string snapshotting the name, so a signed letter keeps
+    saying what it said.
+17. **Walk a role's pages *as that role*, never as admin.** `admin` passes every `RequireRole`
     check, so an admin walkthrough proves a page renders — not that its owner can reach it.
     The `storekeeper` role shipped with all three of its landing page's API calls returning
     403; the page showed an ordinary empty state, so nothing looked broken. Caught only by
     logging in as one.
-17. **`create_notification` takes `type=`, not `notif_type=`.** Easy to get wrong from memory,
+18. **`create_notification` takes `type=`, not `notif_type=`.** Easy to get wrong from memory,
     and in a cron job the resulting `TypeError` is invisible for weeks. Check service signatures
     rather than assuming them.
 

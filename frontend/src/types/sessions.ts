@@ -55,7 +55,8 @@ export interface Cohort {
 export interface SessionInstructor {
   user_id: string;
   full_name: string;
-  role: "lead" | "co";
+  /** I5-3: the delivery role's name — roles are data now, not an enum. */
+  role: string;
 }
 
 /** The actual teaching unit inside a cohort — not just a date. A single-day
@@ -139,7 +140,7 @@ export interface MySession {
   location?: string | null;
   meeting_date: string;
   starts_at?: string | null;
-  my_role: "lead" | "co";
+  my_role: string;
   staffing_status: StaffingStatus;
   started_at?: string | null;
   completed_at?: string | null;

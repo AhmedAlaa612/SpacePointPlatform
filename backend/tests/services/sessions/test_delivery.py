@@ -22,6 +22,17 @@ from app.services.sessions import delivery
 from app.services.sessions.registration import register
 
 
+async def _role_id(db, name: str = "Lead Facilitator"):
+    """I5-3: roles are rows now. The three are seeded by migration
+    `c2a7b49e0022`, so tests look them up rather than inventing their own."""
+    from sqlalchemy import select
+
+    from app.models.sessions.delivery_role import DeliveryRole
+
+    return await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == name))
+
+
+
 async def _make_cohort_with_session(db, **overrides) -> tuple[Cohort, Session]:
     program = Program(
         id=uuid.uuid4(), code=f"DELIV-{uuid.uuid4().hex[:8]}", name="Delivery Test Program",
@@ -68,8 +79,11 @@ async def _make_user(db, roles: list[str], **overrides) -> User:
     return user
 
 
-async def _assign(db, session: Session, user: User, role="lead"):
-    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=user.id, role=role))
+async def _assign(db, session: Session, user: User, role: str = "Lead Facilitator"):
+    db.add(SessionInstructor(
+        id=uuid.uuid4(), session_id=session.id, user_id=user.id,
+        role_id=await _role_id(db, role),
+    ))
     await db.flush()
 
 

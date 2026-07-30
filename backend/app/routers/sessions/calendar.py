@@ -18,6 +18,7 @@ from app.db.session import get_db
 from app.models.ambassadors.teacher_session import TeacherSession
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.schemas.sessions.calendar import CalendarEventOut, CalendarInstructorOut, CalendarOut
@@ -66,10 +67,11 @@ async def get_calendar(
     events: list[CalendarEventOut] = []
     for session, cohort, program in (await db.execute(stmt)).all():
         instructor_rows = (await db.execute(
-            select(SessionInstructor, User.full_name)
+            select(SessionInstructor, User.full_name, DeliveryRole.name)
             .join(User, User.id == SessionInstructor.user_id)
+            .join(DeliveryRole, DeliveryRole.id == SessionInstructor.role_id)
             .where(SessionInstructor.session_id == session.id)
-            .order_by(SessionInstructor.role, User.full_name)
+            .order_by(DeliveryRole.sort_order, User.full_name)
         )).all()
         starts_at = datetime.combine(session.meeting_date, session.starts_at or time.min, tzinfo=timezone.utc)
         events.append(CalendarEventOut(
@@ -78,7 +80,7 @@ async def get_calendar(
             program_name=program.name, program_type=program.program_type,
             title=session.title or program.name, starts_at=starts_at, location=cohort.location,
             staffing_status=session.staffing_status, delivery_status=_delivery_status(session),
-            instructors=[CalendarInstructorOut(user_id=row.user_id, full_name=name, role=row.role) for row, name in instructor_rows],
+            instructors=[CalendarInstructorOut(user_id=row.user_id, full_name=name, role=role_name) for row, name, role_name in instructor_rows],
         ))
 
     # The teacher-session overlay belongs only on the operations view. An

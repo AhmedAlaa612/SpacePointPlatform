@@ -10,7 +10,7 @@ from pydantic import BaseModel
 class CalendarInstructorOut(BaseModel):
     user_id: UUID
     full_name: str
-    role: Literal["lead", "co"]
+    role: str
 
 
 class CalendarEventOut(BaseModel):

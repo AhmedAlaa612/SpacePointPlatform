@@ -19,6 +19,7 @@ from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.services.inventory import (
+
     assign_kits,
     pickup_location,
     return_equipment,
@@ -26,6 +27,16 @@ from app.services.inventory import (
     session_equipment,
     take_equipment,
 )
+
+async def _role_id(db, name: str = "Lead Facilitator"):
+    """I5-3: roles are rows now. The three are seeded by migration
+    `c2a7b49e0022`, so tests look them up rather than inventing their own."""
+    from sqlalchemy import select
+
+    from app.models.sessions.delivery_role import DeliveryRole
+
+    return await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == name))
+
 
 
 async def _user(db, *roles: str) -> User:
@@ -61,7 +72,7 @@ async def _session(db, *, lead: User | None = None) -> Session:
     await db.flush()
     if lead:
         db.add(SessionInstructor(
-            id=uuid.uuid4(), session_id=session.id, user_id=lead.id, role="lead"
+            id=uuid.uuid4(), session_id=session.id, user_id=lead.id, role_id=await _role_id(db)
         ))
         await db.flush()
     return session
@@ -338,7 +349,7 @@ async def test_one_instructors_pickup_is_not_anothers(db):
     loc = await _loc(db)
     session = await _session(db, lead=lead)
     db.add(SessionInstructor(
-        id=uuid.uuid4(), session_id=session.id, user_id=co.id, role="co"
+        id=uuid.uuid4(), session_id=session.id, user_id=co.id, role_id=await _role_id(db, "Facilitator")
     ))
     kit = await _kit(db, loc)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)

@@ -30,6 +30,8 @@ from sqlalchemy.orm import aliased
 from app.core.dependencies import require_operations, require_session_delivery
 from app.db.session import get_db
 from app.models.certificate import Certificate
+from app.models.sessions.delivery_role import DeliveryRole
+from app.services.sessions.openings import fully_staffed, lead_role_id
 from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.instructor_interest import InstructorInterest
@@ -201,8 +203,9 @@ async def complete_cohort(
 
 async def _session_out(db: AsyncSession, session: Session) -> SessionOut:
     rows = (await db.execute(
-        select(SessionInstructor, User.full_name)
+        select(SessionInstructor, User.full_name, DeliveryRole.name)
         .join(User, User.id == SessionInstructor.user_id)
+        .join(DeliveryRole, DeliveryRole.id == SessionInstructor.role_id)
         .where(SessionInstructor.session_id == session.id)
     )).all()
     interest_count = (await db.execute(
@@ -213,7 +216,8 @@ async def _session_out(db: AsyncSession, session: Session) -> SessionOut:
 
     out = SessionOut.model_validate(session)
     out.instructors = [
-        SessionInstructorOut(user_id=si.user_id, full_name=name, role=si.role) for si, name in rows
+        SessionInstructorOut(user_id=si.user_id, full_name=name, role=role_name)
+        for si, name, role_name in rows
     ]
     out.target_user_ids = await staffing_service.call_target_ids(db, session.id)
     out.interested_count = interest_count
@@ -403,16 +407,26 @@ async def assign_instructor(
             SessionInstructor.session_id == session_id, SessionInstructor.user_id == body.user_id,
         )
     )
+    # I5-3: omitted role means the most senior one — what `role="lead"` meant
+    # before roles were configurable.
+    role_id = body.role_id or await lead_role_id(db)
+    if role_id is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="No delivery roles are configured")
+    role = await db.get(DeliveryRole, role_id)
+    if role is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Delivery role not found")
+
     if existing is not None:
-        existing.role = body.role
+        existing.role_id = role_id
     else:
-        db.add(SessionInstructor(id=uuid.uuid4(), session_id=session_id, user_id=body.user_id, role=body.role))
-    # Direct assign bypasses the open-call/interest marketplace entirely
-    # (W4) — but the session is genuinely staffed either way, so keep
-    # staffing_status honest regardless of which path got it there.
-    session.staffing_status = "staffed"
+        db.add(SessionInstructor(id=uuid.uuid4(), session_id=session_id, user_id=body.user_id, role_id=role_id))
+    await db.flush()
+    # Direct assign bypasses the open-call/interest marketplace entirely (W4).
+    # I5-4: "staffed" means every opening filled; with no openings it falls
+    # back to "somebody is assigned", exactly as before.
+    session.staffing_status = "staffed" if await fully_staffed(db, session_id) else "open_call"
     await db.commit()
-    return SessionInstructorOut(user_id=user.id, full_name=user.full_name, role=body.role)
+    return SessionInstructorOut(user_id=user.id, full_name=user.full_name, role=role.name)
 
 
 @router.delete("/cohorts/{cohort_id}/sessions/{session_id}/instructors/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

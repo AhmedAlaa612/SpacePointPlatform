@@ -79,7 +79,7 @@ class GenerateSessionsRequest(BaseModel):
 class SessionInstructorOut(BaseModel):
     user_id: UUID
     full_name: str
-    role: Literal["lead", "co"]
+    role: str
 
     class Config:
         from_attributes = True
@@ -136,7 +136,7 @@ class UpdateSessionRequest(BaseModel):
 
 class AssignInstructorRequest(BaseModel):
     user_id: UUID
-    role: Literal["lead", "co"] = "lead"
+    role_id: UUID | None = None
 
 
 class CompleteCohortResponse(BaseModel):

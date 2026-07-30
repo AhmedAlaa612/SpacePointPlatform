@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Plus, Pencil, X, CalendarPlus, UserPlus, Upload, Ticket, Wallet, Ban, FileText, Download, CheckCircle2, Award, Trash2, Search } from "lucide-react"
 import type {
@@ -20,6 +20,7 @@ import {
 import {
   openCallApi, openCallForCohortApi, reopenStaffingApi, listEligibleInstructorsApi, selectInstructorsApi, closeCallApi,
 } from "@/api/sessions/staffing"
+import { getDeliveryRolesApi } from "@/api/sessions/openings"
 import { listCohortReportsApi, uploadSessionReportApi, completeCohortApi, getSessionDeliveryApi, markAttendanceApi } from "@/api/sessions/delivery"
 import type { SessionReport } from "@/types/sessions"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
@@ -1049,10 +1050,20 @@ function SessionDetailModal({ cohort, session, onClose, onChanged }: {
   const [materialUrl, setMaterialUrl] = useState(session.material_url ?? "")
   const [price, setPrice] = useState(session.price != null ? String(session.price) : "")
   const [instructorId, setInstructorId] = useState("")
-  const [assignRole, setAssignRole] = useState<"lead" | "co">("lead")
+  // I5-3: roles are data. Default is the most senior (lowest sort_order).
+  const [assignRoleId, setAssignRoleId] = useState("")
   const [error, setError] = useState("")
 
   const { data: users = [] } = useQuery<User[]>({ queryKey: ["admin-users"], queryFn: getUsersApi })
+  // I5-3: the vocabulary is configurable, so the picker is fed from the API
+  // rather than hardcoding lead/co. Default is the most senior role, which is
+  // what "lead" used to mean.
+  const { data: deliveryRoles = [] } = useQuery({
+    queryKey: ["delivery-roles"], queryFn: () => getDeliveryRolesApi(),
+  })
+  useEffect(() => {
+    if (!assignRoleId && deliveryRoles.length) setAssignRoleId(deliveryRoles[0].id)
+  }, [deliveryRoles, assignRoleId])
   const instructorUsers = users.filter((u) =>
     u.roles?.some((r) => ["instructor", "teacher", "facilitator"].includes(r))
     && !session.instructors.some((si) => si.user_id === u.id)
@@ -1068,7 +1079,7 @@ function SessionDetailModal({ cohort, session, onClose, onChanged }: {
   })
 
   const assignMutation = useMutation({
-    mutationFn: () => assignInstructorApi(cohort.id, session.id, { user_id: instructorId, role: assignRole }),
+    mutationFn: () => assignInstructorApi(cohort.id, session.id, { user_id: instructorId, role_id: assignRoleId }),
     onSuccess: () => { setInstructorId(""); onChanged() },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to assign instructor"),
   })
@@ -1145,18 +1156,17 @@ function SessionDetailModal({ cohort, session, onClose, onChanged }: {
               {instructorUsers.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
             </select>
             <select
-              value={assignRole} onChange={(e) => setAssignRole(e.target.value as "lead" | "co")}
+              value={assignRoleId} onChange={(e) => setAssignRoleId(e.target.value)}
               className="h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
             >
-              <option value="lead">Lead</option>
-              <option value="co">Co-instructor</option>
+              {deliveryRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </select>
             <button
               onClick={() => assignMutation.mutate()}
               disabled={!instructorId || assignMutation.isPending}
               className="h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
             >
-              Assign as {assignRole === "lead" ? "Lead" : "Co"}
+              Assign as {deliveryRoles.find((r) => r.id === assignRoleId)?.name ?? "…"}
             </button>
           </div>
         </div>
@@ -1196,7 +1206,7 @@ function StaffingSection({ session, onChanged }: {
   // Assigning used to close the open call unconditionally, which blocked
   // further interest even when ops still wanted more people (2026-07-26).
   const [closeCall, setCloseCall] = useState(true)
-  const [role, setRole] = useState<"lead" | "co">("lead")
+  const [roleId, setRoleId] = useState("")
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const [showAllInstructors, setShowAllInstructors] = useState(false)
   const [error, setError] = useState("")
@@ -1205,6 +1215,18 @@ function StaffingSection({ session, onChanged }: {
   const [openCallModalTarget, setOpenCallModalTarget] = useState(false)
 
   const isOpenCall = session.staffing_status === "open_call"
+
+  const { data: deliveryRoles = [] } = useQuery({
+    queryKey: ["delivery-roles"], queryFn: () => getDeliveryRolesApi(),
+  })
+  // Roles are ordered by seniority, so the first is "the lead" and the second
+  // is the natural second-chair. Both quick-assign buttons fall back to the
+  // most senior rather than sending an empty id.
+  const leadRoleId = deliveryRoles[0]?.id ?? ""
+  const coRoleId = deliveryRoles[1]?.id ?? leadRoleId
+  useEffect(() => {
+    if (!roleId && deliveryRoles.length) setRoleId(deliveryRoles[0].id)
+  }, [deliveryRoles, roleId])
 
   const eligible = useQuery<EligibleInstructor[]>({
     queryKey: ["staffing-eligible-instructors", session.id],
@@ -1244,7 +1266,7 @@ function StaffingSection({ session, onChanged }: {
   })
 
   const selectMutation = useMutation({
-    mutationFn: () => selectInstructorsApi(session.id, selectedIds, role, closeCall),
+    mutationFn: () => selectInstructorsApi(session.id, selectedIds, roleId, closeCall),
     onSuccess: (result) => {
       setLastResult({ assigned: result.assigned.length, withoutInterest: result.without_interest.length })
       setSelectedIds([])
@@ -1254,7 +1276,7 @@ function StaffingSection({ session, onChanged }: {
   })
 
   const assignSingleMutation = useMutation({
-    mutationFn: ({ userId, assignRole }: { userId: string; assignRole: "lead" | "co" }) =>
+    mutationFn: ({ userId, assignRole }: { userId: string; assignRole: string }) =>
       selectInstructorsApi(session.id, [userId], assignRole),
     onSuccess: () => {
       invalidate()
@@ -1384,14 +1406,14 @@ function StaffingSection({ session, onChanged }: {
 
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
-                            onClick={() => assignSingleMutation.mutate({ userId: u.user_id, assignRole: "lead" })}
+                            onClick={() => assignSingleMutation.mutate({ userId: u.user_id, assignRole: leadRoleId })}
                             disabled={assignSingleMutation.isPending}
                             className="h-8 px-3 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
                           >
                             Assign Lead
                           </button>
                           <button
-                            onClick={() => assignSingleMutation.mutate({ userId: u.user_id, assignRole: "co" })}
+                            onClick={() => assignSingleMutation.mutate({ userId: u.user_id, assignRole: coRoleId })}
                             disabled={assignSingleMutation.isPending}
                             className="h-8 px-3 border border-border text-foreground text-xs font-medium rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
                           >
@@ -1425,11 +1447,10 @@ function StaffingSection({ session, onChanged }: {
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-muted-foreground">Role:</span>
                         <select
-                          value={role} onChange={(e) => setRole(e.target.value as "lead" | "co")}
+                          value={roleId} onChange={(e) => setRoleId(e.target.value)}
                           className="h-8 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
                         >
-                          <option value="lead">Lead</option>
-                          <option value="co">Co-instructor</option>
+                          {deliveryRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
                         </select>
                       </div>
                     </div>

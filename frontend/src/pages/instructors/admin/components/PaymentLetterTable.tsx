@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react"
 import {
   addAddonApi,
@@ -10,7 +10,8 @@ import {
   updateSessionApi,
 } from "@/api/instructors/payments_admin"
 import { Button } from "@/components/ui/button"
-import type { PaymentAddon, PaymentLetter, PaymentSession, PaymentSessionRole } from "@/types/instructors"
+import { getDeliveryRolesApi } from "@/api/sessions/openings"
+import type { PaymentAddon, PaymentLetter, PaymentSession } from "@/types/instructors"
 
 /**
  * The payment letter's table, editable (I5-1).
@@ -33,14 +34,19 @@ import type { PaymentAddon, PaymentLetter, PaymentSession, PaymentSessionRole } 
  * table the certificates are generated from.
  */
 
-const ROLES: PaymentSessionRole[] = ["Lead Facilitator", "Facilitator", "Assistant Facilitator"]
-
 const cell =
   "w-full h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
 
 export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
   const qc = useQueryClient()
   const [error, setError] = useState("")
+  // I5-3: roles are configurable, so the options come from the API. The
+  // *stored* value stays the role's name — a signed letter has to keep saying
+  // what it said even if someone renames the role later.
+  const { data: deliveryRoles = [] } = useQuery({
+    queryKey: ["delivery-roles"], queryFn: () => getDeliveryRolesApi(),
+  })
+  const roleNames = deliveryRoles.map((r) => r.name)
   const locked = letter.status === "signed" || letter.status === "paid"
 
   const refresh = () => qc.invalidateQueries({ queryKey: ["admin-payment-letters"] })
@@ -143,9 +149,12 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
                     <select
                       className={cell} value={s.role} disabled={locked}
                       onChange={(e) =>
-                        saveSession.mutate({ id: s.id, role: e.target.value as PaymentSessionRole })}
+                        saveSession.mutate({ id: s.id, role: e.target.value })}
                     >
-                      {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                      {/* The row's own value first, so a role that has since
+                          been renamed or retired still renders its snapshot. */}
+                      {[s.role, ...roleNames.filter((r) => r !== s.role)]
+                        .map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
                   </td>
                   <td className="pr-2 py-1">

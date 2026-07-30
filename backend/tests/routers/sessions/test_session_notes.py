@@ -18,6 +18,17 @@ from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 
 
+async def _role_id(db, name: str = "Lead Facilitator"):
+    """I5-3: roles are rows now. The three are seeded by migration
+    `c2a7b49e0022`, so tests look them up rather than inventing their own."""
+    from sqlalchemy import select
+
+    from app.models.sessions.delivery_role import DeliveryRole
+
+    return await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == name))
+
+
+
 async def _user(db, *roles: str) -> User:
     u = User(
         id=uuid.uuid4(), full_name=f"P{uuid.uuid4().hex[:4]}",
@@ -48,7 +59,7 @@ async def _session(db, lead: User | None = None) -> Session:
     await db.flush()
     if lead:
         db.add(SessionInstructor(
-            id=uuid.uuid4(), session_id=session.id, user_id=lead.id, role="lead"
+            id=uuid.uuid4(), session_id=session.id, user_id=lead.id, role_id=await _role_id(db)
         ))
         await db.flush()
     return session

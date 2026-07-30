@@ -162,13 +162,15 @@ export interface ApplicationModule {
 }
 
 export type PaymentLetterStatus = "draft" | "published" | "signed" | "paid"
-export type PaymentSessionRole = "Lead Facilitator" | "Facilitator" | "Assistant Facilitator"
+/** I5-3: roles are configurable rows now, so a letter's role is a free
+ *  string holding the name at the time it was written, not a closed union. */
+export type PaymentSessionRole = string
 
 export interface PaymentSession {
   id: string
   session_date: string | null
   workshop_description: string
-  role: PaymentSessionRole
+  role: string
   location: string | null
   duration_hours: number | null
   compensation_aed: number

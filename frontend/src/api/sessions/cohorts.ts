@@ -63,7 +63,7 @@ export const updateSessionApi = (
 ) => api.patch<Session>(`/sessions/cohorts/${cohortId}/sessions/${sessionId}`, data).then((r) => r.data)
 
 export const assignInstructorApi = (
-  cohortId: string, sessionId: string, data: { user_id: string; role?: "lead" | "co" }
+  cohortId: string, sessionId: string, data: { user_id: string; role_id?: string }
 ) => api.post<SessionInstructor>(`/sessions/cohorts/${cohortId}/sessions/${sessionId}/instructors`, data).then((r) => r.data)
 
 export const unassignInstructorApi = (cohortId: string, sessionId: string, userId: string) =>

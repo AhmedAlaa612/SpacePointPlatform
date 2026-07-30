@@ -27,9 +27,11 @@ from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionCallTarget, SessionInstructor
+from app.services.sessions.openings import fully_staffed, lead_role_id
 from app.models.spine.touchpoint import Touchpoint
 from app.models.user import User
 
@@ -201,10 +203,11 @@ async def list_my_sessions(db: AsyncSession, user: User) -> list[tuple[Session, 
     select_instructors or the pre-existing direct-assign path — both write
     the same SessionInstructor row) — the S4-3 "My sessions" instructor page."""
     rows = (await db.execute(
-        select(Session, Cohort, Program, SessionInstructor.role)
+        select(Session, Cohort, Program, DeliveryRole.name)
         .join(Cohort, Cohort.id == Session.cohort_id)
         .join(Program, Program.id == Cohort.program_id)
         .join(SessionInstructor, SessionInstructor.session_id == Session.id)
+        .join(DeliveryRole, DeliveryRole.id == SessionInstructor.role_id)
         .where(SessionInstructor.user_id == user.id)
         .order_by(Session.meeting_date.asc())
     )).all()
@@ -285,7 +288,7 @@ async def list_eligible_instructors(db: AsyncSession, session_id: UUID) -> list[
 
 
 async def select_instructors(
-    db: AsyncSession, session_id: UUID, user_ids: list[UUID], role: Literal["lead", "co"],
+    db: AsyncSession, session_id: UUID, user_ids: list[UUID], role_id: UUID | None = None,
     close_call: bool = True,
 ) -> tuple[list[SessionInstructor], list[UUID]]:
     """The marketplace's confirm step — writes SessionInstructor (same table
@@ -304,6 +307,15 @@ async def select_instructors(
     if not user_ids:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Select at least one instructor")
 
+    # I5-3: roles are data. Omitted means the most senior one, which is what
+    # the old `role="lead"` default meant before roles were configurable.
+    if role_id is None:
+        role_id = await lead_role_id(db)
+        if role_id is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="No delivery roles are configured")
+    elif await db.get(DeliveryRole, role_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Delivery role not found")
+
     interested_ids = set((await db.execute(
         select(InstructorInterest.user_id).where(InstructorInterest.session_id == session_id)
     )).scalars().all())
@@ -321,16 +333,20 @@ async def select_instructors(
             )
         )).scalars().first()
         if existing is not None:
-            existing.role = role
+            existing.role_id = role_id
             assignments.append(existing)
         else:
-            assignment = SessionInstructor(id=uuid4(), session_id=session_id, user_id=user_id, role=role)
+            assignment = SessionInstructor(id=uuid4(), session_id=session_id, user_id=user_id, role_id=role_id)
             db.add(assignment)
             assignments.append(assignment)
             await _write_touchpoint(db, selected_user, f"session_assigned:{session_id}")
 
+    await db.flush()
     if close_call:
-        session.staffing_status = "staffed"
+        # I5-4: "staffed" now means every opening is filled. A session with no
+        # openings falls back to "somebody is assigned", so everything created
+        # before openings existed behaves exactly as it did.
+        session.staffing_status = "staffed" if await fully_staffed(db, session_id) else "open_call"
     await db.flush()
     return assignments, without_interest
 

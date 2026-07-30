@@ -30,6 +30,17 @@ from app.services.inventory import (
 from app.services.sessions.delivery import mark_done, start_session
 
 
+async def _role_id(db, name: str = "Lead Facilitator"):
+    """I5-3: roles are rows now. The three are seeded by migration
+    `c2a7b49e0022`, so tests look them up rather than inventing their own."""
+    from sqlalchemy import select
+
+    from app.models.sessions.delivery_role import DeliveryRole
+
+    return await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == name))
+
+
+
 # ── factories ───────────────────────────────────────────────────────────────
 
 async def _user(db, *roles: str) -> User:
@@ -307,7 +318,7 @@ async def test_the_assigned_instructor_sees_the_gate(db):
     ops = await _user(db)
     instructor = await _user(db, "instructor")
     session = await _session(db)
-    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor.id, role="lead"))
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor.id, role_id=await _role_id(db)))
     kit = await _kit(db)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
     await db.flush()

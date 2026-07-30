@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_instructor_or_facilitator, require_operations
 from app.db.session import get_db
+from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
@@ -43,13 +44,15 @@ router = APIRouter(prefix="/sessions", tags=["sessions-staffing"])
 
 async def _session_out(db: AsyncSession, session: Session) -> SessionOut:
     rows = (await db.execute(
-        select(SessionInstructor, User.full_name)
+        select(SessionInstructor, User.full_name, DeliveryRole.name)
         .join(User, User.id == SessionInstructor.user_id)
+        .join(DeliveryRole, DeliveryRole.id == SessionInstructor.role_id)
         .where(SessionInstructor.session_id == session.id)
     )).all()
     out = SessionOut.model_validate(session)
     out.instructors = [
-        SessionInstructorOut(user_id=si.user_id, full_name=name, role=si.role) for si, name in rows
+        SessionInstructorOut(user_id=si.user_id, full_name=name, role=role_name)
+        for si, name, role_name in rows
     ]
     out.target_user_ids = await staffing.call_target_ids(db, session.id)
     return out
@@ -304,15 +307,17 @@ async def select_instructors(
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     assignments, without_interest = await staffing.select_instructors(
-        db, session_id, body.user_ids, body.role, close_call=body.close_call,
+        db, session_id, body.user_ids, body.role_id, close_call=body.close_call,
     )
 
     session = await db.get(Session, session_id)
     cohort = await db.get(Cohort, session.cohort_id) if session else None
+    role_names = dict((await db.execute(select(DeliveryRole.id, DeliveryRole.name))).all())
     for assignment in assignments:
         await create_notification(
             db, assignment.user_id, "You've been assigned to a session",
-            body=f"You're assigned ({assignment.role}) to a session on {session.meeting_date}"
+            body=f"You're assigned ({role_names.get(assignment.role_id, 'instructor')}) "
+                 f"to a session on {session.meeting_date}"
                  + (f" at {cohort.location}." if cohort and cohort.location else "."),
             type="staffing_assigned",
         )

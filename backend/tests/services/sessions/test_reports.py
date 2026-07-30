@@ -21,6 +21,17 @@ from app.models.user import User
 from app.services.sessions import reports
 
 
+async def _role_id(db, name: str = "Lead Facilitator"):
+    """I5-3: roles are rows now. The three are seeded by migration
+    `c2a7b49e0022`, so tests look them up rather than inventing their own."""
+    from sqlalchemy import select
+
+    from app.models.sessions.delivery_role import DeliveryRole
+
+    return await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == name))
+
+
+
 @pytest.fixture(autouse=True)
 def _stub_storage(monkeypatch):
     async def _fake_upload(bucket, path, data, content_type):
@@ -99,7 +110,7 @@ async def test_ops_can_upload_cohort_level_report_without_session(db):
 async def test_assigned_instructor_can_upload_session_report(db):
     cohort, session = await _make_cohort_with_session(db)
     instructor = await _make_user(db, ["instructor"])
-    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor.id, role="lead"))
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=session.id, user_id=instructor.id, role_id=await _role_id(db)))
     await db.flush()
 
     report = await reports.upload_report(db, cohort.id, session.id, b"data", "photo.jpg", "image/jpeg", None, instructor)

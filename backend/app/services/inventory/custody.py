@@ -29,6 +29,7 @@ from app.models.inventory.session_kit import SessionKit
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.services.inventory.movements import move
+from app.services.sessions.openings import session_lead_user_id
 
 
 async def issue_session_kits(
@@ -49,17 +50,10 @@ async def issue_session_kits(
         raise HTTPException(404, detail="Session not found")
 
     if to_user_id is None:
-        to_user_id = await db.scalar(
-            select(SessionInstructor.user_id)
-            .where(SessionInstructor.session_id == session_id)
-            .order_by(SessionInstructor.role)  # 'co' < 'lead' alphabetically, so pick explicitly below
-        )
-        lead = await db.scalar(
-            select(SessionInstructor.user_id).where(
-                SessionInstructor.session_id == session_id, SessionInstructor.role == "lead"
-            )
-        )
-        to_user_id = lead or to_user_id
+        # I5-3: "the lead" is the most senior *role* (lowest sort_order), not a
+        # string match on "lead" — roles are configurable now, so matching a
+        # name would break the moment someone renames or reorders them.
+        to_user_id = await session_lead_user_id(db, session_id)
     if to_user_id is None:
         raise HTTPException(
             409, detail="Nobody is assigned to teach this session yet — assign an instructor first"
