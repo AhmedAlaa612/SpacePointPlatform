@@ -89,10 +89,31 @@ SATKIT_BOM = [
 # to returnable; T-shirts do not — a policy of "return your T-shirt" that
 # nobody follows would fill the overdue list with noise and stop it working
 # for kits, which is what it is actually for.
+# (display name, category, is_consumable, returnable_default)
 MERCH = [
-    (f"{kind} ({size})", "merch", kind != "T-Shirt")
+    (f"{kind} ({size})", "merch", False, kind != "T-Shirt")
     for kind in ("T-Shirt", "Vest", "Jacket")
     for size in ("XS", "S", "M", "L", "XL")
+]
+
+# Non-kit equipment an instructor picks up on the way to a workshop (I2-7).
+# These are the CEO's own examples — the things currently photographed into
+# WhatsApp. Seeding the *names* means ops enters counts instead of typing a
+# catalogue; the counts themselves are nobody's to guess and are left to I1-5.
+#
+# Category is `other`: nothing branches on it, it only groups the catalogue.
+# None of it is consumable — a mic speaker that goes missing should raise a
+# shortage, which is exactly what `is_consumable` would suppress. Stickers are
+# the one honest consumable here.
+EQUIPMENT = [
+    ("Mic Speaker",         "other", False, True),
+    ("Battery Charger",     "other", False, True),
+    ("Extension Cable",     "other", False, True),
+    ("Projector",           "other", False, True),
+    ("Laptop (spare)",      "other", False, True),
+    ("Sticker Roll",        "other", True,  False),
+    ("Banner / Roll-up",    "other", False, True),
+    ("First Aid Kit",       "other", False, True),
 ]
 
 
@@ -111,10 +132,18 @@ async def seed(db: AsyncSession, *, dry_run: bool) -> None:
         created["locations"] += 1
     await db.flush()
 
-    # items — components then merch
-    wanted_items = [(n, c, cons) for n, c, _q, cons in SATKIT_BOM] + list(MERCH)
+    # items — kit components, then merch, then non-kit equipment.
+    # Every entry carries its own is_consumable *and* returnable_default. They
+    # used to be derived from one another, which quietly marked vests and
+    # jackets consumable — harmless while merch sits in no bill of materials,
+    # and a trap the moment anything reads that flag.
+    wanted_items = (
+        [(n, c, cons, False) for n, c, _q, cons in SATKIT_BOM]
+        + list(MERCH)
+        + list(EQUIPMENT)
+    )
     items_by_name: dict[str, Item] = {}
-    for name, category, is_consumable in wanted_items:
+    for name, category, is_consumable, returnable in wanted_items:
         existing = (await db.execute(select(Item).where(Item.name == name))).scalars().first()
         if existing:
             items_by_name[name] = existing
@@ -123,7 +152,7 @@ async def seed(db: AsyncSession, *, dry_run: bool) -> None:
         item = Item(
             id=uuid.uuid4(), name=name, category=category,
             is_consumable=is_consumable,
-            returnable_default=(category == "merch" and is_consumable),
+            returnable_default=returnable,
         )
         db.add(item)
         items_by_name[name] = item
