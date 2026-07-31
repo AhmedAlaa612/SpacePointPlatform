@@ -134,6 +134,67 @@ async def test_the_version_changes_only_when_the_words_do(db):
     assert a == b and a != c
 
 
+@pytest.mark.asyncio
+async def test_role_with_no_description_is_identical_to_the_general_text(db):
+    """A role that hasn't had its own wording written yet must not silently
+    invalidate every acceptance already recorded against the general-only
+    version — same text, same hash."""
+    await svc.set_responsibilities(db, "Arrive 30 minutes early.")
+    role = DeliveryRole(id=uuid.uuid4(), name="Lead", sort_order=1)
+    db.add(role)
+    await db.flush()
+
+    general_text, general_version = await svc.get_responsibilities(db)
+    role_text, role_version, role_name = await svc.get_responsibilities_for_role(db, role.id)
+    assert (role_text, role_version) == (general_text, general_version)
+    assert role_name == "Lead"
+
+
+@pytest.mark.asyncio
+async def test_a_roles_own_description_is_combined_and_gets_its_own_version(db):
+    """§ the operator's actual complaint: picking a role should show that
+    role's responsibilities, not a generic blob agreed to regardless of it."""
+    await svc.set_responsibilities(db, "Arrive 30 minutes early.")
+    lead = DeliveryRole(id=uuid.uuid4(), name="Lead", sort_order=1, description="Carry the kit.")
+    assistant = DeliveryRole(id=uuid.uuid4(), name="Assistant", sort_order=2, description="Help set up.")
+    db.add_all([lead, assistant])
+    await db.flush()
+
+    lead_text, lead_version, lead_name = await svc.get_responsibilities_for_role(db, lead.id)
+    asst_text, asst_version, asst_name = await svc.get_responsibilities_for_role(db, assistant.id)
+
+    assert "Arrive 30 minutes early." in lead_text and "Carry the kit." in lead_text
+    assert "Help set up." in asst_text and "Carry the kit." not in asst_text
+    assert lead_version != asst_version
+    assert lead_name == "Lead" and asst_name == "Assistant"
+
+
+@pytest.mark.asyncio
+async def test_accepting_is_checked_against_the_interests_own_role(db):
+    """The version an instructor submits has to match *their* role's combined
+    text — not the general text, and not another role's."""
+    instructor = await _user(db)
+    _p, _c, session = await _chain(db)
+    lead = DeliveryRole(id=uuid.uuid4(), name="Lead", sort_order=1, description="Carry the kit.")
+    db.add(lead)
+    await db.flush()
+
+    interest = InstructorInterest(
+        id=uuid.uuid4(), session_id=session.id, user_id=instructor.id, role_id=lead.id,
+    )
+    db.add(interest)
+    await db.flush()
+
+    _general_text, general_version = await svc.get_responsibilities(db)
+    with pytest.raises(HTTPException) as exc:
+        await svc.accept_responsibilities(db, interest=interest, version=general_version)
+    assert exc.value.status_code == 409
+
+    _lead_text, lead_version, _name = await svc.get_responsibilities_for_role(db, lead.id)
+    await svc.accept_responsibilities(db, interest=interest, version=lead_version)
+    assert interest.responsibilities_version == lead_version
+
+
 # ── I5-8: the payment bridge ────────────────────────────────────────────────
 
 async def _delivered(db, instructor, *, duration=None):

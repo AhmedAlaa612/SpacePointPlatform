@@ -94,35 +94,45 @@ export default function DeliverySettings() {
           </p>
         </div>
 
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           {roles.map((r, i) => (
-            <div key={r.id} className="flex items-center gap-2">
-              <input
-                defaultValue={r.name}
-                onBlur={(e) => e.target.value !== r.name &&
-                  update.mutate({ id: r.id, name: e.target.value })}
-                className="flex-1 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
+            <div key={r.id} className="flex flex-col gap-1.5 p-2.5 border border-border rounded-xl">
+              <div className="flex items-center gap-2">
+                <input
+                  defaultValue={r.name}
+                  onBlur={(e) => e.target.value !== r.name &&
+                    update.mutate({ id: r.id, name: e.target.value })}
+                  className="flex-1 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
+                />
+                <button
+                  disabled={i === 0} onClick={() => swap(i, i - 1)}
+                  className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  aria-label="Move up"
+                ><ArrowUp size={14} /></button>
+                <button
+                  disabled={i === roles.length - 1} onClick={() => swap(i, i + 1)}
+                  className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  aria-label="Move down"
+                ><ArrowDown size={14} /></button>
+                <button
+                  onClick={() => update.mutate({ id: r.id, is_active: !r.is_active })}
+                  className={`h-8 px-3 text-xs font-medium rounded-lg border transition-colors ${
+                    r.is_active
+                      ? "border-border text-muted-foreground hover:bg-muted"
+                      : "border-amber-400/40 bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
+                  }`}
+                >
+                  {r.is_active ? "Active" : "Inactive"}
+                </button>
+              </div>
+              <textarea
+                defaultValue={r.description ?? ""}
+                placeholder="What an instructor is agreeing to when they pick this role — shown on the invite."
+                rows={2}
+                onBlur={(e) => e.target.value !== (r.description ?? "") &&
+                  update.mutate({ id: r.id, description: e.target.value || null })}
+                className="w-full px-2 py-1.5 border border-border bg-background text-foreground rounded-lg text-xs resize-y"
               />
-              <button
-                disabled={i === 0} onClick={() => swap(i, i - 1)}
-                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                aria-label="Move up"
-              ><ArrowUp size={14} /></button>
-              <button
-                disabled={i === roles.length - 1} onClick={() => swap(i, i + 1)}
-                className="p-1 text-muted-foreground hover:text-foreground disabled:opacity-30"
-                aria-label="Move down"
-              ><ArrowDown size={14} /></button>
-              <button
-                onClick={() => update.mutate({ id: r.id, is_active: !r.is_active })}
-                className={`h-8 px-3 text-xs font-medium rounded-lg border transition-colors ${
-                  r.is_active
-                    ? "border-border text-muted-foreground hover:bg-muted"
-                    : "border-amber-400/40 bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
-                }`}
-              >
-                {r.is_active ? "Active" : "Inactive"}
-              </button>
             </div>
           ))}
         </div>

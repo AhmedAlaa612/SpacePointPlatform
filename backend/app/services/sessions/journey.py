@@ -30,7 +30,10 @@ PAYMENT_TERMS_NOTE = "Standard payment is within 30 days of delivery."
 
 
 async def get_responsibilities(db: AsyncSession) -> tuple[str, str]:
-    """The current responsibilities text and its version.
+    """The general responsibilities text and its version — the part that
+    applies regardless of which role someone is agreeing to (arrive on time,
+    wear the branded shirt, that kind of thing). Editable by ops on its own;
+    `get_responsibilities_for_role` is what an instructor actually reads.
 
     The version is a hash of the text rather than a counter nobody remembers
     to bump: it changes exactly when the words change, and it lets an old
@@ -45,16 +48,54 @@ async def set_responsibilities(db: AsyncSession, text: str) -> tuple[str, str]:
     return await get_responsibilities(db)
 
 
+async def get_responsibilities_for_role(
+    db: AsyncSession, role_id: uuid.UUID | None
+) -> tuple[str, str, str | None]:
+    """What an instructor actually reads and agrees to: the general text plus
+    that role's own description, if it has one. One combined block, one
+    checkbox — not a generic agreement that says nothing about the job and a
+    separate, unagreed-to role blurb next to it.
+
+    `role_id=None` (a session with no configured openings) falls back to the
+    general text alone, unchanged from before per-role responsibilities
+    existed. The version is a hash of the *combination*, so editing either
+    half invalidates a stale acceptance — same reasoning as the general-only
+    version, just scoped to what this instructor was actually shown.
+    """
+    general, general_version = await get_responsibilities(db)
+    role_desc: str | None = None
+    role_name: str | None = None
+    if role_id is not None:
+        role = await db.get(DeliveryRole, role_id)
+        if role is not None:
+            role_desc = (role.description or "").strip() or None
+            role_name = role.name
+
+    if role_desc is None:
+        # No role, or a role with nothing extra to say — text and version
+        # are byte-identical to the general-only ones, so an acceptance
+        # recorded before this role had its own text (or against a session
+        # with no configured openings) still checks out.
+        return general, general_version, role_name
+
+    general_stripped = general.strip()
+    text = f"{general_stripped}\n\n{role_desc}" if general_stripped else role_desc
+    version = sha256(f"{role_id}\x1f{text}".encode("utf-8")).hexdigest()[:16]
+    return text, version, role_name
+
+
 async def accept_responsibilities(
     db: AsyncSession, *, interest: InstructorInterest, version: str
 ) -> InstructorInterest:
     """Record the read-and-agree tick against the version that was on screen.
 
-    Refusing a stale version is the point: if ops edits the wording while
-    somebody has the invite open, the acceptance they submit is for text they
-    never saw.
+    Scoped to the role on the interest itself (set at registration) — the
+    instructor agreed to *that* role's combined text, not a generic one.
+    Refusing a stale version is the point: if ops edits either half while
+    somebody has the invite open, the acceptance they submit is for wording
+    they never saw.
     """
-    _text, current = await get_responsibilities(db)
+    _text, current, _role_name = await get_responsibilities_for_role(db, interest.role_id)
     if version != current:
         raise HTTPException(
             409, detail="The responsibilities have changed — reload and read them again"

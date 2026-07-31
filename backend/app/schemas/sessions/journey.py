@@ -43,6 +43,10 @@ class ResponsibilitiesOut(BaseModel):
     # Hash of the text, not a counter — it changes exactly when the words do.
     version: str
     payment_terms_note: str
+    # Set when a role_id was requested and it resolved to a real role — lets
+    # the UI label the block "Responsibilities — Lead Facilitator" instead of
+    # a generic heading.
+    role_name: str | None = None
 
 
 class ResponsibilitiesIn(BaseModel):

@@ -176,10 +176,18 @@ export interface Responsibilities {
   /** Hash of the text — changes exactly when the words do. */
   version: string
   payment_terms_note: string
+  /** Set when a roleId was passed and it resolved to a real role. */
+  role_name?: string | null
 }
 
-export const getResponsibilitiesApi = () =>
-  api.get<Responsibilities>("/sessions/responsibilities").then((r) => r.data)
+/** Omit roleId for the general text alone (the admin editor). Pass it to get
+ *  the combined block — general text + that role's own description — an
+ *  instructor actually reads and agrees to for the role they're applying
+ *  for, rather than a generic agreement that says nothing about the job. */
+export const getResponsibilitiesApi = (roleId?: string | null) =>
+  api.get<Responsibilities>("/sessions/responsibilities", {
+    params: roleId ? { role_id: roleId } : {},
+  }).then((r) => r.data)
 
 export const setResponsibilitiesApi = (text: string) =>
   api.put<Responsibilities>("/sessions/responsibilities", { text }).then((r) => r.data)
