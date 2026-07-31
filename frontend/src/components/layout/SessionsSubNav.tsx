@@ -21,7 +21,7 @@ export function SessionsSubNav({ activeTab }: { activeTab: "my" | "available" | 
             : "text-muted-foreground hover:bg-muted hover:text-foreground"
         }`}
       >
-        Available Sessions (Open Calls)
+        Available Sessions
       </Link>
       <Link
         to="/sessions/calendar"

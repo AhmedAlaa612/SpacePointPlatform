@@ -1056,7 +1056,13 @@ function SessionDetailModal({ cohort, session, onClose, onChanged }: {
   const [assignRoleId, setAssignRoleId] = useState("")
   const [error, setError] = useState("")
 
-  const { data: users = [] } = useQuery<User[]>({ queryKey: ["admin-users"], queryFn: getUsersApi })
+  // NOT /admin/users: that endpoint is require_admin, so an operations user
+  // got a 403 and an empty picker with no error shown. eligible-instructors is
+  // require_operations and session-scoped, which is what this picker wants.
+  const { data: eligible = [] } = useQuery<EligibleInstructor[]>({
+    queryKey: ["staffing-eligible-instructors", session.id],
+    queryFn: () => listEligibleInstructorsApi(session.id),
+  })
   // I5-3: the vocabulary is configurable, so the picker is fed from the API
   // rather than hardcoding lead/co. Default is the most senior role, which is
   // what "lead" used to mean.
@@ -1066,10 +1072,9 @@ function SessionDetailModal({ cohort, session, onClose, onChanged }: {
   useEffect(() => {
     if (!assignRoleId && deliveryRoles.length) setAssignRoleId(deliveryRoles[0].id)
   }, [deliveryRoles, assignRoleId])
-  const instructorUsers = users.filter((u) =>
-    u.roles?.some((r) => ["instructor", "teacher", "facilitator"].includes(r))
-    && !session.instructors.some((si) => si.user_id === u.id)
-  )
+  const instructorUsers = eligible
+    .filter((e) => !session.instructors.some((si) => si.user_id === e.user_id))
+    .map((e) => ({ id: e.user_id, full_name: e.full_name }))
 
   const saveMutation = useMutation({
     mutationFn: () => updateSessionApi(cohort.id, session.id, {
@@ -1107,12 +1112,10 @@ function SessionDetailModal({ cohort, session, onClose, onChanged }: {
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </Field>
-        <Field label="Material link (optional)">
-          <input
-            value={materialUrl} onChange={(e) => setMaterialUrl(e.target.value)} placeholder="https://…"
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-          />
-        </Field>
+        {/* The single "material link" field is gone: materials are now a list
+            of files and links managed by MaterialsPanel below, inherited
+            program → cohort → session. Two places to set the same thing was
+            just a way to disagree with yourself. */}
         <Field label="Price override (optional)">
           <input
             value={price} onChange={(e) => setPrice(e.target.value)} type="number" placeholder="Leave blank to use the program price"
@@ -2035,10 +2038,14 @@ function TargetedOpenCallModal({
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
   const [error, setError] = useState("")
 
-  const { data: users = [], isLoading } = useQuery<User[]>({ queryKey: ["admin-users"], queryFn: getUsersApi })
-  const instructors = users.filter((u) =>
-    u.roles?.some((r) => ["instructor", "teacher", "facilitator"].includes(r))
-  )
+  // NOT /admin/users — require_admin, so ops saw an empty list and no error.
+  // This is the "target specific instructors" picker, and it was the reason it
+  // came up blank even with instructors on the platform.
+  const { data: eligible = [], isLoading } = useQuery<EligibleInstructor[]>({
+    queryKey: ["staffing-eligible-instructors", sessionId],
+    queryFn: () => listEligibleInstructorsApi(sessionId),
+  })
+  const instructors = eligible.map((e) => ({ id: e.user_id, full_name: e.full_name, email: e.email }))
 
   const mutation = useMutation({
     mutationFn: (userIds?: string[]) => openCallApi(sessionId, userIds),

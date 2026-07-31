@@ -156,16 +156,10 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Programs", "/operations/programs"),
       mk("Cohorts", "/operations/cohorts"),
       mk("Contacts", "/operations/contacts"),
-      mk("Merge Reviews", "/operations/merge-reviews"),
       mk("Check-in", "/operations/checkin"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
-      mk("Profile & Settings", "/operations/profile"),
-      // I0-1: an admin who walks into /operations otherwise has no way back —
-      // the sidebar is chosen by path, so it swaps entirely. Only admins see
-      // this; an `operations` user has no business in /admin.
-      ...(activeRole === "admin" ? [mk("Admin Hub", "/admin")] : []),
     ];
   }
   if (pathname.startsWith("/admin")) {
@@ -337,12 +331,10 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Programs", "/operations/programs"),
       mk("Cohorts", "/operations/cohorts"),
       mk("Contacts", "/operations/contacts"),
-      mk("Merge Reviews", "/operations/merge-reviews"),
       mk("Check-in", "/operations/checkin"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
-      mk("Profile & Settings", "/operations/profile"),
     ];
   }
   if (activeRole === "storekeeper") {
