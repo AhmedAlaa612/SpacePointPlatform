@@ -18,9 +18,10 @@ form that gets filled in and one that doesn't:
   there is nothing to derive from (§G's rare no-kit session) or when the
   assigned kits genuinely sit in different places.
 
-* **Search starts empty and never renders the shelf.** A co-working space may
-  hold forty item types and most sessions take nothing extra. Scrolling forty
-  rows on a phone to tick two is exactly how a form stops being filled.
+* **The shelf renders up front, not behind a search box (B3).** An instructor
+  who doesn't already know an item's exact name has nothing to type — a
+  location's catalogue is small enough that a tick-list beats a search that
+  shows nothing until you guess right.
 
 * **You can only take what the register says is there.** `move()` refuses to
   drive stock negative and this does not weaken that — a self-report that
@@ -50,9 +51,6 @@ from app.models.inventory.stock import StockLevel
 from app.models.sessions.session import Session
 from app.services.inventory.movements import move
 
-# Below this, a search matches most of the catalogue and stops being a search.
-MIN_SEARCH_CHARS = 2
-
 
 async def pickup_location(db: AsyncSession, session_id: uuid.UUID) -> Location | None:
     """Where this session's equipment is collected from.
@@ -77,29 +75,35 @@ async def pickup_location(db: AsyncSession, session_id: uuid.UUID) -> Location |
 
 
 async def search_equipment(
-    db: AsyncSession, *, location_id: uuid.UUID, q: str, limit: int = 20
+    db: AsyncSession, *, location_id: uuid.UUID, q: str = "", limit: int = 100
 ) -> list[dict]:
-    """Items on the shelf at that location whose name matches.
+    """Items on the shelf at that location — the whole shelf by default (B3),
+    optionally narrowed by name.
 
     Only things with stock actually there: offering an item the register says
     isn't present invites a pickup that `move()` will refuse at the last step,
-    after the instructor has already typed it in.
+    after the instructor has already ticked it.
+
+    Previously this required at least two characters of search text and
+    returned nothing otherwise, on the theory that a forty-item shelf isn't
+    worth rendering unprompted. In practice that meant typing before you could
+    see anything was there at all — worse than scrolling a short list. Ops
+    catalogues stay small enough (per location) that showing it up front reads
+    faster than searching for it.
     """
     q = (q or "").strip()
-    if len(q) < MIN_SEARCH_CHARS:
-        return []
 
-    rows = (await db.execute(
+    stmt = (
         select(Item, StockLevel.qty)
         .join(StockLevel, StockLevel.item_id == Item.id)
-        .where(
-            StockLevel.location_id == location_id,
-            StockLevel.qty > 0,
-            Item.name.ilike(f"%{q}%"),
-        )
+        .where(StockLevel.location_id == location_id, StockLevel.qty > 0)
         .order_by(Item.name)
         .limit(limit)
-    )).all()
+    )
+    if q:
+        stmt = stmt.where(Item.name.ilike(f"%{q}%"))
+
+    rows = (await db.execute(stmt)).all()
 
     return [
         {
@@ -108,6 +112,7 @@ async def search_equipment(
             "category": item.category,
             "available": qty,
             "returnable": item.returnable_default,
+            "description": item.description,
         }
         for item, qty in rows
     ]

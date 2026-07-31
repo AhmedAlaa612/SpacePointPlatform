@@ -144,13 +144,17 @@ async def test_kits_in_two_places_do_not_silently_pick_one(db):
 # ── the search box ──────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_an_empty_query_returns_nothing_rather_than_the_whole_shelf(db):
-    """§G is explicit: the section starts empty. A co-working space may hold
-    forty item types and most sessions take nothing extra."""
+async def test_an_empty_query_returns_the_whole_shelf(db):
+    """B3: the shelf renders up front rather than behind a search box — an
+    instructor who doesn't know an item's exact name has nothing to type."""
     loc = await _loc(db)
-    await _stocked(db, loc)
-    assert await search_equipment(db, location_id=loc.id, q="") == []
-    assert await search_equipment(db, location_id=loc.id, q="m") == []
+    item = await _stocked(db, loc)
+    found = await search_equipment(db, location_id=loc.id, q="")
+    assert [row["item_id"] for row in found] == [item.id]
+    # A single-character filter still narrows it, since there's no minimum
+    # length gate anymore.
+    assert [row["item_id"] for row in await search_equipment(db, location_id=loc.id, q="m")] == [item.id]
+    assert await search_equipment(db, location_id=loc.id, q="zzz") == []
 
 
 @pytest.mark.asyncio

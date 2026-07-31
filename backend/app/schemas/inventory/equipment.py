@@ -35,6 +35,9 @@ class EquipmentSearchOut(BaseModel):
     category: str
     available: int
     returnable: bool
+    # B3: shown on the pick-list so an instructor doesn't have to guess what
+    # an unfamiliar item name means.
+    description: str | None = None
 
 
 class TakenEquipmentOut(BaseModel):

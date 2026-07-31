@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Backpack, Plus, Search, X } from "lucide-react"
+import { Backpack, Plus } from "lucide-react"
 import {
   getLocationsApi,
   getSessionEquipmentApi,
@@ -21,9 +21,10 @@ import { Modal, Field, ModalActions } from "@/pages/admin/components/common"
  * Today this is WhatsApp photos and never reaches a system. Three things make
  * the difference between a form that gets filled in and one that doesn't:
  *
- * - **It starts empty, with a search box.** A co-working space may hold forty
- *   item types and most sessions take nothing extra. Scrolling forty rows on a
- *   phone to tick two is exactly how a form stops being filled.
+ * - **The "add something" modal shows the shelf, not a search box (B3).**
+ *   Ticking what's there beats typing an item's exact name from memory —
+ *   a search that shows nothing until you guess right is worse than a short
+ *   list, and per-location catalogues stay short enough to just show.
  * - **Nobody is asked where they collected from.** Ops moves the kits to the
  *   session's warehouse first, so the kits' location already *is* the
  *   collection point. The dropdown appears only when there is nothing to
@@ -207,8 +208,9 @@ function SessionNotes({ sessionId, notes, onSaved }: {
   )
 }
 
-/** Search first, always. The list of what's on the shelf is never rendered
- *  unprompted — see the panel docblock. */
+/** B3: the whole shelf at the pickup point, ticked rather than searched.
+ *  An instructor who doesn't know an item's exact name has nothing to type
+ *  into a search box — a location's catalogue is short enough to just show. */
 function TakeModal({ sessionId, locationId, locationName, onClose, onDone }: {
   sessionId: string
   locationId: string | null
@@ -216,7 +218,6 @@ function TakeModal({ sessionId, locationId, locationName, onClose, onDone }: {
   onClose: () => void
   onDone: () => void
 }) {
-  const [q, setQ] = useState("")
   const [picked, setPicked] = useState<Record<string, { row: EquipmentSearchResult; qty: number }>>({})
   const [chosenLocation, setChosenLocation] = useState("")
   const [error, setError] = useState("")
@@ -231,10 +232,10 @@ function TakeModal({ sessionId, locationId, locationName, onClose, onDone }: {
     enabled: needsLocation,
   })
 
-  const { data: results = [], isFetching } = useQuery({
-    queryKey: ["equipment-search", sessionId, q, effectiveLocation],
-    queryFn: () => searchEquipmentApi({ sessionId, q, locationId: effectiveLocation }),
-    enabled: q.trim().length >= 2 && !!effectiveLocation,
+  const { data: shelf = [], isLoading } = useQuery({
+    queryKey: ["equipment-shelf", sessionId, effectiveLocation],
+    queryFn: () => searchEquipmentApi({ sessionId, locationId: effectiveLocation }),
+    enabled: !!effectiveLocation,
   })
 
   const submit = useMutation({
@@ -242,6 +243,18 @@ function TakeModal({ sessionId, locationId, locationName, onClose, onDone }: {
     onSuccess: onDone,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not record that"),
   })
+
+  const toggle = (row: EquipmentSearchResult) =>
+    setPicked((p) => {
+      if (p[row.item_id]) {
+        const { [row.item_id]: _drop, ...rest } = p
+        return rest
+      }
+      return { ...p, [row.item_id]: { row, qty: 1 } }
+    })
+
+  const setQty = (row: EquipmentSearchResult, qty: number) =>
+    setPicked((p) => ({ ...p, [row.item_id]: { row, qty: Math.min(row.available, Math.max(1, qty || 1)) } }))
 
   const chosen = Object.values(picked)
 
@@ -264,79 +277,50 @@ function TakeModal({ sessionId, locationId, locationName, onClose, onDone }: {
         </p>
       )}
 
-      <Field label="Search for it">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="speaker, charger, stickers…"
-            disabled={!effectiveLocation}
-            className="w-full h-10 pl-9 pr-3 border border-border bg-background text-foreground rounded-xl text-sm disabled:opacity-50"
-          />
-        </div>
-      </Field>
-
-      {q.trim().length >= 2 && effectiveLocation && (
-        <div className="flex flex-col gap-1 max-h-[30vh] overflow-y-auto">
-          {results.map((row) => (
-            <button
-              key={row.item_id}
-              onClick={() =>
-                setPicked((p) => ({
-                  ...p,
-                  [row.item_id]: { row, qty: p[row.item_id]?.qty ?? 1 },
-                }))
-              }
-              className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted/60"
-            >
-              <span className="text-sm text-foreground truncate">{row.item_name}</span>
-              <span className="text-xs text-muted-foreground shrink-0">{row.available} there</span>
-            </button>
-          ))}
-          {results.length === 0 && !isFetching && (
-            <p className="text-sm text-muted-foreground py-2">
-              Nothing matching that is on record here. Ask operations to add it.
-            </p>
-          )}
-        </div>
-      )}
-
-      {chosen.length > 0 && (
-        <div className="flex flex-col gap-1.5 border-t border-border pt-3">
-          {chosen.map(({ row, qty }) => (
-            <div key={row.item_id} className="flex items-center justify-between gap-3">
-              <span className="text-sm text-foreground truncate">{row.item_name}</span>
-              <div className="flex items-center gap-1.5 shrink-0">
-                <input
-                  type="number" min={1} max={row.available} value={qty}
-                  onChange={(e) =>
-                    setPicked((p) => ({
-                      ...p,
-                      [row.item_id]: {
-                        row,
-                        qty: Math.min(row.available, Math.max(1, Number(e.target.value) || 1)),
-                      },
-                    }))
-                  }
-                  className="w-16 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
-                />
-                <button
-                  onClick={() =>
-                    setPicked((p) => {
-                      const { [row.item_id]: _drop, ...rest } = p
-                      return rest
-                    })
-                  }
-                  className="text-muted-foreground hover:text-foreground"
-                  aria-label={`Remove ${row.item_name}`}
+      {effectiveLocation && (
+        isLoading ? (
+          <p className="text-sm text-muted-foreground py-2">Loading the shelf…</p>
+        ) : shelf.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2">
+            Nothing is on record at this location. Ask operations to add stock.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-1 max-h-[40vh] overflow-y-auto -mx-1 px-1">
+            {shelf.map((row) => {
+              const isPicked = !!picked[row.item_id]
+              return (
+                <label
+                  key={row.item_id}
+                  className={`flex items-center gap-3 rounded-xl border px-3 py-2 cursor-pointer transition-colors ${
+                    isPicked ? "border-primary/30 bg-primary/5" : "border-border hover:bg-muted/60"
+                  }`}
                 >
-                  <X size={15} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+                  <input
+                    type="checkbox"
+                    checked={isPicked}
+                    onChange={() => toggle(row)}
+                    className="rounded text-primary focus:ring-primary border-border bg-background shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-foreground truncate">{row.item_name}</p>
+                    {row.description && (
+                      <p className="text-xs text-muted-foreground truncate">{row.description}</p>
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground shrink-0">{row.available} there</span>
+                  {isPicked && (
+                    <input
+                      type="number" min={1} max={row.available} value={picked[row.item_id].qty}
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => setQty(row, Number(e.target.value))}
+                      className="w-14 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums shrink-0"
+                    />
+                  )}
+                </label>
+              )
+            })}
+          </div>
+        )
       )}
 
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
@@ -353,7 +337,7 @@ function TakeModal({ sessionId, locationId, locationName, onClose, onDone }: {
         }}
         loading={submit.isPending}
         disabled={chosen.length === 0}
-        label="Record it"
+        label={chosen.length > 0 ? `Done — take ${chosen.length}` : "Done"}
       />
     </Modal>
   )

@@ -43,6 +43,9 @@ class ItemCreate(BaseModel):
     is_consumable: bool = False
     returnable_default: bool = False
     notes: str | None = None
+    # Shown to an instructor picking from the equipment shelf (B3) — distinct
+    # from `notes`, which is ops-facing.
+    description: str | None = None
 
 
 class ItemUpdate(BaseModel):
@@ -51,6 +54,7 @@ class ItemUpdate(BaseModel):
     is_consumable: bool | None = None
     returnable_default: bool | None = None
     notes: str | None = None
+    description: str | None = None
 
 
 class ItemOut(BaseModel):
@@ -62,6 +66,7 @@ class ItemOut(BaseModel):
     is_consumable: bool
     returnable_default: bool
     notes: str | None
+    description: str | None
 
 
 # ── kit templates ───────────────────────────────────────────────────────────

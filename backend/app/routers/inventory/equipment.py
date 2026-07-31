@@ -1,7 +1,7 @@
 """Equipment pickup endpoints (I2-7).
 
     GET  /inventory/sessions/{id}/equipment          what I took, and from where
-    GET  /inventory/sessions/{id}/equipment/search   the search box
+    GET  /inventory/sessions/{id}/equipment/search   the shelf at the pickup point (B3)
     POST /inventory/sessions/{id}/equipment/take     "I also took these"
     POST /inventory/sessions/{id}/equipment/return   "I brought these back"
 
@@ -69,17 +69,13 @@ async def get_session_equipment(
 @router.get("/sessions/{session_id}/equipment/search", response_model=list[EquipmentSearchOut])
 async def search_session_equipment(
     session_id: uuid.UUID,
-    q: str = Query(default="", description="Free text; under two characters returns nothing"),
+    q: str = Query(default="", description="Optional free-text filter; empty returns the whole shelf"),
     location_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
-    """Search the collection point's shelf.
-
-    Deliberately returns nothing for an empty query rather than the whole
-    shelf. A co-working space may stock forty item types and most sessions
-    take nothing extra — a list nobody needs is a list people scroll past.
-    """
+    """The collection point's shelf (B3) — everything in stock there, in
+    one tick-list, optionally narrowed by name."""
     await _get_deliverable_session(db, session_id, current_user)
 
     if location_id is None:

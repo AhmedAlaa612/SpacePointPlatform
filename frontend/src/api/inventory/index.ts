@@ -36,6 +36,7 @@ export const createItemApi = (body: {
   category: ItemCategory
   is_consumable: boolean
   returnable_default: boolean
+  description?: string | null
 }) => api.post<Item>("/inventory/items", body).then((r) => r.data)
 
 export const updateItemApi = ({ id, ...body }: { id: string } & Partial<Item>) =>
@@ -265,6 +266,7 @@ export interface EquipmentSearchResult {
   category: string
   available: number
   returnable: boolean
+  description: string | null
 }
 
 export interface TakenEquipment {
@@ -289,11 +291,11 @@ export interface SessionEquipment {
 export const getSessionEquipmentApi = (sessionId: string) =>
   api.get<SessionEquipment>(`/inventory/sessions/${sessionId}/equipment`).then((r) => r.data)
 
-/** Returns nothing for a query under two characters — the section starts
- *  empty by design, never as a rendered list of the location's shelf. */
-export const searchEquipmentApi = ({ sessionId, q, locationId }: {
+/** B3: the whole shelf at the pickup point by default. `q` is an optional
+ *  narrowing filter, not a gate — omitting it still returns everything. */
+export const searchEquipmentApi = ({ sessionId, q = "", locationId }: {
   sessionId: string
-  q: string
+  q?: string
   locationId?: string | null
 }) => api.get<EquipmentSearchResult[]>(`/inventory/sessions/${sessionId}/equipment/search`, {
   params: { q, ...(locationId ? { location_id: locationId } : {}) },

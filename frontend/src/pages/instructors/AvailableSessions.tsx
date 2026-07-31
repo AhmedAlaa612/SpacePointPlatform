@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Calendar, Clock, ExternalLink, MapPin, Users } from "lucide-react"
 import { listAvailableSessionsApi, registerInterestApi, withdrawInterestApi } from "@/api/sessions/staffing"
@@ -11,6 +11,9 @@ import { SessionsSubNav } from "@/components/layout/SessionsSubNav"
 export default function AvailableSessions() {
   const qc = useQueryClient()
   const [notes, setNotes] = useState<Record<string, string>>({})
+  // B1: which opening they're applying for. Defaults to the first role a
+  // session is soliciting for once its openings load.
+  const [roleChoice, setRoleChoice] = useState<Record<string, string>>({})
 
   const sessions = useQuery({ queryKey: ["staffing-available-sessions"], queryFn: listAvailableSessionsApi })
   // I5-5: shown with every invite, ticked before registering interest.
@@ -20,11 +23,26 @@ export default function AvailableSessions() {
   const [agreed, setAgreed] = useState<Record<string, boolean>>({})
   const [error, setError] = useState("")
 
+  useEffect(() => {
+    if (!sessions.data) return
+    setRoleChoice((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const s of sessions.data!) {
+        if (!next[s.session_id] && s.openings.length > 0) {
+          next[s.session_id] = s.openings[0].role_id
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [sessions.data])
+
   const accept = useMutation({ mutationFn: acceptResponsibilitiesApi })
 
   const register = useMutation({
     mutationFn: async (sessionId: string) => {
-      await registerInterestApi(sessionId, notes[sessionId])
+      await registerInterestApi(sessionId, notes[sessionId], roleChoice[sessionId] ?? null)
       // Recorded against the version that was on screen — the server refuses
       // a stale one rather than accepting agreement to unread wording.
       if (responsibilities?.text) {
@@ -101,22 +119,47 @@ export default function AvailableSessions() {
 
                   {/* I5-5: the offer itself — per role, with what is left. */}
                   {s.openings.length > 0 && (
-                    <div className="mb-3 flex flex-col gap-1">
-                      {s.openings.map((o) => (
-                        <div key={o.role_id} className="flex items-center justify-between gap-3 text-sm">
-                          <span className="text-foreground">
-                            {o.role_name}
-                            <span className="text-xs text-muted-foreground">
-                              {" "}&middot; {o.remaining > 0 ? `${o.remaining} of ${o.slots} left` : "full \u2014 waitlist"}
-                            </span>
-                          </span>
-                          {o.amount_aed != null && (
-                            <span className="text-sm font-semibold tabular-nums">
-                              AED {o.amount_aed.toLocaleString()}
-                            </span>
-                          )}
-                        </div>
-                      ))}
+                    <div className="mb-3 flex flex-col gap-1.5">
+                      {s.openings.map((o) => {
+                        const full = o.remaining <= 0
+                        return (
+                          <label
+                            key={o.role_id}
+                            className={`flex items-start justify-between gap-3 text-sm rounded-lg px-2 py-1.5 -mx-2 transition-colors ${
+                              !s.my_interest && !full ? "cursor-pointer hover:bg-muted" : ""
+                            } ${!s.my_interest && roleChoice[s.session_id] === o.role_id ? "bg-primary/5 ring-1 ring-primary/20" : ""}`}
+                          >
+                            <div className="flex items-start gap-2 min-w-0">
+                              {!s.my_interest && (
+                                <input
+                                  type="radio"
+                                  name={`role-${s.session_id}`}
+                                  className="mt-1 shrink-0"
+                                  checked={roleChoice[s.session_id] === o.role_id}
+                                  disabled={full}
+                                  onChange={() => setRoleChoice({ ...roleChoice, [s.session_id]: o.role_id })}
+                                />
+                              )}
+                              <div className="min-w-0">
+                                <span className="text-foreground">
+                                  {o.role_name}
+                                  <span className="text-xs text-muted-foreground">
+                                    {" "}&middot; {o.remaining > 0 ? `${o.remaining} of ${o.slots} left` : "full \u2014 waitlist"}
+                                  </span>
+                                </span>
+                                {o.role_description && (
+                                  <p className="text-xs text-muted-foreground">{o.role_description}</p>
+                                )}
+                              </div>
+                            </div>
+                            {o.amount_aed != null && (
+                              <span className="text-sm font-semibold tabular-nums shrink-0">
+                                AED {o.amount_aed.toLocaleString()}
+                              </span>
+                            )}
+                          </label>
+                        )
+                      })}
                       {s.addons.map((a, i) => (
                         <div key={i} className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                           <span>+ {a.description}</span>
@@ -164,12 +207,19 @@ export default function AvailableSessions() {
                         />
                         <Button
                           size="sm"
-                          disabled={pending || (!!responsibilities?.text && !agreed[s.session_id])}
+                          disabled={
+                            pending ||
+                            (!!responsibilities?.text && !agreed[s.session_id]) ||
+                            (s.openings.length > 0 && !roleChoice[s.session_id])
+                          }
                           onClick={() => { setError(""); register.mutate(s.session_id) }}
                         >
                           {pending ? "Registering…" : "Register interest"}
                         </Button>
                       </div>
+                      {s.openings.length > 0 && !roleChoice[s.session_id] && (
+                        <p className="text-xs text-muted-foreground">Pick a role above before applying.</p>
+                      )}
                       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
                     </div>
                   )}

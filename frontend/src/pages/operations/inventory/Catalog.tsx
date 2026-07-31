@@ -243,6 +243,7 @@ function NewItemModal({ onClose }: { onClose: () => void }) {
   const [category, setCategory] = useState<ItemCategory>("board")
   const [isConsumable, setIsConsumable] = useState(false)
   const [returnable, setReturnable] = useState(false)
+  const [description, setDescription] = useState("")
   const [error, setError] = useState("")
 
   const mutation = useMutation({
@@ -266,6 +267,14 @@ function NewItemModal({ onClose }: { onClose: () => void }) {
         >
           {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
+      </Field>
+      <Field label="Description (optional)">
+        <textarea
+          value={description} onChange={(e) => setDescription(e.target.value)}
+          rows={2}
+          placeholder="Shown to instructors picking this up for a session."
+          className="w-full px-3 py-2 border border-border bg-background text-foreground rounded-xl text-sm resize-y"
+        />
       </Field>
       <label className="flex items-start gap-2 cursor-pointer">
         <input type="checkbox" checked={isConsumable} onChange={(e) => setIsConsumable(e.target.checked)} className="mt-0.5" />
@@ -292,7 +301,10 @@ function NewItemModal({ onClose }: { onClose: () => void }) {
         onCancel={onClose}
         onConfirm={() => {
           setError("")
-          mutation.mutate({ name, category, is_consumable: isConsumable, returnable_default: returnable })
+          mutation.mutate({
+            name, category, is_consumable: isConsumable, returnable_default: returnable,
+            description: description.trim() || null,
+          })
         }}
         loading={mutation.isPending}
         disabled={!name.trim()}

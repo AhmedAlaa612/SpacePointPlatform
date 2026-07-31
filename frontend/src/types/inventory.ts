@@ -22,6 +22,8 @@ export interface Item {
   is_consumable: boolean
   returnable_default: boolean
   notes: string | null
+  /** Shown to an instructor picking from the equipment shelf (B3). */
+  description: string | null
 }
 
 export interface KitTemplate {

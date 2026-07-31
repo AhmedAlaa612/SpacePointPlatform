@@ -175,7 +175,7 @@ async def test_an_instructor_can_record_and_return_their_own_pickup(client, db):
 
 
 @pytest.mark.asyncio
-async def test_search_needs_a_query_and_only_offers_that_shelf(client, db):
+async def test_search_defaults_to_the_whole_shelf_and_only_offers_that_shelf(client, db):
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
@@ -187,13 +187,20 @@ async def test_search_needs_a_query_and_only_offers_that_shelf(client, db):
     r = await client.get(
         f"/inventory/sessions/{session.id}/equipment/search", headers=_headers(instructor)
     )
-    assert r.status_code == 200 and r.json() == []
+    assert r.status_code == 200
+    assert [row["item_id"] for row in r.json()] == [str(item.id)]
 
     r = await client.get(
         f"/inventory/sessions/{session.id}/equipment/search",
         params={"q": "battery"}, headers=_headers(instructor),
     )
     assert [row["item_id"] for row in r.json()] == [str(item.id)]
+
+    r = await client.get(
+        f"/inventory/sessions/{session.id}/equipment/search",
+        params={"q": "zzz"}, headers=_headers(instructor),
+    )
+    assert r.json() == []
 
 
 @pytest.mark.asyncio
