@@ -137,9 +137,12 @@ async def test_select_instructors_assigns_notifies_and_enqueues_email(db, arq_cl
     # arq_client (not client): asserts the assignment email reached the queue.
     _, session = await _make_cohort_with_session(db, staffing_status="open_call")
 
+    # No role_id on purpose: I5-3 documents that omitting it means the most
+    # senior role, which is what the old `role="lead"` default meant before
+    # roles were configurable. Pinning that here keeps the default honest.
     resp = await arq_client.post(
         f"/sessions/{session.id}/staffing/select",
-        json={"user_ids": [str(instructor_user.id)], "role": "lead"},
+        json={"user_ids": [str(instructor_user.id)]},
         headers=operations_headers,
     )
     assert resp.status_code == 200, resp.text
@@ -150,7 +153,8 @@ async def test_select_instructors_assigns_notifies_and_enqueues_email(db, arq_cl
     assignment = (await db.execute(
         select(SessionInstructor).where(SessionInstructor.session_id == session.id, SessionInstructor.user_id == instructor_user.id)
     )).scalars().first()
-    assert assignment is not None and assignment.role == "lead"
+    assert assignment is not None
+    assert assignment.role_id == await _role_id(db, "Lead Facilitator")
 
     notif = (await db.execute(
         select(Notification).where(Notification.user_id == instructor_user.id, Notification.type == "staffing_assigned")
