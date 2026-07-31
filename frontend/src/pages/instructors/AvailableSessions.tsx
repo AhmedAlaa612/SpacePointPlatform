@@ -190,9 +190,6 @@ function SessionCard({ s }: { s: AvailableSession }) {
                 <p className="text-xs text-muted-foreground whitespace-pre-line max-h-32 overflow-y-auto">
                   {responsibilities.data.text}
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  {responsibilities.data.payment_terms_note}
-                </p>
                 <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
                   <input
                     type="checkbox"

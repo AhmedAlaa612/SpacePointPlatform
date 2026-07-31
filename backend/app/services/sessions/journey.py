@@ -23,17 +23,14 @@ from app.services.settings import get_portal_setting, set_portal_setting
 
 RESPONSIBILITIES_KEY = "instructor.responsibilities"
 
-# Shown under the responsibilities on every invite (§G). Static, not a
-# negotiated term — it is a statement of how SpacePoint pays, and putting it
-# in settings would invite it being edited per session, which it is not.
-PAYMENT_TERMS_NOTE = "Standard payment is within 30 days of delivery."
-
 
 async def get_responsibilities(db: AsyncSession) -> tuple[str, str]:
-    """The general responsibilities text and its version — the part that
-    applies regardless of which role someone is agreeing to (arrive on time,
-    wear the branded shirt, that kind of thing). Editable by ops on its own;
-    `get_responsibilities_for_role` is what an instructor actually reads.
+    """The general responsibilities text and its version — one chunk ops
+    writes and maintains, appended after a role's own responsibilities
+    regardless of which role someone is agreeing to. Whatever belongs in it —
+    "arrive on time," payment terms, anything else — is ops's call; this
+    isn't split into named sub-fields. Editable on its own; the combined
+    version below is what an instructor actually reads.
 
     The version is a hash of the text rather than a counter nobody remembers
     to bump: it changes exactly when the words change, and it lets an old
@@ -51,10 +48,10 @@ async def set_responsibilities(db: AsyncSession, text: str) -> tuple[str, str]:
 async def get_responsibilities_for_role(
     db: AsyncSession, role_id: uuid.UUID | None
 ) -> tuple[str, str, str | None]:
-    """What an instructor actually reads and agrees to: the general text plus
-    that role's own description, if it has one. One combined block, one
-    checkbox — not a generic agreement that says nothing about the job and a
-    separate, unagreed-to role blurb next to it.
+    """What an instructor actually reads and agrees to: that role's own
+    responsibilities first, with the general text as a fixed note after it —
+    not a generic agreement shown ahead of the part that's actually specific
+    to the job. One combined block, one checkbox.
 
     `role_id=None` (a session with no configured openings) falls back to the
     general text alone, unchanged from before per-role responsibilities
@@ -79,7 +76,7 @@ async def get_responsibilities_for_role(
         return general, general_version, role_name
 
     general_stripped = general.strip()
-    text = f"{general_stripped}\n\n{role_desc}" if general_stripped else role_desc
+    text = f"{role_desc}\n\n{general_stripped}" if general_stripped else role_desc
     version = sha256(f"{role_id}\x1f{text}".encode("utf-8")).hexdigest()[:16]
     return text, version, role_name
 

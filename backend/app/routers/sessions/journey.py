@@ -152,14 +152,9 @@ async def get_responsibilities(
     block an instructor actually reads and agrees to for that specific role."""
     if role_id is not None:
         text, version, role_name = await svc.get_responsibilities_for_role(db, role_id)
-        return ResponsibilitiesOut(
-            text=text, version=version, payment_terms_note=svc.PAYMENT_TERMS_NOTE,
-            role_name=role_name,
-        )
+        return ResponsibilitiesOut(text=text, version=version, role_name=role_name)
     text, version = await svc.get_responsibilities(db)
-    return ResponsibilitiesOut(
-        text=text, version=version, payment_terms_note=svc.PAYMENT_TERMS_NOTE
-    )
+    return ResponsibilitiesOut(text=text, version=version)
 
 
 @router.put("/responsibilities", response_model=ResponsibilitiesOut)
@@ -170,9 +165,7 @@ async def put_responsibilities(
 ):
     text, version = await svc.set_responsibilities(db, body.text)
     await db.commit()
-    return ResponsibilitiesOut(
-        text=text, version=version, payment_terms_note=svc.PAYMENT_TERMS_NOTE
-    )
+    return ResponsibilitiesOut(text=text, version=version)
 
 
 @router.post("/{session_id}/responsibilities/accept", status_code=status.HTTP_204_NO_CONTENT)

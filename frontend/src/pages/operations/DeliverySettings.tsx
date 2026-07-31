@@ -34,7 +34,11 @@ export default function DeliverySettings() {
     queryKey: ["delivery-roles-all"], queryFn: () => getDeliveryRolesApi(true),
   })
   const { data: responsibilities } = useQuery({
-    queryKey: ["responsibilities"], queryFn: getResponsibilitiesApi,
+    // getResponsibilitiesApi now takes an optional roleId — passed bare like
+    // this, react-query's own queryFn context ({queryKey, signal, ...})
+    // becomes that argument, which axios then serializes as bracket-notation
+    // junk in the query string. Always wrap it.
+    queryKey: ["responsibilities"], queryFn: () => getResponsibilitiesApi(),
   })
 
   useEffect(() => {
@@ -153,31 +157,28 @@ export default function DeliverySettings() {
 
       <section className="rounded-2xl border border-border bg-card p-4 flex flex-col gap-3">
         <div>
-          <p className="text-sm font-semibold text-foreground">Responsibilities</p>
+          <p className="text-sm font-semibold text-foreground">General responsibilities</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Shown on every invite with a read-and-agree tick. Editing this makes a new version:
-            anyone who already agreed stays recorded against the wording they actually read.
+            One chunk of text, appended <strong>after</strong> whichever role's own
+            responsibilities an instructor is agreeing to — things true regardless of role
+            (arrive on time, wear the branded shirt, payment terms, anything else). Editing this
+            makes a new version: anyone who already agreed stays recorded against the wording
+            they actually read.
           </p>
         </div>
         <textarea
           value={text ?? ""} onChange={(e) => setText(e.target.value)} rows={8}
-          placeholder="Arrive 30 minutes before the session starts…"
+          placeholder="Arrive 30 minutes before the session starts…&#10;&#10;Standard payment is within 30 days of delivery."
           className="w-full px-3 py-2 border border-border bg-background text-foreground rounded-xl text-sm resize-y"
         />
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => { setError(""); saveText.mutate() }}
-            disabled={saveText.isPending}
-            className="h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-40"
-          >
-            {saveText.isPending ? "Saving…" : "Save responsibilities"}
-          </button>
-          {responsibilities && (
-            <span className="text-xs text-muted-foreground">
-              {responsibilities.payment_terms_note}
-            </span>
-          )}
-        </div>
+
+        <button
+          onClick={() => { setError(""); saveText.mutate() }}
+          disabled={saveText.isPending}
+          className="h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-40 w-fit"
+        >
+          {saveText.isPending ? "Saving…" : "Save"}
+        </button>
       </section>
 
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}

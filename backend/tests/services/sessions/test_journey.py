@@ -134,6 +134,7 @@ async def test_the_version_changes_only_when_the_words_do(db):
     assert a == b and a != c
 
 
+
 @pytest.mark.asyncio
 async def test_role_with_no_description_is_identical_to_the_general_text(db):
     """A role that hasn't had its own wording written yet must not silently
