@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 class DeliveryRoleOut(BaseModel):
     id: UUID
     name: str
+    description: str | None = None
     sort_order: int
     is_active: bool
 
@@ -22,12 +23,14 @@ class DeliveryRoleOut(BaseModel):
 
 class DeliveryRoleCreate(BaseModel):
     name: str
+    description: str | None = None
     # Omitted appends to the end. Sort order is seniority, lowest first.
     sort_order: int | None = None
 
 
 class DeliveryRoleUpdate(BaseModel):
     name: str | None = None
+    description: str | None = None
     sort_order: int | None = None
     is_active: bool | None = None
 
@@ -61,6 +64,9 @@ class OpeningOut(BaseModel):
     waitlist: int
     amount_aed: Decimal | None = None
     notes: str | None = None
+    # B2: whether this role is currently being solicited. A role-scoped open
+    # call sets this per opening rather than the whole session at once.
+    is_open: bool = True
 
 
 # ── add-ons (§G-addons) ─────────────────────────────────────────────────────
@@ -84,6 +90,13 @@ class AddonIn(BaseModel):
 
 class AddonDecisionIn(BaseModel):
     status: Literal["agreed", "declined"]
+
+
+class AddonUpdateIn(BaseModel):
+    """Both optional — a PATCH sends whatever changed."""
+
+    description: str | None = None
+    amount_aed: Decimal | None = None
 
 
 class AddonOut(BaseModel):

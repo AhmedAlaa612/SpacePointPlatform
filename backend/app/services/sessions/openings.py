@@ -63,7 +63,9 @@ async def list_roles(db: AsyncSession, *, include_inactive: bool = False) -> lis
     return (await db.execute(stmt)).scalars().all()
 
 
-async def create_role(db: AsyncSession, *, name: str, sort_order: int | None = None) -> DeliveryRole:
+async def create_role(
+    db: AsyncSession, *, name: str, description: str | None = None, sort_order: int | None = None,
+) -> DeliveryRole:
     name = (name or "").strip()
     if not name:
         raise HTTPException(400, detail="A role needs a name")
@@ -78,7 +80,9 @@ async def create_role(db: AsyncSession, *, name: str, sort_order: int | None = N
         highest = await db.scalar(select(func.max(DeliveryRole.sort_order)))
         sort_order = (highest or 0) + 1
 
-    role = DeliveryRole(id=uuid.uuid4(), name=name, sort_order=sort_order, is_active=True)
+    role = DeliveryRole(
+        id=uuid.uuid4(), name=name, description=description, sort_order=sort_order, is_active=True,
+    )
     db.add(role)
     await db.flush()
     return role
@@ -86,10 +90,13 @@ async def create_role(db: AsyncSession, *, name: str, sort_order: int | None = N
 
 async def update_role(
     db: AsyncSession, *, role: DeliveryRole,
-    name: str | None = None, sort_order: int | None = None, is_active: bool | None = None,
+    name: str | None = None, description: str | None = None,
+    sort_order: int | None = None, is_active: bool | None = None,
 ) -> DeliveryRole:
     """Renaming is safe by design: `payment_sessions.role` snapshots the name
     at the time, so a signed letter keeps saying what it said."""
+    if description is not None:
+        role.description = description
     if name is not None:
         name = name.strip()
         if not name:
@@ -228,19 +235,28 @@ async def set_openings(
     return out
 
 
-async def openings_for_session(db: AsyncSession, session_id: uuid.UUID) -> list[dict]:
+async def openings_for_session(
+    db: AsyncSession, session_id: uuid.UUID, *, open_only: bool = False,
+) -> list[dict]:
     """Openings with slots taken/remaining and the waitlist size.
 
     None of those three are stored — an assignment count and an interest count
     is all it takes, and storing them would be a second source of truth for a
     number that changes every time somebody is assigned.
+
+    `open_only=True` (B2) is what the instructor-facing marketplace uses — a
+    role ops hasn't (or no longer) is soliciting for is invisible there, even
+    though the row and its history still exist for ops's own view.
     """
-    rows = (await db.execute(
+    stmt = (
         select(SessionOpening, DeliveryRole)
         .join(DeliveryRole, DeliveryRole.id == SessionOpening.role_id)
         .where(SessionOpening.session_id == session_id)
         .order_by(DeliveryRole.sort_order)
-    )).all()
+    )
+    if open_only:
+        stmt = stmt.where(SessionOpening.is_open.is_(True))
+    rows = (await db.execute(stmt)).all()
     if not rows:
         return []
 
@@ -263,17 +279,36 @@ async def openings_for_session(db: AsyncSession, session_id: uuid.UUID) -> list[
             "session_id": opening.session_id,
             "role_id": role.id,
             "role_name": role.name,
+            "role_description": role.description,
             "slots": opening.slots,
             "filled": taken,
             "remaining": remaining,
             "amount_aed": opening.amount_aed,
             "notes": opening.notes,
+            "is_open": opening.is_open,
             # Interest is session-wide, not per role, so this is "people
             # waiting on this session" rather than on this specific opening.
             # Saying otherwise would be inventing precision we don't have.
             "waitlist": max(0, interested - sum(assigned.values())) if remaining == 0 else 0,
         })
     return out
+
+
+async def set_openings_open(
+    db: AsyncSession, *, session_id: uuid.UUID, role_ids: list[uuid.UUID] | None,
+) -> None:
+    """Which roles are currently on offer (B2). `None` opens every existing
+    opening (today's exact behaviour — an open call was all-or-nothing);
+    given a list, only those roles become `is_open`, the rest close. Closing
+    a role never touches assignments or the opening row itself — it only
+    stops it from appearing to instructors."""
+    rows = (await db.execute(
+        select(SessionOpening).where(SessionOpening.session_id == session_id)
+    )).scalars().all()
+    wanted = None if role_ids is None else set(role_ids)
+    for opening in rows:
+        opening.is_open = True if wanted is None else opening.role_id in wanted
+    await db.flush()
 
 
 async def fully_staffed(db: AsyncSession, session_id: uuid.UUID) -> bool:
@@ -354,6 +389,28 @@ async def decide_addon(
     addon.decided_at = datetime.now(timezone.utc)
     await db.flush()
     return addon
+
+
+async def update_addon(
+    db: AsyncSession, *, addon: SessionAddon,
+    description: str | None = None, amount_aed: Decimal | float | None = None,
+) -> SessionAddon:
+    if description is not None:
+        description = description.strip()
+        if not description:
+            raise HTTPException(400, detail="An add-on needs a description")
+        addon.description = description
+    if amount_aed is not None:
+        if Decimal(str(amount_aed)) < 0:
+            raise HTTPException(400, detail="An add-on can't be negative")
+        addon.amount_aed = Decimal(str(amount_aed))
+    await db.flush()
+    return addon
+
+
+async def delete_addon(db: AsyncSession, *, addon: SessionAddon) -> None:
+    await db.delete(addon)
+    await db.flush()
 
 
 async def addons_for_session(

@@ -43,4 +43,12 @@ class Item(Base):
     returnable_default = Column(Boolean, nullable=False, default=False)
 
     notes = Column(Text, nullable=True)
+
+    # Shown to an instructor picking from the equipment shelf (B3) — distinct
+    # from `notes`, which is ops-facing. Both optional; most items have
+    # neither.
+    description = Column(Text, nullable=True)
+    image_bucket = Column(String(64), nullable=True)
+    image_path = Column(String(512), nullable=True)
+
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

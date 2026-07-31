@@ -15,6 +15,10 @@ from app.schemas.sessions.cohorts import StaffingStatus
 
 class RegisterInterestRequest(BaseModel):
     note: str | None = None
+    # B1: which opening they're applying for. None is still valid — a
+    # session with no configured openings, or an instructor who just wants
+    # to flag interest generally.
+    role_id: UUID | None = None
 
 
 class InterestOut(BaseModel):
@@ -22,6 +26,8 @@ class InterestOut(BaseModel):
     full_name: str
     email: str
     note: str | None = None
+    role_id: UUID | None = None
+    role_name: str | None = None
     created_at: datetime
 
 
@@ -34,6 +40,10 @@ class EligibleInstructorOut(BaseModel):
     photo_url: str | None = None
     interested: bool
     note: str | None = None
+    # B1: what they actually applied for, so ops assigns by what was asked
+    # rather than guessing.
+    interest_role_id: UUID | None = None
+    interest_role_name: str | None = None
 
 
 class SelectInstructorsRequest(BaseModel):
@@ -84,6 +94,7 @@ class AvailableSessionOut(BaseModel):
 class OpeningSummary(BaseModel):
     role_id: UUID
     role_name: str
+    role_description: str | None = None
     slots: int
     remaining: int
     amount_aed: float | None = None

@@ -20,8 +20,9 @@ import { cn } from "@/lib/utils"
  * ~105 KB and has produced three stale-prop bugs of the same class. The
  * modal takes one import and one line.
  */
-export function SessionKitAssignment({ sessionId, onChanged }: {
+export function SessionKitAssignment({ sessionId, hasInstructor, onChanged }: {
   sessionId: string
+  hasInstructor: boolean
   onChanged: () => void
 }) {
   const qc = useQueryClient()
@@ -101,7 +102,8 @@ export function SessionKitAssignment({ sessionId, onChanged }: {
             {!anyOut && (
               <button
                 onClick={() => issue.mutate()}
-                disabled={issue.isPending}
+                disabled={issue.isPending || !hasInstructor}
+                title={hasInstructor ? undefined : "Assign an instructor to this session first"}
                 className="h-8 px-3 bg-primary text-primary-foreground rounded-lg text-xs font-medium disabled:opacity-50"
               >
                 {issue.isPending ? "…" : "Hand out to the instructor"}
@@ -117,6 +119,9 @@ export function SessionKitAssignment({ sessionId, onChanged }: {
             )}
           </div>
 
+          {!anyOut && !hasInstructor && (
+            <p className="text-xs text-muted-foreground">Assign an instructor first.</p>
+          )}
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
         </>
       )}

@@ -21,19 +21,24 @@ export const listMySessionsApi = () =>
 
 // ── Ops: open call / reopen ─────────────────────────────────────────────────
 
-export const openCallApi = (sessionId: string, userIds?: string[]) =>
-  api.post<Session>(`/sessions/${sessionId}/staffing/open-call`, { user_ids: userIds }).then((r) => r.data)
+export const openCallApi = (sessionId: string, userIds?: string[], roleIds?: string[]) =>
+  api.post<Session>(`/sessions/${sessionId}/staffing/open-call`, {
+    user_ids: userIds, role_ids: roleIds,
+  }).then((r) => r.data)
 
 export const openCallForCohortApi = (cohortId: string, userIds?: string[]) =>
   api.post<Session[]>(`/sessions/cohorts/${cohortId}/staffing/open-call`, { user_ids: userIds }).then((r) => r.data)
 
 /** Targeting carries over by default. Pass [] to widen the call to everyone,
- *  or a list of user ids to re-aim it. */
-export const reopenStaffingApi = (sessionId: string, targetUserIds?: string[]) =>
+ *  or a list of user ids to re-aim it. Same shape for role_ids (B2) — the
+ *  common case is reopening for just the roles still needed. */
+export const reopenStaffingApi = (sessionId: string, targetUserIds?: string[], roleIds?: string[]) =>
   api
     .post<Session>(
       `/sessions/${sessionId}/staffing/reopen`,
-      targetUserIds === undefined ? undefined : { user_ids: targetUserIds },
+      targetUserIds === undefined && roleIds === undefined
+        ? undefined
+        : { user_ids: targetUserIds, role_ids: roleIds },
     )
     .then((r) => r.data)
 
@@ -42,8 +47,8 @@ export const closeCallApi = (sessionId: string, clearInterest: boolean = false) 
 
 // ── Instructor/facilitator: register / withdraw interest ───────────────────
 
-export const registerInterestApi = (sessionId: string, note?: string) =>
-  api.post<InstructorInterest>(`/sessions/${sessionId}/staffing/interest`, { note }).then((r) => r.data)
+export const registerInterestApi = (sessionId: string, note?: string, roleId?: string | null) =>
+  api.post<InstructorInterest>(`/sessions/${sessionId}/staffing/interest`, { note, role_id: roleId ?? null }).then((r) => r.data)
 
 export const withdrawInterestApi = (sessionId: string) =>
   api.delete(`/sessions/${sessionId}/staffing/interest`).then((r) => r.data)

@@ -6,6 +6,8 @@ import { api } from "@/api/client"
 export interface DeliveryRole {
   id: string
   name: string
+  /** What an instructor is agreeing to when they pick this role. */
+  description: string | null
   /** Seniority, lowest first. "The lead" is the lowest sort_order, never a
    *  name match — so renaming or inserting a role doesn't break who's boss. */
   sort_order: number
@@ -24,6 +26,9 @@ export interface SessionOpening {
   waitlist: number
   amount_aed: string | number | null
   notes: string | null
+  /** Whether this role is currently being solicited (B2). Ops sees closed
+   *  ones too; instructors only ever see `true` rows. */
+  is_open: boolean
 }
 
 export type AddonSource = "offer" | "interest" | "invite" | "survey" | "payment"
@@ -52,7 +57,7 @@ export const getDeliveryRolesApi = (includeInactive = false) =>
     params: { include_inactive: includeInactive },
   }).then((r) => r.data)
 
-export const createDeliveryRoleApi = (body: { name: string; sort_order?: number }) =>
+export const createDeliveryRoleApi = (body: { name: string; description?: string | null; sort_order?: number }) =>
   api.post<DeliveryRole>("/sessions/delivery-roles", body).then((r) => r.data)
 
 /** No delete: a role that has ever been assigned is part of the record.
@@ -60,6 +65,7 @@ export const createDeliveryRoleApi = (body: { name: string; sort_order?: number 
 export const updateDeliveryRoleApi = ({ id, ...body }: {
   id: string
   name?: string
+  description?: string | null
   sort_order?: number
   is_active?: boolean
 }) => api.patch<DeliveryRole>(`/sessions/delivery-roles/${id}`, body).then((r) => r.data)
@@ -97,6 +103,15 @@ export const decideAddonApi = ({ addonId, status }: {
   addonId: string
   status: "agreed" | "declined"
 }) => api.put<SessionAddon>(`/sessions/addons/${addonId}/decision`, { status }).then((r) => r.data)
+
+export const updateAddonApi = ({ addonId, ...body }: {
+  addonId: string
+  description?: string
+  amount_aed?: number
+}) => api.patch<SessionAddon>(`/sessions/addons/${addonId}`, body).then((r) => r.data)
+
+export const deleteAddonApi = (addonId: string) =>
+  api.delete(`/sessions/addons/${addonId}`).then((r) => r.data)
 
 /* ── materials, responsibilities, payment bridge (I5-5 … I5-8) ──────────── */
 

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -41,6 +41,12 @@ class SessionOpening(Base):
     # can come later — that was explicitly deferred (operator, 2026-07-29).
     amount_aed = Column(Numeric(10, 2), nullable=True)
     notes = Column(Text, nullable=True)
+    # Whether this role is currently being solicited (B2). An open call used
+    # to be all-or-nothing for the whole session; this lets ops open it for
+    # just the roles still needed. Defaults true, so every opening behaves
+    # exactly as it did before this existed: visible whenever the session is
+    # open_call.
+    is_open = Column(Boolean, nullable=False, default=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 

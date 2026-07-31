@@ -1,9 +1,10 @@
 """Delivery roles, openings and add-ons (I5-3, I5-4, §G-addons).
 
-    GET/POST/PATCH /sessions/delivery-roles          ops configures the vocabulary
-    GET/PUT        /sessions/{id}/openings           the offer, per role
-    GET/POST       /sessions/{id}/addons             extra money
-    PUT            /sessions/addons/{id}/decision    ops answers a request
+    GET/POST/PATCH     /sessions/delivery-roles          ops configures the vocabulary
+    GET/PUT            /sessions/{id}/openings           the offer, per role
+    GET/POST           /sessions/{id}/addons             extra money
+    PUT                /sessions/addons/{id}/decision    ops answers a request
+    PATCH/DELETE       /sessions/addons/{id}             ops corrects or removes one
 
 Roles and openings are `require_operations` — they define what a session is
 offering, which is an ops decision.
@@ -30,6 +31,7 @@ from app.schemas.sessions.openings import (
     AddonDecisionIn,
     AddonIn,
     AddonOut,
+    AddonUpdateIn,
     DeliveryRoleCreate,
     DeliveryRoleOut,
     DeliveryRoleUpdate,
@@ -61,7 +63,7 @@ async def create_delivery_role(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operations),
 ):
-    role = await svc.create_role(db, name=body.name, sort_order=body.sort_order)
+    role = await svc.create_role(db, name=body.name, description=body.description, sort_order=body.sort_order)
     await db.commit()
     await db.refresh(role)
     return role
@@ -81,7 +83,8 @@ async def update_delivery_role(
     if role is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Delivery role not found")
     await svc.update_role(
-        db, role=role, name=body.name, sort_order=body.sort_order, is_active=body.is_active
+        db, role=role, name=body.name, description=body.description,
+        sort_order=body.sort_order, is_active=body.is_active,
     )
     await db.commit()
     await db.refresh(role)
@@ -97,9 +100,13 @@ async def get_openings(
     current_user: User = Depends(require_session_delivery),
 ):
     """Slots, offer and how many are left. Visible to instructors — it is what
-    the invite is made of."""
+    the invite is made of. Ops sees every opening, including roles closed to
+    the current call (B2) — they're the one who'd reopen it. Instructors only
+    ever see the ones actually on offer."""
     await _get_deliverable_session(db, session_id, current_user)
-    return [OpeningOut(**row) for row in await svc.openings_for_session(db, session_id)]
+    is_ops = {"operations", "admin"} & set(current_user.role_values)
+    rows = await svc.openings_for_session(db, session_id, open_only=not is_ops)
+    return [OpeningOut(**row) for row in rows]
 
 
 @router.put("/{session_id}/openings", response_model=list[OpeningOut])
@@ -201,3 +208,39 @@ async def decide_addon(
         if row["id"] == addon_id:
             return AddonOut(**row)
     raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Add-on not found")
+
+
+@router.patch("/addons/{addon_id}", response_model=AddonOut)
+async def update_addon(
+    addon_id: uuid.UUID,
+    body: AddonUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    """Correct a mistyped description or amount. Ops-only — an instructor who
+    wants a change asks for a new add-on (§G-addons's `proposed` path) rather
+    than editing what's already on record."""
+    addon = await db.get(SessionAddon, addon_id)
+    if addon is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Add-on not found")
+
+    await svc.update_addon(db, addon=addon, description=body.description, amount_aed=body.amount_aed)
+    await db.commit()
+
+    for row in await svc.addons_for_session(db, addon.session_id):
+        if row["id"] == addon_id:
+            return AddonOut(**row)
+    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Add-on not found")
+
+
+@router.delete("/addons/{addon_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_addon(
+    addon_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    addon = await db.get(SessionAddon, addon_id)
+    if addon is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Add-on not found")
+    await svc.delete_addon(db, addon=addon)
+    await db.commit()

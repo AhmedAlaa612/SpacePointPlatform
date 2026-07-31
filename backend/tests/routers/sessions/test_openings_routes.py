@@ -255,3 +255,53 @@ async def test_mine_narrows_to_this_persons_addons(client, db):
         f"/sessions/{session.id}/addons", params={"mine": True}, headers=_headers(instructor)
     )
     assert [row["description"] for row in r.json()] == ["Mine"]
+
+
+@pytest.mark.asyncio
+async def test_ops_can_edit_an_addon_but_an_instructor_cannot(client, db):
+    ops = await _user(db, "operations")
+    instructor = await _user(db, "instructor")
+    session = await _session(db, instructor)
+
+    created = (await client.post(
+        f"/sessions/{session.id}/addons",
+        json={"description": "Poster printing", "amount_aed": "200", "source": "offer"},
+        headers=_headers(ops),
+    )).json()
+
+    assert (await client.patch(
+        f"/sessions/addons/{created['id']}", json={"amount_aed": "250"},
+        headers=_headers(instructor),
+    )).status_code == 403
+
+    r = await client.patch(
+        f"/sessions/addons/{created['id']}", json={"amount_aed": "250"},
+        headers=_headers(ops),
+    )
+    assert r.status_code == 200
+    assert r.json()["amount_aed"] == "250"
+    assert r.json()["description"] == "Poster printing"  # untouched
+
+
+@pytest.mark.asyncio
+async def test_ops_can_delete_an_addon_but_an_instructor_cannot(client, db):
+    ops = await _user(db, "operations")
+    instructor = await _user(db, "instructor")
+    session = await _session(db, instructor)
+
+    created = (await client.post(
+        f"/sessions/{session.id}/addons",
+        json={"description": "Taxi", "amount_aed": "80", "source": "offer"},
+        headers=_headers(ops),
+    )).json()
+
+    assert (await client.delete(
+        f"/sessions/addons/{created['id']}", headers=_headers(instructor),
+    )).status_code == 403
+
+    assert (await client.delete(
+        f"/sessions/addons/{created['id']}", headers=_headers(ops),
+    )).status_code == 204
+
+    remaining = await client.get(f"/sessions/{session.id}/addons", headers=_headers(ops))
+    assert remaining.json() == []

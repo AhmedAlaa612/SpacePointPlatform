@@ -1131,7 +1131,11 @@ function SessionDetailModal({ cohort, session, onClose, onChanged }: {
 
         <StaffingSection session={session} onChanged={onChanged} />
         {/* I2-1: its own file, not more bulk in this one. */}
-        <SessionKitAssignment sessionId={session.id} onChanged={onChanged} />
+        <SessionKitAssignment
+          sessionId={session.id}
+          hasInstructor={session.instructors.length > 0}
+          onChanged={onChanged}
+        />
 
         <div className="border-t border-border pt-3">
           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Instructor(s)</p>
@@ -1224,26 +1228,26 @@ function StaffingSection({ session, onChanged }: {
   // further interest even when ops still wanted more people (2026-07-26).
   const [closeCall, setCloseCall] = useState(true)
   const [roleId, setRoleId] = useState("")
+  // Per-row role choice for the single-click "Assign" button — defaults to
+  // whatever the instructor actually applied for (B1), else the first role,
+  // once both the roster and delivery roles have loaded.
+  const [rowRoleIds, setRowRoleIds] = useState<Record<string, string>>({})
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
-  const [showAllInstructors, setShowAllInstructors] = useState(false)
   const [error, setError] = useState("")
   const [lastResult, setLastResult] = useState<{ assigned: number; withoutInterest: number } | null>(null)
 
   const [openCallModalTarget, setOpenCallModalTarget] = useState(false)
+  const [openCallModalMode, setOpenCallModalMode] = useState<"open" | "reopen">("open")
 
   const isOpenCall = session.staffing_status === "open_call"
 
   const { data: deliveryRoles = [] } = useQuery({
     queryKey: ["delivery-roles"], queryFn: () => getDeliveryRolesApi(),
   })
-  // Roles are ordered by seniority, so the first is "the lead" and the second
-  // is the natural second-chair. Both quick-assign buttons fall back to the
-  // most senior rather than sending an empty id.
-  const leadRoleId = deliveryRoles[0]?.id ?? ""
-  const coRoleId = deliveryRoles[1]?.id ?? leadRoleId
   useEffect(() => {
     if (!roleId && deliveryRoles.length) setRoleId(deliveryRoles[0].id)
   }, [deliveryRoles, roleId])
+  const rolesLoaded = deliveryRoles.length > 0
 
   const eligible = useQuery<EligibleInstructor[]>({
     queryKey: ["staffing-eligible-instructors", session.id],
@@ -1251,13 +1255,29 @@ function StaffingSection({ session, onChanged }: {
     enabled: isOpenCall,
   })
 
+  useEffect(() => {
+    if (!rolesLoaded || !eligible.data) return
+    setRowRoleIds((prev) => {
+      const next = { ...prev }
+      let changed = false
+      for (const u of eligible.data!) {
+        if (!next[u.user_id]) {
+          next[u.user_id] = u.interest_role_id ?? deliveryRoles[0].id
+          changed = true
+        }
+      }
+      return changed ? next : prev
+    })
+  }, [rolesLoaded, eligible.data, deliveryRoles])
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["staffing-eligible-instructors", session.id] })
     onChanged()
   }
 
   const openCallMutation = useMutation({
-    mutationFn: (userIds?: string[]) => openCallApi(session.id, userIds),
+    mutationFn: ({ userIds, roleIds }: { userIds?: string[]; roleIds?: string[] }) =>
+      openCallApi(session.id, userIds, roleIds),
     onSuccess: () => {
       setOpenCallModalTarget(false)
       invalidate()
@@ -1277,7 +1297,8 @@ function StaffingSection({ session, onChanged }: {
   })
 
   const reopenMutation = useMutation({
-    mutationFn: (targetUserIds?: string[]) => reopenStaffingApi(session.id, targetUserIds),
+    mutationFn: ({ targetUserIds, roleIds }: { targetUserIds?: string[]; roleIds?: string[] } = {}) =>
+      reopenStaffingApi(session.id, targetUserIds, roleIds),
     onSuccess: invalidate,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to reopen"),
   })
@@ -1302,7 +1323,9 @@ function StaffingSection({ session, onChanged }: {
   })
 
   const roster = eligible.data ?? []
-  const interestedList = roster.filter((u) => u.interested)
+  // Interested-first, so the people who actually want this session don't
+  // scroll off the bottom of the full platform list (A5 — one list, not two).
+  const sortedRoster = [...roster].sort((a, b) => Number(b.interested) - Number(a.interested))
 
   const allSelected = roster.length > 0 && selectedIds.length === roster.length
   const toggleAll = () => setSelectedIds(allSelected ? [] : roster.map((r) => r.user_id))
@@ -1335,17 +1358,17 @@ function StaffingSection({ session, onChanged }: {
       {session.staffing_status === "unstaffed" && (
         <div className="flex flex-col sm:flex-row gap-2">
           <button
-            onClick={() => { setError(""); openCallMutation.mutate(undefined) }}
+            onClick={() => { setError(""); openCallMutation.mutate({}) }}
             disabled={openCallMutation.isPending}
             className="flex-1 h-10 bg-primary/10 border border-primary/30 text-primary rounded-xl text-sm font-medium hover:bg-primary/20 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             Open Call (All Instructors)
           </button>
           <button
-            onClick={() => { setError(""); setOpenCallModalTarget(true) }}
+            onClick={() => { setError(""); setOpenCallModalMode("open"); setOpenCallModalTarget(true) }}
             className="h-10 px-4 border border-border text-foreground rounded-xl text-sm font-medium hover:bg-muted transition-colors flex items-center justify-center gap-1.5"
           >
-            Target Specific Instructors…
+            Target Instructors or Roles…
           </button>
         </div>
       )}
@@ -1353,7 +1376,7 @@ function StaffingSection({ session, onChanged }: {
       {session.staffing_status === "staffed" && (
         <div className="flex flex-col gap-1.5">
           <button
-            onClick={() => { setError(""); reopenMutation.mutate(undefined) }}
+            onClick={() => { setError(""); reopenMutation.mutate({}) }}
             disabled={reopenMutation.isPending}
             className="w-full h-9 border border-border rounded-xl text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
           >
@@ -1365,158 +1388,130 @@ function StaffingSection({ session, onChanged }: {
               there'd be no way to widen a targeted call short of closing it. */}
           {session.target_user_ids?.length > 0 && (
             <button
-              onClick={() => { setError(""); reopenMutation.mutate([]) }}
+              onClick={() => { setError(""); reopenMutation.mutate({ targetUserIds: [] }) }}
               disabled={reopenMutation.isPending}
               className="w-full h-8 text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             >
               …or reopen it to all instructors
             </button>
           )}
+          <button
+            onClick={() => { setError(""); setOpenCallModalMode("reopen"); setOpenCallModalTarget(true) }}
+            className="w-full h-8 text-[11px] font-medium text-primary hover:underline transition-colors"
+          >
+            Reopen for specific roles…
+          </button>
         </div>
       )}
 
       {isOpenCall && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           {eligible.isLoading ? (
             <Spinner />
+          ) : roster.length === 0 ? (
+            <div className="p-4 border border-dashed border-border rounded-xl bg-muted/30 text-center">
+              <p className="text-xs text-muted-foreground font-medium">No eligible instructors for this session yet.</p>
+            </div>
           ) : (
             <>
-              {/* Interested Instructors Section */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-foreground uppercase tracking-wider flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                    Interested Instructors ({interestedList.length})
-                  </p>
-                </div>
-
-                {interestedList.length === 0 ? (
-                  <div className="p-4 border border-dashed border-border rounded-xl bg-muted/30 text-center">
-                    <p className="text-xs text-muted-foreground font-medium">No instructors have registered interest for this session yet.</p>
-                    <p className="text-[11px] text-muted-foreground/70 mt-0.5">Instructors receive notifications when calls are opened and can submit interest from their portal.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {interestedList.map((u) => (
-                      <div key={u.user_id} className="p-3 bg-card border border-border rounded-xl flex flex-wrap items-center justify-between gap-3 shadow-sm">
-                        <div className="min-w-0 flex-1 flex items-center gap-3">
-                          <button onClick={() => setProfileUserId(u.user_id)} className="shrink-0 font-bold text-xs w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center">
-                            {u.full_name ? u.full_name.charAt(0).toUpperCase() : u.email.charAt(0).toUpperCase()}
-                          </button>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <button onClick={() => setProfileUserId(u.user_id)} className="text-sm font-semibold text-foreground hover:text-primary transition-colors truncate text-left">
-                                {u.full_name || u.email}
-                              </button>
-                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 shrink-0">
-                                Interested
-                              </span>
-                            </div>
-                            <p className="text-xs text-muted-foreground truncate">{u.email}</p>
-                            {u.note && (
-                              <p className="text-xs text-foreground/90 italic bg-muted/50 px-2.5 py-1 rounded-lg mt-1 border border-border/50">
-                                "{u.note}"
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            onClick={() => assignSingleMutation.mutate({ userId: u.user_id, assignRole: leadRoleId })}
-                            disabled={assignSingleMutation.isPending}
-                            className="h-8 px-3 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
-                          >
-                            Assign Lead
-                          </button>
-                          <button
-                            onClick={() => assignSingleMutation.mutate({ userId: u.user_id, assignRole: coRoleId })}
-                            disabled={assignSingleMutation.isPending}
-                            className="h-8 px-3 border border-border text-foreground text-xs font-medium rounded-lg hover:bg-muted transition-colors disabled:opacity-50"
-                          >
-                            Assign Co-instructor
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+              {/* A5: one list, interested instructors sorted first, rather than
+                  a duplicate "interested" section plus a separate full-roster
+                  picker. A7: role comes from a picker driven by delivery_roles
+                  (defaulting to what the instructor applied for), not two
+                  hardcoded "Lead"/"Co-instructor" buttons. */}
+              <div className="flex items-center justify-between gap-2 pb-1">
+                <label className="flex items-center gap-2 text-xs font-medium text-foreground cursor-pointer select-none">
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll}
+                    className="rounded text-primary focus:ring-primary border-border bg-background" />
+                  Select all ({roster.length})
+                </label>
+                {!rolesLoaded && <span className="text-[11px] text-muted-foreground">Loading roles…</span>}
               </div>
 
-              {/* Full Platform Roster (Collapsible) */}
-              <div className="pt-2 border-t border-border/60">
-                <button
-                  onClick={() => setShowAllInstructors(!showAllInstructors)}
-                  className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors flex items-center justify-between w-full py-1"
-                >
-                  <span>Or pick from all platform instructors ({roster.length})</span>
-                  <span className="text-primary text-[11px] font-semibold">{showAllInstructors ? "Hide list ▲" : "Show list ▼"}</span>
-                </button>
-
-                {showAllInstructors && (
-                  <div className="mt-2 space-y-2 bg-muted/20 p-3 rounded-xl border border-border">
-                    <div className="flex items-center justify-between gap-2 pb-2 border-b border-border">
-                      <label className="flex items-center gap-2 text-xs font-medium text-foreground cursor-pointer select-none">
-                        <input type="checkbox" checked={allSelected} onChange={toggleAll}
-                          className="rounded text-primary focus:ring-primary border-border bg-background" />
-                        Select all ({roster.length})
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">Role:</span>
-                        <select
-                          value={roleId} onChange={(e) => setRoleId(e.target.value)}
-                          className="h-8 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
-                        >
-                          {deliveryRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-1">
-                      {roster.map((u) => (
-                        <div key={u.user_id} className="flex items-center gap-2.5 px-3 py-2 bg-card border border-border rounded-xl">
-                          <input type="checkbox" checked={selectedIds.includes(u.user_id)} onChange={() => toggleOne(u.user_id)}
-                            className="rounded text-primary focus:ring-primary border-border bg-background shrink-0" />
-                          <button
-                            onClick={() => setProfileUserId(u.user_id)}
-                            className="min-w-0 flex-1 text-left"
-                            title="View profile"
-                          >
-                            <span className="text-xs font-medium text-foreground hover:text-primary transition-colors truncate block">
-                              {u.full_name || u.email}
-                            </span>
-                            <span className="text-[11px] text-muted-foreground truncate block">{u.email}</span>
+              <div className="flex flex-col gap-1.5 max-h-80 overflow-y-auto pr-1">
+                {sortedRoster.map((u) => (
+                  <div key={u.user_id} className="p-3 bg-card border border-border rounded-xl flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1 flex items-center gap-3">
+                      <input type="checkbox" checked={selectedIds.includes(u.user_id)} onChange={() => toggleOne(u.user_id)}
+                        className="rounded text-primary focus:ring-primary border-border bg-background shrink-0" />
+                      <button onClick={() => setProfileUserId(u.user_id)} className="shrink-0 font-bold text-xs w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center">
+                        {u.full_name ? u.full_name.charAt(0).toUpperCase() : u.email.charAt(0).toUpperCase()}
+                      </button>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => setProfileUserId(u.user_id)} className="text-sm font-semibold text-foreground hover:text-primary transition-colors truncate text-left">
+                            {u.full_name || u.email}
                           </button>
                           {u.interested && (
-                            <span className="shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 shrink-0">
                               Interested
                             </span>
                           )}
                         </div>
-                      ))}
+                        <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                        {u.interest_role_name && (
+                          <p className="text-[11px] text-primary/80 truncate">Applied for: {u.interest_role_name}</p>
+                        )}
+                        {u.note && (
+                          <p className="text-xs text-foreground/90 italic bg-muted/50 px-2.5 py-1 rounded-lg mt-1 border border-border/50">
+                            "{u.note}"
+                          </p>
+                        )}
+                      </div>
                     </div>
 
-                    <label className="flex items-start gap-2 mt-2 cursor-pointer select-none">
-                      <input
-                        type="checkbox" checked={closeCall} onChange={(e) => setCloseCall(e.target.checked)}
-                        className="rounded text-primary focus:ring-primary border-border bg-background shrink-0 mt-0.5"
-                      />
-                      <span className="text-[11px] text-muted-foreground leading-snug">
-                        Close the open call after assigning.
-                        {" "}Untick to keep collecting interest — useful when you want to pick
-                        several instructors over time rather than all at once.
-                      </span>
-                    </label>
-
-                    <button
-                      onClick={() => { setError(""); setLastResult(null); selectMutation.mutate() }}
-                      disabled={selectedIds.length === 0 || selectMutation.isPending}
-                      className="w-full h-9 bg-primary text-primary-foreground rounded-xl text-xs font-medium hover:opacity-90 transition-colors disabled:opacity-50 mt-2"
-                    >
-                      {selectMutation.isPending ? "Assigning…" : `Assign Selected (${selectedIds.length})`}
-                    </button>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <select
+                        value={rowRoleIds[u.user_id] ?? ""}
+                        onChange={(e) => setRowRoleIds((prev) => ({ ...prev, [u.user_id]: e.target.value }))}
+                        disabled={!rolesLoaded}
+                        className="h-8 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer disabled:opacity-50"
+                      >
+                        {deliveryRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                      </select>
+                      <button
+                        onClick={() => assignSingleMutation.mutate({ userId: u.user_id, assignRole: rowRoleIds[u.user_id] })}
+                        disabled={!rolesLoaded || !rowRoleIds[u.user_id] || assignSingleMutation.isPending}
+                        className="h-8 px-3 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
+                      >
+                        Assign
+                      </button>
+                    </div>
                   </div>
-                )}
+                ))}
+              </div>
+
+              <div className="space-y-2 bg-muted/20 p-3 rounded-xl border border-border">
+                <label className="flex items-start gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox" checked={closeCall} onChange={(e) => setCloseCall(e.target.checked)}
+                    className="rounded text-primary focus:ring-primary border-border bg-background shrink-0 mt-0.5"
+                  />
+                  <span className="text-[11px] text-muted-foreground leading-snug">
+                    Close the open call after assigning.
+                    {" "}Untick to keep collecting interest — useful when you want to pick
+                    several instructors over time rather than all at once.
+                  </span>
+                </label>
+
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground shrink-0">Role for selected:</span>
+                  <select
+                    value={roleId} onChange={(e) => setRoleId(e.target.value)}
+                    disabled={!rolesLoaded}
+                    className="h-8 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer disabled:opacity-50 flex-1"
+                  >
+                    {deliveryRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  </select>
+                </div>
+
+                <button
+                  onClick={() => { setError(""); setLastResult(null); selectMutation.mutate() }}
+                  disabled={!rolesLoaded || selectedIds.length === 0 || selectMutation.isPending}
+                  className="w-full h-9 bg-primary text-primary-foreground rounded-xl text-xs font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+                >
+                  {selectMutation.isPending ? "Assigning…" : `Assign Selected (${selectedIds.length})`}
+                </button>
               </div>
             </>
           )}
@@ -1535,6 +1530,7 @@ function StaffingSection({ session, onChanged }: {
       {openCallModalTarget && (
         <TargetedOpenCallModal
           sessionId={session.id}
+          mode={openCallModalMode}
           onClose={() => setOpenCallModalTarget(false)}
           onSuccess={() => {
             setOpenCallModalTarget(false)
@@ -2028,14 +2024,20 @@ function SessionAttendanceRosterSection({ sessionId }: { sessionId: string }) {
 /* ================================================================== */
 function TargetedOpenCallModal({
   sessionId,
+  mode = "open",
   onClose,
   onSuccess,
 }: {
   sessionId: string
+  /** "open": unstaffed -> open_call. "reopen": staffed -> open_call, without
+   *  touching existing assignments — the common B2 case ("we still need 2
+   *  Assistants"). */
+  mode?: "open" | "reopen"
   onClose: () => void
   onSuccess: () => void
 }) {
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
+  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([])
   const [error, setError] = useState("")
 
   // NOT /admin/users — require_admin, so ops saw an empty list and no error.
@@ -2047,8 +2049,24 @@ function TargetedOpenCallModal({
   })
   const instructors = eligible.map((e) => ({ id: e.user_id, full_name: e.full_name, email: e.email }))
 
+  // B2: which roles are on offer. Ops sees every opening here, including
+  // ones already closed — that's what "reopen for just the roles still
+  // needed" is picking from. Sessions with no openings configured skip this
+  // section entirely: there's nothing to scope by role.
+  const { data: openings = [] } = useQuery({
+    queryKey: ["session-openings", sessionId], queryFn: () => getOpeningsApi(sessionId),
+  })
+  useEffect(() => {
+    if (selectedRoleIds.length === 0 && openings.length) {
+      setSelectedRoleIds(openings.map((o) => o.role_id))
+    }
+  }, [openings, selectedRoleIds])
+
   const mutation = useMutation({
-    mutationFn: (userIds?: string[]) => openCallApi(sessionId, userIds),
+    mutationFn: ({ userIds, roleIds }: { userIds?: string[]; roleIds?: string[] }) =>
+      mode === "reopen"
+        ? reopenStaffingApi(sessionId, userIds, roleIds)
+        : openCallApi(sessionId, userIds, roleIds),
     onSuccess,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to open call"),
   })
@@ -2065,14 +2083,54 @@ function TargetedOpenCallModal({
     setSelectedUserIds((prev) => prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id])
   }
 
+  const allRolesSelected = openings.length > 0 && selectedRoleIds.length === openings.length
+  const toggleAllRoles = () => setSelectedRoleIds(allRolesSelected ? [] : openings.map((o) => o.role_id))
+  const toggleRole = (id: string) =>
+    setSelectedRoleIds((prev) => prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id])
+
+  // Omitting role_ids opens every role (the API default) — only send an
+  // explicit list when it's a real restriction, i.e. not all of them.
+  const roleIdsForSubmit = openings.length === 0 || allRolesSelected ? undefined : selectedRoleIds
+
   return (
-    <Modal title="Open Call for Instructor Interest" onClose={onClose} maxWidth="max-w-md">
+    <Modal title={mode === "reopen" ? "Reopen Call" : "Open Call for Instructor Interest"} onClose={onClose} maxWidth="max-w-md">
       <div className="flex flex-col gap-4">
         <p className="text-xs text-muted-foreground">
           Picking specific instructors <strong className="text-foreground">restricts</strong> the call to them:
           the session only appears on their Available Sessions page, and only they can register
           interest. Opening it to everyone leaves it visible to all instructors and facilitators.
         </p>
+
+        {openings.length > 0 && (
+          <div className="flex flex-col gap-1.5 pb-3 border-b border-border">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 text-xs font-semibold text-foreground cursor-pointer select-none">
+                <input type="checkbox" checked={allRolesSelected} onChange={toggleAllRoles} />
+                Roles on offer ({selectedRoleIds.length}/{openings.length})
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {openings.map((o) => (
+                <label
+                  key={o.role_id}
+                  className={cn(
+                    "flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs cursor-pointer transition-colors",
+                    selectedRoleIds.includes(o.role_id)
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  <input
+                    type="checkbox" className="hidden"
+                    checked={selectedRoleIds.includes(o.role_id)}
+                    onChange={() => toggleRole(o.role_id)}
+                  />
+                  {o.role_name} ({o.remaining} left)
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center justify-between pb-2 border-b border-border">
           <label className="flex items-center gap-2 text-xs font-semibold text-foreground cursor-pointer select-none">
@@ -2109,15 +2167,15 @@ function TargetedOpenCallModal({
 
         <div className="flex flex-col gap-2 pt-2 border-t border-border">
           <button
-            onClick={() => mutation.mutate(selectedUserIds)}
-            disabled={selectedUserIds.length === 0 || mutation.isPending}
+            onClick={() => mutation.mutate({ userIds: selectedUserIds, roleIds: roleIdsForSubmit })}
+            disabled={selectedUserIds.length === 0 || selectedRoleIds.length === 0 || mutation.isPending}
             className="w-full h-10 bg-primary text-primary-foreground font-semibold rounded-xl text-xs hover:opacity-90 transition-colors disabled:opacity-50"
           >
             {mutation.isPending ? "Opening…" : `Open call for these ${selectedUserIds.length} only`}
           </button>
           <button
-            onClick={() => mutation.mutate(undefined)}
-            disabled={mutation.isPending}
+            onClick={() => mutation.mutate({ userIds: undefined, roleIds: roleIdsForSubmit })}
+            disabled={selectedRoleIds.length === 0 || mutation.isPending}
             className="w-full h-9 border border-border text-muted-foreground font-medium rounded-xl text-xs hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
           >
             Open to all instructors ({instructors.length})

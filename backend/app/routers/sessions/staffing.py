@@ -65,6 +65,9 @@ async def _session_out(db: AsyncSession, session: Session) -> SessionOut:
 
 class OpenCallRequest(BaseModel):
     user_ids: list[uuid.UUID] | None = None
+    # B2: which roles are on offer. None opens every configured opening —
+    # today's exact behaviour.
+    role_ids: list[uuid.UUID] | None = None
 
 
 @router.post("/{session_id}/staffing/open-call", response_model=SessionOut)
@@ -78,7 +81,8 @@ async def open_call(
     # only they can see the session or register interest. No selection means
     # a call open to everyone, exactly as before.
     target_ids = list(body.user_ids) if body and body.user_ids else []
-    session = await staffing.open_call(db, session_id, target_user_ids=target_ids)
+    role_ids = list(body.role_ids) if body and body.role_ids else None
+    session = await staffing.open_call(db, session_id, target_user_ids=target_ids, role_ids=role_ids)
 
     query = select(User).where(User.roles.any("instructor") | User.roles.any("facilitator"))
     if target_ids:
@@ -136,9 +140,13 @@ async def reopen(
 ):
     """Targeting carries over — reopening a call aimed at three instructors
     keeps it aimed at them rather than quietly going public. Send user_ids to
-    change the audience, or an empty list to open it to everyone."""
+    change the audience, or an empty list to open it to everyone. Same for
+    role_ids (B2) — the common case is reopening for just the roles still
+    needed."""
     session = await staffing.reopen(
-        db, session_id, target_user_ids=list(body.user_ids) if body and body.user_ids is not None else None,
+        db, session_id,
+        target_user_ids=list(body.user_ids) if body and body.user_ids is not None else None,
+        role_ids=list(body.role_ids) if body and body.role_ids else None,
     )
     await db.commit()
     await db.refresh(session)
@@ -174,7 +182,9 @@ async def list_available_sessions(
     out = []
     for s, c, p, count, interest in rows:
         # I5-5: the invite carries the offer, not just the date and place.
-        openings = await openings_svc.openings_for_session(db, s.id)
+        # open_only (B2): a role ops isn't soliciting for right now doesn't
+        # appear here, even if the opening row exists.
+        openings = await openings_svc.openings_for_session(db, s.id, open_only=True)
         addons = [
             a for a in await openings_svc.addons_for_session(db, s.id)
             if a["user_id"] is None and a["status"] == "agreed"
@@ -192,6 +202,7 @@ async def list_available_sessions(
             openings=[
                 OpeningSummary(
                     role_id=o["role_id"], role_name=o["role_name"],
+                    role_description=o["role_description"],
                     slots=o["slots"], remaining=o["remaining"],
                     amount_aed=float(o["amount_aed"]) if o["amount_aed"] is not None else None,
                     notes=o["notes"],
@@ -238,11 +249,17 @@ async def register_interest(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_instructor_or_facilitator),
 ):
-    interest = await staffing.register_interest(db, session_id, current_user, note=body.note)
+    interest = await staffing.register_interest(
+        db, session_id, current_user, note=body.note, role_id=body.role_id,
+    )
     await db.commit()
+    role_name = None
+    if interest.role_id is not None:
+        role_name = await db.scalar(select(DeliveryRole.name).where(DeliveryRole.id == interest.role_id))
     return InterestOut(
         user_id=current_user.id, full_name=current_user.full_name, email=current_user.email,
-        note=interest.note, created_at=interest.created_at,
+        note=interest.note, role_id=interest.role_id, role_name=role_name,
+        created_at=interest.created_at,
     )
 
 
@@ -305,8 +322,13 @@ async def list_interest(
     current_user: User = Depends(require_operations),
 ):
     rows = await staffing.list_interest(db, session_id)
+    role_names = dict((await db.execute(select(DeliveryRole.id, DeliveryRole.name))).all())
     return [
-        InterestOut(user_id=u.id, full_name=u.full_name, email=u.email, note=i.note, created_at=i.created_at)
+        InterestOut(
+            user_id=u.id, full_name=u.full_name, email=u.email, note=i.note,
+            role_id=i.role_id, role_name=role_names.get(i.role_id) if i.role_id else None,
+            created_at=i.created_at,
+        )
         for i, u in rows
     ]
 
@@ -324,8 +346,10 @@ async def list_eligible_instructors(
         EligibleInstructorOut(
             user_id=u.id, full_name=u.full_name or u.email, email=u.email, photo_url=u.photo_url,
             interested=interest is not None, note=interest.note if interest else None,
+            interest_role_id=interest.role_id if interest else None,
+            interest_role_name=role_name,
         )
-        for u, interest in rows
+        for u, interest, role_name in rows
     ]
 
 

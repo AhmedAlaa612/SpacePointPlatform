@@ -319,3 +319,73 @@ async def test_an_unknown_source_is_refused(db):
             source="telepathy", actor_user_id=ops.id,
         )
     assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_updating_an_addon_changes_only_what_was_sent(db):
+    ops = await _user(db, "operations")
+    _p, _c, session = await _chain(db)
+    addon = await svc.add_addon(
+        db, session_id=session.id, description="Poster printing", amount_aed=200,
+        source="offer", actor_user_id=ops.id,
+    )
+
+    await svc.update_addon(db, addon=addon, amount_aed=250)
+    assert addon.description == "Poster printing"
+    assert addon.amount_aed == Decimal("250")
+
+    await svc.update_addon(db, addon=addon, description="Banner printing")
+    assert addon.description == "Banner printing"
+    assert addon.amount_aed == Decimal("250")
+
+
+@pytest.mark.asyncio
+async def test_deleting_an_addon_removes_it_from_the_session(db):
+    ops = await _user(db, "operations")
+    _p, _c, session = await _chain(db)
+    addon = await svc.add_addon(
+        db, session_id=session.id, description="Taxi", amount_aed=80,
+        source="offer", actor_user_id=ops.id,
+    )
+    await svc.delete_addon(db, addon=addon)
+    assert await svc.addons_for_session(db, session.id) == []
+
+
+# ── B2: open calls per role ─────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_closed_roles_are_invisible_with_open_only_but_not_to_ops(db):
+    ops = await _user(db, "operations")
+    lead = await _role(db, "Lead", 1)
+    assistant = await _role(db, "Assistant", 2)
+    _p, _c, session = await _chain(db)
+    await svc.set_openings(
+        db, session_id=session.id, actor_user_id=ops.id,
+        lines=[{"role_id": lead.id, "slots": 1}, {"role_id": assistant.id, "slots": 2}],
+    )
+
+    await svc.set_openings_open(db, session_id=session.id, role_ids=[lead.id])
+
+    all_rows = await svc.openings_for_session(db, session.id)
+    assert {r["role_id"]: r["is_open"] for r in all_rows} == {lead.id: True, assistant.id: False}
+
+    open_rows = await svc.openings_for_session(db, session.id, open_only=True)
+    assert [r["role_id"] for r in open_rows] == [lead.id]
+
+
+@pytest.mark.asyncio
+async def test_set_openings_open_with_none_opens_every_role(db):
+    """The default the plain 'Open Call (All Instructors)' button relies on."""
+    ops = await _user(db, "operations")
+    lead = await _role(db, "Lead", 1)
+    assistant = await _role(db, "Assistant", 2)
+    _p, _c, session = await _chain(db)
+    await svc.set_openings(
+        db, session_id=session.id, actor_user_id=ops.id,
+        lines=[{"role_id": lead.id, "slots": 1}, {"role_id": assistant.id, "slots": 1}],
+    )
+    await svc.set_openings_open(db, session_id=session.id, role_ids=[lead.id])
+
+    await svc.set_openings_open(db, session_id=session.id, role_ids=None)
+    rows = await svc.openings_for_session(db, session.id)
+    assert all(r["is_open"] for r in rows)

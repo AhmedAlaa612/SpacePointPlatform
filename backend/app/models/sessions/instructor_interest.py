@@ -28,6 +28,11 @@ class InstructorInterest(Base):
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     note = Column(Text, nullable=True)
+    # Which opening they're applying for (B1). Nullable: sessions with no
+    # session_openings configured, and interest registered before this
+    # existed, have nothing to point at. SET NULL, not CASCADE — a role
+    # being retired must not erase the record of who applied for it.
+    role_id = Column(UUID(as_uuid=True), ForeignKey("delivery_roles.id", ondelete="SET NULL"), nullable=True, index=True)
     # I5-5. "I have read and agree to the responsibilities." The text itself
     # is versioned in `portal_settings` (key `instructor.responsibilities`);
     # this records *when* they agreed and to *which* version, so a later edit

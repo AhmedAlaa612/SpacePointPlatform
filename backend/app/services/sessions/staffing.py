@@ -31,7 +31,8 @@ from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionCallTarget, SessionInstructor
-from app.services.sessions.openings import fully_staffed, lead_role_id
+from app.models.sessions.opening import SessionOpening
+from app.services.sessions.openings import fully_staffed, lead_role_id, set_openings_open
 from app.models.spine.touchpoint import Touchpoint
 from app.models.user import User
 
@@ -85,10 +86,15 @@ async def call_target_ids(db: AsyncSession, session_id: UUID) -> list[UUID]:
 
 async def open_call(
     db: AsyncSession, session_id: UUID, target_user_ids: list[UUID] | None = None,
+    role_ids: list[UUID] | None = None,
 ) -> Session:
     """`target_user_ids` restricts the call to those instructors — they become
     the only ones who can see the session or register interest. Omit it (or
-    pass an empty list) for a call open to every instructor/facilitator."""
+    pass an empty list) for a call open to every instructor/facilitator.
+
+    `role_ids` (B2) restricts which of the session's openings are on offer —
+    "we still need 2 Assistants" without touching who can see it. Omit it to
+    open every configured opening, today's exact behaviour."""
     session = await _get_session(db, session_id)
     if session.staffing_status != "unstaffed":
         raise HTTPException(
@@ -96,6 +102,7 @@ async def open_call(
         )
     session.staffing_status = "open_call"
     await set_call_targets(db, session_id, target_user_ids or [])
+    await set_openings_open(db, session_id=session_id, role_ids=role_ids)
     await db.flush()
     return session
 
@@ -139,6 +146,7 @@ async def close_call(db: AsyncSession, session_id: UUID, clear_interest: bool = 
 
 async def reopen(
     db: AsyncSession, session_id: UUID, target_user_ids: list[UUID] | None = None,
+    role_ids: list[UUID] | None = None,
 ) -> Session:
     """staffed -> open_call. Explicit and separate from removing an
     instructor — reopening never removes anyone already assigned; that's
@@ -147,12 +155,18 @@ async def reopen(
     Targeting carries over by default: reopening a call that was aimed at three
     specific instructors keeps it aimed at them, rather than silently going
     public. Pass `target_user_ids` to change it, or `[]` to open it to
-    everyone."""
+    everyone.
+
+    `role_ids` (B2) is the main real-world use of role-scoping: a session
+    goes `staffed` once every opening is filled, so reopening for "just the
+    2 Assistants still needed" is how that actually happens in practice.
+    Omit it to reopen every configured opening."""
     session = await _get_session(db, session_id)
     if session.staffing_status != "staffed":
         raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Session is {session.staffing_status}, not staffed")
     session.staffing_status = "open_call"
     await set_call_targets(db, session_id, target_user_ids)
+    await set_openings_open(db, session_id=session_id, role_ids=role_ids)
     await db.flush()
     return session
 
@@ -214,7 +228,10 @@ async def list_my_sessions(db: AsyncSession, user: User) -> list[tuple[Session, 
     return [(s, c, p, role) for s, c, p, role in rows]
 
 
-async def register_interest(db: AsyncSession, session_id: UUID, user: User, note: str | None = None) -> InstructorInterest:
+async def register_interest(
+    db: AsyncSession, session_id: UUID, user: User, note: str | None = None,
+    role_id: UUID | None = None,
+) -> InstructorInterest:
     session = await _get_session(db, session_id)
     if session.staffing_status != "open_call":
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This session isn't open for interest right now")
@@ -229,6 +246,20 @@ async def register_interest(db: AsyncSession, session_id: UUID, user: User, note
     if targets and user.id not in targets:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
 
+    # B1: applying for a specific role. It has to be one this session is
+    # actually soliciting for right now — an opening that exists but is
+    # closed (B2), or that never existed, isn't a valid choice.
+    if role_id is not None:
+        opening = (await db.execute(
+            select(SessionOpening).where(
+                SessionOpening.session_id == session_id, SessionOpening.role_id == role_id,
+            )
+        )).scalars().first()
+        if opening is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="That role isn't offered on this session")
+        if not opening.is_open:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="That role isn't currently open for interest")
+
     existing = (await db.execute(
         select(InstructorInterest).where(
             InstructorInterest.session_id == session_id, InstructorInterest.user_id == user.id,
@@ -237,10 +268,12 @@ async def register_interest(db: AsyncSession, session_id: UUID, user: User, note
     if existing is not None:
         if note is not None:
             existing.note = note
+        if role_id is not None:
+            existing.role_id = role_id
         await db.flush()
         return existing
 
-    interest = InstructorInterest(id=uuid4(), session_id=session_id, user_id=user.id, note=note)
+    interest = InstructorInterest(id=uuid4(), session_id=session_id, user_id=user.id, note=note, role_id=role_id)
     db.add(interest)
     await db.flush()
     return interest
@@ -267,12 +300,15 @@ async def list_interest(db: AsyncSession, session_id: UUID) -> list[tuple[Instru
     return [(interest, u) for interest, u in rows]
 
 
-async def list_eligible_instructors(db: AsyncSession, session_id: UUID) -> list[tuple[User, InstructorInterest | None]]:
+async def list_eligible_instructors(
+    db: AsyncSession, session_id: UUID,
+) -> list[tuple[User, InstructorInterest | None, str | None]]:
     """Every instructor|facilitator user, paired with their interest row (if
-    any) — the full pickable roster for the ops select screen (operator
-    requirement 2026-07-24: "ops can pick from the instructors list ...
-    multiple ... select all", not just whoever registered interest).
-    list_interest above stays interest-only; this is the superset."""
+    any) and the name of the role they applied for (B1) — the full pickable
+    roster for the ops select screen (operator requirement 2026-07-24: "ops
+    can pick from the instructors list ... multiple ... select all", not just
+    whoever registered interest). list_interest above stays interest-only;
+    this is the superset."""
     await _get_session(db, session_id)  # 404 if the session doesn't exist
     users = (await db.execute(
         select(User)
@@ -284,7 +320,11 @@ async def list_eligible_instructors(db: AsyncSession, session_id: UUID) -> list[
             select(InstructorInterest).where(InstructorInterest.session_id == session_id)
         )).scalars().all()
     }
-    return [(u, interests.get(u.id)) for u in users]
+    role_names = dict((await db.execute(select(DeliveryRole.id, DeliveryRole.name))).all())
+    return [
+        (u, interests.get(u.id), role_names.get(interests[u.id].role_id) if u.id in interests and interests[u.id].role_id else None)
+        for u in users
+    ]
 
 
 async def select_instructors(

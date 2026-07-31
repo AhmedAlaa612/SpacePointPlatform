@@ -118,6 +118,29 @@ async def test_reopen_keeps_existing_assignments(db):
 
 
 @pytest.mark.asyncio
+async def test_open_call_with_role_ids_only_opens_those_openings(db):
+    """B2: 'we still need 2 Assistants' — open_call can restrict which roles
+    are being solicited, independent of who can see the session."""
+    from app.services.sessions import openings as openings_svc
+
+    ops = await _make_user(db, ["operations"])
+    _, session = await _make_cohort_with_session(db)
+    lead_id = await _role_id(db, "Lead Facilitator")
+    assistant_id = await _role_id(db, "Assistant Facilitator")
+    await openings_svc.set_openings(
+        db, session_id=session.id, actor_user_id=ops.id,
+        lines=[{"role_id": lead_id, "slots": 1}, {"role_id": assistant_id, "slots": 1}],
+    )
+    # set_openings seeds every new opening is_open=True by default; open_call
+    # with an explicit role_ids should narrow it to just that role.
+
+    await staffing.open_call(db, session.id, role_ids=[assistant_id])
+
+    rows = await openings_svc.openings_for_session(db, session.id)
+    assert {r["role_id"]: r["is_open"] for r in rows} == {lead_id: False, assistant_id: True}
+
+
+@pytest.mark.asyncio
 async def test_open_call_for_cohort_only_opens_unstaffed_sessions(db):
     cohort, s1 = await _make_cohort_with_session(db, meeting_date=date(2026, 8, 10))
     s2 = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 8, 17), staffing_status="staffed")
@@ -187,6 +210,53 @@ async def test_withdraw_interest_removes_it(db):
     await staffing.withdraw_interest(db, session.id, instructor)
 
     assert await staffing.list_interest(db, session.id) == []
+
+
+# ── B1: register_interest carries a role ────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_register_interest_with_role_id_records_it(db):
+    from app.services.sessions import openings as openings_svc
+
+    ops = await _make_user(db, ["operations"])
+    _, session = await _make_cohort_with_session(db, staffing_status="open_call")
+    instructor = await _make_user(db, ["instructor"])
+    role_id = await _role_id(db)
+    await openings_svc.set_openings(
+        db, session_id=session.id, actor_user_id=ops.id,
+        lines=[{"role_id": role_id, "slots": 1}],
+    )
+
+    interest = await staffing.register_interest(db, session.id, instructor, role_id=role_id)
+    assert interest.role_id == role_id
+
+
+@pytest.mark.asyncio
+async def test_register_interest_rejects_a_role_not_offered(db):
+    _, session = await _make_cohort_with_session(db, staffing_status="open_call")
+    instructor = await _make_user(db, ["instructor"])
+    with pytest.raises(HTTPException) as exc:
+        await staffing.register_interest(db, session.id, instructor, role_id=await _role_id(db))
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_register_interest_rejects_a_role_closed_to_the_call(db):
+    from app.services.sessions import openings as openings_svc
+
+    ops = await _make_user(db, ["operations"])
+    _, session = await _make_cohort_with_session(db, staffing_status="open_call")
+    instructor = await _make_user(db, ["instructor"])
+    role_id = await _role_id(db)
+    await openings_svc.set_openings(
+        db, session_id=session.id, actor_user_id=ops.id,
+        lines=[{"role_id": role_id, "slots": 1}],
+    )
+    await openings_svc.set_openings_open(db, session_id=session.id, role_ids=[])
+
+    with pytest.raises(HTTPException) as exc:
+        await staffing.register_interest(db, session.id, instructor, role_id=role_id)
+    assert exc.value.status_code == 409
 
 
 # ── select_instructors ───────────────────────────────────────────────────────

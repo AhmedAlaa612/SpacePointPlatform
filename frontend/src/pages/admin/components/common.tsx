@@ -1,9 +1,16 @@
+import { createPortal } from "react-dom"
 import { X } from "lucide-react"
 
 export { Spinner } from "@/components/ui/primitives"
 
 export function Modal({ title, onClose, children, maxWidth = "max-w-sm" }: { title: string; onClose: () => void; children: React.ReactNode; maxWidth?: string }) {
-  return (
+  // Portaled to document.body rather than rendered where it's called: a
+  // `position: fixed` element nested inside an ancestor with `filter` /
+  // `backdrop-filter` / `transform` (Card uses backdrop-blur-xl) resolves
+  // "fixed" against THAT ancestor instead of the viewport, and gets clipped
+  // by its `overflow-hidden`. Every one of this component's ~18 call sites
+  // wants a true viewport overlay, so the fix belongs here once.
+  return createPortal(
     <div className="fixed inset-0 bg-black/40 z-50 flex items-end sm:items-center justify-center p-4">
       <div className={`w-full ${maxWidth} bg-card border border-border rounded-2xl p-6 flex flex-col gap-4 shadow-2xl max-h-[90vh] overflow-y-auto`}>
         <div className="flex items-center justify-between">
@@ -14,7 +21,8 @@ export function Modal({ title, onClose, children, maxWidth = "max-w-sm" }: { tit
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

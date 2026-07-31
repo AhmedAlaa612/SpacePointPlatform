@@ -93,6 +93,8 @@ export interface InstructorInterest {
   full_name: string;
   email: string;
   note?: string | null;
+  role_id?: string | null;
+  role_name?: string | null;
   created_at: string;
 }
 
@@ -106,6 +108,9 @@ export interface EligibleInstructor {
   photo_url?: string | null;
   interested: boolean;
   note?: string | null;
+  /** B1 — the role they actually applied for, if any. */
+  interest_role_id?: string | null;
+  interest_role_name?: string | null;
 }
 
 export interface SelectInstructorsResult {
@@ -138,6 +143,7 @@ export interface AvailableSession {
   openings: {
     role_id: string;
     role_name: string;
+    role_description?: string | null;
     slots: number;
     remaining: number;
     amount_aed?: number | null;

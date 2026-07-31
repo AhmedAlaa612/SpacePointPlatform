@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, Plus, Trash2, X } from "lucide-react"
+import { Check, Pencil, Plus, Trash2, X } from "lucide-react"
 import {
   createAddonApi,
   decideAddonApi,
+  deleteAddonApi,
   getAddonsApi,
   getDeliveryRolesApi,
   getOpeningsApi,
   setOpeningsApi,
+  updateAddonApi,
+  type SessionAddon,
 } from "@/api/sessions/openings"
 
 /**
@@ -87,6 +90,22 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
   })
   const decide = useMutation({ mutationFn: decideAddonApi, onSuccess: invalidate, onError })
 
+  const [editingAddon, setEditingAddon] = useState<string | null>(null)
+  const [editDesc, setEditDesc] = useState("")
+  const [editAmount, setEditAmount] = useState("")
+  const updateAddon = useMutation({
+    mutationFn: updateAddonApi,
+    onSuccess: () => { setEditingAddon(null); invalidate() },
+    onError,
+  })
+  const removeAddon = useMutation({ mutationFn: deleteAddonApi, onSuccess: invalidate, onError })
+
+  const startEditingAddon = (a: SessionAddon) => {
+    setEditingAddon(a.id)
+    setEditDesc(a.description)
+    setEditAmount(String(a.amount_aed))
+  }
+
   return (
     <div className="rounded-2xl border border-border bg-card p-4 flex flex-col gap-3">
       <div>
@@ -101,35 +120,43 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
           const live = openings.find((o) => o.role_id === d.role_id)
           const role = roles.find((r) => r.id === d.role_id)
           return (
-            <div key={d.role_id} className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm text-foreground min-w-[9rem]">{role?.name ?? "Role"}</span>
-              <input
-                type="number" min={1} value={d.slots}
-                onChange={(e) => setDraft(rows.map((x, j) =>
-                  j === i ? { ...x, slots: Math.max(1, Number(e.target.value) || 1) } : x))}
-                className="w-16 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
-              />
-              <span className="text-xs text-muted-foreground">slots</span>
-              <input
-                type="number" min={0} placeholder="AED" value={d.amount_aed}
-                onChange={(e) => setDraft(rows.map((x, j) =>
-                  j === i ? { ...x, amount_aed: e.target.value } : x))}
-                className="w-24 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
-              />
-              <input
-                placeholder="Notes" value={d.notes}
-                onChange={(e) => setDraft(rows.map((x, j) =>
-                  j === i ? { ...x, notes: e.target.value } : x))}
-                className="flex-1 min-w-[8rem] h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
-              />
+            <div key={d.role_id} className="flex items-end gap-2 flex-wrap">
+              <span className="text-sm text-foreground min-w-[9rem] h-9 flex items-center">{role?.name ?? "Role"}</span>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-muted-foreground leading-none">Slots</span>
+                <input
+                  type="number" min={1} value={d.slots}
+                  onChange={(e) => setDraft(rows.map((x, j) =>
+                    j === i ? { ...x, slots: Math.max(1, Number(e.target.value) || 1) } : x))}
+                  className="!w-16 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
+                />
+              </label>
+              <label className="flex flex-col gap-0.5">
+                <span className="text-[10px] text-muted-foreground leading-none">Amount (AED)</span>
+                <input
+                  type="number" min={0} value={d.amount_aed}
+                  onChange={(e) => setDraft(rows.map((x, j) =>
+                    j === i ? { ...x, amount_aed: e.target.value } : x))}
+                  className="!w-24 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
+                />
+              </label>
+              <label className="flex-1 min-w-[8rem] flex flex-col gap-0.5">
+                <span className="text-[10px] text-muted-foreground leading-none">Notes</span>
+                <input
+                  placeholder="Optional" value={d.notes}
+                  onChange={(e) => setDraft(rows.map((x, j) =>
+                    j === i ? { ...x, notes: e.target.value } : x))}
+                  className="w-full h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
+                />
+              </label>
               {live && (
-                <span className="text-xs text-muted-foreground tabular-nums">
+                <span className="text-xs text-muted-foreground tabular-nums h-9 flex items-center">
                   {live.filled}/{live.slots} filled
                 </span>
               )}
               <button
                 onClick={() => setDraft(rows.filter((_, j) => j !== i))}
-                className="p-1 text-muted-foreground hover:text-red-600"
+                className="p-1 h-9 text-muted-foreground hover:text-red-600"
                 aria-label="Remove opening"
               ><Trash2 size={14} /></button>
             </div>
@@ -173,7 +200,34 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
 
       <div className="border-t border-border pt-3 flex flex-col gap-2">
         <p className="text-xs font-semibold text-muted-foreground">Add-ons</p>
-        {addons.map((a) => (
+        {addons.map((a) => editingAddon === a.id ? (
+          <div key={a.id} className="flex items-center gap-2">
+            <input
+              value={editDesc} onChange={(e) => setEditDesc(e.target.value)}
+              className="flex-1 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
+            />
+            <input
+              type="number" min={0} value={editAmount}
+              onChange={(e) => setEditAmount(e.target.value)}
+              className="!w-24 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
+            />
+            <button
+              onClick={() => updateAddon.mutate({
+                addonId: a.id, description: editDesc, amount_aed: Number(editAmount) || 0,
+              })}
+              disabled={!editDesc || updateAddon.isPending}
+              className="h-9 px-3 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90 disabled:opacity-40"
+            >
+              Save
+            </button>
+            <button
+              onClick={() => setEditingAddon(null)}
+              className="h-9 px-2 text-sm text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
           <div key={a.id} className="flex items-center justify-between gap-3 text-sm">
             <span className="text-foreground truncate">
               {a.description}
@@ -184,7 +238,7 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
               </span>
             </span>
             <span className="flex items-center gap-1.5 shrink-0">
-              {a.status === "proposed" ? (
+              {a.status === "proposed" && (
                 <>
                   <span className="text-xs text-amber-700 dark:text-amber-400">requested</span>
                   <button
@@ -196,13 +250,23 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
                     className="p-1 text-muted-foreground hover:text-red-600" aria-label="Decline"
                   ><X size={15} /></button>
                 </>
-              ) : (
+              )}
+              {a.status !== "proposed" && (
                 <span className={a.status === "agreed"
                   ? "text-xs text-emerald-600 dark:text-emerald-400"
                   : "text-xs text-muted-foreground line-through"}>
                   {a.status}
                 </span>
               )}
+              <button
+                onClick={() => startEditingAddon(a)}
+                className="p-1 text-muted-foreground hover:text-foreground" aria-label="Edit add-on"
+              ><Pencil size={13} /></button>
+              <button
+                onClick={() => removeAddon.mutate(a.id)}
+                disabled={removeAddon.isPending}
+                className="p-1 text-muted-foreground hover:text-red-600" aria-label="Remove add-on"
+              ><Trash2 size={13} /></button>
             </span>
           </div>
         ))}
@@ -219,7 +283,7 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
           <input
             type="number" min={0} placeholder="AED" value={addonAmount}
             onChange={(e) => setAddonAmount(e.target.value)}
-            className="w-24 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
+            className="!w-24 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
           />
           <button
             onClick={() => addAddon.mutate()}
