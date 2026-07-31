@@ -49,9 +49,10 @@ export function SessionKitsPanel({
     onChanged()
   }
 
+  const [justConfirmed, setJustConfirmed] = useState(false)
   const collected = useMutation({
     mutationFn: () => confirmCollectedApi(sessionId),
-    onSuccess: refresh,
+    onSuccess: () => { setJustConfirmed(true); refresh() },
   })
 
   if (!data || data.kits.length === 0) return null
@@ -78,7 +79,28 @@ export function SessionKitsPanel({
 
         {!data.can_finish && (
           <p className="text-xs text-muted-foreground -mt-1">
-            Count each kit after the session — that&apos;s what lets you mark it completed.
+            Check what&apos;s in each kit — that&apos;s what lets you mark this session completed.
+          </p>
+        )}
+
+        {data.pending_confirmation && (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
+            <p className="text-xs text-foreground">
+              These kits were issued to you. Confirm you actually have them in hand.
+            </p>
+            <Button
+              size="sm"
+              disabled={collected.isPending}
+              onClick={() => collected.mutate()}
+            >
+              <PackageCheck size={14} className="mr-1.5" />
+              {collected.isPending ? "Confirming…" : "I have them"}
+            </Button>
+          </div>
+        )}
+        {justConfirmed && !data.pending_confirmation && (
+          <p className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+            <CheckCircle2 size={13} /> Confirmed — you have these kits.
           </p>
         )}
 
@@ -92,8 +114,8 @@ export function SessionKitsPanel({
                 <p className="text-sm font-medium text-foreground font-mono">{k.label}</p>
                 <p className="text-xs text-muted-foreground truncate">
                   {k.template_name}
-                  {k.pre_checked && <span className="text-emerald-600 dark:text-emerald-400"> · counted before</span>}
-                  {k.post_checked && <span className="text-emerald-600 dark:text-emerald-400"> · counted after</span>}
+                  {k.pre_checked && <span className="text-emerald-600 dark:text-emerald-400"> · checked</span>}
+                  {k.post_checked && <span className="text-emerald-600 dark:text-emerald-400"> · checked</span>}
                 </p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -102,7 +124,7 @@ export function SessionKitsPanel({
                     size="sm" variant="outline"
                     onClick={() => setChecking({ kitId: k.kit_id, label: k.label, phase: "pre" })}
                   >
-                    Count now
+                    Check kit
                   </Button>
                 )}
                 {k.post_checked ? (
@@ -112,7 +134,7 @@ export function SessionKitsPanel({
                     size="sm"
                     onClick={() => setChecking({ kitId: k.kit_id, label: k.label, phase: "post" })}
                   >
-                    Count after
+                    Check kit
                   </Button>
                 )}
               </div>
@@ -120,21 +142,13 @@ export function SessionKitsPanel({
           ))}
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Button
-            size="sm" variant="outline"
-            disabled={collected.isPending}
-            onClick={() => collected.mutate()}
-          >
-            <PackageCheck size={14} className="mr-1.5" />
-            {collected.isPending ? "Saving…" : "I have them"}
-          </Button>
-          {anyOut && (
+        {anyOut && (
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={() => setReturning(true)}>
               Hand them back
             </Button>
-          )}
-        </div>
+          </div>
+        )}
       </CardContent>
 
       {checking && (
@@ -190,13 +204,13 @@ function CheckModal({ sessionId, kitId, label, phase, onClose, onDone }: {
 
   return (
     <Modal
-      title={`${phase === "pre" ? "Count before" : "Count after"} — ${label}`}
+      title={`Check kit — ${label}`}
       onClose={onClose}
       maxWidth="max-w-md"
     >
       <p className="text-xs text-muted-foreground -mt-1">
-        Already filled in with what we think is in the box. Change only what&apos;s different.
-        Screws and wire aren&apos;t listed — they&apos;re not worth counting.
+        What we expect is already filled in. Change only what&apos;s different — anything short
+        gets reported automatically. Screws and wire aren&apos;t listed; they&apos;re not worth counting.
       </p>
 
       <div className="flex flex-col gap-1.5 max-h-[45vh] overflow-y-auto">

@@ -22,6 +22,7 @@ from app.db.session import get_db
 from app.models.inventory.kit import Kit
 from app.models.inventory.kit_template import KitTemplate
 from app.models.inventory.location import Location
+from app.models.inventory.movement import Movement
 from app.models.inventory.session_kit import KitCheck
 from app.models.user import User
 from app.schemas.inventory.checks import (
@@ -46,10 +47,23 @@ from app.services.sessions.delivery import _get_deliverable_session
 router = APIRouter(prefix="/inventory", tags=["inventory-session-loop"])
 
 
-async def _session_kit_view(db: AsyncSession, session_id: uuid.UUID) -> SessionKitStatusOut:
+async def _session_kit_view(
+    db: AsyncSession, session_id: uuid.UUID, viewer_id: uuid.UUID | None = None,
+) -> SessionKitStatusOut:
     kits = await assigned_kits(db, session_id)
     if not kits:
         return SessionKitStatusOut(kits=[], outstanding_post_checks=[], can_finish=True)
+
+    pending_confirmation = False
+    if viewer_id is not None:
+        pending_confirmation = bool((await db.execute(
+            select(Movement.id).where(
+                Movement.session_id == session_id,
+                Movement.to_user_id == viewer_id,
+                Movement.reason == "issue",
+                Movement.confirmed_at.is_(None),
+            ).limit(1)
+        )).first())
 
     templates = dict((await db.execute(
         select(KitTemplate.id, KitTemplate.name)
@@ -86,6 +100,7 @@ async def _session_kit_view(db: AsyncSession, session_id: uuid.UUID) -> SessionK
         ],
         outstanding_post_checks=outstanding,
         can_finish=not outstanding,
+        pending_confirmation=pending_confirmation,
     )
 
 
@@ -129,7 +144,7 @@ async def get_session_kits(
     exactly what `mark_done` will enforce, so the UI can disable the button
     instead of letting someone press it and get a 409."""
     await _get_deliverable_session(db, session_id, current_user)
-    return await _session_kit_view(db, session_id)
+    return await _session_kit_view(db, session_id, current_user.id)
 
 
 @router.get("/sessions/{session_id}/kits/{kit_id}/check", response_model=list[ExpectedCountOut])

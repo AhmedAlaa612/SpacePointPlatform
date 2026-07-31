@@ -79,3 +79,8 @@ class SessionKitStatusOut(BaseModel):
     kits: list[SessionKitOut]
     outstanding_post_checks: list[uuid.UUID]
     can_finish: bool
+    # B4: whether the viewing instructor has kits issued to them with an
+    # unconfirmed custody movement — the one thing "I have them" actually
+    # changes. False (rather than omitted) for the ops-side assign/unassign
+    # calls, which have no instructor viewpoint to compute this against.
+    pending_confirmation: bool = False

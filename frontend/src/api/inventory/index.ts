@@ -160,6 +160,9 @@ export interface SessionKitStatus {
   /** Mirrors exactly what mark_done enforces, so the UI can disable the
    *  button rather than let someone press it and get a 409. */
   can_finish: boolean
+  /** B4: whether the viewing instructor has kits issued to them that they
+   *  haven't confirmed custody of yet — the one thing "I have them" changes. */
+  pending_confirmation: boolean
 }
 
 export interface ExpectedCount {
