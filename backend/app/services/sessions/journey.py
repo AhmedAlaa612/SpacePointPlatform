@@ -12,7 +12,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.instructors.payment import PaymentSession
+from app.models.instructors.payment import PaymentLetter, PaymentSession
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.instructor_interest import InstructorInterest
@@ -74,9 +74,22 @@ async def unbilled_sessions(db: AsyncSession, instructor_user_id: uuid.UUID) -> 
     "Unbilled" is derived from the absence of a `payment_sessions.session_id`
     pointing at it — which is also what stops the same session being billed
     twice, so there is no separate flag to keep honest.
+
+    **Scoped to this instructor's own letters.** One session is routinely
+    delivered by several people — `session_openings` exists precisely to offer
+    "1 Lead Facilitator at 2000 and 2 Assistants at 400" — and each of them is
+    paid separately. Asking globally whether a session had *ever* been billed
+    made paying the lead silently delete it from the assistant's list, so the
+    assistant could never be offered it again and nobody would see that it had
+    gone missing.
     """
     billed = set((await db.execute(
-        select(PaymentSession.session_id).where(PaymentSession.session_id.isnot(None))
+        select(PaymentSession.session_id)
+        .join(PaymentLetter, PaymentLetter.id == PaymentSession.payment_letter_id)
+        .where(
+            PaymentSession.session_id.isnot(None),
+            PaymentLetter.instructor_user_id == instructor_user_id,
+        )
     )).scalars().all())
 
     rows = (await db.execute(

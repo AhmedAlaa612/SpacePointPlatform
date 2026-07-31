@@ -197,6 +197,46 @@ async def test_a_session_already_on_a_letter_drops_off_the_list(db):
 
 
 @pytest.mark.asyncio
+async def test_paying_the_lead_leaves_the_assistant_still_billable(db):
+    """One session, several people paid — `session_openings` exists to offer
+    "1 Lead Facilitator at 2000 and 2 Assistants at 400", so each is billed
+    separately.
+
+    Regression: "already billed" was asked globally rather than per
+    instructor, so paying the lead silently removed the session from the
+    assistant's list. They could never be offered it again, and nothing
+    surfaced that it had gone — the session simply stopped appearing.
+    """
+    lead, assistant = await _user(db), await _user(db)
+    _p, _c, session = await _chain(db)
+
+    for user, role_name in ((lead, "Lead Facilitator"), (assistant, "Assistant Facilitator")):
+        db.add(SessionInstructor(
+            id=uuid.uuid4(), session_id=session.id, user_id=user.id,
+            role_id=await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == role_name)),
+        ))
+    session.completed_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    assert len(await svc.unbilled_sessions(db, lead.id)) == 1
+    assert len(await svc.unbilled_sessions(db, assistant.id)) == 1
+
+    letter = PaymentLetter(id=uuid.uuid4(), instructor_user_id=lead.id, reference="R")
+    db.add(letter)
+    await db.flush()
+    db.add(PaymentSession(
+        id=uuid.uuid4(), payment_letter_id=letter.id, session_id=session.id,
+        workshop_description="Orbits", role="Lead Facilitator", compensation_aed=2000,
+    ))
+    await db.flush()
+
+    assert await svc.unbilled_sessions(db, lead.id) == [], "the lead is paid"
+    assert len(await svc.unbilled_sessions(db, assistant.id)) == 1, (
+        "the assistant delivered it too and has not been paid"
+    )
+
+
+@pytest.mark.asyncio
 async def test_somebody_elses_session_is_not_billable_to_you(db):
     mine, theirs = await _user(db), await _user(db)
     await _delivered(db, theirs)
