@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, BookOpen, Calendar, Camera, CheckCircle2, Download, ExternalLink, FileText, MapPin, QrCode, X } from "lucide-react"
+import {
+  ArrowLeft, BookOpen, Calendar, Camera, CheckCircle2, ChevronDown, ChevronUp, Clock,
+  Download, ExternalLink, FileText, MapPin, QrCode, X,
+} from "lucide-react"
 import {
   getSessionDeliveryApi, markAttendanceApi, markSessionDoneApi, scanAttendanceApi, startSessionApi,
   uploadSessionReportApi,
@@ -25,10 +28,15 @@ const SCAN_FEEDBACK_MS = 2000
 /** Ignore the same ticket for this long — covers the ticket still being in
  *  frame when the feedback clears. */
 const SAME_TICKET_COOLDOWN_MS = 10000
+/** How long the "start the session first" hint stays on screen after a
+ *  disabled attendance control is tapped. */
+const LOCK_HINT_MS = 3000
 
 import { SessionKitsPanel } from "@/pages/instructors/components/SessionKitsPanel"
 import { SessionEquipmentPanel } from "@/pages/instructors/components/SessionEquipmentPanel"
 import { SessionMaterialsPanel } from "@/pages/instructors/components/SessionMaterialsPanel"
+
+type Stage = "pre" | "session" | "post"
 
 export default function SessionDetail() {
   const { sessionId } = useParams({ strict: false }) as { sessionId: string }
@@ -47,6 +55,12 @@ export default function SessionDetail() {
   const lastTokenRef = useRef<{ token: string; at: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // B5: three stages, collapsing as you move through, always reopenable —
+  // nothing here is a hard gate, it's just where attention goes by default.
+  const [open, setOpen] = useState<Record<Stage, boolean>>({ pre: true, session: false, post: false })
+  const initializedRef = useRef(false)
+  const [lockHint, setLockHint] = useState<string | null>(null)
+
   const delivery = useQuery({
     queryKey: ["session-delivery", sessionId],
     queryFn: () => getSessionDeliveryApi(sessionId),
@@ -54,7 +68,10 @@ export default function SessionDetail() {
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["session-delivery", sessionId] })
 
-  const start = useMutation({ mutationFn: () => startSessionApi(sessionId), onSuccess: invalidate })
+  const start = useMutation({
+    mutationFn: () => startSessionApi(sessionId),
+    onSuccess: () => { setOpen({ pre: false, session: true, post: false }); invalidate() },
+  })
   // I2-2: finishing is refused (409) while any assigned kit is uncounted, and
   // the message names them. Without an onError the button would appear to do
   // nothing, which is worse than the refusal itself.
@@ -96,6 +113,12 @@ export default function SessionDetail() {
     const timer = window.setTimeout(() => setScanFeedback(null), SCAN_FEEDBACK_MS)
     return () => window.clearTimeout(timer)
   }, [scanFeedback])
+
+  useEffect(() => {
+    if (!lockHint) return
+    const timer = window.setTimeout(() => setLockHint(null), LOCK_HINT_MS)
+    return () => window.clearTimeout(timer)
+  }, [lockHint])
 
   const handleScan = useCallback(
     async (rawValue: string) => {
@@ -140,12 +163,29 @@ export default function SessionDetail() {
 
   const s = delivery.data
   const isCompleted = !!s?.completed_at
+  const isStarted = !!s?.started_at
   const presentCount = s ? s.roster.filter((e) => e.att_status === "present").length : 0
 
   const filteredRoster = useMemo(
     () => (s ? (rosterSearch ? s.roster.filter((e) => e.student_name.toLowerCase().includes(rosterSearch.toLowerCase())) : s.roster) : []),
     [s, rosterSearch],
   )
+
+  // Default stage on first load only — a manual toggle afterward is never
+  // fought back open by a refetch.
+  useEffect(() => {
+    if (!s || initializedRef.current) return
+    initializedRef.current = true
+    setOpen(
+      s.completed_at
+        ? { pre: false, session: false, post: true }
+        : s.started_at
+          ? { pre: false, session: true, post: false }
+          : { pre: true, session: false, post: false },
+    )
+  }, [s])
+
+  const toggle = (stage: Stage) => setOpen((prev) => ({ ...prev, [stage]: !prev[stage] }))
 
   if (delivery.isLoading) return <Spinner />
   if (!s) return <EmptyState title="Session not found" hint="It may have been removed, or you're not assigned to it." />
@@ -179,29 +219,6 @@ export default function SessionDetail() {
               <BookOpen size={14} /> Session material <ExternalLink size={12} />
             </a>
           )}
-          <div className="flex flex-wrap gap-2 mt-1">
-            {s.started_at ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
-                <CheckCircle2 size={13} /> Started {new Date(s.started_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
-              </span>
-            ) : (
-              <Button size="sm" disabled={start.isPending} onClick={() => start.mutate()}>
-                {start.isPending ? "Starting…" : "Start session"}
-              </Button>
-            )}
-            {s.completed_at ? (
-              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 border border-emerald-500/20">
-                <CheckCircle2 size={13} /> Completed
-              </span>
-            ) : (
-              <Button size="sm" variant="outline" disabled={done.isPending} onClick={() => done.mutate()}>
-                {done.isPending ? "Saving…" : "Mark completed"}
-              </Button>
-            )}
-            <Button size="sm" variant="outline" onClick={() => setScannerOpen((v) => !v)}>
-              <QrCode size={14} className="mr-1.5" /> {scannerOpen ? "Close scanner" : "Scan QR"}
-            </Button>
-          </div>
           {doneError && (
             <p className="text-xs text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
               {doneError}
@@ -210,118 +227,238 @@ export default function SessionDetail() {
         </CardContent>
       </Card>
 
-      {/* I2-2: renders nothing when no kits are assigned, which is most
-          sessions — they must look exactly as they did before. */}
-      {/* I5-6: resolved program -> cohort -> session. Renders null when
-          there are none, so most sessions look unchanged. */}
-      <SessionMaterialsPanel sessionId={sessionId} />
+      {/* ── Pre-session ─────────────────────────────────────────────────── */}
+      <StageSection
+        title="Pre-session"
+        icon={<Clock size={15} />}
+        open={open.pre}
+        onToggle={() => toggle("pre")}
+        badge={isStarted ? { text: "Done", tone: "done" } : { text: "Up next", tone: "active" }}
+      >
+        {/* I5-6: resolved program -> cohort -> session. Renders null when
+            there are none, so most sessions look unchanged. */}
+        <SessionMaterialsPanel sessionId={sessionId} />
 
-      <SessionKitsPanel sessionId={sessionId} isStarted={!!s.started_at} onChanged={invalidate} />
+        <SessionKitsPanel sessionId={sessionId} stage="pre" onChanged={invalidate} />
 
-      {/* I2-7: non-kit equipment. Unlike the kits panel this shows even when
-          nothing has been taken — taking something is the action offered. */}
-      <SessionEquipmentPanel sessionId={sessionId} notes={s.notes} onChanged={invalidate} />
+        {/* I2-7: non-kit equipment. Unlike the kits panel this shows even when
+            nothing has been taken — taking something is the action offered. */}
+        <SessionEquipmentPanel sessionId={sessionId} notes={s.notes} onChanged={invalidate} />
 
-      {scannerOpen && (
-        <Card>
-          <CardContent className="p-3 flex flex-col gap-2">
-            {cameraError ? (
-              <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-red-400/50 bg-red-500/5 p-6 text-center">
-                <Camera className="text-red-500" size={28} />
-                <p className="text-sm font-medium text-foreground">{cameraError}</p>
-              </div>
+        {!isStarted && (
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+              Students Expected ({s.roster.length})
+            </p>
+            {s.roster.length === 0 ? (
+              <EmptyState title="No students registered" hint="Registrations for this session will show up here." />
             ) : (
-              <div className="relative aspect-square max-h-80 overflow-hidden rounded-xl border border-border bg-black mx-auto w-full max-w-xs">
-                {scannerMode === "native" ? (
-                  <video ref={videoRef} className="h-full w-full object-cover" playsInline muted autoPlay />
-                ) : (
-                  <div id="session-delivery-qr-reader" className="h-full w-full [&_video]:!h-full [&_video]:!w-full [&_video]:object-cover" />
-                )}
-                <div className="pointer-events-none absolute inset-6 rounded-2xl border-4 border-white/70" />
+              <div className="flex flex-col gap-2">
+                {s.roster.map((entry) => (
+                  <RosterRow
+                    key={entry.registration_id}
+                    entry={entry}
+                    locked="not_started"
+                    pending={false}
+                    onMark={() => setLockHint("Start the session first.")}
+                    onSelectStudent={() => setSelectedStudent(entry)}
+                  />
+                ))}
               </div>
             )}
-            {scanFeedback && (
-              <p className={cn(
-                "text-center text-sm font-semibold",
-                scanFeedback.kind === "ok" && "text-emerald-600 dark:text-emerald-400",
-                scanFeedback.kind === "info" && "text-amber-600 dark:text-amber-400",
-                scanFeedback.kind === "error" && "text-red-500",
-              )}>
-                {scanFeedback.text}
-              </p>
+            {lockHint && open.pre && (
+              <p className="text-xs text-amber-700 dark:text-amber-400 mt-2">{lockHint}</p>
             )}
-          </CardContent>
-        </Card>
-      )}
+          </div>
+        )}
 
-      <div>
-        <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Student Roster ({presentCount} present / {s.roster.length} registered)
-          </p>
-          {s.roster.length > 0 && (
-            <input
-              value={rosterSearch} onChange={(e) => setRosterSearch(e.target.value)}
-              placeholder="Search by name…"
-              className="ml-auto h-8 w-44 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
-            />
+        {!isStarted && (
+          <Button disabled={start.isPending} onClick={() => start.mutate()}>
+            {start.isPending ? "Starting…" : "Start session"}
+          </Button>
+        )}
+      </StageSection>
+
+      {/* ── Session ─────────────────────────────────────────────────────── */}
+      <StageSection
+        title="Session"
+        icon={<QrCode size={15} />}
+        open={open.session}
+        onToggle={() => toggle("session")}
+        badge={
+          isCompleted
+            ? { text: "Ended", tone: "done" }
+            : isStarted
+              ? { text: "In progress", tone: "active" }
+              : { text: "Not started", tone: "muted" }
+        }
+      >
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          {isStarted ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+              <CheckCircle2 size={13} /> Started {new Date(s.started_at!).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          ) : (
+            <p className="text-xs text-muted-foreground">Start the session from the pre-session block above.</p>
+          )}
+          <Button
+            size="sm" variant="outline"
+            disabled={!isStarted}
+            onClick={() => {
+              if (!isStarted) { setLockHint("Start the session first."); return }
+              setScannerOpen((v) => !v)
+            }}
+          >
+            <QrCode size={14} className="mr-1.5" /> {scannerOpen ? "Close scanner" : "Scan QR"}
+          </Button>
+        </div>
+
+        {scannerOpen && (
+          <Card>
+            <CardContent className="p-3 flex flex-col gap-2">
+              {cameraError ? (
+                <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-red-400/50 bg-red-500/5 p-6 text-center">
+                  <Camera className="text-red-500" size={28} />
+                  <p className="text-sm font-medium text-foreground">{cameraError}</p>
+                </div>
+              ) : (
+                <div className="relative aspect-square max-h-80 overflow-hidden rounded-xl border border-border bg-black mx-auto w-full max-w-xs">
+                  {scannerMode === "native" ? (
+                    <video ref={videoRef} className="h-full w-full object-cover" playsInline muted autoPlay />
+                  ) : (
+                    <div id="session-delivery-qr-reader" className="h-full w-full [&_video]:!h-full [&_video]:!w-full [&_video]:object-cover" />
+                  )}
+                  <div className="pointer-events-none absolute inset-6 rounded-2xl border-4 border-white/70" />
+                </div>
+              )}
+              {scanFeedback && (
+                <p className={cn(
+                  "text-center text-sm font-semibold",
+                  scanFeedback.kind === "ok" && "text-emerald-600 dark:text-emerald-400",
+                  scanFeedback.kind === "info" && "text-amber-600 dark:text-amber-400",
+                  scanFeedback.kind === "error" && "text-red-500",
+                )}>
+                  {scanFeedback.text}
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        <div>
+          <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Student Roster ({presentCount} present / {s.roster.length} registered)
+            </p>
+            {s.roster.length > 0 && (
+              <input
+                value={rosterSearch} onChange={(e) => setRosterSearch(e.target.value)}
+                placeholder="Search by name…"
+                className="ml-auto h-8 w-44 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
+              />
+            )}
+          </div>
+
+          {isCompleted && (
+            <div className="mb-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-2">
+              <span>🔒 Session completed — attendance is locked. Contact Operations to request changes.</span>
+            </div>
+          )}
+          {lockHint && open.session && !isStarted && (
+            <p className="text-xs text-amber-700 dark:text-amber-400 mb-2">{lockHint}</p>
+          )}
+
+          {s.roster.length === 0 ? (
+            <EmptyState title="No students registered" hint="Registrations for this session will show up here." />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {filteredRoster.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">No students match "{rosterSearch}"</p>
+              ) : (
+                filteredRoster.map((entry) => (
+                  <RosterRow
+                    key={entry.registration_id}
+                    entry={entry}
+                    locked={isCompleted ? "completed" : !isStarted ? "not_started" : undefined}
+                    pending={mark.isPending && mark.variables?.registrationId === entry.registration_id}
+                    onMark={(status) => {
+                      if (!isStarted) { setLockHint("Start the session first."); return }
+                      mark.mutate({ registrationId: entry.registration_id, status })
+                    }}
+                    onSelectStudent={() => setSelectedStudent(entry)}
+                  />
+                ))
+              )}
+            </div>
           )}
         </div>
 
-        {isCompleted && (
-          <div className="mb-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-2">
-            <span>🔒 Session completed — attendance is locked. Contact Operations to request changes.</span>
-          </div>
+        {isStarted && !isCompleted && (
+          <Button variant="outline" onClick={() => setOpen({ pre: false, session: false, post: true })}>
+            End session
+          </Button>
         )}
+      </StageSection>
 
-        {s.roster.length === 0 ? (
-          <EmptyState title="No students registered" hint="Registrations for this session will show up here." />
+      {/* ── Post-session ────────────────────────────────────────────────── */}
+      <StageSection
+        title="Post-session"
+        icon={<CheckCircle2 size={15} />}
+        open={open.post}
+        onToggle={() => toggle("post")}
+        badge={
+          isCompleted
+            ? { text: "Done", tone: "done" }
+            : isStarted
+              ? { text: "Ready", tone: "active" }
+              : { text: "Locked", tone: "muted" }
+        }
+      >
+        {!isStarted ? (
+          <p className="text-xs text-muted-foreground">Nothing to wrap up until the session has started.</p>
         ) : (
-          <div className="flex flex-col gap-2">
-            {filteredRoster.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">No students match "{rosterSearch}"</p>
-            ) : (
-              filteredRoster.map((entry) => (
-                <RosterRow
-                  key={entry.registration_id}
-                  entry={entry}
-                  isLocked={isCompleted}
-                  pending={mark.isPending && mark.variables?.registrationId === entry.registration_id}
-                  onMark={(status) => mark.mutate({ registrationId: entry.registration_id, status })}
-                  onSelectStudent={() => setSelectedStudent(entry)}
-                />
-              ))
-            )}
-          </div>
-        )}
-      </div>
+          <>
+            <SessionKitsPanel sessionId={sessionId} stage="post" onChanged={invalidate} />
 
-      <div>
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-          Reports{s.reports.length > 0 ? ` (${s.reports.length})` : ""}
-        </p>
-        <Card className="mb-2">
-          <CardContent className="p-3 flex flex-col gap-2">
-            <input
-              ref={fileInputRef} type="file"
-              onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadReport.mutate(file) }}
-              disabled={uploadReport.isPending}
-              className="text-xs text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary-foreground"
-            />
-            <input
-              value={reportNotes} onChange={(e) => setReportNotes(e.target.value)}
-              placeholder="Optional notes about the session…"
-              className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-            {uploadReport.isPending && <p className="text-xs text-muted-foreground">Uploading…</p>}
-          </CardContent>
-        </Card>
-        {s.reports.length > 0 && (
-          <div className="flex flex-col gap-1.5">
-            {s.reports.map((r) => <ReportRow key={r.id} report={r} />)}
-          </div>
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                Reports{s.reports.length > 0 ? ` (${s.reports.length})` : ""}
+              </p>
+              <Card className="mb-2">
+                <CardContent className="p-3 flex flex-col gap-2">
+                  <input
+                    ref={fileInputRef} type="file"
+                    onChange={(e) => { const file = e.target.files?.[0]; if (file) uploadReport.mutate(file) }}
+                    disabled={uploadReport.isPending}
+                    className="text-xs text-foreground file:mr-3 file:rounded-lg file:border-0 file:bg-primary file:px-3 file:py-2 file:text-xs file:font-medium file:text-primary-foreground"
+                  />
+                  <input
+                    value={reportNotes} onChange={(e) => setReportNotes(e.target.value)}
+                    placeholder="Optional notes about the session…"
+                    className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                  />
+                  {uploadReport.isPending && <p className="text-xs text-muted-foreground">Uploading…</p>}
+                </CardContent>
+              </Card>
+              {s.reports.length > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  {s.reports.map((r) => <ReportRow key={r.id} report={r} />)}
+                </div>
+              )}
+            </div>
+
+            {isCompleted ? (
+              <span className="inline-flex items-center gap-1.5 w-fit text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 border border-emerald-500/20">
+                <CheckCircle2 size={13} /> Completed
+              </span>
+            ) : (
+              <Button disabled={done.isPending} onClick={() => done.mutate()}>
+                {done.isPending ? "Saving…" : "Mark session completed"}
+              </Button>
+            )}
+          </>
         )}
-      </div>
+      </StageSection>
 
       {selectedStudent && createPortal(
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setSelectedStudent(null)}>
@@ -355,6 +492,47 @@ export default function SessionDetail() {
   )
 }
 
+/** One of the three B5 stages — collapsed sections stay reopenable, because
+ *  "start the session" isn't meant to be a one-way door on the UI: if the
+ *  kit list needs a second look after the fact, the header is still there. */
+function StageSection({ title, icon, open, onToggle, badge, children }: {
+  title: string
+  icon: React.ReactNode
+  open: boolean
+  onToggle: () => void
+  badge: { text: string; tone: "active" | "done" | "muted" }
+  children: React.ReactNode
+}) {
+  const toneClass = {
+    active: "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400",
+    done: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400",
+    muted: "bg-muted text-muted-foreground",
+  }[badge.tone]
+
+  return (
+    <Card>
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between gap-3 p-4"
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          {icon} {title}
+        </span>
+        <span className="flex items-center gap-2">
+          <span className={cn("text-xs font-semibold px-2.5 py-0.5 rounded-full", toneClass)}>{badge.text}</span>
+          {open ? <ChevronUp size={16} className="text-muted-foreground" /> : <ChevronDown size={16} className="text-muted-foreground" />}
+        </span>
+      </button>
+      {open && (
+        <CardContent className="pt-0 px-4 pb-4 flex flex-col gap-3">
+          {children}
+        </CardContent>
+      )}
+    </Card>
+  )
+}
+
 function ReportRow({ report }: { report: SessionReport }) {
   return (
     <a
@@ -371,8 +549,14 @@ function ReportRow({ report }: { report: SessionReport }) {
   )
 }
 
-function RosterRow({ entry, isLocked, pending, onMark, onSelectStudent }: {
-  entry: RosterEntry; isLocked?: boolean; pending: boolean; onMark: (status: AttendanceStatus) => void; onSelectStudent: () => void
+function RosterRow({ entry, locked, pending, onMark, onSelectStudent }: {
+  entry: RosterEntry
+  /** "not_started" — soft gate, still clickable to surface a hint.
+   *  "completed" — hard lock, same as before. undefined — fully enabled. */
+  locked?: "not_started" | "completed"
+  pending: boolean
+  onMark: (status: AttendanceStatus) => void
+  onSelectStudent: () => void
 }) {
   return (
     <Card>
@@ -397,11 +581,12 @@ function RosterRow({ entry, isLocked, pending, onMark, onSelectStudent }: {
               <button
                 key={opt.value}
                 type="button"
-                disabled={pending || isLocked}
+                disabled={pending || locked === "completed"}
                 onClick={() => onMark(opt.value)}
                 className={cn(
                   "min-h-[44px] rounded-xl border text-xs font-semibold transition-colors disabled:opacity-50",
                   active ? opt.activeClass : "bg-background border-border text-foreground hover:border-primary/50",
+                  locked === "not_started" && !active && "opacity-60",
                 )}
               >
                 {opt.label}

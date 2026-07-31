@@ -28,11 +28,15 @@ import { cn } from "@/lib/utils"
  */
 export function SessionKitsPanel({
   sessionId,
-  isStarted,
+  stage,
   onChanged,
 }: {
   sessionId: string
-  isStarted: boolean
+  /** B5: which actions this instance offers. "pre" — the pre-check and
+   *  confirming custody, before the session starts. "post" — the
+   *  post-check and handing kits back, once it's over. Both instances read
+   *  the same underlying kit list; only the actions on offer differ. */
+  stage: "pre" | "post"
   onChanged: () => void
 }) {
   const qc = useQueryClient()
@@ -77,13 +81,13 @@ export function SessionKitsPanel({
           )}
         </div>
 
-        {!data.can_finish && (
+        {stage === "post" && !data.can_finish && (
           <p className="text-xs text-muted-foreground -mt-1">
             Check what&apos;s in each kit — that&apos;s what lets you mark this session completed.
           </p>
         )}
 
-        {data.pending_confirmation && (
+        {stage === "pre" && data.pending_confirmation && (
           <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5">
             <p className="text-xs text-foreground">
               These kits were issued to you. Confirm you actually have them in hand.
@@ -98,7 +102,7 @@ export function SessionKitsPanel({
             </Button>
           </div>
         )}
-        {justConfirmed && !data.pending_confirmation && (
+        {stage === "pre" && justConfirmed && !data.pending_confirmation && (
           <p className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 size={13} /> Confirmed — you have these kits.
           </p>
@@ -119,30 +123,36 @@ export function SessionKitsPanel({
                 </p>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
-                {!k.pre_checked && !isStarted && (
-                  <Button
-                    size="sm" variant="outline"
-                    onClick={() => setChecking({ kitId: k.kit_id, label: k.label, phase: "pre" })}
-                  >
-                    Check kit
-                  </Button>
+                {stage === "pre" && (
+                  k.pre_checked ? (
+                    <Check size={16} className="text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <Button
+                      size="sm" variant="outline"
+                      onClick={() => setChecking({ kitId: k.kit_id, label: k.label, phase: "pre" })}
+                    >
+                      Check kit
+                    </Button>
+                  )
                 )}
-                {k.post_checked ? (
-                  <Check size={16} className="text-emerald-600 dark:text-emerald-400" />
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={() => setChecking({ kitId: k.kit_id, label: k.label, phase: "post" })}
-                  >
-                    Check kit
-                  </Button>
+                {stage === "post" && (
+                  k.post_checked ? (
+                    <Check size={16} className="text-emerald-600 dark:text-emerald-400" />
+                  ) : (
+                    <Button
+                      size="sm"
+                      onClick={() => setChecking({ kitId: k.kit_id, label: k.label, phase: "post" })}
+                    >
+                      Check kit
+                    </Button>
+                  )
                 )}
               </div>
             </div>
           ))}
         </div>
 
-        {anyOut && (
+        {stage === "post" && anyOut && (
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={() => setReturning(true)}>
               Hand them back
