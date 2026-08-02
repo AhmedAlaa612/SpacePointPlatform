@@ -195,15 +195,77 @@ async def seed(db: AsyncSession, *, dry_run: bool) -> None:
               "they came from the legacy app, not from anyone counting recently.")
 
 
+async def seed_satkit_only(db: AsyncSession, *, dry_run: bool) -> None:
+    """Seed only the SatKit template + its 27 BOM items. Nothing else."""
+    created = {"items": 0, "templates": 0, "bom_lines": 0}
+    skipped = {"items": 0, "templates": 0, "bom_lines": 0}
+    conflicts: list[str] = []
+
+    items_by_name: dict[str, Item] = {}
+    for name, category, _ in SATKIT_BOM:
+        existing = (await db.execute(select(Item).where(Item.name == name))).scalars().first()
+        if existing:
+            items_by_name[name] = existing
+            skipped["items"] += 1
+            continue
+        item = Item(id=uuid.uuid4(), name=name, category=category, returnable_default=False)
+        db.add(item)
+        items_by_name[name] = item
+        created["items"] += 1
+    await db.flush()
+
+    template = (await db.execute(select(KitTemplate).where(KitTemplate.code == "SATKIT"))).scalars().first()
+    if template is None:
+        template = KitTemplate(id=uuid.uuid4(), name="SatKit v1", code="SATKIT")
+        db.add(template)
+        created["templates"] += 1
+        await db.flush()
+    else:
+        skipped["templates"] += 1
+
+    for name, _category, qty in SATKIT_BOM:
+        item = items_by_name[name]
+        line = (await db.execute(select(KitTemplateItem).where(
+            KitTemplateItem.template_id == template.id,
+            KitTemplateItem.item_id == item.id,
+        ))).scalars().first()
+        if line is not None:
+            skipped["bom_lines"] += 1
+            if line.required_qty != qty:
+                conflicts.append(f"  {name}: db says {line.required_qty}, script says {qty} — left alone")
+            continue
+        db.add(KitTemplateItem(
+            id=uuid.uuid4(), template_id=template.id, item_id=item.id, required_qty=qty,
+        ))
+        created["bom_lines"] += 1
+    await db.flush()
+
+    for label in created:
+        print(f"{label:12} created {created[label]:3}   already present {skipped[label]:3}")
+    if conflicts:
+        print("\nQuantity conflicts (db kept):")
+        print("\n".join(conflicts))
+
+    if dry_run:
+        print("\n--dry-run: rolling back, nothing written.")
+    else:
+        await db.commit()
+        print("\nDone. Verify quantities against a real box.")
+
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true", help="Report what would change, write nothing")
+    parser.add_argument("--satkit-only", action="store_true", help="Seed only the SatKit template + BOM items, skip locations/merch/equipment")
     args = parser.parse_args()
 
     engine = create_async_engine(settings.DATABASE_URL)
     sessionmaker = async_sessionmaker(engine, expire_on_commit=False)
     async with sessionmaker() as db:
-        await seed(db, dry_run=args.dry_run)
+        if args.satkit_only:
+            await seed_satkit_only(db, dry_run=args.dry_run)
+        else:
+            await seed(db, dry_run=args.dry_run)
     await engine.dispose()
 
 
