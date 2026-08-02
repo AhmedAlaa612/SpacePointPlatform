@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.cohort_call import CohortCall, CohortCallTarget
+from app.models.sessions.cohort_opening import CohortOpening
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.program import Program
@@ -594,15 +595,24 @@ async def register_interest(
     # actually soliciting for right now — an opening that exists but is
     # closed (B2), or that never existed, isn't a valid choice.
     if role_id is not None:
-        opening = (await db.execute(
-            select(SessionOpening).where(
-                SessionOpening.session_id == session_id, SessionOpening.role_id == role_id,
-            )
-        )).scalars().first()
-        if opening is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="That role isn't offered on this session")
-        if not opening.is_open:
-            raise HTTPException(status.HTTP_409_CONFLICT, detail="That role isn't currently open for interest")
+        session_openings = (await db.execute(
+            select(SessionOpening).where(SessionOpening.session_id == session_id)
+        )).scalars().all()
+        if session_openings:
+            opening = next((o for o in session_openings if o.role_id == role_id), None)
+            if opening is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="That role isn't offered on this session")
+            if not opening.is_open:
+                raise HTTPException(status.HTTP_409_CONFLICT, detail="That role isn't currently open for interest")
+        else:
+            cohort_opening = (await db.execute(
+                select(CohortOpening).where(
+                    CohortOpening.cohort_id == session.cohort_id,
+                    CohortOpening.role_id == role_id,
+                )
+            )).scalars().first()
+            if cohort_opening is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, detail="That role isn't offered on this session")
 
     existing = (await db.execute(
         select(InstructorInterest).where(
