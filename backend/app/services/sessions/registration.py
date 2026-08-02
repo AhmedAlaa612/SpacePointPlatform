@@ -28,6 +28,7 @@ from app.models.spine.touchpoint import Touchpoint
 from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.inventory.location import Location
 from app.models.sessions.registration import Registration, RegistrationSession
 from app.models.sessions.session import Session
 from app.services.documents.ticket import ticket_url
@@ -195,6 +196,17 @@ async def issue_ticket(db: AsyncSession, registration_id: UUID, force: bool = Fa
     cohort = await db.get(Cohort, registration.cohort_id)
     program = await db.get(Program, cohort.program_id) if cohort else None
 
+    # Resolve location: prefer the canonical Location row (location_id FK),
+    # fall back to the legacy free-text field for any pre-migration cohorts.
+    location_obj = (
+        await db.get(Location, cohort.location_id)
+        if cohort and cohort.location_id else None
+    )
+    location_str = (
+        (location_obj.name if location_obj else None)
+        or (cohort.location if cohort else None)
+    )
+
     if contact is None or not contact.email:
         return False
 
@@ -204,7 +216,7 @@ async def issue_ticket(db: AsyncSession, registration_id: UUID, force: bool = Fa
         student_name=contact.full_name,
         program_name=program.name if program else "your workshop",
         dates=dates,
-        location=cohort.location if cohort else None,
+        location=location_str,
         ticket_token=registration.ticket_token,
     )
 
@@ -215,7 +227,7 @@ async def issue_ticket(db: AsyncSession, registration_id: UUID, force: bool = Fa
             student_name=contact.full_name,
             program_name=program.name if program else "your workshop",
             dates=dates,
-            location=cohort.location if cohort else None,
+            location=location_str,
             ticket_link=ticket_url(registration.ticket_token),
         ),
         html=True,
