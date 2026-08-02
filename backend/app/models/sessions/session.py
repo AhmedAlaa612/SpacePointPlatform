@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Date, DateTime, ForeignKey, Numeric, String, Text, Time, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Numeric, String, Text, Time, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -37,6 +37,13 @@ class Session(Base):
     # "took a speaker that isn't in the list" — instead of silently dropping
     # it. Ops reads it on the session; nothing notifies them (operator's call).
     notes = Column(Text, nullable=True)
+    # NULL = inherit the cohort's location (2026-08-01) — same absent-means-
+    # inherit pattern as duration_hours/price above. Only set when a specific
+    # session genuinely meets somewhere other than the cohort's usual place.
+    location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="SET NULL"), nullable=True)
+    # NULL = inherit the cohort's warehouse, same pattern as location_id —
+    # see Cohort.warehouse_id for why this is a separate field from location.
+    warehouse_id = Column(UUID(as_uuid=True), ForeignKey("warehouses.id", ondelete="SET NULL"), nullable=True)
     # unstaffed|open_call|staffed — the staffing marketplace pipeline (W4).
     # Lives on Session, not Cohort (moved 2026-07-24): assignment is per-
     # session, so the open-call/interest/select state has to be too, or a
@@ -48,6 +55,18 @@ class Session(Base):
     # a flag, which the calendar/dashboard work (W6) will want to read.
     started_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
+    # Cohort-level kit defaults (Phase 3 follow-up to I2-1/I2-2): a session
+    # with no kit activity of its own inherits its cohort's default kit list.
+    # The first time this specific session's kits are touched — ops assigns/
+    # removes one directly, or an instructor receives/returns one — the
+    # cohort's current default is copied into real `SessionKit` rows here and
+    # this flips to True for good. It has to be a separate flag rather than
+    # inferred from `SessionKit` row count: a session ops deliberately clears
+    # down to zero kits is legitimately zero rows, and without this flag that
+    # is indistinguishable from a session nobody has touched yet — the first
+    # would silently revert to inheriting the cohort default on the next
+    # read, which is exactly the bug this column exists to prevent.
+    kits_overridden = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -77,26 +96,31 @@ class SessionInstructor(Base):
 
 
 class SessionCallTarget(Base):
-    """Restricts an open call to specific instructors (operator, 2026-07-26).
+    """Restricts one specific call to specific instructors (operator,
+    2026-07-26; scoped per-call 2026-08-01).
 
-    Semantics are deliberately "absent means unrestricted": a session with no
-    rows here is open to every instructor/facilitator, which is what every
-    existing open call is and what the plain "open call" button still does.
-    Rows here make it a real gate — targeted users are the only ones who see
-    the session on Available Sessions and the only ones who may register
-    interest.
+    Semantics are deliberately "absent means unrestricted": a *call* with no
+    rows here is open to every instructor/facilitator. Since a session can
+    run several calls at once (`SessionCall`), a session overall is public
+    the moment any one of its open calls has no target rows — a targeted call
+    running alongside it doesn't take that away. Rows here make one call a
+    real gate — targeted users are the only ones who see the session on
+    Available Sessions *because of that call* (another open call may still
+    grant them, or anyone, visibility).
 
-    Before this table, the instructor picker on the open-call dialog only
-    filtered who got *notified*; the session itself was visible to everyone,
-    so "targeted" was a mailing list rather than a restriction.
+    Before `call_id` existed, every row was tagged only with `session_id` —
+    one flat target list per session, so a public call and a targeted call
+    could never coexist. `session_id` stays alongside `call_id` (denormalised
+    from `SessionCall.session_id`) purely so lookups don't need a join.
     """
 
     __tablename__ = "session_call_targets"
     __table_args__ = (
-        UniqueConstraint("session_id", "user_id", name="uq_session_call_target"),
+        UniqueConstraint("call_id", "user_id", name="uq_session_call_target"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    call_id = Column(UUID(as_uuid=True), ForeignKey("session_calls.id", ondelete="CASCADE"), nullable=False, index=True)
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

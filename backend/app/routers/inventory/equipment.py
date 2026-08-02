@@ -26,13 +26,15 @@ from app.models.user import User
 from app.schemas.inventory.equipment import (
     EquipmentSearchOut,
     ReturnEquipmentIn,
+    ReturnLaterEquipmentIn,
     SessionEquipmentOut,
     TakeEquipmentIn,
     TakenEquipmentOut,
 )
 from app.schemas.inventory.kits import MovementOut
 from app.services.inventory import (
-    pickup_location,
+    mark_equipment_return_later,
+    pickup_warehouse,
     return_equipment,
     search_equipment,
     session_equipment,
@@ -44,11 +46,11 @@ router = APIRouter(prefix="/inventory", tags=["inventory-equipment"])
 
 
 async def _view(db: AsyncSession, session_id: uuid.UUID, user_id: uuid.UUID) -> SessionEquipmentOut:
-    location = await pickup_location(db, session_id)
+    warehouse = await pickup_warehouse(db, session_id)
     lines = await session_equipment(db, session_id=session_id, user_id=user_id)
     return SessionEquipmentOut(
-        location_id=location.id if location else None,
-        location_name=location.name if location else None,
+        warehouse_id=warehouse.id if warehouse else None,
+        warehouse_name=warehouse.name if warehouse else None,
         lines=[TakenEquipmentOut(**line) for line in lines],
         outstanding_count=sum(1 for line in lines if line["outstanding"] > 0),
     )
@@ -70,7 +72,7 @@ async def get_session_equipment(
 async def search_session_equipment(
     session_id: uuid.UUID,
     q: str = Query(default="", description="Optional free-text filter; empty returns the whole shelf"),
-    location_id: uuid.UUID | None = None,
+    warehouse_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
 ):
@@ -78,15 +80,15 @@ async def search_session_equipment(
     one tick-list, optionally narrowed by name."""
     await _get_deliverable_session(db, session_id, current_user)
 
-    if location_id is None:
-        location = await pickup_location(db, session_id)
-        if location is None:
+    if warehouse_id is None:
+        warehouse = await pickup_warehouse(db, session_id)
+        if warehouse is None:
             return []
-        location_id = location.id
+        warehouse_id = warehouse.id
 
     return [
         EquipmentSearchOut(**row)
-        for row in await search_equipment(db, location_id=location_id, q=q)
+        for row in await search_equipment(db, warehouse_id=warehouse_id, q=q)
     ]
 
 
@@ -108,7 +110,7 @@ async def take_session_equipment(
         session_id=session_id,
         actor_user_id=current_user.id,
         lines=[(line.item_id, line.qty) for line in body.lines],
-        location_id=body.location_id,
+        warehouse_id=body.warehouse_id,
         note=body.note,
     )
     await db.commit()
@@ -134,7 +136,23 @@ async def return_session_equipment(
         session_id=session_id,
         actor_user_id=current_user.id,
         lines=[(line.item_id, line.qty) for line in body.lines],
-        to_location_id=body.to_location_id,
+        to_warehouse_id=body.to_warehouse_id,
     )
     await db.commit()
     return movements
+
+
+@router.post("/sessions/{session_id}/equipment/return-later", status_code=status.HTTP_204_NO_CONTENT)
+async def return_session_equipment_later(
+    session_id: uuid.UUID,
+    body: ReturnLaterEquipmentIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_session_delivery),
+):
+    """"I'll bring this back later" — for either an item not yet returned, or
+    one that's already been marked returned by mistake."""
+    await _get_deliverable_session(db, session_id, current_user)
+    await mark_equipment_return_later(
+        db, session_id=session_id, actor_user_id=current_user.id, item_ids=body.item_ids,
+    )
+    await db.commit()

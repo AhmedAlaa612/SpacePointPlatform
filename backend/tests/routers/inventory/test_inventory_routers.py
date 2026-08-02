@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.security import create_access_token, get_password_hash
-from app.models.inventory import Item, Kit, KitTemplate, Location, StockLevel
+from app.models.inventory import Item, Kit, KitTemplate, KitTemplateItem, Location, StockLevel, Warehouse
 from app.models.user import User
 
 
@@ -76,6 +76,13 @@ async def _location(db, name="Dubai") -> Location:
     return loc
 
 
+async def _warehouse(db, loc, name=None) -> Warehouse:
+    wh = Warehouse(id=uuid.uuid4(), location_id=loc.id, name=name or f"{loc.name} Main")
+    db.add(wh)
+    await db.flush()
+    return wh
+
+
 async def _item(db, name=None, **kw) -> Item:
     item = Item(id=uuid.uuid4(), name=name or f"Item {uuid.uuid4().hex[:6]}", **kw)
     db.add(item)
@@ -90,11 +97,11 @@ async def _template(db, code="SATKIT") -> KitTemplate:
     return tpl
 
 
-async def _kit(db, loc, tpl, **kw) -> Kit:
+async def _kit(db, wh, tpl, **kw) -> Kit:
     kit = Kit(
         id=uuid.uuid4(), template_id=tpl.id,
         label=f"SP-K-{uuid.uuid4().hex[:6]}", public_token=uuid.uuid4().hex * 2,
-        current_location_id=loc.id, **kw,
+        current_location_id=wh.location_id, current_warehouse_id=wh.id, **kw,
     )
     db.add(kit)
     await db.flush()
@@ -117,8 +124,9 @@ async def test_create_and_list_a_location(db, client, ops_headers):
 @pytest.mark.asyncio
 async def test_a_location_holding_kits_cannot_be_deactivated(db, client, ops_headers):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
-    await _kit(db, loc, tpl)
+    await _kit(db, wh, tpl)
     await db.commit()
 
     resp = await client.patch(f"/inventory/locations/{loc.id}", headers=ops_headers,
@@ -132,6 +140,41 @@ async def test_item_names_are_unique_case_insensitively(db, client, ops_headers)
     await client.post("/inventory/items", headers=ops_headers, json={"name": "EPS Board"})
     dupe = await client.post("/inventory/items", headers=ops_headers, json={"name": "eps board"})
     assert dupe.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_variant_group_and_label_round_trip(db, client, ops_headers):
+    resp = await client.post("/inventory/items", headers=ops_headers, json={
+        "name": "T-Shirt L", "category": "other", "variant_group": "T-Shirt", "variant_label": "L",
+    })
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["variant_group"] == "T-Shirt"
+    assert body["variant_label"] == "L"
+
+
+@pytest.mark.asyncio
+async def test_variant_label_is_blank_without_a_group(db, client, ops_headers):
+    """A label means nothing without a group to browse it under."""
+    resp = await client.post("/inventory/items", headers=ops_headers, json={
+        "name": "Lone Item", "category": "other", "variant_label": "L",
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["variant_group"] is None
+    assert resp.json()["variant_label"] is None
+
+
+@pytest.mark.asyncio
+async def test_clearing_the_variant_group_clears_the_label_too(db, client, ops_headers):
+    item = await _item(db, name="T-Shirt M")
+    item.variant_group = "T-Shirt"
+    item.variant_label = "M"
+    await db.commit()
+
+    resp = await client.patch(f"/inventory/items/{item.id}", headers=ops_headers, json={"variant_group": ""})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["variant_group"] is None
+    assert resp.json()["variant_label"] is None
 
 
 @pytest.mark.asyncio
@@ -151,7 +194,7 @@ async def test_an_item_in_use_cannot_be_deleted(db, client, ops_headers):
 async def test_setting_a_template_bom_replaces_it_wholesale(db, client, ops_headers):
     tpl = await _template(db)
     board = await _item(db, name="ADCS Board")
-    screw = await _item(db, name="M3 Screw", is_consumable=True)
+    screw = await _item(db, name="M3 Screw")
     await db.commit()
 
     first = await client.put(f"/inventory/templates/{tpl.id}/items", headers=ops_headers, json=[
@@ -185,6 +228,7 @@ async def test_a_template_cannot_list_the_same_item_twice(db, client, ops_header
 async def test_bulk_create_numbers_kits_and_fills_them_from_the_template(db, client, ops_headers):
     """The first-day path. Twenty kits, complete, in one call."""
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
     board = await _item(db, name="EPS Board")
     await db.commit()
@@ -192,7 +236,7 @@ async def test_bulk_create_numbers_kits_and_fills_them_from_the_template(db, cli
                      json=[{"item_id": str(board.id), "required_qty": 1}])
 
     resp = await client.post("/inventory/kits/bulk", headers=ops_headers, json={
-        "template_id": str(tpl.id), "location_id": str(loc.id), "count": 3, "complete": True,
+        "template_id": str(tpl.id), "warehouse_id": str(wh.id), "count": 3, "complete": True,
     })
     assert resp.status_code == 201, resp.text
     kits = resp.json()
@@ -205,9 +249,10 @@ async def test_bulk_create_numbers_kits_and_fills_them_from_the_template(db, cli
 @pytest.mark.asyncio
 async def test_bulk_create_continues_numbering_rather_than_colliding(db, client, ops_headers):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
     await db.commit()
-    body = {"template_id": str(tpl.id), "location_id": str(loc.id), "count": 2, "complete": False}
+    body = {"template_id": str(tpl.id), "warehouse_id": str(wh.id), "count": 2, "complete": False}
 
     first = await client.post("/inventory/kits/bulk", headers=ops_headers, json=body)
     second = await client.post("/inventory/kits/bulk", headers=ops_headers, json=body)
@@ -219,6 +264,7 @@ async def test_bulk_create_continues_numbering_rather_than_colliding(db, client,
 @pytest.mark.asyncio
 async def test_incomplete_kits_report_a_shortage_count(db, client, ops_headers):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
     board = await _item(db, name="EPS Board")
     await db.commit()
@@ -226,19 +272,47 @@ async def test_incomplete_kits_report_a_shortage_count(db, client, ops_headers):
                      json=[{"item_id": str(board.id), "required_qty": 1}])
 
     await client.post("/inventory/kits/bulk", headers=ops_headers, json={
-        "template_id": str(tpl.id), "location_id": str(loc.id), "count": 1, "complete": False,
+        "template_id": str(tpl.id), "warehouse_id": str(wh.id), "count": 1, "complete": False,
     })
     listed = await client.get("/inventory/kits", headers=ops_headers)
     assert listed.json()[0]["shortage_count"] == 1
 
 
 @pytest.mark.asyncio
+async def test_create_kit_complete_seeds_contents_via_receive_movements(db, client, ops_headers):
+    loc = await _location(db)
+    wh = await _warehouse(db, loc)
+    tpl = await _template(db)
+    mpu = await _item(db, name="MPU")
+    db.add(KitTemplateItem(id=uuid.uuid4(), template_id=tpl.id, item_id=mpu.id, required_qty=3))
+    await db.commit()
+
+    resp = await client.post("/inventory/kits", headers=ops_headers, json={
+        "template_id": str(tpl.id), "label": "SP-COMPLETE-0001",
+        "current_warehouse_id": str(wh.id), "complete": True,
+    })
+    assert resp.status_code == 201, resp.text
+    detail = resp.json()
+    assert detail["contents"] == [{"item_id": str(mpu.id), "item_name": "MPU", "qty": 3}]
+    assert detail["shortages"] == []
+
+    movements = (await client.get(f"/inventory/kits/{detail['id']}/movements", headers=ops_headers)).json()
+    assert len(movements) == 1
+    assert movements[0]["reason"] == "receive"
+    assert movements[0]["from_warehouse_id"] is None, "arrived complete — nothing came off any shelf"
+
+    stock = (await client.get("/inventory/stock", headers=ops_headers)).json()
+    assert stock == [], "receiving straight into a kit must not touch stock_levels"
+
+
+@pytest.mark.asyncio
 async def test_kit_labels_are_unique(db, client, ops_headers):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
     await db.commit()
     body = {"template_id": str(tpl.id), "label": "SP-SATKIT-0001",
-            "current_location_id": str(loc.id)}
+            "current_warehouse_id": str(wh.id)}
     assert (await client.post("/inventory/kits", headers=ops_headers, json=body)).status_code == 201
     assert (await client.post("/inventory/kits", headers=ops_headers, json=body)).status_code == 409
 
@@ -246,9 +320,11 @@ async def test_kit_labels_are_unique(db, client, ops_headers):
 @pytest.mark.asyncio
 async def test_issuing_then_returning_a_kit_through_the_api(db, client, ops_headers, instructor):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     other = await _location(db, name="Abu Dhabi")
+    other_wh = await _warehouse(db, other)
     tpl = await _template(db)
-    kit = await _kit(db, loc, tpl)
+    kit = await _kit(db, wh, tpl)
     await db.commit()
 
     out = await client.post(f"/inventory/kits/{kit.id}/move", headers=ops_headers, json={
@@ -261,7 +337,7 @@ async def test_issuing_then_returning_a_kit_through_the_api(db, client, ops_head
     assert detail["location_name"] == "Dubai", "still belongs to Dubai while it is out"
 
     back = await client.post(f"/inventory/kits/{kit.id}/move", headers=ops_headers, json={
-        "to_location_id": str(other.id), "reason": "return",
+        "to_warehouse_id": str(other_wh.id), "reason": "return",
     })
     assert back.status_code == 201
     detail = (await client.get(f"/inventory/kits/{kit.id}", headers=ops_headers)).json()
@@ -272,12 +348,13 @@ async def test_issuing_then_returning_a_kit_through_the_api(db, client, ops_head
 @pytest.mark.asyncio
 async def test_a_kit_move_needs_exactly_one_destination(db, client, ops_headers, instructor):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
-    kit = await _kit(db, loc, tpl)
+    kit = await _kit(db, wh, tpl)
     await db.commit()
 
     both = await client.post(f"/inventory/kits/{kit.id}/move", headers=ops_headers, json={
-        "to_location_id": str(loc.id), "to_user_id": str(instructor.id),
+        "to_warehouse_id": str(wh.id), "to_user_id": str(instructor.id),
     })
     neither = await client.post(f"/inventory/kits/{kit.id}/move", headers=ops_headers, json={})
     assert both.status_code == 422
@@ -287,15 +364,16 @@ async def test_a_kit_move_needs_exactly_one_destination(db, client, ops_headers,
 @pytest.mark.asyncio
 async def test_kit_history_includes_what_went_into_it(db, client, ops_headers, keeper_headers):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
-    kit = await _kit(db, loc, tpl)
+    kit = await _kit(db, wh, tpl)
     mpu = await _item(db, name="MPU")
-    db.add(StockLevel(id=uuid.uuid4(), item_id=mpu.id, location_id=loc.id, qty=5))
+    db.add(StockLevel(id=uuid.uuid4(), item_id=mpu.id, warehouse_id=wh.id, qty=5))
     await db.commit()
 
     await client.post("/inventory/stock/move", headers=keeper_headers, json={
         "item_id": str(mpu.id), "qty": 2, "reason": "refill",
-        "from_location_id": str(loc.id), "to_kit_id": str(kit.id),
+        "from_warehouse_id": str(wh.id), "to_kit_id": str(kit.id),
     })
 
     history = (await client.get(f"/inventory/kits/{kit.id}/movements", headers=ops_headers)).json()
@@ -308,15 +386,16 @@ async def test_kit_history_includes_what_went_into_it(db, client, ops_headers, k
 @pytest.mark.asyncio
 async def test_refill_moves_stock_into_a_kit(db, client, ops_headers, keeper_headers):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
-    kit = await _kit(db, loc, tpl)
+    kit = await _kit(db, wh, tpl)
     mpu = await _item(db, name="MPU")
-    db.add(StockLevel(id=uuid.uuid4(), item_id=mpu.id, location_id=loc.id, qty=5))
+    db.add(StockLevel(id=uuid.uuid4(), item_id=mpu.id, warehouse_id=wh.id, qty=5))
     await db.commit()
 
     resp = await client.post("/inventory/stock/move", headers=keeper_headers, json={
         "item_id": str(mpu.id), "qty": 2, "reason": "refill",
-        "from_location_id": str(loc.id), "to_kit_id": str(kit.id),
+        "from_warehouse_id": str(wh.id), "to_kit_id": str(kit.id),
     })
     assert resp.status_code == 201, resp.text
 
@@ -329,14 +408,16 @@ async def test_refill_moves_stock_into_a_kit(db, client, ops_headers, keeper_hea
 @pytest.mark.asyncio
 async def test_stock_cannot_be_moved_below_zero(db, client, keeper_headers):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     other = await _location(db, name="Cairo")
+    other_wh = await _warehouse(db, other)
     mpu = await _item(db)
-    db.add(StockLevel(id=uuid.uuid4(), item_id=mpu.id, location_id=loc.id, qty=1))
+    db.add(StockLevel(id=uuid.uuid4(), item_id=mpu.id, warehouse_id=wh.id, qty=1))
     await db.commit()
 
     resp = await client.post("/inventory/stock/move", headers=keeper_headers, json={
         "item_id": str(mpu.id), "qty": 4, "reason": "transfer",
-        "from_location_id": str(loc.id), "to_location_id": str(other.id),
+        "from_warehouse_id": str(wh.id), "to_warehouse_id": str(other_wh.id),
     })
     assert resp.status_code == 409
 
@@ -344,19 +425,148 @@ async def test_stock_cannot_be_moved_below_zero(db, client, keeper_headers):
 @pytest.mark.asyncio
 async def test_adjustment_requires_a_reason(db, client, keeper_headers):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     mpu = await _item(db)
     await db.commit()
     resp = await client.post("/inventory/stock/adjust", headers=keeper_headers, json={
-        "item_id": str(mpu.id), "location_id": str(loc.id), "new_qty": 3, "reason": "",
+        "item_id": str(mpu.id), "warehouse_id": str(wh.id), "new_qty": 3, "reason": "",
     })
     assert resp.status_code == 422, "an empty reason is rejected before it reaches the service"
 
 
 @pytest.mark.asyncio
+async def test_bulk_adjust_writes_one_movement_per_changed_warehouse(db, client, ops_headers, keeper_headers):
+    loc = await _location(db)
+    wh1 = await _warehouse(db, loc, name="Main Depot")
+    wh2 = await _warehouse(db, loc, name="Workshop Store")
+    mpu = await _item(db)
+    db.add(StockLevel(id=uuid.uuid4(), item_id=mpu.id, warehouse_id=wh1.id, qty=24))
+    await db.commit()
+
+    resp = await client.post("/inventory/stock/adjust-bulk", headers=keeper_headers, json={
+        "reason": "Monthly stocktake",
+        "levels": [
+            {"item_id": str(mpu.id), "warehouse_id": str(wh1.id), "new_qty": 24},  # unchanged — skipped
+            {"item_id": str(mpu.id), "warehouse_id": str(wh2.id), "new_qty": 8},   # new row
+        ],
+    })
+    assert resp.status_code == 201, resp.text
+    assert len(resp.json()) == 1, "the unchanged line should be skipped, not written or errored"
+
+    stock = {s["warehouse_id"]: s["qty"] for s in (await client.get("/inventory/stock", headers=ops_headers)).json()}
+    assert stock[str(wh1.id)] == 24
+    assert stock[str(wh2.id)] == 8
+
+
+@pytest.mark.asyncio
+async def test_bulk_adjust_with_nothing_changed_is_a_409(db, client, keeper_headers):
+    loc = await _location(db)
+    wh = await _warehouse(db, loc)
+    mpu = await _item(db)
+    db.add(StockLevel(id=uuid.uuid4(), item_id=mpu.id, warehouse_id=wh.id, qty=5))
+    await db.commit()
+
+    resp = await client.post("/inventory/stock/adjust-bulk", headers=keeper_headers, json={
+        "reason": "Stocktake", "levels": [{"item_id": str(mpu.id), "warehouse_id": str(wh.id), "new_qty": 5}],
+    })
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_count_kit_receive_with_no_shelf_involved(db, client, ops_headers, keeper_headers):
+    """A new kit, built complete, with nothing coming off any shelf."""
+    loc = await _location(db)
+    wh = await _warehouse(db, loc)
+    tpl = await _template(db)
+    kit = await _kit(db, wh, tpl)
+    mpu = await _item(db)
+    await db.commit()
+
+    resp = await client.post(f"/inventory/kits/{kit.id}/count", headers=keeper_headers, json={
+        "reason": "Arrived complete", "from_shelf": False,
+        "lines": [{"item_id": str(mpu.id), "new_qty": 4}],
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()[0]["reason"] == "receive"
+    assert resp.json()[0]["from_warehouse_id"] is None
+
+    detail = (await client.get(f"/inventory/kits/{kit.id}", headers=ops_headers)).json()
+    assert detail["contents"][0]["qty"] == 4
+    stock = await client.get("/inventory/stock", headers=ops_headers)
+    assert stock.json() == [], "receiving into a kit with no shelf involved must not touch stock_levels"
+
+
+@pytest.mark.asyncio
+async def test_count_kit_refill_ticked_draws_down_the_shelf(db, client, ops_headers, keeper_headers):
+    loc = await _location(db)
+    wh = await _warehouse(db, loc)
+    tpl = await _template(db)
+    kit = await _kit(db, wh, tpl)
+    mpu = await _item(db)
+    db.add(StockLevel(id=uuid.uuid4(), item_id=mpu.id, warehouse_id=wh.id, qty=10))
+    await db.commit()
+
+    resp = await client.post(f"/inventory/kits/{kit.id}/count", headers=keeper_headers, json={
+        "reason": "Stocktake", "from_shelf": True,
+        "lines": [{"item_id": str(mpu.id), "new_qty": 3}],
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()[0]["reason"] == "refill"
+
+    stock = (await client.get("/inventory/stock", headers=ops_headers)).json()
+    assert stock[0]["qty"] == 7
+    detail = (await client.get(f"/inventory/kits/{kit.id}", headers=ops_headers)).json()
+    assert detail["contents"][0]["qty"] == 3
+
+
+@pytest.mark.asyncio
+async def test_count_kit_correction_down_with_no_shelf_is_a_writeoff_style_adjust(db, client, ops_headers, keeper_headers):
+    loc = await _location(db)
+    wh = await _warehouse(db, loc)
+    tpl = await _template(db)
+    kit = await _kit(db, wh, tpl)
+    mpu = await _item(db)
+    await db.commit()
+
+    # arrive at 5, then correct down to 2 with no shelf involved
+    await client.post(f"/inventory/kits/{kit.id}/count", headers=keeper_headers, json={
+        "reason": "Arrived complete", "from_shelf": False,
+        "lines": [{"item_id": str(mpu.id), "new_qty": 5}],
+    })
+    resp = await client.post(f"/inventory/kits/{kit.id}/count", headers=keeper_headers, json={
+        "reason": "Two were broken", "from_shelf": False,
+        "lines": [{"item_id": str(mpu.id), "new_qty": 2}],
+    })
+    assert resp.status_code == 201, resp.text
+    assert resp.json()[0]["reason"] == "adjust"
+    assert resp.json()[0]["to_warehouse_id"] is None and resp.json()[0]["to_kit_id"] is None
+
+    detail = (await client.get(f"/inventory/kits/{kit.id}", headers=ops_headers)).json()
+    assert detail["contents"][0]["qty"] == 2
+
+
+@pytest.mark.asyncio
+async def test_count_kit_with_nothing_changed_is_a_409(db, client, keeper_headers):
+    loc = await _location(db)
+    wh = await _warehouse(db, loc)
+    tpl = await _template(db)
+    kit = await _kit(db, wh, tpl)
+    mpu = await _item(db)
+    await db.commit()
+
+    resp = await client.post(f"/inventory/kits/{kit.id}/count", headers=keeper_headers, json={
+        "reason": "Recount", "from_shelf": False,
+        "lines": [{"item_id": str(mpu.id), "new_qty": 0}],
+    })
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_confirmation_is_idempotent_over_the_api(db, client, ops_headers, keeper_headers, instructor):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
-    kit = await _kit(db, loc, tpl)
+    kit = await _kit(db, wh, tpl)
     await db.commit()
 
     mv = (await client.post(f"/inventory/kits/{kit.id}/move", headers=ops_headers, json={
@@ -373,8 +583,9 @@ async def test_confirmation_is_idempotent_over_the_api(db, client, ops_headers, 
 @pytest.mark.asyncio
 async def test_overdue_shows_only_what_is_still_out(db, client, ops_headers, instructor):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
-    kit = await _kit(db, loc, tpl)
+    kit = await _kit(db, wh, tpl)
     await db.commit()
 
     await client.post(f"/inventory/kits/{kit.id}/move", headers=ops_headers, json={
@@ -383,7 +594,7 @@ async def test_overdue_shows_only_what_is_still_out(db, client, ops_headers, ins
     assert len((await client.get("/inventory/overdue", headers=ops_headers)).json()) == 1
 
     await client.post(f"/inventory/kits/{kit.id}/move", headers=ops_headers, json={
-        "to_location_id": str(loc.id), "reason": "return",
+        "to_warehouse_id": str(wh.id), "reason": "return",
     })
     assert (await client.get("/inventory/overdue", headers=ops_headers)).json() == []
 
@@ -393,11 +604,12 @@ async def test_overdue_shows_only_what_is_still_out(db, client, ops_headers, ins
 @pytest.mark.asyncio
 async def test_my_kits_shows_only_what_i_hold(db, client, ops_headers, instructor, instructor_headers):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
-    mine = await _kit(db, loc, tpl, current_holder_user_id=instructor.id)
-    await _kit(db, loc, tpl)                       # on the shelf
+    mine = await _kit(db, wh, tpl, current_holder_user_id=instructor.id)
+    await _kit(db, wh, tpl)                       # on the shelf
     someone_else = await _make_user(db, "instructor")
-    await _kit(db, loc, tpl, current_holder_user_id=someone_else.id)
+    await _kit(db, wh, tpl, current_holder_user_id=someone_else.id)
     await db.commit()
 
     resp = await client.get("/inventory/my-kits", headers=instructor_headers)
@@ -442,10 +654,30 @@ async def test_holders_excludes_inactive_accounts(db, client, ops_headers):
 @pytest.mark.asyncio
 async def test_a_storekeeper_may_restock_and_adjust(db, client, keeper_headers):
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     mpu = await _item(db)
     await db.commit()
     resp = await client.post("/inventory/stock/adjust", headers=keeper_headers, json={
-        "item_id": str(mpu.id), "location_id": str(loc.id), "new_qty": 12, "reason": "delivery",
+        "item_id": str(mpu.id), "warehouse_id": str(wh.id), "new_qty": 12, "reason": "delivery",
+    })
+    assert resp.status_code == 201, resp.text
+
+
+@pytest.mark.asyncio
+async def test_a_storekeeper_may_count_a_kit(db, client, keeper_headers):
+    """The one intentional carve-out from the test below: a storekeeper
+    standing in front of an open box can say what's in it, same as they can
+    already correct a shelf count."""
+    loc = await _location(db)
+    wh = await _warehouse(db, loc)
+    tpl = await _template(db)
+    kit = await _kit(db, wh, tpl)
+    mpu = await _item(db)
+    await db.commit()
+
+    resp = await client.post(f"/inventory/kits/{kit.id}/count", headers=keeper_headers, json={
+        "reason": "Arrived complete", "from_shelf": False,
+        "lines": [{"item_id": str(mpu.id), "new_qty": 3}],
     })
     assert resp.status_code == 201, resp.text
 
@@ -454,24 +686,26 @@ async def test_a_storekeeper_may_restock_and_adjust(db, client, keeper_headers):
 async def test_a_storekeeper_cannot_touch_the_catalogue_or_the_kits(db, client, keeper_headers):
     """The reason the role exists. If any of these starts returning 2xx,
     somebody has widened require_operations or pointed an endpoint at the
-    wrong guard."""
+    wrong guard. (`/kits/{id}/count` is the one deliberate exception — see
+    test_a_storekeeper_may_count_a_kit above.)"""
     loc = await _location(db)
+    wh = await _warehouse(db, loc)
     tpl = await _template(db)
-    kit = await _kit(db, loc, tpl)
+    kit = await _kit(db, wh, tpl)
     await db.commit()
 
     forbidden = [
         await client.get("/inventory/kits", headers=keeper_headers),
         await client.get(f"/inventory/kits/{kit.id}", headers=keeper_headers),
         await client.post("/inventory/kits", headers=keeper_headers, json={
-            "template_id": str(tpl.id), "label": "SP-X-0001", "current_location_id": str(loc.id),
+            "template_id": str(tpl.id), "label": "SP-X-0001", "current_warehouse_id": str(wh.id),
         }),
         await client.post("/inventory/kits/bulk", headers=keeper_headers, json={
-            "template_id": str(tpl.id), "location_id": str(loc.id), "count": 1,
+            "template_id": str(tpl.id), "warehouse_id": str(wh.id), "count": 1,
         }),
         await client.patch(f"/inventory/kits/{kit.id}", headers=keeper_headers, json={"status": "retired"}),
         await client.post(f"/inventory/kits/{kit.id}/move", headers=keeper_headers, json={
-            "to_location_id": str(loc.id),
+            "to_warehouse_id": str(wh.id),
         }),
         await client.post("/inventory/items", headers=keeper_headers, json={"name": "Sneaky"}),
         await client.post("/inventory/locations", headers=keeper_headers, json={

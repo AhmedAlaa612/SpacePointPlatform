@@ -12,7 +12,7 @@ from datetime import date
 import pytest
 
 from app.core.security import create_access_token, get_password_hash
-from app.models.inventory import Item, Kit, KitTemplate, Location, StockLevel
+from app.models.inventory import Item, Kit, KitTemplate, Location, StockLevel, Warehouse
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
@@ -52,13 +52,21 @@ async def _loc(db, name="Dubai") -> Location:
     return loc
 
 
-async def _kit(db, loc) -> Kit:
+async def _wh(db, loc, name=None) -> Warehouse:
+    wh = Warehouse(id=uuid.uuid4(), location_id=loc.id, name=name or f"{loc.name} Main")
+    db.add(wh)
+    await db.flush()
+    return wh
+
+
+async def _kit(db, wh) -> Kit:
     tpl = KitTemplate(id=uuid.uuid4(), name="SatKit v1", code=f"T{uuid.uuid4().hex[:5]}")
     db.add(tpl)
     await db.flush()
     kit = Kit(
         id=uuid.uuid4(), template_id=tpl.id, label=f"SP-SATKIT-{uuid.uuid4().hex[:4]}",
-        public_token=uuid.uuid4().hex * 2, current_location_id=loc.id,
+        public_token=uuid.uuid4().hex * 2, current_location_id=wh.location_id,
+        current_warehouse_id=wh.id,
     )
     db.add(kit)
     await db.flush()
@@ -83,14 +91,14 @@ async def _session(db, lead: User) -> Session:
     return session
 
 
-async def _stocked(db, loc, name="Mic speaker", qty=3, returnable=True) -> Item:
+async def _stocked(db, wh, name="Mic speaker", qty=3, returnable=True) -> Item:
     item = Item(
         id=uuid.uuid4(), name=f"{name} {uuid.uuid4().hex[:4]}", category="other",
-        is_consumable=False, returnable_default=returnable,
+        returnable_default=returnable,
     )
     db.add(item)
     await db.flush()
-    db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, location_id=loc.id, qty=qty))
+    db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, warehouse_id=wh.id, qty=qty))
     await db.flush()
     return item
 
@@ -108,8 +116,9 @@ async def test_the_section_reports_the_derived_collection_point(client, db):
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db, "Abu Dhabi hub")
+    wh = await _wh(db, loc)
     session = await _session(db, instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await _assign(db, client, session, kit, ops)
 
     r = await client.get(
@@ -117,8 +126,8 @@ async def test_the_section_reports_the_derived_collection_point(client, db):
     )
     assert r.status_code == 200
     body = r.json()
-    assert body["location_id"] == str(loc.id)
-    assert body["location_name"] == "Abu Dhabi hub"
+    assert body["warehouse_id"] == str(wh.id)
+    assert body["warehouse_name"] == wh.name
     assert body["lines"] == [] and body["outstanding_count"] == 0
 
 
@@ -133,7 +142,7 @@ async def test_a_no_kit_session_reports_no_collection_point(client, db):
         f"/inventory/sessions/{session.id}/equipment", headers=_headers(instructor)
     )
     assert r.status_code == 200
-    assert r.json()["location_id"] is None
+    assert r.json()["warehouse_id"] is None
 
 
 @pytest.mark.asyncio
@@ -141,10 +150,11 @@ async def test_an_instructor_can_record_and_return_their_own_pickup(client, db):
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await _assign(db, client, session, kit, ops)
-    item = await _stocked(db, loc, qty=4)
+    item = await _stocked(db, wh, qty=4)
 
     r = await client.post(
         f"/inventory/sessions/{session.id}/equipment/take",
@@ -152,7 +162,7 @@ async def test_an_instructor_can_record_and_return_their_own_pickup(client, db):
         headers=_headers(instructor),
     )
     assert r.status_code == 201
-    assert r.json()[0]["from_location_id"] == str(loc.id)
+    assert r.json()[0]["from_warehouse_id"] == str(wh.id)
 
     r = await client.get(
         f"/inventory/sessions/{session.id}/equipment", headers=_headers(instructor)
@@ -179,10 +189,11 @@ async def test_search_defaults_to_the_whole_shelf_and_only_offers_that_shelf(cli
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await _assign(db, client, session, kit, ops)
-    item = await _stocked(db, loc, name="Battery charger")
+    item = await _stocked(db, wh, name="Battery charger")
 
     r = await client.get(
         f"/inventory/sessions/{session.id}/equipment/search", headers=_headers(instructor)
@@ -210,10 +221,11 @@ async def test_an_unrelated_instructor_gets_404_not_403(client, db):
     instructor = await _user(db, "instructor")
     stranger = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await _assign(db, client, session, kit, ops)
-    item = await _stocked(db, loc)
+    item = await _stocked(db, wh)
 
     r = await client.get(
         f"/inventory/sessions/{session.id}/equipment", headers=_headers(stranger)
@@ -237,8 +249,9 @@ async def test_a_storekeeper_cannot_reach_the_equipment_endpoints(client, db):
     instructor = await _user(db, "instructor")
     keeper = await _user(db, "storekeeper")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await _assign(db, client, session, kit, ops)
 
     r = await client.get(

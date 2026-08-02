@@ -10,6 +10,7 @@ import "@fontsource/outfit/900.css";
 import "./index.css";
 import { router } from "./router";
 import { AuthProvider } from "./context/AuthContext";
+import { ToastProvider } from "./components/ui/toast";
 
 // Apply persisted theme before first paint to avoid a flash.
 // Dark (the instructors "space" theme) is the default; only an explicit
@@ -29,7 +30,9 @@ createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <RouterProvider router={router} />
+        <ToastProvider>
+          <RouterProvider router={router} />
+        </ToastProvider>
       </AuthProvider>
     </QueryClientProvider>
   </StrictMode>,

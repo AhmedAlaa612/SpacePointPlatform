@@ -29,13 +29,6 @@ class Item(Base):
     # UI only; nothing branches on it.
     category = Column(String(32), nullable=False, default="other")
 
-    # Consumables (screws, jumper wires) are excluded from kit checklists
-    # entirely and never raise a shortage alert. Twenty M3 screws per kit
-    # means a post-workshop count is always "short a few", and an alert that
-    # always fires is an alert nobody reads — including the one about the
-    # missing ADCS board. They surface as a restock suggestion instead.
-    is_consumable = Column(Boolean, nullable=False, default=False)
-
     # Default for "must this come back?" when the item is issued to a person.
     # Vests and jackets: yes. T-shirts: no. Always overridable per issue —
     # the flag lives on the movement, this is only the default so ops isn't
@@ -43,6 +36,16 @@ class Item(Base):
     returnable_default = Column(Boolean, nullable=False, default=False)
 
     notes = Column(Text, nullable=True)
+
+    # Lightweight grouping for the catalogue/stock UI only — "T-Shirt S/M/L"
+    # stay four separate rows (stock, kit contents and custody all still key
+    # on this row's own id, unchanged), `variant_group` just says which of
+    # them browse together and `variant_label` says which is which. Both
+    # null for anything that isn't sized/variant merchandise. Same shape as
+    # `category` below: a plain string, no FK — see the migration docstring
+    # (d1e4c73f0038) for why.
+    variant_group = Column(String(128), nullable=True, index=True)
+    variant_label = Column(String(32), nullable=True)
 
     # Shown to an instructor picking from the equipment shelf (B3) — distinct
     # from `notes`, which is ops-facing. Both optional; most items have

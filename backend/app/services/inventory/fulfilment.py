@@ -37,6 +37,7 @@ from app.models.inventory.kit_template import KitTemplate
 from app.models.inventory.location import Location
 from app.models.inventory.stock import StockLevel
 from app.models.inventory.movement import Movement
+from app.models.inventory.warehouse import Warehouse
 from app.services.inventory.completeness import kit_shortages
 from app.services.inventory.movements import move
 
@@ -44,10 +45,14 @@ from app.services.inventory.movements import move
 async def fulfilment_queue(db: AsyncSession, *, location_id: uuid.UUID | None = None) -> list[dict]:
     """Every kit that is short something, with what it would take to fix it.
 
-    Each shortage line carries `available` — how many are on the shelf **at
-    that kit's own location**. Without it the storekeeper reads the list, walks
+    Each shortage line carries `available` — how many are on the shelf **in
+    that kit's own warehouse**. Without it the storekeeper reads the list, walks
     to the shelf, and only then finds out; with it, the list already says
     which lines can be closed today and which cannot.
+
+    `location_id` narrows to every warehouse under that location — a
+    convenience filter, not the unit of "where," now that a location can hold
+    more than one warehouse.
 
     Retired and lost kits are excluded. Chasing parts for a box that is gone
     is noise, and noise is what stops a list being read.
@@ -70,14 +75,18 @@ async def fulfilment_queue(db: AsyncSession, *, location_id: uuid.UUID | None = 
         select(Location.id, Location.name)
         .where(Location.id.in_({k.current_location_id for k in kits}))
     )).all())
+    warehouses = dict((await db.execute(
+        select(Warehouse.id, Warehouse.name)
+        .where(Warehouse.id.in_({k.current_warehouse_id for k in kits}))
+    )).all())
 
     # One stock query for the whole queue rather than one per kit — the
     # storekeeper's list is the page most likely to grow.
     levels = {
-        (item_id, loc_id): qty
-        for item_id, loc_id, qty in (await db.execute(
-            select(StockLevel.item_id, StockLevel.location_id, StockLevel.qty)
-            .where(StockLevel.location_id.in_({k.current_location_id for k in kits}))
+        (item_id, wh_id): qty
+        for item_id, wh_id, qty in (await db.execute(
+            select(StockLevel.item_id, StockLevel.warehouse_id, StockLevel.qty)
+            .where(StockLevel.warehouse_id.in_({k.current_warehouse_id for k in kits}))
         )).all()
     }
 
@@ -89,7 +98,7 @@ async def fulfilment_queue(db: AsyncSession, *, location_id: uuid.UUID | None = 
         lines = [
             {
                 **shortage,
-                "available": levels.get((shortage["item_id"], kit.current_location_id), 0),
+                "available": levels.get((shortage["item_id"], kit.current_warehouse_id), 0),
             }
             for shortage in shortages
         ]
@@ -100,6 +109,8 @@ async def fulfilment_queue(db: AsyncSession, *, location_id: uuid.UUID | None = 
             "status": kit.status,
             "location_id": kit.current_location_id,
             "location_name": locations.get(kit.current_location_id, ""),
+            "warehouse_id": kit.current_warehouse_id,
+            "warehouse_name": warehouses.get(kit.current_warehouse_id, ""),
             "out_with_someone": kit.current_holder_user_id is not None,
             "awaiting_parts_since": kit.awaiting_parts_since,
             "awaiting_parts_note": kit.awaiting_parts_note,
@@ -116,11 +127,11 @@ async def fulfil_kit(
     kit: Kit,
     lines: list[tuple[uuid.UUID, int]],
     actor_user_id: uuid.UUID,
-    from_location_id: uuid.UUID | None = None,
+    from_warehouse_id: uuid.UUID | None = None,
 ) -> list[Movement]:
     """Put parts into the kit from a warehouse shelf.
 
-    Defaults to the kit's own location — parts come off the shelf the box is
+    Defaults to the kit's own warehouse — parts come off the shelf the box is
     sitting on, which is the case that needs no thinking about. `move()`
     refuses to drive stock negative, so a line the shelf cannot cover fails
     rather than inventing quantity.
@@ -131,10 +142,10 @@ async def fulfil_kit(
     if not lines:
         raise HTTPException(400, detail="Nothing to fulfil")
 
-    if from_location_id is None:
-        from_location_id = kit.current_location_id
-    elif await db.get(Location, from_location_id) is None:
-        raise HTTPException(404, detail="Location not found")
+    if from_warehouse_id is None:
+        from_warehouse_id = kit.current_warehouse_id
+    elif await db.get(Warehouse, from_warehouse_id) is None:
+        raise HTTPException(404, detail="Warehouse not found")
 
     movements = []
     for item_id, qty in lines:
@@ -148,7 +159,7 @@ async def fulfil_kit(
             reason="refill",
             item_id=item_id,
             qty=qty,
-            from_location_id=from_location_id,
+            from_warehouse_id=from_warehouse_id,
             to_kit_id=kit.id,
             note="Fulfilling a shortage",
         ))

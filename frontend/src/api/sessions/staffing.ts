@@ -9,7 +9,9 @@ import type {
   SelectInstructorsResult,
   AvailableSession,
   MySession,
+  StaffingStatus,
 } from "@/types/sessions"
+import type { BulkActionResult } from "@/api/sessions/cohorts"
 
 // ── Instructor: available sessions / my sessions ────────────────────────────
 
@@ -21,13 +23,59 @@ export const listMySessionsApi = () =>
 
 // ── Ops: open call / reopen ─────────────────────────────────────────────────
 
-export const openCallApi = (sessionId: string, userIds?: string[], roleIds?: string[]) =>
+/** Opens a new call on this session (2026-08-01: safe to call again while
+ *  already open_call — a session can run several calls at once, e.g. a
+ *  targeted call for one missing role alongside a public one). */
+export const openCallApi = (sessionId: string, userIds?: string[], roleIds?: string[], label?: string) =>
   api.post<Session>(`/sessions/${sessionId}/staffing/open-call`, {
-    user_ids: userIds, role_ids: roleIds,
+    user_ids: userIds, role_ids: roleIds, label,
   }).then((r) => r.data)
 
-export const openCallForCohortApi = (cohortId: string, userIds?: string[]) =>
-  api.post<Session[]>(`/sessions/cohorts/${cohortId}/staffing/open-call`, { user_ids: userIds }).then((r) => r.data)
+/* ── cohort-level "grouped" calls (2026-08-01) ───────────────────────────
+ * A single call spanning several sessions at once, manageable and closeable
+ * as one entity. As of 2026-08-02 this is the ONLY way to open a call across
+ * several sessions: `openCallForCohortApi` (and the endpoint behind it) is
+ * gone, because calls it opened never showed up in the panel that manages
+ * them. Per-session calls still go through `openCallApi` above — a
+ * session-level call is just a call whose session set is one. */
+
+export interface CohortCallSession {
+  session_id: string
+  meeting_date: string
+  starts_at: string | null
+  status: "open" | "closed"
+  staffing_status: StaffingStatus
+}
+
+export interface CohortCall {
+  id: string
+  cohort_id: string
+  status: "open" | "closed"
+  label: string | null
+  target_user_ids: string[]
+  sessions: CohortCallSession[]
+  created_at: string | null
+  closed_at: string | null
+}
+
+export const openCohortCallApi = (cohortId: string, body: {
+  session_ids?: string[]; user_ids?: string[]; role_ids?: string[]; label?: string
+}) => api.post<{ call: CohortCall; failed: BulkActionResult["failed"] }>(
+  `/sessions/cohorts/${cohortId}/staffing/calls`, body,
+).then((r) => r.data)
+
+export const listCohortCallsApi = (cohortId: string) =>
+  api.get<CohortCall[]>(`/sessions/cohorts/${cohortId}/staffing/calls`).then((r) => r.data)
+
+export const closeCohortCallApi = (cohortId: string, callId: string, body: {
+  session_ids?: string[]; clear_interest?: boolean
+} = {}) => api.post<CohortCall>(
+  `/sessions/cohorts/${cohortId}/staffing/calls/${callId}/close`, body,
+).then((r) => r.data)
+
+/** Tidy up a closed cohort call — refused (409) while it's still open. */
+export const deleteCohortCallApi = (cohortId: string, callId: string) =>
+  api.delete(`/sessions/cohorts/${cohortId}/staffing/calls/${callId}`).then((r) => r.data)
 
 /** Targeting carries over by default. Pass [] to widen the call to everyone,
  *  or a list of user ids to re-aim it. Same shape for role_ids (B2) — the
@@ -42,8 +90,29 @@ export const reopenStaffingApi = (sessionId: string, targetUserIds?: string[], r
     )
     .then((r) => r.data)
 
+/** Closes every call currently open on this session at once — the original
+ *  one-button behaviour. To close just one call while others stay open, use
+ *  closeOneCallApi below. */
 export const closeCallApi = (sessionId: string, clearInterest: boolean = false) =>
   api.post<Session>(`/sessions/${sessionId}/staffing/close-call`, { clear_interest: clearInterest }).then((r) => r.data)
+
+/* ── individual calls (2026-08-01) — a session can have several open ────── */
+
+export interface SessionCall {
+  id: string
+  session_id: string
+  status: "open" | "closed"
+  label: string | null
+  target_user_ids: string[]
+  created_at: string | null
+  closed_at: string | null
+}
+
+export const listSessionCallsApi = (sessionId: string) =>
+  api.get<SessionCall[]>(`/sessions/${sessionId}/staffing/calls`).then((r) => r.data)
+
+export const closeOneCallApi = (sessionId: string, callId: string, clearInterest: boolean = false) =>
+  api.post<Session>(`/sessions/${sessionId}/staffing/calls/${callId}/close`, { clear_interest: clearInterest }).then((r) => r.data)
 
 // ── Instructor/facilitator: register / withdraw interest ───────────────────
 

@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.cohort_opening import CohortOpening
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.opening import SessionAddon, SessionOpening
@@ -247,6 +248,12 @@ async def openings_for_session(
     `open_only=True` (B2) is what the instructor-facing marketplace uses — a
     role ops hasn't (or no longer) is soliciting for is invisible there, even
     though the row and its history still exist for ops's own view.
+
+    A session with no `SessionOpening` rows of its own falls back to its
+    cohort's `CohortOpening` template (2026-08-01) — inherit, don't duplicate,
+    same shape as materials' program -> cohort -> session resolution. The
+    moment ops saves real openings for this one session, those win from then
+    on; every other session in the cohort keeps inheriting the template.
     """
     stmt = (
         select(SessionOpening, DeliveryRole)
@@ -257,6 +264,19 @@ async def openings_for_session(
     if open_only:
         stmt = stmt.where(SessionOpening.is_open.is_(True))
     rows = (await db.execute(stmt)).all()
+
+    inherited = False
+    if not rows:
+        session = await db.get(Session, session_id)
+        if session is not None:
+            rows = (await db.execute(
+                select(CohortOpening, DeliveryRole)
+                .join(DeliveryRole, DeliveryRole.id == CohortOpening.role_id)
+                .where(CohortOpening.cohort_id == session.cohort_id)
+                .order_by(DeliveryRole.sort_order)
+            )).all()
+            inherited = bool(rows)
+
     if not rows:
         return []
 
@@ -276,7 +296,7 @@ async def openings_for_session(
         remaining = max(0, opening.slots - taken)
         out.append({
             "id": opening.id,
-            "session_id": opening.session_id,
+            "session_id": session_id,
             "role_id": role.id,
             "role_name": role.name,
             "role_description": role.description,
@@ -285,13 +305,78 @@ async def openings_for_session(
             "remaining": remaining,
             "amount_aed": opening.amount_aed,
             "notes": opening.notes,
-            "is_open": opening.is_open,
+            # A template row has no is_open of its own — inherited rows are
+            # never individually closed, only the whole session's call is.
+            "is_open": True if inherited else opening.is_open,
+            "inherited": inherited,
             # Interest is session-wide, not per role, so this is "people
             # waiting on this session" rather than on this specific opening.
             # Saying otherwise would be inventing precision we don't have.
             "waitlist": max(0, interested - sum(assigned.values())) if remaining == 0 else 0,
         })
     return out
+
+
+# ── cohort-level opening defaults (2026-08-01) ──────────────────────────────
+
+async def set_cohort_openings(
+    db: AsyncSession, *, cohort_id: uuid.UUID, lines: list[dict], actor_user_id: uuid.UUID
+) -> list[CohortOpening]:
+    """Replace the whole template. No "someone's already assigned" guard here
+    — unlike `set_openings`, this row has no assignments of its own to
+    orphan; individual sessions that already customized their own openings
+    are entirely unaffected by changing the template underneath them."""
+    if await db.get(Cohort, cohort_id) is None:
+        raise HTTPException(404, detail="Cohort not found")
+
+    existing = {
+        o.role_id: o for o in (await db.execute(
+            select(CohortOpening).where(CohortOpening.cohort_id == cohort_id)
+        )).scalars().all()
+    }
+    wanted_role_ids = {line["role_id"] for line in lines}
+    for role_id, opening in list(existing.items()):
+        if role_id not in wanted_role_ids:
+            await db.delete(opening)
+
+    out = []
+    for line in lines:
+        role_id = line["role_id"]
+        if await db.get(DeliveryRole, role_id) is None:
+            raise HTTPException(404, detail="Delivery role not found")
+        slots = int(line.get("slots") or 1)
+        if slots < 1:
+            raise HTTPException(400, detail="An opening needs at least one slot")
+
+        opening = existing.get(role_id)
+        if opening is None:
+            opening = CohortOpening(
+                id=uuid.uuid4(), cohort_id=cohort_id, role_id=role_id, created_by=actor_user_id,
+            )
+            db.add(opening)
+        opening.slots = slots
+        opening.amount_aed = line.get("amount_aed")
+        opening.notes = line.get("notes")
+        out.append(opening)
+
+    await db.flush()
+    return out
+
+
+async def cohort_openings(db: AsyncSession, cohort_id: uuid.UUID) -> list[dict]:
+    rows = (await db.execute(
+        select(CohortOpening, DeliveryRole)
+        .join(DeliveryRole, DeliveryRole.id == CohortOpening.role_id)
+        .where(CohortOpening.cohort_id == cohort_id)
+        .order_by(DeliveryRole.sort_order)
+    )).all()
+    return [
+        {
+            "id": o.id, "cohort_id": o.cohort_id, "role_id": role.id, "role_name": role.name,
+            "slots": o.slots, "amount_aed": o.amount_aed, "notes": o.notes,
+        }
+        for o, role in rows
+    ]
 
 
 async def set_openings_open(

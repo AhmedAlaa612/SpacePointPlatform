@@ -10,7 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from app.schemas.sessions.cohorts import StaffingStatus
+from app.schemas.sessions.cohorts import BulkActionError, StaffingStatus
 
 
 class RegisterInterestRequest(BaseModel):
@@ -59,6 +59,70 @@ class SelectInstructorsResponse(BaseModel):
     # Selected without ever registering interest — an allowed ops override,
     # surfaced here rather than silently hidden (mandatory per S4-1's spec).
     without_interest: list[UUID]
+
+
+class SessionCallOut(BaseModel):
+    """One call on a session (2026-08-01) — a session can have several at
+    once, each independently viewable/editable/closeable. Empty
+    target_user_ids means public (open to every instructor/facilitator)."""
+    id: UUID
+    session_id: UUID
+    status: Literal["open", "closed"]
+    label: str | None = None
+    target_user_ids: list[UUID] = []
+    created_at: datetime | None = None
+    closed_at: datetime | None = None
+
+
+class CohortCallSessionOut(BaseModel):
+    """One session grouped under a CohortCall — its own SessionCall status
+    (open|closed) alongside the session's overall staffing_status, since a
+    session can reach `staffed` (closing its call) while other sessions
+    under the same cohort call are still open."""
+    session_id: UUID
+    meeting_date: date
+    starts_at: time | None = None
+    status: Literal["open", "closed"]  # this session's own SessionCall row
+    staffing_status: StaffingStatus
+
+
+class CohortCallOut(BaseModel):
+    """A standing call grouping a chosen subset of a cohort's sessions
+    (2026-08-01) — `status` is derived (open while any grouped session's
+    call is still open) same as SessionCallOut.status is for a single call."""
+    id: UUID
+    cohort_id: UUID
+    status: Literal["open", "closed"]
+    label: str | None = None
+    target_user_ids: list[UUID] = []
+    sessions: list[CohortCallSessionOut] = []
+    created_at: datetime | None = None
+    closed_at: datetime | None = None
+
+
+class OpenCohortCallRequest(BaseModel):
+    # None = every currently-unstaffed session in the cohort (same default
+    # open_call_for_cohort already uses). Given, restricts the call to just
+    # those sessions — anything not actually in this cohort is reported back
+    # in the response's `failed` list rather than erroring the whole batch.
+    session_ids: list[UUID] | None = None
+    user_ids: list[UUID] | None = None
+    role_ids: list[UUID] | None = None
+    label: str | None = None
+
+
+class OpenCohortCallResponse(BaseModel):
+    call: CohortCallOut
+    # Reuses BulkActionResult's per-item error shape (schemas/sessions/
+    # cohorts.py) rather than inventing a new one — same partial-failure
+    # contract as bulk-open-call/bulk-assign-instructor.
+    failed: list[BulkActionError] = []
+
+
+class CloseCohortCallRequest(BaseModel):
+    # None = close every still-open session grouped under this call.
+    session_ids: list[UUID] | None = None
+    clear_interest: bool = False
 
 
 class AvailableSessionOut(BaseModel):

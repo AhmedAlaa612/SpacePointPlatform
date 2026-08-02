@@ -6,6 +6,7 @@ import {
   addSessionApi,
   billSessionsApi,
   getBillableSessionsApi,
+  listBatchesApi,
   updateLetterApi,
   deleteAddonApi,
   deleteSessionApi,
@@ -78,7 +79,7 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
     mutationFn: () => addSessionApi(letter.id, {
       workshop_description: "", role: "Facilitator", compensation_aed: 0,
       sort_order: (letter.sessions.at(-1)?.sort_order ?? 0) + 1,
-    }),
+    } as any),
     onSuccess: refresh, onError,
   })
   const newAddon = useMutation({
@@ -114,8 +115,20 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
     },
     onError,
   })
-  // I5-7: certificates are opt-out, set here and honoured at signing. Editable
-  // even on a signed letter — it changes nothing the instructor agreed to.
+  const { data: batches = [] } = useQuery({
+    queryKey: ["admin-payment-batches"],
+    queryFn: listBatchesApi,
+  })
+
+  const setBatch = useMutation({
+    mutationFn: (batch_id: string | null) => updateLetterApi({ id: letter.id, batch_id }),
+    onSuccess: () => {
+      refresh()
+      qc.invalidateQueries({ queryKey: ["admin-payment-batches"] })
+    },
+    onError,
+  })
+
   const setCertificates = useMutation({
     mutationFn: (on: boolean) => updateLetterApi({ id: letter.id, issue_certificates: on }),
     onSuccess: refresh,
@@ -135,10 +148,125 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
         </p>
       )}
 
+      {/* Batch Assignment Control */}
+      <div className="flex items-center justify-between gap-3 p-3 bg-muted/40 border border-border rounded-xl flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-semibold text-foreground">Payment batch:</span>
+          <select
+            className="h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            value={letter.batch_id ?? ""}
+            disabled={locked || setBatch.isPending}
+            onChange={(e) => setBatch.mutate(e.target.value || null)}
+          >
+            <option value="">No batch</option>
+            {batches.map((b) => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        </div>
+        <span className="text-xs text-muted-foreground font-mono">{letter.reference}</span>
+      </div>
+
       <div>
         <p className="text-xs font-semibold text-muted-foreground mb-2">Sessions</p>
 
-        <div className="overflow-x-auto">
+        {/* Mobile card layout */}
+        <div className="block sm:hidden space-y-3">
+          {letter.sessions.map((s, i) => (
+            <div key={s.id} className="p-3 bg-muted/20 border border-border rounded-xl space-y-2.5">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Date</label>
+                  <input
+                    className={cell} defaultValue={s.session_date ?? ""} disabled={locked}
+                    placeholder="12/07/2026"
+                    onBlur={(e) => e.target.value !== (s.session_date ?? "") &&
+                      saveSession.mutate({ id: s.id, session_date: e.target.value || null })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Workshop</label>
+                  <input
+                    className={cell} defaultValue={s.workshop_description} disabled={locked}
+                    placeholder="CubeSat workshop"
+                    onBlur={(e) => e.target.value !== s.workshop_description &&
+                      saveSession.mutate({ id: s.id, workshop_description: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Role</label>
+                  <select
+                    className={cell} value={s.role} disabled={locked}
+                    onChange={(e) => saveSession.mutate({ id: s.id, role: e.target.value })}
+                  >
+                    {[s.role, ...roleNames.filter((r) => r !== s.role)].map((r) => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Location</label>
+                  <input
+                    className={cell} defaultValue={s.location ?? ""} disabled={locked}
+                    placeholder="Dubai"
+                    onBlur={(e) => e.target.value !== (s.location ?? "") &&
+                      saveSession.mutate({ id: s.id, location: e.target.value || null })}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 items-end">
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Hours</label>
+                  <input
+                    type="number" step="0.5" min={0} className={`${cell} text-right tabular-nums`}
+                    defaultValue={s.duration_hours ?? ""} disabled={locked}
+                    onBlur={(e) => {
+                      const v = e.target.value === "" ? null : Number(e.target.value)
+                      if (v !== (s.duration_hours ?? null)) {
+                        saveSession.mutate({ id: s.id, duration_hours: v })
+                      }
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">AED</label>
+                  <input
+                    type="number" min={0} className={`${cell} text-right tabular-nums`}
+                    defaultValue={s.compensation_aed} disabled={locked}
+                    onBlur={(e) => Number(e.target.value) !== s.compensation_aed &&
+                      saveSession.mutate({ id: s.id, compensation_aed: Number(e.target.value) || 0 })}
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-1 h-9">
+                  <button
+                    disabled={locked || i === 0}
+                    onClick={() => swapSessions(s, letter.sessions[i - 1])}
+                    className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                    aria-label="Move up"
+                  ><ArrowUp size={16} /></button>
+                  <button
+                    disabled={locked || i === letter.sessions.length - 1}
+                    onClick={() => swapSessions(s, letter.sessions[i + 1])}
+                    className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                    aria-label="Move down"
+                  ><ArrowDown size={16} /></button>
+                  <button
+                    disabled={locked}
+                    onClick={() => removeSession.mutate(s.id)}
+                    className="p-1.5 text-muted-foreground hover:text-red-600 disabled:opacity-30"
+                    aria-label="Remove row"
+                  ><Trash2 size={16} /></button>
+                </div>
+              </div>
+            </div>
+          ))}
+          {letter.sessions.length === 0 && (
+            <p className="text-sm text-muted-foreground py-2">No sessions on this letter yet.</p>
+          )}
+        </div>
+
+        {/* Desktop table layout */}
+        <div className="hidden sm:block overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
             <thead>
               <tr className="text-xs text-muted-foreground text-left">
@@ -176,8 +304,6 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
                       onChange={(e) =>
                         saveSession.mutate({ id: s.id, role: e.target.value })}
                     >
-                      {/* The row's own value first, so a role that has since
-                          been renamed or retired still renders its snapshot. */}
                       {[s.role, ...roleNames.filter((r) => r !== s.role)]
                         .map((r) => <option key={r} value={r}>{r}</option>)}
                     </select>
@@ -254,7 +380,67 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
       <div>
         <p className="text-xs font-semibold text-muted-foreground mb-2">Add-ons</p>
 
-        <div className="overflow-x-auto">
+        {/* Mobile card layout */}
+        <div className="block sm:hidden space-y-3">
+          {letter.addons.map((a, i) => (
+            <div key={a.id} className="p-3 bg-muted/20 border border-border rounded-xl space-y-2.5">
+              <div>
+                <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Description</label>
+                <input
+                  className={cell} defaultValue={a.description} disabled={locked}
+                  placeholder="Poster printing"
+                  onBlur={(e) => e.target.value !== a.description &&
+                    saveAddon.mutate({ id: a.id, description: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2 items-end">
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Notes</label>
+                  <input
+                    className={cell} defaultValue={a.notes ?? ""} disabled={locked}
+                    onBlur={(e) => e.target.value !== (a.notes ?? "") &&
+                      saveAddon.mutate({ id: a.id, notes: e.target.value || null })}
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">AED</label>
+                  <input
+                    type="number" min={0} className={`${cell} text-right tabular-nums`}
+                    defaultValue={a.amount_aed} disabled={locked}
+                    onBlur={(e) => Number(e.target.value) !== a.amount_aed &&
+                      saveAddon.mutate({ id: a.id, amount_aed: Number(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-1 h-9 pt-1">
+                <button
+                  disabled={locked || i === 0}
+                  onClick={() => swapAddons(a, letter.addons[i - 1])}
+                  className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  aria-label="Move up"
+                ><ArrowUp size={16} /></button>
+                <button
+                  disabled={locked || i === letter.addons.length - 1}
+                  onClick={() => swapAddons(a, letter.addons[i + 1])}
+                  className="p-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30"
+                  aria-label="Move down"
+                ><ArrowDown size={16} /></button>
+                <button
+                  disabled={locked}
+                  onClick={() => removeAddon.mutate(a.id)}
+                  className="p-1.5 text-muted-foreground hover:text-red-600 disabled:opacity-30"
+                  aria-label="Remove row"
+                ><Trash2 size={16} /></button>
+              </div>
+            </div>
+          ))}
+          {letter.addons.length === 0 && (
+            <p className="text-sm text-muted-foreground py-2">No add-ons.</p>
+          )}
+        </div>
+
+        {/* Desktop table layout */}
+        <div className="hidden sm:block overflow-x-auto">
           <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="text-xs text-muted-foreground text-left">

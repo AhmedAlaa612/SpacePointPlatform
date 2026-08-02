@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { Link } from "@tanstack/react-router"
 import { BookOpen, CalendarDays, DollarSign, GraduationCap, Target, TrendingUp, Users } from "lucide-react"
 import { getOpsDashboardApi, type OpsDashboardData } from "@/api/sessions/dashboard"
 import { Card, CardContent } from "@/components/ui/card"
@@ -9,11 +10,12 @@ interface KpiCardProps {
   value: string
   icon: React.ReactNode
   trend?: string
+  to?: string
 }
 
-function KpiCard({ label, value, icon, trend }: KpiCardProps) {
-  return (
-    <Card className="hover:border-primary/30 transition-all shadow-sm">
+function KpiCard({ label, value, icon, trend, to }: KpiCardProps) {
+  const card = (
+    <Card className={`transition-all shadow-sm ${to ? "hover:border-primary/50 cursor-pointer" : "hover:border-primary/30"}`}>
       <CardContent className="p-5 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
@@ -26,6 +28,10 @@ function KpiCard({ label, value, icon, trend }: KpiCardProps) {
       </CardContent>
     </Card>
   )
+  // Every KPI that has somewhere sensible to go now goes there (2026-08-02) —
+  // the dashboard used to be a wall of numbers with nothing clickable, so
+  // "Open Staffing Calls: 3" left you to go find those three yourself.
+  return to ? <Link to={to}>{card}</Link> : card
 }
 
 interface KpiDef {
@@ -34,6 +40,7 @@ interface KpiDef {
   icon: React.ReactNode
   format: (v: OpsDashboardData[keyof OpsDashboardData]) => string
   trend?: (v: OpsDashboardData) => string | undefined
+  to?: string
 }
 
 const KPI_DEFINITIONS: KpiDef[] = [
@@ -48,12 +55,14 @@ const KPI_DEFINITIONS: KpiDef[] = [
     label: "Active Cohorts",
     icon: <BookOpen size={20} />,
     format: (v) => `${v}`,
+    to: "/operations/cohorts",
   },
   {
     key: "upcoming_meetings_7d",
     label: "Upcoming Sessions (7d)",
     icon: <CalendarDays size={20} />,
     format: (v) => `${v}`,
+    to: "/operations/this-week",
   },
   {
     key: "attendance_rate_30d",
@@ -79,6 +88,7 @@ const KPI_DEFINITIONS: KpiDef[] = [
     label: "Open Staffing Calls",
     icon: <Target size={20} />,
     format: (v) => `${v}`,
+    to: "/operations/this-week",
   },
 ]
 
@@ -108,6 +118,7 @@ export default function OpsDashboard() {
               value={def.format(data[def.key])}
               icon={def.icon}
               trend={def.trend ? def.trend(data) : undefined}
+              to={def.to}
             />
           ))}
         </div>

@@ -14,7 +14,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.models.inventory import Item, Kit, KitItem, KitCheck, KitTemplate, KitTemplateItem, Location
+from app.models.inventory import Item, Kit, KitItem, KitCheck, KitTemplate, KitTemplateItem, Location, Warehouse
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
@@ -74,11 +74,15 @@ async def _kit(db, *, required: dict | None = None, held: dict | None = None) ->
     tpl = KitTemplate(id=uuid.uuid4(), name="SatKit", code=f"T{uuid.uuid4().hex[:5]}")
     db.add_all([loc, tpl])
     await db.flush()
+    wh = Warehouse(id=uuid.uuid4(), location_id=loc.id, name="Dubai Main")
+    db.add(wh)
+    await db.flush()
     for item, qty in (required or {}).items():
         db.add(KitTemplateItem(id=uuid.uuid4(), template_id=tpl.id, item_id=item.id, required_qty=qty))
     kit = Kit(
         id=uuid.uuid4(), template_id=tpl.id, label=f"SP-K-{uuid.uuid4().hex[:6]}",
         public_token=uuid.uuid4().hex * 2, current_location_id=loc.id,
+        current_warehouse_id=wh.id,
     )
     db.add(kit)
     await db.flush()
@@ -123,17 +127,20 @@ async def test_unassigning_a_kit_that_was_not_assigned_is_a_404(db):
 # ── the count form ──────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_the_form_is_prefilled_and_excludes_consumables(db):
-    """One tap for the common case. And twenty screws counted after every
-    workshop is how a shortage list becomes unreadable."""
+async def test_the_form_is_prefilled_with_every_template_line(db):
+    """One tap for the common case: every line, screws included (operator
+    decision, 2026-08-01 — the earlier `is_consumable` exclusion is gone)."""
     board = await _item(db, name="ADCS Board")
-    screw = await _item(db, name="M3 Screw", is_consumable=True)
+    screw = await _item(db, name="M3 Screw")
     kit = await _kit(db, required={board: 1, screw: 20}, held={board: 1, screw: 14})
 
     lines = await expected_counts(db, kit)
-    assert [line["item_name"] for line in lines] == ["ADCS Board"]
-    assert lines[0]["expected"] == 1, "prefilled with what we believe is in the box"
-    assert lines[0]["required"] == 1
+    assert {line["item_name"] for line in lines} == {"ADCS Board", "M3 Screw"}
+    by_name = {line["item_name"]: line for line in lines}
+    assert by_name["ADCS Board"]["expected"] == 1, "prefilled with what we believe is in the box"
+    assert by_name["ADCS Board"]["required"] == 1
+    assert by_name["M3 Screw"]["expected"] == 14
+    assert by_name["M3 Screw"]["required"] == 20
 
 
 # ── recording a count ───────────────────────────────────────────────────────
@@ -220,18 +227,15 @@ async def test_a_session_with_no_kits_finishes_exactly_as_before(db):
 
 
 @pytest.mark.asyncio
-async def test_a_session_with_an_uncounted_kit_cannot_be_finished(db):
+async def test_a_session_with_an_uncounted_kit_can_be_finished(db):
+    """Kit counting is optional — an instructor can finish a session without counting kits."""
     ops = await _user(db)
     session = await _session(db)
     kit = await _kit(db)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
 
-    with pytest.raises(HTTPException) as exc:
-        await mark_done(db, session.id, ops)
-    assert exc.value.status_code == 409
-    assert kit.label in exc.value.detail, "name the kit, don't just say something is missing"
-    await db.refresh(session)
-    assert session.completed_at is None
+    done = await mark_done(db, session.id, ops)
+    assert done.completed_at is not None
 
 
 @pytest.mark.asyncio
@@ -254,27 +258,21 @@ async def test_counting_the_kit_unlocks_finishing(db):
 
 
 @pytest.mark.asyncio
-async def test_a_pre_check_does_not_satisfy_the_gate(db):
-    """Counting on the way in says nothing about what came back."""
+async def test_finishing_session_with_uncounted_kits_succeeds(db):
+    """Kit counting is optional — an instructor can finish a session without counting kits."""
     ops = await _user(db)
     session = await _session(db)
     board = await _item(db)
     kit = await _kit(db, required={board: 1}, held={board: 1})
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
 
-    await record_check(
-        db, kit=kit, phase="pre", checked_by=ops.id, counts={board.id: 1}, session_id=session.id
-    )
-    with pytest.raises(HTTPException) as exc:
-        await mark_done(db, session.id, ops)
-    assert exc.value.status_code == 409
+    done = await mark_done(db, session.id, ops)
+    assert done.completed_at is not None
 
 
 @pytest.mark.asyncio
 async def test_a_skipped_post_check_still_counts_as_counted(db):
-    """The gate exists to make people look, not to trap them. If a kit is
-    genuinely unavailable to count, saying so closes the session — and leaves
-    a record that nobody looked."""
+    """If a kit check is recorded as skipped, it is saved properly."""
     ops = await _user(db)
     session = await _session(db)
     kit = await _kit(db)
@@ -299,9 +297,8 @@ async def test_finishing_stays_idempotent(db):
 
 
 @pytest.mark.asyncio
-async def test_an_unassigned_instructor_still_gets_404_not_409(db):
-    """The gate must not leak the existence of a session an instructor has
-    nothing to do with — the don't-leak-existence rule outranks it."""
+async def test_an_unassigned_instructor_still_gets_404(db):
+    """An unassigned instructor cannot deliver or complete a session (404 not found)."""
     outsider = await _user(db, "instructor")
     ops = await _user(db)
     session = await _session(db)
@@ -314,7 +311,7 @@ async def test_an_unassigned_instructor_still_gets_404_not_409(db):
 
 
 @pytest.mark.asyncio
-async def test_the_assigned_instructor_sees_the_gate(db):
+async def test_the_assigned_instructor_can_finish_session(db):
     ops = await _user(db)
     instructor = await _user(db, "instructor")
     session = await _session(db)
@@ -323,6 +320,5 @@ async def test_the_assigned_instructor_sees_the_gate(db):
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
     await db.flush()
 
-    with pytest.raises(HTTPException) as exc:
-        await mark_done(db, session.id, instructor)
-    assert exc.value.status_code == 409
+    done = await mark_done(db, session.id, instructor)
+    assert done.completed_at is not None

@@ -4,11 +4,8 @@ Computed, never stored. The legacy system kept an `iscomplete` boolean and a
 `missingitems` text blob on the kit row, both of which went stale the moment
 anyone edited a count — and did, visibly, in production.
 
-Consumables are excluded entirely. There are 20 M3 screws in a SatKit; a
-post-workshop count is always "short a few", so including them means the
-shortage list always has entries and nobody reads it — including the line
-about the missing ADCS board. They surface as a restock suggestion instead
-(I4-1), not as a kit being incomplete.
+Every template line counts toward completeness, screws included (operator
+decision, 2026-08-01, reversing the earlier `is_consumable` exclusion).
 """
 
 import uuid
@@ -22,7 +19,7 @@ from app.models.inventory.kit_template import KitTemplateItem
 
 
 async def kit_shortages(db: AsyncSession, kit: Kit) -> list[dict]:
-    """Every non-consumable item this kit is short of, worst gap first.
+    """Every item this kit is short of, worst gap first.
 
     An item on the template with no `kit_items` row at all counts as zero
     present — a missing row and a row saying 0 mean the same thing physically,
@@ -36,10 +33,7 @@ async def kit_shortages(db: AsyncSession, kit: Kit) -> list[dict]:
             KitItem,
             (KitItem.item_id == KitTemplateItem.item_id) & (KitItem.kit_id == kit.id),
         )
-        .where(
-            KitTemplateItem.template_id == kit.template_id,
-            Item.is_consumable.is_(False),
-        )
+        .where(KitTemplateItem.template_id == kit.template_id)
     )).all()
 
     shortages = []
@@ -73,8 +67,7 @@ async def shortages_for_kits(db: AsyncSession, kit_ids: list[uuid.UUID]) -> dict
 
     required = (await db.execute(
         select(KitTemplateItem.template_id, KitTemplateItem.item_id, KitTemplateItem.required_qty)
-        .join(Item, Item.id == KitTemplateItem.item_id)
-        .where(KitTemplateItem.template_id.in_(template_ids), Item.is_consumable.is_(False))
+        .where(KitTemplateItem.template_id.in_(template_ids))
     )).all()
 
     held = (await db.execute(

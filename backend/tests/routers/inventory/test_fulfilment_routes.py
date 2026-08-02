@@ -11,7 +11,7 @@ import uuid
 import pytest
 
 from app.core.security import create_access_token, get_password_hash
-from app.models.inventory import Item, Kit, KitItem, KitTemplate, Location, StockLevel
+from app.models.inventory import Item, Kit, KitItem, KitTemplate, Location, StockLevel, Warehouse
 from app.models.inventory.kit_template import KitTemplateItem
 from app.models.user import User
 
@@ -35,9 +35,12 @@ async def _short_kit(db, *, present=3, required=5, stock=10):
     loc = Location(id=uuid.uuid4(), name=f"W{uuid.uuid4().hex[:4]}", country="AE")
     db.add(loc)
     await db.flush()
+    wh = Warehouse(id=uuid.uuid4(), location_id=loc.id, name=f"{loc.name} Main")
+    db.add(wh)
+    await db.flush()
     item = Item(
         id=uuid.uuid4(), name=f"MPU {uuid.uuid4().hex[:4]}", category="board",
-        is_consumable=False, returnable_default=False,
+        returnable_default=False,
     )
     db.add(item)
     await db.flush()
@@ -50,13 +53,14 @@ async def _short_kit(db, *, present=3, required=5, stock=10):
     kit = Kit(
         id=uuid.uuid4(), template_id=tpl.id, label=f"SP-K-{uuid.uuid4().hex[:6]}",
         public_token=uuid.uuid4().hex * 2, current_location_id=loc.id,
+        current_warehouse_id=wh.id,
     )
     db.add(kit)
     await db.flush()
     if present:
         db.add(KitItem(id=uuid.uuid4(), kit_id=kit.id, item_id=item.id, qty=present))
     if stock:
-        db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, location_id=loc.id, qty=stock))
+        db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, warehouse_id=wh.id, qty=stock))
     await db.flush()
     return kit, item, loc
 

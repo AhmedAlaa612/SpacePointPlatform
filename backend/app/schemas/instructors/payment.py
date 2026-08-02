@@ -73,6 +73,7 @@ class PaymentLetterUpdate(BaseModel):
 
     issue_certificates: Optional[bool] = None
     admin_notes: Optional[str] = None
+    batch_id: Optional[UUID] = None
 
 
 class PaymentLetterCreate(BaseModel):

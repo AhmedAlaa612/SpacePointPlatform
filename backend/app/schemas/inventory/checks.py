@@ -1,12 +1,29 @@
 """The session loop (I2-1/I2-2)."""
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime, time
 from typing import Literal
 
 from pydantic import BaseModel, model_validator
 
 CheckPhase = Literal["pre", "post", "adhoc"]
+
+
+class KitSessionOut(BaseModel):
+    """One session a kit has been earmarked for — past or future. The
+    reverse of `SessionKitOut`, for a kit's own "everywhere I've been"
+    calendar."""
+
+    session_id: uuid.UUID
+    cohort_id: uuid.UUID
+    cohort_name: str
+    program_name: str
+    title: str
+    meeting_date: date
+    starts_at: time | None = None
+    return_status: str | None = None
+    received: bool
+    ops_confirmed: bool
 
 
 class AssignKitsIn(BaseModel):
@@ -33,9 +50,19 @@ class SessionKitOut(BaseModel):
     template_name: str
     status: str
     location_name: str
-    holder_name: str | None = None
     pre_checked: bool = False
     post_checked: bool = False
+    # No custody leg: these three are the instructor's own report and ops's
+    # review of it — not a movement, not a holder.
+    received: bool = False
+    received_at: datetime | None = None
+    return_status: Literal["returned", "return_later"] | None = None
+    returned_at: datetime | None = None
+    ops_confirmed: bool = False
+    # Cohort-level kit defaults (Phase 3 follow-up): True when this kit came
+    # from the cohort's default list rather than this session's own
+    # `SessionKit` rows — mirrors `SessionKitStatusOut.level`.
+    inherited: bool = False
 
 
 class CheckSubmitIn(BaseModel):
@@ -79,8 +106,50 @@ class SessionKitStatusOut(BaseModel):
     kits: list[SessionKitOut]
     outstanding_post_checks: list[uuid.UUID]
     can_finish: bool
-    # B4: whether the viewing instructor has kits issued to them with an
-    # unconfirmed custody movement — the one thing "I have them" actually
-    # changes. False (rather than omitted) for the ops-side assign/unassign
-    # calls, which have no instructor viewpoint to compute this against.
-    pending_confirmation: bool = False
+    # session|cohort|none — mirrors `SessionMaterialsOut.level` in
+    # `schemas/sessions/journey.py`. "session" once this session has had its
+    # own kit activity (even if that activity emptied it out), "cohort" while
+    # it is still inheriting the cohort's default, "none" if neither has any.
+    level: str = "none"
+
+
+class ReceiveKitsIn(BaseModel):
+    """The instructor confirming they have these kits — per kit, or all of
+    them at once."""
+
+    kit_ids: list[uuid.UUID]
+
+
+class MarkKitsReturnedIn(BaseModel):
+    """The instructor reporting kits back, or saying they're coming back
+    later. No destination — where it lands is ops's call, made separately."""
+
+    kit_ids: list[uuid.UUID]
+    later: bool = False
+    note: str | None = None
+
+
+class ConfirmKitReturnsIn(BaseModel):
+    """Ops reviewing the instructor's report, in the session review screen.
+    Restocking is optional and separate from confirming the report itself."""
+
+    kit_ids: list[uuid.UUID]
+    restock_warehouse_id: uuid.UUID | None = None
+
+
+# ── cohort-level kit defaults (Phase 3 follow-up) ───────────────────────────
+# `AssignKitsIn` above is reused as the request body for setting a cohort's
+# default kit list — same "full resubmit" contract, one level up.
+
+class CohortKitOut(BaseModel):
+    kit_id: uuid.UUID
+    label: str
+    template_name: str
+    location_name: str
+
+
+class CohortKitStatusOut(BaseModel):
+    """A cohort's default kit list, for the ops-facing cohort settings
+    screen."""
+
+    kits: list[CohortKitOut]

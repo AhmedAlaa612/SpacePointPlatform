@@ -45,9 +45,23 @@ function EventCard({ event, opsView }: { event: CalendarEvent; opsView?: boolean
     </Card>
   )
   if (!event.session_id) return body
-  return opsView
-    ? <Link to="/operations/cohorts">{body}</Link>
-    : <Link to="/instructors/sessions/$sessionId" params={{ sessionId: event.session_id }}>{body}</Link>
+  if (opsView) {
+    // Ops/admin lands on the specific session, not the bare cohort list —
+    // falls back to the cohort page (or the list) if either id is somehow
+    // missing, rather than a dead link.
+    if (event.cohort_id) {
+      return (
+        <Link
+          to="/operations/cohorts/$cohortId/sessions/$sessionId"
+          params={{ cohortId: event.cohort_id, sessionId: event.session_id }}
+        >
+          {body}
+        </Link>
+      )
+    }
+    return <Link to="/operations/cohorts">{body}</Link>
+  }
+  return <Link to="/instructors/sessions/$sessionId" params={{ sessionId: event.session_id }}>{body}</Link>
 }
 
 import { SessionsSubNav } from "@/components/layout/SessionsSubNav"

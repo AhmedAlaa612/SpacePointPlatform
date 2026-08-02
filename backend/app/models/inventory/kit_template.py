@@ -34,9 +34,10 @@ class KitTemplateItem(Base):
     `missingitems` text blob that drifted out of date the moment anyone
     touched the counts.
 
-    There is deliberately no `count_every_time` flag here. Whether something
-    is worth counting is a property of the *item* (a screw is a screw in any
-    template), so it lives on `Item.is_consumable` — one source of truth.
+    Every line counts toward completeness — there is no exemption for small
+    parts (operator decision, 2026-08-01, reversing the earlier
+    `is_consumable` exclusion). A kit is either fully stocked against its
+    template or it isn't.
     """
 
     __tablename__ = "kit_template_items"

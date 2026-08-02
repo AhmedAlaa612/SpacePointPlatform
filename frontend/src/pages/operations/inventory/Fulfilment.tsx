@@ -1,10 +1,15 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
+import { Link } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { AlertTriangle, Clock, PackageCheck, Wrench } from "lucide-react"
+import { AlertTriangle, ClipboardList, Clock, PackageCheck, Wrench } from "lucide-react"
+import type { StockLevel } from "@/types/inventory"
 import {
+  adjustStockBulkApi,
   fulfilKitApi,
   getFulfilmentQueueApi,
   getLocationsApi,
+  getStockApi,
+  getWarehousesApi,
   setAwaitingPartsApi,
   type FulfilmentKit,
 } from "@/api/inventory"
@@ -32,6 +37,7 @@ export default function Fulfilment() {
   const [locationId, setLocationId] = useState("")
   const [fulfilling, setFulfilling] = useState<FulfilmentKit | null>(null)
   const [flagging, setFlagging] = useState<FulfilmentKit | null>(null)
+  const [addingToShelf, setAddingToShelf] = useState<FulfilmentKit | null>(null)
 
   const { data: locations = [] } = useQuery({
     queryKey: ["inv-locations"], queryFn: () => getLocationsApi(),
@@ -98,6 +104,7 @@ export default function Fulfilment() {
               kit={kit}
               onFulfil={() => setFulfilling(kit)}
               onFlag={() => setFlagging(kit)}
+              onAddToShelf={() => setAddingToShelf(kit)}
             />
           ))}
         </div>
@@ -109,14 +116,18 @@ export default function Fulfilment() {
       {flagging && (
         <AwaitingModal kit={flagging} onClose={() => setFlagging(null)} />
       )}
+      {addingToShelf && (
+        <AddToShelfModal kit={addingToShelf} onClose={() => setAddingToShelf(null)} />
+      )}
     </div>
   )
 }
 
-function KitCard({ kit, onFulfil, onFlag }: {
+function KitCard({ kit, onFulfil, onFlag, onAddToShelf }: {
   kit: FulfilmentKit
   onFulfil: () => void
   onFlag: () => void
+  onAddToShelf: () => void
 }) {
   const waitingSince = kit.awaiting_parts_since
     ? new Date(kit.awaiting_parts_since).toLocaleDateString()
@@ -128,19 +139,36 @@ function KitCard({ kit, onFulfil, onFlag }: {
         <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground font-mono">{kit.label}</p>
           <p className="text-xs text-muted-foreground">
-            {kit.template_name} · {kit.location_name}
+            {kit.template_name} · {kit.warehouse_name}
             {kit.out_with_someone && " · out with someone"}
           </p>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            onClick={onFulfil}
-            disabled={kit.fixable_now === 0}
-            className="h-8 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
-          >
-            <Wrench size={12} className="inline mr-1" />
-            Fulfil
-          </button>
+        <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+          {kit.fixable_now > 0 ? (
+            <button
+              onClick={onFulfil}
+              className="h-8 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 transition-opacity"
+            >
+              <Wrench size={12} className="inline mr-1" />
+              Fulfil
+            </button>
+          ) : (
+            <>
+              <Link
+                to="/operations/inventory/kits/$kitId"
+                params={{ kitId: kit.kit_id }}
+                className="h-8 px-3 border border-border text-foreground text-xs font-medium rounded-lg hover:bg-muted transition-colors inline-flex items-center"
+              >
+                <ClipboardList size={12} className="mr-1" /> Count this kit
+              </Link>
+              <button
+                onClick={onAddToShelf}
+                className="h-8 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 transition-opacity"
+              >
+                Add to shelf
+              </button>
+            </>
+          )}
           <button
             onClick={onFlag}
             className="h-8 px-3 border border-border text-foreground text-xs font-medium rounded-lg hover:bg-muted transition-colors"
@@ -188,13 +216,34 @@ function KitCard({ kit, onFulfil, onFlag }: {
 }
 
 /** Prefilled with the smaller of "what's missing" and "what's there", so the
- *  common case — take exactly what closes the gap — is one click. */
+ *  common case — take exactly what closes the gap — is one click.
+ *
+ *  Defaults to pulling from the kit's own warehouse; the source picker below
+ *  exposes `fulfil_kit`'s existing `from_warehouse_id` override, which the UI
+ *  never surfaced before now. Switching warehouses refetches that shelf's
+ *  stock so the caps and "there" counts stay honest for wherever parts are
+ *  actually about to come from. */
 function FulfilModal({ kit, onClose }: { kit: FulfilmentKit; onClose: () => void }) {
   const qc = useQueryClient()
+  const [sourceWarehouseId, setSourceWarehouseId] = useState(kit.warehouse_id)
   const [qtys, setQtys] = useState<Record<string, number>>(
     Object.fromEntries(kit.shortages.map((s) => [s.item_id, Math.min(s.short_by, s.available)])),
   )
   const [error, setError] = useState("")
+
+  const { data: warehouses = [] } = useQuery({ queryKey: ["inv-warehouses-all"], queryFn: () => getWarehousesApi() })
+  const usingOwnWarehouse = sourceWarehouseId === kit.warehouse_id
+  const { data: altStock = [] } = useQuery<StockLevel[]>({
+    queryKey: ["inv-stock", "warehouse", sourceWarehouseId],
+    queryFn: () => getStockApi({ warehouse_id: sourceWarehouseId }),
+    enabled: !usingOwnWarehouse,
+  })
+  const altAvailable = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const s of altStock) map[s.item_id] = s.qty
+    return map
+  }, [altStock])
+  const availableFor = (itemId: string, ownAvailable: number) => usingOwnWarehouse ? ownAvailable : (altAvailable[itemId] ?? 0)
 
   const submit = useMutation({
     mutationFn: fulfilKitApi,
@@ -207,13 +256,107 @@ function FulfilModal({ kit, onClose }: { kit: FulfilmentKit; onClose: () => void
   })
 
   const lines = kit.shortages
-    .map((s) => ({ item_id: s.item_id, qty: qtys[s.item_id] ?? 0 }))
+    .map((s) => ({ item_id: s.item_id, qty: Math.min(qtys[s.item_id] ?? 0, availableFor(s.item_id, s.available)) }))
     .filter((l) => l.qty > 0)
 
   return (
-    <Modal title={`Fulfil ${kit.label}`} onClose={onClose} maxWidth="max-w-md">
+    <Modal title={`Fulfil ${kit.label}`} onClose={onClose} maxWidth="sm:max-w-2xl max-w-2xl">
+      <Field label="Pull from">
+        <select
+          value={sourceWarehouseId}
+          onChange={(e) => setSourceWarehouseId(e.target.value)}
+          className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
+        >
+          <option value={kit.warehouse_id}>{kit.warehouse_name} (this kit's own shelf)</option>
+          {warehouses.filter((w) => w.id !== kit.warehouse_id).map((w) => (
+            <option key={w.id} value={w.id}>{w.location_name ? `${w.location_name} · ${w.name}` : w.name}</option>
+          ))}
+        </select>
+      </Field>
+
+      <div className="flex flex-col gap-1.5 max-h-[45vh] overflow-y-auto">
+        {kit.shortages.map((s) => {
+          const available = availableFor(s.item_id, s.available)
+          const cap = Math.min(s.short_by, available)
+          return (
+            <div key={s.item_id} className="flex items-center justify-between gap-3">
+              <span className="text-sm text-foreground truncate">
+                {s.item_name}
+                <span className="text-xs text-muted-foreground">
+                  {" "}· need {s.short_by}, {available} there
+                </span>
+              </span>
+              <input
+                type="number" min={0} max={cap}
+                value={Math.min(qtys[s.item_id] ?? 0, cap)}
+                onChange={(e) =>
+                  setQtys((q) => ({
+                    ...q,
+                    [s.item_id]: Math.min(cap, Math.max(0, Number(e.target.value) || 0)),
+                  }))
+                }
+                className="w-16 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
+              />
+            </div>
+          )
+        })}
+      </div>
+
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+
+      <ModalActions
+        onCancel={onClose}
+        onConfirm={() => {
+          setError("")
+          submit.mutate({
+            kitId: kit.kit_id, lines,
+            fromWarehouseId: usingOwnWarehouse ? undefined : sourceWarehouseId,
+          })
+        }}
+        loading={submit.isPending}
+        disabled={lines.length === 0}
+        label="Put them in the kit"
+      />
+    </Modal>
+  )
+}
+
+/** The other dead-end exit: prefilled with exactly the missing items and
+ *  quantities, at the kit's own warehouse, so closing "nothing fixable today"
+ *  is one save instead of walking to Stock and re-picking every item. Same
+ *  `adjust-bulk` endpoint as `StockCountModal`/`WarehouseStockTakeModal` — the
+ *  counted total is current-on-shelf plus exactly what's short. */
+function AddToShelfModal({ kit, onClose }: { kit: FulfilmentKit; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [values, setValues] = useState<Record<string, string>>(
+    () => Object.fromEntries(kit.shortages.map((s) => [s.item_id, String(s.available + s.short_by)])),
+  )
+  const [reason, setReason] = useState("Topping up a shortage")
+  const [error, setError] = useState("")
+
+  const mutation = useMutation({
+    mutationFn: adjustStockBulkApi,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["inv-stock"] })
+      qc.invalidateQueries({ queryKey: ["inv-fulfilment"] })
+      onClose()
+    },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not record that"),
+  })
+
+  const levels = kit.shortages.reduce<{ item_id: string; warehouse_id: string; new_qty: number }[]>((acc, s) => {
+    const raw = values[s.item_id]
+    if (raw === undefined || raw.trim() === "") return acc
+    const newQty = Math.max(0, Math.trunc(Number(raw)) || 0)
+    if (newQty === s.available) return acc
+    acc.push({ item_id: s.item_id, warehouse_id: kit.warehouse_id, new_qty: newQty })
+    return acc
+  }, [])
+
+  return (
+    <Modal title={`Add to shelf — ${kit.warehouse_name}`} onClose={onClose} maxWidth="sm:max-w-2xl max-w-2xl">
       <p className="text-xs text-muted-foreground -mt-1">
-        Parts come off the shelf at {kit.location_name}, where this kit is.
+        Prefilled with what's already there plus exactly what {kit.label} is short.
       </p>
 
       <div className="flex flex-col gap-1.5 max-h-[45vh] overflow-y-auto">
@@ -221,36 +364,38 @@ function FulfilModal({ kit, onClose }: { kit: FulfilmentKit; onClose: () => void
           <div key={s.item_id} className="flex items-center justify-between gap-3">
             <span className="text-sm text-foreground truncate">
               {s.item_name}
-              <span className="text-xs text-muted-foreground">
-                {" "}· need {s.short_by}, {s.available} there
-              </span>
+              <span className="text-xs text-muted-foreground"> · was {s.available}</span>
             </span>
             <input
-              type="number" min={0} max={Math.min(s.short_by, s.available)}
-              value={qtys[s.item_id] ?? 0}
-              onChange={(e) =>
-                setQtys((q) => ({
-                  ...q,
-                  [s.item_id]: Math.min(
-                    Math.min(s.short_by, s.available),
-                    Math.max(0, Number(e.target.value) || 0),
-                  ),
-                }))
-              }
+              type="number" min={0}
+              value={values[s.item_id] ?? ""}
+              onChange={(e) => setValues((prev) => ({ ...prev, [s.item_id]: e.target.value }))}
               className="w-16 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
             />
           </div>
         ))}
       </div>
 
+      <Field label="Reason">
+        <input
+          value={reason} onChange={(e) => setReason(e.target.value)}
+          className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
+        />
+      </Field>
+
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 
       <ModalActions
         onCancel={onClose}
-        onConfirm={() => { setError(""); submit.mutate({ kitId: kit.kit_id, lines }) }}
-        loading={submit.isPending}
-        disabled={lines.length === 0}
-        label="Put them in the kit"
+        onConfirm={() => {
+          setError("")
+          if (levels.length === 0) { setError("Change at least one item's count"); return }
+          if (!reason.trim()) { setError("A reason is required"); return }
+          mutation.mutate({ reason: reason.trim(), levels })
+        }}
+        loading={mutation.isPending}
+        disabled={false}
+        label="Save"
       />
     </Modal>
   )
@@ -298,6 +443,7 @@ function AwaitingModal({ kit, onClose }: { kit: FulfilmentKit; onClose: () => vo
             save.mutate({ kitId: kit.kit_id, awaiting: true, note: note || null })
           }}
           loading={save.isPending}
+          disabled={false}
           label="Mark awaiting parts"
         />
         {kit.awaiting_parts_since && (

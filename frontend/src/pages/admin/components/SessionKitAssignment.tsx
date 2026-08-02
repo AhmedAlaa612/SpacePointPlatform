@@ -1,16 +1,17 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { AlertTriangle, Boxes, CheckCircle2, X } from "lucide-react"
+import { AlertTriangle, Boxes, CheckCircle2, Clock, X } from "lucide-react"
 import {
+  confirmKitReturnsApi,
   getKitsApi,
-  getLocationsApi,
+  getWarehousesApi,
   getSessionKitsApi,
-  issueSessionKitsApi,
   removeSessionKitApi,
-  returnSessionKitsApi,
   setSessionKitsApi,
 } from "@/api/inventory"
 import { Modal, Field, ModalActions } from "@/pages/admin/components/common"
+import { InheritedFrom, InheritedBadge } from "@/pages/admin/components/InheritedFrom"
+import { useToast } from "@/components/ui/toast"
 import { cn } from "@/lib/utils"
 
 /**
@@ -19,15 +20,29 @@ import { cn } from "@/lib/utils"
  * Lives in its own file rather than inside Cohorts.tsx, which is already
  * ~105 KB and has produced three stale-prop bugs of the same class. The
  * modal takes one import and one line.
+ *
+ * No custody leg (2026-08-01): kits are assigned here, and that's the whole
+ * story until the instructor reports back. This panel shows that report —
+ * received / returned / return-later — and lets ops confirm it, optionally
+ * moving a kit onto a shelf at the same time. That move is a separate,
+ * ordinary inventory action, not something the instructor's report triggers.
  */
-export function SessionKitAssignment({ sessionId, hasInstructor, onChanged }: {
+export function SessionKitAssignment({
+  sessionId, hasInstructor, effectiveWarehouseId = null, effectiveWarehouseName = null, onChanged,
+}: {
   sessionId: string
   hasInstructor: boolean
+  /** The session's assigned warehouse (session override, else the cohort's) —
+   *  defaults the restock picker so ops isn't retyping the same warehouse
+   *  every time. */
+  effectiveWarehouseId?: string | null
+  effectiveWarehouseName?: string | null
   onChanged: () => void
 }) {
   const qc = useQueryClient()
+  const toast = useToast()
   const [picking, setPicking] = useState(false)
-  const [returning, setReturning] = useState(false)
+  const [confirming, setConfirming] = useState<{ kitIds: string[] } | null>(null)
   const [error, setError] = useState("")
 
   const { data } = useQuery({
@@ -43,19 +58,18 @@ export function SessionKitAssignment({ sessionId, hasInstructor, onChanged }: {
 
   const remove = useMutation({
     mutationFn: (kitId: string) => removeSessionKitApi({ sessionId, kitId }),
-    onSuccess: refresh,
-  })
-  const issue = useMutation({
-    mutationFn: () => issueSessionKitsApi({ sessionId }),
-    onSuccess: () => { setError(""); refresh() },
-    onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not hand the kits out"),
+    onSuccess: () => { toast.success("Kit removed"); setError(""); refresh() },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not remove that kit"),
   })
 
   const kits = data?.kits ?? []
-  const anyOut = kits.some((k) => k.holder_name)
+  const awaitingReview = kits.filter((k) => k.return_status && !k.ops_confirmed)
+  // 2026-08-01 cohort kit defaults: this session hasn't picked its own yet,
+  // it's showing whatever the cohort defaults to.
+  const usingCohortDefaults = data?.level === "cohort"
 
   return (
-    <div className="border-t border-border pt-4 mt-4 flex flex-col gap-2">
+    <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Boxes size={14} /> Kits
@@ -64,6 +78,15 @@ export function SessionKitAssignment({ sessionId, hasInstructor, onChanged }: {
           Choose kits
         </button>
       </div>
+
+      {/* Same inheritance treatment as location/warehouse, rather than this
+          panel's old bespoke grey info box (2026-08-02). */}
+      <InheritedFrom
+        overridden={!usingCohortDefaults && kits.length > 0}
+        hint={usingCohortDefaults
+          ? "Using the cohort's default kits — assign or remove one to make this session's own."
+          : undefined}
+      />
 
       {kits.length === 0 ? (
         <p className="text-xs text-muted-foreground">
@@ -77,12 +100,27 @@ export function SessionKitAssignment({ sessionId, hasInstructor, onChanged }: {
                 <span className="min-w-0">
                   <span className="font-mono text-foreground">{k.label}</span>
                   <span className="text-xs text-muted-foreground">
-                    {k.holder_name ? ` · with ${k.holder_name}` : ` · ${k.location_name}`}
+                    {" · "}{k.location_name}
+                    {!k.received && " · not yet received"}
+                    {k.return_status === "returned" && !k.ops_confirmed && " · reported returned"}
+                    {k.return_status === "return_later" && !k.ops_confirmed && " · returning later"}
+                    {k.ops_confirmed && " · confirmed back"}
                   </span>
+                  {k.inherited && <InheritedBadge overridden={false} className="ml-1.5 align-middle" />}
                 </span>
                 <span className="flex items-center gap-2 shrink-0">
-                  {k.post_checked ? (
+                  {k.return_status && !k.ops_confirmed && (
+                    <button
+                      onClick={() => setConfirming({ kitIds: [k.kit_id] })}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Confirm
+                    </button>
+                  )}
+                  {k.ops_confirmed ? (
                     <CheckCircle2 size={13} className="text-emerald-600 dark:text-emerald-400" />
+                  ) : k.return_status === "return_later" ? (
+                    <Clock size={13} className="text-amber-600 dark:text-amber-400" />
                   ) : (
                     <AlertTriangle size={13} className="text-amber-600 dark:text-amber-400" />
                   )}
@@ -98,29 +136,21 @@ export function SessionKitAssignment({ sessionId, hasInstructor, onChanged }: {
             ))}
           </div>
 
-          <div className="flex flex-wrap gap-2 mt-1">
-            {!anyOut && (
+          {awaitingReview.length > 1 && (
+            <div className="flex flex-wrap gap-2 mt-1">
               <button
-                onClick={() => issue.mutate()}
-                disabled={issue.isPending || !hasInstructor}
-                title={hasInstructor ? undefined : "Assign an instructor to this session first"}
-                className="h-8 px-3 bg-primary text-primary-foreground rounded-lg text-xs font-medium disabled:opacity-50"
-              >
-                {issue.isPending ? "…" : "Hand out to the instructor"}
-              </button>
-            )}
-            {anyOut && (
-              <button
-                onClick={() => setReturning(true)}
+                onClick={() => setConfirming({ kitIds: awaitingReview.map((k) => k.kit_id) })}
                 className="h-8 px-3 border border-border rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted"
               >
-                Receive them back
+                Confirm all reported ({awaitingReview.length})
               </button>
-            )}
-          </div>
+            </div>
+          )}
 
-          {!anyOut && !hasInstructor && (
-            <p className="text-xs text-muted-foreground">Assign an instructor first.</p>
+          {!hasInstructor && kits.some((k) => !k.received) && (
+            <p className="text-xs text-muted-foreground">
+              Assign an instructor so they can confirm they have these.
+            </p>
           )}
           {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
         </>
@@ -130,41 +160,61 @@ export function SessionKitAssignment({ sessionId, hasInstructor, onChanged }: {
         <KitPicker
           sessionId={sessionId}
           selected={kits.map((k) => k.kit_id)}
+          effectiveWarehouseId={effectiveWarehouseId}
+          effectiveWarehouseName={effectiveWarehouseName}
           onClose={() => setPicking(false)}
           onDone={() => { setPicking(false); refresh() }}
         />
       )}
-      {returning && (
-        <ReceiveModal
+      {confirming && (
+        <ConfirmReturnModal
           sessionId={sessionId}
-          onClose={() => setReturning(false)}
-          onDone={() => { setReturning(false); refresh() }}
+          kitIds={confirming.kitIds}
+          defaultWarehouseName={effectiveWarehouseName}
+          onClose={() => setConfirming(null)}
+          onDone={() => { setConfirming(null); refresh() }}
         />
       )}
     </div>
   )
 }
 
-function KitPicker({ sessionId, selected, onClose, onDone }: {
+function KitPicker({ sessionId, selected, effectiveWarehouseId, effectiveWarehouseName, onClose, onDone }: {
   sessionId: string
   selected: string[]
+  effectiveWarehouseId?: string | null
+  effectiveWarehouseName?: string | null
   onClose: () => void
   onDone: () => void
 }) {
+  const toast = useToast()
   const [chosen, setChosen] = useState<string[]>(selected)
   const { data: kits = [] } = useQuery({ queryKey: ["inv-kits", "", "", false], queryFn: () => getKitsApi() })
+
+  // Kits already at the session's assigned warehouse first — that's the
+  // common pick — without hiding kits sitting elsewhere (ops can still
+  // choose one and transfer it in).
+  const sortedKits = effectiveWarehouseId
+    ? [...kits].sort((a, b) =>
+        Number(b.current_warehouse_id === effectiveWarehouseId) - Number(a.current_warehouse_id === effectiveWarehouseId))
+    : kits
 
   // The API takes the whole set and is idempotent, so the picker resubmits
   // everything rather than diffing.
   const save = useMutation({
     mutationFn: () => setSessionKitsApi({ sessionId, kitIds: chosen }),
-    onSuccess: onDone,
+    onSuccess: () => { toast.success("Session kits saved"); onDone() },
   })
 
   return (
     <Modal title="Kits for this session" onClose={onClose} maxWidth="max-w-md">
+      {effectiveWarehouseName && (
+        <p className="text-xs text-muted-foreground -mt-1">
+          This session's warehouse is {effectiveWarehouseName} — kits there are listed first.
+        </p>
+      )}
       <div className="flex flex-col gap-1 max-h-[50vh] overflow-y-auto">
-        {kits.map((k) => {
+        {sortedKits.map((k) => {
           const on = chosen.includes(k.id)
           return (
             <label
@@ -204,39 +254,52 @@ function KitPicker({ sessionId, selected, onClose, onDone }: {
   )
 }
 
-function ReceiveModal({ sessionId, onClose, onDone }: {
+/** Confirming the instructor's report. Restocking is a separate, optional
+ *  choice on the same screen — a kit that never physically left has nothing
+ *  to move, and forcing a location on every confirmation would be wrong for
+ *  exactly that case. */
+function ConfirmReturnModal({ sessionId, kitIds, defaultWarehouseName, onClose, onDone }: {
   sessionId: string
+  kitIds: string[]
+  defaultWarehouseName?: string | null
   onClose: () => void
   onDone: () => void
 }) {
-  const { data: locations = [] } = useQuery({ queryKey: ["inv-locations"], queryFn: () => getLocationsApi() })
-  const [locationId, setLocationId] = useState("")
+  const toast = useToast()
+  const { data: warehouses = [] } = useQuery({ queryKey: ["inv-warehouses"], queryFn: () => getWarehousesApi() })
+  const [warehouseId, setWarehouseId] = useState("")
   const [error, setError] = useState("")
 
   const mutation = useMutation({
-    mutationFn: returnSessionKitsApi,
-    onSuccess: onDone,
+    mutationFn: confirmKitReturnsApi,
+    onSuccess: () => { toast.success("Kit return confirmed"); onDone() },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not record that"),
   })
 
   return (
-    <Modal title="Receive the kits back" onClose={onClose}>
-      <Field label="Where are they going?">
+    <Modal title={kitIds.length === 1 ? "Confirm this kit's return" : `Confirm ${kitIds.length} kits' return`} onClose={onClose}>
+      <Field label="Put it back on a shelf? (optional)">
         <select
-          value={locationId} onChange={(e) => setLocationId(e.target.value)}
+          value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}
           className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
         >
-          <option value="">Choose…</option>
-          {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          <option value="">Don&apos;t move it — just confirm</option>
+          {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
         </select>
+        {defaultWarehouseName && (
+          <p className="text-xs text-muted-foreground mt-1">This session's warehouse is {defaultWarehouseName}.</p>
+        )}
       </Field>
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
       <ModalActions
         onCancel={onClose}
-        onConfirm={() => { setError(""); mutation.mutate({ sessionId, toLocationId: locationId }) }}
+        onConfirm={() => {
+          setError("")
+          mutation.mutate({ sessionId, kitIds, restockWarehouseId: warehouseId || undefined })
+        }}
         loading={mutation.isPending}
-        disabled={!locationId}
-        label="Received"
+        disabled={false}
+        label="Confirm"
       />
     </Modal>
   )

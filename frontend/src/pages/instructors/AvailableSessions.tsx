@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Calendar, Clock, ExternalLink, MapPin, Users } from "lucide-react"
 import { listAvailableSessionsApi, registerInterestApi, withdrawInterestApi } from "@/api/sessions/staffing"
@@ -202,9 +202,9 @@ function SessionCard({ s }: { s: AvailableSession }) {
               </div>
             )}
             <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                className="input flex-1"
-                placeholder="Optional note to ops (why you'd like this one)…"
+              <textarea
+                className="input flex-1 min-h-[4.5rem] resize-y"
+                placeholder="Optional cover letter (why you'd like this one)…"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
               />

@@ -76,6 +76,7 @@ const ICONS: Record<string, LucideIcon> = {
   Leaderboard: Trophy,
   "My Sessions": GraduationCap,
   Sessions: CalendarDays,
+  "This Week": CalendarDays,
   "Sessions Calendar": CalendarDays,
   Training: PlayCircle,
   "SatKit Training": PlayCircle,
@@ -101,6 +102,7 @@ const ICONS: Record<string, LucideIcon> = {
   Operations: Warehouse,
   "Admin Hub": UserCog,
   Kits: Boxes,
+  "My Kits & Items": Boxes,
   Stock: LayoutList,
   Fulfilment: Wrench,
   "Delivery Settings": SettingsIcon,
@@ -146,17 +148,12 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     // I1-4: the COO approves inventory movement. Sessions and registrations
     // aren't theirs — `require_operations` rejects `coo` too.
     if (activeRole === "coo") {
-      return [
-        ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
-        mk("Profile & Settings", "/operations/profile"),
-      ];
+      return INVENTORY_NAV.map(([label, to]) => mk(label, to));
     }
     return [
       mk("Dashboard", "/operations/dashboard"),
       mk("Programs", "/operations/programs"),
       mk("Cohorts", "/operations/cohorts"),
-      mk("Contacts", "/operations/contacts"),
-      mk("Check-in", "/operations/checkin"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
@@ -223,6 +220,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     if (activeRole === "facilitator") {
       return [
         mk("Sessions", "/instructors/my-sessions"),
+        mk("My Kits & Items", "/instructors/my-holdings"),
         mk("Training", "/instructors/facilitator/training"),
         mk("Library", "/instructors/facilitator/library"),
         mk("Personal Documents", "/instructors/personal-documents"),
@@ -240,6 +238,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Overview", "/instructors/dashboard"),
       mk("Sessions", "/instructors/my-sessions"),
+      mk("My Kits & Items", "/instructors/my-holdings"),
       mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
       mk("Personal Documents", "/instructors/personal-documents"),
@@ -296,6 +295,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Overview", "/instructors/dashboard"),
       mk("Sessions", "/instructors/my-sessions"),
+      mk("My Kits & Items", "/instructors/my-holdings"),
       mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
       mk("Personal Documents", "/instructors/personal-documents"),
@@ -307,6 +307,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Available Sessions", "/instructors/available-sessions"),
       mk("My Sessions", "/instructors/my-sessions"),
+      mk("My Kits & Items", "/instructors/my-holdings"),
       mk("Sessions Calendar", "/sessions/calendar"),
       mk("Training", "/instructors/facilitator/training"),
       mk("Library", "/instructors/facilitator/library"),
@@ -330,8 +331,6 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Dashboard", "/operations/dashboard"),
       mk("Programs", "/operations/programs"),
       mk("Cohorts", "/operations/cohorts"),
-      mk("Contacts", "/operations/contacts"),
-      mk("Check-in", "/operations/checkin"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),

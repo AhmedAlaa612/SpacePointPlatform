@@ -26,4 +26,8 @@ class Location(Base):
     country = Column(String(2), nullable=False)  # ISO-3166 alpha-2: AE, EG
     is_active = Column(Boolean, nullable=False, default=True)
     notes = Column(Text, nullable=True)
+    # Where cohorts/sessions send instructors — the address and map link
+    # belong to the place, not to whichever cohort runs there this month.
+    address = Column(Text, nullable=True)
+    maps_url = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

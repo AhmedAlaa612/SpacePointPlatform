@@ -46,52 +46,44 @@ LOCATIONS = [
 ]
 
 # ── the SatKit bill of materials ────────────────────────────────────────────
-# (display name, category, required qty, is_consumable)
-#
-# `is_consumable` is the judgment call most worth reviewing: consumables are
-# excluded from completeness entirely, so marking something consumable means
-# "never tell me this kit is incomplete because of it". Screws and nuts are
-# marked because 20 screws per kit guarantees a permanent shortage otherwise,
-# which would make the whole shortage list unreadable. Standoffs are left
-# non-consumable despite being small — 12 of one kind is structural, not spare
-# change. Change these in the UI if the shop floor disagrees.
+# (display name, category, required qty)
 SATKIT_BOM = [
-    ("Structures",                  "mechanical", 6,  False),
-    ("Current Sensor",              "sensor",     1,  False),
-    ("Temperature Sensor",          "sensor",     1,  False),
-    ("FRAM",                        "board",      1,  False),
-    ("SD Card",                     "board",      1,  False),
-    ("Reaction Wheel",              "other",      1,  False),
-    ("MPU-9250",                    "sensor",     1,  False),
-    ("GPS",                         "sensor",     1,  False),
-    ("Motor Driver",                "board",      1,  False),
-    ("Phillips Screwdriver",        "tool",       1,  False),
-    ("Screw Gauge 3D",              "tool",       1,  False),
-    ("Standoff Tool 3D",            "tool",       1,  False),
-    ("CDHS Board",                  "board",      1,  False),
-    ("EPS Board",                   "board",      1,  False),
-    ("ADCS Board",                  "board",      1,  False),
-    ("ESP32-CAM",                   "board",      1,  False),
-    ("ESP32",                       "board",      1,  False),
-    ("Magnetorquer",                "other",      1,  False),
-    ("Buck Converter Module",       "board",      1,  False),
-    ("Li-ion Battery",              "other",      1,  False),
-    ("Pin Socket",                  "mechanical", 4,  False),
-    ("M3 Screw",                    "mechanical", 20, True),
-    ("M3 Hex Nut",                  "mechanical", 4,  True),
-    ("M3 9.6mm Brass Standoff",     "mechanical", 4,  False),
-    ("M3 10mm Brass Standoff",      "mechanical", 4,  False),
-    ("M3 10.6mm Brass Standoff",    "mechanical", 12, False),
-    ("M3 20.6mm Brass Standoff",    "mechanical", 8,  False),
+    ("Structures",                  "mechanical", 6),
+    ("Current Sensor",              "sensor",     1),
+    ("Temperature Sensor",          "sensor",     1),
+    ("FRAM",                        "board",      1),
+    ("SD Card",                     "board",      1),
+    ("Reaction Wheel",              "other",      1),
+    ("MPU-9250",                    "sensor",     1),
+    ("GPS",                         "sensor",     1),
+    ("Motor Driver",                "board",      1),
+    ("Phillips Screwdriver",        "tool",       1),
+    ("Screw Gauge 3D",              "tool",       1),
+    ("Standoff Tool 3D",            "tool",       1),
+    ("CDHS Board",                  "board",      1),
+    ("EPS Board",                   "board",      1),
+    ("ADCS Board",                  "board",      1),
+    ("ESP32-CAM",                   "board",      1),
+    ("ESP32",                       "board",      1),
+    ("Magnetorquer",                "other",      1),
+    ("Buck Converter Module",       "board",      1),
+    ("Li-ion Battery",              "other",      1),
+    ("Pin Socket",                  "mechanical", 4),
+    ("M3 Screw",                    "mechanical", 20),
+    ("M3 Hex Nut",                  "mechanical", 4),
+    ("M3 9.6mm Brass Standoff",     "mechanical", 4),
+    ("M3 10mm Brass Standoff",      "mechanical", 4),
+    ("M3 10.6mm Brass Standoff",    "mechanical", 12),
+    ("M3 20.6mm Brass Standoff",    "mechanical", 8),
 ]
 
 # Merchandise. Tracked by type AND size per the CEO. Vests and jackets default
 # to returnable; T-shirts do not — a policy of "return your T-shirt" that
 # nobody follows would fill the overdue list with noise and stop it working
 # for kits, which is what it is actually for.
-# (display name, category, is_consumable, returnable_default)
+# (display name, category, returnable_default)
 MERCH = [
-    (f"{kind} ({size})", "merch", False, kind != "T-Shirt")
+    (f"{kind} ({size})", "merch", kind != "T-Shirt")
     for kind in ("T-Shirt", "Vest", "Jacket")
     for size in ("XS", "S", "M", "L", "XL")
 ]
@@ -102,18 +94,16 @@ MERCH = [
 # catalogue; the counts themselves are nobody's to guess and are left to I1-5.
 #
 # Category is `other`: nothing branches on it, it only groups the catalogue.
-# None of it is consumable — a mic speaker that goes missing should raise a
-# shortage, which is exactly what `is_consumable` would suppress. Stickers are
-# the one honest consumable here.
+# (display name, category, returnable_default)
 EQUIPMENT = [
-    ("Mic Speaker",         "other", False, True),
-    ("Battery Charger",     "other", False, True),
-    ("Extension Cable",     "other", False, True),
-    ("Projector",           "other", False, True),
-    ("Laptop (spare)",      "other", False, True),
-    ("Sticker Roll",        "other", True,  False),
-    ("Banner / Roll-up",    "other", False, True),
-    ("First Aid Kit",       "other", False, True),
+    ("Mic Speaker",         "other", True),
+    ("Battery Charger",     "other", True),
+    ("Extension Cable",     "other", True),
+    ("Projector",           "other", True),
+    ("Laptop (spare)",      "other", True),
+    ("Sticker Roll",        "other", False),
+    ("Banner / Roll-up",    "other", True),
+    ("First Aid Kit",       "other", True),
 ]
 
 
@@ -133,17 +123,13 @@ async def seed(db: AsyncSession, *, dry_run: bool) -> None:
     await db.flush()
 
     # items — kit components, then merch, then non-kit equipment.
-    # Every entry carries its own is_consumable *and* returnable_default. They
-    # used to be derived from one another, which quietly marked vests and
-    # jackets consumable — harmless while merch sits in no bill of materials,
-    # and a trap the moment anything reads that flag.
     wanted_items = (
-        [(n, c, cons, False) for n, c, _q, cons in SATKIT_BOM]
+        [(n, c, False) for n, c, _q in SATKIT_BOM]
         + list(MERCH)
         + list(EQUIPMENT)
     )
     items_by_name: dict[str, Item] = {}
-    for name, category, is_consumable, returnable in wanted_items:
+    for name, category, returnable in wanted_items:
         existing = (await db.execute(select(Item).where(Item.name == name))).scalars().first()
         if existing:
             items_by_name[name] = existing
@@ -151,7 +137,6 @@ async def seed(db: AsyncSession, *, dry_run: bool) -> None:
             continue
         item = Item(
             id=uuid.uuid4(), name=name, category=category,
-            is_consumable=is_consumable,
             returnable_default=returnable,
         )
         db.add(item)
@@ -179,7 +164,7 @@ async def seed(db: AsyncSession, *, dry_run: bool) -> None:
     await db.flush()
 
     # bill of materials
-    for name, _category, qty, _cons in SATKIT_BOM:
+    for name, _category, qty in SATKIT_BOM:
         item = items_by_name[name]
         line = (await db.execute(select(KitTemplateItem).where(
             KitTemplateItem.template_id == template.id, KitTemplateItem.item_id == item.id

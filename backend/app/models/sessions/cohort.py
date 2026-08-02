@@ -22,10 +22,21 @@ class Cohort(Base):
     name = Column(String(255), nullable=False)
     starts_on = Column(Date, nullable=True)
     ends_on = Column(Date, nullable=True)
+    # Legacy free text — superseded by location_id (2026-08-01), kept
+    # unused rather than dropped so nothing already typed here is lost.
     location = Column(String(128), nullable=True)
-    # I5-5. A Google Maps link alongside the text — instructors were being
-    # sent an address and left to find it themselves.
     location_map_url = Column(Text, nullable=True)
+    # The cohort's venue — the same `locations` table kits and stock already
+    # use. A session can override this for the rare one-off that meets
+    # somewhere else (see Session.location_id).
+    location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="SET NULL"), nullable=True)
+    # Which warehouse at that location equipment is picked from (2026-08-01).
+    # NULL = resolve it: the location's only warehouse if it has exactly one,
+    # otherwise ops has to say which shelf. Location and warehouse are kept
+    # separate on purpose — a location can hold several warehouses, so
+    # "Dubai" alone was never precise enough to pull stock from. A session
+    # can override this the same way it overrides location_id.
+    warehouse_id = Column(UUID(as_uuid=True), ForeignKey("warehouses.id", ondelete="SET NULL"), nullable=True)
     capacity = Column(Integer, nullable=True)
     # I5-2. NULL = inherit from the program. See Program.duration_hours.
     duration_hours = Column(Numeric(5, 2), nullable=True)

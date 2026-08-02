@@ -264,6 +264,51 @@ async def test_update_contact_date_of_birth_and_grade(db, client, ops_user):
     assert contact.grade == "Grade 7"
 
 
+@pytest.mark.asyncio
+async def test_update_contact_organization_name_resolves_organization(db, client, ops_user):
+    """Regression test — the School/Organization field in the admin Edit
+    Student modal was bound to local state but never sent in the update
+    payload, and even if it had been, ContactUpdate had no field for it."""
+    contact = _new_contact(full_name="School Kid Two")
+    db.add(contact)
+    await db.flush()
+
+    resp = await client.patch(
+        f"/spine/contacts/{contact.id}",
+        json={"organization_name": "American School of Dubai"},
+        headers=_auth_headers(ops_user),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["organization_name"] == "American School of Dubai"
+
+    await db.refresh(contact)
+    assert contact.organization_id is not None
+    org = await db.get(Organization, contact.organization_id)
+    assert org.name_latin == "American School of Dubai"
+
+
+@pytest.mark.asyncio
+async def test_update_contact_blank_organization_name_does_not_clear(db, client, ops_user):
+    contact = _new_contact(full_name="Already Has School")
+    db.add(contact)
+    await db.flush()
+
+    await client.patch(
+        f"/spine/contacts/{contact.id}", json={"organization_name": "Existing School"},
+        headers=_auth_headers(ops_user),
+    )
+    await db.refresh(contact)
+    existing_org_id = contact.organization_id
+    assert existing_org_id is not None
+
+    resp = await client.patch(
+        f"/spine/contacts/{contact.id}", json={"city": "Sharjah"}, headers=_auth_headers(ops_user),
+    )
+    assert resp.status_code == 200, resp.text
+    await db.refresh(contact)
+    assert contact.organization_id == existing_org_id
+
+
 # ── role history (2026-07-24) ───────────────────────────────────────────
 
 @pytest.mark.asyncio

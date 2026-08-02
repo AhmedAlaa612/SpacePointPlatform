@@ -57,14 +57,8 @@ app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    # FastAPI's CORSMiddleware is one global policy for the whole app — there's
-    # no clean per-route override — so the public-form allowlist (V2 R1-5;
-    # the marketing site, a different origin than the portal frontend) is
-    # unioned in here rather than given its own middleware. This doesn't widen
-    # what those origins can DO — every other endpoint still requires a valid
-    # JWT regardless of Origin; CORS only affects whether browser JS can read
-    # a cross-origin response.
     allow_origins=list(dict.fromkeys(settings.cors_origins + settings.public_form_origins)),
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

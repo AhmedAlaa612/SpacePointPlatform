@@ -16,7 +16,7 @@ from datetime import date, timedelta
 import pytest
 from sqlalchemy import func, select
 
-from app.models.inventory import Item, Kit, KitTemplate, Location, StockLevel
+from app.models.inventory import Item, Kit, KitTemplate, Location, StockLevel, Warehouse
 from app.models.notification import Notification
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
@@ -72,9 +72,13 @@ async def _session_with_kit(db, lead: User, *, meeting_date: date) -> tuple[Sess
     tpl = KitTemplate(id=uuid.uuid4(), name="SatKit", code=f"T{uuid.uuid4().hex[:5]}")
     db.add_all([loc, tpl])
     await db.flush()
+    wh = Warehouse(id=uuid.uuid4(), location_id=loc.id, name="Dubai Main")
+    db.add(wh)
+    await db.flush()
     kit = Kit(
         id=uuid.uuid4(), template_id=tpl.id, label=f"SP-K-{uuid.uuid4().hex[:6]}",
         public_token=uuid.uuid4().hex * 2, current_location_id=loc.id,
+        current_warehouse_id=wh.id,
     )
     db.add(kit)
     await db.flush()
@@ -174,12 +178,15 @@ async def test_an_overdue_vest_nudges_whoever_has_it(db):
     vest = Item(id=uuid.uuid4(), name="Vest (L)", category="merch", returnable_default=True)
     db.add_all([loc, vest])
     await db.flush()
-    db.add(StockLevel(id=uuid.uuid4(), item_id=vest.id, location_id=loc.id, qty=5))
+    wh = Warehouse(id=uuid.uuid4(), location_id=loc.id, name="Dubai Main")
+    db.add(wh)
+    await db.flush()
+    db.add(StockLevel(id=uuid.uuid4(), item_id=vest.id, warehouse_id=wh.id, qty=5))
     await db.flush()
 
     await issue_merch(
         db, actor_user_id=ops.id, item_id=vest.id, to_user_id=person.id,
-        from_location_id=loc.id, due_back_on=date.today() - timedelta(days=2),
+        from_warehouse_id=wh.id, due_back_on=date.today() - timedelta(days=2),
     )
 
     assert await _remind_overdue(db) == 1
@@ -196,11 +203,14 @@ async def test_nothing_without_a_deadline_is_ever_nudged(db):
     shirt = Item(id=uuid.uuid4(), name="T-Shirt (L)", category="merch", returnable_default=False)
     db.add_all([loc, shirt])
     await db.flush()
-    db.add(StockLevel(id=uuid.uuid4(), item_id=shirt.id, location_id=loc.id, qty=5))
+    wh = Warehouse(id=uuid.uuid4(), location_id=loc.id, name="Dubai Main")
+    db.add(wh)
+    await db.flush()
+    db.add(StockLevel(id=uuid.uuid4(), item_id=shirt.id, warehouse_id=wh.id, qty=5))
     await db.flush()
 
     await issue_merch(
-        db, actor_user_id=ops.id, item_id=shirt.id, to_user_id=person.id, from_location_id=loc.id
+        db, actor_user_id=ops.id, item_id=shirt.id, to_user_id=person.id, from_warehouse_id=wh.id
     )
 
     assert await _remind_overdue(db) == 0
@@ -214,11 +224,14 @@ async def test_overdue_reminders_are_also_sent_only_once(db):
     vest = Item(id=uuid.uuid4(), name="Vest (M)", category="merch", returnable_default=True)
     db.add_all([loc, vest])
     await db.flush()
-    db.add(StockLevel(id=uuid.uuid4(), item_id=vest.id, location_id=loc.id, qty=5))
+    wh = Warehouse(id=uuid.uuid4(), location_id=loc.id, name="Dubai Main")
+    db.add(wh)
+    await db.flush()
+    db.add(StockLevel(id=uuid.uuid4(), item_id=vest.id, warehouse_id=wh.id, qty=5))
     await db.flush()
     await issue_merch(
         db, actor_user_id=ops.id, item_id=vest.id, to_user_id=person.id,
-        from_location_id=loc.id, due_back_on=date.today() - timedelta(days=1),
+        from_warehouse_id=wh.id, due_back_on=date.today() - timedelta(days=1),
     )
 
     assert await _remind_overdue(db) == 1

@@ -8,6 +8,8 @@ import {
   getMaterialsApi,
   type MaterialOwner,
 } from "@/api/sessions/openings"
+import { useToast } from "@/components/ui/toast"
+import { InheritedBadge } from "@/pages/admin/components/InheritedFrom"
 
 /**
  * Teaching materials at one level of program → cohort → session (I5-6).
@@ -22,12 +24,16 @@ import {
  * for one cohort, and it is the part people get wrong when reading the word
  * "override".
  */
-export function MaterialsPanel({ owner, inheritedNote }: {
+export function MaterialsPanel({ owner, inheritedNote, level }: {
   owner: MaterialOwner
   /** e.g. "Sessions inherit these unless the cohort has its own." */
   inheritedNote?: string
+  /** Where this level inherits FROM, for the shared badge. Omit at the
+   *  program level — nothing sits above it to inherit from. */
+  level?: "program" | "cohort"
 }) {
   const qc = useQueryClient()
+  const toast = useToast()
   const fileRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState("")
   const [url, setUrl] = useState("")
@@ -41,23 +47,33 @@ export function MaterialsPanel({ owner, inheritedNote }: {
 
   const addLink = useMutation({
     mutationFn: () => addMaterialLinkApi({ owner, title: title || url, url }),
-    onSuccess: () => { setError(""); setTitle(""); setUrl(""); invalidate() },
+    onSuccess: () => { toast.success("Link added"); setError(""); setTitle(""); setUrl(""); invalidate() },
     onError,
   })
   const addFile = useMutation({
     mutationFn: (file: File) => addMaterialFileApi({ owner, title: title || file.name, file }),
-    onSuccess: () => { setError(""); setTitle(""); invalidate() },
+    onSuccess: () => { toast.success("File added"); setError(""); setTitle(""); invalidate() },
     onError,
   })
-  const remove = useMutation({ mutationFn: deleteMaterialApi, onSuccess: invalidate, onError })
+  const remove = useMutation({
+    mutationFn: deleteMaterialApi,
+    onSuccess: () => { toast.success("Material removed"); invalidate() },
+    onError,
+  })
 
   return (
     <div className="flex flex-col gap-3">
       <div>
-        <p className="text-sm font-semibold text-foreground">Materials</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-semibold text-foreground">Materials</p>
+          {/* Same pill the other three inheritance surfaces use — this panel
+              used to say it in prose only (2026-08-02). Only shown at the
+              levels that actually inherit; the program is the root. */}
+          {level && <InheritedBadge level={level} overridden={materials.length > 0} />}
+        </div>
         <p className="text-xs text-muted-foreground mt-0.5">
           Files and links. {inheritedNote}{" "}
-          Anything here <strong>replaces</strong> what would be inherited, rather than adding to it.
+          Anything here <strong>replaces</strong> what would otherwise apply, rather than adding to it.
         </p>
       </div>
 

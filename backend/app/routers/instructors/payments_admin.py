@@ -36,8 +36,8 @@ from app.schemas.instructors.payment import (
     PaymentLetterUpdate,
     PaymentSessionUpdate,
 )
-from app.schemas.sessions.journey import BillSessionsIn, UnbilledSessionOut
-from app.services.sessions.journey import unbilled_sessions
+from app.schemas.sessions.journey import BillSessionsIn, PendingPaymentInstructorOut, UnbilledSessionOut
+from app.services.sessions.journey import pending_payment_instructors, unbilled_sessions
 from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.payment_letter import (
@@ -105,6 +105,17 @@ async def delete_batch(
     await db.delete(batch)
     await db.commit()
     return {"status": "deleted"}
+
+
+# ── To-do: instructors awaiting a payment letter ────────────────
+
+@router.get("/todo", response_model=list[PendingPaymentInstructorOut])
+async def list_pending_payment_instructors(
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    """I5-8 follow-on: who has delivered completed sessions that aren't on a
+    payment letter yet, without admin having to already know who to check."""
+    return [PendingPaymentInstructorOut(**r) for r in await pending_payment_instructors(db)]
 
 
 # ── Letters ────────────────────────────────────────────────────
@@ -220,6 +231,7 @@ async def bill_sessions(
             sort_order=highest + offset,
         ))
 
+    _invalidate_pdf(letter)
     await db.commit()
     return await _letter_with_children(db, letter)
 
@@ -246,8 +258,23 @@ async def add_session(
         raise HTTPException(status_code=404, detail="Letter not found")
     _refuse_if_signed(letter)
     db.add(PaymentSession(payment_letter_id=letter_id, **body.model_dump()))
+    _invalidate_pdf(letter)
     await db.commit()
     return await _letter_with_children(db, letter)
+
+
+def _invalidate_pdf(letter: PaymentLetter) -> None:
+    """Clear the stored PDF whenever a line changes underneath it (2026-08-01).
+
+    `generate-pdf` is a one-shot snapshot, not something that reruns itself —
+    adding a session or add-on to an already-generated (even published) letter
+    left `pdf_url` pointing at a document whose tables and totals no longer
+    matched the actual lines, silently. Clearing it here means the frontend's
+    existing `!pdf_url -> "Generate PDF"` button does the right thing instead
+    of "View draft" quietly serving stale numbers.
+    """
+    letter.pdf_url = None
+    letter.pdf_path = None
 
 
 def _refuse_if_signed(letter: PaymentLetter | None) -> None:
@@ -285,6 +312,7 @@ async def update_session(
 
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(row, field, value)
+    _invalidate_pdf(letter)
     await db.commit()
     return await _letter_with_children(db, letter)
 
@@ -304,6 +332,7 @@ async def update_addon(
 
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(row, field, value)
+    _invalidate_pdf(letter)
     await db.commit()
     return await _letter_with_children(db, letter)
 
@@ -320,6 +349,7 @@ async def delete_session(
     )).scalars().first()
     _refuse_if_signed(letter)
     await db.delete(session_row)
+    _invalidate_pdf(letter)
     await db.commit()
     return {"status": "deleted"}
 
@@ -334,6 +364,7 @@ async def add_addon(
         raise HTTPException(status_code=404, detail="Letter not found")
     _refuse_if_signed(letter)
     db.add(PaymentAddon(payment_letter_id=letter_id, **body.model_dump()))
+    _invalidate_pdf(letter)
     await db.commit()
     return await _letter_with_children(db, letter)
 
@@ -350,6 +381,7 @@ async def delete_addon(
     )).scalars().first()
     _refuse_if_signed(letter)
     await db.delete(addon)
+    _invalidate_pdf(letter)
     await db.commit()
     return {"status": "deleted"}
 

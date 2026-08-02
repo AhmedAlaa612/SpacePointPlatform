@@ -188,6 +188,54 @@ async def test_update_cohort_opens_registration(db, client, operations_headers):
     assert cohort.status == "registration_open"
 
 
+@pytest.mark.asyncio
+async def test_list_cohorts_includes_operational_counts(db, client, operations_headers):
+    """The cohorts worklist needs these to answer "what needs attention"
+    without one request per cohort. Correlated subqueries, so sessions and
+    registrations must not multiply against each other."""
+    program = await _make_program(db)
+    cohort = await _make_cohort(db, program, starts_on=date(2026, 8, 3))
+    db.add(Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2030, 1, 5), staffing_status="unstaffed"))
+    db.add(Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2030, 1, 6), staffing_status="unstaffed"))
+    db.add(Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2030, 1, 7), staffing_status="staffed"))
+    await db.flush()
+
+    resp = await client.get("/sessions/cohorts", params={"program_id": str(program.id)}, headers=operations_headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()[0]
+    assert body["sessions_count"] == 3
+    assert body["unstaffed_count"] == 2
+    assert body["registrations_count"] == 0
+    assert body["next_session_date"] == "2030-01-05"
+
+
+@pytest.mark.asyncio
+async def test_get_cohort_includes_program_name(db, client, operations_headers):
+    """Regression test — get_cohort used to call _cohort_out without the
+    program, so program_name/program_code came back null on every cohort
+    detail page even though list_cohorts got it right."""
+    program = await _make_program(db, name="Solar System Explorers", code="SSE-1")
+    cohort = await _make_cohort(db, program)
+
+    resp = await client.get(f"/sessions/cohorts/{cohort.id}", headers=operations_headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["program_name"] == "Solar System Explorers"
+    assert resp.json()["program_code"] == "SSE-1"
+
+
+@pytest.mark.asyncio
+async def test_update_cohort_keeps_program_name(db, client, operations_headers):
+    """Same regression as above, for update_cohort's response."""
+    program = await _make_program(db, name="Solar System Explorers", code="SSE-1")
+    cohort = await _make_cohort(db, program, status="planned")
+
+    resp = await client.patch(
+        f"/sessions/cohorts/{cohort.id}", json={"status": "registration_open"}, headers=operations_headers
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["program_name"] == "Solar System Explorers"
+
+
 # ── Session generation ───────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

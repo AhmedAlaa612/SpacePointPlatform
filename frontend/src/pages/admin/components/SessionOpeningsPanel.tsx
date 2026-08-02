@@ -12,6 +12,8 @@ import {
   updateAddonApi,
   type SessionAddon,
 } from "@/api/sessions/openings"
+import { useToast } from "@/components/ui/toast"
+import { InheritedBadge } from "@/pages/admin/components/InheritedFrom"
 
 /**
  * The offer, per role (I5-4) and its add-ons (§G-addons) — on the ops session
@@ -28,6 +30,7 @@ import {
  */
 export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
   const qc = useQueryClient()
+  const toast = useToast()
   const [error, setError] = useState("")
   const [draft, setDraft] = useState<
     { role_id: string; slots: number; amount_aed: string; notes: string }[] | null
@@ -75,30 +78,40 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
         notes: d.notes || null,
       })),
     }),
-    onSuccess: () => { setError(""); setDraft(null); invalidate() },
+    onSuccess: () => { toast.success("Openings saved"); setError(""); setDraft(null); invalidate() },
     onError,
   })
 
   const [addonDesc, setAddonDesc] = useState("")
   const [addonAmount, setAddonAmount] = useState("")
+  const [addonRoleId, setAddonRoleId] = useState("")
   const addAddon = useMutation({
     mutationFn: () => createAddonApi({
       sessionId, description: addonDesc, amount_aed: Number(addonAmount) || 0, source: "offer",
+      role_id: addonRoleId || null,
     }),
-    onSuccess: () => { setAddonDesc(""); setAddonAmount(""); invalidate() },
+    onSuccess: () => { toast.success("Add-on added"); setAddonDesc(""); setAddonAmount(""); setAddonRoleId(""); invalidate() },
     onError,
   })
-  const decide = useMutation({ mutationFn: decideAddonApi, onSuccess: invalidate, onError })
+  const decide = useMutation({
+    mutationFn: decideAddonApi,
+    onSuccess: (_data, variables) => { toast.success(variables.status === "agreed" ? "Add-on agreed" : "Add-on declined"); invalidate() },
+    onError,
+  })
 
   const [editingAddon, setEditingAddon] = useState<string | null>(null)
   const [editDesc, setEditDesc] = useState("")
   const [editAmount, setEditAmount] = useState("")
   const updateAddon = useMutation({
     mutationFn: updateAddonApi,
-    onSuccess: () => { setEditingAddon(null); invalidate() },
+    onSuccess: () => { toast.success("Add-on updated"); setEditingAddon(null); invalidate() },
     onError,
   })
-  const removeAddon = useMutation({ mutationFn: deleteAddonApi, onSuccess: invalidate, onError })
+  const removeAddon = useMutation({
+    mutationFn: deleteAddonApi,
+    onSuccess: () => { toast.success("Add-on removed"); invalidate() },
+    onError,
+  })
 
   const startEditingAddon = (a: SessionAddon) => {
     setEditingAddon(a.id)
@@ -106,12 +119,19 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
     setEditAmount(String(a.amount_aed))
   }
 
+  const inherited = openings.some((o) => o.inherited)
+
   return (
     <div className="rounded-2xl border border-border bg-card p-4 flex flex-col gap-3">
       <div>
-        <p className="text-sm font-semibold text-foreground">What this session is offering</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-sm font-semibold text-foreground">What this session is offering</p>
+          {/* Shared pill, not this panel's own purple one (2026-08-02). */}
+          <InheritedBadge overridden={!inherited && openings.length > 0} />
+        </div>
         <p className="text-xs text-muted-foreground mt-0.5">
           Per role — slots and the amount. Slots left is worked out from who&apos;s assigned.
+          {inherited && " Saving customizes just this session — the cohort default stays as-is for the others."}
         </p>
       </div>
 
@@ -274,17 +294,24 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
           <p className="text-sm text-muted-foreground">Nothing extra on this session.</p>
         )}
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <input
             placeholder="Poster printing" value={addonDesc}
             onChange={(e) => setAddonDesc(e.target.value)}
-            className="flex-1 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
+            className="flex-1 min-w-[8rem] h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
           />
           <input
             type="number" min={0} placeholder="AED" value={addonAmount}
             onChange={(e) => setAddonAmount(e.target.value)}
             className="!w-24 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
           />
+          <select
+            value={addonRoleId} onChange={(e) => setAddonRoleId(e.target.value)}
+            className="h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
+          >
+            <option value="">All roles</option>
+            {roles.map((r) => <option key={r.id} value={r.id}>{r.name} only</option>)}
+          </select>
           <button
             onClick={() => addAddon.mutate()}
             disabled={!addonDesc || addAddon.isPending}

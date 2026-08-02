@@ -23,6 +23,8 @@ export const createCohortApi = (data: {
   starts_on?: string
   ends_on?: string
   location?: string
+  location_id?: string | null
+  warehouse_id?: string | null
   capacity?: number
   status?: CohortStatus
   visibility?: CohortVisibility
@@ -36,6 +38,8 @@ export const updateCohortApi = (
     starts_on: string | null
     ends_on: string | null
     location: string | null
+    location_id: string | null
+    warehouse_id: string | null
     capacity: number | null
     status: CohortStatus
     visibility: CohortVisibility
@@ -59,7 +63,14 @@ export const addSessionApi = (
 export const updateSessionApi = (
   cohortId: string,
   sessionId: string,
-  data: Partial<{ meeting_date: string; starts_at: string | null; title: string | null; material_url: string | null; price: number | null }>
+  data: Partial<{
+    meeting_date: string; starts_at: string | null; title: string | null
+    material_url: string | null; price: number | null
+    /** null clears the override back to "inherit the cohort's location". */
+    location_id: string | null
+    /** null clears the override back to "inherit the cohort's warehouse". */
+    warehouse_id: string | null
+  }>
 ) => api.patch<Session>(`/sessions/cohorts/${cohortId}/sessions/${sessionId}`, data).then((r) => r.data)
 
 export const assignInstructorApi = (
@@ -68,6 +79,22 @@ export const assignInstructorApi = (
 
 export const unassignInstructorApi = (cohortId: string, sessionId: string, userId: string) =>
   api.delete(`/sessions/cohorts/${cohortId}/sessions/${sessionId}/instructors/${userId}`).then((r) => r.data)
+
+export interface BulkActionResult {
+  succeeded: string[]
+  failed: { session_id: string; detail: string }[]
+}
+
+/** Same instructor/role onto every listed session — a cohort with 100
+ *  sessions shouldn't mean 100 taps. Partial failure doesn't roll back the
+ *  rest; check `failed` for anything that didn't go through. */
+export const bulkAssignInstructorApi = (
+  cohortId: string, data: { session_ids: string[]; user_id: string; role_id?: string }
+) => api.post<BulkActionResult>(`/sessions/cohorts/${cohortId}/sessions/bulk-assign-instructor`, data).then((r) => r.data)
+
+export const bulkOpenCallApi = (
+  cohortId: string, data: { session_ids: string[]; target_user_ids?: string[]; role_ids?: string[] }
+) => api.post<BulkActionResult>(`/sessions/cohorts/${cohortId}/sessions/bulk-open-call`, data).then((r) => r.data)
 
 export const getRegistrationsApi = (cohortId: string) =>
   api.get<Registration[]>(`/sessions/cohorts/${cohortId}/registrations`).then((r) => r.data)
@@ -107,3 +134,64 @@ export const deleteRegistrationApi = (registrationId: string, deleteContact = fa
   api
     .delete<void>(`/sessions/registrations/${registrationId}`, { params: { delete_contact: deleteContact } })
     .then((r) => r.data)
+
+export interface SessionHistoryMovement {
+  id: string
+  reason: string
+  subject: string
+  is_kit: boolean
+  qty: number | null
+  from_warehouse_name?: string | null
+  to_warehouse_name?: string | null
+  from_location_name?: string | null
+  to_location_name?: string | null
+  actor_name: string
+  actor_role: string
+  created_at?: string | null
+  due_back_on?: string | null
+  note?: string | null
+}
+
+export interface SessionHistoryKitCheck {
+  id: string
+  kit_id: string
+  kit_label: string
+  phase: string
+  skipped: boolean
+  actor_name: string
+  actor_role: string
+  counts: Record<string, number>
+  missing: Record<string, number>
+  note?: string | null
+  created_at?: string | null
+}
+
+export interface SessionHistoryResponse {
+  session_id: string
+  started_at?: string | null
+  completed_at?: string | null
+  notes?: string | null
+  pre_session: {
+    movements: SessionHistoryMovement[]
+    kit_checks: SessionHistoryKitCheck[]
+  }
+  during_session: {
+    attendance: {
+      present: number
+      absent: number
+      late: number
+      excused: number
+      total: number
+      records: { registration_id: string; student_name: string; status: string; marked_at?: string | null }[]
+    }
+  }
+  post_session: {
+    movements: SessionHistoryMovement[]
+    kit_checks: SessionHistoryKitCheck[]
+    reports: { id: string; file_url: string; notes?: string | null; actor_name: string; actor_role: string; created_at?: string | null }[]
+    addons: any[]
+  }
+}
+
+export const getSessionHistoryApi = (sessionId: string) =>
+  api.get<SessionHistoryResponse>(`/sessions/${sessionId}/history`).then((r) => r.data)

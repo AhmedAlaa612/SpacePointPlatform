@@ -24,6 +24,7 @@ from app.models.inventory import (
     Location,
     Movement,
     StockLevel,
+    Warehouse,
 )
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
@@ -68,15 +69,25 @@ async def _user(db) -> User:
     return user
 
 
-async def _kit(db, *, template=None, location=None, label=None, **kw) -> Kit:
+async def _warehouse(db, location=None, name=None) -> Warehouse:
+    location = location or await _location(db)
+    wh = Warehouse(id=uuid.uuid4(), location_id=location.id, name=name or f"{location.name} Main")
+    db.add(wh)
+    await db.flush()
+    return wh
+
+
+async def _kit(db, *, template=None, location=None, warehouse=None, label=None, **kw) -> Kit:
     template = template or await _template(db)
     location = location or await _location(db)
+    warehouse = warehouse or await _warehouse(db, location)
     kit = Kit(
         id=uuid.uuid4(),
         template_id=template.id,
         label=label or f"SP-SATKIT-{uuid.uuid4().hex[:4]}",
         public_token=uuid.uuid4().hex * 2,  # 64 chars
         current_location_id=location.id,
+        current_warehouse_id=warehouse.id,
         **kw,
     )
     db.add(kit)
@@ -107,7 +118,7 @@ async def test_full_kit_with_contents_and_template(db):
     """The whole serialised path in one go: template -> BOM -> kit -> contents."""
     tpl = await _template(db, code="SATKIT")
     board = await _item(db, name="EPS Board", category="board")
-    screw = await _item(db, name="M3 Screw", category="mechanical", is_consumable=True)
+    screw = await _item(db, name="M3 Screw", category="mechanical")
 
     db.add_all([
         KitTemplateItem(id=uuid.uuid4(), template_id=tpl.id, item_id=board.id, required_qty=1),
@@ -129,13 +140,15 @@ async def test_full_kit_with_contents_and_template(db):
 
 
 @pytest.mark.asyncio
-async def test_stock_level_per_item_per_location(db):
+async def test_stock_level_per_item_per_warehouse(db):
     item = await _item(db)
     dubai = await _location(db, name="Dubai")
     egypt = await _location(db, name="Cairo", country="EG")
+    dubai_wh = await _warehouse(db, dubai)
+    egypt_wh = await _warehouse(db, egypt)
     db.add_all([
-        StockLevel(id=uuid.uuid4(), item_id=item.id, location_id=dubai.id, qty=40),
-        StockLevel(id=uuid.uuid4(), item_id=item.id, location_id=egypt.id, qty=6),
+        StockLevel(id=uuid.uuid4(), item_id=item.id, warehouse_id=dubai_wh.id, qty=40),
+        StockLevel(id=uuid.uuid4(), item_id=item.id, warehouse_id=egypt_wh.id, qty=6),
     ])
     await db.flush()
 
@@ -208,14 +221,15 @@ async def test_a_kit_cannot_hold_the_same_item_twice(db):
 
 
 @pytest.mark.asyncio
-async def test_stock_is_one_row_per_item_and_location(db):
+async def test_stock_is_one_row_per_item_and_warehouse(db):
     item = await _item(db)
     loc = await _location(db)
-    db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, location_id=loc.id, qty=1))
+    wh = await _warehouse(db, loc)
+    db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, warehouse_id=wh.id, qty=1))
     await db.flush()
     with pytest.raises(IntegrityError):
         async with db.begin_nested():
-            db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, location_id=loc.id, qty=2))
+            db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, warehouse_id=wh.id, qty=2))
             await db.flush()
 
 
@@ -320,6 +334,9 @@ async def test_real_world_values_fit_their_columns(db):
     store."""
     loc = Location(id=uuid.uuid4(), name="SpacePoint Main Warehouse — Dubai", country="AE")
     db.add(loc)
+    await db.flush()
+    wh = Warehouse(id=uuid.uuid4(), location_id=loc.id, name="SpacePoint Main Warehouse — Dubai")
+    db.add(wh)
     tpl = KitTemplate(id=uuid.uuid4(), name="Mission Payload Kit v1", code="MPKIT")
     db.add(tpl)
     item = Item(
@@ -336,6 +353,7 @@ async def test_real_world_values_fit_their_columns(db):
         public_token=uuid.uuid4().hex * 2,  # 64 chars, the max
         status="retired",
         current_location_id=loc.id,
+        current_warehouse_id=wh.id,
     )
     db.add(kit)
     actor = await _user(db)

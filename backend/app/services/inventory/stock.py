@@ -5,7 +5,7 @@ adjustments table. The legacy system had `component_logs` alongside
 `components`; keeping one ledger means "why is there one fewer of these than
 last week" has a single place to look.
 
-Refilling a kit is `move(item_id=…, from_location_id=…, to_kit_id=…)` — the
+Refilling a kit is `move(item_id=…, from_warehouse_id=…, to_kit_id=…)` — the
 schema gap that blocked it is closed (migration e6b2d84a0017). The storekeeper
 *workflow* around it (a shortage becoming a task, and closing that task) is
 still I3-1; the mechanic itself lives in `move()`, so there is one write path
@@ -27,7 +27,7 @@ async def adjust_stock(
     *,
     actor_user_id: uuid.UUID,
     item_id: uuid.UUID,
-    location_id: uuid.UUID,
+    warehouse_id: uuid.UUID,
     new_qty: int,
     reason: str,
 ) -> Movement:
@@ -46,7 +46,7 @@ async def adjust_stock(
 
     level = (await db.execute(
         select(StockLevel).where(
-            StockLevel.item_id == item_id, StockLevel.location_id == location_id
+            StockLevel.item_id == item_id, StockLevel.warehouse_id == warehouse_id
         )
     )).scalars().first()
 
@@ -56,7 +56,7 @@ async def adjust_stock(
         raise HTTPException(409, detail="That is already the recorded quantity")
 
     if level is None:
-        level = StockLevel(id=uuid.uuid4(), item_id=item_id, location_id=location_id, qty=0)
+        level = StockLevel(id=uuid.uuid4(), item_id=item_id, warehouse_id=warehouse_id, qty=0)
         db.add(level)
     level.qty = new_qty
 

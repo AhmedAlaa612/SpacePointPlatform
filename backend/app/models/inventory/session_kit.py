@@ -8,12 +8,13 @@ from app.db.base import Base
 
 
 class SessionKit(Base):
-    """A kit ops has earmarked for a session.
-
-    Distinct from custody: assigning a kit on Tuesday and physically handing it
-    over on Thursday are different events. This is the plan; `movements` is
-    what actually happened. Keeping them separate is what lets the pre-session
-    check say "you were supposed to have five kits and you confirmed four".
+    """A kit ops has earmarked for a session — and the whole session-side
+    story of that kit. There is no custody leg: nobody "hands" a kit to an
+    instructor and nobody has to hand it back to one. The instructor confirms,
+    per kit, that they have it (`received_at`) and later reports it back or
+    says it's coming later (`return_status`). Ops reviews that report
+    (`ops_confirmed_at`) and, separately and optionally, moves the kit onto a
+    shelf — an ordinary inventory move, not something this record triggers.
     """
 
     __tablename__ = "session_kits"
@@ -30,6 +31,20 @@ class SessionKit(Base):
     )
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    # The instructor confirming they physically have the kit, pre-session.
+    received_at = Column(DateTime(timezone=True), nullable=True)
+    received_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+    # returned | return_later — what the instructor reported, post-session.
+    return_status = Column(String(16), nullable=True)
+    returned_at = Column(DateTime(timezone=True), nullable=True)
+    returned_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    return_note = Column(Text, nullable=True)
+
+    # Ops reviewing that report, in the session review screen.
+    ops_confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    ops_confirmed_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class KitCheck(Base):

@@ -30,11 +30,13 @@ from app.core.dependencies import require_operations, require_storekeeper
 from app.db.session import get_db
 from app.models.inventory.item import Item
 from app.models.inventory.location import Location
+from app.models.inventory.warehouse import Warehouse
 from app.models.inventory.movement import Movement
 from app.models.inventory.stock import StockLevel
 from app.models.user import User
 from app.schemas.inventory.kits import (
     MovementOut,
+    StockAdjustBulkIn,
     StockAdjustIn,
     StockLevelOut,
     StockMoveIn,
@@ -47,28 +49,41 @@ router = APIRouter(prefix="/inventory", tags=["inventory-stock"])
 @router.get("/stock", response_model=list[StockLevelOut])
 async def list_stock(
     location_id: uuid.UUID | None = None,
+    warehouse_id: uuid.UUID | None = None,
     item_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_storekeeper),
 ):
+    """`warehouse_id` is the real filter; `location_id` is a convenience that
+    widens it to every warehouse under that location — stock is kept per
+    warehouse (2026-08-01), a location can hold more than one."""
     stmt = (
-        select(StockLevel, Item, Location)
+        select(StockLevel, Item, Location, Warehouse)
         .join(Item, Item.id == StockLevel.item_id)
-        .join(Location, Location.id == StockLevel.location_id)
-        .order_by(Location.name, Item.name)
+        .join(Warehouse, Warehouse.id == StockLevel.warehouse_id)
+        .join(Location, Location.id == Warehouse.location_id)
+        .order_by(Location.name, Warehouse.name, Item.name)
     )
     if location_id:
-        stmt = stmt.where(StockLevel.location_id == location_id)
+        stmt = stmt.where(Warehouse.location_id == location_id)
+    if warehouse_id:
+        stmt = stmt.where(StockLevel.warehouse_id == warehouse_id)
     if item_id:
         stmt = stmt.where(StockLevel.item_id == item_id)
 
+    rows = (await db.execute(stmt)).all()
     return [
         StockLevelOut(
-            item_id=item.id, item_name=item.name,
-            location_id=location.id, location_name=location.name,
+            item_id=item.id,
+            item_name=item.name,
+            category=item.category,
+            location_id=location.id,
+            location_name=location.name,
+            warehouse_id=wh.id,
+            warehouse_name=wh.name,
             qty=level.qty,
         )
-        for level, item, location in (await db.execute(stmt)).all()
+        for level, item, location, wh in rows
     ]
 
 
@@ -79,16 +94,16 @@ async def move_stock(
     current_user: User = Depends(require_storekeeper),
 ):
     """Move a quantity of one item. A refill into a kit is
-    `from_location_id` + `to_kit_id`; receiving goods has no source."""
+    `from_warehouse_id` + `to_kit_id`; receiving goods has no source."""
     movement = await move(
         db,
         actor_user_id=current_user.id,
         reason=body.reason,
         item_id=body.item_id,
         qty=body.qty,
-        from_location_id=body.from_location_id,
+        from_warehouse_id=body.from_warehouse_id,
         from_kit_id=body.from_kit_id,
-        to_location_id=body.to_location_id,
+        to_warehouse_id=body.to_warehouse_id,
         to_user_id=body.to_user_id,
         to_kit_id=body.to_kit_id,
         due_back_on=body.due_back_on,
@@ -108,20 +123,61 @@ async def adjust(
     """Correct a stock level to the counted total. Reason is mandatory."""
     if await db.get(Item, body.item_id) is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown item")
-    if await db.get(Location, body.location_id) is None:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown location")
+    if await db.get(Warehouse, body.warehouse_id) is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown warehouse")
 
     movement = await adjust_stock(
         db,
         actor_user_id=current_user.id,
         item_id=body.item_id,
-        location_id=body.location_id,
+        warehouse_id=body.warehouse_id,
         new_qty=body.new_qty,
         reason=body.reason,
     )
     await db.commit()
     await db.refresh(movement)
     return movement
+
+
+@router.post("/stock/adjust-bulk", response_model=list[MovementOut], status_code=status.HTTP_201_CREATED)
+async def adjust_bulk(
+    body: StockAdjustBulkIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_storekeeper),
+):
+    """One stocktake, many item/warehouse counts, one reason. Loops the same
+    `adjust_stock()` a single correction uses, in one transaction, skipping
+    rows where the count didn't change instead of failing the whole save on
+    the first one (`adjust_stock`'s own 409)."""
+    for line in body.levels:
+        if await db.get(Item, line.item_id) is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown item")
+        if await db.get(Warehouse, line.warehouse_id) is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown warehouse")
+
+    movements = []
+    for line in body.levels:
+        try:
+            movements.append(await adjust_stock(
+                db,
+                actor_user_id=current_user.id,
+                item_id=line.item_id,
+                warehouse_id=line.warehouse_id,
+                new_qty=line.new_qty,
+                reason=body.reason,
+            ))
+        except HTTPException as e:
+            if e.status_code == status.HTTP_409_CONFLICT:
+                continue
+            raise
+
+    if not movements:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Nothing changed")
+
+    await db.commit()
+    for m in movements:
+        await db.refresh(m)
+    return movements
 
 
 # ── the ledger ──────────────────────────────────────────────────────────────

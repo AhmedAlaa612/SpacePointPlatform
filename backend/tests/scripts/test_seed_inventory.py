@@ -73,18 +73,6 @@ async def test_an_existing_quantity_is_never_overwritten(db):
 
 
 @pytest.mark.asyncio
-async def test_screws_are_consumable_and_boards_are_not(db):
-    """Consumables are excluded from completeness entirely, so this flag
-    decides whether the shortage list stays readable."""
-    await seed(db, dry_run=True)
-
-    screw = (await db.execute(select(Item).where(Item.name == "M3 Screw"))).scalars().first()
-    board = (await db.execute(select(Item).where(Item.name == "ADCS Board"))).scalars().first()
-    assert screw.is_consumable is True
-    assert board.is_consumable is False
-
-
-@pytest.mark.asyncio
 async def test_merch_is_sized_and_only_the_right_things_come_back(db):
     await seed(db, dry_run=True)
 

@@ -29,6 +29,20 @@ export interface SessionOpening {
   /** Whether this role is currently being solicited (B2). Ops sees closed
    *  ones too; instructors only ever see `true` rows. */
   is_open: boolean
+  /** True when this came from the cohort's default template rather than a
+   *  SessionOpening row of its own (2026-08-01) — saving for this session
+   *  overrides the template from then on. */
+  inherited?: boolean
+}
+
+export interface CohortOpening {
+  id: string
+  cohort_id: string
+  role_id: string
+  role_name: string
+  slots: number
+  amount_aed: string | number | null
+  notes: string | null
 }
 
 export type AddonSource = "offer" | "interest" | "invite" | "survey" | "payment"
@@ -80,6 +94,16 @@ export const setOpeningsApi = ({ sessionId, openings }: {
   sessionId: string
   openings: { role_id: string; slots: number; amount_aed?: number | null; notes?: string | null }[]
 }) => api.put<SessionOpening[]>(`/sessions/${sessionId}/openings`, { openings }).then((r) => r.data)
+
+/* ── cohort-level opening defaults (2026-08-01) ──────────────────────────── */
+
+export const getCohortOpeningsApi = (cohortId: string) =>
+  api.get<CohortOpening[]>(`/sessions/cohorts/${cohortId}/openings-defaults`).then((r) => r.data)
+
+export const setCohortOpeningsApi = ({ cohortId, openings }: {
+  cohortId: string
+  openings: { role_id: string; slots: number; amount_aed?: number | null; notes?: string | null }[]
+}) => api.put<CohortOpening[]>(`/sessions/cohorts/${cohortId}/openings-defaults`, { openings }).then((r) => r.data)
 
 /* ── add-ons ───────────────────────────────────────────────────────────── */
 

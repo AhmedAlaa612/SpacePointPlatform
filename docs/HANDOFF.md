@@ -33,6 +33,7 @@ codebase.** Ask for its location.
 | [`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md) | Applicant pipeline, contracts, payments, certificates |
 | [`HANDOFF_INTERNS.md`](./HANDOFF_INTERNS.md) | Projects, epics, tasks, kanban, teams |
 | [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions |
+| [`HANDOFF_INVENTORY_TESTING.md`](./HANDOFF_INVENTORY_TESTING.md) | **Untested as of 2026-08-02** — bulk stock counts, direct kit counts, inventory UI fast-follows, and lightweight T-shirt-style size/variant grouping, all built same-day; unit/type-checked but never browser-verified. **Needs `alembic upgrade head` run against `spacepoint_dev` before browser testing.** Read before touching Stock/Catalogue/Fulfilment/Kits pages |
 | `HANDOFF_EVERYTHING.md` *(repo root)* | **Historical** — a session log from 2026-07-25, predates the cutover. Not current state |
 
 Credentials are in `secrets.md` / `vps_envs.md`, kept out of version control (one directory

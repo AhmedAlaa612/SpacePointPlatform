@@ -113,7 +113,6 @@
   select:not(.hidden):not(.sr-only),
   textarea:not(.hidden):not(.sr-only) {
     display: flex;
-    width: 100%;
     border-radius: var(--radius);
     border: 1px solid hsl(var(--border));
     background-color: hsl(var(--background));
@@ -124,12 +123,12 @@
     transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
   }
 
-  /* Padding lives in :where() (zero specificity) so padding utilities can
-     actually win — `pl-9` on a search field was being overridden back to
-     0.75rem, dropping the text on top of the search icon. */
+  /* Width & padding live in :where() (zero specificity) so width/padding
+     utilities (e.g. `w-24`, `pl-9`) can actually win over base defaults. */
   :where(input:not([type="checkbox"]):not([type="radio"])),
   :where(select),
   :where(textarea) {
+    width: 100%;
     padding: 0.5rem 0.75rem;
   }
 

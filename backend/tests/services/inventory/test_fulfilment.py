@@ -12,7 +12,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.models.inventory import Item, Kit, KitItem, KitTemplate, Location, StockLevel
+from app.models.inventory import Item, Kit, KitItem, KitTemplate, Location, StockLevel, Warehouse
 from app.models.inventory.kit_template import KitTemplateItem
 from app.models.user import User
 from app.services.inventory import (
@@ -40,17 +40,24 @@ async def _loc(db, name="Dubai") -> Location:
     return loc
 
 
-async def _item(db, name="MPU", consumable=False) -> Item:
+async def _wh(db, loc, name=None) -> Warehouse:
+    wh = Warehouse(id=uuid.uuid4(), location_id=loc.id, name=name or f"{loc.name} Main")
+    db.add(wh)
+    await db.flush()
+    return wh
+
+
+async def _item(db, name="MPU") -> Item:
     item = Item(
         id=uuid.uuid4(), name=f"{name} {uuid.uuid4().hex[:4]}", category="board",
-        is_consumable=consumable, returnable_default=False,
+        returnable_default=False,
     )
     db.add(item)
     await db.flush()
     return item
 
 
-async def _kit_needing(db, loc, needs: list[tuple[Item, int, int]]) -> Kit:
+async def _kit_needing(db, wh, needs: list[tuple[Item, int, int]]) -> Kit:
     """`needs` is (item, required, actually_present)."""
     tpl = KitTemplate(id=uuid.uuid4(), name="SatKit", code=f"T{uuid.uuid4().hex[:5]}")
     db.add(tpl)
@@ -61,7 +68,8 @@ async def _kit_needing(db, loc, needs: list[tuple[Item, int, int]]) -> Kit:
         ))
     kit = Kit(
         id=uuid.uuid4(), template_id=tpl.id, label=f"SP-K-{uuid.uuid4().hex[:6]}",
-        public_token=uuid.uuid4().hex * 2, current_location_id=loc.id,
+        public_token=uuid.uuid4().hex * 2, current_location_id=wh.location_id,
+        current_warehouse_id=wh.id,
     )
     db.add(kit)
     await db.flush()
@@ -72,8 +80,8 @@ async def _kit_needing(db, loc, needs: list[tuple[Item, int, int]]) -> Kit:
     return kit
 
 
-async def _stock(db, item, loc, qty) -> None:
-    db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, location_id=loc.id, qty=qty))
+async def _stock(db, item, wh, qty) -> None:
+    db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, warehouse_id=wh.id, qty=qty))
     await db.flush()
 
 
@@ -82,9 +90,10 @@ async def _stock(db, item, loc, qty) -> None:
 @pytest.mark.asyncio
 async def test_a_short_kit_appears_with_what_is_on_its_own_shelf(db):
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     mpu = await _item(db)
-    kit = await _kit_needing(db, loc, [(mpu, 5, 3)])
-    await _stock(db, mpu, loc, 10)
+    kit = await _kit_needing(db, wh, [(mpu, 5, 3)])
+    await _stock(db, mpu, wh, 10)
 
     [row] = [r for r in await fulfilment_queue(db) if r["kit_id"] == kit.id]
     assert row["label"] == kit.label
@@ -99,9 +108,10 @@ async def test_stock_at_another_warehouse_does_not_count_as_available(db):
     """The storekeeper is standing at one shelf. Counting a part 400km away as
     available is how the list stops being trusted."""
     here, elsewhere = await _loc(db, "Dubai"), await _loc(db, "Sharjah")
+    here_wh, elsewhere_wh = await _wh(db, here), await _wh(db, elsewhere)
     mpu = await _item(db)
-    kit = await _kit_needing(db, here, [(mpu, 5, 3)])
-    await _stock(db, mpu, elsewhere, 50)
+    kit = await _kit_needing(db, here_wh, [(mpu, 5, 3)])
+    await _stock(db, mpu, elsewhere_wh, 50)
 
     [row] = [r for r in await fulfilment_queue(db) if r["kit_id"] == kit.id]
     assert row["shortages"][0]["available"] == 0
@@ -111,29 +121,34 @@ async def test_stock_at_another_warehouse_does_not_count_as_available(db):
 @pytest.mark.asyncio
 async def test_a_complete_kit_is_not_in_the_queue_at_all(db):
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     mpu = await _item(db)
-    kit = await _kit_needing(db, loc, [(mpu, 5, 5)])
+    kit = await _kit_needing(db, wh, [(mpu, 5, 5)])
 
     assert [r for r in await fulfilment_queue(db) if r["kit_id"] == kit.id] == []
 
 
 @pytest.mark.asyncio
-async def test_consumables_never_put_a_kit_in_the_queue(db):
-    """D10. Twenty screws per kit means a post-workshop count is always short a
-    few; counting them makes the queue permanently non-empty and the missing
-    ADCS board hides inside it."""
+async def test_a_shortage_of_small_parts_still_puts_a_kit_in_the_queue(db):
+    """Operator decision, 2026-08-01: every item counts toward completeness,
+    small parts included — the earlier `is_consumable` exclusion (D10) is
+    reversed. A kit short 16 screws is exactly as incomplete as one missing
+    an ADCS board."""
     loc = await _loc(db)
-    screw = await _item(db, name="M3 screw", consumable=True)
-    kit = await _kit_needing(db, loc, [(screw, 20, 4)])
+    wh = await _wh(db, loc)
+    screw = await _item(db, name="M3 screw")
+    kit = await _kit_needing(db, wh, [(screw, 20, 4)])
 
-    assert [r for r in await fulfilment_queue(db) if r["kit_id"] == kit.id] == []
+    [row] = [r for r in await fulfilment_queue(db) if r["kit_id"] == kit.id]
+    assert row["shortages"][0]["short_by"] == 16
 
 
 @pytest.mark.asyncio
 async def test_retired_and_lost_kits_are_left_out(db):
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     mpu = await _item(db)
-    kit = await _kit_needing(db, loc, [(mpu, 5, 0)])
+    kit = await _kit_needing(db, wh, [(mpu, 5, 0)])
     kit.status = "retired"
     await db.flush()
 
@@ -141,11 +156,12 @@ async def test_retired_and_lost_kits_are_left_out(db):
 
 
 @pytest.mark.asyncio
-async def test_the_queue_can_be_filtered_to_one_warehouse(db):
+async def test_the_queue_can_be_filtered_to_one_location(db):
     dubai, sharjah = await _loc(db, "Dubai"), await _loc(db, "Sharjah")
+    dubai_wh, sharjah_wh = await _wh(db, dubai), await _wh(db, sharjah)
     mpu = await _item(db)
-    mine = await _kit_needing(db, dubai, [(mpu, 5, 1)])
-    theirs = await _kit_needing(db, sharjah, [(mpu, 5, 1)])
+    mine = await _kit_needing(db, dubai_wh, [(mpu, 5, 1)])
+    theirs = await _kit_needing(db, sharjah_wh, [(mpu, 5, 1)])
 
     ids = {r["kit_id"] for r in await fulfilment_queue(db, location_id=dubai.id)}
     assert mine.id in ids and theirs.id not in ids
@@ -159,19 +175,20 @@ async def test_fulfilling_moves_stock_into_the_kit_and_closes_the_task(db):
     drops off the queue on its own."""
     keeper = await _user(db)
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     mpu = await _item(db)
-    kit = await _kit_needing(db, loc, [(mpu, 5, 3)])
-    await _stock(db, mpu, loc, 10)
+    kit = await _kit_needing(db, wh, [(mpu, 5, 3)])
+    await _stock(db, mpu, wh, 10)
 
     [movement] = await fulfil_kit(
         db, kit=kit, lines=[(mpu.id, 2)], actor_user_id=keeper.id
     )
     assert movement.reason == "refill"
-    assert movement.from_location_id == loc.id     # the kit's own shelf, derived
+    assert movement.from_warehouse_id == wh.id     # the kit's own shelf, derived
     assert movement.to_kit_id == kit.id
 
     level = (await db.execute(select(StockLevel).where(
-        StockLevel.item_id == mpu.id, StockLevel.location_id == loc.id
+        StockLevel.item_id == mpu.id, StockLevel.warehouse_id == wh.id
     ))).scalars().first()
     assert level.qty == 8
 
@@ -189,9 +206,10 @@ async def test_fulfilling_more_than_the_shelf_holds_is_refused(db):
     the storekeeper's numbers are the ones everyone else relies on."""
     keeper = await _user(db)
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     mpu = await _item(db)
-    kit = await _kit_needing(db, loc, [(mpu, 5, 0)])
-    await _stock(db, mpu, loc, 2)
+    kit = await _kit_needing(db, wh, [(mpu, 5, 0)])
+    await _stock(db, mpu, wh, 2)
 
     with pytest.raises(HTTPException) as exc:
         await fulfil_kit(db, kit=kit, lines=[(mpu.id, 5)], actor_user_id=keeper.id)
@@ -202,9 +220,10 @@ async def test_fulfilling_more_than_the_shelf_holds_is_refused(db):
 async def test_a_partial_fulfilment_leaves_the_kit_in_the_queue(db):
     keeper = await _user(db)
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     mpu = await _item(db)
-    kit = await _kit_needing(db, loc, [(mpu, 5, 0)])
-    await _stock(db, mpu, loc, 10)
+    kit = await _kit_needing(db, wh, [(mpu, 5, 0)])
+    await _stock(db, mpu, wh, 10)
 
     await fulfil_kit(db, kit=kit, lines=[(mpu.id, 3)], actor_user_id=keeper.id)
 
@@ -216,15 +235,16 @@ async def test_a_partial_fulfilment_leaves_the_kit_in_the_queue(db):
 async def test_parts_can_be_pulled_from_another_warehouse_when_asked(db):
     keeper = await _user(db)
     here, elsewhere = await _loc(db, "Dubai"), await _loc(db, "Sharjah")
+    here_wh, elsewhere_wh = await _wh(db, here), await _wh(db, elsewhere)
     mpu = await _item(db)
-    kit = await _kit_needing(db, here, [(mpu, 5, 4)])
-    await _stock(db, mpu, elsewhere, 6)
+    kit = await _kit_needing(db, here_wh, [(mpu, 5, 4)])
+    await _stock(db, mpu, elsewhere_wh, 6)
 
     [movement] = await fulfil_kit(
         db, kit=kit, lines=[(mpu.id, 1)],
-        actor_user_id=keeper.id, from_location_id=elsewhere.id,
+        actor_user_id=keeper.id, from_warehouse_id=elsewhere_wh.id,
     )
-    assert movement.from_location_id == elsewhere.id
+    assert movement.from_warehouse_id == elsewhere_wh.id
 
 
 # ── "I looked and there were none" ──────────────────────────────────────────
@@ -232,8 +252,9 @@ async def test_parts_can_be_pulled_from_another_warehouse_when_asked(db):
 @pytest.mark.asyncio
 async def test_flagging_awaiting_parts_records_when_and_why(db):
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     mpu = await _item(db)
-    kit = await _kit_needing(db, loc, [(mpu, 5, 1)])
+    kit = await _kit_needing(db, wh, [(mpu, 5, 1)])
 
     await set_awaiting_parts(db, kit=kit, awaiting=True, note="none left anywhere")
     assert kit.awaiting_parts_since is not None
@@ -248,8 +269,9 @@ async def test_flagging_twice_keeps_the_original_timestamp(db):
     """How long a kit has been waiting is the number worth having. Re-flagging
     would reset the clock on exactly the kits that have waited longest."""
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     mpu = await _item(db)
-    kit = await _kit_needing(db, loc, [(mpu, 5, 1)])
+    kit = await _kit_needing(db, wh, [(mpu, 5, 1)])
 
     await set_awaiting_parts(db, kit=kit, awaiting=True, note="first")
     first = kit.awaiting_parts_since
@@ -264,8 +286,9 @@ async def test_a_kit_that_is_not_short_cannot_be_flagged(db):
     """The flag means "still waiting for something". Letting it sit on a
     complete kit is how a list stops being trustworthy."""
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     mpu = await _item(db)
-    kit = await _kit_needing(db, loc, [(mpu, 5, 5)])
+    kit = await _kit_needing(db, wh, [(mpu, 5, 5)])
 
     with pytest.raises(HTTPException) as exc:
         await set_awaiting_parts(db, kit=kit, awaiting=True)
@@ -278,10 +301,11 @@ async def test_fulfilling_a_flagged_kit_clears_the_flag(db):
     to remember to untick it."""
     keeper = await _user(db)
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     mpu = await _item(db)
-    kit = await _kit_needing(db, loc, [(mpu, 5, 3)])
+    kit = await _kit_needing(db, wh, [(mpu, 5, 3)])
     await set_awaiting_parts(db, kit=kit, awaiting=True, note="shelf empty")
-    await _stock(db, mpu, loc, 5)
+    await _stock(db, mpu, wh, 5)
 
     await fulfil_kit(db, kit=kit, lines=[(mpu.id, 2)], actor_user_id=keeper.id)
 
@@ -294,10 +318,11 @@ async def test_a_partial_fulfilment_does_not_clear_the_flag(db):
     """Still short, so still waiting."""
     keeper = await _user(db)
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     mpu = await _item(db)
-    kit = await _kit_needing(db, loc, [(mpu, 5, 0)])
+    kit = await _kit_needing(db, wh, [(mpu, 5, 0)])
     await set_awaiting_parts(db, kit=kit, awaiting=True, note="shelf empty")
-    await _stock(db, mpu, loc, 2)
+    await _stock(db, mpu, wh, 2)
 
     await fulfil_kit(db, kit=kit, lines=[(mpu.id, 2)], actor_user_id=keeper.id)
 

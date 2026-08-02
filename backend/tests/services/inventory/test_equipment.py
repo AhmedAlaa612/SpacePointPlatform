@@ -13,7 +13,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
-from app.models.inventory import Item, Kit, KitTemplate, Location, Movement, StockLevel
+from app.models.inventory import Item, Kit, KitTemplate, Location, Movement, StockLevel, Warehouse
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
@@ -21,7 +21,8 @@ from app.models.user import User
 from app.services.inventory import (
 
     assign_kits,
-    pickup_location,
+    mark_equipment_return_later,
+    pickup_warehouse,
     return_equipment,
     search_equipment,
     session_equipment,
@@ -57,6 +58,13 @@ async def _loc(db, name="Dubai") -> Location:
     return loc
 
 
+async def _wh(db, loc, name=None) -> Warehouse:
+    wh = Warehouse(id=uuid.uuid4(), location_id=loc.id, name=name or f"{loc.name} Main")
+    db.add(wh)
+    await db.flush()
+    return wh
+
+
 async def _session(db, *, lead: User | None = None) -> Session:
     program = Program(
         id=uuid.uuid4(), code=f"P-{uuid.uuid4().hex[:8]}", name="P",
@@ -78,27 +86,28 @@ async def _session(db, *, lead: User | None = None) -> Session:
     return session
 
 
-async def _kit(db, loc) -> Kit:
+async def _kit(db, wh) -> Kit:
     tpl = KitTemplate(id=uuid.uuid4(), name="SatKit", code=f"T{uuid.uuid4().hex[:5]}")
     db.add(tpl)
     await db.flush()
     kit = Kit(
         id=uuid.uuid4(), template_id=tpl.id, label=f"SP-K-{uuid.uuid4().hex[:6]}",
-        public_token=uuid.uuid4().hex * 2, current_location_id=loc.id,
+        public_token=uuid.uuid4().hex * 2, current_location_id=wh.location_id,
+        current_warehouse_id=wh.id,
     )
     db.add(kit)
     await db.flush()
     return kit
 
 
-async def _stocked(db, loc, name="Mic speaker", qty=3, returnable=True) -> Item:
+async def _stocked(db, wh, name="Mic speaker", qty=3, returnable=True) -> Item:
     item = Item(
         id=uuid.uuid4(), name=f"{name} {uuid.uuid4().hex[:4]}", category="other",
-        is_consumable=False, returnable_default=returnable,
+        returnable_default=returnable,
     )
     db.add(item)
     await db.flush()
-    db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, location_id=loc.id, qty=qty))
+    db.add(StockLevel(id=uuid.uuid4(), item_id=item.id, warehouse_id=wh.id, qty=qty))
     await db.flush()
     return item
 
@@ -107,17 +116,18 @@ async def _stocked(db, loc, name="Mic speaker", qty=3, returnable=True) -> Item:
 
 @pytest.mark.asyncio
 async def test_the_collection_point_comes_from_the_assigned_kits(db):
-    """The operator's whole reason for having no `pickup_location_id` column:
-    ops moves the kit to the session's warehouse first, so the kit's location
+    """The operator's whole reason for having no `pickup_warehouse_id` column:
+    ops moves the kit to the session's warehouse first, so the kit's warehouse
     already *is* the collection point."""
     ops = await _user(db, "operations")
     loc = await _loc(db, "Abu Dhabi hub")
+    wh = await _wh(db, loc)
     session = await _session(db)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
 
-    derived = await pickup_location(db, session.id)
-    assert derived is not None and derived.id == loc.id
+    derived = await pickup_warehouse(db, session.id)
+    assert derived is not None and derived.id == wh.id
 
 
 @pytest.mark.asyncio
@@ -125,7 +135,7 @@ async def test_a_session_with_no_kits_has_nothing_to_derive_from(db):
     """The rare no-kit session — an instructor taking only a speaker and some
     T-shirts. We ask rather than invent."""
     session = await _session(db)
-    assert await pickup_location(db, session.id) is None
+    assert await pickup_warehouse(db, session.id) is None
 
 
 @pytest.mark.asyncio
@@ -134,11 +144,12 @@ async def test_kits_in_two_places_do_not_silently_pick_one(db):
     quietly disagrees with reality that dropping the column avoided."""
     ops = await _user(db, "operations")
     dubai, sharjah = await _loc(db, "Dubai"), await _loc(db, "Sharjah")
+    wh_a, wh_b = await _wh(db, dubai), await _wh(db, sharjah)
     session = await _session(db)
-    a, b = await _kit(db, dubai), await _kit(db, sharjah)
+    a, b = await _kit(db, wh_a), await _kit(db, wh_b)
     await assign_kits(db, session_id=session.id, kit_ids=[a.id, b.id], actor_user_id=ops.id)
 
-    assert await pickup_location(db, session.id) is None
+    assert await pickup_warehouse(db, session.id) is None
 
 
 # ── the search box ──────────────────────────────────────────────────────────
@@ -148,13 +159,14 @@ async def test_an_empty_query_returns_the_whole_shelf(db):
     """B3: the shelf renders up front rather than behind a search box — an
     instructor who doesn't know an item's exact name has nothing to type."""
     loc = await _loc(db)
-    item = await _stocked(db, loc)
-    found = await search_equipment(db, location_id=loc.id, q="")
+    wh = await _wh(db, loc)
+    item = await _stocked(db, wh)
+    found = await search_equipment(db, warehouse_id=wh.id, q="")
     assert [row["item_id"] for row in found] == [item.id]
     # A single-character filter still narrows it, since there's no minimum
     # length gate anymore.
-    assert [row["item_id"] for row in await search_equipment(db, location_id=loc.id, q="m")] == [item.id]
-    assert await search_equipment(db, location_id=loc.id, q="zzz") == []
+    assert [row["item_id"] for row in await search_equipment(db, warehouse_id=wh.id, q="m")] == [item.id]
+    assert await search_equipment(db, warehouse_id=wh.id, q="zzz") == []
 
 
 @pytest.mark.asyncio
@@ -162,10 +174,11 @@ async def test_search_only_offers_what_is_actually_on_that_shelf(db):
     """Offering something the register says isn't there invites a pickup
     `move()` refuses at the last step, after it has all been typed in."""
     here, elsewhere = await _loc(db, "Dubai"), await _loc(db, "Sharjah")
-    mine = await _stocked(db, here, name="Battery charger")
-    theirs = await _stocked(db, elsewhere, name="Battery charger spare")
+    here_wh, elsewhere_wh = await _wh(db, here), await _wh(db, elsewhere)
+    mine = await _stocked(db, here_wh, name="Battery charger")
+    theirs = await _stocked(db, elsewhere_wh, name="Battery charger spare")
 
-    found = await search_equipment(db, location_id=here.id, q="battery")
+    found = await search_equipment(db, warehouse_id=here_wh.id, q="battery")
     assert [row["item_id"] for row in found] == [mine.id]
     assert theirs.id not in {row["item_id"] for row in found}
 
@@ -173,8 +186,9 @@ async def test_search_only_offers_what_is_actually_on_that_shelf(db):
 @pytest.mark.asyncio
 async def test_an_item_on_the_shelf_at_zero_is_not_offered(db):
     loc = await _loc(db)
-    await _stocked(db, loc, name="Stickers", qty=0)
-    assert await search_equipment(db, location_id=loc.id, q="stickers") == []
+    wh = await _wh(db, loc)
+    await _stocked(db, wh, name="Stickers", qty=0)
+    assert await search_equipment(db, warehouse_id=wh.id, q="stickers") == []
 
 
 # ── taking and bringing back ────────────────────────────────────────────────
@@ -186,24 +200,25 @@ async def test_taking_equipment_is_an_ordinary_movement_and_moves_the_stock(db):
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, lead=instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
-    item = await _stocked(db, loc, qty=3)
+    item = await _stocked(db, wh, qty=3)
 
     [movement] = await take_equipment(
         db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 2)]
     )
 
     assert movement.reason == "issue"
-    assert movement.from_location_id == loc.id      # derived, not passed
+    assert movement.from_warehouse_id == wh.id      # derived, not passed
     assert movement.to_user_id == instructor.id
     assert movement.session_id == session.id
     assert movement.due_back_on is None             # same-day kit; the post prompt asks
 
     level = (await db.execute(
         select(StockLevel).where(
-            StockLevel.item_id == item.id, StockLevel.location_id == loc.id
+            StockLevel.item_id == item.id, StockLevel.warehouse_id == wh.id
         )
     )).scalars().first()
     assert level.qty == 1
@@ -214,10 +229,11 @@ async def test_taking_more_than_the_shelf_holds_is_refused(db):
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, lead=instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
-    item = await _stocked(db, loc, qty=1)
+    item = await _stocked(db, wh, qty=1)
 
     with pytest.raises(HTTPException) as exc:
         await take_equipment(
@@ -231,8 +247,9 @@ async def test_a_no_kit_session_must_be_told_where_and_then_works(db):
     """The uncommon path: nothing to derive from, so one dropdown appears."""
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, lead=instructor)
-    item = await _stocked(db, loc, qty=2)
+    item = await _stocked(db, wh, qty=2)
 
     with pytest.raises(HTTPException) as exc:
         await take_equipment(
@@ -242,9 +259,9 @@ async def test_a_no_kit_session_must_be_told_where_and_then_works(db):
 
     [movement] = await take_equipment(
         db, session_id=session.id, actor_user_id=instructor.id,
-        lines=[(item.id, 1)], location_id=loc.id,
+        lines=[(item.id, 1)], warehouse_id=wh.id,
     )
-    assert movement.from_location_id == loc.id
+    assert movement.from_warehouse_id == wh.id
 
 
 @pytest.mark.asyncio
@@ -252,10 +269,11 @@ async def test_the_post_session_list_nets_returns_against_pickups(db):
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, lead=instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
-    item = await _stocked(db, loc, qty=5)
+    item = await _stocked(db, wh, qty=5)
 
     await take_equipment(
         db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 3)]
@@ -278,10 +296,11 @@ async def test_returning_later_leaves_the_line_outstanding(db):
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, lead=instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
-    item = await _stocked(db, loc, qty=2)
+    item = await _stocked(db, wh, qty=2)
 
     await take_equipment(
         db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 1)]
@@ -299,10 +318,11 @@ async def test_giving_back_more_than_you_took_is_refused(db):
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, lead=instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
-    item = await _stocked(db, loc, qty=4)
+    item = await _stocked(db, wh, qty=4)
 
     await take_equipment(
         db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 1)]
@@ -319,10 +339,11 @@ async def test_returning_puts_the_stock_back_on_the_derived_shelf(db):
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, lead=instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
-    item = await _stocked(db, loc, qty=2)
+    item = await _stocked(db, wh, qty=2)
 
     await take_equipment(
         db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 2)]
@@ -333,12 +354,12 @@ async def test_returning_puts_the_stock_back_on_the_derived_shelf(db):
 
     assert movement.reason == "return"
     assert movement.from_user_id == instructor.id
-    assert movement.to_location_id == loc.id
+    assert movement.to_warehouse_id == wh.id
     assert movement.session_id == session.id
 
     level = (await db.execute(
         select(StockLevel).where(
-            StockLevel.item_id == item.id, StockLevel.location_id == loc.id
+            StockLevel.item_id == item.id, StockLevel.warehouse_id == wh.id
         )
     )).scalars().first()
     assert level.qty == 2
@@ -351,13 +372,14 @@ async def test_one_instructors_pickup_is_not_anothers(db):
     lead = await _user(db, "instructor")
     co = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, lead=lead)
     db.add(SessionInstructor(
         id=uuid.uuid4(), session_id=session.id, user_id=co.id, role_id=await _role_id(db, "Facilitator")
     ))
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
-    item = await _stocked(db, loc, qty=5)
+    item = await _stocked(db, wh, qty=5)
 
     await take_equipment(
         db, session_id=session.id, actor_user_id=lead.id, lines=[(item.id, 2)]
@@ -367,6 +389,102 @@ async def test_one_instructors_pickup_is_not_anothers(db):
     assert await session_equipment(db, session_id=session.id, user_id=co.id) == []
 
 
+# ── return later, and changing your mind ────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_flagging_return_later_before_anything_is_given_back(db):
+    ops = await _user(db, "operations")
+    instructor = await _user(db, "instructor")
+    loc = await _loc(db)
+    wh = await _wh(db, loc)
+    session = await _session(db, lead=instructor)
+    kit = await _kit(db, wh)
+    await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
+    item = await _stocked(db, wh, qty=2)
+    await take_equipment(db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 1)])
+
+    await mark_equipment_return_later(db, session_id=session.id, actor_user_id=instructor.id, item_ids=[item.id])
+
+    [line] = await session_equipment(db, session_id=session.id, user_id=instructor.id)
+    assert line["later"] is True
+    assert line["outstanding"] == 1, "flagging later moves nothing"
+
+
+@pytest.mark.asyncio
+async def test_changing_your_mind_from_returned_to_later_undoes_the_return(db):
+    """Saying "actually, later" after already returning it is a real
+    correction — the stock has to come back off the shelf, not just a label
+    flipping in the UI."""
+    ops = await _user(db, "operations")
+    instructor = await _user(db, "instructor")
+    loc = await _loc(db)
+    wh = await _wh(db, loc)
+    session = await _session(db, lead=instructor)
+    kit = await _kit(db, wh)
+    await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
+    item = await _stocked(db, wh, qty=2)
+    await take_equipment(db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 2)])
+    await return_equipment(db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 2)])
+
+    level = (await db.execute(
+        select(StockLevel).where(StockLevel.item_id == item.id, StockLevel.warehouse_id == wh.id)
+    )).scalars().first()
+    assert level.qty == 2
+
+    await mark_equipment_return_later(db, session_id=session.id, actor_user_id=instructor.id, item_ids=[item.id])
+
+    [line] = await session_equipment(db, session_id=session.id, user_id=instructor.id)
+    assert line["outstanding"] == 2 and line["later"] is True
+    await db.refresh(level)
+    assert level.qty == 0, "the shelf shouldn't show stock that isn't really there"
+
+
+@pytest.mark.asyncio
+async def test_actually_returning_clears_the_later_flag(db):
+    ops = await _user(db, "operations")
+    instructor = await _user(db, "instructor")
+    loc = await _loc(db)
+    wh = await _wh(db, loc)
+    session = await _session(db, lead=instructor)
+    kit = await _kit(db, wh)
+    await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
+    item = await _stocked(db, wh, qty=2)
+    await take_equipment(db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 1)])
+    await mark_equipment_return_later(db, session_id=session.id, actor_user_id=instructor.id, item_ids=[item.id])
+
+    await return_equipment(db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 1)])
+
+    [line] = await session_equipment(db, session_id=session.id, user_id=instructor.id)
+    assert line["later"] is False and line["outstanding"] == 0
+
+
+@pytest.mark.asyncio
+async def test_equipment_report_freezes_once_the_session_is_done(db):
+    ops = await _user(db, "operations")
+    instructor = await _user(db, "instructor")
+    loc = await _loc(db)
+    wh = await _wh(db, loc)
+    session = await _session(db, lead=instructor)
+    kit = await _kit(db, wh)
+    await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
+    item = await _stocked(db, wh, qty=2)
+    await take_equipment(db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 1)])
+
+    from datetime import datetime, timezone
+    session.completed_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    with pytest.raises(HTTPException) as exc:
+        await return_equipment(db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 1)])
+    assert exc.value.status_code == 409
+
+    with pytest.raises(HTTPException) as exc:
+        await mark_equipment_return_later(
+            db, session_id=session.id, actor_user_id=instructor.id, item_ids=[item.id]
+        )
+    assert exc.value.status_code == 409
+
+
 @pytest.mark.asyncio
 async def test_equipment_and_kits_share_the_one_ledger(db):
     """The payoff of collapsing four legacy tables into `movements`: an
@@ -374,10 +492,11 @@ async def test_equipment_and_kits_share_the_one_ledger(db):
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
+    wh = await _wh(db, loc)
     session = await _session(db, lead=instructor)
-    kit = await _kit(db, loc)
+    kit = await _kit(db, wh)
     await assign_kits(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=ops.id)
-    item = await _stocked(db, loc, qty=2)
+    item = await _stocked(db, wh, qty=2)
 
     await take_equipment(
         db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 1)]

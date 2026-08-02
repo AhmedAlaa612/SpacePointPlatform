@@ -10,12 +10,17 @@ from app.db.base import Base
 class Kit(Base):
     """One physical kit — a box with a label on it. Serialised, unlike `Item`.
 
-    **Location is always set; holder is optional.** A kit out with an
-    instructor still has a location (where it belongs / where it came from),
-    so "what is in Dubai right now" always answers. An earlier draft made
-    these mutually exclusive with a CHECK constraint, which broke exactly that
-    query the moment a kit went out — the constraint was removed rather than
-    worked around.
+    **Warehouse is always set; holder is optional.** A kit out with an
+    instructor still belongs to a warehouse (where it belongs / where it came
+    from), so "what is in the Dubai Main warehouse right now" always answers.
+    An earlier draft made holder/location mutually exclusive with a CHECK
+    constraint, which broke exactly that query the moment a kit went out — the
+    constraint was removed rather than worked around.
+
+    `current_warehouse_id` is authoritative (2026-08-01); `current_location_id`
+    is derived from it and only ever set as a side effect of setting the
+    warehouse — a location can hold more than one warehouse, so the location
+    alone was never precise enough to answer "which shelf is this kit on."
 
     Both columns are denormalised from the movement ledger and written in the
     same transaction as the movement that changes them. Kit lists read them on
@@ -47,6 +52,10 @@ class Kit(Base):
 
     current_location_id = Column(
         UUID(as_uuid=True), ForeignKey("locations.id", ondelete="RESTRICT"),
+        nullable=False, index=True,
+    )
+    current_warehouse_id = Column(
+        UUID(as_uuid=True), ForeignKey("warehouses.id", ondelete="RESTRICT"),
         nullable=False, index=True,
     )
     # NULL = sitting at its location. Set = out with this person.

@@ -9,7 +9,7 @@ import base64
 from datetime import date, datetime, timezone
 
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, UploadFile, Form
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -349,6 +349,69 @@ _ROLE_PROGRAM_MAP = {
     "teacher": "Teacher Program",
     "ambassador": "Ambassador Program",
 }
+
+# Which placeholders a template actually gets filled with depends on WHICH
+# CODE ISSUES IT, not on the template row itself — `student_completion` and
+# `workshop_delivery` are rendered by their own bespoke code
+# (services/sessions/delivery.py, routers/instructors/payments.py) with a
+# small fixed token set each; every other template goes through
+# `_render_and_store_document`/`admin_generate_document` below, which fills
+# a different, larger set. Showing the wrong set for a given template isn't
+# just unhelpful — a placeholder that LOOKS available but never gets
+# substituted comes out as literal `{token}` text on a real, issued
+# document. `None` here means "resolved from a live setting", not a canned
+# test string (today's date, the configured signatory) — `signature` is
+# deliberately absent: it's always the live signature image, never a
+# free-text test value.
+def _placeholder_set(key: str | None, doc_type: str) -> dict[str, str | None]:
+    if key == "student_completion":
+        return {"program_name": "SatKit Program", "dates": "3 – 5 August 2026"}
+    if key == "workshop_delivery":
+        return {
+            "name": "Jane Doe", "workshop_name": "Intro to Orbits",
+            "workshop_date": "12 August 2026", "location": "Dubai",
+        }
+    generic: dict[str, str | None] = {
+        "name": "Jane Doe", "start_date": None, "end_date": None, "date": None,
+        "role": "Instructor", "signatory_name": None, "signatory_title": None,
+    }
+    if doc_type == "certificate":
+        generic["program"] = "Instructor Program"
+    return generic
+
+
+async def _resolve_placeholder_defaults(db: AsyncSession, keys: dict[str, str | None]) -> dict[str, str]:
+    today = date.today().strftime("%d %B %Y").lstrip("0")
+    out: dict[str, str] = {}
+    for token, value in keys.items():
+        if value is not None:
+            out[token] = value
+        elif token in ("date", "start_date", "end_date"):
+            out[token] = today
+        elif token == "signatory_name":
+            out[token] = await _get_setting(db, "admin_signatory_name", settings.DEFAULT_SIGNATORY_NAME)
+        elif token == "signatory_title":
+            out[token] = await _get_setting(db, "admin_signatory_title", settings.DEFAULT_SIGNATORY_TITLE)
+    return out
+
+
+def _fill_placeholders(text: str, values: dict[str, str]) -> str:
+    """Generic `{token}` substitution — every token present in `text` gets
+    filled from `values` if known, else replaced with `[TOKEN]` so a preview
+    never silently drops an unrecognised placeholder. Unlike
+    `_render_and_store_document`'s fixed chain of `.replace()` calls (which
+    only exists to serve that one flow), this has to handle whatever any
+    template — including the two system certificates rendered by other
+    modules entirely — might contain."""
+    import re
+
+    def repl(match: "re.Match[str]") -> str:
+        token = match.group(1)
+        if token not in values:
+            return f"[{token.upper()}]"
+        return values[token] if token == "signature" else escape(values[token])
+
+    return re.sub(r"\{(\w+)\}", repl, text)
 
 
 async def _render_and_store_document(
@@ -1056,6 +1119,95 @@ async def list_document_templates(
         select(DocumentTemplate).order_by(DocumentTemplate.name)
     )).scalars().all()
     return templates
+
+
+@router.get("/admin/templates/placeholders")
+async def list_placeholder_test_values(
+    key: Optional[str] = None,
+    type: str = "letter",
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Default test values for the placeholders THIS template's own issuance
+    code actually substitutes — scoped by `key` (falls back to the generic
+    admin-generate set for anything that isn't one of the two bespoke system
+    certificates), so the editor never lists a token the real document
+    generator would leave un-filled. Editable in the UI; these are just the
+    starting values."""
+    return await _resolve_placeholder_defaults(db, _placeholder_set(key, type))
+
+
+@router.post("/admin/templates/preview")
+async def preview_document_template(
+    body_text: str = Form(...),
+    type: str = Form("letter"),
+    key: Optional[str] = Form(None),
+    title: Optional[str] = Form(None),
+    template_id: Optional[uuid.UUID] = Form(None),
+    values: Optional[str] = Form(None),
+    file: Optional[UploadFile] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Render `body_text` with placeholders filled and hand back the PDF
+    directly — nothing is persisted (no Document/Certificate row, no storage
+    upload), so this is safe to call from the Create dialog before a
+    template even exists. `values` (JSON `{token: value}`) is whatever the
+    admin edited the test values to in the UI, layered on top of this
+    template's own scoped defaults — an admin-typed override always wins.
+    `template_id`/`file` are only used for a certificate's background:
+    `file` (a newly chosen, not-yet-saved upload) wins over the template's
+    already-stored one. `title` (letters only) mirrors real generation's
+    `body.title or template.name` — the caller sends whatever the Template
+    Name field currently holds, including an unsaved edit."""
+    import json
+    defaults = await _resolve_placeholder_defaults(db, _placeholder_set(key, type))
+    overrides: dict[str, str] = {}
+    if values:
+        try:
+            parsed = json.loads(values)
+            if isinstance(parsed, dict):
+                overrides = {str(k): str(v) for k, v in parsed.items()}
+        except (json.JSONDecodeError, ValueError):
+            pass
+    merged = {**defaults, **overrides}
+
+    sig_path, sig_tag = await _get_signature_image_tag(db)
+    merged["signature"] = sig_tag  # always the live image — never a free-text test value
+
+    import os
+    try:
+        formatted = _fill_placeholders(body_text, merged)
+
+        if type == "certificate":
+            bg_bytes = await file.read() if (file and file.filename) else None
+            if bg_bytes is None and template_id is not None:
+                template = await db.get(DocumentTemplate, template_id)
+                bg_path = template and (template.template_file_path or (
+                    template.template_file_url.split("/library-resources/")[-1].split("?")[0]
+                    if template.template_file_url else None
+                ))
+                if bg_path:
+                    try:
+                        bg_bytes = await storage.download_file("library-resources", bg_path)
+                    except Exception as e:
+                        logger.warning("preview background download failed: %s", e)
+            pdf_bytes = generate_completion_certificate_pdf(
+                recipient_name=merged.get("name", "Jane Doe"), body_text_template=formatted, background_bytes=bg_bytes,
+            )
+        else:
+            pdf_bytes = generate_letter_pdf(
+                title=title or "Untitled Document", body_text=formatted,
+                signatory_name=merged.get("signatory_name", ""), signatory_title=merged.get("signatory_title", ""),
+            )
+    finally:
+        if sig_path and os.path.exists(sig_path):
+            try:
+                os.remove(sig_path)
+            except Exception:
+                pass
+
+    return Response(content=pdf_bytes, media_type="application/pdf")
 
 
 @router.put("/admin/templates/{id}", response_model=DocumentTemplateOut)

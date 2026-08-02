@@ -14,22 +14,28 @@ from app.services.inventory.checks import (
     assigned_kits,
     check_history,
     expected_counts,
+    kit_sessions,
     outstanding_post_checks,
     record_check,
     unassign_kit,
 )
+from app.services.inventory.cohort_kits import (
+    cohort_kit_ids,
+    cohort_kits,
+    materialize_session_kits,
+    remove_cohort_kit,
+    resolve_session_kits,
+    set_cohort_kits,
+)
 from app.services.inventory.completeness import is_complete, kit_shortages, shortages_for_kits
 from app.services.inventory.custody import (
-    confirm_collected,
     held_by_user,
     issue_merch,
-    issue_session_kits,
     return_merch,
-    return_session_kits,
-    unconfirmed_handovers,
 )
 from app.services.inventory.equipment import (
-    pickup_location,
+    mark_equipment_return_later,
+    pickup_warehouse,
     return_equipment,
     search_equipment,
     session_equipment,
@@ -40,7 +46,18 @@ from app.services.inventory.fulfilment import (
     fulfilment_queue,
     set_awaiting_parts,
 )
-from app.services.inventory.movements import MOVEMENT_REASONS, confirm, move, overdue
+from app.services.inventory.holdings import (
+    default_kit_return_warehouse,
+    my_held_items,
+    return_own_item,
+    return_own_kit,
+)
+from app.services.inventory.movements import MOVEMENT_REASONS, confirm, count_kit, move, overdue
+from app.services.inventory.session_kits import (
+    confirm_kit_returns,
+    mark_kits_received,
+    mark_kits_returned,
+)
 from app.services.inventory.stock import adjust_stock
 
 __all__ = [
@@ -52,6 +69,7 @@ __all__ = [
     "overdue",
     "MOVEMENT_REASONS",
     "adjust_stock",
+    "count_kit",
     # session loop (I2-1/I2-2)
     "assign_kits",
     "unassign_kit",
@@ -61,20 +79,33 @@ __all__ = [
     "outstanding_post_checks",
     "check_history",
     "CHECK_PHASES",
-    # custody + merch (I2-3/I2-4)
-    "issue_session_kits",
-    "confirm_collected",
-    "return_session_kits",
+    # kits are assigned to a session, received and returned — no custody leg
+    "mark_kits_received",
+    "mark_kits_returned",
+    "confirm_kit_returns",
+    # cohort-level kit defaults (Phase 3 follow-up)
+    "set_cohort_kits",
+    "cohort_kit_ids",
+    "cohort_kits",
+    "remove_cohort_kit",
+    "resolve_session_kits",
+    "materialize_session_kits",
+    # merch (I2-4)
     "issue_merch",
     "return_merch",
     "held_by_user",
-    "unconfirmed_handovers",
     # equipment pickup (I2-7)
-    "pickup_location",
+    "pickup_warehouse",
     "search_equipment",
     "take_equipment",
     "session_equipment",
     "return_equipment",
+    "mark_equipment_return_later",
+    # holdings — self-serve returns (2026-08-01)
+    "my_held_items",
+    "return_own_kit",
+    "return_own_item",
+    "default_kit_return_warehouse",
     # storekeeper fulfilment (I3-1)
     "fulfilment_queue",
     "fulfil_kit",

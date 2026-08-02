@@ -1,6 +1,7 @@
 /** Inventory domain (I1-4). Mirrors backend/app/schemas/inventory/. */
 
-export type ItemCategory = "sensor" | "board" | "tool" | "mechanical" | "merch" | "other"
+// Ops-editable data (`item_categories`), not a fixed set — see ItemCategoryDef.
+export type ItemCategory = string
 export type KitStatus = "working" | "damaged" | "retired" | "lost"
 export type MovementReason =
   | "issue" | "return" | "transfer" | "refill" | "receive" | "writeoff" | "adjust" | "sold"
@@ -11,19 +12,46 @@ export interface Location {
   country: string
   is_active: boolean
   notes: string | null
+  /** Where cohorts/sessions send instructors — the physical address and a
+   *  map link, both optional. */
+  address: string | null
+  maps_url: string | null
   created_at: string | null
+}
+
+export interface Warehouse {
+  id: string
+  location_id: string
+  location_name?: string | null
+  name: string
+  code?: string | null
+  is_active: boolean
+  address?: string | null
+  notes?: string | null
+  created_at?: string | null
+}
+
+export interface ItemCategoryDef {
+  id: string
+  name: string
+  sort_order: number
 }
 
 export interface Item {
   id: string
   name: string
   category: ItemCategory
-  /** Excluded from completeness entirely — never makes a kit look incomplete. */
-  is_consumable: boolean
   returnable_default: boolean
   notes: string | null
   /** Shown to an instructor picking from the equipment shelf (B3). */
   description: string | null
+  image_url: string | null
+  /** Sized/variant merchandise only — e.g. "T-Shirt" + "L". Items sharing
+   *  the same `variant_group` browse together in the catalogue/stock UI;
+   *  stock, kit contents and custody still key on this item's own id,
+   *  unchanged. Both null for anything that isn't a variant. */
+  variant_group: string | null
+  variant_label: string | null
 }
 
 export interface KitTemplate {
@@ -38,7 +66,6 @@ export interface TemplateLine {
   item_id: string
   item_name: string
   required_qty: number
-  is_consumable: boolean
 }
 
 export interface KitTemplateDetail extends KitTemplate {
@@ -65,10 +92,12 @@ export interface KitListItem {
   label: string
   status: KitStatus
   current_location_id: string
+  current_warehouse_id: string
   current_holder_user_id: string | null
   notes: string | null
   template_code: string
   location_name: string
+  warehouse_name: string
   holder_name: string | null
   shortage_count: number
 }
@@ -87,9 +116,11 @@ export interface Movement {
   item_id: string | null
   qty: number | null
   from_location_id: string | null
+  from_warehouse_id: string | null
   from_user_id: string | null
   from_kit_id: string | null
   to_location_id: string | null
+  to_warehouse_id: string | null
   to_user_id: string | null
   to_kit_id: string | null
   session_id: string | null
@@ -100,13 +131,22 @@ export interface Movement {
   created_at: string | null
   confirmed_by: string | null
   confirmed_at: string | null
+  from_location_name?: string | null
+  from_warehouse_name?: string | null
+  from_user_name?: string | null
+  to_location_name?: string | null
+  to_warehouse_name?: string | null
+  to_user_name?: string | null
 }
 
 export interface StockLevel {
   item_id: string
   item_name: string
+  category?: string
   location_id: string
   location_name: string
+  warehouse_id: string
+  warehouse_name: string
   qty: number
 }
 
@@ -118,4 +158,19 @@ export interface MyKit {
   location_name: string
   due_back_on: string | null
   shortage_count: number
+  /** Where "mark returned" defaults to — the session it was last issued
+   *  for, if there was one. Null only when that can't be resolved either. */
+  default_return_warehouse_id: string | null
+  default_return_warehouse_name: string | null
+}
+
+export interface MyHeldItem {
+  item_id: string
+  item_name: string
+  variant_group: string | null
+  variant_label: string | null
+  qty: number
+  due_back_on: string | null
+  default_warehouse_id: string | null
+  default_warehouse_name: string | null
 }

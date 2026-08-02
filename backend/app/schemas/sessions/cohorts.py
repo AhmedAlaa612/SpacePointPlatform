@@ -23,6 +23,12 @@ class CohortBase(BaseModel):
     starts_on: date | None = None
     ends_on: date | None = None
     location: str | None = None
+    location_id: UUID | None = None
+    # Which warehouse equipment for this cohort's sessions comes from. NULL =
+    # resolve it (the location's only warehouse if it has exactly one, else
+    # ops has to say). Separate from location_id — a location can hold more
+    # than one warehouse.
+    warehouse_id: UUID | None = None
     capacity: int | None = None
     lead_instructor_user_id: UUID | None = None
     madar_invitation_batch: str | None = None
@@ -41,6 +47,8 @@ class CohortUpdate(BaseModel):
     starts_on: date | None = None
     ends_on: date | None = None
     location: str | None = None
+    location_id: UUID | None = None
+    warehouse_id: UUID | None = None
     capacity: int | None = None
     lead_instructor_user_id: UUID | None = None
     status: CohortStatus | None = None
@@ -61,6 +69,22 @@ class CohortOut(CohortBase):
     # belongs to.
     program_name: str | None = None
     program_code: str | None = None
+    # Resolved from location_id, same convenience-join pattern.
+    location_name: str | None = None
+    location_maps_url: str | None = None
+    # Resolved from warehouse_id, or auto-picked when the location has
+    # exactly one warehouse. None means ops has to choose explicitly.
+    effective_warehouse_id: UUID | None = None
+    effective_warehouse_name: str | None = None
+    # Operational counters, same convenience-join pattern as program_name —
+    # populated only by the list endpoint, which is the worklist ops opens
+    # daily ("which cohorts still need staffing / are filling up"). None
+    # everywhere else rather than 0, so a detail view can't mistake
+    # "not computed here" for "genuinely zero".
+    sessions_count: int | None = None
+    registrations_count: int | None = None
+    unstaffed_count: int | None = None
+    next_session_date: date | None = None
 
     class Config:
         from_attributes = True
@@ -102,6 +126,25 @@ class SessionOut(BaseModel):
     # Instructors this open call is restricted to. Empty means unrestricted —
     # visible to every instructor/facilitator (see SessionCallTarget).
     target_user_ids: list[UUID] = []
+    # NULL = inherits the cohort's location. `effective_location_*` is what
+    # actually applies (session override if set, else the cohort's) — the
+    # UI reads that, not location_id, so it never has to re-derive it.
+    location_id: UUID | None = None
+    effective_location_id: UUID | None = None
+    effective_location_name: str | None = None
+    # Same override pattern, for which warehouse equipment comes from — see
+    # Cohort.warehouse_id.
+    warehouse_id: UUID | None = None
+    effective_warehouse_id: UUID | None = None
+    effective_warehouse_name: str | None = None
+    # What actually applies right now — session's own if it has any,
+    # otherwise whatever the cohort (and, for materials, the program) sets.
+    # See services/sessions/materials.py::resolve_for_session and
+    # services/inventory/cohort_kits.py::resolve_session_kits.
+    materials_count: int = 0
+    kits_count: int = 0
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -121,6 +164,7 @@ class AddSessionRequest(BaseModel):
     title: str | None = None
     material_url: str | None = None
     price: Decimal | None = None
+    duration_hours: Decimal | None = None
 
 
 class UpdateSessionRequest(BaseModel):
@@ -132,11 +176,45 @@ class UpdateSessionRequest(BaseModel):
     title: str | None = None
     material_url: str | None = None
     price: Decimal | None = None
+    duration_hours: Decimal | None = None
+    # Explicit null clears the override back to "inherit the cohort's
+    # location" — same convention as every other inherit-unless-set field
+    # here, so PATCH needs a sentinel to distinguish "don't touch" from
+    # "clear it." exclude_unset in the router handles the distinction.
+    location_id: UUID | None = None
+    # Same convention, for the warehouse override.
+    warehouse_id: UUID | None = None
 
 
 class AssignInstructorRequest(BaseModel):
     user_id: UUID
     role_id: UUID | None = None
+
+
+class BulkAssignInstructorRequest(BaseModel):
+    """A cohort with 100 sessions shouldn't mean 100 taps (2026-08-01) —
+    same instructor/role onto every listed session in one call."""
+    session_ids: list[UUID]
+    user_id: UUID
+    role_id: UUID | None = None
+
+
+class BulkOpenCallRequest(BaseModel):
+    session_ids: list[UUID]
+    target_user_ids: list[UUID] | None = None
+    role_ids: list[UUID] | None = None
+
+
+class BulkActionError(BaseModel):
+    session_id: UUID
+    detail: str
+
+
+class BulkActionResult(BaseModel):
+    """Partial success is normal, not exceptional — one session in a batch
+    of 100 being already staffed shouldn't roll back the other 99."""
+    succeeded: list[UUID] = []
+    failed: list[BulkActionError] = []
 
 
 class CompleteCohortResponse(BaseModel):

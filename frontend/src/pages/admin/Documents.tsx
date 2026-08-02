@@ -1,4 +1,4 @@
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { FileText, CheckCircle2, XCircle, AlertCircle, Eye, HardDrive, Edit3, Trash2, Download, Upload, RefreshCw } from "lucide-react"
 import {
@@ -14,6 +14,8 @@ import {
   updateDocumentTemplateApi,
   createDocumentTemplateApi,
   deleteDocumentTemplateApi,
+  listPlaceholderTestValuesApi,
+  previewDocumentTemplateApi,
 } from "@/api/documents"
 import { getSettingsApi } from "@/api/admin/settings"
 import type { DocumentRequest } from "@/types/documents"
@@ -655,6 +657,40 @@ interface TemplateManagerProps {
   onRefresh: () => void
 }
 
+/** Every `{token}` THIS template's own issuance code actually substitutes —
+ *  scoped per template (see backend `_placeholder_set`), so nothing shown
+ *  here is a placeholder the real document generator would leave as literal
+ *  `{token}` text on an issued document. Test values are editable; "View
+ *  example" sends whatever is currently typed here. */
+function PlaceholderEditor({ values, onChange }: {
+  values: Record<string, string>
+  onChange: (token: string, value: string) => void
+}) {
+  const entries = Object.entries(values)
+  if (entries.length === 0) return null
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+        Available placeholders — test value used by "View example"
+      </span>
+      <div className="flex flex-col gap-1.5 rounded-xl border border-border/60 bg-muted/30 p-2.5">
+        {entries.map(([token, value]) => (
+          <div key={token} className="flex items-center gap-2">
+            <code className="text-[11px] font-mono text-foreground shrink-0 w-32 truncate" title={`{${token}}`}>
+              {`{${token}}`}
+            </code>
+            <input
+              value={value}
+              onChange={(e) => onChange(token, e.target.value)}
+              className="flex-1 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+            />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function TemplateManager({ templates, isLoading, onRefresh }: TemplateManagerProps) {
   const [editingTemplate, setEditingTemplate] = useState<any | null>(null)
   const [editName, setEditName] = useState("")
@@ -684,6 +720,38 @@ function TemplateManager({ templates, isLoading, onRefresh }: TemplateManagerPro
 
   const toggleRole = (roles: string[], role: string): string[] =>
     roles.includes(role) ? roles.filter(r => r !== role) : [...roles, role]
+
+  // Placeholder test values — scoped per template (a fresh, not-yet-saved
+  // template has no key yet, so `newKey` is what it'll be issued under once
+  // it exists and behaves like any other custom template). Editable: the
+  // fetched set only seeds the starting values, onChange below is what
+  // "View example" actually sends.
+  const { data: newPlaceholderDefaults } = useQuery({
+    queryKey: ["doc-template-placeholders", newKey || null, newType],
+    queryFn: () => listPlaceholderTestValuesApi({ key: newKey || undefined, type: newType }),
+    enabled: createOpen,
+  })
+  const [newTestValues, setNewTestValues] = useState<Record<string, string>>({})
+  useEffect(() => { if (newPlaceholderDefaults) setNewTestValues(newPlaceholderDefaults) }, [newPlaceholderDefaults])
+
+  const { data: editPlaceholderDefaults } = useQuery({
+    queryKey: ["doc-template-placeholders", editingTemplate?.key ?? null, editType],
+    queryFn: () => listPlaceholderTestValuesApi({ key: editingTemplate?.key, type: editType }),
+    enabled: !!editingTemplate,
+  })
+  const [editTestValues, setEditTestValues] = useState<Record<string, string>>({})
+  useEffect(() => { if (editPlaceholderDefaults) setEditTestValues(editPlaceholderDefaults) }, [editPlaceholderDefaults])
+
+  const previewTemplate = useMutation({
+    mutationFn: previewDocumentTemplateApi,
+    onSuccess: (url) => {
+      window.open(url, "_blank")
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    },
+    onError: (err: any) => {
+      alert(err?.response?.data?.detail || "Could not render the preview")
+    },
+  })
 
   const createTemplate = useMutation({
     mutationFn: () => createDocumentTemplateApi({ key: newKey, name: newName, roles: newRoles, body_text: newBodyText || undefined, type: newType }),
@@ -874,7 +942,7 @@ function TemplateManager({ templates, isLoading, onRefresh }: TemplateManagerPro
                 onChange={(e) => setNewType(e.target.value as "letter" | "certificate")}
                 className="w-full h-10 px-3 bg-background border border-border rounded-xl text-sm text-foreground focus:outline-none focus:border-primary"
               >
-                <option value="letter">Letter — text on a blank page</option>
+                <option value="letter">Letter — text on the letterhead</option>
                 <option value="certificate">Certificate — text over a base image</option>
               </select>
             </Field>
@@ -904,6 +972,25 @@ function TemplateManager({ templates, isLoading, onRefresh }: TemplateManagerPro
                 className="w-full p-3 bg-background border border-border rounded-xl text-xs text-foreground focus:outline-none resize-none font-mono"
               />
             </Field>
+
+            <PlaceholderEditor
+              values={newTestValues}
+              onChange={(token, value) => setNewTestValues((v) => ({ ...v, [token]: value }))}
+            />
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5 w-fit"
+              disabled={!newBodyText.trim() || previewTemplate.isPending}
+              onClick={() => previewTemplate.mutate({
+                bodyText: newBodyText, type: newType, key: newKey || undefined,
+                title: newName, values: newTestValues,
+              })}
+            >
+              <Eye size={12} /> {previewTemplate.isPending ? "Rendering…" : "View example"}
+            </Button>
 
             <ModalActions
               onCancel={() => setCreateOpen(false)}
@@ -937,7 +1024,7 @@ function TemplateManager({ templates, isLoading, onRefresh }: TemplateManagerPro
                 onChange={(e) => setEditType(e.target.value as "letter" | "certificate")}
                 className="w-full h-10 px-3 bg-background border border-border rounded-xl text-sm text-foreground focus:outline-none focus:border-primary"
               >
-                <option value="letter">Letter — text on a blank page</option>
+                <option value="letter">Letter — text on the letterhead</option>
                 <option value="certificate">Certificate — text over a base image</option>
               </select>
             </Field>
@@ -966,6 +1053,25 @@ function TemplateManager({ templates, isLoading, onRefresh }: TemplateManagerPro
                 className="w-full p-3 bg-background border border-border rounded-xl text-xs text-foreground focus:outline-none resize-none font-mono"
               />
             </Field>
+
+            <PlaceholderEditor
+              values={editTestValues}
+              onChange={(token, value) => setEditTestValues((v) => ({ ...v, [token]: value }))}
+            />
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="gap-1.5 w-fit"
+              disabled={!bodyText.trim() || previewTemplate.isPending}
+              onClick={() => previewTemplate.mutate({
+                bodyText, type: editType, key: editingTemplate.key, title: editName,
+                templateId: editingTemplate.id, values: editTestValues, file: fileToUpload,
+              })}
+            >
+              <Eye size={12} /> {previewTemplate.isPending ? "Rendering…" : "View example"}
+            </Button>
 
             <Field label="Replace Template Frame/Background File (Optional)">
               <div className="flex items-center gap-3">

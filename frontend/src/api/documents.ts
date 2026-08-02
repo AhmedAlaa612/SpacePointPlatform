@@ -117,6 +117,43 @@ export const createDocumentTemplateApi = (data: { key: string; name: string; rol
 export const deleteDocumentTemplateApi = (id: string) =>
   api.delete(`/documents/admin/templates/${id}`).then((r) => r.data)
 
+/** Default test values for the placeholders THIS specific template's own
+ *  issuance code actually substitutes — scoped by `key` (the two system
+ *  certificates are rendered by their own bespoke code with a small fixed
+ *  token set each; everything else falls back to the generic admin-generate
+ *  set). Editable in the UI — these are just starting values. */
+export const listPlaceholderTestValuesApi = ({ key, type }: { key?: string; type: "letter" | "certificate" }) =>
+  api.get<Record<string, string>>("/documents/admin/templates/placeholders", { params: { key, type } })
+    .then((r) => r.data)
+
+/** Renders `bodyText` with placeholders filled and hands back the PDF —
+ *  nothing is persisted, safe to call before a template is even saved.
+ *  `values` is whatever the admin edited the test values to; an override
+ *  always wins over this template's own scoped default. Returns an object
+ *  URL the caller must revoke. */
+export const previewDocumentTemplateApi = async ({ bodyText, type, key, title, templateId, values, file }: {
+  bodyText: string
+  type: "letter" | "certificate"
+  key?: string
+  /** Letters only — mirrors real generation's `body.title or template.name`.
+   *  Send whatever the Template Name field currently holds. */
+  title?: string
+  templateId?: string
+  values?: Record<string, string>
+  file?: File | null
+}) => {
+  const form = new FormData()
+  form.append("body_text", bodyText)
+  form.append("type", type)
+  if (key) form.append("key", key)
+  if (title) form.append("title", title)
+  if (templateId) form.append("template_id", templateId)
+  if (values) form.append("values", JSON.stringify(values))
+  if (file) form.append("file", file)
+  const res = await api.post("/documents/admin/templates/preview", form, { responseType: "blob" })
+  return URL.createObjectURL(res.data as Blob)
+}
+
 export const adminGenerateDocumentApi = (data: {
   user_id: string
   template_key: string

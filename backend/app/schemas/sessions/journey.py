@@ -1,6 +1,6 @@
 """Materials, responsibilities and the payment bridge (I5-5 … I5-8)."""
 
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -76,3 +76,15 @@ class BillSessionsIn(BaseModel):
     typed by ops afterwards — nothing here invents money."""
 
     session_ids: list[UUID]
+
+
+class PendingPaymentInstructorOut(BaseModel):
+    """One row of the admin's payment-letter to-do list: an instructor with
+    completed sessions not yet on any of their payment letters."""
+
+    instructor_user_id: UUID
+    full_name: str
+    email: str
+    pending_session_count: int
+    earliest_date: date
+    latest_date: date

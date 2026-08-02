@@ -120,6 +120,10 @@ class ContactUpdate(BaseModel):
     lifecycle_stage: Optional[str] = None
     owner_user_id: Optional[UUID] = None
     organization_id: Optional[UUID] = None
+    # Resolves (or creates) an Organization by name and sets organization_id
+    # from it — same convenience as registration_desk.py/public_registration.py.
+    # A blank/whitespace-only value is a no-op, never a clear.
+    organization_name: Optional[str] = None
     notes: Optional[str] = None
 
 

@@ -100,6 +100,20 @@ export const downloadBulkImportTemplateApi = async () => {
 export const paymentsInstructorDropdownApi = () =>
   api.get<{ id: string; full_name: string; email: string }[]>("/instructors/admin/payments/instructors").then((r) => r.data)
 
+export interface PendingPaymentInstructor {
+  instructor_user_id: string
+  full_name: string
+  email: string
+  pending_session_count: number
+  earliest_date: string
+  latest_date: string
+}
+
+/** Instructors with completed sessions not yet on any payment letter — the
+ *  to-do list, so admin doesn't have to already know who to check. */
+export const paymentsTodoApi = () =>
+  api.get<PendingPaymentInstructor[]>("/instructors/admin/payments/todo").then((r) => r.data)
+
 export const listCertificatesApi = () => api.get<Certificate[]>("/instructors/admin/payments/certificates").then((r) => r.data)
 
 export const createCertificateApi = (data: {
@@ -130,6 +144,7 @@ export const updateLetterApi = ({ id, ...body }: {
   id: string
   issue_certificates?: boolean
   admin_notes?: string | null
+  batch_id?: string | null
 }) => api.patch<PaymentLetter>(`/instructors/admin/payments/letters/${id}`, body).then((r) => r.data)
 
 export const getBillableSessionsApi = (letterId: string) =>

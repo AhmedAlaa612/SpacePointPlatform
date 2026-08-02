@@ -29,8 +29,11 @@ from app.models.inventory.item import Item
 from app.models.inventory.kit import Kit, KitItem
 from app.models.inventory.kit_template import KitTemplateItem
 from app.models.inventory.session_kit import KitCheck, SessionKit
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
 from app.models.sessions.session import Session
 from app.models.user import User
+from app.services.inventory.cohort_kits import materialize_session_kits
 
 CHECK_PHASES = {"pre", "post", "adhoc"}
 
@@ -41,8 +44,15 @@ async def assign_kits(
     """Earmark kits for a session. Idempotent — re-assigning an already
     assigned kit is a no-op rather than a 409, because the natural UI is a
     multi-select that resubmits the whole set."""
-    if await db.get(Session, session_id) is None:
+    session = await db.get(Session, session_id)
+    if session is None:
         raise HTTPException(404, detail="Session not found")
+
+    # First kit activity on this specific session copies the cohort's
+    # current default in and makes this session independent of it from here
+    # on (Phase 3 follow-up). A no-op for the universal case today — a
+    # cohort with no default kit list.
+    await materialize_session_kits(db, session=session, actor_user_id=actor_user_id)
 
     existing = {
         sk.kit_id: sk
@@ -66,7 +76,23 @@ async def assign_kits(
     return list(existing.values())
 
 
-async def unassign_kit(db: AsyncSession, *, session_id: uuid.UUID, kit_id: uuid.UUID) -> None:
+async def unassign_kit(
+    db: AsyncSession, *, session_id: uuid.UUID, kit_id: uuid.UUID,
+    actor_user_id: uuid.UUID | None = None,
+) -> None:
+    session = await db.get(Session, session_id)
+    if session is None:
+        raise HTTPException(404, detail="Session not found")
+
+    # A kit that is only inherited from the cohort default has no row here
+    # yet — materialize first so it does, then the lookup-and-delete below
+    # is unchanged. From this point the session is independent of the
+    # cohort default (Phase 3 follow-up). `actor_user_id` is optional here
+    # only because materializing zero cohort-default kits (today's universal
+    # case) never actually needs an attributable actor — it's required in
+    # practice the moment a cohort has any default kits to copy.
+    await materialize_session_kits(db, session=session, actor_user_id=actor_user_id)
+
     link = (await db.execute(
         select(SessionKit).where(SessionKit.session_id == session_id, SessionKit.kit_id == kit_id)
     )).scalars().first()
@@ -83,9 +109,73 @@ async def assigned_kits(db: AsyncSession, session_id: uuid.UUID) -> list[Kit]:
     )).scalars().all()
 
 
+async def kit_sessions(db: AsyncSession, kit_id: uuid.UUID) -> list[dict]:
+    """Every session this kit has ever been earmarked for — past and future,
+    the reverse of `assigned_kits`. Includes both explicit session assignments
+    and cohort-level default kit inheritances. Ordered oldest first so a
+    calendar view can split it on today's date without re-sorting."""
+    from datetime import time
+    from app.models.inventory.cohort_kit import CohortKit
+
+    # 1. Explicitly assigned or materialized session kits
+    explicit_rows = (await db.execute(
+        select(SessionKit, Session, Cohort, Program)
+        .join(Session, Session.id == SessionKit.session_id)
+        .join(Cohort, Cohort.id == Session.cohort_id)
+        .join(Program, Program.id == Cohort.program_id)
+        .where(SessionKit.kit_id == kit_id)
+    )).all()
+
+    sessions_map: dict[uuid.UUID, dict] = {}
+    for session_kit, session, cohort, program in explicit_rows:
+        sessions_map[session.id] = {
+            "session_id": session.id,
+            "cohort_id": cohort.id,
+            "cohort_name": cohort.name,
+            "program_name": program.name,
+            "title": session.title or program.name,
+            "meeting_date": session.meeting_date,
+            "starts_at": session.starts_at,
+            "return_status": session_kit.return_status,
+            "received": session_kit.received_at is not None,
+            "ops_confirmed": session_kit.ops_confirmed_at is not None,
+        }
+
+    # 2. Inherited cohort default kits (sessions where kits_overridden is False)
+    cohort_inherited_rows = (await db.execute(
+        select(Session, Cohort, Program)
+        .join(Cohort, Cohort.id == Session.cohort_id)
+        .join(Program, Program.id == Cohort.program_id)
+        .join(CohortKit, CohortKit.cohort_id == Cohort.id)
+        .where(
+            CohortKit.kit_id == kit_id,
+            Session.kits_overridden.is_(False),
+        )
+    )).all()
+
+    for session, cohort, program in cohort_inherited_rows:
+        if session.id not in sessions_map:
+            sessions_map[session.id] = {
+                "session_id": session.id,
+                "cohort_id": cohort.id,
+                "cohort_name": cohort.name,
+                "program_name": program.name,
+                "title": session.title or program.name,
+                "meeting_date": session.meeting_date,
+                "starts_at": session.starts_at,
+                "return_status": None,
+                "received": False,
+                "ops_confirmed": False,
+            }
+
+    results = list(sessions_map.values())
+    results.sort(key=lambda s: (s["meeting_date"], s["starts_at"] or time.min))
+    return results
+
+
 async def expected_counts(db: AsyncSession, kit: Kit) -> list[dict]:
-    """What to show on the check form: every non-consumable line of the kit's
-    template, prefilled with what we currently believe is in the box.
+    """What to show on the check form: every line of the kit's template,
+    prefilled with what we currently believe is in the box.
 
     Prefilled rather than blank so the common case is one tap. A form that
     demands 27 numbers gets 27 guesses.
@@ -93,7 +183,7 @@ async def expected_counts(db: AsyncSession, kit: Kit) -> list[dict]:
     rows = (await db.execute(
         select(KitTemplateItem, Item)
         .join(Item, Item.id == KitTemplateItem.item_id)
-        .where(KitTemplateItem.template_id == kit.template_id, Item.is_consumable.is_(False))
+        .where(KitTemplateItem.template_id == kit.template_id)
         .order_by(Item.category, Item.name)
     )).all()
 
@@ -147,8 +237,7 @@ async def record_check(
 
     required = dict((await db.execute(
         select(KitTemplateItem.item_id, KitTemplateItem.required_qty)
-        .join(Item, Item.id == KitTemplateItem.item_id)
-        .where(KitTemplateItem.template_id == kit.template_id, Item.is_consumable.is_(False))
+        .where(KitTemplateItem.template_id == kit.template_id)
     )).all())
 
     missing: dict[str, int] = {}

@@ -1,8 +1,8 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Backpack, Plus } from "lucide-react"
+import { Backpack, Package, Plus, Search } from "lucide-react"
 import {
-  getLocationsApi,
+  getWarehousesApi,
   getSessionEquipmentApi,
   returnEquipmentApi,
   searchEquipmentApi,
@@ -21,10 +21,11 @@ import { Modal, Field, ModalActions } from "@/pages/admin/components/common"
  * Today this is WhatsApp photos and never reaches a system. Three things make
  * the difference between a form that gets filled in and one that doesn't:
  *
- * - **The "add something" modal shows the shelf, not a search box (B3).**
- *   Ticking what's there beats typing an item's exact name from memory —
- *   a search that shows nothing until you guess right is worse than a short
- *   list, and per-location catalogues stay short enough to just show.
+ * - **The "add something" modal shows the whole shelf as a photo grid, with
+ *   a search box to narrow it (2026-08-01).** The shelf still renders up
+ *   front rather than waiting for input — a search that shows nothing until
+ *   you guess right is worse than a short list — but images plus a filter
+ *   let someone recognise a part by sight or narrow a long shelf by name.
  * - **Nobody is asked where they collected from.** Ops moves the kits to the
  *   session's warehouse first, so the kits' location already *is* the
  *   collection point. The dropdown appears only when there is nothing to
@@ -78,7 +79,7 @@ export function SessionEquipmentPanel({
         {data.lines.length === 0 ? (
           <p className="text-xs text-muted-foreground -mt-1">
             Stickers, a speaker, a charger, T-shirts — anything that isn&apos;t a kit.
-            {data.location_name && ` Picked up from ${data.location_name}.`}
+            {data.warehouse_name && ` Picked up from ${data.warehouse_name}.`}
           </p>
         ) : (
           <div className="flex flex-col gap-2">
@@ -125,8 +126,8 @@ export function SessionEquipmentPanel({
       {adding && (
         <TakeModal
           sessionId={sessionId}
-          locationId={data.location_id}
-          locationName={data.location_name}
+          warehouseId={data.warehouse_id}
+          warehouseName={data.warehouse_name}
           onClose={() => setAdding(false)}
           onDone={() => { setAdding(false); refresh() }}
         />
@@ -135,8 +136,8 @@ export function SessionEquipmentPanel({
         <ReturnModal
           sessionId={sessionId}
           lines={data.lines.filter((l) => l.outstanding > 0)}
-          locationId={data.location_id}
-          locationName={data.location_name}
+          warehouseId={data.warehouse_id}
+          warehouseName={data.warehouse_name}
           onClose={() => setReturning(false)}
           onDone={() => { setReturning(false); refresh() }}
         />
@@ -208,34 +209,35 @@ function SessionNotes({ sessionId, notes, onSaved }: {
   )
 }
 
-/** B3: the whole shelf at the pickup point, ticked rather than searched.
- *  An instructor who doesn't know an item's exact name has nothing to type
- *  into a search box — a location's catalogue is short enough to just show. */
-function TakeModal({ sessionId, locationId, locationName, onClose, onDone }: {
+/** B3: the whole shelf at the pickup point, shown as a photo grid and
+ *  narrowable by a search box (2026-08-01) — recognise it by sight, or type
+ *  a few letters when the shelf runs long. */
+function TakeModal({ sessionId, warehouseId, warehouseName, onClose, onDone }: {
   sessionId: string
-  locationId: string | null
-  locationName: string | null
+  warehouseId: string | null
+  warehouseName: string | null
   onClose: () => void
   onDone: () => void
 }) {
   const [picked, setPicked] = useState<Record<string, { row: EquipmentSearchResult; qty: number }>>({})
-  const [chosenLocation, setChosenLocation] = useState("")
+  const [chosenWarehouse, setChosenWarehouse] = useState("")
+  const [search, setSearch] = useState("")
   const [error, setError] = useState("")
 
   // Only asked when there was nothing to derive from — the uncommon path.
-  const needsLocation = locationId === null
-  const effectiveLocation = locationId ?? (chosenLocation || null)
+  const needsWarehouse = warehouseId === null
+  const effectiveWarehouse = warehouseId ?? (chosenWarehouse || null)
 
-  const { data: locations = [] } = useQuery({
-    queryKey: ["inv-locations"],
-    queryFn: () => getLocationsApi(),
-    enabled: needsLocation,
+  const { data: warehouses = [] } = useQuery({
+    queryKey: ["inv-warehouses"],
+    queryFn: () => getWarehousesApi(),
+    enabled: needsWarehouse,
   })
 
   const { data: shelf = [], isLoading } = useQuery({
-    queryKey: ["equipment-shelf", sessionId, effectiveLocation],
-    queryFn: () => searchEquipmentApi({ sessionId, locationId: effectiveLocation }),
-    enabled: !!effectiveLocation,
+    queryKey: ["equipment-shelf", sessionId, effectiveWarehouse],
+    queryFn: () => searchEquipmentApi({ sessionId, warehouseId: effectiveWarehouse }),
+    enabled: !!effectiveWarehouse,
   })
 
   const submit = useMutation({
@@ -257,65 +259,90 @@ function TakeModal({ sessionId, locationId, locationName, onClose, onDone }: {
     setPicked((p) => ({ ...p, [row.item_id]: { row, qty: Math.min(row.available, Math.max(1, qty || 1)) } }))
 
   const chosen = Object.values(picked)
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return q ? shelf.filter((row) => row.item_name.toLowerCase().includes(q)) : shelf
+  }, [shelf, search])
 
   return (
-    <Modal title="What else did you take?" onClose={onClose} maxWidth="max-w-md">
-      {needsLocation ? (
+    <Modal title="What else did you take?" onClose={onClose} maxWidth="max-w-xl">
+      {needsWarehouse ? (
         <Field label="Where did you collect it from?">
           <select
-            value={chosenLocation}
-            onChange={(e) => { setChosenLocation(e.target.value); setPicked({}) }}
+            value={chosenWarehouse}
+            onChange={(e) => { setChosenWarehouse(e.target.value); setPicked({}) }}
             className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
           >
             <option value="">Choose…</option>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </Field>
       ) : (
         <p className="text-xs text-muted-foreground -mt-1">
-          From {locationName}, where this session&apos;s kits are.
+          From {warehouseName}, where this session&apos;s kits are.
         </p>
       )}
 
-      {effectiveLocation && (
+      {effectiveWarehouse && shelf.length > 0 && (
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={search} onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search this shelf…"
+            className="w-full h-9 pl-8 pr-3 border border-border bg-background text-foreground rounded-xl text-sm"
+          />
+        </div>
+      )}
+
+      {effectiveWarehouse && (
         isLoading ? (
           <p className="text-sm text-muted-foreground py-2">Loading the shelf…</p>
         ) : shelf.length === 0 ? (
           <p className="text-sm text-muted-foreground py-2">
-            Nothing is on record at this location. Ask operations to add stock.
+            Nothing is on record at this warehouse. Ask operations to add stock.
           </p>
+        ) : visible.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2">Nothing on this shelf matches that search.</p>
         ) : (
-          <div className="flex flex-col gap-1 max-h-[40vh] overflow-y-auto -mx-1 px-1">
-            {shelf.map((row) => {
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-[45vh] overflow-y-auto -mx-1 px-1 py-1">
+            {visible.map((row) => {
               const isPicked = !!picked[row.item_id]
               return (
                 <label
                   key={row.item_id}
-                  className={`flex items-center gap-3 rounded-xl border px-3 py-2 cursor-pointer transition-colors ${
-                    isPicked ? "border-primary/30 bg-primary/5" : "border-border hover:bg-muted/60"
+                  className={`flex flex-col rounded-xl border overflow-hidden cursor-pointer transition-colors ${
+                    isPicked ? "border-primary/50 bg-primary/5" : "border-border hover:bg-muted/60"
                   }`}
                 >
-                  <input
-                    type="checkbox"
-                    checked={isPicked}
-                    onChange={() => toggle(row)}
-                    className="rounded text-primary focus:ring-primary border-border bg-background shrink-0"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm text-foreground truncate">{row.item_name}</p>
-                    {row.description && (
-                      <p className="text-xs text-muted-foreground truncate">{row.description}</p>
+                  <div className="relative w-full aspect-square bg-muted/40 flex items-center justify-center">
+                    {row.image_url ? (
+                      <img src={row.image_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <Package size={22} className="text-muted-foreground" />
+                    )}
+                    <input
+                      type="checkbox"
+                      checked={isPicked}
+                      onChange={() => toggle(row)}
+                      className="absolute top-1.5 left-1.5 rounded text-primary focus:ring-primary border-border bg-background shrink-0"
+                    />
+                    <span className="absolute bottom-1.5 right-1.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-background/90 text-muted-foreground">
+                      {row.available} there
+                    </span>
+                  </div>
+                  <div className="p-1.5 flex flex-col gap-1">
+                    <p className="text-xs font-medium text-foreground truncate" title={row.item_name}>
+                      {row.item_name}
+                    </p>
+                    {isPicked && (
+                      <input
+                        type="number" min={1} max={row.available} value={picked[row.item_id].qty}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setQty(row, Number(e.target.value))}
+                        className="w-full h-7 px-1.5 border border-border bg-background text-foreground rounded-lg text-xs text-center tabular-nums"
+                      />
                     )}
                   </div>
-                  <span className="text-xs text-muted-foreground shrink-0">{row.available} there</span>
-                  {isPicked && (
-                    <input
-                      type="number" min={1} max={row.available} value={picked[row.item_id].qty}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => setQty(row, Number(e.target.value))}
-                      className="w-14 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums shrink-0"
-                    />
-                  )}
                 </label>
               )
             })}
@@ -331,7 +358,7 @@ function TakeModal({ sessionId, locationId, locationName, onClose, onDone }: {
           setError("")
           submit.mutate({
             sessionId,
-            locationId: effectiveLocation,
+            warehouseId: effectiveWarehouse,
             lines: chosen.map(({ row, qty }) => ({ item_id: row.item_id, qty })),
           })
         }}
@@ -345,27 +372,27 @@ function TakeModal({ sessionId, locationId, locationName, onClose, onDone }: {
 
 /** "Did you bring it back?" per line. Leaving a line at zero is the
  *  "returning later" answer — it stays outstanding, which is the truth. */
-function ReturnModal({ sessionId, lines, locationId, locationName, onClose, onDone }: {
+function ReturnModal({ sessionId, lines, warehouseId, warehouseName, onClose, onDone }: {
   sessionId: string
   lines: { item_id: string; item_name: string; outstanding: number }[]
-  locationId: string | null
-  locationName: string | null
+  warehouseId: string | null
+  warehouseName: string | null
   onClose: () => void
   onDone: () => void
 }) {
   const [qtys, setQtys] = useState<Record<string, number>>(
     Object.fromEntries(lines.map((l) => [l.item_id, l.outstanding])),
   )
-  const [chosenLocation, setChosenLocation] = useState("")
+  const [chosenWarehouse, setChosenWarehouse] = useState("")
   const [error, setError] = useState("")
 
-  const needsLocation = locationId === null
-  const effectiveLocation = locationId ?? (chosenLocation || null)
+  const needsWarehouse = warehouseId === null
+  const effectiveWarehouse = warehouseId ?? (chosenWarehouse || null)
 
-  const { data: locations = [] } = useQuery({
-    queryKey: ["inv-locations"],
-    queryFn: () => getLocationsApi(),
-    enabled: needsLocation,
+  const { data: warehouses = [] } = useQuery({
+    queryKey: ["inv-warehouses"],
+    queryFn: () => getWarehousesApi(),
+    enabled: needsWarehouse,
   })
 
   const submit = useMutation({
@@ -385,14 +412,14 @@ function ReturnModal({ sessionId, lines, locationId, locationName, onClose, onDo
         recorded as returned.
       </p>
 
-      {needsLocation && (
+      {needsWarehouse && (
         <Field label="Where are you leaving it?">
           <select
-            value={chosenLocation} onChange={(e) => setChosenLocation(e.target.value)}
+            value={chosenWarehouse} onChange={(e) => setChosenWarehouse(e.target.value)}
             className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
           >
             <option value="">Choose…</option>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </Field>
       )}
@@ -412,14 +439,14 @@ function ReturnModal({ sessionId, lines, locationId, locationName, onClose, onDo
                   [l.item_id]: Math.min(l.outstanding, Math.max(0, Number(e.target.value) || 0)),
                 }))
               }
-              className="w-16 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
+              className="!w-16 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
             />
           </div>
         ))}
       </div>
 
-      {!needsLocation && (
-        <p className="text-xs text-muted-foreground">Going back to {locationName}.</p>
+      {!needsWarehouse && (
+        <p className="text-xs text-muted-foreground">Going back to {warehouseName}.</p>
       )}
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 
@@ -427,10 +454,10 @@ function ReturnModal({ sessionId, lines, locationId, locationName, onClose, onDo
         onCancel={onClose}
         onConfirm={() => {
           setError("")
-          submit.mutate({ sessionId, lines: returning, toLocationId: effectiveLocation })
+          submit.mutate({ sessionId, lines: returning, toWarehouseId: effectiveWarehouse })
         }}
         loading={submit.isPending}
-        disabled={returning.length === 0 || !effectiveLocation}
+        disabled={returning.length === 0 || !effectiveWarehouse}
         label="Record it"
       />
     </Modal>

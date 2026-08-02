@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from html import escape
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
@@ -20,6 +21,7 @@ from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.certificate import Certificate
+from app.models.document_template import DocumentTemplate
 from app.models.enums import CertificateType
 from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
@@ -97,34 +99,12 @@ async def start_session(db: AsyncSession, session_id: UUID, user: User) -> Sessi
 async def mark_done(db: AsyncSession, session_id: UUID, user: User) -> Session:
     """Idempotent, same reasoning as start_session.
 
-    **Gated on the post-session kit check (I2-2).** If kits were assigned to
-    this session, each one must have been counted before the session can be
-    closed out. This is the one hard gate in the inventory work, and it is
-    here rather than on `start_session` deliberately: closing out is
-    asynchronous — the workshop is over, they are sitting down — whereas
-    starting happens live in front of students, where a form that blocks gets
-    faked or the whole system abandoned.
-
-    A session with no kits assigned is completely unaffected, which is most of
-    them.
+    Kit counting is optional (operator request 2026-08-02): instructors can
+    complete and close out the session regardless of whether kit post-checks
+    have been performed.
     """
     session = await _get_deliverable_session(db, session_id, user)
     if session.completed_at is None:
-        # Imported here, not at module scope: the sessions domain does not
-        # otherwise depend on inventory, and a top-level import would make
-        # that a circular one via the shared models package.
-        from app.services.inventory.checks import outstanding_post_checks
-
-        uncounted = await outstanding_post_checks(db, session_id)
-        if uncounted:
-            labels = ", ".join(k.label for k in uncounted)
-            raise HTTPException(
-                status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Count {'this kit' if len(uncounted) == 1 else 'these kits'} before "
-                    f"finishing the session: {labels}"
-                ),
-            )
         session.completed_at = datetime.now(timezone.utc)
         await db.flush()
     return session
@@ -218,13 +198,24 @@ async def _issue_student_certificate(
     generated_at, generated_by) but carries no file_url/bucket/file_path.
     A failed email send is logged and silently swallowed — cohort completion
     must never fail because SMTP is down.
+
+    Rendered from the `student_completion` system template (2026-08-01) — an
+    editable `document_templates` row, same as `workshop_delivery` — rather
+    than a hardcoded string, so admins can change the wording without a code
+    change. `is_system=True` + empty `roles` keeps it out of the self-service
+    "request a document" picker: nobody requests this, the system issues it.
     """
     existing = await db.scalar(select(Certificate).where(Certificate.registration_id == registration.id))
     if existing is not None:
         return existing
 
     dates = format_cohort_dates(cohort)
-    body_text = f"For successfully completing<br/>{program.name}<br/>{dates}"
+    template = (await db.execute(
+        select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
+    )).scalars().first()
+    body_text = (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}") \
+        .replace("{program_name}", escape(program.name)) \
+        .replace("{dates}", escape(dates))
     cert_bytes = await asyncio.to_thread(generate_completion_certificate_pdf, contact.full_name, body_text)
 
     certificate = Certificate(

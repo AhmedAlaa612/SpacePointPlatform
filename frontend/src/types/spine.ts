@@ -159,6 +159,9 @@ export type ContactUpdate = Partial<{
   lifecycle_stage: string;
   owner_user_id: string | null;
   organization_id: string | null;
+  // Resolves (or creates) an Organization by name. Blank/omitted is a no-op,
+  // never a clear — see backend ContactUpdate.
+  organization_name: string;
   notes: string | null;
 }>;
 

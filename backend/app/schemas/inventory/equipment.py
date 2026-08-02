@@ -11,13 +11,13 @@ class EquipmentLineIn(BaseModel):
 
 
 class TakeEquipmentIn(BaseModel):
-    """`location_id` omitted means "derive it from the assigned kits", which is
+    """`warehouse_id` omitted means "derive it from the assigned kits", which is
     the normal case — the kits have already been moved to the session's
     warehouse, so that is where the instructor is standing. It is only sent on
     the uncommon path where there is nothing to derive from."""
 
     lines: list[EquipmentLineIn]
-    location_id: uuid.UUID | None = None
+    warehouse_id: uuid.UUID | None = None
     note: str | None = None
 
 
@@ -26,7 +26,16 @@ class ReturnEquipmentIn(BaseModel):
     outstanding rather than being recorded as something it isn't."""
 
     lines: list[EquipmentLineIn]
-    to_location_id: uuid.UUID | None = None
+    to_warehouse_id: uuid.UUID | None = None
+
+
+class ReturnLaterEquipmentIn(BaseModel):
+    """Flags these items as coming back later — or, if one was already
+    marked returned, undoes that and flags it instead. Same toggle a kit's
+    return report gets, and refused for the same reason once the session is
+    marked done."""
+
+    item_ids: list[uuid.UUID]
 
 
 class EquipmentSearchOut(BaseModel):
@@ -38,6 +47,7 @@ class EquipmentSearchOut(BaseModel):
     # B3: shown on the pick-list so an instructor doesn't have to guess what
     # an unfamiliar item name means.
     description: str | None = None
+    image_url: str | None = None
 
 
 class TakenEquipmentOut(BaseModel):
@@ -47,17 +57,20 @@ class TakenEquipmentOut(BaseModel):
     qty_returned: int
     outstanding: int
     returnable: bool
+    # Persisted "coming back later" — survives a reload, unlike a purely
+    # client-side note. False whenever it's actually been returned.
+    later: bool = False
 
 
 class SessionEquipmentOut(BaseModel):
     """What the equipment section renders.
 
-    `location_id` is null when we can't derive a collection point — no kits
+    `warehouse_id` is null when we can't derive a collection point — no kits
     assigned, or kits in more than one place — and that is the only time the
-    UI shows a location dropdown at all.
+    UI shows a warehouse dropdown at all.
     """
 
-    location_id: uuid.UUID | None
-    location_name: str | None
+    warehouse_id: uuid.UUID | None
+    warehouse_name: str | None
     lines: list[TakenEquipmentOut]
     outstanding_count: int

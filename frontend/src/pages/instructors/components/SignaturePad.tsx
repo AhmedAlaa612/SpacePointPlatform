@@ -1,27 +1,7 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef } from "react"
 import SignatureCanvas from "react-signature-canvas"
 import { RotateCcw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-
-function isDarkMode(): boolean {
-  return document.documentElement.classList.contains("dark")
-}
-
-/** Ink must contrast with the canvas's theme-aware `bg-background` — a
- * hardcoded pen color went invisible in dark mode (near-black ink on a
- * near-black background). Tracks the `dark` class via MutationObserver
- * so it also updates if the user toggles theme while the pad is open. */
-function useSignaturePenColor(): string {
-  const [dark, setDark] = useState(isDarkMode)
-
-  useEffect(() => {
-    const observer = new MutationObserver(() => setDark(isDarkMode()))
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] })
-    return () => observer.disconnect()
-  }, [])
-
-  return dark ? "#FFFFFF" : "#000000"
-}
 
 interface SignaturePadProps {
   onSign: (dataUrl: string) => void
@@ -77,7 +57,6 @@ function trimCanvas(canvas: HTMLCanvasElement): HTMLCanvasElement {
 /** Canvas-based e-signature capture for payment letters. */
 export function SignaturePad({ onSign, signing }: SignaturePadProps) {
   const ref = useRef<SignatureCanvas>(null)
-  const penColor = useSignaturePenColor()
 
   const handleSign = () => {
     if (!ref.current || ref.current.isEmpty()) return
@@ -88,10 +67,13 @@ export function SignaturePad({ onSign, signing }: SignaturePadProps) {
 
   return (
     <div>
-      <div className="rounded-lg border border-dashed border-border bg-background">
+      {/* Fixed light background, independent of app theme — the exported PNG is
+          stamped onto a white PDF page, so ink must always be black regardless
+          of whether the instructor is signing in dark mode. */}
+      <div className="rounded-lg border border-dashed border-border bg-white">
         <SignatureCanvas
           ref={ref}
-          penColor={penColor}
+          penColor="#000000"
           canvasProps={{ className: "w-full h-40 rounded-lg" }}
         />
       </div>

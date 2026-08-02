@@ -76,7 +76,7 @@ async def fulfil(
         kit=kit,
         lines=[(line.item_id, line.qty) for line in body.lines],
         actor_user_id=current_user.id,
-        from_location_id=body.from_location_id,
+        from_warehouse_id=body.from_warehouse_id,
     )
     await db.commit()
     return movements

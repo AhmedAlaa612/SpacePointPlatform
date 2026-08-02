@@ -12,12 +12,14 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.inventory.location import Location
 from app.models.instructors.payment import PaymentLetter, PaymentSession
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
+from app.models.user import User
 from app.services.sessions.openings import resolve_duration
 from app.services.settings import get_portal_setting, set_portal_setting
 
@@ -147,6 +149,15 @@ async def unbilled_sessions(db: AsyncSession, instructor_user_id: uuid.UUID) -> 
     for session, cohort, program, role_name in rows:
         if session.id in billed:
             continue
+        loc_name = None
+        loc_id = session.location_id or cohort.location_id
+        if loc_id:
+            loc = await db.get(Location, loc_id)
+            if loc and loc.name:
+                loc_name = loc.name
+        if not loc_name:
+            loc_name = cohort.location
+
         out.append({
             "session_id": session.id,
             # Formatted the way the document prints it, because that is what
@@ -154,8 +165,58 @@ async def unbilled_sessions(db: AsyncSession, instructor_user_id: uuid.UUID) -> 
             "session_date": session.meeting_date.strftime("%d/%m/%Y"),
             "workshop_description": session.title or program.name,
             "role": role_name,
-            "location": cohort.location,
+            "location": loc_name,
             "duration_hours": float(await resolve_duration(db, session) or 0) or None,
             "cohort_name": cohort.name,
         })
+    return out
+
+
+async def pending_payment_instructors(db: AsyncSession) -> list[dict]:
+    """Every instructor with at least one completed session not yet on any of
+    their payment letters — the admin's payment-letter to-do list.
+
+    Same "unbilled" rule as `unbilled_sessions` (absence of a
+    `payment_sessions.session_id` row under that instructor's own letters),
+    just computed for everyone at once instead of one instructor at a time,
+    so admin doesn't have to already know who to look up.
+    """
+    billed_pairs = set((await db.execute(
+        select(PaymentLetter.instructor_user_id, PaymentSession.session_id)
+        .join(PaymentSession, PaymentSession.payment_letter_id == PaymentLetter.id)
+        .where(PaymentSession.session_id.isnot(None))
+    )).all())
+
+    rows = (await db.execute(
+        select(User.id, User.full_name, User.email, Session.id, Session.meeting_date)
+        .select_from(SessionInstructor)
+        .join(Session, Session.id == SessionInstructor.session_id)
+        .join(User, User.id == SessionInstructor.user_id)
+        .where(Session.completed_at.isnot(None))
+    )).all()
+
+    by_instructor: dict[uuid.UUID, dict] = {}
+    for user_id, full_name, email, session_id, meeting_date in rows:
+        if (user_id, session_id) in billed_pairs:
+            continue
+        entry = by_instructor.setdefault(user_id, {
+            "instructor_user_id": user_id, "full_name": full_name, "email": email,
+            "session_ids": set(), "earliest_date": meeting_date, "latest_date": meeting_date,
+        })
+        entry["session_ids"].add(session_id)
+        entry["earliest_date"] = min(entry["earliest_date"], meeting_date)
+        entry["latest_date"] = max(entry["latest_date"], meeting_date)
+
+    out = [
+        {
+            "instructor_user_id": e["instructor_user_id"],
+            "full_name": e["full_name"],
+            "email": e["email"],
+            "pending_session_count": len(e["session_ids"]),
+            "earliest_date": e["earliest_date"],
+            "latest_date": e["latest_date"],
+        }
+        for e in by_instructor.values()
+    ]
+    out.sort(key=lambda r: r["earliest_date"])
     return out

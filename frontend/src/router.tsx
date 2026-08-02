@@ -70,6 +70,7 @@ import FacilitatorApplication from "@/pages/instructors/facilitator/Application"
 import InstructorAvailableSessions from "@/pages/instructors/AvailableSessions";
 import InstructorMySessions from "@/pages/instructors/MySessions";
 import InstructorSessionDetail from "@/pages/instructors/SessionDetail";
+import InstructorMyHoldings from "@/pages/instructors/MyHoldings";
 
 // Admin hub
 import AdminHub from "@/pages/admin/Dashboard";
@@ -81,15 +82,19 @@ import Settings from "@/pages/admin/Settings";
 // Sessions/spine domain pages (V2 R2-3/R2-4/R2-5)
 import AdminPrograms from "@/pages/admin/Programs";
 import AdminCohorts from "@/pages/admin/Cohorts";
+import AdminCohortDetail from "@/pages/admin/CohortDetail";
+import AdminSessionDetail from "@/pages/admin/SessionDetail";
 import AdminContacts from "@/pages/admin/Contacts";
 import AdminMergeReviews from "@/pages/admin/MergeReviews";
 import AdminCheckIn from "@/pages/admin/CheckIn";
 import SessionsCalendar from "@/pages/sessions/Calendar";
 import OpsDashboard from "@/pages/sessions/OpsDashboard";
+import ThisWeek from "@/pages/sessions/ThisWeek";
 
 // Inventory (I1-4)
 import InventoryKits from "@/pages/operations/inventory/Kits";
 import InventoryKitDetail from "@/pages/operations/inventory/KitDetail";
+import InventoryLocationDetail from "@/pages/operations/inventory/LocationDetail";
 import InventoryStock from "@/pages/operations/inventory/Stock";
 import InventoryCatalog from "@/pages/operations/inventory/Catalog";
 import InventoryFulfilment from "@/pages/operations/inventory/Fulfilment";
@@ -472,6 +477,7 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/facilitator/application", component: FacilitatorApplication }),
   createRoute({ getParentRoute: pi, path: "/available-sessions", component: InstructorAvailableSessions }),
   createRoute({ getParentRoute: pi, path: "/my-sessions", component: InstructorMySessions }),
+  createRoute({ getParentRoute: pi, path: "/my-holdings", component: InstructorMyHoldings }),
   createRoute({ getParentRoute: pi, path: "/sessions/$sessionId", component: InstructorSessionDetail }),
   createRoute({
     getParentRoute: pi,
@@ -624,8 +630,11 @@ const operationsLayoutRoute = createRoute({
 const po = () => operationsLayoutRoute;
 const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/dashboard", component: OpsDashboard }),
+  createRoute({ getParentRoute: po, path: "/this-week", component: ThisWeek }),
   createRoute({ getParentRoute: po, path: "/programs", component: AdminPrograms }),
   createRoute({ getParentRoute: po, path: "/cohorts", component: AdminCohorts }),
+  createRoute({ getParentRoute: po, path: "/cohorts/$cohortId", component: AdminCohortDetail }),
+  createRoute({ getParentRoute: po, path: "/cohorts/$cohortId/sessions/$sessionId", component: AdminSessionDetail }),
   createRoute({ getParentRoute: po, path: "/contacts", component: AdminContacts }),
   createRoute({ getParentRoute: po, path: "/merge-reviews", component: AdminMergeReviews }),
   createRoute({ getParentRoute: po, path: "/checkin", component: AdminCheckIn }),
@@ -634,6 +643,7 @@ const operationsRoutes = [
   // Inventory (I1-4)
   createRoute({ getParentRoute: po, path: "/inventory", component: InventoryKits }),
   createRoute({ getParentRoute: po, path: "/inventory/kits/$kitId", component: InventoryKitDetail }),
+  createRoute({ getParentRoute: po, path: "/inventory/locations/$locationId", component: InventoryLocationDetail }),
   createRoute({ getParentRoute: po, path: "/inventory/stock", component: InventoryStock }),
   createRoute({ getParentRoute: po, path: "/inventory/catalog", component: InventoryCatalog }),
   createRoute({ getParentRoute: po, path: "/inventory/fulfilment", component: InventoryFulfilment }),

@@ -83,9 +83,11 @@ class Movement(Base):
     # parts went into that kit" — and the fact that the stock left the
     # warehouse is still true if the kit is later deleted.
     from_location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True)
+    from_warehouse_id = Column(UUID(as_uuid=True), ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True)
     from_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     from_kit_id = Column(UUID(as_uuid=True), ForeignKey("kits.id", ondelete="SET NULL"), nullable=True, index=True)
     to_location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="RESTRICT"), nullable=True)
+    to_warehouse_id = Column(UUID(as_uuid=True), ForeignKey("warehouses.id", ondelete="RESTRICT"), nullable=True)
     to_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     to_kit_id = Column(UUID(as_uuid=True), ForeignKey("kits.id", ondelete="SET NULL"), nullable=True, index=True)
 

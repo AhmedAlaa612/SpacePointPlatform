@@ -12,7 +12,7 @@ class ShortageLineOut(BaseModel):
     required: int
     actual: int
     short_by: int
-    # How many are on the shelf at the kit's own location. This is what makes
+    # How many are on the shelf in the kit's own warehouse. This is what makes
     # the queue actionable rather than merely informative.
     available: int
 
@@ -24,6 +24,8 @@ class FulfilmentKitOut(BaseModel):
     status: str
     location_id: uuid.UUID
     location_name: str
+    warehouse_id: uuid.UUID
+    warehouse_name: str
     out_with_someone: bool
     # Set = a storekeeper looked and the shelf was empty. Null = nobody has
     # been to it yet. The difference is the only thing this queue stores.
@@ -39,11 +41,11 @@ class FulfilLineIn(BaseModel):
 
 
 class FulfilKitIn(BaseModel):
-    """`from_location_id` omitted means the kit's own location — parts come off
-    the shelf the box is sitting on, which is the case needing no thought."""
+    """`from_warehouse_id` omitted means the kit's own warehouse — parts come
+    off the shelf the box is sitting on, which is the case needing no thought."""
 
     lines: list[FulfilLineIn]
-    from_location_id: uuid.UUID | None = None
+    from_warehouse_id: uuid.UUID | None = None
 
 
 class AwaitingPartsIn(BaseModel):

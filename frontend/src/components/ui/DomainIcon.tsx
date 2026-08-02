@@ -1,4 +1,5 @@
 import { useLocation } from "@tanstack/react-router";
+import { useAuth } from "@/context/AuthContext";
 import ambassadorIcon from "@/assets/icons/ambassador-icon.png";
 
 const DOMAIN_LABELS: Record<string, string> = {
@@ -9,10 +10,32 @@ const DOMAIN_LABELS: Record<string, string> = {
   operations: "Operations",
 };
 
+const ROLE_DOMAINS: Record<string, string> = {
+  instructor: "Instructors",
+  facilitator: "Instructors",
+  applicant: "Instructors",
+  operations: "Operations",
+  coo: "Operations",
+  storekeeper: "Operations",
+  ambassador: "Ambassadors",
+  teacher: "Ambassadors",
+  intern: "Interns",
+  leader: "Interns",
+  admin: "Admin",
+};
+
 export function DomainIcon({ className }: { className?: string }) {
   const { pathname } = useLocation();
+  const { activeRole } = useAuth();
   const domain = pathname.split("/")[1];
-  const label = DOMAIN_LABELS[domain] ?? "SpacePoint";
+
+  let label = DOMAIN_LABELS[domain];
+  if (!label && activeRole) {
+    label = ROLE_DOMAINS[activeRole];
+  }
+  if (!label) {
+    label = "";
+  }
 
   return (
     <svg
@@ -21,12 +44,13 @@ export function DomainIcon({ className }: { className?: string }) {
       xmlns="http://www.w3.org/2000/svg"
       className={`text-[#1E1E1E] dark:text-white ${className ?? ""}`}
     >
-        <image
-          href={ambassadorIcon}
-          width="324"
-          height="75"
-          preserveAspectRatio="none"
-        />
+      <image
+        href={ambassadorIcon}
+        width="324"
+        height="75"
+        preserveAspectRatio="none"
+      />
+      {label && (
         <text
           transform="translate(324 51)"
           fill="currentColor"
@@ -38,6 +62,7 @@ export function DomainIcon({ className }: { className?: string }) {
         >
           <tspan x="0" y="49.2188">{label}</tspan>
         </text>
+      )}
     </svg>
   );
 }

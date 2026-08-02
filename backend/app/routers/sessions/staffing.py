@@ -14,7 +14,7 @@ from __future__ import annotations
 import uuid
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,18 +25,23 @@ from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
-from app.schemas.sessions.cohorts import SessionInstructorOut, SessionOut
+from app.schemas.sessions.cohorts import BulkActionError, SessionInstructorOut, SessionOut
 from app.services.sessions import openings as openings_svc
 from app.schemas.sessions.staffing import (
     AddonSummary,
     OpeningSummary,
     AvailableSessionOut,
+    CloseCohortCallRequest,
+    CohortCallOut,
     EligibleInstructorOut,
     InterestOut,
     MySessionOut,
+    OpenCohortCallRequest,
+    OpenCohortCallResponse,
     RegisterInterestRequest,
     SelectInstructorsRequest,
     SelectInstructorsResponse,
+    SessionCallOut,
 )
 from app.services.notification import create_notification
 from app.services.sessions import staffing
@@ -68,6 +73,9 @@ class OpenCallRequest(BaseModel):
     # B2: which roles are on offer. None opens every configured opening —
     # today's exact behaviour.
     role_ids: list[uuid.UUID] | None = None
+    # Optional ops-facing name for this call, e.g. "Backup facilitators" —
+    # only useful once a session has more than one call open (2026-08-01).
+    label: str | None = None
 
 
 @router.post("/{session_id}/staffing/open-call", response_model=SessionOut)
@@ -77,12 +85,19 @@ async def open_call(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    # The picked instructors are now the call's audience in the real sense —
-    # only they can see the session or register interest. No selection means
-    # a call open to everyone, exactly as before.
+    """Opens a new call on this session (2026-08-01: a session can run
+    several calls at once — call this again while already open_call to add
+    another, e.g. a targeted call for one missing role alongside a public
+    one). The picked instructors are the call's audience in the real
+    sense — only they can see the session or register interest because of
+    it. No selection means a call open to everyone."""
     target_ids = list(body.user_ids) if body and body.user_ids else []
     role_ids = list(body.role_ids) if body and body.role_ids else None
-    session = await staffing.open_call(db, session_id, target_user_ids=target_ids, role_ids=role_ids)
+    label = body.label if body else None
+    session = await staffing.open_call(
+        db, session_id, target_user_ids=target_ids, role_ids=role_ids,
+        actor_user_id=current_user.id, label=label,
+    )
 
     query = select(User).where(User.roles.any("instructor") | User.roles.any("facilitator"))
     if target_ids:
@@ -101,20 +116,42 @@ async def open_call(
     return await _session_out(db, session)
 
 
-@router.post("/cohorts/{cohort_id}/staffing/open-call", response_model=list[SessionOut])
-async def open_call_for_cohort(
+# ── Ops: cohort-level standing calls (2026-08-01) ───────────────────────────
+# Groups a chosen subset of a cohort's sessions' own calls into one standing
+# CohortCall so ops can view/close them together.
+#
+# 2026-08-02: the ungrouped `POST /cohorts/{id}/staffing/open-call` that used
+# to sit here is gone. It opened calls that this grouped model couldn't see,
+# so anything created through it could never be closed as a group — two
+# coexisting call models, one of which the management UI didn't know about.
+# The `staffing.open_call_for_cohort` SERVICE it called is still very much
+# alive: it's what `open_cohort_call` below falls back to when `session_ids`
+# is omitted. Only the parallel HTTP entry point is retired.
+
+@router.post("/cohorts/{cohort_id}/staffing/calls", response_model=OpenCohortCallResponse)
+async def open_cohort_call(
     cohort_id: uuid.UUID,
-    body: OpenCallRequest | None = None,
+    body: OpenCohortCallRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    sessions = await staffing.open_call_for_cohort(db, cohort_id)
-
+    """Opens one standing call across a chosen subset of this cohort's
+    sessions (omit `session_ids` for every currently-unstaffed session in
+    the cohort — the same default `open_call_for_cohort` already uses).
+    Partial failure (e.g. a listed session that's already staffed, or one
+    that isn't actually in this cohort) is reported in `failed` rather than
+    rolling back the rest of the batch."""
+    session_ids = list(body.session_ids) if body and body.session_ids is not None else None
     target_ids = list(body.user_ids) if body and body.user_ids else []
-    if sessions:
-        for opened in sessions:
-            await staffing.set_call_targets(db, opened.id, target_ids)
+    role_ids = list(body.role_ids) if body and body.role_ids else None
+    label = body.label if body else None
 
+    call, succeeded, failed = await staffing.open_cohort_call(
+        db, cohort_id, session_ids=session_ids, target_user_ids=target_ids,
+        role_ids=role_ids, actor_user_id=current_user.id, label=label,
+    )
+
+    if succeeded:
         query = select(User).where(User.roles.any("instructor") | User.roles.any("facilitator"))
         if target_ids:
             query = query.where(User.id.in_(target_ids))
@@ -123,12 +160,65 @@ async def open_call_for_cohort(
         for user in eligible:
             await create_notification(
                 db, user.id, "New sessions open for interest",
-                body=f"{len(sessions)} session(s) are open for interest — register if you'd like one.",
+                body=f"{len(succeeded)} session(s) are open for interest — register if you'd like one.",
                 type="staffing_open_call",
             )
 
     await db.commit()
-    return [await _session_out(db, s) for s in sessions]
+    calls = await staffing.list_cohort_calls(db, cohort_id)
+    call_row = next(c for c in calls if c["id"] == call.id)
+    return OpenCohortCallResponse(
+        call=CohortCallOut(**call_row),
+        failed=[BulkActionError(session_id=f["session_id"], detail=f["detail"]) for f in failed],
+    )
+
+
+@router.get("/cohorts/{cohort_id}/staffing/calls", response_model=list[CohortCallOut])
+async def list_cohort_calls(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Every standing cohort call, most recent first, each with its target
+    users and the grouped sessions' own call/staffing status — the "manage
+    it as one cohesive thing" view."""
+    return [CohortCallOut(**row) for row in await staffing.list_cohort_calls(db, cohort_id)]
+
+
+@router.post("/cohorts/{cohort_id}/staffing/calls/{cohort_call_id}/close", response_model=CohortCallOut)
+async def close_cohort_call(
+    cohort_id: uuid.UUID,
+    cohort_call_id: uuid.UUID,
+    body: CloseCohortCallRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Closes this cohort call for a chosen subset of its grouped sessions
+    (omit `session_ids` to close all of them still open) — the rest, if
+    any, keep running. Delegates per-session to the existing single-call
+    close, so `clear_interest` and staffing_status resync behave exactly as
+    they do for a session-level close."""
+    session_ids = list(body.session_ids) if body and body.session_ids else None
+    clear_interest = body.clear_interest if body else False
+    await staffing.close_cohort_call(
+        db, cohort_id, cohort_call_id, session_ids=session_ids, clear_interest=clear_interest,
+    )
+    await db.commit()
+    calls = await staffing.list_cohort_calls(db, cohort_id)
+    call_row = next(c for c in calls if c["id"] == cohort_call_id)
+    return CohortCallOut(**call_row)
+
+
+@router.delete("/cohorts/{cohort_id}/staffing/calls/{cohort_call_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_cohort_call(
+    cohort_id: uuid.UUID,
+    cohort_call_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Tidy up a closed cohort call — refused (409) while it's still open."""
+    await staffing.delete_cohort_call(db, cohort_id, cohort_call_id)
+    await db.commit()
 
 
 @router.post("/{session_id}/staffing/reopen", response_model=SessionOut)
@@ -147,6 +237,7 @@ async def reopen(
         db, session_id,
         target_user_ids=list(body.user_ids) if body and body.user_ids is not None else None,
         role_ids=list(body.role_ids) if body and body.role_ids else None,
+        actor_user_id=current_user.id,
     )
     await db.commit()
     await db.refresh(session)
@@ -164,8 +255,44 @@ async def close_call(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
+    """Closes every call currently open on this session at once — the
+    original one-button behaviour, kept for the common case. To close just
+    one call while leaving others running, use the per-call endpoint below."""
     clear_interest = body.clear_interest if body else False
-    session = await staffing.close_call(db, session_id, clear_interest=clear_interest)
+    session = await staffing.close_all_calls(db, session_id, clear_interest=clear_interest)
+    await db.commit()
+    await db.refresh(session)
+    return await _session_out(db, session)
+
+
+# ── Ops: individual calls (2026-08-01) ──────────────────────────────────────
+
+@router.get("/{session_id}/staffing/calls", response_model=list[SessionCallOut])
+async def list_calls(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Every call on this session, open or closed, most recent first — "view
+    open calls public or targeted, edit them or close them" (operator,
+    2026-08-01). A session can have several open at once."""
+    return [SessionCallOut(**row) for row in await staffing.list_calls(db, session_id)]
+
+
+@router.post("/{session_id}/staffing/calls/{call_id}/close", response_model=SessionOut)
+async def close_one_call(
+    session_id: uuid.UUID,
+    call_id: uuid.UUID,
+    body: CloseCallRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Closes just this one call, leaving any other open calls on the same
+    session running. `clear_interest` only actually clears interest once
+    this was the last open call — interest gathered under a call still open
+    elsewhere on the session isn't touched."""
+    clear_interest = body.clear_interest if body else False
+    session = await staffing.close_call(db, session_id, call_id, clear_interest=clear_interest)
     await db.commit()
     await db.refresh(session)
     return await _session_out(db, session)
@@ -363,6 +490,7 @@ async def select_instructors(
 ):
     assignments, without_interest = await staffing.select_instructors(
         db, session_id, body.user_ids, body.role_id, close_call=body.close_call,
+        actor_user_id=current_user.id,
     )
 
     session = await db.get(Session, session_id)

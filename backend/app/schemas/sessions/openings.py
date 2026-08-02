@@ -67,6 +67,22 @@ class OpeningOut(BaseModel):
     # B2: whether this role is currently being solicited. A role-scoped open
     # call sets this per opening rather than the whole session at once.
     is_open: bool = True
+    # True when this row came from the cohort's default template rather than
+    # a SessionOpening row of its own (2026-08-01) — the UI uses this to show
+    # "inherited from cohort" and offer "customize for this session".
+    inherited: bool = False
+
+
+# ── cohort-level opening defaults (2026-08-01) ──────────────────────────────
+
+class CohortOpeningOut(BaseModel):
+    id: UUID
+    cohort_id: UUID
+    role_id: UUID
+    role_name: str
+    slots: int
+    amount_aed: Decimal | None = None
+    notes: str | None = None
 
 
 # ── add-ons (§G-addons) ─────────────────────────────────────────────────────

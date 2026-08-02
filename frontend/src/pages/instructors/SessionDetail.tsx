@@ -418,7 +418,7 @@ export default function SessionDetail() {
           <p className="text-xs text-muted-foreground">Nothing to wrap up until the session has started.</p>
         ) : (
           <>
-            <SessionKitsPanel sessionId={sessionId} stage="post" onChanged={invalidate} />
+            <SessionKitsPanel sessionId={sessionId} stage="post" locked={isCompleted} onChanged={invalidate} />
 
             <div>
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">

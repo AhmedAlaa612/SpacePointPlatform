@@ -39,7 +39,23 @@ export interface Cohort {
   starts_on?: string | null;
   ends_on?: string | null;
   location?: string | null;
+  /** FK to inventory Location — the cohort's venue (2026-08-01). */
+  location_id?: string | null;
+  location_name?: string | null;
+  location_maps_url?: string | null;
+  /** Which warehouse equipment for this cohort's sessions comes from. NULL =
+   *  resolve it server-side (read effective_warehouse_* below). Separate
+   *  from location_id — a location can hold more than one warehouse. */
+  warehouse_id?: string | null;
+  effective_warehouse_id?: string | null;
+  effective_warehouse_name?: string | null;
   capacity?: number | null;
+  /** Operational counters, populated only by the LIST endpoint (the cohorts
+   *  worklist). Undefined on cohort detail — don't render them as 0 there. */
+  sessions_count?: number | null;
+  registrations_count?: number | null;
+  unstaffed_count?: number | null;
+  next_session_date?: string | null;
   lead_instructor_user_id?: string | null;
   status: CohortStatus;
   madar_invitation_batch?: string | null;
@@ -80,6 +96,21 @@ export interface Session {
   interested_count?: number;
   /** Instructors this open call is restricted to. Empty = open to everyone. */
   target_user_ids: string[];
+  /** NULL = inherits the cohort's location. Read effective_location_* below
+   *  for what actually applies — that's already resolved server-side. */
+  location_id?: string | null;
+  effective_location_id?: string | null;
+  effective_location_name?: string | null;
+  /** Same override pattern, for which warehouse equipment comes from. */
+  warehouse_id?: string | null;
+  effective_warehouse_id?: string | null;
+  effective_warehouse_name?: string | null;
+  /** What actually applies right now — the session's own if it has any,
+   *  otherwise whatever the cohort (and, for materials, the program) sets. */
+  materials_count?: number;
+  kits_count?: number;
+  started_at?: string | null;
+  completed_at?: string | null;
 }
 
 export interface GenerateSessionsResult {

@@ -36,6 +36,7 @@ from app.schemas.spine.contacts import (
     OrganizationOut,
     OrganizationUpdate,
 )
+from app.services.spine.identity import resolve_or_create_organization
 from app.services.spine.role_history import record_role_diff
 
 router = APIRouter(prefix="/spine", tags=["spine-contacts"])
@@ -172,6 +173,13 @@ async def update_contact(
 
     updates = body.model_dump(exclude_unset=True)
     roles_before = list(contact.contact_roles or []) if "contact_roles" in updates else None
+
+    # Not a real column — resolve-or-create by name, gap-fill only (a blank
+    # value never clears an existing organization_id).
+    organization_name = (updates.pop("organization_name", None) or "").strip() or None
+    if organization_name:
+        org = await resolve_or_create_organization(db, organization_name)
+        contact.organization_id = org.id
 
     for field, value in updates.items():
         setattr(contact, field, value)

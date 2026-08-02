@@ -32,6 +32,7 @@ from app.schemas.sessions.openings import (
     AddonIn,
     AddonOut,
     AddonUpdateIn,
+    CohortOpeningOut,
     DeliveryRoleCreate,
     DeliveryRoleOut,
     DeliveryRoleUpdate,
@@ -124,6 +125,35 @@ async def set_openings(
     )
     await db.commit()
     return [OpeningOut(**row) for row in await svc.openings_for_session(db, session_id)]
+
+
+# ── cohort-level opening defaults (2026-08-01) ─────────────────────────────
+
+@router.get("/cohorts/{cohort_id}/openings-defaults", response_model=list[CohortOpeningOut])
+async def get_cohort_openings(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    """The template new sessions in this cohort inherit until they're
+    individually customized — see openings_for_session's fallback."""
+    return [CohortOpeningOut(**row) for row in await svc.cohort_openings(db, cohort_id)]
+
+
+@router.put("/cohorts/{cohort_id}/openings-defaults", response_model=list[CohortOpeningOut])
+async def set_cohort_openings(
+    cohort_id: uuid.UUID,
+    body: SetOpeningsIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    await svc.set_cohort_openings(
+        db, cohort_id=cohort_id,
+        lines=[line.model_dump() for line in body.openings],
+        actor_user_id=current_user.id,
+    )
+    await db.commit()
+    return [CohortOpeningOut(**row) for row in await svc.cohort_openings(db, cohort_id)]
 
 
 # ── add-ons ─────────────────────────────────────────────────────────────────

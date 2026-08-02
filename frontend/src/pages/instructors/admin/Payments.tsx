@@ -2,9 +2,9 @@ import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Download, Plus, Trash2 } from "lucide-react"
 import {
-  bulkImportConfirmApi, bulkImportPreviewApi, createBatchApi, createLetterApi,
-  deleteBatchApi, deleteLetterApi, downloadBulkImportTemplateApi, generateLetterPdfApi, listAdminLettersApi,
-  listBatchesApi, markPaidApi, paymentsInstructorDropdownApi, publishLetterApi,
+  billSessionsApi, bulkImportConfirmApi, bulkImportPreviewApi, createBatchApi, createLetterApi,
+  deleteBatchApi, deleteLetterApi, downloadBulkImportTemplateApi, generateLetterPdfApi, getBillableSessionsApi,
+  listAdminLettersApi, listBatchesApi, markPaidApi, paymentsInstructorDropdownApi, paymentsTodoApi, publishLetterApi,
 } from "@/api/instructors/payments_admin"
 import { PaymentLetterTable } from "@/pages/instructors/admin/components/PaymentLetterTable"
 import { Button } from "@/components/ui/button"
@@ -25,10 +25,13 @@ export default function InstructorsAdminPayments() {
   const [batchFilter, setBatchFilter] = useState("all")    // letters list filter
   const [newBatchName, setNewBatchName] = useState("")
   const [newBatchDesc, setNewBatchDesc] = useState("")
+  const [manageLetterId, setManageLetterId] = useState<string | null>(null)
+  const [profileUserId, setProfileUserId] = useState<string | null>(null)
 
   const { data: letters, isLoading } = useQuery({ queryKey: ["admin-payment-letters"], queryFn: () => listAdminLettersApi() })
   const { data: instructorOptions } = useQuery({ queryKey: ["payments-instructor-options"], queryFn: paymentsInstructorDropdownApi })
   const { data: batches } = useQuery({ queryKey: ["admin-payment-batches"], queryFn: listBatchesApi })
+  const { data: pendingInstructors } = useQuery({ queryKey: ["admin-payment-todo"], queryFn: paymentsTodoApi })
 
   const createLetter = useMutation({
     mutationFn: () => createLetterApi({ instructor_user_id: selectedInstructor, batch_id: selectedBatch || undefined }),
@@ -37,6 +40,25 @@ export default function InstructorsAdminPayments() {
       qc.invalidateQueries({ queryKey: ["admin-payment-batches"] })
       setNewLetterOpen(false)
       setSelectedBatch("")
+    },
+  })
+
+  // One-click version of "new letter → bill sessions" for a to-do row: create
+  // the letter for that instructor, pull in every completed session that
+  // isn't billed yet, then open it so admin only has to type the amounts.
+  const quickCreateFromTodo = useMutation({
+    mutationFn: async (instructorId: string) => {
+      const letter = await createLetterApi({ instructor_user_id: instructorId })
+      const billable = await getBillableSessionsApi(letter.id)
+      if (billable.length > 0) {
+        await billSessionsApi({ letterId: letter.id, sessionIds: billable.map((s) => s.session_id) })
+      }
+      return letter.id
+    },
+    onSuccess: (letterId) => {
+      qc.invalidateQueries({ queryKey: ["admin-payment-letters"] })
+      qc.invalidateQueries({ queryKey: ["admin-payment-todo"] })
+      setManageLetterId(letterId)
     },
   })
 
@@ -87,8 +109,6 @@ export default function InstructorsAdminPayments() {
     },
   })
 
-  const [manageLetterId, setManageLetterId] = useState<string | null>(null)
-  const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const manageLetter = (letters ?? []).find((l) => l.id === manageLetterId) ?? null
 
   if (isLoading) return <Spinner />
@@ -129,6 +149,40 @@ export default function InstructorsAdminPayments() {
             <p className="mt-1 font-display text-xl font-bold text-foreground">{t.value}</p>
           </div>
         ))}
+      </div>
+
+      {/* To-do: instructors with completed sessions not yet on a payment letter */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold">
+            To-do: payment letters <span className="text-muted-foreground font-normal">({(pendingInstructors ?? []).length})</span>
+          </h2>
+        </div>
+        {(pendingInstructors ?? []).length === 0 ? (
+          <p className="text-xs text-muted-foreground italic px-1">Nobody's waiting — every completed session is on a letter.</p>
+        ) : (
+          <div className="space-y-2">
+            {pendingInstructors!.map((p) => (
+              <div key={p.instructor_user_id} className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-card">
+                <div>
+                  <p className="text-sm font-medium">{p.full_name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {p.pending_session_count} session{p.pending_session_count === 1 ? "" : "s"} not billed
+                    {p.earliest_date === p.latest_date ? ` · ${p.earliest_date}` : ` · ${p.earliest_date} – ${p.latest_date}`}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => quickCreateFromTodo.mutate(p.instructor_user_id)}
+                  disabled={quickCreateFromTodo.isPending}
+                >
+                  {quickCreateFromTodo.isPending && quickCreateFromTodo.variables === p.instructor_user_id
+                    ? "Creating…" : "Create letter"}
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Payment cohorts (batches) */}
@@ -203,8 +257,8 @@ export default function InstructorsAdminPayments() {
       <div>
         <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
           <h2 className="text-sm font-semibold">Payment letters</h2>
-          <div className="flex items-center gap-2">
-            <div className="w-44">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
+            <div className="flex-1 sm:w-44">
               <select className="input" value={batchFilter} onChange={(e) => setBatchFilter(e.target.value)}>
                 <option value="all">All batches</option>
                 <option value="none">No batch</option>
@@ -217,31 +271,33 @@ export default function InstructorsAdminPayments() {
         {shownLetters.length === 0 ? (
           <EmptyState title="No payment letters yet" />
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {shownLetters.map((l) => {
               const batchName = batches?.find((b) => b.id === l.batch_id)?.name
               return (
-              <div key={l.id} className="flex items-center justify-between gap-3 p-3 rounded-lg border bg-card">
-                <div className="text-left">
-                  <div className="flex items-center gap-2">
-                    <button className="text-sm font-medium hover:underline" onClick={() => setManageLetterId(l.id)}>
+              <div key={l.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl border border-border bg-card">
+                <div className="text-left min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button className="text-sm font-semibold text-foreground hover:underline text-left" onClick={() => setManageLetterId(l.id)}>
                       {l.instructor_name}
                     </button>
                     {l.instructor_user_id && (
                       <button
                         onClick={() => setProfileUserId(l.instructor_user_id!)}
-                        className="text-xs text-muted-foreground hover:text-primary transition-colors"
+                        className="text-xs text-muted-foreground hover:text-primary transition-colors shrink-0"
                       >
                         View profile →
                       </button>
                     )}
                     {batchName && (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">{batchName}</span>
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">{batchName}</span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground">{l.sessions.length} session(s) · AED {letterTotal(l).toLocaleString()} · {l.reference}</p>
+                  <p className="text-xs text-muted-foreground mt-1 break-words">
+                    {l.sessions.length} session(s) · AED {letterTotal(l).toLocaleString()} · {l.reference}
+                  </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap shrink-0 border-t border-border/50 pt-2.5 sm:border-0 sm:pt-0">
                   <StatusPill status={l.status} />
                   {(l.pdf_url || l.signed_pdf_url) && (
                     <a href={l.signed_pdf_url ?? l.pdf_url ?? undefined} target="_blank" rel="noreferrer">
@@ -255,7 +311,7 @@ export default function InstructorsAdminPayments() {
                   {l.pdf_url && l.status === "draft" && <Button size="sm" onClick={() => publish.mutate(l.id)}>Publish</Button>}
                   {l.status === "signed" && <Button size="sm" onClick={() => markPaid.mutate(l.id)}>Mark paid</Button>}
                   {l.status === "draft" && (
-                    <button onClick={() => removeLetter.mutate(l.id)} className="p-2 text-muted-foreground hover:text-destructive" title="Delete letter">
+                    <button onClick={() => removeLetter.mutate(l.id)} className="p-2 text-muted-foreground hover:text-destructive transition-colors" title="Delete letter">
                       <Trash2 size={16} />
                     </button>
                   )}
@@ -291,7 +347,7 @@ export default function InstructorsAdminPayments() {
       {/* Wider than the default sm:max-w-sm — six editable columns don't fit
           in a small dialog, and the table is the point of this screen. */}
       <Dialog open={!!manageLetterId} onOpenChange={(open) => !open && setManageLetterId(null)}>
-        <DialogContent className="sm:max-w-4xl">
+        <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader><DialogTitle>{manageLetter?.instructor_name} — {manageLetter?.reference}</DialogTitle></DialogHeader>
           {/* I5-1: every column the document prints, editable. This used to be
               a read-only paragraph plus a three-field add form, which is why
