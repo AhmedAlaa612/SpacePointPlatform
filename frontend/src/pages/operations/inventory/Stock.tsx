@@ -25,6 +25,7 @@ export default function Stock() {
   const [warehouseId, setWarehouseId] = useState("")
   const [category, setCategory] = useState("")
   const [search, setSearch] = useState("")
+  const [onlyInStock, setOnlyInStock] = useState(false)
   const [onlyOutOfStock, setOnlyOutOfStock] = useState(false)
   const [onlyUnstocked, setOnlyUnstocked] = useState(false)
   const [counting, setCounting] = useState<{ itemId: string; itemName: string } | null>(null)
@@ -120,6 +121,7 @@ export default function Stock() {
     return [...groupCards, ...singleCards]
       .filter((c) => {
         if (onlyUnstocked) return !c.stockedAnywhere
+        if (onlyInStock) return c.total > 0
         if ((locationId || warehouseId) && !c.hasRowsInScope) return false
         if (onlyOutOfStock && !(c.hasRowsInScope && c.total === 0)) return false
         return true
@@ -129,7 +131,7 @@ export default function Stock() {
         const nameB = b.kind === "group" ? b.groupName : b.item.name
         return nameA.localeCompare(nameB)
       })
-  }, [items, stock, category, search, locationId, warehouseId, onlyOutOfStock, onlyUnstocked])
+  }, [items, stock, category, search, locationId, warehouseId, onlyInStock, onlyOutOfStock, onlyUnstocked])
 
   return (
     <div className="flex flex-col gap-6">
@@ -213,15 +215,22 @@ export default function Stock() {
         </Field>
         <label className="flex items-center gap-1.5 h-9 text-sm text-foreground cursor-pointer">
           <input
+            type="checkbox" checked={onlyInStock}
+            onChange={(e) => { setOnlyInStock(e.target.checked); if (e.target.checked) { setOnlyOutOfStock(false); setOnlyUnstocked(false) } }}
+          />
+          In stock only
+        </label>
+        <label className="flex items-center gap-1.5 h-9 text-sm text-foreground cursor-pointer">
+          <input
             type="checkbox" checked={onlyOutOfStock}
-            onChange={(e) => { setOnlyOutOfStock(e.target.checked); if (e.target.checked) setOnlyUnstocked(false) }}
+            onChange={(e) => { setOnlyOutOfStock(e.target.checked); if (e.target.checked) { setOnlyUnstocked(false); setOnlyInStock(false) } }}
           />
           Out of stock
         </label>
         <label className="flex items-center gap-1.5 h-9 text-sm text-foreground cursor-pointer">
           <input
             type="checkbox" checked={onlyUnstocked}
-            onChange={(e) => { setOnlyUnstocked(e.target.checked); if (e.target.checked) setOnlyOutOfStock(false) }}
+            onChange={(e) => { setOnlyUnstocked(e.target.checked); if (e.target.checked) { setOnlyOutOfStock(false); setOnlyInStock(false) } }}
           />
           Not stocked anywhere
         </label>
