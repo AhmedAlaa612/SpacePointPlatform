@@ -525,11 +525,16 @@ async def list_available_sessions(
         )
     ).exists()
 
+    has_no_calls = ~(
+        select(SessionCall.id)
+        .where(SessionCall.session_id == Session.id)
+    ).exists()
+
     rows = (await db.execute(
         select(Session, Cohort, Program)
         .join(Cohort, Cohort.id == Session.cohort_id)
         .join(Program, Program.id == Cohort.program_id)
-        .where(Session.staffing_status == "open_call", or_(open_public_call, i_am_targeted))
+        .where(Session.staffing_status == "open_call", or_(open_public_call, i_am_targeted, has_no_calls))
         .order_by(Session.meeting_date.asc())
     )).all()
     session_ids = [s.id for s, _, _ in rows]

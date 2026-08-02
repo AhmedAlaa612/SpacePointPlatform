@@ -73,10 +73,11 @@ async def test_open_call_from_unstaffed_succeeds(db):
 
 @pytest.mark.asyncio
 async def test_open_call_from_open_call_rejected(db):
+    """In multi-call architecture, calling open_call on an open_call session
+    creates/refreshes an open call on the session."""
     _, session = await _make_cohort_with_session(db, staffing_status="open_call")
-    with pytest.raises(HTTPException) as exc:
-        await staffing.open_call(db, session.id)
-    assert exc.value.status_code == 409
+    res = await staffing.open_call(db, session.id)
+    assert res.staffing_status == "open_call"
 
 
 @pytest.mark.asyncio
