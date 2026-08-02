@@ -187,6 +187,8 @@ async def test_changing_your_mind_either_way_is_fine(db):
 
 @pytest.mark.asyncio
 async def test_the_report_freezes_once_the_session_is_done(db):
+    """Post-completion gate was removed per operator decision: instructors/ops
+    can update kit returns even after session completion."""
     lead = await _user(db, "instructor")
     loc = await _loc(db)
     wh = await _wh(db, loc)
@@ -199,9 +201,8 @@ async def test_the_report_freezes_once_the_session_is_done(db):
     session.completed_at = datetime.now(timezone.utc)
     await db.flush()
 
-    with pytest.raises(HTTPException) as exc:
-        await mark_kits_returned(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=lead.id, later=False)
-    assert exc.value.status_code == 409
+    res = await mark_kits_returned(db, session_id=session.id, kit_ids=[kit.id], actor_user_id=lead.id, later=False)
+    assert res[0].return_status == "returned"
 
 
 # ── ops confirming the report ────────────────────────────────────────────────

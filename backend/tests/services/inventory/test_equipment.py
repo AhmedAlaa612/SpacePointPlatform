@@ -460,6 +460,8 @@ async def test_actually_returning_clears_the_later_flag(db):
 
 @pytest.mark.asyncio
 async def test_equipment_report_freezes_once_the_session_is_done(db):
+    """Post-completion gate was removed per operator decision: instructors/ops
+    can update equipment returns even after session completion."""
     ops = await _user(db, "operations")
     instructor = await _user(db, "instructor")
     loc = await _loc(db)
@@ -474,15 +476,8 @@ async def test_equipment_report_freezes_once_the_session_is_done(db):
     session.completed_at = datetime.now(timezone.utc)
     await db.flush()
 
-    with pytest.raises(HTTPException) as exc:
-        await return_equipment(db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 1)])
-    assert exc.value.status_code == 409
-
-    with pytest.raises(HTTPException) as exc:
-        await mark_equipment_return_later(
-            db, session_id=session.id, actor_user_id=instructor.id, item_ids=[item.id]
-        )
-    assert exc.value.status_code == 409
+    res = await return_equipment(db, session_id=session.id, actor_user_id=instructor.id, lines=[(item.id, 1)])
+    assert len(res) == 1
 
 
 @pytest.mark.asyncio

@@ -142,6 +142,22 @@ async def _create_call(
     return call
 
 
+async def set_call_targets(db: AsyncSession, session_id: UUID, target_user_ids: list[UUID]) -> Session:
+    """Sets or replaces call targets for open calls on a session."""
+    open_calls = (await db.execute(
+        select(SessionCall).where(SessionCall.session_id == session_id, SessionCall.status == "open")
+    )).scalars().all()
+    if not open_calls:
+        await _create_call(db, session_id=session_id, target_user_ids=target_user_ids, actor_user_id=None)
+    else:
+        for call in open_calls:
+            await db.execute(delete(SessionCallTarget).where(SessionCallTarget.call_id == call.id))
+            for uid in dict.fromkeys(target_user_ids or []):
+                db.add(SessionCallTarget(id=uuid4(), call_id=call.id, session_id=session_id, user_id=uid))
+    await db.flush()
+    return await _get_session(db, session_id)
+
+
 async def open_call(
     db: AsyncSession, session_id: UUID, target_user_ids: list[UUID] | None = None,
     role_ids: list[UUID] | None = None, actor_user_id: UUID | None = None, label: str | None = None,
