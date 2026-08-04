@@ -22,6 +22,7 @@ from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
     RefreshRequest,
+    StudentSignupRequest,
     Token,
     UpdateMeRequest,
     UserOut,
@@ -33,6 +34,7 @@ from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.application_review import ApplicationReview
 from app.schemas.user import InstructorApply
 from app.services.notification import create_notification as notify
+from app.services.spine.identity import resolve_or_create_contact
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -85,6 +87,66 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         "token_type": "bearer",
         "user": await _user_out(user),
     }
+
+
+@router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=LoginResponse)
+async def student_signup(data: StudentSignupRequest, db: AsyncSession = Depends(get_db)):
+    """LMS student self-signup (LM1-4).
+
+    Identity evaluate → find-or-create contact (`resolve_or_create_contact`, so
+    a public-form registrant who never made an account gets *linked*, not
+    duplicated) → create a `users` row with `roles=['student']` +
+    `contact_id` → return the same JWT shape as /auth/login. Login/refresh are
+    untouched: students log in through /auth/login like everyone else.
+
+    A duplicate email is a 409 with a friendly "log in" prompt — never a raw
+    IntegrityError. The email check runs *before* any contact work so a repeat
+    signup can't churn the spine layer."""
+    email = _lower_email(data.email)
+    if await _email_taken(db, email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An account with this email already exists — log in instead.",
+        )
+
+    contact, _ = await resolve_or_create_contact(
+        db,
+        full_name=data.full_name,
+        phone=data.phone,
+        email=email,
+        contact_roles=["student"],
+        role_event_source="lms_signup",
+    )
+
+    user = User(
+        full_name=data.full_name,
+        email=email,
+        password_hash=get_password_hash(data.password),
+        roles=[UserRole.student],
+        status="active",
+        must_change_password=False,
+        contact_id=contact.id,
+        phone=data.phone,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+
+    roles = user.role_values
+    return {
+        "access_token": create_access_token(user.id, roles),
+        "refresh_token": create_refresh_token(user.id, roles),
+        "token_type": "bearer",
+        "user": await _user_out(user),
+    }
+
+
+def _lower_email(email: str) -> str:
+    """The same lowercase+strip key /auth/login compares on — see
+    normalize_email in services/spine/identity.py for the canonical matched
+    form (which also normalizes phone). Storing anything else here would let a
+    duplicate slip past login's exact compare."""
+    return email.strip().lower()
 
 
 @router.post("/refresh", response_model=Token)

@@ -8,6 +8,16 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class StudentSignupRequest(BaseModel):
+    """LMS student self-signup (LM1-4). Phone optional — email is the account
+    key, exactly as it is for /auth/login."""
+
+    full_name: str
+    email: EmailStr
+    password: str
+    phone: str | None = None
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
