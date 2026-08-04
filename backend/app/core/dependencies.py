@@ -94,3 +94,19 @@ require_session_delivery = RequireRole(["instructor", "facilitator", "operations
 # who actually write the material; plain instructors are not, so a session's
 # files can't be changed by whoever happens to be teaching it that day.
 require_materials_manager = RequireRole(["operations", "facilitator"])
+
+# ── LMS phase (LM0-2) ───────────────────────────────────────────────────────
+# `student` is a learner surface, not an ops account. It is deliberately absent
+# from every guard above — `require_operations` rejecting it is the whole point
+# of the role, and that negative is tested, not assumed (the I3-1 lesson).
+#
+# This dependency only answers "is this a learner account?". It does NOT answer
+# "may this learner see this course" — that is `enrollments` (LMS D8), checked
+# in services/lms/, because the answer is per-course and this is not.
+require_lms_student = RequireRole(["student"])
+
+# Authoring: ops and facilitators write course content, same split as
+# require_materials_manager above (facilitators write the material; plain
+# instructors don't, so a course can't be edited by whoever happens to be
+# teaching it that day). admin passes, as everywhere.
+require_lms_content = RequireRole(["operations", "facilitator"])

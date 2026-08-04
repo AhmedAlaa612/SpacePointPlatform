@@ -16,6 +16,10 @@ class UserRole(str, enum.Enum):
     # create/edit/delete. See core/dependencies.py.
     coo = "coo"
     storekeeper = "storekeeper"
+    # LMS phase (LM0-2). A learner surface, not an ops account: `student` must
+    # be rejected by require_operations. Content access is gated by
+    # `enrollments`, not by this role — see services/lms/.
+    student = "student"
 
 
 # ── Interns domain ───────────────────────────────────────────────────────────

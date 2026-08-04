@@ -109,6 +109,13 @@ import InternsLanding from "@/pages/public/InternsLanding";
 import Ticket from "@/pages/public/Ticket";
 import KitScan from "@/pages/public/KitScan";
 
+// LMS student surface (LMS D1) — a separate surface in the same app: own shell,
+// own login/signup, no portal chrome. See pages/learn/LearnShell.tsx.
+import { LearnShell } from "@/pages/learn/LearnShell";
+import LearnLogin from "@/pages/learn/LearnLogin";
+import LearnSignup from "@/pages/learn/LearnSignup";
+import LearnCatalog from "@/pages/learn/LearnCatalog";
+
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
 const loginRoute = createRoute({
@@ -212,6 +219,11 @@ const indexRoute = createRoute({
     } else if (role === "storekeeper") {
       // I1-4: they restock and receive, nothing else. Stock is their whole day.
       throw redirect({ to: "/operations/inventory/stock" });
+    } else if (role === "student") {
+      // LMS LM0-2: students are a learner surface with their own shell at
+      // /learn, mounted outside the portal auth layout. They have no portal home
+      // and are not meant to — this redirect is the only bridge across.
+      throw redirect({ to: "/learn" });
     } else {
       throw redirect({ to: "/interns" });
     }
@@ -715,10 +727,47 @@ const applyInstructorWithCodeRoute = createRoute({
   component: InstructorApply,
 });
 
+// ── Learn layout (LMS D1) — sibling of authLayoutRoute, not a child ─────────
+// Students are a separate surface: own beforeLoad, own shell, no portal chrome.
+// `/learn/login` and `/learn/signup` are NOT children of this route — they sit
+// on rootRoute so the shell (and its auth check) never wraps them, the same way
+// `loginRoute` sits outside `authLayoutRoute`.
+const learnLayoutRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/learn",
+  beforeLoad: () => {
+    if (!tokens.access) {
+      throw redirect({ to: "/learn/login" });
+    }
+  },
+  component: LearnShell,
+});
+
+const learnLoginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/learn/login",
+  component: LearnLogin,
+});
+
+const learnSignupRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/learn/signup",
+  component: LearnSignup,
+});
+
+const learnCatalogRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/",
+  component: LearnCatalog,
+});
+
 const routeTree = rootRoute.addChildren([
   ticketRoute,
   kitScanRoute,
   loginRoute,
+  learnLoginRoute,
+  learnSignupRoute,
+  learnLayoutRoute.addChildren([learnCatalogRoute]),
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,
   applyInternRoute,

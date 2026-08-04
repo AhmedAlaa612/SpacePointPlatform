@@ -3,7 +3,7 @@
 **Entry point for anyone (human or agent) picking up this codebase.** This file is a *map*:
 where everything is and what it does. Depth lives in the per-domain files linked below.
 
-**Last verified against the code: 2026-07-30.**
+**Last verified against the code: 2026-08-04.**
 
 ---
 
@@ -12,28 +12,29 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `d4a9f62b0024` — single Alembic head. Production is still on `b3e8a41d0014` until the next deploy |
+| **Schema head** | `e2f7a93d0040` — single Alembic head (the merge revision `b88f272265ef` joins two branches of the same chain, not a second head). Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
 | **Branch** | `main` = production. `v2-dev` tracks it |
-| **What's live** | Registration, bulk import, check-in, staffing marketplace, instructor delivery, attendance, certificates, calendar, ops dashboard — plus the pre-existing interns / ambassadors / instructors domains |
-| **Tests** | 567 collected, `pytest` from `backend/`. Five need a live Redis and error without one — everything else is broker-free |
-| **In flight** | Inventory (see `INVENTORY_EXECUTION_PLAN.md` in the planning repo) |
+| **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan) — plus the pre-existing interns / ambassadors / instructors domains |
+| **Tests** | ~567 collected, `pytest` from `backend/`. Five need a live Redis and error without one — everything else is broker-free |
+| **In flight** | **LMS** (see `LMS_EXECUTION_PLAN.md` in the planning repo) — student accounts, online/offline courses, encrypted-HLS video, quizzes, flashcards, catalog + enrollments. Phase 1 (courses live on `lms.spacepoint.ae`) is the current sprint; Phase 2 (missions/Madar, points, games, certificates) follows |
 
 ## 2. Read next
 
-**Planning docs live in a separate `spaceCRM` repo the operator maintains — not in this
-codebase.** Ask for its location.
+**Planning docs live in the `spaceCRM` repo the operator maintains — one directory above
+this repo (`C:\Users\ahmed\Downloads\spaceCRM`), not in this codebase.**
 
 | Read | For |
 |---|---|
-| `HANDOFF_V2_LIVE.md` *(planning repo)* | **What is actually running in production and its known gaps.** Read this before touching anything deployed |
+| `HANDOFF_V2_LIVE.md` *(planning repo)* | **What is actually running in production and its known gaps.** Read this before touching anything deployed. The "as of 2026-07-26" production notes are historical; the platform has shipped inventory + the instructor journey since |
 | `MASTER_EXECUTION_PLAN_V2.md` *(planning repo)* | Roadmap, §C decision register, §D status board, §DISCOVERIES (the expensive lessons) |
-| `INVENTORY_EXECUTION_PLAN.md` *(planning repo)* | The inventory phase, superseding V2's I7-1…I9-1 |
+| `INVENTORY_EXECUTION_PLAN.md` *(planning repo)* | The inventory phase, superseding V2's I7-1…I9-1. See its §R2 for everything that landed after its status board stopped being updated (2026-08-01…03) |
+| `LMS_EXECUTION_PLAN.md` *(planning repo)* | **The current sprint** — supersedes V2's L10-1…L13-2, G13-1/G14-1. Phase 1 = courses online+offline live this week; Phase 2 = missions/Madar, points, games, certificates |
 | [`HANDOFF_SPINE.md`](./HANDOFF_SPINE.md) | Contacts / identity matching / merge review |
 | [`HANDOFF_SESSIONS.md`](./HANDOFF_SESSIONS.md) | Programs, cohorts, sessions, registration, staffing, delivery |
 | [`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md) | Applicant pipeline, contracts, payments, certificates |
 | [`HANDOFF_INTERNS.md`](./HANDOFF_INTERNS.md) | Projects, epics, tasks, kanban, teams |
 | [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions |
-| [`HANDOFF_INVENTORY_TESTING.md`](./HANDOFF_INVENTORY_TESTING.md) | **Untested as of 2026-08-02** — bulk stock counts, direct kit counts, inventory UI fast-follows, and lightweight T-shirt-style size/variant grouping, all built same-day; unit/type-checked but never browser-verified. **Needs `alembic upgrade head` run against `spacepoint_dev` before browser testing.** Read before touching Stock/Catalogue/Fulfilment/Kits pages |
+| [`HANDOFF_INVENTORY_TESTING.md`](./HANDOFF_INVENTORY_TESTING.md) | Built 2026-08-02 — bulk stock counts, direct kit counts, inventory UI fast-follows, and lightweight T-shirt-style size/variant grouping. Unit/type-checked; the browser-verification the doc asks for has **not** happened as of 2026-08-04. Read before touching Stock/Catalogue/Fulfilment/Kits pages. Note: `alembic upgrade head` has since been run against `spacepoint_dev`/`spacepoint_test` (both at `d1e4c73f0038`) |
 | `HANDOFF_EVERYTHING.md` *(repo root)* | **Historical** — a session log from 2026-07-25, predates the cutover. Not current state |
 
 Credentials are in `secrets.md` / `vps_envs.md`, kept out of version control (one directory
@@ -101,7 +102,7 @@ app sees the request.
 | `/interns/*` · `/ambassadors/*` · `/instructors/*` | the three original domains |
 | `/sessions/*` | programs, cohorts, registrations, staffing, delivery, check-in, calendar, dashboard, imports |
 | `/spine/*` | contacts, merge reviews |
-| `/inventory/*` | locations, item catalogue, kit templates, kits, stock, movements, `/my-kits`, the session loop (`/sessions/{id}/kits`, checks, custody), equipment pickup (`/sessions/{id}/equipment`) and the storekeeper queue (`/fulfilment`) |
+| `/inventory/*` | locations, warehouses, item catalogue (+ categories, variant grouping), kit templates, kits, stock, movements, `/my-kits`, the session loop (`/sessions/{id}/kits`, checks, receipt/return reporting), equipment pickup (`/sessions/{id}/equipment`) and the storekeeper queue (`/fulfilment`) |
 | `/public/*` | registration form, catalog, ticket — **no auth** |
 | `/apply/*` · `/files/*` · `/documents/*` · `/notifications/*` | shared |
 | `/health`, `/health/worker` | liveness + ARQ heartbeat |
@@ -142,10 +143,10 @@ Alembic is the source of truth for the exact schema — this is orientation, not
 
 | Domain | Tables |
 |---|---|
-| **Shared** | `users`, `notifications`, `documents`, `document_requests`, `document_templates`, `certificates`, `applications`, `application_questions`, `id_cards`, `portal_settings` |
+| **Shared** | `users`, `notifications`, `documents`, `document_requests`, `document_templates` (now with `student_completion` and `workshop_delivery` system templates seeded — `d8a2c94e0035` / `e1b3d05f0036`), `certificates`, `applications`, `application_questions`, `id_cards`, `portal_settings` |
 | **Spine** | `contacts`, `contact_relationships`, `organizations`, `identity_aliases`, `merge_reviews`, `touchpoints`, `contact_role_events`, `consent_records` *(schema only — nothing writes to it)* |
-| **Sessions** | `programs`, `cohorts`, `sessions`, `session_instructors` (`role_id` → `delivery_roles`, not a `lead\|co` string since I5-3), `delivery_roles`, `session_openings`, `session_addons`, `session_materials`, `session_call_targets`, `registrations`, `registration_sessions`, `attendance_records`, `instructor_interests`, `session_reports`, `import_batches`, `activities` / `activity_versions` / `activity_assignments` *(quiz — schema only until W13–14)* |
-| **Inventory** | `locations`, `items`, `kit_templates`, `kit_template_items`, `kits`, `kit_items`, `stock_levels`, `movements`, plus `session_kits` / `kit_checks` (I2-1/I2-2). Backend and UI are both built through Phase 2 — including non-kit **equipment pickup** (I2-7), which adds **no tables**: it is a form over `items` + `stock_levels` + `movements`, and its collection point is *derived* from the assigned kits' location rather than stored. `movements` is the single ledger every physical thing passes through — issue, return, transfer, refill, receive, write-off, adjust — and either side of it can be a location, a person or a kit. Custody keys on `users`, so nothing here touches `MERGE_FK_REGISTRY` |
+| **Sessions** | `programs`, `cohorts`, `sessions`, `session_instructors` (`role_id` → `delivery_roles`, not a `lead\|co` string since I5-3), `delivery_roles`, `session_openings`, `session_addons`, `session_materials`, `session_call_targets`, `session_calls` (multiple concurrent calls per session — `c4e7a39f0028`), `cohort_openings` (cohort-level opening defaults — `b3d6f28e0027`), `cohort_calls` (grouped cohort-wide staffing campaigns — `e7c4a92d0036`), `registrations`, `registration_sessions`, `attendance_records`, `instructor_interests`, `session_reports`, `import_batches`, `activities` / `activity_versions` / `activity_assignments` *(quiz — schema only until the LMS games phase)*. Cohorts and sessions now have `location_id` → `locations` (`a2c5e17d0026`; `locations.address`/`maps_url` live on the entity) |
+| **Inventory** | `locations`, `items`, `kit_templates`, `kit_template_items`, `kits`, `kit_items`, `stock_levels`, `movements`, plus `session_kits` / `kit_checks` (I2-1/I2-2) — and, since 2026-08-01: `item_categories` (`d2e6f81a0029`), `warehouses` (`f8d9e21a0033`, `c4f1a83b0034` — **stock and kits now key on `warehouse_id`; a location is the union of its warehouses**), `cohort_kits` (cohort-level kit defaults, `a3c7f95e0037`), and `items.variant_group`/`variant_label` (T-shirt-style size grouping, `d1e4c73f0038`). **`items.is_consumable` is gone** (`a7c9e15f0032` — everything now counts toward kit completeness). **Kit custody legs were replaced** (`e3f8b04c0030`): there is no issue/collected/return movement flow; `session_kits` carries `received_at` / `return_status` / `returned_at` / `ops_confirmed_at` instead, and moving a kit to a shelf is an ordinary `movements` row. Equipment pickup (I2-7) adds no tables — it is a form over `items` + `stock_levels` + `movements` with a persisted "returning later" flag (`f4a1c65d0031`). `movements` is the single ledger every physical thing passes through — issue, return, transfer, refill, receive, write-off, adjust — and either side of it can be a location, a person or a kit. Custody keys on `users`, so nothing here touches `MERGE_FK_REGISTRY` |
 | **Instructors** | `applicant_profiles`, `application_reviews`, `video_submissions`, `checklist_*`, `module_submissions`, `presentation_submissions`, `assessment_submissions`, `invitation_codes`, `instructor_profiles`, `instructor_documents`, `training_*`, `library_*`, `payment_batches`, `payment_letters`, `payment_sessions`, `payment_addons`, `instructor_bank_details` |
 | **Interns** | `projects`, `teams`, `epics`, `modules`, `tasks`, `task_submissions`, `proposals`, `mind_map_layouts` + join tables |
 | **Ambassadors** | `leads`, `lead_comments`, `points_transactions`, `titles`, `badge_definitions`, `achievements`, `teacher_sessions`, `ambassador_tasks`, `materials`, `system_settings` |
@@ -225,7 +226,7 @@ Every one of these has already caused a real bug. Fuller accounts in
 
 Alembic is the single source of truth. Revisions in `backend/alembic/versions/`; the API
 container runs `alembic upgrade head` **before binding a port**, so anything health-checking it
-after a deploy must poll, not sleep.
+after a deploy must poll, not sleep. Current head: **`e2f7a93d0040`**.
 
 Edit the model → `alembic revision --autogenerate -m "…"` → **review the generated file**
 (enum columns use `create_type=False` and produce spurious diffs) → commit → deploy. Never

@@ -14,7 +14,12 @@ export type Role =
   // a user holding only one of these has nowhere useful to be redirected to
   // until then. See INVENTORY_EXECUTION_PLAN.md.
   | "coo"
-  | "storekeeper";
+  | "storekeeper"
+  // LMS phase (LM0-2). Students live at /learn/* — a separate surface with its
+  // own shell, login and navbar, mounted outside the portal's auth layout. A
+  // student who lands on "/" is redirected there by `indexRoute.beforeLoad`;
+  // they have no portal home and are not meant to.
+  | "student";
 
 /**
  * There is deliberately no `ROLE_DOMAIN` map. One existed until I0-1
@@ -40,6 +45,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   operations: "Operations",
   coo: "COO",
   storekeeper: "Storekeeper",
+  student: "Student",
 };
 
 export interface User {

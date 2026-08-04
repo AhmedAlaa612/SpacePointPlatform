@@ -11,6 +11,7 @@ from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.session_report import SessionReport
 from app.models.sessions.activity import Activity, ActivityVersion, ActivityAssignment
 from app.models.sessions.cohort_call import CohortCall, CohortCallTarget
+from app.models.sessions.session_call import SessionCall
 
 __all__ = [
     "Program",
@@ -32,4 +33,5 @@ __all__ = [
     "ActivityAssignment",
     "CohortCall",
     "CohortCallTarget",
+    "SessionCall",
 ]
