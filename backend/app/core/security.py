@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from jose import jwt
+from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
@@ -45,3 +45,26 @@ def create_refresh_token(subject: Any, roles: list[str], expires_delta: timedelt
         "refresh",
         expires_delta or timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
     )
+
+
+def create_video_token(user_id: Any, item_id: Any, expires_delta: timedelta | None = None) -> str:
+    """Short-lived token scoping one student to one video item (LMS D2) — never
+    a static URL. Deliberately its own "type" so it can't be replayed as an
+    access/refresh token, and carries no roles claim (it authorizes nothing
+    beyond this one item; the enrollment check still runs per request)."""
+    payload = {
+        "sub": str(user_id),
+        "item_id": str(item_id),
+        "exp": datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=15)),
+        "type": "lms_video",
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_video_token(token: str) -> tuple[str, str]:
+    """Returns (user_id, item_id) as strings. Raises JWTError if invalid,
+    expired, or not actually a video token."""
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    if payload.get("type") != "lms_video":
+        raise JWTError("Not a video token")
+    return payload["sub"], payload["item_id"]

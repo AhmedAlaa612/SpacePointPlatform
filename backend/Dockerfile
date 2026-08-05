@@ -6,6 +6,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Cairo + Pango      — cairosvg (SVG ID card templates)
 # Carlito            — open-source Calibri clone; LibreOffice maps Calibri → Carlito automatically
 # Liberation fonts   — Arial / Times fallbacks for other MS font references
+# ffmpeg             — LMS video pipeline (LM1-6): ffprobe + HLS/AES-128 encode.
+#                       Shared API+worker image, so the API image grows too — acceptable, no
+#                       separate image this week (LMS_EXECUTION_PLAN.md §7 risk 6).
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libreoffice-writer \
         libcairo2 \
@@ -15,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libffi-dev \
         fonts-crosextra-carlito \
         fonts-liberation \
+        ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

@@ -11,6 +11,7 @@ from app.workers.heartbeat import heartbeat
 from app.workers.settings import redis_settings
 from app.workers.tasks.imports import send_import_batch_emails
 from app.workers.tasks.inventory import send_inventory_reminders
+from app.workers.tasks.lms import transcode_lms_video
 from app.workers.tasks.staffing import send_assignment_email
 from app.workers.tasks.tickets import send_ticket_email
 
@@ -22,6 +23,7 @@ class WorkerSettings:
         send_import_batch_emails,
         send_assignment_email,
         send_inventory_reminders,
+        transcode_lms_video,
     ]
     cron_jobs = [
         cron(heartbeat, minute=set(range(0, 60, 5)), run_at_startup=True),
