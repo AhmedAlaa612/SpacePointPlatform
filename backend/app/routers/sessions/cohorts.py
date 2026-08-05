@@ -79,7 +79,6 @@ from app.services.inventory.cohort_kits import resolve_session_kits
 from app.services.sessions import delivery
 from app.services.sessions import materials as materials_service
 from app.services.sessions import staffing as staffing_service
-from app.workers.settings import get_arq_redis, safe_enqueue
 from app.services.sessions import reports as reports_service
 from app.services.sessions.registration import register
 from app.services.spine.identity import resolve_or_create_contact

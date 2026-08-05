@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
+import { Search } from "lucide-react"
 import { listApplicantsApi } from "@/api/instructors/admin"
 import { EmptyState, PageHeader, Spinner, StatusPill } from "@/pages/instructors/components/common"
 
@@ -22,12 +23,16 @@ export default function InstructorsAdminApplicants() {
   const { data: applicants, isLoading } = useQuery({ queryKey: ["admin-applicants"], queryFn: listApplicantsApi })
 
   const [statusFilter, setStatusFilter] = useState("all")
+  const [search, setSearch] = useState("")
   const [page, setPage] = useState(1)
 
   const filtered = useMemo(() => {
-    const all = applicants ?? []
-    return statusFilter === "all" ? all : all.filter((a) => a.status === statusFilter)
-  }, [applicants, statusFilter])
+    let rows = applicants ?? []
+    if (statusFilter !== "all") rows = rows.filter((a) => a.status === statusFilter)
+    const q = search.trim().toLowerCase()
+    if (q) rows = rows.filter((a) => a.full_name.toLowerCase().includes(q) || a.email.toLowerCase().includes(q))
+    return rows
+  }, [applicants, statusFilter, search])
 
   const total = filtered.length
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
@@ -47,18 +52,33 @@ export default function InstructorsAdminApplicants() {
           {total} applicant{total === 1 ? "" : "s"}
           {statusFilter !== "all" ? ` · ${STATUS_FILTERS.find((s) => s.value === statusFilter)?.label}` : ""}
         </p>
-        <select
-          className="rounded-lg border border-border bg-background text-foreground text-sm px-3 py-2 outline-none focus:border-ring focus:ring-1 focus:ring-ring"
-          value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value)
-            setPage(1)
-          }}
-        >
-          {STATUS_FILTERS.map((s) => (
-            <option key={s.value} value={s.value}>{s.label}</option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              placeholder="Search name or email…"
+              className="rounded-lg border border-border bg-background text-foreground text-sm pl-8 pr-3 py-2 outline-none focus:border-ring focus:ring-1 focus:ring-ring w-56"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                setPage(1)
+              }}
+            />
+          </div>
+          <select
+            className="rounded-lg border border-border bg-background text-foreground text-sm px-3 py-2 outline-none focus:border-ring focus:ring-1 focus:ring-ring"
+            value={statusFilter}
+            onChange={(e) => {
+              setStatusFilter(e.target.value)
+              setPage(1)
+            }}
+          >
+            {STATUS_FILTERS.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {total === 0 ? (
