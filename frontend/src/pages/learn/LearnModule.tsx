@@ -19,7 +19,9 @@ import { VideoPlayer } from "./VideoPlayer";
  * only calls recordProgress/submitQuiz and reacts to what comes back.
  */
 export default function LearnModule() {
-  const { moduleId } = useParams({ from: "/learn/modules/$moduleId" });
+  // strict from-string lookup can fail to resolve on a fresh/hard page load
+  // (see LearnCourse.tsx) — strict: false reads whatever route matched.
+  const { moduleId } = useParams({ strict: false }) as { moduleId: string };
   const navigate = useNavigate();
   const [module, setModule] = useState<ModuleDetail | null>(null);
   const [error, setError] = useState("");

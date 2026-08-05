@@ -133,6 +133,19 @@ const DOMAIN_TITLE: Record<string, string> = {
  * each item now carries a lucide icon via `mk`.
  */
 function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
+  // LM1-13: shared by operations + facilitator (backend's require_lms_content),
+  // its own top-level path so one URL space works for both roles rather than
+  // duplicating pages under /operations and /instructors.
+  if (pathname.startsWith("/lms-authoring")) {
+    return [
+      mk("Courses", "/lms-authoring/courses"),
+      mk("Curriculum", "/lms-authoring/curriculum"),
+      mk(
+        "Back",
+        activeRole === "facilitator" ? "/instructors/facilitator/training" : "/operations/dashboard",
+      ),
+    ];
+  }
   // V2 S6-2: operations domain — dedicated sidebar, no longer piggybacking on admin.
   if (pathname.startsWith("/operations")) {
     // I1-4: a storekeeper restocks and receives, nothing else. Everything the
@@ -155,6 +168,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Programs", "/operations/programs"),
       mk("Cohorts", "/operations/cohorts"),
       mk("Sessions Calendar", "/operations/calendar"),
+      mk("LMS Courses", "/lms-authoring/courses"),
       mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
     ];
@@ -223,6 +237,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
         mk("My Kits & Items", "/instructors/my-holdings"),
         mk("Training", "/instructors/facilitator/training"),
         mk("Library", "/instructors/facilitator/library"),
+        mk("LMS Courses", "/lms-authoring/courses"),
         mk("Personal Documents", "/instructors/personal-documents"),
         mk("Instructor ID Card", "/instructors/id-card"),
         mk("Application", "/instructors/facilitator/application"),
@@ -311,6 +326,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Sessions Calendar", "/sessions/calendar"),
       mk("Training", "/instructors/facilitator/training"),
       mk("Library", "/instructors/facilitator/library"),
+      mk("LMS Courses", "/lms-authoring/courses"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Profile & Settings", "/instructors/profile"),
       mk("Application", "/instructors/facilitator/application"),
@@ -332,6 +348,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Programs", "/operations/programs"),
       mk("Cohorts", "/operations/cohorts"),
       mk("Sessions Calendar", "/operations/calendar"),
+      mk("LMS Courses", "/lms-authoring/courses"),
       mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
     ];

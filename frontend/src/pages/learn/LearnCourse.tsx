@@ -6,7 +6,10 @@ import { enrollInCourse, fetchCourse, type CourseDetail } from "@/api/lms";
 /** Course outline (LM1-8) — module list with lock states + enrollment
  * (D8: browsing needs only login, playing needs an active enrollment). */
 export default function LearnCourse() {
-  const { courseId } = useParams({ from: "/learn/courses/$courseId" });
+  // strict from-string lookup can fail to resolve on a fresh/hard page load
+  // (reproduced on the LM1-13 authoring pages, same router shape) — strict:
+  // false reads whatever route actually matched instead of re-deriving it.
+  const { courseId } = useParams({ strict: false }) as { courseId: string };
   const navigate = useNavigate();
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [error, setError] = useState("");

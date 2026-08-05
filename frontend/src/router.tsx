@@ -119,6 +119,14 @@ import LearnCatalog from "@/pages/learn/LearnCatalog";
 import LearnCourse from "@/pages/learn/LearnCourse";
 import LearnModule from "@/pages/learn/LearnModule";
 
+// LMS authoring surface (LM1-13) — shared by operations + facilitator
+// (backend's require_lms_content), own top-level path so one URL space works
+// for both roles rather than duplicating pages under /operations and /instructors.
+import LmsCourses from "@/pages/lms-authoring/LmsCourses";
+import LmsCourseDetail from "@/pages/lms-authoring/LmsCourseDetail";
+import LmsModuleDetail from "@/pages/lms-authoring/LmsModuleDetail";
+import LmsCurriculum from "@/pages/lms-authoring/LmsCurriculum";
+
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
 const loginRoute = createRoute({
@@ -665,6 +673,29 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),
 ];
 
+// LMS authoring (LM1-13) — own top-level layout, not nested under /operations
+// or /instructors, since backend's require_lms_content allows both operations
+// AND facilitator (plus admin) and those two roles land in different portal
+// domains. One URL space, gated on activeRole directly.
+const lmsAuthoringLayoutRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/lms-authoring",
+  beforeLoad: () => {
+    const role = localStorage.getItem("active_role");
+    if (!role || !["operations", "facilitator", "admin"].includes(role)) {
+      throw redirect({ to: "/" });
+    }
+  },
+  component: () => <Outlet />,
+});
+const pla = () => lmsAuthoringLayoutRoute;
+const lmsAuthoringRoutes = [
+  createRoute({ getParentRoute: pla, path: "/courses", component: LmsCourses }),
+  createRoute({ getParentRoute: pla, path: "/courses/$courseId", component: LmsCourseDetail }),
+  createRoute({ getParentRoute: pla, path: "/modules/$moduleId", component: LmsModuleDetail }),
+  createRoute({ getParentRoute: pla, path: "/curriculum", component: LmsCurriculum }),
+];
+
 // Apply routes — all use shared ApplyFlow (instructor uses InstructorApply for its own pipeline)
 const applyAmbassadorRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -815,6 +846,7 @@ const routeTree = rootRoute.addChildren([
     sessionsCalendarRoute,
     adminProfileRoute,
     operationsLayoutRoute.addChildren(operationsRoutes),
+    lmsAuthoringLayoutRoute.addChildren(lmsAuthoringRoutes),
     internsLayoutRoute.addChildren(internsRoutes),
     ambassadorsLayoutRoute.addChildren(ambassadorsRoutes),
     instructorsLayoutRoute.addChildren(instructorsRoutes),
