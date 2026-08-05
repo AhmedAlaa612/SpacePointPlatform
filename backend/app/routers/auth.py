@@ -12,6 +12,7 @@ from app.core.dependencies import get_current_active_user
 from app.core.security import (
     create_access_token,
     create_refresh_token,
+    decode_password_set_token,
     get_password_hash,
     verify_password,
 )
@@ -22,6 +23,7 @@ from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
     RefreshRequest,
+    SetPasswordRequest,
     StudentSignupRequest,
     Token,
     UpdateMeRequest,
@@ -397,6 +399,29 @@ async def change_password(
     current_user.must_change_password = False
     await db.commit()
     return {"detail": "password updated"}
+
+
+@router.post("/set-password")
+async def set_password(
+    data: SetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """LM1-7 — the ops-created-account invite link (§8 Q5). Token-authenticated
+    (core/security.py's create_password_set_token, 24h), not a logged-in-user
+    action — the whole point is the student doesn't have a working password yet."""
+    try:
+        user_id = decode_password_set_token(data.token)
+    except JWTError:
+        raise HTTPException(status_code=400, detail="This link is invalid or has expired")
+
+    user = await db.get(User, uuid_lib.UUID(user_id))
+    if user is None:
+        raise HTTPException(status_code=400, detail="This link is invalid or has expired")
+
+    user.password_hash = get_password_hash(data.new_password)
+    user.must_change_password = False
+    await db.commit()
+    return {"detail": "password set"}
 
 
 async def _email_taken(db: AsyncSession, email: str) -> bool:

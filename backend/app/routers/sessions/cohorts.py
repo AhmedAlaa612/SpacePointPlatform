@@ -80,6 +80,7 @@ from app.services.sessions import delivery
 from app.services.sessions import materials as materials_service
 from app.services.sessions import staffing as staffing_service
 from app.services.sessions import reports as reports_service
+from app.services.lms.ops_integration import deactivate_registration_enrollments, sync_registration_lms
 from app.services.sessions.registration import register
 from app.services.spine.identity import resolve_or_create_contact
 from app.workers.settings import get_arq_redis, safe_enqueue
@@ -893,6 +894,12 @@ async def desk_register(
         session_ids=body.session_ids,
     )
 
+    # LM1-7 / D4: default-checked — creates (or links) a student account and
+    # enrolls in the program's curriculum. Covers both a fresh registration
+    # and a reinstated one (enroll()'s own idempotency reactivates in place).
+    # Never raises — an LMS-side hiccup must not break registration.
+    await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=body.create_lms_account)
+
     await db.commit()
 
     # Ticket email runs on the ARQ queue, not synchronously — same pattern as
@@ -959,6 +966,9 @@ async def cancel_registration(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
 
     registration.status = "cancelled"
+    # LM1-7 / D4: a cancelled registration takes its LMS enrollments with it
+    # (inactive, not deleted — progress survives in case of reinstatement).
+    await deactivate_registration_enrollments(db, registration.id)
     await db.commit()
     return {"id": str(registration.id), "status": registration.status}
 

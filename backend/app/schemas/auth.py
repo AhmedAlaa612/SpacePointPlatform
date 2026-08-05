@@ -27,6 +27,14 @@ class ChangePasswordRequest(BaseModel):
     current_password: str | None = None
 
 
+class SetPasswordRequest(BaseModel):
+    """LM1-7 — the "invite sent" email link for ops-created LMS accounts
+    (§8 Q5). Token-authenticated, so no current password is needed."""
+
+    token: str
+    new_password: str
+
+
 class UserOut(BaseModel):
     id: str
     full_name: str

@@ -68,3 +68,25 @@ def decode_video_token(token: str) -> tuple[str, str]:
     if payload.get("type") != "lms_video":
         raise JWTError("Not a video token")
     return payload["sub"], payload["item_id"]
+
+
+def create_password_set_token(user_id: Any, expires_delta: timedelta | None = None) -> str:
+    """LM1-7 / §8 Q5: the "invite sent" email link for ops-created LMS
+    accounts (must_change_password=True). 24h — long enough for someone to
+    open an email later the same day without leaving a permanent credential
+    lying around in an inbox."""
+    payload = {
+        "sub": str(user_id),
+        "exp": datetime.now(timezone.utc) + (expires_delta or timedelta(hours=24)),
+        "type": "password_set",
+    }
+    return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def decode_password_set_token(token: str) -> str:
+    """Returns the user_id. Raises JWTError if invalid, expired, or not
+    actually a password-set token."""
+    payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    if payload.get("type") != "password_set":
+        raise JWTError("Not a password-set token")
+    return payload["sub"]

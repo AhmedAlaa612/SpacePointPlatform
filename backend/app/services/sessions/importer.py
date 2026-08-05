@@ -295,6 +295,7 @@ def _summarize(rows: list[RowResult]) -> dict:
 async def dry_run(
     db: AsyncSession, *, file_bytes: bytes, cohort_id: UUID, uploaded_by: UUID, source: Literal["b2b_sheet", "backfill"],
     payment_status: str | None = None, set_contact_organization: bool = False, send_emails: bool = False,
+    create_lms_accounts: bool = True,
     filename: str = "upload.xlsx",
 ) -> ImportBatch:
     cohort = await db.get(Cohort, cohort_id)
@@ -321,7 +322,7 @@ async def dry_run(
         cohort_id=cohort_id, filename=filename, status="dry_run",
         counts={"summary": _summarize(results), "rows": [asdict(r) for r in results],
                 "options": {"payment_status": effective_payment_status, "set_contact_organization": set_contact_organization,
-                            "send_emails": send_emails}},
+                            "send_emails": send_emails, "create_lms_accounts": create_lms_accounts}},
     )
     db.add(batch)
     await db.flush()

@@ -48,6 +48,11 @@ class DeskRegistrationRequest(BaseModel):
     # they're printing it directly, or sending it manually later).
     send_ticket_email: bool = True
 
+    # LM1-7 / D4: default-checked "Create LMS account" — creates (or links,
+    # if one already exists for this contact) a student account and enrolls
+    # them in the program's curriculum. Ops can uncheck it per registration.
+    create_lms_account: bool = True
+
 
 class RegistrationAttendanceOut(BaseModel):
     session_id: UUID

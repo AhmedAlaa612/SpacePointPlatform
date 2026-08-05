@@ -73,6 +73,7 @@ async def upload_dry_run(
     payment_status: str | None = Form(None),
     set_contact_organization: bool = Form(False),
     send_emails: bool = Form(False),
+    create_lms_accounts: bool = Form(True),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
@@ -81,7 +82,7 @@ async def upload_dry_run(
     batch = await dry_run(
         db, file_bytes=file_bytes, cohort_id=cohort_id, uploaded_by=current_user.id, source=source,
         payment_status=payment_status, set_contact_organization=set_contact_organization,
-        send_emails=send_emails, filename=file.filename or "upload.xlsx",
+        send_emails=send_emails, create_lms_accounts=create_lms_accounts, filename=file.filename or "upload.xlsx",
     )
     await db.commit()
     return _to_batch_out(batch)
@@ -99,5 +100,10 @@ async def commit_import_batch(
 
     if batch.counts.get("options", {}).get("send_emails"):
         await safe_enqueue(arq_redis, "send_import_batch_emails", str(batch.id))
+    # LM1-7 / D4: default-checked — same "own job on the queue, driven off
+    # the committed batch" shape as the ticket-email dispatch above, so an
+    # LMS-account hiccup can never affect whether registrations committed.
+    if batch.counts.get("options", {}).get("create_lms_accounts", True):
+        await safe_enqueue(arq_redis, "sync_import_batch_lms_accounts", str(batch.id))
 
     return _to_batch_out(batch)
