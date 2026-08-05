@@ -247,6 +247,22 @@ async def send_session_assignment_email(
     return await try_send_email(to_email, f"You're assigned: {program_name}", body)
 
 
+async def send_call_invite_email(
+    to_email: str, name: str, program_name: str, meeting_date: str,
+) -> bool:
+    """Sent when ops targets an instructor on a staffing call (open_call /
+    open_cohort_call with target_user_ids) — being targeted only showed up
+    in the "Available sessions" list before this; targeted instructors had
+    no way to know unless they happened to check."""
+    body = (
+        f"Hi {name},\n\n"
+        f"You're invited to take part in \"{program_name}\" on {meeting_date}.\n\n"
+        f"Visit the portal to register your interest: {settings.FRONTEND_URL}/instructors/available-sessions\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, f"You're invited: {program_name}", body)
+
+
 async def send_recommendation_letter_email(to_email: str, name: str) -> bool:
     body = (
         f"Hi {name},\n\n"

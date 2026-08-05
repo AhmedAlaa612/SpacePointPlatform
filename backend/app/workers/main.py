@@ -11,7 +11,7 @@ from app.workers.heartbeat import heartbeat
 from app.workers.settings import redis_settings
 from app.workers.tasks.imports import send_import_batch_emails
 from app.workers.tasks.inventory import send_inventory_reminders
-from app.workers.tasks.staffing import send_assignment_email
+from app.workers.tasks.staffing import send_assignment_email, send_call_invite_emails
 from app.workers.tasks.tickets import send_ticket_email
 
 
@@ -21,6 +21,7 @@ class WorkerSettings:
         send_ticket_email,
         send_import_batch_emails,
         send_assignment_email,
+        send_call_invite_emails,
         send_inventory_reminders,
     ]
     cron_jobs = [

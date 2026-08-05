@@ -79,6 +79,7 @@ from app.services.inventory.cohort_kits import resolve_session_kits
 from app.services.sessions import delivery
 from app.services.sessions import materials as materials_service
 from app.services.sessions import staffing as staffing_service
+from app.workers.settings import get_arq_redis, safe_enqueue
 from app.services.sessions import reports as reports_service
 from app.services.sessions.registration import register
 from app.services.spine.identity import resolve_or_create_contact
@@ -528,6 +529,7 @@ async def assign_instructor(
     body: AssignInstructorRequest,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     session = await db.get(Session, session_id)
     if session is None or session.cohort_id != cohort_id:
@@ -550,6 +552,7 @@ async def assign_instructor(
     if role is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Delivery role not found")
 
+    is_new_assignment = existing is None
     if existing is not None:
         existing.role_id = role_id
     else:
@@ -559,6 +562,20 @@ async def assign_instructor(
     # I5-4: "staffed" means every opening filled; with no openings it falls
     # back to "somebody is assigned", exactly as before.
     session.staffing_status = "staffed" if await fully_staffed(db, session_id) else "open_call"
+
+    # Direct assign used to notify nobody — only the marketplace path
+    # (staffing.select_instructors) did. Same notify+email pair here so an
+    # instructor finds out regardless of which path put them on the session.
+    if is_new_assignment:
+        cohort = await db.get(Cohort, cohort_id)
+        await create_notification(
+            db, body.user_id, "You've been assigned to a session",
+            body=f"You're assigned ({role.name}) to a session on {session.meeting_date}"
+                 + (f" at {cohort.location}." if cohort and cohort.location else "."),
+            type="staffing_assigned",
+        )
+        await safe_enqueue(arq_redis, "send_assignment_email", str(session_id), str(body.user_id))
+
     await db.commit()
     return SessionInstructorOut(user_id=user.id, full_name=user.full_name, role=role.name)
 

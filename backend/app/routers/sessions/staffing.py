@@ -84,6 +84,7 @@ async def open_call(
     body: OpenCallRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     """Opens a new call on this session (2026-08-01: a session can run
     several calls at once — call this again while already open_call to add
@@ -111,6 +112,13 @@ async def open_call(
             type="staffing_open_call",
         )
 
+    # Targeted calls only — a public call already surfaces on every
+    # instructor's "Available sessions" list, so an email there would be
+    # noise. A targeted call is invisible unless you're one of the chosen
+    # few, which is exactly when an email is the point (operator ask).
+    if target_ids:
+        await safe_enqueue(arq_redis, "send_call_invite_emails", str(session_id), [str(uid) for uid in target_ids])
+
     await db.commit()
     await db.refresh(session)
     return await _session_out(db, session)
@@ -134,6 +142,7 @@ async def open_cohort_call(
     body: OpenCohortCallRequest | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     """Opens one standing call across a chosen subset of this cohort's
     sessions (omit `session_ids` for every currently-unstaffed session in
@@ -163,6 +172,14 @@ async def open_cohort_call(
                 body=f"{len(succeeded)} session(s) are open for interest — register if you'd like one.",
                 type="staffing_open_call",
             )
+
+        # Targeted calls only — see open_call's identical rationale above.
+        # One email per session so each invite names its own session/date.
+        if target_ids:
+            for session_id in succeeded:
+                await safe_enqueue(
+                    arq_redis, "send_call_invite_emails", str(session_id), [str(uid) for uid in target_ids],
+                )
 
     await db.commit()
     calls = await staffing.list_cohort_calls(db, cohort_id)

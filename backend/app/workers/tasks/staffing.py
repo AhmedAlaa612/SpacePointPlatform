@@ -11,7 +11,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session
 from app.models.user import User
-from app.services.email import send_session_assignment_email
+from app.services.email import send_call_invite_email, send_session_assignment_email
 
 logger = logging.getLogger("workers.staffing")
 
@@ -37,3 +37,33 @@ async def send_assignment_email(ctx, session_id: str, user_id: str) -> bool:
         if not sent:
             logger.warning("Assignment email did not send for session %s user %s", session_id, user_id)
         return sent
+
+
+async def send_call_invite_emails(ctx, session_id: str, user_ids: list[str]) -> int:
+    """One call, many targeted instructors — batched into a single task so
+    opening a call with a dozen targets is one enqueue, not a dozen."""
+    async with AsyncSessionLocal() as db:
+        session = await db.get(Session, uuid.UUID(session_id))
+        if session is None:
+            logger.warning("Call invite email skipped: session=%s not found", session_id)
+            return 0
+
+        cohort = await db.get(Cohort, session.cohort_id)
+        program = await db.get(Program, cohort.program_id) if cohort else None
+        program_name = program.name if program else "a session"
+
+        sent_count = 0
+        for user_id in user_ids:
+            user = await db.get(User, uuid.UUID(user_id))
+            if user is None:
+                logger.warning("Call invite email skipped: user=%s not found", user_id)
+                continue
+            sent = await send_call_invite_email(
+                to_email=user.email, name=user.full_name,
+                program_name=program_name, meeting_date=session.meeting_date.isoformat(),
+            )
+            if sent:
+                sent_count += 1
+            else:
+                logger.warning("Call invite email did not send for session %s user %s", session_id, user_id)
+        return sent_count
