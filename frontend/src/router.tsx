@@ -114,7 +114,10 @@ import KitScan from "@/pages/public/KitScan";
 import { LearnShell } from "@/pages/learn/LearnShell";
 import LearnLogin from "@/pages/learn/LearnLogin";
 import LearnSignup from "@/pages/learn/LearnSignup";
+import LearnSetPassword from "@/pages/learn/LearnSetPassword";
 import LearnCatalog from "@/pages/learn/LearnCatalog";
+import LearnCourse from "@/pages/learn/LearnCourse";
+import LearnModule from "@/pages/learn/LearnModule";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -755,10 +758,28 @@ const learnSignupRoute = createRoute({
   component: LearnSignup,
 });
 
+const learnSetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/learn/set-password",
+  component: LearnSetPassword,
+});
+
 const learnCatalogRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/",
   component: LearnCatalog,
+});
+
+const learnCourseRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/courses/$courseId",
+  component: LearnCourse,
+});
+
+const learnModuleRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/modules/$moduleId",
+  component: LearnModule,
 });
 
 const routeTree = rootRoute.addChildren([
@@ -767,7 +788,8 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   learnLoginRoute,
   learnSignupRoute,
-  learnLayoutRoute.addChildren([learnCatalogRoute]),
+  learnSetPasswordRoute,
+  learnLayoutRoute.addChildren([learnCatalogRoute, learnCourseRoute, learnModuleRoute]),
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,
   applyInternRoute,

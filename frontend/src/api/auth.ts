@@ -8,6 +8,21 @@ export async function login(email: string, password: string): Promise<User> {
   return data.user;
 }
 
+export async function signup(data: {
+  full_name: string;
+  email: string;
+  password: string;
+  phone?: string;
+}): Promise<User> {
+  const { data: res } = await api.post<AuthTokens & { user: User }>("/auth/signup", data);
+  tokens.set(res);
+  return res.user;
+}
+
+export async function setPassword(token: string, new_password: string): Promise<void> {
+  await api.post("/auth/set-password", { token, new_password });
+}
+
 export async function fetchMe(): Promise<User> {
   const { data } = await api.get<User>("/auth/me");
   return data;

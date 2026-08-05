@@ -1,0 +1,131 @@
+/** LMS student API (LM1-8) — thin wrappers over `/lms/*` (LM1-3) and the
+ * video token/stream routes (LM1-6). Types mirror `schemas/lms.py` field for
+ * field; `content` shapes match LMS_EXECUTION_PLAN.md §2's four kinds.
+ */
+import { api } from "./client";
+
+export interface CourseCatalogItem {
+  id: string;
+  title: string;
+  description: string | null;
+  kind: "course" | "mission";
+}
+
+export interface ModuleLock {
+  module_id: string;
+  title: string | null;
+  position: number;
+  locked: boolean;
+  mandatory_total: number;
+  mandatory_completed: number;
+}
+
+export interface CourseDetail {
+  id: string;
+  title: string;
+  description: string | null;
+  kind: "course" | "mission";
+  enrolled: boolean;
+  completed: boolean;
+  modules: ModuleLock[];
+}
+
+export interface QuizOption {
+  text: string;
+}
+
+export interface QuizQuestion {
+  prompt: string;
+  options: QuizOption[];
+}
+
+export type ModuleItemContent =
+  | { body: string } // text
+  | { pass_threshold: number; mid_video_at_seconds: number | null; questions: QuizQuestion[] } // quiz
+  | { title: string | null; cards: { term: string; definition: string }[] } // flashcards
+  | { transcode_status: string | null; duration_seconds: number | null }; // video
+
+export interface ModuleItem {
+  id: string;
+  kind: "video" | "text" | "quiz" | "flashcards";
+  title: string | null;
+  position: number;
+  content: ModuleItemContent;
+  status: "not_started" | "in_progress" | "completed" | "skipped" | null;
+}
+
+export interface ModuleDetail {
+  id: string;
+  course_id: string;
+  title: string;
+  position: number;
+  items: ModuleItem[];
+}
+
+export interface QuizReviewQuestion {
+  prompt: string | null;
+  selected: number;
+  correct: boolean;
+  explanation: string | null;
+}
+
+export interface QuizReview {
+  score: number;
+  passed: boolean;
+  pass_threshold: number;
+  attempts: number;
+  best_score: number | null;
+  questions: QuizReviewQuestion[];
+}
+
+export interface ProgressResult {
+  status: string;
+  quiz_attempts: number;
+  best_score: number | null;
+  completed_at: string | null;
+}
+
+export async function fetchCatalog(): Promise<CourseCatalogItem[]> {
+  const { data } = await api.get<CourseCatalogItem[]>("/lms/catalog");
+  return data;
+}
+
+export async function fetchCourse(courseId: string): Promise<CourseDetail> {
+  const { data } = await api.get<CourseDetail>(`/lms/courses/${courseId}`);
+  return data;
+}
+
+export async function enrollInCourse(courseId: string): Promise<void> {
+  await api.post("/lms/enroll", { course_id: courseId });
+}
+
+export async function fetchModule(moduleId: string): Promise<ModuleDetail> {
+  const { data } = await api.get<ModuleDetail>(`/lms/modules/${moduleId}`);
+  return data;
+}
+
+export async function submitQuiz(itemId: string, answers: number[]): Promise<QuizReview> {
+  const { data } = await api.post<QuizReview>(`/lms/items/${itemId}/quiz/submit`, { answers });
+  return data;
+}
+
+export type ProgressAction = "video-watched" | "text-viewed" | "quiz-attempt" | "flashcards-skipped";
+
+export async function recordProgress(itemId: string, action: ProgressAction): Promise<ProgressResult> {
+  const { data } = await api.post<ProgressResult>(`/lms/items/${itemId}/progress`, { action });
+  return data;
+}
+
+export async function fetchVideoToken(itemId: string): Promise<{ token: string; expires_in_seconds: number }> {
+  const { data } = await api.get<{ token: string; expires_in_seconds: number }>(
+    `/lms/items/${itemId}/video/token`,
+  );
+  return data;
+}
+
+/** Absolute URL to the token-gated HLS playlist — hls.js loads this directly
+ * (not through the `api` axios instance, which is for JSON calls). */
+export function videoPlaylistUrl(itemId: string, token: string): string {
+  const base = api.defaults.baseURL ?? "";
+  return `${base}/lms/videos/${itemId}/playlist?token=${encodeURIComponent(token)}`;
+}
