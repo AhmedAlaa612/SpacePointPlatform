@@ -1,7 +1,9 @@
 import { useCallback, useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { GraduationCap } from "lucide-react";
 import { setPassword } from "@/api/auth";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { DomainIcon } from "@/components/ui/DomainIcon";
 
 /**
  * The "invite sent" link an ops-created LMS account follows (LM1-7 / §8 Q5).
@@ -45,65 +47,62 @@ export default function LearnSetPassword() {
   );
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">
+    <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4 bg-[radial-gradient(circle_at_15%_10%,hsl(var(--primary)/0.06)_0%,transparent_45%)]">
       <div className="w-full max-w-sm">
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <GraduationCap size={28} className="text-primary" />
-          <span className="text-xl font-semibold">Learn</span>
+        <div className="flex justify-center mb-8">
+          <DomainIcon className="h-10 w-auto" />
         </div>
 
-        {done ? (
-          <div className="text-center">
-            <h1 className="text-lg font-medium mb-3">Password set</h1>
-            <p className="text-sm text-muted-foreground mb-6">
-              You're all set. Log in with your new password to continue.
-            </p>
-            <button
-              onClick={() => void navigate({ to: "/learn/login" })}
-              className="h-11 px-6 bg-primary text-primary-foreground rounded-xl font-medium text-sm cursor-pointer"
-            >
-              Go to login
-            </button>
-          </div>
-        ) : (
-          <>
-            <h1 className="text-center text-lg font-medium mb-6">Set your password</h1>
-            {error && (
-              <div className="mb-4 p-3 rounded-xl bg-destructive/10 text-destructive text-sm text-center">
-                {error}
-              </div>
-            )}
-            <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-3">
-              <input
-                type="password"
-                placeholder="New password"
-                required
-                value={password}
-                onChange={(e) => setPasswordValue(e.target.value)}
-                className="h-11 px-4 border border-border bg-card rounded-xl text-sm"
-              />
-              <input
-                type="password"
-                placeholder="Confirm password"
-                required
-                value={confirm}
-                onChange={(e) => setConfirm(e.target.value)}
-                className="h-11 px-4 border border-border bg-card rounded-xl text-sm"
-              />
-              <button
-                type="submit"
-                disabled={loading}
-                className="h-11 bg-primary text-primary-foreground rounded-xl font-medium text-sm disabled:opacity-50 cursor-pointer"
-              >
-                {loading ? "Setting..." : "Set password"}
-              </button>
-            </form>
-            <p className="mt-4 text-center text-sm text-muted-foreground">
-              <Link to="/learn/login" className="text-primary font-medium">
-                Back to login
-              </Link>
-            </p>
-          </>
+        <Card className="p-6 sm:p-7">
+          {done ? (
+            <div className="text-center">
+              <h1 className="font-display text-xl font-bold mb-3">Password set</h1>
+              <p className="text-sm text-muted-foreground mb-6">
+                You're all set. Log in with your new password to continue.
+              </p>
+              <Button size="xl" className="w-full" onClick={() => void navigate({ to: "/learn/login" })}>
+                Go to login
+              </Button>
+            </div>
+          ) : (
+            <>
+              <h1 className="text-center font-display text-xl font-bold mb-6">Set your password</h1>
+              {error && (
+                <div className="mb-4 p-3 rounded-xl bg-destructive/10 text-destructive text-sm text-center">
+                  {error}
+                </div>
+              )}
+              <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-3">
+                <input
+                  type="password"
+                  placeholder="New password"
+                  required
+                  value={password}
+                  onChange={(e) => setPasswordValue(e.target.value)}
+                  className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                />
+                <input
+                  type="password"
+                  placeholder="Confirm password"
+                  required
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
+                  className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                />
+                <Button size="xl" type="submit" disabled={loading} className="w-full mt-1">
+                  {loading ? "Setting..." : "Set password"}
+                </Button>
+              </form>
+            </>
+          )}
+        </Card>
+
+        {!done && (
+          <p className="mt-5 text-center text-sm text-muted-foreground">
+            <Link to="/learn/login" className="text-primary font-medium">
+              Back to login
+            </Link>
+          </p>
         )}
       </div>
     </div>

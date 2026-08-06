@@ -85,6 +85,68 @@ export interface ProgressResult {
   completed_at: string | null;
 }
 
+// ── dashboard (LMS redesign, 2026-08-06) ────────────────────────────────────
+
+export interface DashboardStats {
+  in_progress: number;
+  total_enrolled: number;
+  modules_done: number;
+}
+
+export interface ResumePointer {
+  course_id: string;
+  course_title: string;
+  module_id: string;
+  module_title: string;
+  next_item_id: string | null;
+  mandatory_completed: number;
+  mandatory_total: number;
+}
+
+export interface DashboardCourse {
+  course_id: string;
+  title: string;
+  kind: "course" | "mission";
+  status: "not_started" | "in_progress" | "completed";
+  modules_done: number;
+  modules_total: number;
+  pct: number;
+}
+
+export interface MyCourses {
+  stats: DashboardStats;
+  resume: ResumePointer | null;
+  courses: DashboardCourse[];
+}
+
+export async function fetchMyCourses(): Promise<MyCourses> {
+  const { data } = await api.get<MyCourses>("/lms/my-courses");
+  return data;
+}
+
+// ── upcoming public programs (reuses /public/catalog — no LMS-specific
+// backend needed; "public" + "registration_open" is exactly "public and
+// upcoming") ─────────────────────────────────────────────────────────────
+
+export interface UpcomingProgram {
+  cohort_id: string;
+  program_name: string;
+  program_type: string;
+  description: string | null;
+  starts_on: string | null;
+  ends_on: string | null;
+  location: string | null;
+  price_display: string;
+  spots_left: number | null;
+  is_limited: boolean;
+  registration_endpoint: string;
+}
+
+export async function fetchUpcomingPrograms(): Promise<UpcomingProgram[]> {
+  const { data } = await api.get<UpcomingProgram[]>("/public/catalog");
+  return data;
+}
+
 export async function fetchCatalog(): Promise<CourseCatalogItem[]> {
   const { data } = await api.get<CourseCatalogItem[]>("/lms/catalog");
   return data;

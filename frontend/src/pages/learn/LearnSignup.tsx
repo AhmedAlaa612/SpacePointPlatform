@@ -1,10 +1,12 @@
 import { useCallback, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { GraduationCap } from "lucide-react";
 import { isAxiosError } from "axios";
 import { signup } from "@/api/auth";
 import { tokens } from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { DomainIcon } from "@/components/ui/DomainIcon";
 
 /**
  * Student signup — mounted on rootRoute, outside the portal auth shell.
@@ -51,63 +53,60 @@ export default function LearnSignup() {
   );
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4">
+    <div className="min-h-screen bg-background text-foreground flex items-center justify-center px-4 bg-[radial-gradient(circle_at_15%_10%,hsl(var(--primary)/0.06)_0%,transparent_45%)]">
       <div className="w-full max-w-sm">
-        <div className="flex items-center justify-center gap-2 mb-8">
-          <GraduationCap size={28} className="text-primary" />
-          <span className="text-xl font-semibold">Learn</span>
+        <div className="flex justify-center mb-8">
+          <DomainIcon className="h-10 w-auto" />
         </div>
 
-        <h1 className="text-center text-lg font-medium mb-6">Sign up</h1>
+        <Card className="p-6 sm:p-7">
+          <h1 className="text-center font-display text-xl font-bold mb-6">Sign up</h1>
 
-        {error && (
-          <div className="mb-4 p-3 rounded-xl bg-destructive/10 text-destructive text-sm text-center">
-            {error}
-          </div>
-        )}
+          {error && (
+            <div className="mb-4 p-3 rounded-xl bg-destructive/10 text-destructive text-sm text-center">
+              {error}
+            </div>
+          )}
 
-        <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-3">
-          <input
-            type="text"
-            placeholder="Full name"
-            required
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            className="h-11 px-4 border border-border bg-card rounded-xl text-sm"
-          />
-          <input
-            type="email"
-            placeholder="Email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="h-11 px-4 border border-border bg-card rounded-xl text-sm"
-          />
-          <input
-            type="tel"
-            placeholder="Phone (optional)"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className="h-11 px-4 border border-border bg-card rounded-xl text-sm"
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="h-11 px-4 border border-border bg-card rounded-xl text-sm"
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="h-11 bg-primary text-primary-foreground rounded-xl font-medium text-sm disabled:opacity-50 cursor-pointer"
-          >
-            {loading ? "Signing up..." : "Sign up"}
-          </button>
-        </form>
+          <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-3">
+            <input
+              type="text"
+              placeholder="Full name"
+              required
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+            />
+            <input
+              type="email"
+              placeholder="Email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+            />
+            <input
+              type="tel"
+              placeholder="Phone (optional)"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+            />
+            <Button size="xl" type="submit" disabled={loading} className="w-full mt-1">
+              {loading ? "Signing up..." : "Sign up"}
+            </Button>
+          </form>
+        </Card>
 
-        <p className="mt-4 text-center text-sm text-muted-foreground">
+        <p className="mt-5 text-center text-sm text-muted-foreground">
           Already have an account?{" "}
           <Link to="/learn/login" className="text-primary font-medium">
             Log in

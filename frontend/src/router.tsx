@@ -115,9 +115,11 @@ import { LearnShell } from "@/pages/learn/LearnShell";
 import LearnLogin from "@/pages/learn/LearnLogin";
 import LearnSignup from "@/pages/learn/LearnSignup";
 import LearnSetPassword from "@/pages/learn/LearnSetPassword";
+import LearnLanding from "@/pages/learn/LearnLanding";
 import LearnCatalog from "@/pages/learn/LearnCatalog";
+import LearnMyCourses from "@/pages/learn/LearnMyCourses";
 import LearnCourse from "@/pages/learn/LearnCourse";
-import LearnModule from "@/pages/learn/LearnModule";
+import LearnPlayer from "@/pages/learn/LearnPlayer";
 
 // LMS authoring surface (LM1-13) — shared by operations + facilitator
 // (backend's require_lms_content), own top-level path so one URL space works
@@ -795,10 +797,22 @@ const learnSetPasswordRoute = createRoute({
   component: LearnSetPassword,
 });
 
-const learnCatalogRoute = createRoute({
+const learnLandingRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/",
+  component: LearnLanding,
+});
+
+const learnCatalogRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/catalog",
   component: LearnCatalog,
+});
+
+const learnMyCoursesRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/my-courses",
+  component: LearnMyCourses,
 });
 
 const learnCourseRoute = createRoute({
@@ -807,10 +821,12 @@ const learnCourseRoute = createRoute({
   component: LearnCourse,
 });
 
-const learnModuleRoute = createRoute({
+// Redesign 1h: one route for the whole course, sidebar swaps the content pane
+// (no route change per item) — replaces the old per-module route below.
+const learnPlayerRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
-  path: "/modules/$moduleId",
-  component: LearnModule,
+  path: "/courses/$courseId/learn",
+  component: LearnPlayer,
 });
 
 const routeTree = rootRoute.addChildren([
@@ -820,7 +836,9 @@ const routeTree = rootRoute.addChildren([
   learnLoginRoute,
   learnSignupRoute,
   learnSetPasswordRoute,
-  learnLayoutRoute.addChildren([learnCatalogRoute, learnCourseRoute, learnModuleRoute]),
+  learnLayoutRoute.addChildren([
+    learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
+  ]),
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,
   applyInternRoute,
