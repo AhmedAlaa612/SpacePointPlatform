@@ -26,7 +26,10 @@ _TEMPLATE_PATHS = {
     "light": os.path.join(_TEMPLATES_DIR, "certificate_template_light.png"),
 }
 _FONTS_DIR = os.path.join(_STATIC_DIR, "fonts")
-_TEXT_COLOR = HexColor("#9778be")
+_TEXT_COLORS = {
+    "dark": HexColor("#9778be"),
+    "light": HexColor("#67388f"),
+}
 
 _fonts_registered = False
 
@@ -73,9 +76,12 @@ def generate_completion_certificate_pdf(
     """Completion certificate (certificates.type='internship_completion' |
     'instructor_completion'). Uses dynamic body text and optional background
     file bytes. `theme` picks the stock background ("dark" | "light") when
-    `background_bytes` isn't supplied — same layout/font/text color either
-    way, just a different template PNG (operator ask, 2026-08-07)."""
+    `background_bytes` isn't supplied, plus a matching text color — light
+    uses #67388f instead of the dark theme's #9778be, since the lighter
+    purple reads poorly against a white background (operator ask,
+    2026-08-07)."""
     _ensure_fonts()
+    text_color = _TEXT_COLORS.get(theme, _TEXT_COLORS["dark"])
     width, height = landscape(A4)
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(width, height))
@@ -88,7 +94,7 @@ def generate_completion_certificate_pdf(
 
     name_arabic = _is_arabic(recipient_name)
     c.setFont("Amiri-Bold" if name_arabic else "TimesNewRoman-BoldItalic", 34)
-    c.setFillColor(_TEXT_COLOR)
+    c.setFillColor(text_color)
     c.drawCentredString(width / 2.0, 298, _shaped(recipient_name) if name_arabic else recipient_name)
 
     # `<br/>`-joined segments render independently — reshape each one so a
@@ -103,7 +109,7 @@ def generate_completion_certificate_pdf(
     style = ParagraphStyle(
         name="CertificateCompletionText",
         fontName="Amiri" if body_arabic else "TimesNewRoman-Italic",
-        fontSize=15, leading=22, textColor=_TEXT_COLOR, alignment=1,
+        fontSize=18, leading=26, textColor=text_color, alignment=1,
     )
     p = Paragraph(display_body, style)
     p_width = 600
