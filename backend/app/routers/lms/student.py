@@ -32,6 +32,7 @@ from app.schemas.lms import (
     ModuleItemOut,
     ModuleLockOut,
     ModuleOut,
+    MyCoursesOut,
     ProgressIn,
     ProgressOut,
     QuizAnswersIn,
@@ -45,6 +46,7 @@ from app.services.lms import (
     submit_quiz,
     unlock_state,
 )
+from app.services.lms.dashboard import my_courses_dashboard
 
 router = APIRouter(prefix="/lms", tags=["lms"])
 
@@ -144,6 +146,18 @@ async def course_detail(
             for row in locks
         ],
     )
+
+
+# ── dashboard: student only ──────────────────────────────────────────────────
+
+@router.get("/my-courses", response_model=MyCoursesOut)
+async def my_courses(
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_student),
+):
+    """Stats + resume pointer + per-course progress for the landing page's
+    resume band and the /learn/my-courses dashboard (LMS redesign)."""
+    return await my_courses_dashboard(db, user_id=current.id)
 
 
 # ── enrollment: student only ────────────────────────────────────────────────

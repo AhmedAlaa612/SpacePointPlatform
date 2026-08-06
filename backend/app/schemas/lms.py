@@ -68,6 +68,40 @@ class CourseCatalogOut(BaseModel):
     kind: str
 
 
+# ── my-courses dashboard (student, LMS redesign 2026-08-06) ────────────────
+
+class DashboardStatsOut(BaseModel):
+    in_progress: int
+    total_enrolled: int
+    modules_done: int
+
+
+class ResumePointerOut(BaseModel):
+    course_id: UUID
+    course_title: str
+    module_id: UUID
+    module_title: str
+    next_item_id: UUID | None = None
+    mandatory_completed: int
+    mandatory_total: int
+
+
+class DashboardCourseOut(BaseModel):
+    course_id: UUID
+    title: str
+    kind: str
+    status: str  # not_started | in_progress | completed
+    modules_done: int
+    modules_total: int
+    pct: int
+
+
+class MyCoursesOut(BaseModel):
+    stats: DashboardStatsOut
+    resume: ResumePointerOut | None = None
+    courses: list[DashboardCourseOut]
+
+
 class ModuleLockOut(BaseModel):
     module_id: UUID
     title: str | None = None

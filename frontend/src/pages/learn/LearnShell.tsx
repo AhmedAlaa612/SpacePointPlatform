@@ -1,6 +1,5 @@
-import { Outlet, useNavigate } from "@tanstack/react-router";
-import { useAuth } from "@/context/AuthContext";
-import { GraduationCap, LogOut } from "lucide-react";
+import { Outlet, useLocation } from "@tanstack/react-router";
+import { LearnNav, type LearnNavActive } from "./LearnNav";
 
 /**
  * The student shell (LMS D1) — deliberately NOT the portal's `AppShell`.
@@ -12,50 +11,23 @@ import { GraduationCap, LogOut } from "lucide-react";
  *
  * ⚠ Import discipline (LMS D1): nothing under `pages/learn/**` may import from
  * `pages/operations/**` or `components/layout/Sidebar`. Shared `components/ui/**`
- * and `lib/**` are fine. Holding that line is what keeps extracting this into
- * its own Vite app a folder move rather than an untangling job.
+ * and `lib/**` are fine (LearnNav pulls ThemeToggle and DomainIcon from there —
+ * neither is Sidebar.tsx itself).
  *
- * Mobile-first: students are on phones.
+ * Mobile-first: students are on phones. Content is full-bleed; each page owns
+ * its own max-width/padding (desktop frames run to 1440px per the design).
  */
 export function LearnShell() {
-  const { currentUser, logout } = useAuth();
-  const navigate = useNavigate();
-
-  const handleLogout = async () => {
-    await logout();
-    void navigate({ to: "/learn/login" });
-  };
+  const { pathname } = useLocation();
+  const active: LearnNavActive =
+    pathname.startsWith("/learn/catalog") ? "catalog"
+    : pathname.startsWith("/learn/my-courses") ? "my-courses"
+    : "home";
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
-      <header className="sticky top-0 z-10 border-b border-border bg-card">
-        <div className="mx-auto max-w-3xl px-4 h-14 flex items-center justify-between gap-3">
-          <button
-            onClick={() => void navigate({ to: "/learn" })}
-            className="flex items-center gap-2 font-semibold cursor-pointer"
-          >
-            <GraduationCap size={20} className="text-primary" />
-            <span>Learn</span>
-          </button>
-
-          {currentUser && (
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground hidden sm:inline">
-                {currentUser.full_name || currentUser.email}
-              </span>
-              <button
-                onClick={() => void handleLogout()}
-                className="p-2 rounded-lg text-muted-foreground hover:text-foreground cursor-pointer"
-                aria-label="Log out"
-              >
-                <LogOut size={16} />
-              </button>
-            </div>
-          )}
-        </div>
-      </header>
-
-      <main className="flex-1 mx-auto w-full max-w-3xl px-4 py-6">
+      <LearnNav active={active} />
+      <main className="flex-1 pb-20 md:pb-0">
         <Outlet />
       </main>
     </div>
