@@ -1080,6 +1080,7 @@ async def give_certificate(
 @router.get("/cohorts/{cohort_id}/certificates/download")
 async def download_cohort_certificates(
     cohort_id: uuid.UUID,
+    theme: str = Query("dark", pattern="^(dark|light)$"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
@@ -1089,7 +1090,8 @@ async def download_cohort_certificates(
     eventually give them, just generated up front here instead). Cancelled
     registrations are excluded, same convention as list_cohorts' counts.
     Generated fresh each time, nothing persisted or emailed — this is a
-    print run, not the student_completion issuance flow in delivery.py."""
+    print run, not the student_completion issuance flow in delivery.py.
+    `theme` picks the background template (operator ask, 2026-08-07)."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
@@ -1113,7 +1115,7 @@ async def download_cohort_certificates(
         .replace("{dates}", escape(format_cohort_dates(cohort)))
 
     def _render(name: str, body: str) -> bytes:
-        return generate_completion_certificate_pdf(name, body)
+        return generate_completion_certificate_pdf(name, body, theme=theme)
 
     pages = [await asyncio.to_thread(_render, full_name, body_text) for full_name in rows]
 

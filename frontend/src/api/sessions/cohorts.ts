@@ -118,9 +118,11 @@ export const confirmPaymentApi = (
 export const giveCertificateApi = (registrationId: string) =>
   api.post<{ id: string; status: string; certificate_url: string }>(`/sessions/registrations/${registrationId}/certificate`).then((r) => r.data)
 
-// One merged PDF, one page per certificate already issued in this cohort.
-export const downloadCohortCertificatesApi = async (cohortId: string, cohortName: string) => {
-  const res = await api.get(`/sessions/cohorts/${cohortId}/certificates/download`, { responseType: "blob" })
+// One merged PDF, one page per registered student in this cohort.
+export const downloadCohortCertificatesApi = async (cohortId: string, cohortName: string, theme: "dark" | "light") => {
+  const res = await api.get(`/sessions/cohorts/${cohortId}/certificates/download`, {
+    responseType: "blob", params: { theme },
+  })
   const url = URL.createObjectURL(res.data as Blob)
   const a = document.createElement("a")
   a.href = url

@@ -29,6 +29,7 @@ import {
 import { getDeliveryRolesApi } from "@/api/sessions/openings"
 import { listCohortReportsApi, uploadSessionReportApi, completeCohortApi } from "@/api/sessions/delivery"
 import { Modal, Field, ModalActions, ConfirmDialog, Spinner, PageHeader, EmptyState } from "@/pages/admin/components/common"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ImportListModal } from "@/pages/admin/components/ImportList"
 import { listOrganizationsApi, updateContactApi } from "@/api/spine/contacts"
 import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR } from "@/pages/admin/Cohorts"
@@ -188,7 +189,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
     onError: (e: any) => setDrawerError(getErrorMessage(e, "Failed to issue certificate")),
   })
   const downloadCertificatesMutation = useMutation({
-    mutationFn: () => downloadCohortCertificatesApi(cohort.id, cohort.name),
+    mutationFn: (theme: "dark" | "light") => downloadCohortCertificatesApi(cohort.id, cohort.name, theme),
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to download certificates")),
   })
   // Both refuse server-side once real history is attached (attendance, a
@@ -300,14 +301,25 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         >
           <Upload size={14} /> Import list
         </button>
-        <button
-          onClick={() => downloadCertificatesMutation.mutate()}
-          disabled={downloadCertificatesMutation.isPending}
-          className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-          title="One merged PDF of every certificate already issued for this cohort"
-        >
-          <Award size={14} /> {downloadCertificatesMutation.isPending ? "Preparing…" : "Download certificates"}
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              disabled={downloadCertificatesMutation.isPending}
+              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+              title="One merged PDF, one certificate per registered student"
+            >
+              <Award size={14} /> {downloadCertificatesMutation.isPending ? "Preparing…" : "Download certificates"}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={() => downloadCertificatesMutation.mutate("dark")}>
+              Dark background
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => downloadCertificatesMutation.mutate("light")}>
+              Light background
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Sessions / Students / Setup — the page used to be five screens of

@@ -20,7 +20,11 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph
 
 _STATIC_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "static"))
-_TEMPLATE_PATH = os.path.join(_STATIC_DIR, "templates", "certificate_template.png")
+_TEMPLATES_DIR = os.path.join(_STATIC_DIR, "templates")
+_TEMPLATE_PATHS = {
+    "dark": os.path.join(_TEMPLATES_DIR, "certificate_template.png"),
+    "light": os.path.join(_TEMPLATES_DIR, "certificate_template_light.png"),
+}
 _FONTS_DIR = os.path.join(_STATIC_DIR, "fonts")
 _TEXT_COLOR = HexColor("#9778be")
 
@@ -63,11 +67,14 @@ def _shaped(text: str) -> str:
 def generate_completion_certificate_pdf(
     recipient_name: str,
     body_text_template: str,
-    background_bytes: bytes | None = None
+    background_bytes: bytes | None = None,
+    theme: str = "dark",
 ) -> bytes:
     """Completion certificate (certificates.type='internship_completion' |
-    'instructor_completion'). Uses dynamic body text and optional background file bytes.
-    """
+    'instructor_completion'). Uses dynamic body text and optional background
+    file bytes. `theme` picks the stock background ("dark" | "light") when
+    `background_bytes` isn't supplied — same layout/font/text color either
+    way, just a different template PNG (operator ask, 2026-08-07)."""
     _ensure_fonts()
     width, height = landscape(A4)
     buf = io.BytesIO()
@@ -76,7 +83,8 @@ def generate_completion_certificate_pdf(
     if background_bytes:
         c.drawImage(io.BytesIO(background_bytes), 0, 0, width=width, height=height)
     else:
-        c.drawImage(_TEMPLATE_PATH, 0, 0, width=width, height=height)
+        template_path = _TEMPLATE_PATHS.get(theme, _TEMPLATE_PATHS["dark"])
+        c.drawImage(template_path, 0, 0, width=width, height=height)
 
     name_arabic = _is_arabic(recipient_name)
     c.setFont("Amiri-Bold" if name_arabic else "TimesNewRoman-BoldItalic", 34)
