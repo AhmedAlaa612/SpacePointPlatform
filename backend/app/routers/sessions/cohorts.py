@@ -33,7 +33,6 @@ from app.core.dependencies import require_operations, require_session_delivery
 from app.db.session import get_db
 from app.models.certificate import Certificate
 from app.models.document_template import DocumentTemplate
-from app.models.enums import CertificateType
 from app.models.sessions.delivery_role import DeliveryRole
 from app.services.documents.certificate import generate_completion_certificate_pdf, merge_certificate_pdfs
 from app.services.sessions.openings import fully_staffed, lead_role_id
@@ -85,7 +84,7 @@ from app.services.sessions import delivery
 from app.services.sessions import materials as materials_service
 from app.services.sessions import staffing as staffing_service
 from app.services.sessions import reports as reports_service
-from app.services.sessions.registration import register
+from app.services.sessions.registration import format_cohort_dates, register
 from app.services.spine.identity import resolve_or_create_contact
 from app.workers.settings import get_arq_redis, safe_enqueue
 
@@ -1084,41 +1083,39 @@ async def download_cohort_certificates(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    """One PDF, one page per student certificate already issued for this
-    cohort (via complete_cohort's auto-issue or the manual override above).
-    Regenerates each page from the Certificate row rather than storing PDFs
-    — student_completion certs were never uploaded to storage in the first
-    place (see delivery.py's _issue_student_certificate), so this is the
-    only place these bytes exist outside the one-off email sent at
-    issuance."""
+    """One PDF, one page per *registered* student in this cohort — for
+    printing at the workshop, not gated on completion/issuance status (every
+    registrant gets a page, same as complete_cohort's auto-issue would
+    eventually give them, just generated up front here instead). Cancelled
+    registrations are excluded, same convention as list_cohorts' counts.
+    Generated fresh each time, nothing persisted or emailed — this is a
+    print run, not the student_completion issuance flow in delivery.py."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    program = await db.get(Program, cohort.program_id)
 
     rows = (await db.execute(
-        select(Certificate, Contact.full_name)
-        .join(Registration, Registration.id == Certificate.registration_id)
-        .join(Contact, Contact.id == Certificate.contact_id)
-        .where(Registration.cohort_id == cohort_id, Certificate.type == CertificateType.student_completion)
+        select(Contact.full_name)
+        .join(Registration, Registration.contact_id == Contact.id)
+        .where(Registration.cohort_id == cohort_id, Registration.status != "cancelled")
         .order_by(Contact.full_name)
-    )).all()
+    )).scalars().all()
     if not rows:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No certificates have been issued for this cohort yet")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No registered students in this cohort yet")
 
     template = (await db.execute(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
     template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+    body_text = template_body \
+        .replace("{program_name}", escape(program.name if program else "")) \
+        .replace("{dates}", escape(format_cohort_dates(cohort)))
 
     def _render(name: str, body: str) -> bytes:
         return generate_completion_certificate_pdf(name, body)
 
-    pages = []
-    for certificate, full_name in rows:
-        body_text = template_body \
-            .replace("{program_name}", escape(certificate.workshop_name or "")) \
-            .replace("{dates}", escape(certificate.workshop_date or ""))
-        pages.append(await asyncio.to_thread(_render, full_name, body_text))
+    pages = [await asyncio.to_thread(_render, full_name, body_text) for full_name in rows]
 
     merged = await asyncio.to_thread(merge_certificate_pdfs, pages)
     safe_name = "".join(c for c in cohort.name if c.isalnum() or c in " -_").strip().replace(" ", "_")
