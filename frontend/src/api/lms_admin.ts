@@ -55,11 +55,13 @@ export interface AdminQuizQuestion {
   options: AdminQuizOption[];
 }
 
+export type VideoTranscodeStatus = "pending" | "processing" | "ready" | "failed";
+
 export type AdminItemContent =
   | { body: string }
   | { pass_threshold: number; mid_video_at_seconds: number | null; questions: AdminQuizQuestion[] }
   | { title: string | null; cards: { term: string; definition: string }[] }
-  | Record<string, never>; // video — real state lives in module_videos
+  | { transcode_status: VideoTranscodeStatus | null; transcode_error: string | null; duration_seconds: number | null };
 
 export interface AdminItem {
   id: string;
@@ -108,6 +110,8 @@ export const createModuleApi = (courseId: string, data: { title: string; positio
 export const updateModuleApi = (id: string, data: Partial<{ title: string; position: number }>) =>
   api.patch<AdminModule>(`/lms/admin/modules/${id}`, data).then((r) => r.data);
 export const deleteModuleApi = (id: string) => api.delete<void>(`/lms/admin/modules/${id}`).then((r) => r.data);
+export const reorderModulesApi = (courseId: string, moduleIds: string[]) =>
+  api.post<AdminModule[]>(`/lms/admin/courses/${courseId}/modules/reorder`, { module_ids: moduleIds }).then((r) => r.data);
 
 // ── items ────────────────────────────────────────────────────────────────
 
@@ -122,6 +126,8 @@ export const updateItemApi = (
   data: Partial<{ title: string; is_required: boolean; position: number; content: object }>,
 ) => api.patch<AdminItem>(`/lms/admin/items/${id}`, data).then((r) => r.data);
 export const deleteItemApi = (id: string) => api.delete<void>(`/lms/admin/items/${id}`).then((r) => r.data);
+export const reorderItemsApi = (moduleId: string, itemIds: string[]) =>
+  api.post<AdminItem[]>(`/lms/admin/modules/${moduleId}/items/reorder`, { item_ids: itemIds }).then((r) => r.data);
 
 // ── video ────────────────────────────────────────────────────────────────
 
@@ -131,10 +137,21 @@ export interface VideoUploadResult {
   dispatch: "queued" | "inline" | "dropped";
 }
 
-export const uploadVideoApi = (itemId: string, file: File) => {
+export const uploadVideoApi = (
+  itemId: string,
+  file: File,
+  opts?: { onProgress?: (pct: number) => void; signal?: AbortSignal },
+) => {
   const form = new FormData();
   form.append("file", file);
-  return api.post<VideoUploadResult>(`/lms/admin/items/${itemId}/video`, form).then((r) => r.data);
+  return api
+    .post<VideoUploadResult>(`/lms/admin/items/${itemId}/video`, form, {
+      signal: opts?.signal,
+      onUploadProgress: (evt) => {
+        if (opts?.onProgress && evt.total) opts.onProgress(Math.round((evt.loaded / evt.total) * 100));
+      },
+    })
+    .then((r) => r.data);
 };
 
 // ── program curriculum ──────────────────────────────────────────────────

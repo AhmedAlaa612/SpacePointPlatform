@@ -96,8 +96,10 @@ export function VideoPlayer({
 
   if (transcodeStatus !== "ready") {
     return (
-      <div className="aspect-video rounded-2xl ring-1 ring-border bg-muted flex items-center justify-center text-sm text-muted-foreground">
-        {transcodeStatus === "failed" ? "Video processing failed — contact ops." : "Video is still processing..."}
+      <div className="aspect-video rounded-2xl ring-1 ring-border bg-muted flex items-center justify-center text-sm text-muted-foreground text-center px-6">
+        {transcodeStatus === "failed"
+          ? "Video processing failed — contact ops."
+          : "Video is still processing — this can take a minute. It'll appear here automatically once ready."}
       </div>
     );
   }

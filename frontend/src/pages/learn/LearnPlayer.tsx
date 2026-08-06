@@ -69,6 +69,24 @@ export default function LearnPlayer() {
   }, [selectedItemId, modulesData]);
 
   const selectedItem = selectedModuleId ? modulesData[selectedModuleId]?.items.find((i) => i.id === selectedItemId) ?? null : null;
+  const selectedVideoStatus =
+    selectedItem?.kind === "video" && "transcode_status" in selectedItem.content
+      ? selectedItem.content.transcode_status
+      : null;
+
+  // A video the worker hasn't finished transcoding yet flips to ready/failed
+  // off-band — without this the student is stuck on "still processing" until
+  // they manually reload the page.
+  useEffect(() => {
+    if (!selectedModuleId || (selectedVideoStatus !== "pending" && selectedVideoStatus !== "processing")) return;
+    const moduleId = selectedModuleId;
+    const interval = setInterval(() => {
+      fetchModule(moduleId).then((fresh) => {
+        setModulesData((prev) => ({ ...prev, [moduleId]: fresh }));
+      }).catch(() => undefined);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [selectedModuleId, selectedVideoStatus]);
 
   const handleProgressed = useCallback(async () => {
     if (!course || !selectedModuleId) return;

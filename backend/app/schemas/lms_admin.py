@@ -132,6 +132,14 @@ class ModuleAdminOut(BaseModel):
     position: int
 
 
+class ModuleReorderIn(BaseModel):
+    """Full ordered id list, not a single move — same shape works for
+    drag-and-drop or up/down buttons, and lets the backend rewrite positions
+    in one transaction instead of racing the unique constraint two requests
+    at a time."""
+    module_ids: list[UUID]
+
+
 # ── items ────────────────────────────────────────────────────────────────────
 
 class ItemCreate(BaseModel):
@@ -158,6 +166,10 @@ class ItemAdminOut(BaseModel):
     is_required: bool
     position: int
     content: dict
+
+
+class ItemReorderIn(BaseModel):
+    item_ids: list[UUID]
 
 
 # ── program curriculum ──────────────────────────────────────────────────────

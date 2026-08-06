@@ -14,10 +14,12 @@ from fastapi import status as http_status
 from sqlalchemy import select
 
 from app.core.security import create_access_token
-from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ProgramCurriculum
+from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, ProgramCurriculum
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.services.lms import enroll
+from app.services.lms.video import EncodeResult, run_transcode
+from app.services import storage
 
 
 async def _user(db, *, roles=None) -> User:
@@ -273,6 +275,119 @@ async def test_item_position_auto_appends_and_conflicts_are_409(db, client):
         json={"kind": "text", "position": 1, "content": {"body": "c"}},
     )
     assert conflict.status_code == http_status.HTTP_409_CONFLICT
+
+
+async def _fake_encoder(source_path):
+    return EncodeResult(
+        playlist=b"#EXTM3U\nsegment_000.ts\n", segments={"segment_000.ts": b"ts-bytes"},
+        key=b"0" * 16, duration_seconds=42,
+    )
+
+
+@pytest.mark.asyncio
+async def test_video_item_exposes_transcode_status_through_admin_api(db, client):
+    """The `content` column on a video ModuleItem is always `{}` — the real
+    state lives on ModuleVideo, written by the async worker. An author has no
+    other way to tell an upload is still processing vs. actually ready."""
+    ops = await _user(db)
+    course = await _course(db, author=ops)
+    module = await _module(db, course)
+    await db.commit()
+
+    created = await client.post(
+        f"/lms/admin/modules/{module.id}/items", headers=_headers(ops), json={"kind": "video", "content": {}},
+    )
+    item_id = created.json()["id"]
+    # No upload yet — nothing to report.
+    assert created.json()["content"] == {"transcode_status": None, "transcode_error": None, "duration_seconds": None}
+
+    video = ModuleVideo(
+        id=uuid.uuid4(), item_id=uuid.UUID(item_id), source_bucket="lms-video-sources",
+        source_path=f"{item_id}/source.mp4", transcode_status="pending",
+    )
+    db.add(video)
+    await db.commit()
+    await storage.upload_to_path("lms-video-sources", video.source_path, b"source-bytes", "video/mp4")
+
+    pending = await client.get(f"/lms/admin/modules/{module.id}/items", headers=_headers(ops))
+    assert pending.json()[0]["content"]["transcode_status"] == "pending"
+
+    await run_transcode(db, uuid.UUID(item_id), encoder=_fake_encoder)
+
+    ready = await client.get(f"/lms/admin/modules/{module.id}/items", headers=_headers(ops))
+    ready_content = ready.json()[0]["content"]
+    assert ready_content["transcode_status"] == "ready"
+    assert ready_content["duration_seconds"] == 42
+
+
+# ── reordering ───────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_reorder_modules_rewrites_positions_in_new_order(db, client):
+    ops = await _user(db)
+    course = await _course(db, author=ops)
+    m1 = await _module(db, course, position=1)
+    m2 = await _module(db, course, position=2)
+    m3 = await _module(db, course, position=3)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/admin/courses/{course.id}/modules/reorder", headers=_headers(ops),
+        json={"module_ids": [str(m3.id), str(m1.id), str(m2.id)]},
+    )
+    assert resp.status_code == 200, resp.text
+    body = {row["id"]: row["position"] for row in resp.json()}
+    assert body[str(m3.id)] == 1
+    assert body[str(m1.id)] == 2
+    assert body[str(m2.id)] == 3
+
+    listed = await client.get(f"/lms/admin/courses/{course.id}/modules", headers=_headers(ops))
+    assert [row["id"] for row in listed.json()] == [str(m3.id), str(m1.id), str(m2.id)]
+
+
+@pytest.mark.asyncio
+async def test_reorder_modules_rejects_mismatched_id_set(db, client):
+    ops = await _user(db)
+    course = await _course(db, author=ops)
+    m1 = await _module(db, course, position=1)
+    await _module(db, course, position=2)
+    await db.commit()
+
+    missing = await client.post(
+        f"/lms/admin/courses/{course.id}/modules/reorder", headers=_headers(ops),
+        json={"module_ids": [str(m1.id)]},
+    )
+    assert missing.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    foreign = await client.post(
+        f"/lms/admin/courses/{course.id}/modules/reorder", headers=_headers(ops),
+        json={"module_ids": [str(uuid.uuid4()), str(m1.id)]},
+    )
+    assert foreign.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_reorder_items_rewrites_positions_in_new_order(db, client):
+    ops = await _user(db)
+    course = await _course(db, author=ops)
+    module = await _module(db, course)
+    await db.commit()
+
+    ids = []
+    for body in ({"body": "a"}, {"body": "b"}, {"body": "c"}):
+        created = await client.post(
+            f"/lms/admin/modules/{module.id}/items", headers=_headers(ops),
+            json={"kind": "text", "content": body},
+        )
+        ids.append(created.json()["id"])
+
+    resp = await client.post(
+        f"/lms/admin/modules/{module.id}/items/reorder", headers=_headers(ops),
+        json={"item_ids": [ids[2], ids[0], ids[1]]},
+    )
+    assert resp.status_code == 200, resp.text
+    assert [row["id"] for row in resp.json()] == [ids[2], ids[0], ids[1]]
+    assert [row["position"] for row in resp.json()] == [1, 2, 3]
 
 
 # ── program curriculum ───────────────────────────────────────────────────────

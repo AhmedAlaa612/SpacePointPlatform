@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
-from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ProgramCurriculum
+from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, ProgramCurriculum
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.schemas.lms_admin import (
@@ -36,9 +36,11 @@ from app.schemas.lms_admin import (
     InstructorOptionOut,
     ItemAdminOut,
     ItemCreate,
+    ItemReorderIn,
     ItemUpdate,
     ModuleAdminOut,
     ModuleCreate,
+    ModuleReorderIn,
     ModuleUpdate,
 )
 from app.services import storage
@@ -312,6 +314,43 @@ async def create_module(
     return module
 
 
+@router.post("/courses/{course_id}/modules/reorder", response_model=list[ModuleAdminOut])
+async def reorder_modules(
+    course_id: uuid.UUID,
+    body: ModuleReorderIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+
+    modules = (await db.execute(
+        select(CourseModule).where(CourseModule.course_id == course_id)
+    )).scalars().all()
+    by_id = {m.id: m for m in modules}
+    if set(body.module_ids) != set(by_id) or len(body.module_ids) != len(by_id):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="module_ids must include every module in this course exactly once",
+        )
+
+    # The (course_id, position) unique constraint isn't deferrable, so a direct
+    # swap can collide mid-transaction — offset to negative positions first,
+    # then assign the final 1..N order.
+    for offset, module_id in enumerate(body.module_ids, start=1):
+        by_id[module_id].position = -offset
+    await db.flush()
+    for position, module_id in enumerate(body.module_ids, start=1):
+        by_id[module_id].position = position
+    await db.commit()
+
+    rows = (await db.execute(
+        select(CourseModule).where(CourseModule.course_id == course_id).order_by(CourseModule.position)
+    )).scalars().all()
+    return rows
+
+
 @router.patch("/modules/{module_id}", response_model=ModuleAdminOut)
 async def update_module(
     module_id: uuid.UUID,
@@ -355,6 +394,28 @@ async def delete_module(
 
 # ── items ────────────────────────────────────────────────────────────────────
 
+async def _item_admin_out(db: AsyncSession, item: ModuleItem) -> ItemAdminOut:
+    """Video items store `content = {}` on the row — the real state (has the
+    upload finished transcoding, is it watchable yet) lives on `ModuleVideo`,
+    written asynchronously by the ARQ worker. Every item-returning admin
+    endpoint goes through this so the authoring UI can show it instead of
+    leaving the author to guess whether an upload actually finished."""
+    content = dict(item.content)
+    if item.kind == "video":
+        video = (await db.execute(
+            select(ModuleVideo).where(ModuleVideo.item_id == item.id)
+        )).scalars().first()
+        content = {
+            "transcode_status": video.transcode_status if video else None,
+            "transcode_error": video.transcode_error if video else None,
+            "duration_seconds": video.duration_seconds if video else None,
+        }
+    return ItemAdminOut(
+        id=item.id, module_id=item.module_id, kind=item.kind, title=item.title,
+        is_required=item.is_required, position=item.position, content=content,
+    )
+
+
 @router.get("/modules/{module_id}/items", response_model=list[ItemAdminOut])
 async def list_items(
     module_id: uuid.UUID,
@@ -367,7 +428,7 @@ async def list_items(
     rows = (await db.execute(
         select(ModuleItem).where(ModuleItem.module_id == module_id).order_by(ModuleItem.position)
     )).scalars().all()
-    return rows
+    return [await _item_admin_out(db, item) for item in rows]
 
 
 @router.post("/modules/{module_id}/items", response_model=ItemAdminOut, status_code=status.HTTP_201_CREATED)
@@ -403,7 +464,41 @@ async def create_item(
     db.add(item)
     await db.commit()
     await db.refresh(item)
-    return item
+    return await _item_admin_out(db, item)
+
+
+@router.post("/modules/{module_id}/items/reorder", response_model=list[ItemAdminOut])
+async def reorder_items(
+    module_id: uuid.UUID,
+    body: ItemReorderIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    module = await db.get(CourseModule, module_id)
+    if module is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Module not found")
+
+    items = (await db.execute(
+        select(ModuleItem).where(ModuleItem.module_id == module_id)
+    )).scalars().all()
+    by_id = {i.id: i for i in items}
+    if set(body.item_ids) != set(by_id) or len(body.item_ids) != len(by_id):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="item_ids must include every item in this module exactly once",
+        )
+
+    for offset, item_id in enumerate(body.item_ids, start=1):
+        by_id[item_id].position = -offset
+    await db.flush()
+    for position, item_id in enumerate(body.item_ids, start=1):
+        by_id[item_id].position = position
+    await db.commit()
+
+    rows = (await db.execute(
+        select(ModuleItem).where(ModuleItem.module_id == module_id).order_by(ModuleItem.position)
+    )).scalars().all()
+    return [await _item_admin_out(db, item) for item in rows]
 
 
 @router.patch("/items/{item_id}", response_model=ItemAdminOut)
@@ -435,7 +530,7 @@ async def update_item(
         setattr(item, field, value)
     await db.commit()
     await db.refresh(item)
-    return item
+    return await _item_admin_out(db, item)
 
 
 @router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)

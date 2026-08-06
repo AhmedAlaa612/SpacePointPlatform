@@ -1,12 +1,12 @@
 import { useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { Plus, ChevronRight, ArrowLeft, ImagePlus } from "lucide-react"
+import { Plus, ChevronRight, ArrowLeft, ArrowUp, ArrowDown, ImagePlus } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import {
   getCourseApi, updateCourseApi, uploadCourseImageApi, listInstructorOptionsApi,
-  listModulesApi, createModuleApi, deleteModuleApi,
+  listModulesApi, createModuleApi, deleteModuleApi, reorderModulesApi,
   type AdminCourse, type AdminModule, type CourseLevel,
 } from "@/api/lms_admin"
 
@@ -36,6 +36,19 @@ export default function LmsCourseDetail() {
     mutationFn: (id: string) => deleteModuleApi(id),
     onSuccess: () => { setDeleteTarget(null); invalidateModules() },
   })
+
+  const reorderMutation = useMutation({
+    mutationFn: (moduleIds: string[]) => reorderModulesApi(courseId, moduleIds),
+    onSuccess: (rows) => queryClient.setQueryData(["lms-admin-modules", courseId], rows),
+  })
+
+  const move = (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= modules.length || reorderMutation.isPending) return
+    const ids = modules.map((m) => m.id)
+    ;[ids[index], ids[target]] = [ids[target], ids[index]]
+    reorderMutation.mutate(ids)
+  }
 
   const imageMutation = useMutation({
     mutationFn: (file: File) => uploadCourseImageApi(courseId, file),
@@ -120,16 +133,36 @@ export default function LmsCourseDetail() {
         <EmptyState title="No modules yet" hint="Add a module, then add lessons to it." />
       ) : (
         <div className="flex flex-col gap-2">
-          {modules.map((module) => (
+          {modules.map((module, index) => (
             <div
               key={module.id}
               onClick={() => void navigate({ to: `/lms-authoring/modules/${module.id}` })}
               className="flex items-center justify-between p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors cursor-pointer"
             >
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground truncate">
-                  {module.position}. {module.title}
-                </p>
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex flex-col shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    onClick={() => move(index, -1)}
+                    disabled={index === 0 || reorderMutation.isPending}
+                    className="text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors"
+                    title="Move up"
+                  >
+                    <ArrowUp size={14} />
+                  </button>
+                  <button
+                    onClick={() => move(index, 1)}
+                    disabled={index === modules.length - 1 || reorderMutation.isPending}
+                    className="text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors"
+                    title="Move down"
+                  >
+                    <ArrowDown size={14} />
+                  </button>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {module.position}. {module.title}
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0 ml-3" onClick={(e) => e.stopPropagation()}>
                 <button

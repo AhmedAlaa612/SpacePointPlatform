@@ -1,12 +1,12 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { Plus, ArrowLeft, FileText, HelpCircle, Layers, Video as VideoIcon } from "lucide-react"
+import { Plus, ArrowLeft, ArrowUp, ArrowDown, FileText, HelpCircle, Layers, Video as VideoIcon, Loader2 } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import {
-  listItemsApi, createItemApi, updateItemApi, deleteItemApi, uploadVideoApi,
-  type AdminItem, type ModuleItemKind, type AdminQuizQuestion,
+  listItemsApi, createItemApi, updateItemApi, deleteItemApi, uploadVideoApi, reorderItemsApi,
+  type AdminItem, type ModuleItemKind, type AdminQuizQuestion, type VideoTranscodeStatus,
 } from "@/api/lms_admin"
 
 const KIND_ICON: Record<ModuleItemKind, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -14,6 +14,34 @@ const KIND_ICON: Record<ModuleItemKind, React.ComponentType<{ size?: number; cla
 }
 const KIND_LABEL: Record<ModuleItemKind, string> = {
   text: "Text", quiz: "Quiz", flashcards: "Flashcards", video: "Video",
+}
+
+const IN_FLIGHT_STATUSES = new Set<VideoTranscodeStatus>(["pending", "processing"])
+
+function videoStatus(item: AdminItem): VideoTranscodeStatus | null {
+  return item.kind === "video" && "transcode_status" in item.content ? item.content.transcode_status : null
+}
+
+/** Pending/processing videos flip to ready/failed off-band (the ARQ worker
+ * transcodes async) — poll while any are in flight so the author sees it
+ * happen instead of guessing or reloading the page. */
+function VideoStatusBadge({ status }: { status: VideoTranscodeStatus | null }) {
+  if (status === null) return null
+  const styles: Record<VideoTranscodeStatus, string> = {
+    pending: "bg-muted text-muted-foreground",
+    processing: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+    ready: "bg-green-500/15 text-green-600 dark:text-green-400",
+    failed: "bg-red-500/15 text-red-600 dark:text-red-400",
+  }
+  const labels: Record<VideoTranscodeStatus, string> = {
+    pending: "Pending", processing: "Processing", ready: "Ready", failed: "Failed",
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full ${styles[status]}`}>
+      {IN_FLIGHT_STATUSES.has(status) && <Loader2 size={10} className="animate-spin" />}
+      {labels[status]}
+    </span>
+  )
 }
 
 export default function LmsModuleDetail() {
@@ -27,6 +55,13 @@ export default function LmsModuleDetail() {
   const { data: items = [], isLoading } = useQuery<AdminItem[]>({
     queryKey: ["lms-admin-items", moduleId],
     queryFn: () => listItemsApi(moduleId),
+    refetchInterval: (query) => {
+      const inFlight = (query.state.data ?? []).some((i) => {
+        const status = videoStatus(i)
+        return status !== null && IN_FLIGHT_STATUSES.has(status)
+      })
+      return inFlight ? 4000 : false
+    },
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-items", moduleId] })
@@ -35,6 +70,19 @@ export default function LmsModuleDetail() {
     mutationFn: (id: string) => deleteItemApi(id),
     onSuccess: () => { setDeleteTarget(null); invalidate() },
   })
+
+  const reorderMutation = useMutation({
+    mutationFn: (itemIds: string[]) => reorderItemsApi(moduleId, itemIds),
+    onSuccess: (rows) => queryClient.setQueryData(["lms-admin-items", moduleId], rows),
+  })
+
+  const move = (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= items.length || reorderMutation.isPending) return
+    const ids = items.map((i) => i.id)
+    ;[ids[index], ids[target]] = [ids[target], ids[index]]
+    reorderMutation.mutate(ids)
+  }
 
   if (isLoading) return <Spinner />
 
@@ -69,7 +117,7 @@ export default function LmsModuleDetail() {
         <EmptyState title="No items yet" hint="Add text, a quiz, flashcards, or a video." />
       ) : (
         <div className="flex flex-col gap-2">
-          {items.map((item) => {
+          {items.map((item, index) => {
             const Icon = KIND_ICON[item.kind]
             return (
               <div
@@ -77,6 +125,24 @@ export default function LmsModuleDetail() {
                 className="flex items-center justify-between p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors"
               >
                 <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex flex-col shrink-0">
+                    <button
+                      onClick={() => move(index, -1)}
+                      disabled={index === 0 || reorderMutation.isPending}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors"
+                      title="Move up"
+                    >
+                      <ArrowUp size={14} />
+                    </button>
+                    <button
+                      onClick={() => move(index, 1)}
+                      disabled={index === items.length - 1 || reorderMutation.isPending}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors"
+                      title="Move down"
+                    >
+                      <ArrowDown size={14} />
+                    </button>
+                  </div>
                   <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                     <Icon size={16} className="text-primary" />
                   </div>
@@ -84,10 +150,14 @@ export default function LmsModuleDetail() {
                     <p className="text-sm font-medium text-foreground truncate">
                       {item.position}. {item.title ?? KIND_LABEL[item.kind]}
                     </p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
                       {KIND_LABEL[item.kind]}
                       {!item.is_required && " · optional"}
+                      {item.kind === "video" && <VideoStatusBadge status={videoStatus(item)} />}
                     </p>
+                    {item.kind === "video" && "transcode_error" in item.content && item.content.transcode_error && (
+                      <p className="text-xs text-red-500 mt-0.5">{item.content.transcode_error}</p>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0 ml-3">
@@ -96,7 +166,7 @@ export default function LmsModuleDetail() {
                       onClick={() => setUploadTarget(item)}
                       className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
                     >
-                      Upload video
+                      {videoStatus(item) === "ready" ? "Replace video" : "Upload video"}
                     </button>
                   )}
                   {item.kind !== "video" && (
@@ -211,12 +281,28 @@ function VideoUploadModal({ item, onClose, onSuccess }: { item: AdminItem; onClo
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState("")
   const [result, setResult] = useState<string | null>(null)
+  const [progress, setProgress] = useState(0)
+  const abortRef = useRef<AbortController | null>(null)
 
   const mutation = useMutation({
-    mutationFn: () => uploadVideoApi(item.id, file!),
+    mutationFn: () => {
+      const controller = new AbortController()
+      abortRef.current = controller
+      setProgress(0)
+      return uploadVideoApi(item.id, file!, { signal: controller.signal, onProgress: setProgress })
+    },
     onSuccess: (res) => setResult(`Uploaded — status: ${res.transcode_status}. Transcoding will run in the background.`),
-    onError: (e: any) => setError(e?.response?.data?.detail ?? "Upload failed"),
+    onError: (e: any) => {
+      abortRef.current = null
+      if (e?.code === "ERR_CANCELED") { setError(""); return }
+      setError(e?.response?.data?.detail ?? "Upload failed")
+    },
   })
+
+  const cancel = () => {
+    abortRef.current?.abort()
+    abortRef.current = null
+  }
 
   return (
     <Modal title={`Upload video — ${item.title ?? "Video"}`} onClose={onClose}>
@@ -224,18 +310,34 @@ function VideoUploadModal({ item, onClose, onSuccess }: { item: AdminItem; onClo
         <Field label="Video file (MP4, up to 2GB)">
           <input
             type="file" accept="video/*"
+            disabled={mutation.isPending}
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="w-full text-sm text-foreground file:mr-3 file:h-9 file:px-3 file:rounded-lg file:border-0 file:bg-primary file:text-primary-foreground file:text-sm file:cursor-pointer"
+            className="w-full text-sm text-foreground file:mr-3 file:h-9 file:px-3 file:rounded-lg file:border-0 file:bg-primary file:text-primary-foreground file:text-sm file:cursor-pointer disabled:opacity-50"
           />
         </Field>
+        {mutation.isPending && (
+          <div className="flex flex-col gap-1.5">
+            <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+              <div className="h-full bg-primary transition-[width] duration-150" style={{ width: `${progress}%` }} />
+            </div>
+            <p className="text-xs text-muted-foreground">Uploading — {progress}%</p>
+          </div>
+        )}
         {result && <p className="text-xs text-primary">{result}</p>}
         {error && <p className="text-xs text-red-500">{error}</p>}
         {result ? (
           <button onClick={() => { onSuccess() }} className="h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors">
             Done
           </button>
+        ) : mutation.isPending ? (
+          <button
+            onClick={cancel}
+            className="h-10 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            Cancel upload
+          </button>
         ) : (
-          <ModalActions onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} disabled={!file} label="Upload" />
+          <ModalActions onCancel={onClose} onConfirm={() => mutation.mutate()} loading={false} disabled={!file} label="Upload" />
         )}
       </div>
     </Modal>
