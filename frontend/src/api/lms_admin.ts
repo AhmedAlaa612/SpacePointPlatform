@@ -3,6 +3,7 @@
 import { api } from "@/api/client";
 
 export type CourseKind = "course" | "mission";
+export type CourseLevel = "beginner" | "intermediate" | "advanced";
 export type ModuleItemKind = "video" | "text" | "quiz" | "flashcards";
 
 export interface AdminCourse {
@@ -13,6 +14,27 @@ export interface AdminCourse {
   is_published: boolean;
   created_by: string;
   created_at: string | null;
+  image_url: string | null;
+  outcomes: string[];
+  level: CourseLevel | null;
+  track: string | null;
+  instructor_id: string | null;
+  instructor_name: string | null;
+  instructor_title: string | null;
+}
+
+export interface InstructorOption {
+  id: string;
+  full_name: string;
+  photo_url: string | null;
+}
+
+export interface CourseMetadataInput {
+  outcomes?: string[];
+  level?: CourseLevel | null;
+  track?: string | null;
+  instructor_id?: string | null;
+  instructor_title?: string | null;
 }
 
 export interface AdminModule {
@@ -60,13 +82,22 @@ export interface CurriculumEntry {
 
 export const listCoursesApi = () => api.get<AdminCourse[]>("/lms/admin/courses").then((r) => r.data);
 export const getCourseApi = (id: string) => api.get<AdminCourse>(`/lms/admin/courses/${id}`).then((r) => r.data);
-export const createCourseApi = (data: { title: string; description?: string; kind?: CourseKind }) =>
-  api.post<AdminCourse>("/lms/admin/courses", data).then((r) => r.data);
-export const updateCourseApi = (id: string, data: Partial<{ title: string; description: string; kind: CourseKind }>) =>
-  api.patch<AdminCourse>(`/lms/admin/courses/${id}`, data).then((r) => r.data);
+export const createCourseApi = (
+  data: { title: string; description?: string; kind?: CourseKind } & CourseMetadataInput,
+) => api.post<AdminCourse>("/lms/admin/courses", data).then((r) => r.data);
+export const updateCourseApi = (
+  id: string, data: Partial<{ title: string; description: string; kind: CourseKind }> & CourseMetadataInput,
+) => api.patch<AdminCourse>(`/lms/admin/courses/${id}`, data).then((r) => r.data);
 export const publishCourseApi = (id: string) => api.post<AdminCourse>(`/lms/admin/courses/${id}/publish`).then((r) => r.data);
 export const unpublishCourseApi = (id: string) => api.post<AdminCourse>(`/lms/admin/courses/${id}/unpublish`).then((r) => r.data);
 export const deleteCourseApi = (id: string) => api.delete<void>(`/lms/admin/courses/${id}`).then((r) => r.data);
+export const uploadCourseImageApi = (id: string, file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post<AdminCourse>(`/lms/admin/courses/${id}/image`, form).then((r) => r.data);
+};
+export const listInstructorOptionsApi = () =>
+  api.get<InstructorOption[]>("/lms/admin/instructors").then((r) => r.data);
 
 // ── modules ──────────────────────────────────────────────────────────────
 

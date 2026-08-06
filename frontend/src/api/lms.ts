@@ -9,6 +9,9 @@ export interface CourseCatalogItem {
   title: string;
   description: string | null;
   kind: "course" | "mission";
+  image_url: string | null;
+  level: "beginner" | "intermediate" | "advanced" | null;
+  track: string | null;
 }
 
 export interface ModuleLock {
@@ -28,6 +31,13 @@ export interface CourseDetail {
   enrolled: boolean;
   completed: boolean;
   modules: ModuleLock[];
+  image_url: string | null;
+  outcomes: string[];
+  level: "beginner" | "intermediate" | "advanced" | null;
+  track: string | null;
+  instructor_name: string | null;
+  instructor_title: string | null;
+  instructor_photo_url: string | null;
 }
 
 export interface QuizOption {

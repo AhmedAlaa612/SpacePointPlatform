@@ -33,6 +33,7 @@ from app.schemas.lms_admin import (
     CourseUpdate,
     CurriculumEntryIn,
     CurriculumEntryOut,
+    InstructorOptionOut,
     ItemAdminOut,
     ItemCreate,
     ItemUpdate,
@@ -95,6 +96,25 @@ async def _validated_content(db: AsyncSession, *, kind: str, module_id: uuid.UUI
                 detail="mid_video_at_seconds requires the module to have exactly one video item",
             )
     return parsed.model_dump()
+
+
+# ── instructor picker (LMS redesign, 2026-08-06) ────────────────────────────
+
+@router.get("/instructors", response_model=list[InstructorOptionOut])
+async def list_instructor_options(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Who can be set as a course's public-facing instructor — deliberately
+    broader than "who's allowed to author" (require_lms_content): an
+    instructor role holder who never touches the authoring UI can still be
+    the person shown on a course landing page."""
+    rows = (await db.execute(
+        select(User)
+        .where(User.roles.overlap(["instructor", "facilitator", "operations", "admin"]))
+        .order_by(User.full_name)
+    )).scalars().all()
+    return [InstructorOptionOut(id=u.id, full_name=u.full_name, photo_url=u.photo_url) for u in rows]
 
 
 # ── courses ──────────────────────────────────────────────────────────────────

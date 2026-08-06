@@ -51,7 +51,10 @@ export default function LearnCatalog() {
                   className="cursor-pointer hover:ring-primary/30 transition-shadow p-0"
                   onClick={() => void navigate({ to: `/learn/courses/${course.id}` })}
                 >
-                  <div className="h-[130px] rounded-t-2xl bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.11)_0px,hsl(var(--primary)/0.11)_8px,hsl(var(--primary)/0.03)_8px,hsl(var(--primary)/0.03)_16px)] flex items-start justify-end p-3">
+                  <div
+                    className="h-[130px] rounded-t-2xl bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.11)_0px,hsl(var(--primary)/0.11)_8px,hsl(var(--primary)/0.03)_8px,hsl(var(--primary)/0.03)_16px)] flex items-start justify-end p-3 overflow-hidden"
+                    style={course.image_url ? { backgroundImage: `url(${course.image_url})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
+                  >
                     {enrolled && (
                       <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-500 bg-background/80 backdrop-blur px-2 py-1 rounded-md">
                         <CheckCircle2 className="size-3" /> ENROLLED
@@ -62,6 +65,7 @@ export default function LearnCatalog() {
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <BookOpen className="size-3.5" />
                       {course.kind === "mission" ? "Mission" : "Course"}
+                      {course.level && <span className="capitalize">· {course.level}</span>}
                     </div>
                     <div className="font-display text-base font-semibold leading-snug">{course.title}</div>
                     {course.description && <div className="text-sm text-muted-foreground line-clamp-2">{course.description}</div>}

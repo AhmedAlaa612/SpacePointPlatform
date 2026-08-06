@@ -94,8 +94,15 @@ export default function LearnLanding() {
                 className="cursor-pointer hover:ring-primary/30 transition-shadow p-0"
                 onClick={() => void navigate({ to: `/learn/courses/${course.id}` })}
               >
-                <div className="h-[130px] rounded-t-2xl bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.11)_0px,hsl(var(--primary)/0.11)_8px,hsl(var(--primary)/0.03)_8px,hsl(var(--primary)/0.03)_16px)]" />
+                <div
+                  className="h-[130px] rounded-t-2xl bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.11)_0px,hsl(var(--primary)/0.11)_8px,hsl(var(--primary)/0.03)_8px,hsl(var(--primary)/0.03)_16px)]"
+                  style={course.image_url ? { backgroundImage: `url(${course.image_url})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
+                />
                 <div className="p-4 flex flex-col gap-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    {course.kind === "mission" ? "Mission" : "Course"}
+                    {course.level && <span className="capitalize">· {course.level}</span>}
+                  </div>
                   <div className="font-display text-base font-semibold leading-snug">{course.title}</div>
                   {course.description && (
                     <div className="text-sm text-muted-foreground line-clamp-2">{course.description}</div>

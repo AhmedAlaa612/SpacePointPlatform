@@ -27,6 +27,23 @@ def _headers(user: User) -> dict:
     return {"Authorization": f"Bearer {create_access_token(user.id, user.role_values)}"}
 
 
+# ── instructor picker ────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_instructor_options_lists_eligible_roles_only(db, client):
+    ops = await _user(db, roles=["operations"], full_name="Ops Person")
+    instructor = await _user(db, roles=["instructor"], full_name="An Instructor")
+    intern = await _user(db, roles=["intern"], full_name="An Intern")
+    await db.commit()
+
+    resp = await client.get("/lms/admin/instructors", headers=_headers(ops))
+    assert resp.status_code == 200, resp.text
+    names = {row["full_name"] for row in resp.json()}
+    assert "An Instructor" in names
+    assert "Ops Person" in names
+    assert "An Intern" not in names
+
+
 # ── authoring ────────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

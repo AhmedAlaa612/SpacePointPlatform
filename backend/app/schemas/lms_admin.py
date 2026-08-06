@@ -18,6 +18,14 @@ from pydantic import BaseModel, ConfigDict, Field
 ModuleItemKind = Literal["video", "text", "quiz", "flashcards"]
 
 
+class InstructorOptionOut(BaseModel):
+    """One row for the course-authoring instructor picker (LMS redesign,
+    2026-08-06) — deliberately minimal, not the full User shape."""
+    id: UUID
+    full_name: str
+    photo_url: str | None = None
+
+
 # ── authored content shapes (mirrors LMS_EXECUTION_PLAN.md §2, answers included) ──
 
 class AdminContentText(BaseModel):
