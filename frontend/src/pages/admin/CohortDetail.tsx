@@ -304,6 +304,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           onClick={() => downloadCertificatesMutation.mutate()}
           disabled={downloadCertificatesMutation.isPending}
           className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          title="One merged PDF of every certificate already issued for this cohort"
         >
           <Award size={14} /> {downloadCertificatesMutation.isPending ? "Preparing…" : "Download certificates"}
         </button>
