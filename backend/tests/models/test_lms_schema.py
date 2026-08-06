@@ -208,7 +208,6 @@ async def test_content_shapes_round_trip(db):
     text_content = {"body": "Mars is the fourth planet. Its gravity is about 38% of Earth's."}
     quiz_content = {
         "pass_threshold": 70,
-        "mid_video_at_seconds": 125,
         "questions": [
             {
                 "prompt": "What is the fourth planet from the Sun?",

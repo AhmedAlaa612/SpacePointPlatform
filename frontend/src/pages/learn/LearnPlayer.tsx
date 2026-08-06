@@ -1,12 +1,29 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fetchCourse, fetchModule, type CourseDetail, type ModuleDetail } from "@/api/lms";
+import {
+  fetchCourse, fetchModule, recordProgress, type CourseDetail, type ModuleDetail, type ModuleItem,
+} from "@/api/lms";
 import { PlayerLayout } from "./PlayerLayout";
 import { ItemPane } from "./ItemPane";
 
 const COMPLETED = new Set(["completed", "skipped"]);
+const ITEM_KIND_LABEL: Record<ModuleItem["kind"], string> = {
+  video: "Video", text: "Reading", quiz: "Quiz", flashcards: "Flashcards",
+};
+
+/** Ordered items across every unlocked module — module position, then item
+ * position — for the Previous/Next-item nav bar (design 1h). */
+function flatItems(course: CourseDetail, modulesData: Record<string, ModuleDetail>) {
+  const ordered = [...course.modules].sort((a, b) => a.position - b.position).filter((m) => !m.locked);
+  const flat: { moduleId: string; item: ModuleItem }[] = [];
+  for (const m of ordered) {
+    const items = [...(modulesData[m.module_id]?.items ?? [])].sort((a, b) => a.position - b.position);
+    for (const item of items) flat.push({ moduleId: m.module_id, item });
+  }
+  return flat;
+}
 
 /** /learn/courses/$courseId/learn (design 1h) — one route for the whole
  * course; PlayerLayout's sidebar swaps which item ItemPane renders. Replaces
@@ -88,6 +105,15 @@ export default function LearnPlayer() {
     return () => clearInterval(interval);
   }, [selectedModuleId, selectedVideoStatus]);
 
+  const currentModule = course?.modules.find((m) => m.module_id === selectedModuleId) ?? null;
+  const itemsInModule = selectedModuleId ? modulesData[selectedModuleId]?.items ?? [] : [];
+  const itemIndexInModule = itemsInModule.findIndex((i) => i.id === selectedItemId);
+
+  const flat = useMemo(() => (course ? flatItems(course, modulesData) : []), [course, modulesData]);
+  const flatIndex = flat.findIndex((f) => f.item.id === selectedItemId);
+  const prevEntry = flatIndex > 0 ? flat[flatIndex - 1] : null;
+  const nextEntry = flatIndex >= 0 && flatIndex < flat.length - 1 ? flat[flatIndex + 1] : null;
+
   const handleProgressed = useCallback(async () => {
     if (!course || !selectedModuleId) return;
     const [freshModule, freshCourse] = await Promise.all([fetchModule(selectedModuleId), fetchCourse(courseId)]);
@@ -107,18 +133,56 @@ export default function LearnPlayer() {
     setSelectedItemId(next);
   }, [course, selectedModuleId, selectedItemId, modulesData, courseId, loadUnlockedModules]);
 
+  const markComplete = async () => {
+    if (!selectedItem) return;
+    await recordProgress(selectedItem.id, "video-watched");
+    await handleProgressed();
+  };
+
   if (error) return <div className="p-8"><p className="text-sm text-destructive">{error}</p></div>;
   if (!course) return <div className="p-8"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
   return (
     <PlayerLayout course={course} modulesData={modulesData} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId}>
       {selectedItem ? (
-        <ItemPane
-          key={selectedItem.id}
-          item={selectedItem}
-          moduleItems={selectedModuleId ? modulesData[selectedModuleId]?.items ?? [] : []}
-          onProgressed={() => void handleProgressed()}
-        />
+        <div className="flex flex-col gap-5">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              {currentModule && (
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+                  Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
+                </div>
+              )}
+              <h1 className="font-display text-2xl font-bold tracking-tight mt-1">
+                {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
+              </h1>
+            </div>
+            {selectedItem.kind === "video" && !COMPLETED.has(selectedItem.status ?? "not_started") && (
+              <Button variant="outline" onClick={() => void markComplete()} className="shrink-0">
+                <CheckCircle2 className="size-4" /> Mark complete
+              </Button>
+            )}
+          </div>
+
+          <ItemPane key={selectedItem.id} item={selectedItem} onProgressed={() => void handleProgressed()} />
+
+          <div className="flex items-center justify-between gap-4 pt-2">
+            <Button
+              variant="outline"
+              disabled={!prevEntry}
+              onClick={() => prevEntry && setSelectedItemId(prevEntry.item.id)}
+            >
+              <ArrowLeft className="size-4" /> Previous item
+            </Button>
+            <Button
+              disabled={!nextEntry}
+              onClick={() => nextEntry && setSelectedItemId(nextEntry.item.id)}
+            >
+              {nextEntry ? `Next: ${nextEntry.item.title ?? ITEM_KIND_LABEL[nextEntry.item.kind]}` : "Next item"}
+              <ArrowRight className="size-4" />
+            </Button>
+          </div>
+        </div>
       ) : (
         <div className="flex flex-col items-center text-center gap-3 py-16">
           <CheckCircle2 className="size-10 text-emerald-500" />

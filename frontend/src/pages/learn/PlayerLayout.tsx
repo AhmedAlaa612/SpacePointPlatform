@@ -102,7 +102,7 @@ export function PlayerLayout({
       </aside>
 
       <div className="flex-1 min-w-0 overflow-y-auto p-5 sm:p-8 lg:p-10">
-        <div className="max-w-[720px] mx-auto">
+        <div className="max-w-[1040px] mx-auto">
           {children}
         </div>
       </div>

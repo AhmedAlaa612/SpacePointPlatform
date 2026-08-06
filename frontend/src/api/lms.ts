@@ -51,7 +51,7 @@ export interface QuizQuestion {
 
 export type ModuleItemContent =
   | { body: string } // text
-  | { pass_threshold: number; mid_video_at_seconds: number | null; questions: QuizQuestion[] } // quiz
+  | { pass_threshold: number; questions: QuizQuestion[] } // quiz
   | { title: string | null; cards: { term: string; definition: string }[] } // flashcards
   | { transcode_status: string | null; duration_seconds: number | null }; // video
 
@@ -93,6 +93,27 @@ export interface ProgressResult {
   quiz_attempts: number;
   best_score: number | null;
   completed_at: string | null;
+}
+
+// ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ─────
+
+export type CheckpointQuestionType = "mcq" | "multiselect" | "open";
+
+export type CheckpointContent =
+  | { body: string } // note
+  | { question_type: CheckpointQuestionType; prompt: string; options: QuizOption[] | null }; // quiz
+
+export interface VideoCheckpoint {
+  id: string;
+  start_seconds: number;
+  end_seconds: number | null;
+  kind: "note" | "quiz";
+  content: CheckpointContent;
+}
+
+export interface CheckpointAnswerResult {
+  correct: boolean | null;
+  explanation: string | null;
 }
 
 // ── dashboard (LMS redesign, 2026-08-06) ────────────────────────────────────
@@ -200,4 +221,20 @@ export async function fetchVideoToken(itemId: string): Promise<{ token: string; 
 export function videoPlaylistUrl(itemId: string, token: string): string {
   const base = api.defaults.baseURL ?? "";
   return `${base}/lms/videos/${itemId}/playlist?token=${encodeURIComponent(token)}`;
+}
+
+export async function fetchCheckpoints(videoItemId: string): Promise<VideoCheckpoint[]> {
+  const { data } = await api.get<VideoCheckpoint[]>(`/lms/items/${videoItemId}/checkpoints`);
+  return data;
+}
+
+export async function submitCheckpointAnswer(
+  videoItemId: string,
+  checkpointId: string,
+  answer: number | number[] | string,
+): Promise<CheckpointAnswerResult> {
+  const { data } = await api.post<CheckpointAnswerResult>(
+    `/lms/items/${videoItemId}/checkpoints/${checkpointId}/answer`, { answer },
+  );
+  return data;
 }

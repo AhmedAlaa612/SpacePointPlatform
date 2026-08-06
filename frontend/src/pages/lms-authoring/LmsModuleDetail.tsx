@@ -1,12 +1,17 @@
 import { useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { Plus, ArrowLeft, ArrowUp, ArrowDown, FileText, HelpCircle, Layers, Video as VideoIcon, Loader2 } from "lucide-react"
+import {
+  Plus, ArrowLeft, ArrowUp, ArrowDown, FileText, HelpCircle, Layers, Video as VideoIcon, Loader2,
+  StickyNote, MessageCircleQuestion,
+} from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import {
   listItemsApi, createItemApi, updateItemApi, deleteItemApi, uploadVideoApi, reorderItemsApi,
+  listCheckpointsApi, createCheckpointApi, updateCheckpointApi, deleteCheckpointApi,
   type AdminItem, type ModuleItemKind, type AdminQuizQuestion, type VideoTranscodeStatus,
+  type AdminCheckpoint, type CheckpointKind, type CheckpointQuestionType, type AdminQuizOption,
 } from "@/api/lms_admin"
 
 const KIND_ICON: Record<ModuleItemKind, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -51,6 +56,7 @@ export default function LmsModuleDetail() {
   const [editItem, setEditItem] = useState<AdminItem | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminItem | null>(null)
   const [uploadTarget, setUploadTarget] = useState<AdminItem | null>(null)
+  const [checkpointTarget, setCheckpointTarget] = useState<AdminItem | null>(null)
 
   const { data: items = [], isLoading } = useQuery<AdminItem[]>({
     queryKey: ["lms-admin-items", moduleId],
@@ -163,6 +169,14 @@ export default function LmsModuleDetail() {
                 <div className="flex items-center gap-1 flex-shrink-0 ml-3">
                   {item.kind === "video" && (
                     <button
+                      onClick={() => setCheckpointTarget(item)}
+                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
+                    >
+                      Checkpoints
+                    </button>
+                  )}
+                  {item.kind === "video" && (
+                    <button
                       onClick={() => setUploadTarget(item)}
                       className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
                     >
@@ -209,6 +223,9 @@ export default function LmsModuleDetail() {
       )}
       {uploadTarget && (
         <VideoUploadModal item={uploadTarget} onClose={() => setUploadTarget(null)} onSuccess={() => { invalidate(); setUploadTarget(null) }} />
+      )}
+      {checkpointTarget && (
+        <CheckpointsModal item={checkpointTarget} onClose={() => setCheckpointTarget(null)} />
       )}
       {deleteTarget && (
         <ConfirmDialog
@@ -467,9 +484,6 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
   const existing = item && "questions" in item.content ? item.content : null
   const [title, setTitle] = useState(item?.title ?? "")
   const [passThreshold, setPassThreshold] = useState(existing?.pass_threshold ?? 0)
-  const [midVideoSeconds, setMidVideoSeconds] = useState(
-    existing?.mid_video_at_seconds != null ? String(existing.mid_video_at_seconds) : "",
-  )
   const [isRequired, setIsRequired] = useState(item?.is_required ?? true)
   const [questions, setQuestions] = useState<AdminQuizQuestion[]>(
     existing?.questions?.length
@@ -492,7 +506,6 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
     mutationFn: () => {
       const content = {
         pass_threshold: passThreshold,
-        mid_video_at_seconds: midVideoSeconds.trim() ? Number(midVideoSeconds) : null,
         questions: questions.map((q) => ({ ...q, options: q.options.filter((o) => o.text.trim()) })),
       }
       return item
@@ -512,23 +525,13 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </Field>
-        <div className="flex gap-3">
-          <Field label="Pass threshold (0 = any grade passes)">
-            <input
-              type="number" min={0} max={100} value={passThreshold}
-              onChange={(e) => setPassThreshold(Number(e.target.value))}
-              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-          </Field>
-          <Field label="Mid-video checkpoint, seconds (optional)">
-            <input
-              type="number" min={0} value={midVideoSeconds}
-              onChange={(e) => setMidVideoSeconds(e.target.value)}
-              placeholder="e.g. 90"
-              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-          </Field>
-        </div>
+        <Field label="Pass threshold (0 = any grade passes)">
+          <input
+            type="number" min={0} max={100} value={passThreshold}
+            onChange={(e) => setPassThreshold(Number(e.target.value))}
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+        </Field>
 
         <div className="flex flex-col gap-3">
           {questions.map((q, qi) => (
@@ -597,6 +600,294 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
         </label>
         {error && <p className="text-xs text-red-500">{error}</p>}
         <ModalActions onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} disabled={!valid} label={item ? "Save changes" : "Add quiz"} />
+      </div>
+    </Modal>
+  )
+}
+
+// ── video checkpoints (timeline notes + mid-video quizzes) ─────────────────
+
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}:${String(s).padStart(2, "0")}`
+}
+
+function checkpointPreview(c: AdminCheckpoint): string {
+  if (c.kind === "note") return "body" in c.content ? c.content.body : ""
+  return "prompt" in c.content ? c.content.prompt : ""
+}
+
+function CheckpointsModal({ item, onClose }: { item: AdminItem; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [formTarget, setFormTarget] = useState<AdminCheckpoint | "new" | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<AdminCheckpoint | null>(null)
+
+  const queryKey = ["lms-admin-checkpoints", item.id]
+  const { data: checkpoints = [], isLoading } = useQuery<AdminCheckpoint[]>({
+    queryKey, queryFn: () => listCheckpointsApi(item.id),
+  })
+  const invalidate = () => queryClient.invalidateQueries({ queryKey })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteCheckpointApi(id),
+    onSuccess: () => { setDeleteTarget(null); invalidate() },
+  })
+
+  const sorted = [...checkpoints].sort((a, b) => a.start_seconds - b.start_seconds)
+
+  return (
+    <Modal title={`Checkpoints — ${item.title ?? "Video"}`} onClose={onClose} maxWidth="sm:max-w-xl max-w-xl">
+      <div className="flex flex-col gap-3">
+        <p className="text-xs text-muted-foreground">
+          A note is a banner shown for a time range without stopping playback. A quiz pauses
+          the video at a single moment until answered or skipped.
+        </p>
+        {isLoading ? (
+          <Spinner />
+        ) : sorted.length === 0 ? (
+          <EmptyState title="No checkpoints yet" hint="Add a note or a quiz tied to a moment in this video." />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {sorted.map((c) => (
+              <div
+                key={c.id}
+                className="flex items-center gap-3 p-3 bg-card border border-border rounded-xl"
+              >
+                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0 text-primary">
+                  {c.kind === "note" ? <StickyNote size={14} /> : <MessageCircleQuestion size={14} />}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-mono text-muted-foreground">
+                    {formatTime(c.start_seconds)}
+                    {c.kind === "note" && c.end_seconds != null && ` – ${formatTime(c.end_seconds)}`}
+                  </p>
+                  <p className="text-sm text-foreground truncate">{checkpointPreview(c)}</p>
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => setFormTarget(c)}
+                    className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => setDeleteTarget(c)}
+                    className="h-8 px-3 rounded-lg text-xs font-medium text-red-600 hover:bg-red-500/10 transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <button
+          onClick={() => setFormTarget("new")}
+          className="h-9 px-3 border border-dashed border-border rounded-xl text-xs font-medium text-muted-foreground hover:bg-muted transition-colors w-fit"
+        >
+          <Plus size={12} className="inline -mt-0.5 mr-1" /> Add checkpoint
+        </button>
+        <ModalActions onCancel={onClose} onConfirm={onClose} loading={false} disabled={false} label="Done" />
+      </div>
+
+      {formTarget && (
+        <CheckpointFormModal
+          videoItemId={item.id}
+          checkpoint={formTarget === "new" ? undefined : formTarget}
+          onClose={() => setFormTarget(null)}
+          onSuccess={() => { invalidate(); setFormTarget(null) }}
+        />
+      )}
+      {deleteTarget && (
+        <ConfirmDialog
+          title="Delete this checkpoint?"
+          description="Students won't see it on the video timeline anymore."
+          confirmLabel="Delete"
+          destructive
+          pending={deleteMutation.isPending}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={() => deleteMutation.mutate(deleteTarget.id)}
+        />
+      )}
+    </Modal>
+  )
+}
+
+function CheckpointFormModal({ videoItemId, checkpoint, onClose, onSuccess }: {
+  videoItemId: string; checkpoint?: AdminCheckpoint; onClose: () => void; onSuccess: () => void
+}) {
+  const existingNoteBody = checkpoint && "body" in checkpoint.content ? checkpoint.content.body : ""
+  const existingQuiz = checkpoint && "question_type" in checkpoint.content ? checkpoint.content : null
+
+  // Kind is immutable once created (matches the backend — VideoCheckpointUpdate has no `kind`).
+  const [kind, setKind] = useState<CheckpointKind>(checkpoint?.kind ?? "note")
+  const [startSeconds, setStartSeconds] = useState(String(checkpoint?.start_seconds ?? 0))
+  const [endSeconds, setEndSeconds] = useState(
+    checkpoint?.end_seconds != null ? String(checkpoint.end_seconds) : "",
+  )
+  const [body, setBody] = useState(existingNoteBody)
+  const [questionType, setQuestionType] = useState<CheckpointQuestionType>(existingQuiz?.question_type ?? "mcq")
+  const [prompt, setPrompt] = useState(existingQuiz?.prompt ?? "")
+  const [explanation, setExplanation] = useState(existingQuiz?.explanation ?? "")
+  const [options, setOptions] = useState<AdminQuizOption[]>(
+    existingQuiz?.options?.length ? existingQuiz.options : [{ text: "", is_correct: false }, { text: "", is_correct: false }],
+  )
+  const [error, setError] = useState("")
+
+  const setOptionCorrect = (index: number, checked: boolean) => {
+    setOptions((prev) =>
+      prev.map((o, i) => {
+        if (i !== index) return questionType === "mcq" ? { ...o, is_correct: false } : o
+        return { ...o, is_correct: checked }
+      }),
+    )
+  }
+
+  const valid = kind === "note"
+    ? body.trim() && endSeconds.trim() && Number(endSeconds) > Number(startSeconds)
+    : questionType === "open"
+      ? prompt.trim()
+      : prompt.trim() && options.filter((o) => o.text.trim()).length >= 2 && options.some((o) => o.is_correct)
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const content = kind === "note"
+        ? { body: body.trim() }
+        : questionType === "open"
+          ? { question_type: "open", prompt: prompt.trim() }
+          : {
+            question_type: questionType, prompt: prompt.trim(), explanation: explanation.trim() || null,
+            options: options.filter((o) => o.text.trim()),
+          }
+      const payload = {
+        start_seconds: Number(startSeconds),
+        end_seconds: kind === "note" ? Number(endSeconds) : null,
+        content,
+      }
+      return checkpoint
+        ? updateCheckpointApi(checkpoint.id, payload)
+        : createCheckpointApi(videoItemId, { ...payload, kind })
+    },
+    onSuccess,
+    onError: (e: any) => setError(JSON.stringify(e?.response?.data?.detail) ?? "Failed to save checkpoint"),
+  })
+
+  return (
+    <Modal title={checkpoint ? "Edit checkpoint" : "Add checkpoint"} onClose={onClose} maxWidth="sm:max-w-lg max-w-lg">
+      <div className="flex flex-col gap-3">
+        {!checkpoint && (
+          <Field label="Type">
+            <div className="flex gap-2">
+              {(["note", "quiz"] as CheckpointKind[]).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => setKind(k)}
+                  className={`flex-1 h-10 rounded-xl text-sm font-medium border transition-colors capitalize ${
+                    kind === k ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground hover:bg-muted"
+                  }`}
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+          </Field>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Start (seconds)">
+            <input
+              type="number" min={0} value={startSeconds} autoFocus
+              onChange={(e) => setStartSeconds(e.target.value)}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+          </Field>
+          {kind === "note" && (
+            <Field label="End (seconds)">
+              <input
+                type="number" min={0} value={endSeconds}
+                onChange={(e) => setEndSeconds(e.target.value)}
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+          )}
+        </div>
+
+        {kind === "note" ? (
+          <Field label="Note text">
+            <textarea
+              value={body} onChange={(e) => setBody(e.target.value)} rows={3}
+              placeholder="Shown as a banner over the video during this window"
+              className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors resize-none"
+            />
+          </Field>
+        ) : (
+          <>
+            <Field label="Question type">
+              <select
+                value={questionType} onChange={(e) => setQuestionType(e.target.value as CheckpointQuestionType)}
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+              >
+                <option value="mcq">Multiple choice (one answer)</option>
+                <option value="multiselect">Multiple choice (select all)</option>
+                <option value="open">Open question (not graded)</option>
+              </select>
+            </Field>
+            <Field label="Prompt">
+              <input
+                value={prompt} onChange={(e) => setPrompt(e.target.value)}
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+            {questionType !== "open" && (
+              <>
+                <Field label="Explanation shown after answering (optional)">
+                  <input
+                    value={explanation} onChange={(e) => setExplanation(e.target.value)}
+                    className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                  />
+                </Field>
+                <Field label={questionType === "mcq" ? "Options (pick one correct)" : "Options (pick any number correct)"}>
+                  <div className="flex flex-col gap-1.5">
+                    {options.map((opt, oi) => (
+                      <div key={oi} className="flex items-center gap-2">
+                        <input
+                          type={questionType === "mcq" ? "radio" : "checkbox"}
+                          name="checkpoint-correct"
+                          checked={opt.is_correct} title="Correct answer"
+                          onChange={(e) => setOptionCorrect(oi, e.target.checked)}
+                        />
+                        <input
+                          value={opt.text} placeholder={`Option ${oi + 1}`}
+                          onChange={(e) => setOptions((prev) => prev.map((o, i) => (i === oi ? { ...o, text: e.target.value } : o)))}
+                          className="flex-1 h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                        />
+                        <button
+                          onClick={() => setOptions((prev) => prev.filter((_, i) => i !== oi))}
+                          disabled={options.length <= 2}
+                          className="text-xs text-red-600 hover:bg-red-500/10 rounded px-2 py-1 transition-colors disabled:opacity-30"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => setOptions((prev) => [...prev, { text: "", is_correct: false }])}
+                      className="h-8 px-3 border border-dashed border-border rounded-xl text-xs font-medium text-muted-foreground hover:bg-muted transition-colors w-fit"
+                    >
+                      + Add option
+                    </button>
+                  </div>
+                </Field>
+              </>
+            )}
+          </>
+        )}
+
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <ModalActions
+          onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending}
+          disabled={!valid} label={checkpoint ? "Save changes" : "Add checkpoint"}
+        />
       </div>
     </Modal>
   )

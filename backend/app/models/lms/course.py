@@ -136,3 +136,32 @@ class ModuleVideo(Base):
     # pending|processing|ready|failed
     transcode_status = Column(String(12), nullable=False, default="pending")
     transcode_error = Column(Text, nullable=True)
+
+
+class VideoCheckpoint(Base):
+    """A timeline marker authored on a video item — a note (non-blocking
+    banner during `[start_seconds, end_seconds]`) or a quiz (pauses playback
+    at `start_seconds`, `end_seconds` stays null since a quiz has no window,
+    only a moment). Replaces the old `quiz` module-item + `mid_video_at_seconds`
+    indirection (LMS_EXECUTION_PLAN.md §DISCOVERIES, 2026-08-07) — checkpoints
+    now belong structurally to the video they're drawn on, matching both the
+    design's own scrubber-marker mental model and how the operator actually
+    wants to author them.
+
+    `content` shape by kind: note = `{body}`; quiz = `{question_type, prompt,
+    options?, correct?}` (question_type: mcq|multiselect|open). Grading is
+    stateless (no ItemProgress row) — a checkpoint quiz gates *playback*, not
+    module completion, so there's nothing to persist per submission.
+    """
+
+    __tablename__ = "video_checkpoints"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    item_id = Column(
+        UUID(as_uuid=True), ForeignKey("module_items.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    start_seconds = Column(Integer, nullable=False)
+    end_seconds = Column(Integer, nullable=True)
+    # note|quiz
+    kind = Column(String(10), nullable=False)
+    content = Column(JSONB, nullable=False, default=dict)

@@ -226,31 +226,152 @@ async def test_quiz_item_validates_shape_and_strips_nothing_from_the_author(db, 
     assert q["options"][0]["is_correct"] is True
 
 
+# ── video checkpoints ────────────────────────────────────────────────────────
+
+async def _video_item(db, module) -> ModuleItem:
+    item = ModuleItem(id=uuid.uuid4(), module_id=module.id, position=1, kind="video", content={})
+    db.add(item)
+    await db.flush()
+    return item
+
+
 @pytest.mark.asyncio
-async def test_mid_video_quiz_requires_exactly_one_video_item_in_module(db, client):
+async def test_checkpoint_note_crud(db, client):
     ops = await _user(db)
     course = await _course(db, author=ops)
     module = await _module(db, course)
+    video = await _video_item(db, module)
     await db.commit()
 
-    quiz_payload = {
-        "kind": "quiz",
-        "content": {
-            "pass_threshold": 0, "mid_video_at_seconds": 30,
-            "questions": [{"prompt": "q", "options": [
-                {"text": "a", "is_correct": True}, {"text": "b", "is_correct": False},
-            ]}],
-        },
-    }
-    no_video = await client.post(f"/lms/admin/modules/{module.id}/items", headers=_headers(ops), json=quiz_payload)
-    assert no_video.status_code == http_status.HTTP_400_BAD_REQUEST
-
-    await client.post(
-        f"/lms/admin/modules/{module.id}/items", headers=_headers(ops),
-        json={"kind": "video", "content": {}},
+    created = await client.post(
+        f"/lms/admin/items/{video.id}/checkpoints", headers=_headers(ops),
+        json={"start_seconds": 30, "end_seconds": 45, "kind": "note", "content": {"body": "Watch the coil here"}},
     )
-    with_video = await client.post(f"/lms/admin/modules/{module.id}/items", headers=_headers(ops), json=quiz_payload)
-    assert with_video.status_code == 201
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["end_seconds"] == 45 and body["content"] == {"body": "Watch the coil here"}
+    checkpoint_id = body["id"]
+
+    listed = await client.get(f"/lms/admin/items/{video.id}/checkpoints", headers=_headers(ops))
+    assert [c["id"] for c in listed.json()] == [checkpoint_id]
+
+    updated = await client.patch(
+        f"/lms/admin/checkpoints/{checkpoint_id}", headers=_headers(ops), json={"start_seconds": 35},
+    )
+    assert updated.status_code == 200 and updated.json()["start_seconds"] == 35
+
+    deleted = await client.delete(f"/lms/admin/checkpoints/{checkpoint_id}", headers=_headers(ops))
+    assert deleted.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_note_requires_end_after_start(db, client):
+    ops = await _user(db)
+    course = await _course(db, author=ops)
+    module = await _module(db, course)
+    video = await _video_item(db, module)
+    await db.commit()
+
+    missing_end = await client.post(
+        f"/lms/admin/items/{video.id}/checkpoints", headers=_headers(ops),
+        json={"start_seconds": 30, "kind": "note", "content": {"body": "x"}},
+    )
+    assert missing_end.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    end_before_start = await client.post(
+        f"/lms/admin/items/{video.id}/checkpoints", headers=_headers(ops),
+        json={"start_seconds": 30, "end_seconds": 20, "kind": "note", "content": {"body": "x"}},
+    )
+    assert end_before_start.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_quiz_mcq_multiselect_open(db, client):
+    ops = await _user(db)
+    course = await _course(db, author=ops)
+    module = await _module(db, course)
+    video = await _video_item(db, module)
+    await db.commit()
+
+    mcq_bad = await client.post(
+        f"/lms/admin/items/{video.id}/checkpoints", headers=_headers(ops),
+        json={
+            "start_seconds": 10, "kind": "quiz",
+            "content": {
+                "question_type": "mcq", "prompt": "Which one?",
+                "options": [{"text": "a", "is_correct": True}, {"text": "b", "is_correct": True}],
+            },
+        },
+    )
+    assert mcq_bad.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    mcq_good = await client.post(
+        f"/lms/admin/items/{video.id}/checkpoints", headers=_headers(ops),
+        json={
+            "start_seconds": 10, "kind": "quiz",
+            "content": {
+                "question_type": "mcq", "prompt": "Which one?",
+                "options": [{"text": "a", "is_correct": True}, {"text": "b", "is_correct": False}],
+            },
+        },
+    )
+    assert mcq_good.status_code == 201, mcq_good.text
+    assert mcq_good.json()["end_seconds"] is None  # a quiz has no window
+
+    multiselect_bad = await client.post(
+        f"/lms/admin/items/{video.id}/checkpoints", headers=_headers(ops),
+        json={
+            "start_seconds": 20, "kind": "quiz",
+            "content": {
+                "question_type": "multiselect", "prompt": "Pick all that apply",
+                "options": [{"text": "a", "is_correct": False}, {"text": "b", "is_correct": False}],
+            },
+        },
+    )
+    assert multiselect_bad.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    multiselect_good = await client.post(
+        f"/lms/admin/items/{video.id}/checkpoints", headers=_headers(ops),
+        json={
+            "start_seconds": 20, "kind": "quiz",
+            "content": {
+                "question_type": "multiselect", "prompt": "Pick all that apply",
+                "options": [{"text": "a", "is_correct": True}, {"text": "b", "is_correct": True}],
+            },
+        },
+    )
+    assert multiselect_good.status_code == 201
+
+    open_with_options = await client.post(
+        f"/lms/admin/items/{video.id}/checkpoints", headers=_headers(ops),
+        json={
+            "start_seconds": 30, "kind": "quiz",
+            "content": {"question_type": "open", "prompt": "Reflect", "options": [{"text": "a"}]},
+        },
+    )
+    assert open_with_options.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    open_good = await client.post(
+        f"/lms/admin/items/{video.id}/checkpoints", headers=_headers(ops),
+        json={"start_seconds": 30, "kind": "quiz", "content": {"question_type": "open", "prompt": "Reflect"}},
+    )
+    assert open_good.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_checkpoints_require_a_video_item(db, client):
+    ops = await _user(db)
+    course = await _course(db, author=ops)
+    module = await _module(db, course)
+    text_item = ModuleItem(id=uuid.uuid4(), module_id=module.id, position=1, kind="text", content={"body": "x"})
+    db.add(text_item)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/admin/items/{text_item.id}/checkpoints", headers=_headers(ops),
+        json={"start_seconds": 10, "end_seconds": 20, "kind": "note", "content": {"body": "x"}},
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.asyncio

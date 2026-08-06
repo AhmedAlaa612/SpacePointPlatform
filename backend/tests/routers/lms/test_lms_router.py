@@ -23,6 +23,7 @@ from app.models.lms import (
     ItemProgress,
     ModuleItem,
     ModuleVideo,
+    VideoCheckpoint,
 )
 from app.models.user import User
 from app.services.lms import enroll
@@ -192,7 +193,6 @@ async def _tree_with_quiz(db):
                        content={"body": "Ten minus four is six.", "explanation": "sneaky"})
     quiz = await _item(db, module, position=2, kind="quiz", content={
         "pass_threshold": 70,
-        "mid_video_at_seconds": None,
         "questions": [
             {
                 "prompt": "What is 2+2?",
@@ -322,3 +322,109 @@ async def test_progress_write_requires_enrollment_and_valid_action(db, client):
         f"/lms/items/{text.id}/progress", headers=_headers(stranger), json={"action": "fidget"}
     )
     assert bad.status_code == http_status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+# ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ───────
+
+async def _video_with_checkpoints(db):
+    course, module, *_ = await _tree_with_quiz(db)
+    video = await _item(db, module, position=4, kind="video", content={})
+    note = VideoCheckpoint(
+        id=uuid.uuid4(), item_id=video.id, start_seconds=3, end_seconds=6,
+        kind="note", content={"body": "Watch this part"},
+    )
+    quiz_cp = VideoCheckpoint(
+        id=uuid.uuid4(), item_id=video.id, start_seconds=10, end_seconds=None, kind="quiz",
+        content={
+            "question_type": "mcq", "prompt": "Which one?", "explanation": "It's gravity.",
+            "options": [{"text": "Gravity", "is_correct": True}, {"text": "Magnetism", "is_correct": False}],
+        },
+    )
+    multi_cp = VideoCheckpoint(
+        id=uuid.uuid4(), item_id=video.id, start_seconds=15, end_seconds=None, kind="quiz",
+        content={
+            "question_type": "multiselect", "prompt": "Pick the planets", "explanation": None,
+            "options": [
+                {"text": "Mars", "is_correct": True}, {"text": "Sun", "is_correct": False},
+                {"text": "Venus", "is_correct": True},
+            ],
+        },
+    )
+    open_cp = VideoCheckpoint(
+        id=uuid.uuid4(), item_id=video.id, start_seconds=18, end_seconds=None, kind="quiz",
+        content={"question_type": "open", "prompt": "What surprised you?", "explanation": None},
+    )
+    db.add_all([note, quiz_cp, multi_cp, open_cp])
+    await db.flush()
+    return course, video, note, quiz_cp, multi_cp, open_cp
+
+
+@pytest.mark.asyncio
+async def test_checkpoints_list_is_sanitized_and_requires_enrollment(db, client):
+    course, video, note, quiz_cp, *_ = await _video_with_checkpoints(db)
+    stranger = await _user(db)
+    await db.commit()
+
+    not_enrolled = await client.get(f"/lms/items/{video.id}/checkpoints", headers=_headers(stranger))
+    assert not_enrolled.status_code == http_status.HTTP_404_NOT_FOUND
+
+    await enroll(db, user_id=stranger.id, course_id=course.id)
+    await db.commit()
+
+    resp = await client.get(f"/lms/items/{video.id}/checkpoints", headers=_headers(stranger))
+    assert resp.status_code == 200
+    body = resp.json()
+    for key in _drill_keys(body):
+        assert key not in {"is_correct", "explanation"}, f"leaked key {key}"
+
+    by_id = {c["id"]: c for c in body}
+    assert by_id[str(note.id)]["content"] == {"body": "Watch this part"}
+    assert by_id[str(quiz_cp.id)]["content"] == {
+        "question_type": "mcq", "prompt": "Which one?",
+        "options": [{"text": "Gravity"}, {"text": "Magnetism"}],
+    }
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_answer_grades_mcq_multiselect_open(db, client):
+    course, video, _note, quiz_cp, multi_cp, open_cp = await _video_with_checkpoints(db)
+    stranger = await _user(db)
+    await db.commit()
+
+    # not enrolled -> 404
+    denied = await client.post(
+        f"/lms/items/{video.id}/checkpoints/{quiz_cp.id}/answer", headers=_headers(stranger), json={"answer": 0},
+    )
+    assert denied.status_code == http_status.HTTP_404_NOT_FOUND
+
+    await enroll(db, user_id=stranger.id, course_id=course.id)
+    await db.commit()
+
+    mcq_wrong = await client.post(
+        f"/lms/items/{video.id}/checkpoints/{quiz_cp.id}/answer", headers=_headers(stranger), json={"answer": 1},
+    )
+    assert mcq_wrong.status_code == 200
+    assert mcq_wrong.json() == {"correct": False, "explanation": "It's gravity."}
+
+    mcq_right = await client.post(
+        f"/lms/items/{video.id}/checkpoints/{quiz_cp.id}/answer", headers=_headers(stranger), json={"answer": 0},
+    )
+    assert mcq_right.json()["correct"] is True
+
+    multi_partial = await client.post(
+        f"/lms/items/{video.id}/checkpoints/{multi_cp.id}/answer", headers=_headers(stranger), json={"answer": [0]},
+    )
+    assert multi_partial.json()["correct"] is False
+
+    multi_exact = await client.post(
+        f"/lms/items/{video.id}/checkpoints/{multi_cp.id}/answer",
+        headers=_headers(stranger), json={"answer": [0, 2]},
+    )
+    assert multi_exact.json()["correct"] is True
+
+    open_answer = await client.post(
+        f"/lms/items/{video.id}/checkpoints/{open_cp.id}/answer",
+        headers=_headers(stranger), json={"answer": "The eccentricity."},
+    )
+    assert open_answer.status_code == 200
+    assert open_answer.json() == {"correct": None, "explanation": None}

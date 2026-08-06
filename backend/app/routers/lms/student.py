@@ -22,9 +22,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_lms_student
 from app.db.session import get_db
-from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, ModuleVideo
+from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, ModuleVideo, VideoCheckpoint
 from app.models.user import User
 from app.schemas.lms import (
+    CheckpointAnswerIn,
+    CheckpointAnswerOut,
     CourseCatalogOut,
     CourseDetailOut,
     EnrollIn,
@@ -37,12 +39,15 @@ from app.schemas.lms import (
     ProgressOut,
     QuizAnswersIn,
     QuizReviewOut,
+    VideoCheckpointOut,
 )
 from app.services.lms import (
     course_completion,
     enroll,
     item_progress,
+    sanitize_checkpoint,
     student_view,
+    submit_checkpoint_answer,
     submit_quiz,
     unlock_state,
 )
@@ -269,6 +274,23 @@ async def module_read(
     )
 
 
+@router.get("/items/{video_item_id}/checkpoints", response_model=list[VideoCheckpointOut])
+async def list_checkpoints(
+    video_item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_student),
+):
+    item = await _enrolled_item(db, current.id, video_item_id)
+    if item.kind != "video":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    rows = (await db.execute(
+        select(VideoCheckpoint)
+        .where(VideoCheckpoint.item_id == video_item_id)
+        .order_by(VideoCheckpoint.start_seconds)
+    )).scalars().all()
+    return [sanitize_checkpoint(c) for c in rows]
+
+
 # ── learner writes: student AND enrolled ────────────────────────────────────
 
 @router.post("/items/{item_id}/quiz/submit", response_model=QuizReviewOut)
@@ -286,6 +308,22 @@ async def quiz_submit(
     )
     await db.commit()
     return result
+
+
+@router.post("/items/{video_item_id}/checkpoints/{checkpoint_id}/answer", response_model=CheckpointAnswerOut)
+async def checkpoint_answer(
+    video_item_id: uuid.UUID,
+    checkpoint_id: uuid.UUID,
+    body: CheckpointAnswerIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_student),
+):
+    """Stateless grading (checkpoint.py) — a checkpoint quiz gates playback,
+    not module completion, so there's nothing to commit here."""
+    await _enrolled_item(db, current.id, video_item_id)
+    return await submit_checkpoint_answer(
+        db, checkpoint_id=checkpoint_id, item_id=video_item_id, answer=body.answer,
+    )
 
 
 @router.post("/items/{item_id}/progress", response_model=ProgressOut)

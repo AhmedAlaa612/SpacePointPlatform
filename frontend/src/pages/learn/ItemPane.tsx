@@ -1,9 +1,6 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { CheckCircle2, ChevronRight, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog, DialogContent, DialogTitle,
-} from "@/components/ui/dialog";
 import {
   recordProgress, submitQuiz, type ModuleItem, type QuizReview,
 } from "@/api/lms";
@@ -14,46 +11,15 @@ import { VideoPlayer } from "./VideoPlayer";
  * route — this version has no route of its own, PlayerLayout swaps it in.
  */
 export function ItemPane({
-  item, moduleItems, onProgressed,
-}: { item: ModuleItem; moduleItems: ModuleItem[]; onProgressed: () => void }) {
-  const [checkpointOpen, setCheckpointOpen] = useState(false);
-  const [resumeSignal, setResumeSignal] = useState(0);
-
-  // A quiz with mid_video_at_seconds references the *other* video item in
-  // this same module (service-level rule: exactly one video item when set).
-  const checkpointQuiz = useMemo(() => {
-    if (item.kind !== "video") return null;
-    return moduleItems.find(
-      (i) => i.kind === "quiz" && "mid_video_at_seconds" in i.content && i.content.mid_video_at_seconds != null,
-    ) ?? null;
-  }, [item, moduleItems]);
-
+  item, onProgressed,
+}: { item: ModuleItem; onProgressed: () => void }) {
   if (item.kind === "video" && "transcode_status" in item.content) {
     return (
-      <div>
-        <VideoPlayer
-          itemId={item.id}
-          transcodeStatus={item.content.transcode_status}
-          checkpointSeconds={checkpointQuiz && "mid_video_at_seconds" in checkpointQuiz.content ? checkpointQuiz.content.mid_video_at_seconds : null}
-          onCheckpoint={() => setCheckpointOpen(true)}
-          resumeSignal={resumeSignal}
-          onEnded={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}
-        />
-        <Dialog open={checkpointOpen} onOpenChange={setCheckpointOpen}>
-          <DialogContent showCloseButton={false} className="max-w-lg">
-            <DialogTitle>Quick check before you continue</DialogTitle>
-            {checkpointQuiz && (
-              <QuizBlock
-                item={checkpointQuiz}
-                onPassed={() => {
-                  setCheckpointOpen(false);
-                  setResumeSignal((n) => n + 1);
-                }}
-              />
-            )}
-          </DialogContent>
-        </Dialog>
-      </div>
+      <VideoPlayer
+        itemId={item.id}
+        transcodeStatus={item.content.transcode_status}
+        onEnded={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}
+      />
     );
   }
 

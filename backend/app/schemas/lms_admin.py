@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Literal, Union
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 ModuleItemKind = Literal["video", "text", "quiz", "flashcards"]
 
@@ -45,7 +45,6 @@ class AdminQuizQuestionIn(BaseModel):
 
 class AdminContentQuiz(BaseModel):
     pass_threshold: int = Field(ge=0, le=100, default=0)
-    mid_video_at_seconds: int | None = None
     questions: list[AdminQuizQuestionIn] = Field(min_length=1)
 
 
@@ -65,6 +64,68 @@ class AdminContentVideo(BaseModel):
 
 
 AdminModuleContent = Union[AdminContentQuiz, AdminContentFlashcards, AdminContentText, AdminContentVideo]
+
+
+# ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ───────
+# Belong to the video item they're authored on, not a sibling module item —
+# see the video_checkpoints migration docstring for why the old
+# mid_video_at_seconds indirection was replaced.
+
+CheckpointKind = Literal["note", "quiz"]
+CheckpointQuestionType = Literal["mcq", "multiselect", "open"]
+
+
+class AdminCheckpointNoteContent(BaseModel):
+    body: str
+
+
+class AdminCheckpointQuizContent(BaseModel):
+    question_type: CheckpointQuestionType
+    prompt: str
+    explanation: str | None = None
+    # Required for mcq/multiselect (answer choices), omitted for open.
+    options: list[AdminQuizOptionIn] | None = None
+
+    @model_validator(mode="after")
+    def _validate_options(self) -> "AdminCheckpointQuizContent":
+        if self.question_type == "open":
+            if self.options:
+                raise ValueError("open questions don't take options")
+            return self
+        if not self.options or len(self.options) < 2:
+            raise ValueError(f"{self.question_type} questions need at least 2 options")
+        correct_count = sum(1 for o in self.options if o.is_correct)
+        if self.question_type == "mcq" and correct_count != 1:
+            raise ValueError("mcq questions need exactly one correct option")
+        if self.question_type == "multiselect" and correct_count < 1:
+            raise ValueError("multiselect questions need at least one correct option")
+        return self
+
+
+class VideoCheckpointCreate(BaseModel):
+    start_seconds: int = Field(ge=0)
+    # Required for notes (a banner has a window); ignored for quizzes (a
+    # quiz is a single moment) — enforced in the router, not here, since it
+    # depends on `kind`.
+    end_seconds: int | None = Field(default=None, ge=0)
+    kind: CheckpointKind
+    content: dict = Field(default_factory=dict)
+
+
+class VideoCheckpointUpdate(BaseModel):
+    start_seconds: int | None = Field(default=None, ge=0)
+    end_seconds: int | None = Field(default=None, ge=0)
+    content: dict | None = None
+
+
+class VideoCheckpointAdminOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    item_id: UUID
+    start_seconds: int
+    end_seconds: int | None
+    kind: str
+    content: dict
 
 
 # ── courses ──────────────────────────────────────────────────────────────────

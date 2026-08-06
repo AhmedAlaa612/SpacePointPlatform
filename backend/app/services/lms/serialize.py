@@ -7,23 +7,25 @@ filtered — whitelisting the keys a kind is allowed to have is stronger than
 blacklisting two keys, because a stray authoring mistake can't smuggle an
 answer-shaped key through a copy that happens to preserve everything else.
 
-`mid_video_at_seconds` and `pass_threshold` are NOT answers and stay — the
-player needs both to time the checkpoint and show the pass mark. Flashcards
-keep term + definition: the mode of play is click-to-reveal, so the card text
-is the content, not a secret.
+`pass_threshold` is NOT an answer and stays — the player needs it to show the
+pass mark. Flashcards keep term + definition: the mode of play is
+click-to-reveal, so the card text is the content, not a secret.
+
+Video checkpoints (2026-08-07) go through `sanitize_checkpoint` below, not
+this module's `student_view` — they're not `ModuleItem` rows, they're child
+rows of a video item, fetched and sanitized separately by the student router.
 """
 
 from __future__ import annotations
 
 import uuid
 
-from app.models.lms.course import ModuleItem
+from app.models.lms.course import ModuleItem, VideoCheckpoint
 
 
 def _sanitize_quiz(content: dict) -> dict:
     return {
         "pass_threshold": content.get("pass_threshold", 0),
-        "mid_video_at_seconds": content.get("mid_video_at_seconds"),
         "questions": [
             {
                 "prompt": q.get("prompt"),
@@ -75,4 +77,26 @@ def student_view(item: ModuleItem) -> dict:
         "title": item.title,
         "position": item.position,
         "content": _sanitize(item.kind, item.content),
+    }
+
+
+def sanitize_checkpoint(checkpoint: VideoCheckpoint) -> dict:
+    """The JSON-safe payload for a student-facing checkpoint — no `correct`,
+    no `explanation` (that's post-answer only, same posture as quiz review)."""
+    content = checkpoint.content or {}
+    if checkpoint.kind == "note":
+        sanitized = {"body": content.get("body")}
+    else:
+        options = content.get("options")
+        sanitized = {
+            "question_type": content.get("question_type"),
+            "prompt": content.get("prompt"),
+            "options": [{"text": o.get("text")} for o in options] if options else None,
+        }
+    return {
+        "id": str(checkpoint.id),
+        "start_seconds": checkpoint.start_seconds,
+        "end_seconds": checkpoint.end_seconds,
+        "kind": checkpoint.kind,
+        "content": sanitized,
     }

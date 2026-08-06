@@ -34,7 +34,6 @@ class QuizQuestionOut(BaseModel):
 class ContentQuiz(BaseModel):
     model_config = ConfigDict(extra="forbid")
     pass_threshold: int
-    mid_video_at_seconds: int | None = None
     questions: list[QuizQuestionOut]
 
 
@@ -57,6 +56,46 @@ class ContentVideo(BaseModel):
 
 
 ModuleContent = Union[ContentQuiz, ContentText, ContentFlashcards, ContentVideo]
+
+
+# ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ───────
+
+class CheckpointNoteOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    body: str
+
+
+class CheckpointQuizOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question_type: Literal["mcq", "multiselect", "open"]
+    prompt: str
+    # None for open questions — nothing to choose from.
+    options: list[QuizOptionOut] | None = None
+
+
+CheckpointContent = Union[CheckpointNoteOut, CheckpointQuizOut]
+
+
+class VideoCheckpointOut(BaseModel):
+    id: UUID
+    start_seconds: int
+    end_seconds: int | None = None
+    kind: Literal["note", "quiz"]
+    content: CheckpointContent
+
+
+class CheckpointAnswerIn(BaseModel):
+    # int (mcq), list[int] (multiselect), or str (open) — validated against
+    # the checkpoint's actual question_type server-side, same "don't trust
+    # the client's own shape" posture as QuizAnswersIn.
+    answer: int | list[int] | str
+
+
+class CheckpointAnswerOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # None for open questions (not graded) or if the student skipped.
+    correct: bool | None = None
+    explanation: str | None = None
 
 
 # ── catalog / course outline (login-only) ───────────────────────────────────

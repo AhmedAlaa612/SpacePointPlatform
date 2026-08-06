@@ -59,7 +59,7 @@ export type VideoTranscodeStatus = "pending" | "processing" | "ready" | "failed"
 
 export type AdminItemContent =
   | { body: string }
-  | { pass_threshold: number; mid_video_at_seconds: number | null; questions: AdminQuizQuestion[] }
+  | { pass_threshold: number; questions: AdminQuizQuestion[] }
   | { title: string | null; cards: { term: string; definition: string }[] }
   | { transcode_status: VideoTranscodeStatus | null; transcode_error: string | null; duration_seconds: number | null };
 
@@ -78,6 +78,33 @@ export interface CurriculumEntry {
   program_id: string;
   course_id: string;
   position: number;
+}
+
+// ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ─────
+
+export type CheckpointKind = "note" | "quiz";
+export type CheckpointQuestionType = "mcq" | "multiselect" | "open";
+
+export interface AdminCheckpointNoteContent {
+  body: string;
+}
+
+export interface AdminCheckpointQuizContent {
+  question_type: CheckpointQuestionType;
+  prompt: string;
+  explanation?: string | null;
+  options?: AdminQuizOption[] | null;
+}
+
+export type AdminCheckpointContent = AdminCheckpointNoteContent | AdminCheckpointQuizContent;
+
+export interface AdminCheckpoint {
+  id: string;
+  item_id: string;
+  start_seconds: number;
+  end_seconds: number | null;
+  kind: CheckpointKind;
+  content: AdminCheckpointContent;
 }
 
 // ── courses ──────────────────────────────────────────────────────────────
@@ -153,6 +180,18 @@ export const uploadVideoApi = (
     })
     .then((r) => r.data);
 };
+
+export const listCheckpointsApi = (videoItemId: string) =>
+  api.get<AdminCheckpoint[]>(`/lms/admin/items/${videoItemId}/checkpoints`).then((r) => r.data);
+export const createCheckpointApi = (
+  videoItemId: string,
+  data: { start_seconds: number; end_seconds?: number | null; kind: CheckpointKind; content: object },
+) => api.post<AdminCheckpoint>(`/lms/admin/items/${videoItemId}/checkpoints`, data).then((r) => r.data);
+export const updateCheckpointApi = (
+  id: string,
+  data: Partial<{ start_seconds: number; end_seconds: number | null; content: object }>,
+) => api.patch<AdminCheckpoint>(`/lms/admin/checkpoints/${id}`, data).then((r) => r.data);
+export const deleteCheckpointApi = (id: string) => api.delete<void>(`/lms/admin/checkpoints/${id}`).then((r) => r.data);
 
 // ── program curriculum ──────────────────────────────────────────────────
 

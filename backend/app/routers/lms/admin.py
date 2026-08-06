@@ -20,10 +20,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
-from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, ProgramCurriculum
+from app.models.lms import (
+    Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, ProgramCurriculum, VideoCheckpoint,
+)
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.schemas.lms_admin import (
+    AdminCheckpointNoteContent,
+    AdminCheckpointQuizContent,
     AdminContentFlashcards,
     AdminContentQuiz,
     AdminContentText,
@@ -42,6 +46,9 @@ from app.schemas.lms_admin import (
     ModuleCreate,
     ModuleReorderIn,
     ModuleUpdate,
+    VideoCheckpointAdminOut,
+    VideoCheckpointCreate,
+    VideoCheckpointUpdate,
 )
 from app.services import storage
 
@@ -77,7 +84,7 @@ _CONTENT_MODEL = {
 }
 
 
-async def _validated_content(db: AsyncSession, *, kind: str, module_id: uuid.UUID, content: dict) -> dict:
+def _validated_content(*, kind: str, content: dict) -> dict:
     model = _CONTENT_MODEL.get(kind)
     if model is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Unknown item kind '{kind}'")
@@ -85,18 +92,25 @@ async def _validated_content(db: AsyncSession, *, kind: str, module_id: uuid.UUI
         parsed = model(**content)
     except ValidationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=exc.errors())
+    return parsed.model_dump()
 
-    if kind == "quiz" and parsed.mid_video_at_seconds is not None:
-        video_count = await db.scalar(
-            select(func.count()).select_from(ModuleItem).where(
-                ModuleItem.module_id == module_id, ModuleItem.kind == "video"
-            )
-        )
-        if video_count != 1:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail="mid_video_at_seconds requires the module to have exactly one video item",
-            )
+
+_CHECKPOINT_CONTENT_MODEL = {
+    "note": AdminCheckpointNoteContent,
+    "quiz": AdminCheckpointQuizContent,
+}
+
+
+def _validated_checkpoint_content(*, kind: str, content: dict) -> dict:
+    model = _CHECKPOINT_CONTENT_MODEL[kind]
+    try:
+        parsed = model(**content)
+    except ValidationError as exc:
+        # include_context=False: the custom model_validator's ValueError
+        # objects land in `ctx.error` by default, and a raw exception isn't
+        # JSON-serializable — without this, FastAPI's own error response
+        # encoding blows up instead of returning a clean 400.
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=exc.errors(include_context=False))
     return parsed.model_dump()
 
 
@@ -442,7 +456,7 @@ async def create_item(
     if module is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Module not found")
 
-    content = await _validated_content(db, kind=body.kind, module_id=module_id, content=body.content)
+    content = _validated_content(kind=body.kind, content=body.content)
 
     position = body.position
     if position is None:
@@ -514,9 +528,7 @@ async def update_item(
 
     changes = body.model_dump(exclude_unset=True)
     if "content" in changes:
-        changes["content"] = await _validated_content(
-            db, kind=item.kind, module_id=item.module_id, content=changes["content"]
-        )
+        changes["content"] = _validated_content(kind=item.kind, content=changes["content"])
     if "position" in changes and changes["position"] != item.position:
         existing = (await db.execute(
             select(ModuleItem.id).where(
@@ -543,6 +555,110 @@ async def delete_item(
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
     await db.delete(item)
+    await db.commit()
+
+
+# ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ───────
+# Belong to the video item they're drawn on — see the video_checkpoints
+# migration docstring for why this replaced the old quiz-item +
+# mid_video_at_seconds indirection.
+
+async def _video_item(db: AsyncSession, item_id: uuid.UUID) -> ModuleItem:
+    item = await db.get(ModuleItem, item_id)
+    if item is None or item.kind != "video":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video item not found")
+    return item
+
+
+def _apply_checkpoint_content_rules(
+    kind: str, start_seconds: int, end_seconds: int | None, content: dict,
+) -> tuple[int | None, dict]:
+    validated = _validated_checkpoint_content(kind=kind, content=content)
+    if kind == "note":
+        if end_seconds is None or end_seconds <= start_seconds:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="Notes need an end_seconds greater than start_seconds",
+            )
+        return end_seconds, validated
+    # quiz — a single moment, not a window, whatever end_seconds was passed is ignored
+    return None, validated
+
+
+@router.get("/items/{video_item_id}/checkpoints", response_model=list[VideoCheckpointAdminOut])
+async def list_checkpoints(
+    video_item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    await _video_item(db, video_item_id)
+    rows = (await db.execute(
+        select(VideoCheckpoint)
+        .where(VideoCheckpoint.item_id == video_item_id)
+        .order_by(VideoCheckpoint.start_seconds)
+    )).scalars().all()
+    return rows
+
+
+@router.post(
+    "/items/{video_item_id}/checkpoints", response_model=VideoCheckpointAdminOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_checkpoint(
+    video_item_id: uuid.UUID,
+    body: VideoCheckpointCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    await _video_item(db, video_item_id)
+    end_seconds, content = _apply_checkpoint_content_rules(
+        body.kind, body.start_seconds, body.end_seconds, body.content,
+    )
+    checkpoint = VideoCheckpoint(
+        id=uuid.uuid4(), item_id=video_item_id, start_seconds=body.start_seconds,
+        end_seconds=end_seconds, kind=body.kind, content=content,
+    )
+    db.add(checkpoint)
+    await db.commit()
+    await db.refresh(checkpoint)
+    return checkpoint
+
+
+@router.patch("/checkpoints/{checkpoint_id}", response_model=VideoCheckpointAdminOut)
+async def update_checkpoint(
+    checkpoint_id: uuid.UUID,
+    body: VideoCheckpointUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    checkpoint = await db.get(VideoCheckpoint, checkpoint_id)
+    if checkpoint is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Checkpoint not found")
+
+    changes = body.model_dump(exclude_unset=True)
+    start_seconds = changes.get("start_seconds", checkpoint.start_seconds)
+    end_seconds = changes.get("end_seconds", checkpoint.end_seconds)
+    content = changes.get("content", checkpoint.content)
+    end_seconds, content = _apply_checkpoint_content_rules(checkpoint.kind, start_seconds, end_seconds, content)
+
+    checkpoint.start_seconds = start_seconds
+    checkpoint.end_seconds = end_seconds
+    checkpoint.content = content
+    await db.commit()
+    await db.refresh(checkpoint)
+    return checkpoint
+
+
+@router.delete("/checkpoints/{checkpoint_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_checkpoint(
+    checkpoint_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    checkpoint = await db.get(VideoCheckpoint, checkpoint_id)
+    if checkpoint is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Checkpoint not found")
+    await db.delete(checkpoint)
     await db.commit()
 
 

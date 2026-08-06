@@ -90,7 +90,7 @@ async def _item(db, module, *, position, kind, **kw) -> ModuleItem:
 
 
 def _quiz_content(threshold, questions):
-    return {"pass_threshold": threshold, "mid_video_at_seconds": None, "questions": questions}
+    return {"pass_threshold": threshold, "questions": questions}
 
 
 def _q(prompt, options, explanation="Because that is the answer."):
@@ -463,7 +463,6 @@ async def test_student_view_leaks_no_answers_for_any_kind(db):
     # timestamps, flashcard cards.
     quiz = student_view(items[1])
     assert quiz["content"]["pass_threshold"] == 70
-    assert quiz["content"]["mid_video_at_seconds"] is None
     assert quiz["content"]["questions"][0]["options"] == [{"text": "A"}, {"text": "B"}]
     assert quiz["content"]["questions"][0]["prompt"] == "Q?"
 
