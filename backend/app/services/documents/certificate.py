@@ -72,7 +72,8 @@ def generate_completion_certificate_pdf(
 
 def merge_certificate_pdfs(pdf_bytes_list: list[bytes]) -> bytes:
     """One PDF, one page per certificate, in the given order — same
-    pypdf-merge approach as build_applicant_dossier_pdf (dossier.py)."""
+    pypdf-merge approach as build_applicant_dossier_pdf (dossier.py).
+    """
     writer = PdfWriter()
     for pdf_bytes in pdf_bytes_list:
         for page in PdfReader(io.BytesIO(pdf_bytes)).pages:
