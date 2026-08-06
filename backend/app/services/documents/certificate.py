@@ -109,12 +109,12 @@ def generate_completion_certificate_pdf(
     style = ParagraphStyle(
         name="CertificateCompletionText",
         fontName="Amiri" if body_arabic else "TimesNewRoman-Italic",
-        fontSize=18, leading=26, textColor=text_color, alignment=1,
+        fontSize=20, leading=29, textColor=text_color, alignment=1,
     )
     p = Paragraph(display_body, style)
     p_width = 600
     p_height = p.wrap(p_width, 100)[1]
-    p.drawOn(c, (width - p_width) / 2.0, 240 - p_height)
+    p.drawOn(c, (width - p_width) / 2.0, 260 - p_height)
 
     c.save()
     return buf.getvalue()
