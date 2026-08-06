@@ -7,6 +7,7 @@ instructor completion).
 import io
 import os
 
+from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle
@@ -67,3 +68,16 @@ def generate_completion_certificate_pdf(
 
     c.save()
     return buf.getvalue()
+
+
+def merge_certificate_pdfs(pdf_bytes_list: list[bytes]) -> bytes:
+    """One PDF, one page per certificate, in the given order — same
+    pypdf-merge approach as build_applicant_dossier_pdf (dossier.py)."""
+    writer = PdfWriter()
+    for pdf_bytes in pdf_bytes_list:
+        for page in PdfReader(io.BytesIO(pdf_bytes)).pages:
+            writer.add_page(page)
+    out = io.BytesIO()
+    writer.write(out)
+    out.seek(0)
+    return out.read()

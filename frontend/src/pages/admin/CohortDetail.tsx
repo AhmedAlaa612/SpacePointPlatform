@@ -20,7 +20,7 @@ import {
   getCohortApi, getSessionsApi,
   generateSessionsApi, addSessionApi,
   getRegistrationsApi, deskRegisterApi, resendTicketApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
-  deleteRegistrationApi,
+  deleteRegistrationApi, downloadCohortCertificatesApi,
   bulkAssignInstructorApi, type BulkActionResult,
 } from "@/api/sessions/cohorts"
 import {
@@ -187,6 +187,10 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
     },
     onError: (e: any) => setDrawerError(getErrorMessage(e, "Failed to issue certificate")),
   })
+  const downloadCertificatesMutation = useMutation({
+    mutationFn: () => downloadCohortCertificatesApi(cohort.id, cohort.name),
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to download certificates")),
+  })
   // Both refuse server-side once real history is attached (attendance, a
   // certificate) — show the API's reason instead of failing quietly.
   const deleteRegistrationMutation = useMutation({
@@ -295,6 +299,13 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
         >
           <Upload size={14} /> Import list
+        </button>
+        <button
+          onClick={() => downloadCertificatesMutation.mutate()}
+          disabled={downloadCertificatesMutation.isPending}
+          className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+        >
+          <Award size={14} /> {downloadCertificatesMutation.isPending ? "Preparing…" : "Download certificates"}
         </button>
       </div>
 
