@@ -55,6 +55,8 @@ python-docx
 openpyxl
 pypdf
 cairosvg
+arabic-reshaper
+python-bidi
 
 # LMS content ingest (LM1-9) — pulling the boss's Drive dump straight to the
 # VPS instead of through the operator's slow upload.
