@@ -55,3 +55,5 @@ python-docx
 openpyxl
 pypdf
 cairosvg
+arabic-reshaper
+python-bidi

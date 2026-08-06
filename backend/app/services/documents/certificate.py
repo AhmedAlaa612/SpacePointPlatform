@@ -6,7 +6,10 @@ instructor completion).
 
 import io
 import os
+import re
 
+import arabic_reshaper
+from bidi.algorithm import get_display
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import A4, landscape
@@ -23,6 +26,11 @@ _TEXT_COLOR = HexColor("#9778be")
 
 _fonts_registered = False
 
+# Arabic + Arabic Supplement + Arabic Extended-A + Arabic Presentation Forms A/B.
+_ARABIC_RE = re.compile(
+    "[؀-ۿݐ-ݿࢠ-ࣿﭐ-﷿ﹰ-﻿]"
+)
+
 
 def _ensure_fonts() -> None:
     global _fonts_registered
@@ -32,7 +40,24 @@ def _ensure_fonts() -> None:
     pdfmetrics.registerFont(TTFont("TimesNewRoman-Bold", os.path.join(_FONTS_DIR, "timesbd.ttf")))
     pdfmetrics.registerFont(TTFont("TimesNewRoman-Italic", os.path.join(_FONTS_DIR, "timesi.ttf")))
     pdfmetrics.registerFont(TTFont("TimesNewRoman-BoldItalic", os.path.join(_FONTS_DIR, "timesbi.ttf")))
+    # Times New Roman has no Arabic coverage, and reportlab's drawString/
+    # Paragraph draw raw codepoints with no shaping or bidi reordering —
+    # Arabic text rendered as disconnected, left-to-right, unjoined glyphs
+    # without a font that has the glyphs plus the _shaped() reorder below.
+    pdfmetrics.registerFont(TTFont("Amiri", os.path.join(_FONTS_DIR, "Amiri-Regular.ttf")))
+    pdfmetrics.registerFont(TTFont("Amiri-Bold", os.path.join(_FONTS_DIR, "Amiri-Bold.ttf")))
     _fonts_registered = True
+
+
+def _is_arabic(text: str) -> bool:
+    return bool(_ARABIC_RE.search(text or ""))
+
+
+def _shaped(text: str) -> str:
+    """Glyph-join + right-to-left reorder so Arabic renders correctly.
+    Reportlab has no built-in text shaping — without this, Arabic draws as
+    disconnected letterforms in visual (not logical) order."""
+    return get_display(arabic_reshaper.reshape(text))
 
 
 def generate_completion_certificate_pdf(
@@ -53,15 +78,26 @@ def generate_completion_certificate_pdf(
     else:
         c.drawImage(_TEMPLATE_PATH, 0, 0, width=width, height=height)
 
-    c.setFont("TimesNewRoman-BoldItalic", 34)
+    name_arabic = _is_arabic(recipient_name)
+    c.setFont("Amiri-Bold" if name_arabic else "TimesNewRoman-BoldItalic", 34)
     c.setFillColor(_TEXT_COLOR)
-    c.drawCentredString(width / 2.0, 298, recipient_name)
+    c.drawCentredString(width / 2.0, 298, _shaped(recipient_name) if name_arabic else recipient_name)
+
+    # `<br/>`-joined segments render independently — reshape each one so a
+    # tag never gets treated as literal Arabic-adjacent text (reshaping
+    # only touches the actual glyphs on either side of it).
+    segments = body_text_template.split("<br/>")
+    body_arabic = any(_is_arabic(seg) for seg in segments)
+    if body_arabic:
+        segments = [_shaped(seg) if _is_arabic(seg) else seg for seg in segments]
+    display_body = "<br/>".join(segments)
 
     style = ParagraphStyle(
-        name="CertificateCompletionText", fontName="TimesNewRoman-Italic", fontSize=15,
-        leading=22, textColor=_TEXT_COLOR, alignment=1,
+        name="CertificateCompletionText",
+        fontName="Amiri" if body_arabic else "TimesNewRoman-Italic",
+        fontSize=15, leading=22, textColor=_TEXT_COLOR, alignment=1,
     )
-    p = Paragraph(body_text_template, style)
+    p = Paragraph(display_body, style)
     p_width = 600
     p_height = p.wrap(p_width, 100)[1]
     p.drawOn(c, (width - p_width) / 2.0, 240 - p_height)
