@@ -118,6 +118,17 @@ export const confirmPaymentApi = (
 export const giveCertificateApi = (registrationId: string) =>
   api.post<{ id: string; status: string; certificate_url: string }>(`/sessions/registrations/${registrationId}/certificate`).then((r) => r.data)
 
+// One merged PDF, one page per certificate already issued in this cohort.
+export const downloadCohortCertificatesApi = async (cohortId: string, cohortName: string) => {
+  const res = await api.get(`/sessions/cohorts/${cohortId}/certificates/download`, { responseType: "blob" })
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `certificates_${cohortName.replace(/[^a-z0-9]+/gi, "_")}.pdf`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 /** 409 if anyone has registered — cancel the cohort instead to keep history. */
 export const deleteCohortApi = (id: string) =>
   api.delete<void>(`/sessions/cohorts/${id}`).then((r) => r.data)

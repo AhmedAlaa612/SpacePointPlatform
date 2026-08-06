@@ -17,11 +17,13 @@ router module.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import date, timedelta
+from html import escape
 
 from arq.connections import ArqRedis
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +32,10 @@ from sqlalchemy.orm import aliased
 from app.core.dependencies import require_operations, require_session_delivery
 from app.db.session import get_db
 from app.models.certificate import Certificate
+from app.models.document_template import DocumentTemplate
+from app.models.enums import CertificateType
 from app.models.sessions.delivery_role import DeliveryRole
+from app.services.documents.certificate import generate_completion_certificate_pdf, merge_certificate_pdfs
 from app.services.sessions.openings import fully_staffed, lead_role_id
 from app.models.inventory.location import Location
 from app.models.inventory.warehouse import Warehouse
@@ -1082,6 +1087,55 @@ async def give_certificate(
     # Student completion certs are emailed directly — no file stored, no URL to return.
     return {"id": str(registration_id), "status": "completed", "certificate_id": str(certificate.id)}
 
+
+@router.get("/cohorts/{cohort_id}/certificates/download")
+async def download_cohort_certificates(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """One PDF, one page per student certificate already issued for this
+    cohort (via complete_cohort's auto-issue or the manual override above).
+    Regenerates each page from the Certificate row rather than storing PDFs
+    — student_completion certs were never uploaded to storage in the first
+    place (see delivery.py's _issue_student_certificate), so this is the
+    only place these bytes exist outside the one-off email sent at
+    issuance."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    rows = (await db.execute(
+        select(Certificate, Contact.full_name)
+        .join(Registration, Registration.id == Certificate.registration_id)
+        .join(Contact, Contact.id == Certificate.contact_id)
+        .where(Registration.cohort_id == cohort_id, Certificate.type == CertificateType.student_completion)
+        .order_by(Contact.full_name)
+    )).all()
+    if not rows:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No certificates have been issued for this cohort yet")
+
+    template = (await db.execute(
+        select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
+    )).scalars().first()
+    template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
+
+    def _render(name: str, body: str) -> bytes:
+        return generate_completion_certificate_pdf(name, body)
+
+    pages = []
+    for certificate, full_name in rows:
+        body_text = template_body \
+            .replace("{program_name}", escape(certificate.workshop_name or "")) \
+            .replace("{dates}", escape(certificate.workshop_date or ""))
+        pages.append(await asyncio.to_thread(_render, full_name, body_text))
+
+    merged = await asyncio.to_thread(merge_certificate_pdfs, pages)
+    safe_name = "".join(c for c in cohort.name if c.isalnum() or c in " -_").strip().replace(" ", "_")
+    return Response(
+        content=merged, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="certificates_{safe_name or cohort_id}.pdf"'},
+    )
 
 
 @router.post("/registrations/{registration_id}/confirm-payment")
