@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Award, BookMarked, GraduationCap, PlayCircle } from "lucide-react";
+import { BookMarked, GraduationCap, PlayCircle } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -9,8 +9,10 @@ import { fetchMyCourses, type DashboardCourse } from "@/api/lms";
 import { CourseProgress } from "./CourseProgress";
 
 /** /learn/my-courses (design 1f) — the logged-in home base. Stat row is
- * StatCard verbatim; two Phase-2 slots (streak, XP — LM2-1) are shown as
- * inert placeholders so the row's shape doesn't change when they ship. */
+ * StatCard verbatim. Phase 2 stats (streak, XP) are left out entirely for
+ * now — Phase 1 is going live for real, and a permanently-inert "—" card
+ * reads as broken to an actual student, not "coming soon." Add them back
+ * when LM2-1 actually ships. */
 export default function LearnMyCourses() {
   const { currentUser } = useAuth();
   const { data, isLoading } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses });
@@ -28,29 +30,9 @@ export default function LearnMyCourses() {
 
       {data && (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 max-w-md gap-3">
             <StatCard icon={<BookMarked className="size-5" />} label="In progress" value={data.stats.in_progress} sub={`of ${data.stats.total_enrolled} enrolled`} />
             <StatCard icon={<GraduationCap className="size-5" />} label="Modules done" value={data.stats.modules_done} />
-            <div className="rounded-2xl bg-card/40 ring-1 ring-border/60 p-4 sm:p-5 flex items-center gap-4 opacity-50" title="Coming in Phase 2 (LM2-1)">
-              <div className="w-11 h-11 rounded-xl bg-muted flex items-center justify-center shrink-0">
-                <Award className="size-5 text-muted-foreground" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Day streak</p>
-                <p className="font-display text-2xl font-bold leading-tight">—</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Phase 2</p>
-              </div>
-            </div>
-            <div className="rounded-2xl bg-card/40 ring-1 ring-border/60 p-4 sm:p-5 flex items-center gap-4 opacity-50" title="Coming in Phase 2 (LM2-2)">
-              <div className="w-11 h-11 rounded-xl bg-muted flex items-center justify-center shrink-0">
-                <Award className="size-5 text-muted-foreground" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">XP earned</p>
-                <p className="font-display text-2xl font-bold leading-tight">—</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Phase 2</p>
-              </div>
-            </div>
           </div>
 
           {data.courses.length === 0 ? (
@@ -68,7 +50,7 @@ export default function LearnMyCourses() {
 
 function EnrolledCourseRow({ course }: { course: DashboardCourse }) {
   const navigate = useNavigate();
-  const cta = course.status === "completed" ? "Certificate" : course.status === "not_started" ? "Start" : "Resume";
+  const cta = course.status === "completed" ? "Review" : course.status === "not_started" ? "Start" : "Resume";
   return (
     <Card className="flex-row items-center gap-5 p-4 sm:p-5">
       <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -88,8 +70,7 @@ function EnrolledCourseRow({ course }: { course: DashboardCourse }) {
       <Button
         size="xl"
         variant={course.status === "completed" ? "outline" : "default"}
-        disabled={course.status === "completed"}
-        onClick={() => void navigate({ to: cta === "Start" || cta === "Resume" ? `/learn/courses/${course.course_id}/learn` : `/learn/courses/${course.course_id}` })}
+        onClick={() => void navigate({ to: `/learn/courses/${course.course_id}/learn` })}
         className="shrink-0"
       >
         {cta}

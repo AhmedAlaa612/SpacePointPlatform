@@ -47,6 +47,21 @@ class Course(Base):
     )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    # ── authoring metadata (LMS redesign, 2026-08-06) — all optional, an
+    # unauthored course just renders without them. See
+    # LMS_REDESIGN_FOLLOWUPS.md #2 for why the course landing page needed these.
+    image_bucket = Column(String(64), nullable=True)
+    image_path = Column(String(512), nullable=True)
+    outcomes = Column(JSONB, nullable=False, default=list)  # list[str] — "what you'll be able to do"
+    level = Column(String(20), nullable=True)  # beginner|intermediate|advanced
+    track = Column(String(80), nullable=True)  # free-text catalog grouping, e.g. "Spacecraft systems"
+    # The public-facing instructor, deliberately distinct from created_by
+    # (who authored the content — often ops, not the instructor).
+    instructor_id = Column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    instructor_title = Column(String(120), nullable=True)  # e.g. "Lead Systems Engineer, SpacePoint"
+
 
 class CourseModule(Base):
     """An ordered lesson inside a course. Position is the order; reordering is

@@ -66,6 +66,9 @@ class CourseCatalogOut(BaseModel):
     title: str
     description: str | None = None
     kind: str
+    image_url: str | None = None
+    level: str | None = None
+    track: str | None = None
 
 
 # ── my-courses dashboard (student, LMS redesign 2026-08-06) ────────────────
@@ -119,6 +122,13 @@ class CourseDetailOut(BaseModel):
     enrolled: bool
     completed: bool
     modules: list[ModuleLockOut]
+    image_url: str | None = None
+    outcomes: list[str] = []
+    level: str | None = None
+    track: str | None = None
+    instructor_name: str | None = None
+    instructor_title: str | None = None
+    instructor_photo_url: str | None = None
 
 
 # ── enrollment ──────────────────────────────────────────────────────────────

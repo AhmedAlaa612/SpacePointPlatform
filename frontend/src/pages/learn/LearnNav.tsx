@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Home, BookOpen, GraduationCap, Target, Trophy, Award, Bell, LogOut,
+  Home, BookOpen, GraduationCap, Bell, LogOut,
 } from "lucide-react";
 import { DomainIcon } from "@/components/ui/DomainIcon";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
@@ -19,13 +19,6 @@ const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: typeof 
   { key: "home", label: "Home", to: "/learn", icon: Home },
   { key: "catalog", label: "Catalog", to: "/learn/catalog", icon: BookOpen },
   { key: "my-courses", label: "My Courses", to: "/learn/my-courses", icon: GraduationCap },
-];
-
-// Phase 2, pre-placed so nothing reflows when they ship (design 1b).
-const PHASE2_ITEMS: { label: string; icon: typeof Target }[] = [
-  { label: "Missions", icon: Target },
-  { label: "Leaderboard", icon: Trophy },
-  { label: "Certificates", icon: Award },
 ];
 
 /** Horizontal nav for LearnShell (design 1b) — can't reuse Sidebar.tsx (D1:
@@ -58,23 +51,6 @@ export function LearnNav({ active }: { active: LearnNavActive }) {
                   <Icon className="h-[19px] w-[19px] shrink-0" />
                   {item.label}
                 </Link>
-              );
-            })}
-
-            <div className="mx-2 h-6 w-px bg-border" />
-
-            {PHASE2_ITEMS.map((item) => {
-              const Icon = item.icon;
-              return (
-                <div
-                  key={item.label}
-                  title={`${item.label} — coming in Phase 2`}
-                  className="flex items-center gap-2 rounded-xl px-3.5 h-10 text-sm font-medium text-muted-foreground opacity-55 cursor-default select-none"
-                >
-                  <Icon className="h-[19px] w-[19px] shrink-0" />
-                  {item.label}
-                  <div className="h-[5px] w-[5px] rounded-full bg-primary/75" />
-                </div>
               );
             })}
           </nav>

@@ -11,8 +11,9 @@ This is also the API LM1-9's bulk-import script drives.
 """
 
 import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,8 +40,31 @@ from app.schemas.lms_admin import (
     ModuleCreate,
     ModuleUpdate,
 )
+from app.services import storage
 
 router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
+
+COURSE_IMAGE_BUCKET = "lms-course-images"
+MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8MB — a cover image, not a dataset
+
+
+async def _course_admin_out(db: AsyncSession, course: Course) -> CourseAdminOut:
+    """`CourseAdminOut` carries two derived fields (`image_url`,
+    `instructor_name`) that aren't real columns on `Course` — Pydantic's
+    `from_attributes` can't resolve those from the bare ORM object, so every
+    course-returning endpoint goes through this instead of `return course`."""
+    image_url = await storage.resolve_url(course.image_bucket, course.image_path)
+    instructor_name = None
+    if course.instructor_id:
+        instructor = await db.get(User, course.instructor_id)
+        instructor_name = instructor.full_name if instructor else None
+    return CourseAdminOut(
+        id=course.id, title=course.title, description=course.description, kind=course.kind,
+        is_published=course.is_published, created_by=course.created_by, created_at=course.created_at,
+        image_url=image_url, outcomes=course.outcomes or [], level=course.level, track=course.track,
+        instructor_id=course.instructor_id, instructor_name=instructor_name,
+        instructor_title=course.instructor_title,
+    )
 
 _CONTENT_MODEL = {
     "text": AdminContentText,
@@ -75,13 +99,20 @@ async def _validated_content(db: AsyncSession, *, kind: str, module_id: uuid.UUI
 
 # ── courses ──────────────────────────────────────────────────────────────────
 
+async def _check_instructor(db: AsyncSession, instructor_id: uuid.UUID | None) -> None:
+    if instructor_id is None:
+        return
+    if await db.get(User, instructor_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instructor not found")
+
+
 @router.get("/courses", response_model=list[CourseAdminOut])
 async def list_courses(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_lms_content),
 ):
     rows = (await db.execute(select(Course).order_by(Course.created_at.desc()))).scalars().all()
-    return rows
+    return [await _course_admin_out(db, c) for c in rows]
 
 
 @router.post("/courses", response_model=CourseAdminOut, status_code=status.HTTP_201_CREATED)
@@ -90,11 +121,12 @@ async def create_course(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
+    await _check_instructor(db, body.instructor_id)
     course = Course(id=uuid.uuid4(), created_by=current.id, **body.model_dump())
     db.add(course)
     await db.commit()
     await db.refresh(course)
-    return course
+    return await _course_admin_out(db, course)
 
 
 @router.get("/courses/{course_id}", response_model=CourseAdminOut)
@@ -106,7 +138,7 @@ async def get_course(
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-    return course
+    return await _course_admin_out(db, course)
 
 
 @router.patch("/courses/{course_id}", response_model=CourseAdminOut)
@@ -119,11 +151,14 @@ async def update_course(
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    if "instructor_id" in changes:
+        await _check_instructor(db, changes["instructor_id"])
+    for field, value in changes.items():
         setattr(course, field, value)
     await db.commit()
     await db.refresh(course)
-    return course
+    return await _course_admin_out(db, course)
 
 
 @router.post("/courses/{course_id}/publish", response_model=CourseAdminOut)
@@ -138,7 +173,7 @@ async def publish_course(
     course.is_published = True
     await db.commit()
     await db.refresh(course)
-    return course
+    return await _course_admin_out(db, course)
 
 
 @router.post("/courses/{course_id}/unpublish", response_model=CourseAdminOut)
@@ -153,7 +188,35 @@ async def unpublish_course(
     course.is_published = False
     await db.commit()
     await db.refresh(course)
-    return course
+    return await _course_admin_out(db, course)
+
+
+@router.post("/courses/{course_id}/image", response_model=CourseAdminOut)
+async def upload_course_image(
+    course_id: uuid.UUID,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Empty upload")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image exceeds the 8MB limit")
+
+    suffix = Path(file.filename or "cover.jpg").suffix or ".jpg"
+    path = f"{course_id}/cover{suffix}"
+    await storage.upload_to_path(COURSE_IMAGE_BUCKET, path, data, file.content_type or "image/jpeg")
+
+    course.image_bucket = COURSE_IMAGE_BUCKET
+    course.image_path = path
+    await db.commit()
+    await db.refresh(course)
+    return await _course_admin_out(db, course)
 
 
 @router.delete("/courses/{course_id}", status_code=status.HTTP_204_NO_CONTENT)

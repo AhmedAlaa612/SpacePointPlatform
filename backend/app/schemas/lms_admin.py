@@ -61,16 +61,29 @@ AdminModuleContent = Union[AdminContentQuiz, AdminContentFlashcards, AdminConten
 
 # ── courses ──────────────────────────────────────────────────────────────────
 
+CourseLevel = Literal["beginner", "intermediate", "advanced"]
+
+
 class CourseCreate(BaseModel):
     title: str
     description: str | None = None
     kind: Literal["course", "mission"] = "course"
+    outcomes: list[str] = Field(default_factory=list)
+    level: CourseLevel | None = None
+    track: str | None = None
+    instructor_id: UUID | None = None
+    instructor_title: str | None = None
 
 
 class CourseUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     kind: Literal["course", "mission"] | None = None
+    outcomes: list[str] | None = None
+    level: CourseLevel | None = None
+    track: str | None = None
+    instructor_id: UUID | None = None
+    instructor_title: str | None = None
 
 
 class CourseAdminOut(BaseModel):
@@ -82,6 +95,13 @@ class CourseAdminOut(BaseModel):
     is_published: bool
     created_by: UUID
     created_at: datetime | None
+    image_url: str | None = None
+    outcomes: list[str] = Field(default_factory=list)
+    level: str | None = None
+    track: str | None = None
+    instructor_id: UUID | None = None
+    instructor_name: str | None = None
+    instructor_title: str | None = None
 
 
 # ── modules ──────────────────────────────────────────────────────────────────

@@ -47,6 +47,7 @@ from app.services.lms import (
     unlock_state,
 )
 from app.services.lms.dashboard import my_courses_dashboard
+from app.services import storage
 
 router = APIRouter(prefix="/lms", tags=["lms"])
 
@@ -99,7 +100,14 @@ async def catalog(
         .where(Course.is_published.is_(True))
         .order_by(Course.title)
     )).scalars().all()
-    return [CourseCatalogOut(id=c.id, title=c.title, description=c.description, kind=c.kind) for c in rows]
+    return [
+        CourseCatalogOut(
+            id=c.id, title=c.title, description=c.description, kind=c.kind,
+            image_url=await storage.resolve_url(c.image_bucket, c.image_path),
+            level=c.level, track=c.track,
+        )
+        for c in rows
+    ]
 
 
 @router.get("/courses/{course_id}", response_model=CourseDetailOut)
@@ -127,6 +135,13 @@ async def course_detail(
     locks = await unlock_state(db, user_id=current.id, course_id=course.id)
     completion = await course_completion(db, user_id=current.id, course_id=course.id)
 
+    instructor_name = instructor_photo_url = None
+    if course.instructor_id:
+        instructor = await db.get(User, course.instructor_id)
+        if instructor:
+            instructor_name = instructor.full_name
+            instructor_photo_url = instructor.photo_url
+
     return CourseDetailOut(
         id=course.id,
         title=course.title,
@@ -134,6 +149,13 @@ async def course_detail(
         kind=course.kind,
         enrolled=enrolled_row is not None,
         completed=completion["completed"],
+        image_url=await storage.resolve_url(course.image_bucket, course.image_path),
+        outcomes=course.outcomes or [],
+        level=course.level,
+        track=course.track,
+        instructor_name=instructor_name,
+        instructor_title=course.instructor_title,
+        instructor_photo_url=instructor_photo_url,
         modules=[
             ModuleLockOut(
                 module_id=row["module_id"],

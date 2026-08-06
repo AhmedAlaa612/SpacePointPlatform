@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Award, PlayCircle } from "lucide-react";
+import { ArrowRight, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchCatalog, fetchMyCourses, fetchUpcomingPrograms } from "@/api/lms";
@@ -24,10 +24,6 @@ export default function LearnLanding() {
     <div className="mx-auto max-w-[1320px] px-5 sm:px-8 lg:px-14 py-10 sm:py-14 flex flex-col gap-12 sm:gap-14">
       <div className="grid lg:grid-cols-[1.05fr_.95fr] gap-10 items-center">
         <div className="flex flex-col gap-5">
-          <div className="flex items-center gap-2 w-fit px-3 py-1.5 rounded-full bg-primary/8 ring-1 ring-primary/25">
-            <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-primary">SpacePoint Learn</span>
-          </div>
           <h1 className="font-display text-4xl sm:text-5xl font-extrabold tracking-tight leading-[1.05]">
             Build satellites.<br />Start with one module.
           </h1>
@@ -111,35 +107,24 @@ export default function LearnLanding() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-[1.4fr_1fr] gap-4">
-        <Card className="p-5 sm:p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-display text-lg font-bold">Upcoming programs</h3>
-            <button
-              onClick={() => void navigate({ to: "/learn/catalog", search: { tab: "programs" } as never })}
-              className="text-sm font-medium text-primary hover:opacity-80 cursor-pointer"
-            >
-              View all
-            </button>
+      <Card className="p-5 sm:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-display text-lg font-bold">Upcoming programs</h3>
+          <button
+            onClick={() => void navigate({ to: "/learn/catalog", search: { tab: "programs" } as never })}
+            className="text-sm font-medium text-primary hover:opacity-80 cursor-pointer"
+          >
+            View all
+          </button>
+        </div>
+        {upcoming.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No public programs open right now.</p>
+        ) : (
+          <div className="flex flex-col">
+            {upcoming.map((p) => <UpcomingProgramRow key={p.cohort_id} program={p} />)}
           </div>
-          {upcoming.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No public programs open right now.</p>
-          ) : (
-            <div className="flex flex-col">
-              {upcoming.map((p) => <UpcomingProgramRow key={p.cohort_id} program={p} />)}
-            </div>
-          )}
-        </Card>
-        <Card className="p-5 sm:p-6 items-start gap-3">
-          <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
-            <Award className="size-5" />
-          </div>
-          <h3 className="font-display text-lg font-bold">Finish a course, earn a certificate</h3>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            Coming soon — every completed course will issue a verifiable certificate.
-          </p>
-        </Card>
-      </div>
+        )}
+      </Card>
     </div>
   );
 }
