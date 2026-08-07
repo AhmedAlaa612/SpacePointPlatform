@@ -9,6 +9,7 @@ from arq import cron
 
 from app.workers.heartbeat import heartbeat
 from app.workers.settings import redis_settings
+from app.workers.tasks.cohort_interest import send_cohort_interest_notifications
 from app.workers.tasks.imports import send_import_batch_emails
 from app.workers.tasks.inventory import send_inventory_reminders
 from app.workers.tasks.lms import sync_import_batch_lms_accounts, transcode_lms_video
@@ -26,6 +27,7 @@ class WorkerSettings:
         send_inventory_reminders,
         transcode_lms_video,
         sync_import_batch_lms_accounts,
+        send_cohort_interest_notifications,
     ]
     cron_jobs = [
         cron(heartbeat, minute=set(range(0, 60, 5)), run_at_startup=True),

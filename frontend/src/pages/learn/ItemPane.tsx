@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CheckCircle2, ChevronRight, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,6 +30,7 @@ export function ItemPane({
   if (item.kind === "flashcards" && "cards" in item.content) {
     return (
       <FlashcardsBlock
+        key={item.id}
         title={item.content.title}
         cards={item.content.cards}
         onDone={() => recordProgress(item.id, "flashcards-skipped").finally(onProgressed)}
@@ -44,9 +45,17 @@ export function ItemPane({
   return null;
 }
 
+function readingMinutes(body: string): number {
+  const words = body.trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.round(words / 200));
+}
+
 function TextBlock({ body, onContinue }: { body: string; onContinue: () => void }) {
   return (
     <div>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-2.5">
+        Reading · {readingMinutes(body)} min
+      </p>
       <div className="p-5 rounded-2xl ring-1 ring-border bg-card/60 whitespace-pre-wrap text-sm leading-relaxed">
         {body}
       </div>
@@ -60,10 +69,30 @@ function TextBlock({ body, onContinue }: { body: string; onContinue: () => void 
 function FlashcardsBlock({
   title, cards, onDone,
 }: { title: string | null; cards: { term: string; definition: string }[]; onDone: () => void }) {
-  const [i, setI] = useState(0);
+  const [queue, setQueue] = useState(cards);
+  const [doneCount, setDoneCount] = useState(0);
   const [revealed, setRevealed] = useState(false);
-  const card = cards[i];
-  const isLast = i === cards.length - 1;
+  const total = cards.length;
+
+  // A card that's "still learning" gets requeued rather than skipped, so the
+  // deck only finishes once every card has been marked "got it" at least once.
+  useEffect(() => {
+    if (queue.length === 0) onDone();
+  }, [queue, onDone]);
+
+  const card = queue[0];
+  if (!card) return null;
+
+  const stillLearning = () => {
+    setRevealed(false);
+    setQueue((prev) => [...prev.slice(1), prev[0]]);
+  };
+
+  const gotIt = () => {
+    setRevealed(false);
+    setDoneCount((n) => n + 1);
+    setQueue((prev) => prev.slice(1));
+  };
 
   return (
     <div>
@@ -75,21 +104,35 @@ function FlashcardsBlock({
         <span className="font-display text-lg font-medium">{revealed ? card.definition : card.term}</span>
       </button>
       <p className="mt-2.5 text-center text-xs text-muted-foreground">
-        {revealed ? "Tap to see the term" : "Tap to reveal"} · {i + 1}/{cards.length}
+        {revealed ? "Tap to see the term" : "Tap to reveal"} · {doneCount}/{total} · {total - doneCount} to go
       </p>
       <div className="mt-5 flex gap-2">
-        <Button size="xl" variant="outline" onClick={onDone}>Skip</Button>
-        <Button
-          size="xl"
-          className="flex-1"
-          onClick={() => {
-            setRevealed(false);
-            if (isLast) onDone();
-            else setI((n) => n + 1);
-          }}
-        >
-          {isLast ? "Finish" : "Next"}
+        <Button size="xl" variant="outline" className="flex-1" onClick={stillLearning}>
+          Still learning
         </Button>
+        <Button size="xl" className="flex-1" onClick={gotIt}>
+          <CheckCircle2 className="size-4" /> Got it
+        </Button>
+      </div>
+      <button
+        onClick={onDone}
+        className="mt-3 mx-auto block text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+      >
+        Skip deck
+      </button>
+    </div>
+  );
+}
+
+function ScoreRing({ score }: { score: number }) {
+  const pct = Math.max(0, Math.min(100, score));
+  return (
+    <div
+      className="relative w-[74px] h-[74px] shrink-0 rounded-full flex items-center justify-center"
+      style={{ background: `conic-gradient(hsl(var(--primary)) 0% ${pct}%, hsl(var(--muted)) ${pct}% 100%)` }}
+    >
+      <div className="w-[58px] h-[58px] rounded-full bg-background flex flex-col items-center justify-center">
+        <span className="font-display text-lg font-bold leading-none">{Math.round(pct)}%</span>
       </div>
     </div>
   );
@@ -124,10 +167,27 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
   };
 
   return (
-    <div className="flex flex-col gap-4">
-      {passThreshold > 0 && (
+    <div className="flex flex-col gap-5">
+      {review && (
+        <div className="flex items-center gap-4 p-4 rounded-2xl ring-1 ring-border bg-card/60">
+          <ScoreRing score={review.score} />
+          <div className="min-w-0">
+            <p className={`text-[11px] font-semibold uppercase tracking-wide flex items-center gap-1.5 ${review.passed ? "text-emerald-500" : "text-destructive"}`}>
+              {review.passed ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}
+              {review.passed ? "Passed" : "Not yet"}
+              {passThreshold > 0 && ` · ${passThreshold}% needed`}
+            </p>
+            <p className="font-display text-lg font-bold mt-1">
+              {review.passed ? "Check complete" : `Score ${review.score}%`}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {!review && passThreshold > 0 && (
         <p className="text-xs text-muted-foreground">Passing score: {passThreshold}%</p>
       )}
+
       {questions.map((q, qi) => (
         <div key={qi} className="p-4 rounded-2xl ring-1 ring-border bg-card/60">
           <p className="font-medium text-sm mb-3">{q.prompt}</p>
@@ -155,23 +215,26 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
               );
             })}
           </div>
+          {review && (
+            <p className={`mt-2 text-xs ${review.questions[qi].correct ? "text-emerald-500" : "text-destructive"}`}>
+              {review.questions[qi].correct
+                ? `Your answer: ${q.options[review.questions[qi].selected]?.text ?? ""} ✓`
+                : `You said: ${q.options[review.questions[qi].selected]?.text ?? ""}${review.questions[qi].correct_text ? ` · Correct: ${review.questions[qi].correct_text}` : ""}`}
+            </p>
+          )}
           {review && !review.questions[qi].correct && review.questions[qi].explanation && (
-            <p className="mt-2 text-xs text-muted-foreground">{review.questions[qi].explanation}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{review.questions[qi].explanation}</p>
           )}
         </div>
       ))}
 
-      {review ? (
-        <div>
-          <p className={`text-sm font-medium mb-3 ${review.passed ? "text-emerald-500" : "text-destructive"}`}>
-            {review.passed ? `Passed — ${review.score}%` : `Score ${review.score}% — try again`}
-          </p>
-          {!review.passed && <Button size="xl" onClick={retry}>Retry</Button>}
-        </div>
-      ) : (
+      {!review && (
         <Button size="xl" onClick={() => void handleSubmit()} disabled={!allAnswered || submitting} className="w-fit">
           {submitting ? "Submitting..." : "Submit"}
         </Button>
+      )}
+      {review && !review.passed && (
+        <Button size="xl" onClick={retry} className="w-fit">Retry</Button>
       )}
     </div>
   );

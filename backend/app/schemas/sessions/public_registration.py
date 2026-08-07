@@ -35,3 +35,13 @@ class PublicRegistrationRequest(BaseModel):
     # Honeypot — real users never see or fill this field. A bot that fills
     # every field on the form will fill this one too.
     website: str = ""
+
+
+class PublicInterestRequest(BaseModel):
+    """"Notify me" — a lighter cousin of PublicRegistrationRequest for a
+    `planned` cohort. No parent/guardian, no session_ids (nothing to book
+    into yet), same honeypot posture."""
+    student_name: str
+    email: EmailStr
+    phone: str
+    website: str = ""

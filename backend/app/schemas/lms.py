@@ -227,6 +227,7 @@ class QuizReviewItemOut(BaseModel):
     selected: int
     correct: bool
     explanation: str | None = None
+    correct_text: str | None = None
 
 
 class QuizReviewOut(BaseModel):

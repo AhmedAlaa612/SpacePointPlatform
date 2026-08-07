@@ -224,9 +224,13 @@ async def update_cohort(
     body: CohortUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     """Covers open/close registration too — just set `status` (planned|
-    registration_open|running|completed|cancelled)."""
+    registration_open|running|completed|cancelled). A planned->registration_open
+    transition also notifies everyone who registered interest (2026-08-07,
+    cohort_interest) — the "we said we'd tell you" half of the Notify-me /
+    Register-now pair."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
@@ -237,10 +241,15 @@ async def update_cohort(
     if changes.get("warehouse_id") and await db.get(Warehouse, changes["warehouse_id"]) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
 
+    was_planned = cohort.status == "planned"
     for field, value in changes.items():
         setattr(cohort, field, value)
     await db.commit()
     await db.refresh(cohort)
+
+    if was_planned and cohort.status == "registration_open":
+        await safe_enqueue(arq_redis, "send_cohort_interest_notifications", str(cohort.id))
+
     program = await db.get(Program, cohort.program_id)
     location = await db.get(Location, cohort.location_id) if cohort.location_id else None
     return await _cohort_out(db, cohort, program.name if program else None, program.code if program else None, location)

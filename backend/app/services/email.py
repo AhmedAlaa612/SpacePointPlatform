@@ -263,6 +263,19 @@ async def send_call_invite_email(
     return await try_send_email(to_email, f"You're invited: {program_name}", body)
 
 
+async def send_cohort_interest_notification_email(to_email: str, name: str, program_name: str) -> bool:
+    """Sent to everyone in `cohort_interest` for a cohort the moment ops
+    flips its status from `planned` to `registration_open` (2026-08-07) —
+    the "we said we'd tell you" half of the Notify-me / Register-now pair."""
+    body = (
+        f"Hi {name},\n\n"
+        f"Registration is now open for \"{program_name}\" — you asked to be notified when it did.\n\n"
+        f"Register here: {settings.FRONTEND_URL}/learn/catalog?tab=programs\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, f"Registration is open: {program_name}", body)
+
+
 async def send_recommendation_letter_email(to_email: str, name: str) -> bool:
     body = (
         f"Hi {name},\n\n"

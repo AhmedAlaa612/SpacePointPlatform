@@ -1,5 +1,6 @@
 from app.models.sessions.program import Program
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.cohort_interest import CohortInterest
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.opening import SessionAddon, SessionOpening
@@ -16,6 +17,7 @@ from app.models.sessions.session_call import SessionCall
 __all__ = [
     "Program",
     "Cohort",
+    "CohortInterest",
     "Session",
     "SessionInstructor",
     "DeliveryRole",

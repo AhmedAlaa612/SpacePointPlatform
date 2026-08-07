@@ -7,11 +7,17 @@ form at each one. Never exposes anything beyond what's already public-facing
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time
 from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel
+
+
+class CatalogSessionOut(BaseModel):
+    meeting_date: date
+    starts_at: Optional[time] = None
+    title: Optional[str] = None
 
 
 class CatalogCohortOut(BaseModel):
@@ -25,6 +31,7 @@ class CatalogCohortOut(BaseModel):
     # "Free" or "AED 250" — pre-formatted so the website doesn't need its own
     # pricing_model/price branching logic duplicated from Programs.tsx.
     price_display: str
+    capacity: Optional[int] = None
     # None = uncapped cohort, no spots-left concept. Never negative — clamped
     # at 0 if active registrations have (somehow) reached/exceeded capacity.
     spots_left: Optional[int] = None
@@ -32,6 +39,15 @@ class CatalogCohortOut(BaseModel):
     is_limited: bool = False
     # Where the website's own registration form should POST to (V2 R1-5).
     registration_endpoint: str
+
+    # ── 2026-08-07: planned vs registration_open dual CTA + rich cards ──────
+    # planned|registration_open — drives which CTA the card shows.
+    status: str
+    # POST target for "Notify me" (status == planned only).
+    interest_endpoint: str
+    sessions: list[CatalogSessionOut] = []
+    instructors: list[str] = []
+    curriculum_titles: list[str] = []
 
 
 class PublicTicketOut(BaseModel):

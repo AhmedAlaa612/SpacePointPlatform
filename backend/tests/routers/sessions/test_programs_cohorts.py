@@ -189,6 +189,41 @@ async def test_update_cohort_opens_registration(db, client, operations_headers):
 
 
 @pytest.mark.asyncio
+async def test_update_cohort_planned_to_open_enqueues_interest_notifications(
+    db, arq_client, arq_redis, operations_headers,
+):
+    """2026-08-07: opening registration on a cohort that was `planned` must
+    notify everyone who registered interest — but only on that specific
+    transition, not every PATCH that happens to touch a `planned` cohort."""
+    program = await _make_program(db)
+    cohort = await _make_cohort(db, program, status="planned")
+
+    resp = await arq_client.patch(
+        f"/sessions/cohorts/{cohort.id}", json={"status": "registration_open"}, headers=operations_headers,
+    )
+    assert resp.status_code == 200
+    queued = await arq_redis.zrange("arq:queue", 0, -1)
+    assert len(queued) == 1
+
+
+@pytest.mark.asyncio
+async def test_update_cohort_other_status_changes_dont_enqueue_notifications(
+    db, arq_client, arq_redis, operations_headers,
+):
+    program = await _make_program(db)
+    cohort = await _make_cohort(db, program, status="registration_open")
+
+    # Already open -> running is a real transition, just not the one that
+    # should trigger a "registration is now open" email.
+    resp = await arq_client.patch(
+        f"/sessions/cohorts/{cohort.id}", json={"status": "running"}, headers=operations_headers,
+    )
+    assert resp.status_code == 200
+    queued = await arq_redis.zrange("arq:queue", 0, -1)
+    assert len(queued) == 0
+
+
+@pytest.mark.asyncio
 async def test_list_cohorts_includes_operational_counts(db, client, operations_headers):
     """The cohorts worklist needs these to answer "what needs attention"
     without one request per cohort. Correlated subqueries, so sessions and

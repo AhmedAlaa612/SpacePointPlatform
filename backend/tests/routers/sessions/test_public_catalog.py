@@ -88,17 +88,28 @@ async def test_catalog_lists_open_public_cohort_with_program_fields(db, client):
 
 
 @pytest.mark.asyncio
-async def test_catalog_excludes_non_open_and_private_cohorts(db, client):
+async def test_catalog_includes_planned_excludes_private_and_closed_cohorts(db, client):
+    """2026-08-07: `planned` cohorts are now included (the planned/
+    registration_open dual CTA — "Notify me" vs "Register now") — this test
+    used to pin the opposite (planned excluded), a deliberate, requested
+    change to the contract, not a regression. Private and cohorts past
+    registration (running/completed/cancelled) still aren't public catalog
+    material either way."""
     program = await _make_program(db)
     planned = await _make_cohort(db, program, name="Planned", status="planned")
     private = await _make_cohort(db, program, name="Private", visibility="private")
+    running = await _make_cohort(db, program, name="Running", status="running")
     open_public = await _make_cohort(db, program, name="Open Public")
 
     resp = await client.get("/public/catalog")
-    ids = {i["cohort_id"] for i in resp.json()}
-    assert str(planned.id) not in ids
-    assert str(private.id) not in ids
-    assert str(open_public.id) in ids
+    items = {i["cohort_id"]: i for i in resp.json()}
+    assert str(planned.id) in items
+    assert items[str(planned.id)]["status"] == "planned"
+    assert items[str(planned.id)]["interest_endpoint"] == f"/public/interest/{planned.id}"
+    assert str(private.id) not in items
+    assert str(running.id) not in items
+    assert str(open_public.id) in items
+    assert items[str(open_public.id)]["status"] == "registration_open"
 
 
 @pytest.mark.asyncio

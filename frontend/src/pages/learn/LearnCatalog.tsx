@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, CheckCircle2 } from "lucide-react";
+import { BookOpen, CheckCircle2, Search, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchCatalog, fetchMyCourses, fetchUpcomingPrograms } from "@/api/lms";
@@ -10,16 +10,27 @@ import { CourseProgress } from "./CourseProgress";
 
 /** /learn/catalog (design 1d/1e) — three tabs behind one route, so the API
  * contract and the URL both stay single. "Upcoming programs" is /public/catalog
- * (public + registration_open — exactly "public and upcoming"), no LMS-specific
- * backend needed. */
+ * (public cohorts, both `planned` and `registration_open` as of 2026-08-07 —
+ * the dual "Notify me" / "Register now" CTA), no LMS-specific backend needed. */
 export default function LearnCatalog() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<"courses" | "programs" | "enrolled">(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
     return t === "programs" || t === "enrolled" ? t : "courses";
   });
+  const [searchInput, setSearchInput] = useState(() => new URLSearchParams(window.location.search).get("q") ?? "");
+  const [search, setSearch] = useState(searchInput);
 
-  const { data: catalog, isLoading: catalogLoading } = useQuery({ queryKey: ["lms-catalog"], queryFn: fetchCatalog });
+  // Debounced so a search-as-you-type doesn't fire a request per keystroke.
+  useEffect(() => {
+    const id = setTimeout(() => setSearch(searchInput), 300);
+    return () => clearTimeout(id);
+  }, [searchInput]);
+
+  const { data: catalog, isLoading: catalogLoading } = useQuery({
+    queryKey: ["lms-catalog", search],
+    queryFn: () => fetchCatalog(search || undefined),
+  });
   const { data: programs, isLoading: programsLoading } = useQuery({ queryKey: ["lms-upcoming-programs"], queryFn: fetchUpcomingPrograms });
   const { data: dashboard, isLoading: dashboardLoading } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses });
 
@@ -40,8 +51,29 @@ export default function LearnCatalog() {
         </TabsList>
 
         <TabsContent value="courses">
+          <div className="relative max-w-sm mb-4">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+            <input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search courses..."
+              className="w-full h-10 pl-9 pr-9 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+            {searchInput && (
+              <button
+                onClick={() => setSearchInput("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
           {catalogLoading && <p className="text-sm text-muted-foreground">Loading...</p>}
-          {catalog && catalog.length === 0 && <p className="text-sm text-muted-foreground">No courses are published yet.</p>}
+          {catalog && catalog.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              {search ? `No courses match "${search}".` : "No courses are published yet."}
+            </p>
+          )}
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {catalog?.map((course) => {
               const enrolled = enrolledIds.has(course.id);

@@ -77,6 +77,7 @@ export interface QuizReviewQuestion {
   selected: number;
   correct: boolean;
   explanation: string | null;
+  correct_text: string | null;
 }
 
 export interface QuizReview {
@@ -156,8 +157,14 @@ export async function fetchMyCourses(): Promise<MyCourses> {
 }
 
 // ── upcoming public programs (reuses /public/catalog — no LMS-specific
-// backend needed; "public" + "registration_open" is exactly "public and
-// upcoming") ─────────────────────────────────────────────────────────────
+// backend needed). Includes both `planned` (not yet open — "Notify me") and
+// `registration_open` ("Register now") public cohorts as of 2026-08-07. ───
+
+export interface UpcomingProgramSession {
+  meeting_date: string;
+  starts_at: string | null;
+  title: string | null;
+}
 
 export interface UpcomingProgram {
   cohort_id: string;
@@ -168,9 +175,15 @@ export interface UpcomingProgram {
   ends_on: string | null;
   location: string | null;
   price_display: string;
+  capacity: number | null;
   spots_left: number | null;
   is_limited: boolean;
   registration_endpoint: string;
+  status: "planned" | "registration_open";
+  interest_endpoint: string;
+  sessions: UpcomingProgramSession[];
+  instructors: string[];
+  curriculum_titles: string[];
 }
 
 export async function fetchUpcomingPrograms(): Promise<UpcomingProgram[]> {
@@ -178,8 +191,24 @@ export async function fetchUpcomingPrograms(): Promise<UpcomingProgram[]> {
   return data;
 }
 
-export async function fetchCatalog(): Promise<CourseCatalogItem[]> {
-  const { data } = await api.get<CourseCatalogItem[]>("/lms/catalog");
+export interface PublicLeadInput {
+  student_name: string;
+  email: string;
+  phone: string;
+}
+
+export async function submitProgramRegistration(endpoint: string, body: PublicLeadInput): Promise<{ message: string }> {
+  const { data } = await api.post<{ message: string }>(endpoint, body);
+  return data;
+}
+
+export async function submitProgramInterest(endpoint: string, body: PublicLeadInput): Promise<{ message: string }> {
+  const { data } = await api.post<{ message: string }>(endpoint, body);
+  return data;
+}
+
+export async function fetchCatalog(q?: string): Promise<CourseCatalogItem[]> {
+  const { data } = await api.get<CourseCatalogItem[]>("/lms/catalog", { params: q ? { q } : undefined });
   return data;
 }
 

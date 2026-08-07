@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Home, BookOpen, GraduationCap, Bell, LogOut,
+  Home, BookOpen, GraduationCap, Bell, LogOut, Search,
 } from "lucide-react";
 import { DomainIcon } from "@/components/ui/DomainIcon";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
@@ -56,6 +56,7 @@ export function LearnNav({ active }: { active: LearnNavActive }) {
           </nav>
 
           <div className="ml-auto flex items-center gap-1.5">
+            <LearnNavSearch />
             <ThemeToggle />
             <LearnNotificationsBell />
             <LearnProfileMenu />
@@ -65,6 +66,48 @@ export function LearnNav({ active }: { active: LearnNavActive }) {
 
       <LearnMobileTabBar active={active} />
     </>
+  );
+}
+
+function LearnNavSearch() {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const submit = () => {
+    const q = value.trim();
+    void navigate({ to: "/learn/catalog", search: (q ? { tab: "courses", q } : { tab: "courses" }) as never });
+    setOpen(false);
+    setValue("");
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 0); }}
+        className="rounded-xl p-2.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground cursor-pointer"
+        aria-label="Search courses"
+      >
+        <Search size={19} />
+      </button>
+    );
+  }
+
+  return (
+    <div className="relative flex items-center">
+      <Search className="absolute left-3 size-4 text-muted-foreground pointer-events-none" />
+      <input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") setOpen(false); }}
+        onBlur={() => { if (!value) setOpen(false); }}
+        placeholder="Search courses..."
+        className="w-56 h-10 pl-9 pr-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+      />
+    </div>
   );
 }
 

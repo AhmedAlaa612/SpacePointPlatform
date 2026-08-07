@@ -15,7 +15,7 @@ leak guarantee a second time at the response boundary.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 # from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -97,14 +97,15 @@ async def _published_course(db: AsyncSession, course_id: uuid.UUID) -> Course:
 
 @router.get("/catalog", response_model=list[CourseCatalogOut])
 async def catalog(
+    q: str | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
-    rows = (await db.execute(
-        select(Course)
-        .where(Course.is_published.is_(True))
-        .order_by(Course.title)
-    )).scalars().all()
+    stmt = select(Course).where(Course.is_published.is_(True))
+    if q and q.strip():
+        pattern = f"%{q.strip()}%"
+        stmt = stmt.where(or_(Course.title.ilike(pattern), Course.description.ilike(pattern)))
+    rows = (await db.execute(stmt.order_by(Course.title))).scalars().all()
     return [
         CourseCatalogOut(
             id=c.id, title=c.title, description=c.description, kind=c.kind,

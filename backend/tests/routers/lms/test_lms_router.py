@@ -114,6 +114,25 @@ async def test_catalog_lists_only_published_courses(db, client):
 
 
 @pytest.mark.asyncio
+async def test_catalog_search_matches_title_or_description_case_insensitively(db, client):
+    author = await _user(db, roles=["operations"])
+    orbits = await _course(db, author=author, title="Orbital Mechanics", description="periapsis and apoapsis")
+    ground = await _course(db, author=author, title="Ground Station Basics", description="antennas")
+    student = await _user(db)
+
+    by_title = await client.get("/lms/catalog", headers=_headers(student), params={"q": "orbital"})
+    ids = [c["id"] for c in by_title.json()]
+    assert str(orbits.id) in ids and str(ground.id) not in ids
+
+    by_description = await client.get("/lms/catalog", headers=_headers(student), params={"q": "ANTENNAS"})
+    ids = [c["id"] for c in by_description.json()]
+    assert str(ground.id) in ids and str(orbits.id) not in ids
+
+    no_match = await client.get("/lms/catalog", headers=_headers(student), params={"q": "nonexistent term"})
+    assert no_match.json() == []
+
+
+@pytest.mark.asyncio
 async def test_unpublished_course_is_404_even_to_an_authenticated_user(db, client):
     author = await _user(db, roles=["operations"])
     draft = await _course(db, author=author, published=False)
@@ -281,6 +300,7 @@ async def test_quiz_submit_grades_server_side_and_requires_enrollment(db, client
     review = wrong.json()
     assert review["score"] == 0.0 and review["passed"] is False
     assert review["questions"][0]["correct"] is False
+    assert review["questions"][0]["correct_text"] == "4"
     assert review["questions"][0]["explanation"] == "Because addition."
 
     right = await client.post(

@@ -116,6 +116,12 @@ async def submit_quiz(
             "selected": answers[idx],
             "correct": bool((questions[idx].get("options") or [])[answers[idx]].get("is_correct")),
             "explanation": questions[idx].get("explanation"),
+            # Safe to reveal post-submit — same moment `explanation` already
+            # leaves the server (§2). Lets the review show "Your answer" vs
+            # "Correct" instead of just an explanation blurb.
+            "correct_text": next(
+                (o.get("text") for o in (questions[idx].get("options") or []) if o.get("is_correct")), None,
+            ),
         }
         for idx in range(len(questions))
     ]

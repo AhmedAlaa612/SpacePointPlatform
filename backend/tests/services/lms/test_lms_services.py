@@ -299,7 +299,7 @@ async def test_threshold_n_grades_against_the_authored_answers(db):
     assert result["passed"] is True
     assert result["score"] == 100.0
     assert result["questions"][0] == {
-        "prompt": "2+2?", "selected": 1, "correct": True, "explanation": "Addition.",
+        "prompt": "2+2?", "selected": 1, "correct": True, "explanation": "Addition.", "correct_text": "4",
     }
 
     fail = await submit_quiz(db, user_id=student.id, item_id=quiz.id, answers=[0, 1])
