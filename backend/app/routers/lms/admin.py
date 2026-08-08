@@ -372,6 +372,21 @@ async def reorder_modules(
     return rows
 
 
+@router.get("/modules/{module_id}", response_model=ModuleAdminOut)
+async def get_module(
+    module_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """The module-detail authoring page only has `module_id` in its URL (no
+    `course_id` alongside it) — it needs this to show/rename the module
+    itself, not just list the items inside it."""
+    module = await db.get(CourseModule, module_id)
+    if module is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Module not found")
+    return module
+
+
 @router.patch("/modules/{module_id}", response_model=ModuleAdminOut)
 async def update_module(
     module_id: uuid.UUID,

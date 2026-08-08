@@ -132,6 +132,8 @@ export const listInstructorOptionsApi = () =>
 
 export const listModulesApi = (courseId: string) =>
   api.get<AdminModule[]>(`/lms/admin/courses/${courseId}/modules`).then((r) => r.data);
+export const getModuleApi = (id: string) =>
+  api.get<AdminModule>(`/lms/admin/modules/${id}`).then((r) => r.data);
 export const createModuleApi = (courseId: string, data: { title: string; position?: number }) =>
   api.post<AdminModule>(`/lms/admin/courses/${courseId}/modules`, data).then((r) => r.data);
 export const updateModuleApi = (id: string, data: Partial<{ title: string; position: number }>) =>

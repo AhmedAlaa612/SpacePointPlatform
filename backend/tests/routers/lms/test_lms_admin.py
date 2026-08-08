@@ -162,6 +162,24 @@ async def test_module_create_auto_appends_position_and_rejects_conflicts(db, cli
     assert deleted.status_code == 204
 
 
+@pytest.mark.asyncio
+async def test_get_module_returns_it_and_404s_when_missing(db, client):
+    """(2026-08-09) — the module-detail authoring page only has module_id in
+    its URL, no course_id alongside it; it needs this to show/rename the
+    module itself, not just list the items inside it."""
+    ops = await _user(db)
+    course = await _course(db, author=ops)
+    module = await _module(db, course, position=1)
+    await db.commit()
+
+    resp = await client.get(f"/lms/admin/modules/{module.id}", headers=_headers(ops))
+    assert resp.status_code == 200
+    assert resp.json()["title"] == "M1"
+
+    missing = await client.get(f"/lms/admin/modules/{uuid.uuid4()}", headers=_headers(ops))
+    assert missing.status_code == http_status.HTTP_404_NOT_FOUND
+
+
 # ── items ────────────────────────────────────────────────────────────────────
 
 async def _module(db, course, position=1) -> CourseModule:

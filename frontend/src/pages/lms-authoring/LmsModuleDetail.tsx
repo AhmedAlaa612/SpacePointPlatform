@@ -2,7 +2,7 @@ import { useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import {
-  Plus, ArrowLeft, ArrowUp, ArrowDown, FileText, HelpCircle, Layers, Video as VideoIcon, Loader2,
+  Plus, Pencil, ArrowLeft, ArrowUp, ArrowDown, FileText, HelpCircle, Layers, Video as VideoIcon, Loader2,
   StickyNote, MessageCircleQuestion,
 } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
@@ -10,8 +10,10 @@ import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/compone
 import {
   listItemsApi, createItemApi, updateItemApi, deleteItemApi, uploadVideoApi, reorderItemsApi,
   listCheckpointsApi, createCheckpointApi, updateCheckpointApi, deleteCheckpointApi,
+  getModuleApi, updateModuleApi,
   type AdminItem, type ModuleItemKind, type AdminQuizQuestion, type VideoTranscodeStatus,
   type AdminCheckpoint, type CheckpointKind, type CheckpointQuestionType, type AdminQuizOption,
+  type AdminModule,
 } from "@/api/lms_admin"
 
 const KIND_ICON: Record<ModuleItemKind, React.ComponentType<{ size?: number; className?: string }>> = {
@@ -57,6 +59,12 @@ export default function LmsModuleDetail() {
   const [deleteTarget, setDeleteTarget] = useState<AdminItem | null>(null)
   const [uploadTarget, setUploadTarget] = useState<AdminItem | null>(null)
   const [checkpointTarget, setCheckpointTarget] = useState<AdminItem | null>(null)
+  const [editModuleOpen, setEditModuleOpen] = useState(false)
+
+  const { data: module } = useQuery<AdminModule>({
+    queryKey: ["lms-admin-module", moduleId],
+    queryFn: () => getModuleApi(moduleId),
+  })
 
   const { data: items = [], isLoading } = useQuery<AdminItem[]>({
     queryKey: ["lms-admin-items", moduleId],
@@ -102,10 +110,18 @@ export default function LmsModuleDetail() {
       </button>
 
       <PageHeader
-        title="Module items"
+        title={module ? module.title : "Module items"}
         subtitle="Add lessons in the order students should see them."
         action={
           <div className="flex gap-2">
+            {module && (
+              <button
+                onClick={() => setEditModuleOpen(true)}
+                className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors"
+              >
+                <Pencil size={12} /> Rename
+              </button>
+            )}
             {(["text", "flashcards", "quiz", "video"] as ModuleItemKind[]).map((kind) => (
               <button
                 key={kind}
@@ -204,6 +220,16 @@ export default function LmsModuleDetail() {
         </div>
       )}
 
+      {editModuleOpen && module && (
+        <EditModuleModal
+          module={module}
+          onClose={() => setEditModuleOpen(false)}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ["lms-admin-module", moduleId] })
+            setEditModuleOpen(false)
+          }}
+        />
+      )}
       {addKind && (
         <ItemEditorModal
           moduleId={moduleId}
@@ -239,6 +265,34 @@ export default function LmsModuleDetail() {
         />
       )}
     </div>
+  )
+}
+
+function EditModuleModal({ module, onClose, onSuccess }: {
+  module: AdminModule; onClose: () => void; onSuccess: () => void
+}) {
+  const [title, setTitle] = useState(module.title)
+  const [error, setError] = useState("")
+
+  const mutation = useMutation({
+    mutationFn: () => updateModuleApi(module.id, { title: title.trim() }),
+    onSuccess,
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to rename module"),
+  })
+
+  return (
+    <Modal title="Rename module" onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <Field label="Title">
+          <input
+            value={title} onChange={(e) => setTitle(e.target.value)} autoFocus
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+        </Field>
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <ModalActions onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} disabled={!title.trim()} label="Save" />
+      </div>
+    </Modal>
   )
 }
 
