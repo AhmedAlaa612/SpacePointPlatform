@@ -137,7 +137,19 @@ def _download_file(service, file_id: str, mime_type: str, dest: Path) -> None:
     buffer.close()
 
 
-def _walk_and_download(service, folder_id: str, dest: Path, *, dry_run: bool) -> None:
+def _name_is_wanted(name: str, only_files: set[str] | None) -> bool:
+    return only_files is None or name.strip().lower() in only_files
+
+
+def _walk_and_download(
+    service, folder_id: str, dest: Path, *, dry_run: bool, only_files: set[str] | None = None,
+) -> None:
+    """`only_files`, when given, is a set of exact (case-insensitive) file
+    names — everything else in the folder is skipped without downloading a
+    byte. Folders themselves are always traversed (the filter only applies
+    to files) since the point is finding specific files that might sit
+    alongside a lot of ones you don't want yet — e.g. one video + the
+    course's quiz spreadsheet, not the other 8 videos."""
     dest.mkdir(parents=True, exist_ok=True)
     for item in _list_children(service, folder_id):
         name = item["name"]
@@ -145,7 +157,11 @@ def _walk_and_download(service, folder_id: str, dest: Path, *, dry_run: bool) ->
         if mime_type == _FOLDER_MIME:
             print(f"[dir]  {dest / name}")
             if not dry_run:
-                _walk_and_download(service, item["id"], dest / name, dry_run=dry_run)
+                _walk_and_download(service, item["id"], dest / name, dry_run=dry_run, only_files=only_files)
+            continue
+
+        if not _name_is_wanted(name, only_files):
+            print(f"[skip] {dest / name} (not in --only-file list)")
             continue
 
         target = dest / name
@@ -171,6 +187,12 @@ def main() -> int:
     parser.add_argument("--dest", default="lms-drive-dump", help="Destination directory")
     parser.add_argument("--token-path", default=".lms_drive_token.json", help="Where to cache the refresh token")
     parser.add_argument("--dry-run", action="store_true", help="List what would be downloaded, don't fetch bytes")
+    parser.add_argument(
+        "--only-file", action="append", dest="only_files", default=None, metavar="NAME",
+        help="Download only files with this exact name (repeatable) — everything else in the "
+             "folder is skipped, no bytes pulled. E.g. one video + the quiz spreadsheet, not the "
+             "whole course, to go easy on a slow connection while testing.",
+    )
     args = parser.parse_args()
 
     try:
@@ -194,10 +216,14 @@ def main() -> int:
     creds = _get_credentials(credentials_path, Path(args.token_path))
     service = build("drive", "v3", credentials=creds)
 
+    only_files = {n.strip().lower() for n in args.only_files} if args.only_files else None
+
     dest = Path(args.dest)
     print(f"Drive folder ID: {folder_id}")
     print(f"Destination:     {dest.resolve()}")
-    _walk_and_download(service, folder_id, dest, dry_run=args.dry_run)
+    if only_files:
+        print(f"Only files:      {', '.join(sorted(only_files))}")
+    _walk_and_download(service, folder_id, dest, dry_run=args.dry_run, only_files=only_files)
     print("Done." if not args.dry_run else "Dry run complete — nothing downloaded.")
     return 0
 

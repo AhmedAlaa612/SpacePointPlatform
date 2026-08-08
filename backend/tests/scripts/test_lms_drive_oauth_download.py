@@ -6,7 +6,7 @@ isn't this codebase's to fake convincingly.
 
 import pytest
 
-from scripts.lms_drive_oauth_download import _extract_folder_id
+from scripts.lms_drive_oauth_download import _extract_folder_id, _name_is_wanted
 
 
 def test_extracts_id_from_a_full_share_link():
@@ -22,3 +22,14 @@ def test_accepts_a_bare_folder_id():
 def test_rejects_garbage_input():
     with pytest.raises(ValueError, match="Couldn't find a Drive folder ID"):
         _extract_folder_id("not-a-drive-link")
+
+
+def test_no_filter_wants_everything():
+    assert _name_is_wanted("9- Challenges and Future.mp4", None) is True
+
+
+def test_only_files_filter_is_case_insensitive_and_exact():
+    only = {"1- intro-1.mp4", "intro - content and questions"}
+    assert _name_is_wanted("1- Intro-1.mp4", only) is True
+    assert _name_is_wanted("Intro - Content and Questions", only) is True
+    assert _name_is_wanted("2- What is a satellite-2.mp4", only) is False
