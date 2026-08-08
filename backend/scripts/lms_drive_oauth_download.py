@@ -70,7 +70,13 @@ def _extract_folder_id(url_or_id: str) -> str:
     return match.group(0)
 
 
-def _get_credentials(credentials_path: Path, token_path: Path):
+def _get_credentials(credentials_path: Path | None, token_path: Path):
+    """`credentials_path` is only ever read on the *first* consent flow — a
+    cached token already carries its own client_id/secret (baked in by
+    `to_json()`), so a plain refresh needs nothing but the token file. That
+    matters on the VPS: copy over `token_path`'s file alone (no browser
+    there to complete a fresh consent) and this never touches
+    `credentials_path` at all, so it doesn't need to exist there."""
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
@@ -82,6 +88,13 @@ def _get_credentials(credentials_path: Path, token_path: Path):
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
+            if not credentials_path or not credentials_path.exists():
+                raise SystemExit(
+                    "error: no valid cached token at "
+                    f"{token_path} and --credentials wasn't given (or doesn't exist) — "
+                    "pass --credentials path/to/credentials.json for the first-time consent flow, "
+                    "or copy over an already-authorized token file instead."
+                )
             flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
             creds = flow.run_local_server(port=0)
         token_path.write_text(creds.to_json())
@@ -149,7 +162,12 @@ def _walk_and_download(service, folder_id: str, dest: Path, *, dry_run: bool) ->
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("SETUP")[0])
     parser.add_argument("folder", help="Drive folder URL or ID (must be visible to the OAuth account)")
-    parser.add_argument("--credentials", required=True, help="Path to the OAuth client JSON from Cloud Console")
+    parser.add_argument(
+        "--credentials", default=None,
+        help="Path to the OAuth client JSON from Cloud Console — only needed for the first-time "
+             "consent flow; not read at all once --token-path already has a valid cached token "
+             "(e.g. copied over from a machine that already did the consent flow)",
+    )
     parser.add_argument("--dest", default="lms-drive-dump", help="Destination directory")
     parser.add_argument("--token-path", default=".lms_drive_token.json", help="Where to cache the refresh token")
     parser.add_argument("--dry-run", action="store_true", help="List what would be downloaded, don't fetch bytes")
@@ -161,10 +179,7 @@ def main() -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    credentials_path = Path(args.credentials)
-    if not credentials_path.exists():
-        print(f"error: credentials file not found at {credentials_path}", file=sys.stderr)
-        return 1
+    credentials_path = Path(args.credentials) if args.credentials else None
 
     try:
         from googleapiclient.discovery import build
