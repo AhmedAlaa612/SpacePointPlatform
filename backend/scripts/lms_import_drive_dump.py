@@ -184,14 +184,22 @@ class Manifest:
         self.path.write_text(json.dumps(self.data, indent=2, sort_keys=True))
 
 
-def _import_course(client: LmsAdminClient, manifest: Manifest, course_dir: Path, *, dry_run: bool) -> None:
-    course_key = f"course:{course_dir.name}"
+def _import_course(
+    client: LmsAdminClient, manifest: Manifest, course_dir: Path, label: str, *, dry_run: bool,
+) -> None:
+    """`label` drives the course title and manifest keys — kept separate
+    from `course_dir` (where the files actually live on disk) so a folder
+    downloaded straight from a single course's Drive link (its contents
+    landing directly in `course_dir`, not nested one level down under a
+    "1- Introduction"-named subfolder) can still be imported correctly via
+    `--course-name`, without renaming anything on disk or re-downloading."""
+    course_key = f"course:{label}"
     course_id = manifest.get(course_key)
     if course_id:
-        print(f"[skip] course {course_dir.name!r} already imported ({course_id})")
+        print(f"[skip] course {label!r} already imported ({course_id})")
     else:
-        title = _clean_title(course_dir.name)
-        print(f"[new]  course {course_dir.name!r} -> {title!r}")
+        title = _clean_title(label)
+        print(f"[new]  course {label!r} -> {title!r}")
         if not dry_run:
             course_id = client.create_course(title)
             manifest.set(course_key, course_id)
@@ -205,10 +213,10 @@ def _import_course(client: LmsAdminClient, manifest: Manifest, course_dir: Path,
     xlsx_candidates = list(course_dir.glob("*.xlsx"))
     questions_by_video = _load_questions_by_video(xlsx_candidates[0]) if xlsx_candidates else {}
     if not xlsx_candidates:
-        print(f"  (no *.xlsx found in {course_dir.name} — modules will have a video but no quiz)")
+        print(f"  (no *.xlsx found in {course_dir} — modules will have a video but no quiz)")
 
     for position, video_path in enumerate(videos, start=1):
-        module_key = f"module:{course_dir.name}/{video_path.name}"
+        module_key = f"module:{label}/{video_path.name}"
         module_id = manifest.get(module_key)
         if module_id:
             print(f"  [skip] module {video_path.name!r} already imported ({module_id})")
@@ -248,6 +256,13 @@ def main() -> int:
     parser.add_argument("--email", default=os.environ.get("LMS_IMPORT_EMAIL"))
     parser.add_argument("--password", default=os.environ.get("LMS_IMPORT_PASSWORD"))
     parser.add_argument("--only", help="Import just one course folder by name (e.g. '1- Introduction')")
+    parser.add_argument(
+        "--course-name", metavar="NAME",
+        help="Treat dump_dir itself as ONE course (its videos/xlsx sit directly in dump_dir, not "
+             "nested under a course subfolder) — the case when you downloaded straight from a "
+             "single course's Drive link rather than the whole Drive root. NAME drives the title "
+             "the same way a course folder's name normally would, e.g. '1- Introduction'.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print what would happen, touch nothing")
     args = parser.parse_args()
 
@@ -264,15 +279,23 @@ def main() -> int:
         )
         return 1
 
-    course_dirs = sorted(
-        (p for p in dump_dir.iterdir() if p.is_dir() and not p.name.startswith(".")),
-        key=lambda p: _leading_number(p.name),
-    )
-    if args.only:
-        course_dirs = [p for p in course_dirs if p.name == args.only]
-        if not course_dirs:
-            print(f"error: no folder named {args.only!r} directly under {dump_dir}", file=sys.stderr)
-            return 1
+    if args.course_name and args.only:
+        print("error: --course-name and --only don't make sense together", file=sys.stderr)
+        return 1
+
+    if args.course_name:
+        courses: list[tuple[Path, str]] = [(dump_dir, args.course_name)]
+    else:
+        course_dirs = sorted(
+            (p for p in dump_dir.iterdir() if p.is_dir() and not p.name.startswith(".")),
+            key=lambda p: _leading_number(p.name),
+        )
+        if args.only:
+            course_dirs = [p for p in course_dirs if p.name == args.only]
+            if not course_dirs:
+                print(f"error: no folder named {args.only!r} directly under {dump_dir}", file=sys.stderr)
+                return 1
+        courses = [(p, p.name) for p in course_dirs]
 
     manifest = Manifest(dump_dir / ".lms_import_manifest.json")
     client = None
@@ -280,9 +303,9 @@ def main() -> int:
         print(f"Logging in to {args.api_base_url} as {args.email}...")
         client = LmsAdminClient.login(args.api_base_url, args.email, args.password)
 
-    for course_dir in course_dirs:
-        print(f"\n=== {course_dir.name} ===")
-        _import_course(client, manifest, course_dir, dry_run=args.dry_run)
+    for course_dir, label in courses:
+        print(f"\n=== {label} ===")
+        _import_course(client, manifest, course_dir, label, dry_run=args.dry_run)
 
     print("\nDry run complete — nothing was created." if args.dry_run else "\nDone.")
     return 0
