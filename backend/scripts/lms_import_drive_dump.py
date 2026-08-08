@@ -57,24 +57,38 @@ import openpyxl
 import requests
 
 _LEADING_NUMBER_RE = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*[-–—.]\s*")
+_TRAILING_NUMBER_RE = re.compile(r"[\s\-–—]+(\d+(?:\.\d+)?)\s*$")
 _OPTION_COLUMNS = ["Option A", "Option B", "Option C", "Option D"]
 _CORRECT_LETTER_TO_COLUMN = {"A": 0, "B": 1, "C": 2, "D": 3}
 
 
 def _clean_title(name: str) -> str:
     """Strip the leading "N- " / "N.M- " ordering prefix and, for video
-    files, the extension. Deliberately simple: doesn't try to also strip a
-    redundant trailing "-N" some filenames have (e.g. "What is a
-    satellite-2.mp4") — real Drive filenames are inconsistently hand-typed,
-    a fragile regex chasing every variant is worse than a title the
-    operator tweaks once via /lms-authoring after import.
+    files, the extension. The operator's own words: the numbers are "just in
+    the drive to let me know the sequence" — never meant to show up in a
+    title anywhere.
+
+    Some filenames redundantly repeat the same number at the *end* too
+    (e.g. "1- Intro-1.mp4", "2- What is a satellite-2.mp4") — stripped only
+    when the trailing number is the exact same one just stripped from the
+    front, so a title that genuinely ends in a number (e.g. "Sputnik 1")
+    is never touched.
 
     Checks for ".mp4" specifically rather than "any dot in the name" —
     `Path(name).stem` mis-happily treats course folders named like
     "2.1 - CDHS Continued" as a file with extension ".1 - CDHS Continued",
     stripping everything after the first dot."""
     stem = name[:-4] if name.lower().endswith(".mp4") else name
-    return _LEADING_NUMBER_RE.sub("", stem).strip()
+
+    leading_match = _LEADING_NUMBER_RE.match(stem)
+    stem = _LEADING_NUMBER_RE.sub("", stem, count=1).strip()
+
+    if leading_match:
+        trailing_match = _TRAILING_NUMBER_RE.search(stem)
+        if trailing_match and trailing_match.group(1) == leading_match.group(1):
+            stem = stem[:trailing_match.start()].strip()
+
+    return stem
 
 
 def _leading_number(name: str) -> float:

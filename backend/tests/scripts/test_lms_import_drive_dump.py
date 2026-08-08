@@ -16,9 +16,21 @@ from scripts.lms_import_drive_dump import _clean_title, _leading_number, _load_q
     ("3- Types of satellites.mp4", "Types of satellites"),
     ("4- Orbits.mp4", "Orbits"),
     ("No Leading Number.mp4", "No Leading Number"),
+    # Real Drive filenames redundantly repeat the leading number at the end
+    # too — strip that duplicate, not just the leading one.
+    ("1- Intro-1.mp4", "Intro"),
+    ("2- What is a satellite-2.mp4", "What is a satellite"),
 ])
 def test_clean_title_strips_leading_number_and_extension(name, expected):
     assert _clean_title(name) == expected
+
+
+def test_clean_title_keeps_a_trailing_number_that_doesnt_match_the_leading_one():
+    """A title can genuinely end in a number (e.g. a historical reference) —
+    only strip the trailing one when it's literally the same sequence
+    number just stripped from the front."""
+    assert _clean_title("5- Sputnik 1.mp4") == "Sputnik 1"
+    assert _clean_title("5- Apollo 11.mp4") == "Apollo 11"
 
 
 @pytest.mark.parametrize("name,expected", [
