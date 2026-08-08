@@ -211,6 +211,17 @@ export default function SessionDetail() {
           {s.location && (
             <span className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin size={14} /> {s.location}</span>
           )}
+          {s.location_address && (
+            <span className="flex items-center gap-1.5 text-sm text-muted-foreground pl-[26px] -mt-1">{s.location_address}</span>
+          )}
+          {s.location_maps_url && (
+            <a
+              href={s.location_maps_url} target="_blank" rel="noreferrer"
+              className="flex items-center gap-1 pl-[26px] -mt-1 text-sm font-medium text-primary hover:underline w-fit"
+            >
+              Open in maps <ExternalLink size={12} />
+            </a>
+          )}
           {s.material_url && (
             <a
               href={s.material_url} target="_blank" rel="noreferrer"

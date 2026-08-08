@@ -26,6 +26,9 @@ from fastapi import HTTPException, status
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.instructors.applicant_profile import ApplicantProfile
+from app.models.inventory.city import City
+from app.models.inventory.location import Location
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.cohort_call import CohortCall, CohortCallTarget
 from app.models.sessions.cohort_opening import CohortOpening
@@ -654,16 +657,69 @@ async def list_interest(db: AsyncSession, session_id: UUID) -> list[tuple[Instru
     return [(interest, u) for interest, u in rows]
 
 
+async def _resolve_session_city_id(db: AsyncSession, session: Session) -> UUID | None:
+    """Same nullable-override pattern as `_resolve_effective_warehouse`
+    (routers/sessions/cohorts.py) — a session's own `location_id` wins,
+    else fall back to its cohort's. Simpler here: no multiplicity to
+    disambiguate, a location has at most one city."""
+    location_id = session.location_id
+    if location_id is None:
+        cohort = await db.get(Cohort, session.cohort_id)
+        location_id = cohort.location_id if cohort else None
+    if location_id is None:
+        return None
+    location = await db.get(Location, location_id)
+    return location.city_id if location else None
+
+
+async def resolve_session_location_display(
+    db: AsyncSession, session: Session | None = None, cohort: Cohort | None = None,
+) -> dict[str, str | None]:
+    """Full resolved "where is this" for a session (or a cohort alone —
+    tickets have no session row), for every instructor- and student-facing
+    surface: name, address, city, country, and the maps link.
+
+    Same nullable-override pattern as `_resolve_session_city_id`: the
+    session's own `location_id` wins, else the cohort's, resolved against
+    the canonical `Location` row — the legacy free-text
+    `cohort.location`/`cohort.location_map_url` fields are the *last-
+    resort* fallback for pre-migration cohorts that never got a
+    `location_id`.
+
+    **This is the only place in the codebase allowed to read those two
+    legacy columns.** Every display/email/notification call site calls this
+    instead of touching `cohort.location` itself — see Phase 2 of the
+    location-model cleanup. The one deliberate exception is
+    `public_catalog` (routers/sessions/public.py), which batch-fetches
+    `Location` rows across many cohorts to avoid an N+1; it reimplements
+    the same resolution inline and must not be "fixed" into a per-row loop.
+    """
+    location_id = (session.location_id if session else None) or (cohort.location_id if cohort else None)
+    location = await db.get(Location, location_id) if location_id else None
+    city = await db.get(City, location.city_id) if location and location.city_id else None
+    return {
+        "name": (location.name if location else None) or (cohort.location if cohort else None),
+        "address": location.address if location else None,
+        "city_name": city.name if city else None,
+        "country": city.country if city else None,
+        "maps_url": (location.maps_url if location else None) or (cohort.location_map_url if cohort else None),
+    }
+
+
 async def list_eligible_instructors(
     db: AsyncSession, session_id: UUID,
-) -> list[tuple[User, InstructorInterest | None, str | None]]:
+) -> list[tuple[User, InstructorInterest | None, str | None, bool]]:
     """Every instructor|facilitator user, paired with their interest row (if
-    any) and the name of the role they applied for (B1) — the full pickable
-    roster for the ops select screen (operator requirement 2026-07-24: "ops
-    can pick from the instructors list ... multiple ... select all", not just
-    whoever registered interest). list_interest above stays interest-only;
-    this is the superset."""
-    await _get_session(db, session_id)  # 404 if the session doesn't exist
+    any), the name of the role they applied for (B1), and whether they
+    marked the session's city as somewhere they're open to work
+    (2026-08-08) — the full pickable roster for the ops select screen
+    (operator requirement 2026-07-24: "ops can pick from the instructors
+    list ... multiple ... select all", not just whoever registered
+    interest). list_interest above stays interest-only; this is the
+    superset."""
+    session = await _get_session(db, session_id)  # 404 if the session doesn't exist
+    session_city_id = await _resolve_session_city_id(db, session)
+
     users = (await db.execute(
         select(User)
         .where(User.roles.any("instructor") | User.roles.any("facilitator"))
@@ -675,8 +731,22 @@ async def list_eligible_instructors(
         )).scalars().all()
     }
     role_names = dict((await db.execute(select(DeliveryRole.id, DeliveryRole.name))).all())
+
+    deliver_city_ids_by_user: dict[UUID, list[UUID]] = {}
+    if session_city_id is not None:
+        profiles = (await db.execute(
+            select(ApplicantProfile.user_id, ApplicantProfile.deliver_city_ids)
+            .where(ApplicantProfile.deliver_city_ids.isnot(None))
+        )).all()
+        deliver_city_ids_by_user = {user_id: city_ids for user_id, city_ids in profiles}
+
     return [
-        (u, interests.get(u.id), role_names.get(interests[u.id].role_id) if u.id in interests and interests[u.id].role_id else None)
+        (
+            u,
+            interests.get(u.id),
+            role_names.get(interests[u.id].role_id) if u.id in interests and interests[u.id].role_id else None,
+            session_city_id is not None and session_city_id in deliver_city_ids_by_user.get(u.id, []),
+        )
         for u in users
     ]
 

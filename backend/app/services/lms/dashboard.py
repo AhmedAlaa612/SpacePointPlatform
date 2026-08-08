@@ -109,6 +109,33 @@ async def _resume_pointer(db: AsyncSession, *, user_id: uuid.UUID, course_ids: l
     }
 
 
+async def recent_activity(db: AsyncSession, *, user_id: uuid.UUID, limit: int = 10) -> list[dict]:
+    """Last N completed items across every course, newest first — the
+    profile page's activity feed. Same join shape `_resume_pointer` above
+    already uses; read-only, nothing new stored."""
+    rows = (await db.execute(
+        select(ItemProgress, ModuleItem, CourseModule, Course)
+        .join(ModuleItem, ModuleItem.id == ItemProgress.item_id)
+        .join(CourseModule, CourseModule.id == ModuleItem.module_id)
+        .join(Course, Course.id == CourseModule.course_id)
+        .where(ItemProgress.user_id == user_id, ItemProgress.status.in_(COMPLETED_STATUSES))
+        .order_by(ItemProgress.completed_at.desc())
+        .limit(limit)
+    )).all()
+
+    return [
+        {
+            "item_id": item.id,
+            "item_title": item.title,
+            "item_kind": item.kind,
+            "course_id": course.id,
+            "course_title": course.title,
+            "completed_at": progress.completed_at,
+        }
+        for progress, item, _module, course in rows
+    ]
+
+
 async def my_courses_dashboard(db: AsyncSession, *, user_id: uuid.UUID) -> dict:
     rows = (await db.execute(
         select(Course)

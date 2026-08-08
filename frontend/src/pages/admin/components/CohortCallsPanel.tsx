@@ -93,7 +93,6 @@ export function CohortCallsPanel({ cohort, sessions }: { cohort: Cohort; session
         <div className="flex flex-col gap-2">
           {sortedCalls.map((c) => {
             const isExpanded = expanded[c.id] ?? false
-            const openSessionsCount = c.sessions.filter((s) => s.status === "open").length
             return (
               <div key={c.id} className="border border-border rounded-xl bg-background overflow-hidden">
                 <div className="flex items-center justify-between gap-2 p-3">
@@ -129,7 +128,7 @@ export function CohortCallsPanel({ cohort, sessions }: { cohort: Cohort; session
                       </button>
                       <button
                         onClick={() => closeAllMutation.mutate(c.id)}
-                        disabled={closeAllMutation.isPending || openSessionsCount === 0}
+                        disabled={closeAllMutation.isPending}
                         className="text-xs font-medium text-red-500 hover:text-red-600 transition-colors disabled:opacity-40"
                       >
                         Close all
@@ -239,7 +238,23 @@ function OpenCohortCallModal({ cohort, sessions, onClose, onDone }: {
       user_ids: targeted ? selectedUserIds : undefined,
       label: label.trim() || undefined,
     }),
-    onSuccess: (r) => { if (r.failed.length === 0) { toast.success(`Call opened for ${r.call.sessions.length} session(s)`); onDone() } },
+    onSuccess: (r) => {
+      // Every selected session can fail its own open_call (already staffed,
+      // already under an open call elsewhere, etc.) without the request
+      // itself erroring — silently doing nothing here on total failure used
+      // to leave ops re-clicking Confirm, each retry piling up another
+      // zero-session call that never actually opened anything.
+      if (r.call.sessions.length > 0) {
+        toast.success(
+          r.failed.length > 0
+            ? `Call opened for ${r.call.sessions.length} session(s) — ${r.failed.length} couldn't open: ${r.failed.map((f) => f.detail).join("; ")}`
+            : `Call opened for ${r.call.sessions.length} session(s)`,
+        )
+        onDone()
+      } else {
+        setError(`No sessions could be opened: ${r.failed.map((f) => f.detail).join("; ")}`)
+      }
+    },
     onError: (e: any) => setError(getErrorMessage(e, "Failed to open the cohort call")),
   })
 
@@ -286,14 +301,32 @@ function OpenCohortCallModal({ cohort, sessions, onClose, onDone }: {
           Restrict to specific instructors
         </label>
         {targeted && (
-          <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto pr-1 border border-border rounded-xl p-2">
-            {eligible.map((u) => (
-              <label key={u.user_id} className="flex items-center gap-2.5 p-1.5 rounded-lg cursor-pointer hover:bg-muted/40">
-                <input type="checkbox" checked={selectedUserIds.includes(u.user_id)} onChange={() => toggleUser(u.user_id)} />
-                <span className="text-sm text-foreground truncate">{u.full_name || u.email}</span>
-              </label>
-            ))}
-            {eligible.length === 0 && <p className="text-xs text-muted-foreground p-1.5">Loading…</p>}
+          <div className="flex flex-col gap-1.5">
+            {eligible.some((u) => u.available_in_city) && (
+              <button
+                type="button"
+                onClick={() => setSelectedUserIds((prev) => [
+                  ...new Set([...prev, ...eligible.filter((u) => u.available_in_city).map((u) => u.user_id)]),
+                ])}
+                className="text-[11px] font-medium text-primary hover:underline w-fit"
+              >
+                + Select all available in this city
+              </button>
+            )}
+            <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto pr-1 border border-border rounded-xl p-2">
+              {eligible.map((u) => (
+                <label key={u.user_id} className="flex items-center gap-2.5 p-1.5 rounded-lg cursor-pointer hover:bg-muted/40">
+                  <input type="checkbox" checked={selectedUserIds.includes(u.user_id)} onChange={() => toggleUser(u.user_id)} />
+                  <span className="text-sm text-foreground truncate flex-1 min-w-0">{u.full_name || u.email}</span>
+                  {u.available_in_city && (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">
+                      in city
+                    </span>
+                  )}
+                </label>
+              ))}
+              {eligible.length === 0 && <p className="text-xs text-muted-foreground p-1.5">Loading…</p>}
+            </div>
           </div>
         )}
         <Field label="Label (optional)">

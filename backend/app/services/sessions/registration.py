@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import secrets
 from datetime import datetime, timezone
+from html import escape
 from typing import Literal
 from uuid import UUID, uuid4
 
@@ -28,12 +29,12 @@ from app.models.spine.touchpoint import Touchpoint
 from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
-from app.models.inventory.location import Location
 from app.models.sessions.registration import Registration, RegistrationSession
 from app.models.sessions.session import Session
 from app.services.documents.ticket import ticket_url
 from app.services.documents.ticket_image import render_ticket_png
 from app.services.email import try_send_email
+from app.services.sessions.staffing import resolve_session_location_display
 
 logger = logging.getLogger(__name__)
 
@@ -196,16 +197,11 @@ async def issue_ticket(db: AsyncSession, registration_id: UUID, force: bool = Fa
     cohort = await db.get(Cohort, registration.cohort_id)
     program = await db.get(Program, cohort.program_id) if cohort else None
 
-    # Resolve location: prefer the canonical Location row (location_id FK),
-    # fall back to the legacy free-text field for any pre-migration cohorts.
-    location_obj = (
-        await db.get(Location, cohort.location_id)
-        if cohort and cohort.location_id else None
-    )
-    location_str = (
-        (location_obj.name if location_obj else None)
-        or (cohort.location if cohort else None)
-    )
+    # Cohort-only resolution (tickets have no session) through the canonical
+    # resolver — name + address + maps link, with the legacy free-text
+    # `cohort.location` as last-resort fallback.
+    location = await resolve_session_location_display(db, None, cohort)
+    location_str = location["name"]
 
     if contact is None or not contact.email:
         return False
@@ -228,6 +224,8 @@ async def issue_ticket(db: AsyncSession, registration_id: UUID, force: bool = Fa
             program_name=program.name if program else "your workshop",
             dates=dates,
             location=location_str,
+            location_address=location["address"],
+            location_maps_url=location["maps_url"],
             ticket_link=ticket_url(registration.ticket_token),
         ),
         html=True,
@@ -293,12 +291,23 @@ def format_cohort_dates(cohort: Cohort | None) -> str:
     return f"{cohort.starts_on:%b %d, %Y}"
 
 
-def _ticket_email_body(*, student_name: str, program_name: str, dates: str, location: str | None, ticket_link: str) -> str:
+def _ticket_email_body(
+    *, student_name: str, program_name: str, dates: str, location: str | None,
+    location_address: str | None = None, location_maps_url: str | None = None, ticket_link: str,
+) -> str:
+    where = location or "To be confirmed"
+    if location_address:
+        where += f"<br>{escape(location_address)}"
+    if location_maps_url:
+        where += (
+            f'<br><a href="{escape(location_maps_url)}" style="color:#2563eb">'
+            f"Open in Google Maps</a>"
+        )
     return (
         f"<p>Hi {student_name},</p>"
         f"<p>You're registered for <strong>{program_name}</strong>.</p>"
         f"<p><strong>When:</strong> {dates}<br>"
-        f"<strong>Where:</strong> {location or 'To be confirmed'}</p>"
+        f"<strong>Where:</strong> {where}</p>"
         f'<p style="text-align:center"><img src="cid:ticket" alt="Your Ticket" style="display:block;max-width:525px;height:auto;margin:20px auto;border-radius:18px"></p>'
         f"<p>Show this ticket at the door. You can also view it online: "
         f'<a href="{ticket_link}">{ticket_link}</a></p>'

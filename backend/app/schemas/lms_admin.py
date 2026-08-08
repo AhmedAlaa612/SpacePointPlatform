@@ -246,3 +246,40 @@ class CurriculumEntryOut(BaseModel):
     program_id: UUID
     course_id: UUID
     position: int
+
+
+# ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────
+
+class LearningPathCreate(BaseModel):
+    title: str
+    description: str | None = None
+
+
+class LearningPathUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    is_published: bool | None = None
+
+
+class LearningPathAdminOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    title: str
+    description: str | None
+    is_published: bool
+    created_by: UUID
+    created_at: datetime | None
+    image_url: str | None = None
+
+
+class LearningPathStepIn(BaseModel):
+    course_id: UUID
+    position: int | None = None
+
+
+class LearningPathStepOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    learning_path_id: UUID
+    course_id: UUID
+    position: int

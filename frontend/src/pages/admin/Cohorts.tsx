@@ -1,15 +1,16 @@
 import { useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Plus, Pencil, Trash2, Search } from "lucide-react"
+import { Plus, Pencil, Trash2, Search, X } from "lucide-react"
 import type { Cohort, CohortStatus, CohortVisibility, Program } from "@/types/sessions"
 import { getProgramsApi } from "@/api/sessions/programs"
-import { getLocationsApi, getWarehousesApi } from "@/api/inventory"
+import { getLocationsApi, getWarehousesApi, getCitiesApi, createLocationApi } from "@/api/inventory"
 import {
   getCohortsApi, createCohortApi, updateCohortApi, deleteCohortApi,
 } from "@/api/sessions/cohorts"
 import { Modal, Field, ModalActions, ConfirmDialog, Spinner, PageHeader, EmptyState } from "@/pages/admin/components/common"
 import { useToast } from "@/components/ui/toast"
+import { useAuth } from "@/context/AuthContext"
 import { getErrorMessage } from "@/lib/utils"
 
 const STATUS_OPTIONS: CohortStatus[] = ["planned", "registration_open", "running", "completed", "cancelled"]
@@ -306,6 +307,8 @@ export function CohortModal({ programs, cohort, onClose, onSuccess }: {
   programs: Program[]; cohort?: Cohort; onClose: () => void; onSuccess: () => void
 }) {
   const toast = useToast()
+  const queryClient = useQueryClient()
+  const { hasRole } = useAuth()
   const isEdit = !!cohort
   const [programId, setProgramId] = useState(cohort?.program_id ?? "")
   const [name, setName] = useState(cohort?.name ?? "")
@@ -315,15 +318,47 @@ export function CohortModal({ programs, cohort, onClose, onSuccess }: {
   const [warehouseId, setWarehouseId] = useState(cohort?.warehouse_id ?? "")
   const [capacity, setCapacity] = useState(cohort?.capacity != null ? String(cohort.capacity) : "")
   const { data: locations = [] } = useQuery({ queryKey: ["inv-locations"], queryFn: () => getLocationsApi() })
-  const { data: warehouses = [] } = useQuery({
-    queryKey: ["inv-warehouses", locationId],
-    queryFn: () => getWarehousesApi(locationId || undefined),
-    enabled: !!locationId,
+const { data: warehouses = [] } = useQuery({
+    queryKey: ["inv-warehouses"],
+    queryFn: () => getWarehousesApi(),
   })
   const [visibility, setVisibility] = useState<CohortVisibility>(cohort?.visibility ?? "public")
   const [status, setStatus] = useState<CohortStatus>(cohort?.status ?? "planned")
   const [notes, setNotes] = useState(cohort?.notes ?? "")
   const [error, setError] = useState("")
+
+  // Inline "+ New location" — so ops doesn't have to leave the cohort form
+  // to reach the Catalogue page just to add a venue. Only operations/admin
+  // can actually create a location (require_operations backend-side); a
+  // storekeeper picks from the existing list like before.
+  const canCreateLocation = hasRole("operations") || hasRole("admin")
+  const [addingLocation, setAddingLocation] = useState(false)
+  const [newLocName, setNewLocName] = useState("")
+  const [newLocCityId, setNewLocCityId] = useState("")
+  const [newLocAddress, setNewLocAddress] = useState("")
+  const [newLocMapsUrl, setNewLocMapsUrl] = useState("")
+  const [newLocError, setNewLocError] = useState("")
+  const { data: cities = [] } = useQuery({
+    queryKey: ["inv-cities"], queryFn: () => getCitiesApi(), enabled: addingLocation,
+  })
+
+  const createLocationMutation = useMutation({
+    mutationFn: () => createLocationApi({
+      name: newLocName.trim(), city_id: newLocCityId,
+      address: newLocAddress.trim() || null, maps_url: newLocMapsUrl.trim() || null,
+    }),
+    onSuccess: (created) => {
+      queryClient.invalidateQueries({ queryKey: ["inv-locations"] })
+      setLocationId(created.id)
+      setWarehouseId("")
+      setAddingLocation(false)
+      setNewLocName("")
+      setNewLocCityId("")
+      setNewLocAddress("")
+      setNewLocMapsUrl("")
+    },
+    onError: (e: any) => setNewLocError(getErrorMessage(e, "Could not create the location")),
+  })
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -391,17 +426,76 @@ export function CohortModal({ programs, cohort, onClose, onSuccess }: {
           </Field>
         </div>
         <Field label="Location (optional)">
-          <select
-            value={locationId}
-            onChange={(e) => { setLocationId(e.target.value); setWarehouseId("") }}
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
-          >
-            <option value="">— None —</option>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-          <p className="text-xs text-muted-foreground mt-1">
-            The venue sessions inherit by default. Manage locations in Catalogue.
-          </p>
+          {addingLocation ? (
+            <div className="flex flex-col gap-2 p-3 border border-border rounded-xl bg-muted/20">
+              <input
+                value={newLocName} onChange={(e) => setNewLocName(e.target.value)}
+                placeholder="Location name" autoFocus
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+              <select
+                value={newLocCityId} onChange={(e) => setNewLocCityId(e.target.value)}
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+              >
+                <option value="" disabled>City (required)</option>
+                {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <input
+                value={newLocAddress} onChange={(e) => setNewLocAddress(e.target.value)}
+                placeholder="Address (optional)"
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+              <input
+                value={newLocMapsUrl} onChange={(e) => setNewLocMapsUrl(e.target.value)}
+                placeholder="Maps link (optional)"
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+              <p className="text-xs text-muted-foreground">
+                The country comes from the city — there is no separate country field.
+              </p>
+              {newLocError && <p className="text-xs text-red-500">{newLocError}</p>}
+              <div className="flex gap-2">
+                <button
+                  type="button" onClick={() => { setNewLocError(""); createLocationMutation.mutate() }}
+                  disabled={!newLocName.trim() || !newLocCityId || createLocationMutation.isPending}
+                  className="h-9 px-4 bg-primary text-primary-foreground rounded-xl text-xs font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+                >
+                  {createLocationMutation.isPending ? "…" : "Add"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setAddingLocation(false); setNewLocError(""); setNewLocName(""); setNewLocCityId(""); setNewLocAddress(""); setNewLocMapsUrl("") }}
+                  className="h-9 px-3 flex items-center gap-1 border border-border rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <X size={13} /> Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <select
+                  value={locationId}
+                  onChange={(e) => { setLocationId(e.target.value); setWarehouseId("") }}
+                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+                >
+                  <option value="">— None —</option>
+                  {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+                {canCreateLocation && (
+                  <button
+                    type="button" onClick={() => setAddingLocation(true)}
+                    className="flex items-center gap-1 h-10 px-3 shrink-0 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                  >
+                    <Plus size={12} /> New
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                The venue sessions inherit by default.
+              </p>
+            </>
+          )}
         </Field>
         {locationId && (
           <Field label="Warehouse (optional)">
@@ -409,12 +503,11 @@ export function CohortModal({ programs, cohort, onClose, onSuccess }: {
               value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
             >
-              <option value="">— Resolve automatically —</option>
+              <option value="">— Select a warehouse —</option>
               {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
             <p className="text-xs text-muted-foreground mt-1">
-              Which warehouse equipment comes from. Left blank, it resolves on its own
-              when this location has exactly one warehouse.
+              Which warehouse equipment comes from. Pick any one, or leave it unset.
             </p>
           </Field>
         )}

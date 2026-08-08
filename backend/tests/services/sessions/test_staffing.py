@@ -528,3 +528,79 @@ async def test_targets_are_replaced_not_appended(db):
     await staffing.set_call_targets(db, session.id, [second.id])
 
     assert await staffing.call_target_ids(db, session.id) == [second.id]
+
+
+# ── city-matching (2026-08-08) ───────────────────────────────────────────────
+
+async def _location_with_city(db, city_id=None):
+    from app.models.inventory.city import City
+    from app.models.inventory.location import Location
+
+    if city_id is None:
+        city = City(id=uuid.uuid4(), name=f"City-{uuid.uuid4().hex[:6]}", country="AE")
+        db.add(city)
+        await db.flush()
+        city_id = city.id
+    location = Location(id=uuid.uuid4(), name=f"Loc-{uuid.uuid4().hex[:6]}", country="AE", city_id=city_id)
+    db.add(location)
+    await db.flush()
+    return location
+
+
+async def _instructor_with_deliver_cities(db, city_ids: list):
+    from app.models.instructors.applicant_profile import ApplicantProfile
+
+    user = await _make_user(db, ["instructor"])
+    db.add(ApplicantProfile(user_id=user.id, deliver_city_ids=city_ids))
+    await db.flush()
+    return user
+
+
+@pytest.mark.asyncio
+async def test_available_in_city_true_for_matching_instructor(db):
+    location = await _location_with_city(db)
+    cohort, session = await _make_cohort_with_session(db, location_id=location.id)
+    matching = await _instructor_with_deliver_cities(db, [location.city_id])
+    non_matching = await _instructor_with_deliver_cities(db, [uuid.uuid4()])
+
+    rows = await staffing.list_eligible_instructors(db, session.id)
+    availability = {u.id: available for u, _interest, _role, available in rows}
+
+    assert availability[matching.id] is True
+    assert availability[non_matching.id] is False
+
+
+@pytest.mark.asyncio
+async def test_available_in_city_resolves_from_cohort_when_session_has_no_location(db):
+    location = await _location_with_city(db)
+    cohort = Cohort(id=uuid.uuid4(), program_id=(await _make_program_for_cohort(db)).id, name="C", status="planned", visibility="public", location_id=location.id)
+    db.add(cohort)
+    await db.flush()
+    session = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 8, 10))
+    db.add(session)
+    await db.flush()
+    matching = await _instructor_with_deliver_cities(db, [location.city_id])
+
+    rows = await staffing.list_eligible_instructors(db, session.id)
+    availability = {u.id: available for u, _interest, _role, available in rows}
+    assert availability[matching.id] is True
+
+
+@pytest.mark.asyncio
+async def test_available_in_city_false_for_everyone_when_no_resolvable_location(db):
+    cohort, session = await _make_cohort_with_session(db)  # no location_id set
+    instructor = await _instructor_with_deliver_cities(db, [uuid.uuid4()])
+
+    rows = await staffing.list_eligible_instructors(db, session.id)
+    availability = {u.id: available for u, _interest, _role, available in rows}
+    assert availability[instructor.id] is False
+
+
+async def _make_program_for_cohort(db):
+    program = Program(
+        id=uuid.uuid4(), code=f"CITY-{uuid.uuid4().hex[:8]}", name="City Test Program",
+        program_type="workshop", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+    return program

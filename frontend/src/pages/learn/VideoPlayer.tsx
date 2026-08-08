@@ -183,7 +183,7 @@ export function VideoPlayer({ itemId, transcodeStatus, onEnded }: VideoPlayerPro
 
   if (transcodeStatus !== "ready") {
     return (
-      <div className="aspect-video rounded-2xl ring-1 ring-border bg-muted flex items-center justify-center text-sm text-muted-foreground text-center px-6">
+      <div className="aspect-video w-[85%] mx-auto rounded-2xl ring-1 ring-border bg-muted flex items-center justify-center text-sm text-muted-foreground text-center px-6">
         {transcodeStatus === "failed"
           ? "Video processing failed — contact ops."
           : "Video is still processing — this can take a minute. It'll appear here automatically once ready."}
@@ -192,7 +192,7 @@ export function VideoPlayer({ itemId, transcodeStatus, onEnded }: VideoPlayerPro
   }
 
   return (
-    <div ref={containerRef} className="rounded-2xl overflow-hidden ring-1 ring-white/10 bg-black relative">
+    <div ref={containerRef} className="w-[85%] mx-auto rounded-2xl overflow-hidden ring-1 ring-white/10 bg-black relative">
       {loading && (
         <div className="aspect-video flex items-center justify-center text-sm text-white/70">Loading video...</div>
       )}

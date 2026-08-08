@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_operations, require_storekeeper
 from app.db.session import get_db
+from app.models.inventory.city import City
 from app.models.inventory.item import Item
 from app.models.inventory.item_category import ItemCategory
 from app.models.inventory.kit import Kit, KitItem
@@ -36,6 +37,9 @@ from app.schemas.inventory.warehouse import (
     WarehouseUpdate,
 )
 from app.schemas.inventory.catalog import (
+    CityCreate,
+    CityOut,
+    CityUpdate,
     ItemCategoryCreate,
     ItemCategoryOut,
     ItemCategoryUpdate,
@@ -67,6 +71,21 @@ async def _item_out(item: Item) -> ItemOut:
 
 # ── locations ───────────────────────────────────────────────────────────────
 
+async def _location_out(db: AsyncSession, location: Location) -> LocationOut:
+    """`LocationOut.city_name` and `LocationOut.country` are derived, not
+    real columns — the canonical country of a location is its city's
+    country. Every location-returning endpoint goes through this instead of
+    `return location`, same reasoning as `_item_out`/`_cohort_out`
+    elsewhere."""
+    out = LocationOut.model_validate(location)
+    if location.city_id:
+        city = await db.get(City, location.city_id)
+        if city:
+            out.city_name = city.name
+            out.country = city.country
+    return out
+
+
 @router.get("/locations", response_model=list[LocationOut])
 async def list_locations(
     include_inactive: bool = False,
@@ -77,10 +96,11 @@ async def list_locations(
     # withholding the *list* of warehouses made all three unusable.
     _: User = Depends(require_storekeeper),
 ):
-    stmt = select(Location).order_by(Location.country, Location.name)
+    stmt = select(Location).order_by(Location.country.asc().nullslast(), Location.name)
     if not include_inactive:
         stmt = stmt.where(Location.is_active.is_(True))
-    return (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(stmt)).scalars().all()
+    return [await _location_out(db, loc) for loc in rows]
 
 
 @router.post("/locations", response_model=LocationOut, status_code=status.HTTP_201_CREATED)
@@ -89,24 +109,22 @@ async def create_location(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operations),
 ):
-    location = Location(id=uuid.uuid4(), **body.model_dump())
-    location.country = location.country.upper()
+    """No warehouse is created here (decoupled 2026-08-08, operator
+    request) — a location is just a place; `POST /inventory/warehouses`
+    is the only way a warehouse comes into existence, at ops's own
+    initiative, whenever one is actually needed.
+
+    2026-08-08: the city is the required anchor — a location is in a
+    city, a city is in a country (matching `City.country` 1:1, so the
+    legacy `country` column is always the city's code, uppercased)."""
+    city = await db.get(City, body.city_id)
+    if city is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="City not found")
+    location = Location(id=uuid.uuid4(), **body.model_dump(), country=city.country)
     db.add(location)
-    await db.flush()
-
-    # Automatically create default warehouse "{Location Name} Warehouse"
-    wh = Warehouse(
-        id=uuid.uuid4(),
-        location_id=location.id,
-        name=f"{location.name} Warehouse",
-        code=f"WH-{location.name[:3].upper()}",
-        is_active=True,
-    )
-    db.add(wh)
-
     await db.commit()
     await db.refresh(location)
-    return location
+    return await _location_out(db, location)
 
 
 @router.patch("/locations/{location_id}", response_model=LocationOut)
@@ -121,8 +139,13 @@ async def update_location(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Location not found")
 
     changes = body.model_dump(exclude_unset=True)
-    if "country" in changes and changes["country"]:
-        changes["country"] = changes["country"].upper()
+    # Moving a location to a different city re-derives the legacy country
+    # column from that city — the country is never entered directly.
+    if "city_id" in changes and changes.get("city_id") is not None:
+        city = await db.get(City, changes["city_id"])
+        if city is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="City not found")
+        changes["country"] = city.country
 
     if changes.get("is_active") is False:
         kits_here = await db.scalar(
@@ -138,7 +161,56 @@ async def update_location(
         setattr(location, field, value)
     await db.commit()
     await db.refresh(location)
-    return location
+    return await _location_out(db, location)
+
+
+# ── cities ───────────────────────────────────────────────────────────────────
+
+@router.get("/cities", response_model=list[CityOut])
+async def list_cities(
+    include_inactive: bool = False,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_storekeeper),
+):
+    stmt = select(City).order_by(City.country, City.name)
+    if not include_inactive:
+        stmt = stmt.where(City.is_active.is_(True))
+    return (await db.execute(stmt)).scalars().all()
+
+
+@router.post("/cities", response_model=CityOut, status_code=status.HTTP_201_CREATED)
+async def create_city(
+    body: CityCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    city = City(id=uuid.uuid4(), **body.model_dump())
+    city.country = city.country.upper()
+    db.add(city)
+    await db.commit()
+    await db.refresh(city)
+    return city
+
+
+@router.patch("/cities/{city_id}", response_model=CityOut)
+async def update_city(
+    city_id: uuid.UUID,
+    body: CityUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    city = await db.get(City, city_id)
+    if city is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="City not found")
+
+    changes = body.model_dump(exclude_unset=True)
+    if "country" in changes and changes["country"]:
+        changes["country"] = changes["country"].upper()
+    for field, value in changes.items():
+        setattr(city, field, value)
+    await db.commit()
+    await db.refresh(city)
+    return city
 
 
 # ── warehouses ──────────────────────────────────────────────────────────────

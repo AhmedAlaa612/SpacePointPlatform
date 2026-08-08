@@ -13,20 +13,26 @@ ItemCategory = str
 # ── locations ───────────────────────────────────────────────────────────────
 
 class LocationCreate(BaseModel):
+    """A location is in a city, a city is in a country — so the country is
+    never entered here; it is derived from `city_id` by the router. The
+    legacy `country` column receives the derived value only (kept for
+    back-compat, see the model docstring)."""
+
     name: str = Field(min_length=1, max_length=128)
-    country: str = Field(min_length=2, max_length=2, description="ISO-3166 alpha-2, e.g. AE")
     notes: str | None = None
     address: str | None = None
     maps_url: str | None = None
+    city_id: uuid.UUID
 
 
 class LocationUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
-    country: str | None = Field(default=None, min_length=2, max_length=2)
     is_active: bool | None = None
     notes: str | None = None
     address: str | None = None
     maps_url: str | None = None
+    # Setting a new city re-derives the legacy country column server-side.
+    city_id: uuid.UUID | None = None
 
 
 class LocationOut(BaseModel):
@@ -34,11 +40,38 @@ class LocationOut(BaseModel):
 
     id: uuid.UUID
     name: str
-    country: str
+    # Derived — always the city's country, never the raw column (see
+    # `_location_out`); None only for legacy rows with no city yet.
+    country: str | None = None
     is_active: bool
     notes: str | None
     address: str | None = None
     maps_url: str | None = None
+    city_id: uuid.UUID | None = None
+    city_name: str | None = None
+    created_at: datetime | None
+
+
+# ── cities ───────────────────────────────────────────────────────────────
+
+class CityCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    country: str = Field(min_length=2, max_length=2, description="ISO-3166 alpha-2, e.g. AE")
+
+
+class CityUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    country: str | None = Field(default=None, min_length=2, max_length=2)
+    is_active: bool | None = None
+
+
+class CityOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    country: str
+    is_active: bool
     created_at: datetime | None
 
 

@@ -144,6 +144,15 @@ class MyCoursesOut(BaseModel):
     courses: list[DashboardCourseOut]
 
 
+class ActivityItemOut(BaseModel):
+    item_id: UUID
+    item_title: str | None = None
+    item_kind: str
+    course_id: UUID
+    course_title: str
+    completed_at: datetime | None = None
+
+
 class ModuleLockOut(BaseModel):
     module_id: UUID
     title: str | None = None
@@ -238,3 +247,39 @@ class QuizReviewOut(BaseModel):
     attempts: int
     best_score: float | None = None
     questions: list[QuizReviewItemOut]
+
+
+# ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────
+
+class LearningPathCatalogOut(BaseModel):
+    id: UUID
+    title: str
+    description: str | None = None
+    image_url: str | None = None
+    course_count: int
+    mission_count: int
+    total_duration_seconds: int
+    pct: int
+
+
+class LearningPathStepOut(BaseModel):
+    position: int
+    course_id: UUID
+    title: str
+    kind: str
+    state: Literal["done", "current", "mission", "locked"]
+    pct: int
+    modules_done: int
+    modules_total: int
+
+
+class LearningPathDetailOut(BaseModel):
+    id: UUID
+    title: str
+    description: str | None = None
+    image_url: str | None = None
+    pct: int
+    course_count: int
+    mission_count: int
+    total_duration_seconds: int
+    steps: list[LearningPathStepOut]

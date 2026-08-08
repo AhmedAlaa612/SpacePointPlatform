@@ -120,6 +120,10 @@ import LearnCatalog from "@/pages/learn/LearnCatalog";
 import LearnMyCourses from "@/pages/learn/LearnMyCourses";
 import LearnCourse from "@/pages/learn/LearnCourse";
 import LearnPlayer from "@/pages/learn/LearnPlayer";
+import LearnPaths from "@/pages/learn/LearnPaths";
+import LearnPath from "@/pages/learn/LearnPath";
+import LearnProfile from "@/pages/learn/LearnProfile";
+import LearnProgram from "@/pages/learn/LearnProgram";
 
 // LMS authoring surface (LM1-13) — shared by operations + facilitator
 // (backend's require_lms_content), own top-level path so one URL space works
@@ -128,6 +132,8 @@ import LmsCourses from "@/pages/lms-authoring/LmsCourses";
 import LmsCourseDetail from "@/pages/lms-authoring/LmsCourseDetail";
 import LmsModuleDetail from "@/pages/lms-authoring/LmsModuleDetail";
 import LmsCurriculum from "@/pages/lms-authoring/LmsCurriculum";
+import LmsLearningPaths from "@/pages/lms-authoring/LmsLearningPaths";
+import LmsLearningPathDetail from "@/pages/lms-authoring/LmsLearningPathDetail";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -696,6 +702,8 @@ const lmsAuthoringRoutes = [
   createRoute({ getParentRoute: pla, path: "/courses/$courseId", component: LmsCourseDetail }),
   createRoute({ getParentRoute: pla, path: "/modules/$moduleId", component: LmsModuleDetail }),
   createRoute({ getParentRoute: pla, path: "/curriculum", component: LmsCurriculum }),
+  createRoute({ getParentRoute: pla, path: "/learning-paths", component: LmsLearningPaths }),
+  createRoute({ getParentRoute: pla, path: "/learning-paths/$pathId", component: LmsLearningPathDetail }),
 ];
 
 // Apply routes — all use shared ApplyFlow (instructor uses InstructorApply for its own pipeline)
@@ -829,6 +837,35 @@ const learnPlayerRoute = createRoute({
   component: LearnPlayer,
 });
 
+// Learning paths (self-paced ordered course sequences, 2026-08-08, design 4a).
+const learnPathsRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/paths",
+  component: LearnPaths,
+});
+
+const learnPathRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/paths/$pathId",
+  component: LearnPath,
+});
+
+// Student profile (design 2a/2b, 2026-08-08).
+const learnProfileRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/profile",
+  component: LearnProfile,
+});
+
+// Upcoming-program detail page (2026-08-08) — replaces UpcomingProgramRow's
+// inline expand with a real page (full details, location + map, full
+// registration form).
+const learnProgramRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/programs/$cohortId",
+  component: LearnProgram,
+});
+
 const routeTree = rootRoute.addChildren([
   ticketRoute,
   kitScanRoute,
@@ -838,6 +875,7 @@ const routeTree = rootRoute.addChildren([
   learnSetPasswordRoute,
   learnLayoutRoute.addChildren([
     learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
+    learnPathsRoute, learnPathRoute, learnProfileRoute, learnProgramRoute,
   ]),
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,

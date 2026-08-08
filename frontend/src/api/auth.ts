@@ -13,6 +13,14 @@ export async function signup(data: {
   email: string;
   password: string;
   phone?: string;
+  date_of_birth?: string;
+  invite_code?: string;
+  parent_name?: string;
+  parent_phone?: string;
+  parent_email?: string;
+  country?: string;
+  city_id?: string;
+  city_other?: string;
 }): Promise<User> {
   const { data: res } = await api.post<AuthTokens & { user: User }>("/auth/signup", data);
   tokens.set(res);
@@ -104,8 +112,10 @@ export async function updateMeApi(
     phone: string
     country: string
     linkedin_url: string
-    city_of_residence: string
-    deliver_cities: string[]
+    city_id: string
+    city_other: string
+    city_of_residence_id: string
+    deliver_city_ids: string[]
     has_own_transportation: boolean
   }>,
 ): Promise<User> {
@@ -125,8 +135,8 @@ export async function applyInstructorApi(data: {
   university?: string
   highest_degree?: string
   highest_degree_other?: string
-  city_of_residence?: string
-  deliver_cities?: string[]
+  city_of_residence_id?: string
+  deliver_city_ids?: string[]
   background_areas?: string[]
   background_other?: string
   has_own_transportation?: boolean

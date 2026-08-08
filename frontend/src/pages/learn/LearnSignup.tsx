@@ -1,11 +1,14 @@
 import { useCallback, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { ChevronDown } from "lucide-react";
 import { isAxiosError } from "axios";
 import { signup } from "@/api/auth";
 import { tokens } from "@/api/client";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { CountrySelect } from "@/components/ui/CountrySelect";
+import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect";
 import { DomainIcon } from "@/components/ui/DomainIcon";
 
 /**
@@ -23,8 +26,19 @@ export default function LearnSignup() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [dob, setDob] = useState("");
+  const [country, setCountry] = useState("");
+  const [cityId, setCityId] = useState("");
+  const [cityOther, setCityOther] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [parentOpen, setParentOpen] = useState(false);
+  const [parentName, setParentName] = useState("");
+  const [parentPhone, setParentPhone] = useState("");
+  const [parentEmail, setParentEmail] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const countryCities = useCitiesForCountry(country);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -35,12 +49,23 @@ export default function LearnSignup() {
         const user = await signup({
           full_name: fullName, email, password,
           phone: phone.trim() ? phone.trim() : undefined,
+          date_of_birth: dob || undefined,
+          country: country || undefined,
+          city_id: cityId || undefined,
+          city_other: cityOther || undefined,
+          invite_code: inviteCode.trim() ? inviteCode.trim() : undefined,
+          ...(parentName.trim() && parentPhone.trim()
+            ? { parent_name: parentName.trim(), parent_phone: parentPhone.trim(), parent_email: parentEmail.trim() || undefined }
+            : {}),
         });
         setCurrentUser(user);
         void navigate({ to: "/learn" });
       } catch (err) {
         if (isAxiosError(err) && err.response?.status === 409) {
           setError("An account with this email already exists — log in instead.");
+        } else if (isAxiosError(err) && err.response?.status === 400) {
+          const detail = err.response.data?.detail;
+          setError(typeof detail === "string" ? detail : "Something went wrong. Please try again.");
         } else {
           setError("Something went wrong. Please try again.");
         }
@@ -49,7 +74,7 @@ export default function LearnSignup() {
         setLoading(false);
       }
     },
-    [fullName, email, phone, password, setCurrentUser, navigate],
+    [fullName, email, phone, password, dob, country, cityId, cityOther, inviteCode, parentName, parentPhone, parentEmail, setCurrentUser, navigate],
   );
 
   return (
@@ -92,6 +117,47 @@ export default function LearnSignup() {
               onChange={(e) => setPhone(e.target.value)}
               className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
             />
+            <div>
+              <label className="block text-[11px] text-muted-foreground mb-1 pl-0.5">Date of birth (optional)</label>
+              <input
+                type="date"
+                value={dob}
+                onChange={(e) => setDob(e.target.value)}
+                className="w-full h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[11px] text-muted-foreground mb-1 pl-0.5">Country (optional)</label>
+                <CountrySelect
+                  value={country}
+                  onChange={setCountry}
+                  className="w-full h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                />
+              </div>
+              {countryCities.length > 0 || country ? (
+                <div>
+                  <label className="block text-[11px] text-muted-foreground mb-1 pl-0.5">
+                    City <span className="normal-case font-normal">(optional)</span>
+                  </label>
+                  <CitySelect
+                    country={country}
+                    value={cityId}
+                    onChange={setCityId}
+                    otherValue={cityOther}
+                    onOtherChange={setCityOther}
+                    className="w-full h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                  />
+                </div>
+              ) : null}
+            </div>
+            <input
+              type="text"
+              placeholder="Invite code (optional)"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+            />
             <input
               type="password"
               placeholder="Password"
@@ -100,6 +166,34 @@ export default function LearnSignup() {
               onChange={(e) => setPassword(e.target.value)}
               className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
             />
+
+            <button
+              type="button" onClick={() => setParentOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-fit cursor-pointer"
+            >
+              <ChevronDown className={`size-3.5 transition-transform ${parentOpen ? "rotate-180" : ""}`} />
+              Parent/guardian information (optional)
+            </button>
+            {parentOpen && (
+              <div className="flex flex-col gap-2 pl-3 border-l-2 border-border ml-1">
+                <input
+                  type="text" placeholder="Parent/guardian name"
+                  value={parentName} onChange={(e) => setParentName(e.target.value)}
+                  className="h-10 px-3.5 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                />
+                <input
+                  type="tel" placeholder="Parent/guardian phone"
+                  value={parentPhone} onChange={(e) => setParentPhone(e.target.value)}
+                  className="h-10 px-3.5 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                />
+                <input
+                  type="email" placeholder="Parent/guardian email (optional)"
+                  value={parentEmail} onChange={(e) => setParentEmail(e.target.value)}
+                  className="h-10 px-3.5 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
+                />
+              </div>
+            )}
+
             <Button size="xl" type="submit" disabled={loading} className="w-full mt-1">
               {loading ? "Signing up..." : "Sign up"}
             </Button>

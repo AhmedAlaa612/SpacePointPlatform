@@ -13,7 +13,7 @@ export default function LearnLanding() {
   const navigate = useNavigate();
 
   const { data: dashboard } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses });
-  const { data: catalog } = useQuery({ queryKey: ["lms-catalog"], queryFn: fetchCatalog });
+  const { data: catalog } = useQuery({ queryKey: ["lms-catalog"], queryFn: () => fetchCatalog() });
   const { data: programs } = useQuery({ queryKey: ["lms-upcoming-programs"], queryFn: fetchUpcomingPrograms });
 
   const resume = dashboard?.resume;

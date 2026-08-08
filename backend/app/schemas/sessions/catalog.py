@@ -28,6 +28,12 @@ class CatalogCohortOut(BaseModel):
     starts_on: Optional[date] = None
     ends_on: Optional[date] = None
     location: Optional[str] = None
+    # ── rich location (2026-08-08), resolved from Cohort.location_id -> the
+    # `locations` table when set, else the legacy Cohort.location/
+    # location_map_url text fields — see public_catalog() for the fallback.
+    location_name: Optional[str] = None
+    location_address: Optional[str] = None
+    location_maps_url: Optional[str] = None
     # "Free" or "AED 250" — pre-formatted so the website doesn't need its own
     # pricing_model/price branching logic duplicated from Programs.tsx.
     price_display: str
@@ -61,6 +67,10 @@ class PublicTicketOut(BaseModel):
     cohort_name: str
     dates: str
     location: str | None = None
+    # Full resolved location (2026-08-08) — the ticket page shows the
+    # address and a maps link under the name, same as the emailed ticket.
+    location_address: str | None = None
+    location_maps_url: str | None = None
     ticket_token: str
     status: str
     checked_in: bool

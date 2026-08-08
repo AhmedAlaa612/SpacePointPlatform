@@ -7,6 +7,8 @@ Seven tables, one CHECK-free schema, no state machines:
 - `program_curriculum` — program → ordered courses (D5)
 - `enrollments` — the single access gate (D8)
 - `item_progress` — per-student per-item raw rows; completion is derived
+- `learning_paths` / `learning_path_steps` — self-paced ordered course
+  sequences with their own progress rollup (LMS redesign, 2026-08-08)
 
 Nothing here references `contacts`; everything keys on `users`, so
 `MERGE_FK_REGISTRY` is untouched. A student is a `users` row with the
@@ -16,6 +18,7 @@ Nothing here references `contacts`; everything keys on `users`, so
 from app.models.lms.course import Course, CourseModule, ModuleItem, ModuleVideo, VideoCheckpoint
 from app.models.lms.curriculum import ProgramCurriculum
 from app.models.lms.enrollment import Enrollment, ItemProgress
+from app.models.lms.learning_path import LearningPath, LearningPathStep
 
 __all__ = [
     "Course",
@@ -26,4 +29,6 @@ __all__ = [
     "ProgramCurriculum",
     "Enrollment",
     "ItemProgress",
+    "LearningPath",
+    "LearningPathStep",
 ]

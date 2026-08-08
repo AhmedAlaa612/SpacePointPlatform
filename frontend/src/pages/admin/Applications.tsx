@@ -198,6 +198,7 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                       <Info label="Status" value={app.status} />
                       {app.phone && <Info label="WhatsApp" value={app.phone} />}
                       {app.country && <Info label="Country" value={app.country} />}
+                      {app.city && <Info label="City" value={app.city} />}
                       {app.invite_code && <Info label="Invite code" value={app.invite_code} />}
                       {app.created_at && <Info label="Applied" value={new Date(app.created_at).toLocaleDateString()} />}
                     </div>

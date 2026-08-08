@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { CalendarDays, ChevronLeft, ChevronRight, Clock, MapPin, Users } from "lucide-react"
+import { CalendarDays, ChevronLeft, ChevronRight, Clock, ExternalLink, MapPin, Users } from "lucide-react"
 import { getCalendarApi } from "@/api/sessions/calendar"
 import type { CalendarEvent, ProgramType } from "@/types/sessions"
 import { Card, CardContent } from "@/components/ui/card"
@@ -39,6 +39,16 @@ function EventCard({ event, opsView }: { event: CalendarEvent; opsView?: boolean
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span className="flex items-center gap-1"><Clock size={13} />{fmtTime(event.starts_at)}</span>
           {event.location && <span className="flex items-center gap-1"><MapPin size={13} />{event.location}</span>}
+          {event.location_address && <span>{event.location_address}</span>}
+          {event.location_maps_url && (
+            <a
+              href={event.location_maps_url} target="_blank" rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-0.5 text-primary hover:underline"
+            >
+              map <ExternalLink size={11} />
+            </a>
+          )}
           {event.instructors.length > 0 && <span className="flex items-center gap-1"><Users size={13} />{event.instructors.map((x) => x.full_name).join(", ")}</span>}
         </div>
       </CardContent>

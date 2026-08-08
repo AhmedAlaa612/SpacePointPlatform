@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Clock, MapPin, Users } from "lucide-react"
+import { Clock, ExternalLink, MapPin, Users } from "lucide-react"
 import { getCalendarApi } from "@/api/sessions/calendar"
 import type { CalendarEvent, StaffingStatus } from "@/types/sessions"
 import { Card, CardContent } from "@/components/ui/card"
@@ -134,6 +134,16 @@ function SessionRow({ event: e }: { event: CalendarEvent }) {
               <Clock size={13} />{fmtDay(e.starts_at)} · {fmtTime(e.starts_at)}
             </span>
             {e.location && <span className="flex items-center gap-1"><MapPin size={13} />{e.location}</span>}
+            {e.location_address && <span>{e.location_address}</span>}
+            {e.location_maps_url && (
+              <a
+                href={e.location_maps_url} target="_blank" rel="noreferrer"
+                onClick={(ev) => ev.stopPropagation()}
+                className="flex items-center gap-0.5 text-primary hover:underline"
+              >
+                map <ExternalLink size={11} />
+              </a>
+            )}
             {e.instructors.length > 0 && (
               <span className="flex items-center gap-1">
                 <Users size={13} />{e.instructors.map((x) => x.full_name).join(", ")}

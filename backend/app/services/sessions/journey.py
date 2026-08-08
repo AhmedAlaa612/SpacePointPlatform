@@ -12,7 +12,6 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.inventory.location import Location
 from app.models.instructors.payment import PaymentLetter, PaymentSession
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.delivery_role import DeliveryRole
@@ -21,6 +20,7 @@ from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.services.sessions.openings import resolve_duration
+from app.services.sessions.staffing import resolve_session_location_display
 from app.services.settings import get_portal_setting, set_portal_setting
 
 RESPONSIBILITIES_KEY = "instructor.responsibilities"
@@ -149,14 +149,11 @@ async def unbilled_sessions(db: AsyncSession, instructor_user_id: uuid.UUID) -> 
     for session, cohort, program, role_name in rows:
         if session.id in billed:
             continue
-        loc_name = None
-        loc_id = session.location_id or cohort.location_id
-        if loc_id:
-            loc = await db.get(Location, loc_id)
-            if loc and loc.name:
-                loc_name = loc.name
-        if not loc_name:
-            loc_name = cohort.location
+        # Payment-letter rows store a one-line venue snapshot — through the
+        # canonical resolver (session override, then cohort location, then
+        # legacy free-text) so the printed line matches every other surface.
+        location = await resolve_session_location_display(db, session, cohort)
+        loc_name = location["name"]
 
         out.append({
             "session_id": session.id,

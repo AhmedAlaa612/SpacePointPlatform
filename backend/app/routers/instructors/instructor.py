@@ -13,6 +13,7 @@ from app.core.dependencies import get_current_active_user, require_instructor, r
 from app.db.session import get_db
 from app.models.enums import UserRole
 from app.models.id_card import IdCard
+from app.models.inventory.city import City
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.instructor_document import InstructorDocument
 from app.models.instructors.instructor_profile import InstructorProfile
@@ -94,7 +95,10 @@ async def sign_contract(
     applicant_profile = (await db.execute(
         select(ApplicantProfile).where(ApplicantProfile.user_id == current_user.id)
     )).scalars().first()
-    living_area = (applicant_profile.city_of_residence if applicant_profile and applicant_profile.city_of_residence else None) or \
+    residence_city = (
+        await db.get(City, applicant_profile.city_of_residence_id)
+    ) if applicant_profile and applicant_profile.city_of_residence_id else None
+    living_area = (residence_city.name if residence_city else None) or \
         (applicant_profile.country if applicant_profile else "United Arab Emirates")
 
     now = datetime.now(timezone.utc)

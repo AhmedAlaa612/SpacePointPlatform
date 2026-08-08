@@ -1,5 +1,6 @@
 import { api } from "@/api/client"
 import type {
+  City,
   Item,
   ItemCategory,
   ItemCategoryDef,
@@ -23,12 +24,26 @@ export const getLocationsApi = (includeInactive = false) =>
   api.get<Location[]>("/inventory/locations", { params: { include_inactive: includeInactive } })
     .then((r) => r.data)
 
+/** A location is in a city — `city_id` is required; the country is derived
+ *  from the city server-side and never sent. */
 export const createLocationApi = (body: {
-  name: string; country: string; notes?: string; address?: string | null; maps_url?: string | null
+  name: string; city_id: string; notes?: string; address?: string | null; maps_url?: string | null
 }) => api.post<Location>("/inventory/locations", body).then((r) => r.data)
 
 export const updateLocationApi = ({ id, ...body }: { id: string } & Partial<Location>) =>
   api.patch<Location>(`/inventory/locations/${id}`, body).then((r) => r.data)
+
+/* ── cities ────────────────────────────────────────────────────────────── */
+
+export const getCitiesApi = (includeInactive = false) =>
+  api.get<City[]>("/inventory/cities", { params: { include_inactive: includeInactive } })
+    .then((r) => r.data)
+
+export const createCityApi = (body: { name: string; country: string }) =>
+  api.post<City>("/inventory/cities", body).then((r) => r.data)
+
+export const updateCityApi = ({ id, ...body }: { id: string } & Partial<City>) =>
+  api.patch<City>(`/inventory/cities/${id}`, body).then((r) => r.data)
 
 /* ── warehouses ────────────────────────────────────────────────────────── */
 

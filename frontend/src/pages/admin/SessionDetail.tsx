@@ -945,7 +945,7 @@ function TargetedOpenCallModal({
     queryKey: ["staffing-eligible-instructors", sessionId],
     queryFn: () => listEligibleInstructorsApi(sessionId),
   })
-  const instructors = eligible.map((e) => ({ id: e.user_id, full_name: e.full_name, email: e.email }))
+  const instructors = eligible.map((e) => ({ id: e.user_id, full_name: e.full_name, email: e.email, available_in_city: e.available_in_city }))
 
   // B2: which roles are on offer. Ops sees every opening here, including
   // ones already closed — that's what "reopen for just the roles still
@@ -1039,6 +1039,17 @@ function TargetedOpenCallModal({
             />
             Select all ({instructors.length})
           </label>
+          {instructors.some((u) => u.available_in_city) && (
+            <button
+              type="button"
+              onClick={() => setSelectedUserIds((prev) => [
+                ...new Set([...prev, ...instructors.filter((u) => u.available_in_city).map((u) => u.id)]),
+              ])}
+              className="text-[11px] font-medium text-primary hover:underline w-fit"
+            >
+              + Select all available in this city
+            </button>
+          )}
         </div>
 
         {isLoading ? (
@@ -1056,6 +1067,11 @@ function TargetedOpenCallModal({
                   <p className="text-xs font-semibold text-foreground truncate">{u.full_name || u.email}</p>
                   <p className="text-[11px] text-muted-foreground truncate">{u.email}</p>
                 </div>
+                {u.available_in_city && (
+                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 shrink-0">
+                    in city
+                  </span>
+                )}
               </label>
             ))}
           </div>
@@ -1066,14 +1082,14 @@ function TargetedOpenCallModal({
         <div className="flex flex-col gap-2 pt-2 border-t border-border">
           <button
             onClick={() => mutation.mutate({ userIds: selectedUserIds, roleIds: roleIdsForSubmit })}
-            disabled={selectedUserIds.length === 0 || selectedRoleIds.length === 0 || mutation.isPending}
+            disabled={selectedUserIds.length === 0 || (openings.length > 0 && selectedRoleIds.length === 0) || mutation.isPending}
             className="w-full h-10 bg-primary text-primary-foreground font-semibold rounded-xl text-xs hover:opacity-90 transition-colors disabled:opacity-50"
           >
             {mutation.isPending ? "Opening…" : `Open call for these ${selectedUserIds.length} only`}
           </button>
           <button
             onClick={() => mutation.mutate({ userIds: undefined, roleIds: roleIdsForSubmit })}
-            disabled={selectedRoleIds.length === 0 || mutation.isPending}
+            disabled={(openings.length > 0 && selectedRoleIds.length === 0) || mutation.isPending}
             className="w-full h-9 border border-border text-muted-foreground font-medium rounded-xl text-xs hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
           >
             Open to all instructors ({instructors.length})

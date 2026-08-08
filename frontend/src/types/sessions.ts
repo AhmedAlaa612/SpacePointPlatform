@@ -142,6 +142,9 @@ export interface EligibleInstructor {
   /** B1 — the role they actually applied for, if any. */
   interest_role_id?: string | null;
   interest_role_name?: string | null;
+  /** 2026-08-08 — did this instructor mark the session's resolved city as
+   * somewhere they're open to work? False if unresolvable. */
+  available_in_city: boolean;
 }
 
 export interface SelectInstructorsResult {
@@ -169,6 +172,9 @@ export interface AvailableSession {
    *  before: they got a cohort name, a date and a place. */
   program_type?: string | null;
   description?: string | null;
+  /** Full resolved location (2026-08-08) — name + address + maps link,
+   *  resolved server-side through `Location`/`City`. */
+  location_address?: string | null;
   location_map_url?: string | null;
   duration_hours?: number | null;
   openings: {
@@ -192,6 +198,10 @@ export interface MySession {
   program_name: string;
   title?: string | null;
   location?: string | null;
+  /** Full resolved location (2026-08-08) — name + address + maps link,
+   *  resolved server-side through `Location`/`City`. */
+  location_address?: string | null;
+  location_maps_url?: string | null;
   meeting_date: string;
   starts_at?: string | null;
   my_role: string;
@@ -214,6 +224,10 @@ export interface CalendarEvent {
   program_name?: string | null;
   program_type?: ProgramType | null;
   location?: string | null;
+  /** Full resolved location (2026-08-08) — the calendar chip shows the
+   *  address and links out to the map, not a bare name. */
+  location_address?: string | null;
+  location_maps_url?: string | null;
   staffing_status?: StaffingStatus | null;
   delivery_status?: "scheduled" | "in_progress" | "completed" | null;
   instructors: SessionInstructor[];
@@ -251,6 +265,10 @@ export interface SessionDelivery {
   cohort_name: string;
   program_name: string;
   location?: string | null;
+  /** Full resolved location (2026-08-08) — the instructor's "where do I go
+   *  today" screen shows the address and a maps link. */
+  location_address?: string | null;
+  location_maps_url?: string | null;
   meeting_date: string;
   starts_at?: string | null;
   title?: string | null;
@@ -385,6 +403,10 @@ export interface PublicTicket {
   cohort_name: string;
   dates: string;
   location?: string | null;
+  /** Full resolved location (2026-08-08) — the ticket page shows the
+   *  address and a maps link under the name, same as the emailed ticket. */
+  location_address?: string | null;
+  location_maps_url?: string | null;
   ticket_token: string;
   status: string;
   checked_in: boolean;

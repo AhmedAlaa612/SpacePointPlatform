@@ -50,6 +50,7 @@ from app.models.inventory.kit import Kit
 from app.models.inventory.movement import Movement
 from app.models.inventory.session_kit import KitCheck, SessionKit
 from app.services.sessions import openings as openings_svc
+from app.services.sessions import staffing as staffing_svc
 from app.models.spine.contact import Contact, ContactRelationship
 from app.models.spine.organization import Organization
 from app.models.user import User
@@ -581,10 +582,13 @@ async def assign_instructor(
     # instructor finds out regardless of which path put them on the session.
     if is_new_assignment:
         cohort = await db.get(Cohort, cohort_id)
+        location = await staffing_svc.resolve_session_location_display(db, session, cohort)
+        where = f" at {location['name']}" if location["name"] else ""
+        if location["address"]:
+            where += f", {location['address']}"
         await create_notification(
             db, body.user_id, "You've been assigned to a session",
-            body=f"You're assigned ({role.name}) to a session on {session.meeting_date}"
-                 + (f" at {cohort.location}." if cohort and cohort.location else "."),
+            body=f"You're assigned ({role.name}) to a session on {session.meeting_date}{where}.",
             type="staffing_assigned",
         )
         await safe_enqueue(arq_redis, "send_assignment_email", str(session_id), str(body.user_id))

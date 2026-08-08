@@ -82,3 +82,7 @@ myenv/
 
 # Plans
 *.plan
+
+# DB dumps/snapshots — real prod data if anyone ever drops one in-repo
+*.dump
+*.sql.gz

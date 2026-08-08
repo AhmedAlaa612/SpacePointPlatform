@@ -8,6 +8,7 @@ const DOMAIN_LABELS: Record<string, string> = {
   instructors: "Instructors",
   admin: "Admin",
   operations: "Operations",
+  learn: "Explorers",
 };
 
 const ROLE_DOMAINS: Record<string, string> = {

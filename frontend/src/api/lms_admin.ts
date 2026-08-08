@@ -201,3 +201,46 @@ export const addCurriculumEntryApi = (programId: string, data: { course_id: stri
   api.post<CurriculumEntry>(`/lms/admin/programs/${programId}/curriculum`, data).then((r) => r.data);
 export const removeCurriculumEntryApi = (programId: string, courseId: string) =>
   api.delete<void>(`/lms/admin/programs/${programId}/curriculum/${courseId}`).then((r) => r.data);
+
+// ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────
+
+export interface AdminLearningPath {
+  id: string;
+  title: string;
+  description: string | null;
+  is_published: boolean;
+  created_by: string;
+  created_at: string | null;
+  image_url: string | null;
+}
+
+export interface LearningPathStepEntry {
+  id: string;
+  learning_path_id: string;
+  course_id: string;
+  position: number;
+}
+
+export const listLearningPathsApi = () =>
+  api.get<AdminLearningPath[]>("/lms/admin/learning-paths").then((r) => r.data);
+export const getLearningPathApi = (id: string) =>
+  api.get<AdminLearningPath>(`/lms/admin/learning-paths/${id}`).then((r) => r.data);
+export const createLearningPathApi = (data: { title: string; description?: string }) =>
+  api.post<AdminLearningPath>("/lms/admin/learning-paths", data).then((r) => r.data);
+export const updateLearningPathApi = (
+  id: string, data: Partial<{ title: string; description: string; is_published: boolean }>,
+) => api.patch<AdminLearningPath>(`/lms/admin/learning-paths/${id}`, data).then((r) => r.data);
+export const deleteLearningPathApi = (id: string) =>
+  api.delete<void>(`/lms/admin/learning-paths/${id}`).then((r) => r.data);
+export const uploadLearningPathImageApi = (id: string, file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post<AdminLearningPath>(`/lms/admin/learning-paths/${id}/image`, form).then((r) => r.data);
+};
+
+export const listLearningPathStepsApi = (pathId: string) =>
+  api.get<LearningPathStepEntry[]>(`/lms/admin/learning-paths/${pathId}/steps`).then((r) => r.data);
+export const addLearningPathStepApi = (pathId: string, data: { course_id: string; position?: number }) =>
+  api.post<LearningPathStepEntry>(`/lms/admin/learning-paths/${pathId}/steps`, data).then((r) => r.data);
+export const removeLearningPathStepApi = (pathId: string, courseId: string) =>
+  api.delete<void>(`/lms/admin/learning-paths/${pathId}/steps/${courseId}`).then((r) => r.data);

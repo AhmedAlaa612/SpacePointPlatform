@@ -66,8 +66,11 @@ class InstructorApply(BaseModel):
     university: str | None = None
     highest_degree: str | None = None
     highest_degree_other: str | None = None
-    city_of_residence: str | None = None
-    deliver_cities: list[str] | None = None
+    # Structured (2026-08-08) — city_of_residence_id/deliver_city_ids
+    # reference the admin-configurable `cities` table (GET /public/cities)
+    # instead of hand-typed strings.
+    city_of_residence_id: UUID | None = None
+    deliver_city_ids: list[UUID] | None = None
     background_areas: list[str] | None = None
     background_other: str | None = None
     has_own_transportation: bool = False

@@ -200,7 +200,7 @@ async def test_a_storekeeper_can_load_every_page_their_sidebar_offers(client, db
     # ...and widening those reads must not have opened any of the writes.
     still_shut = [
         await client.post("/inventory/locations", headers=_headers(keeper),
-                          json={"name": "Sneaky", "country": "AE"}),
+                          json={"name": "Sneaky"}),
         await client.get("/inventory/items", headers=_headers(keeper)),
         await client.get("/inventory/movements", headers=_headers(keeper)),
         await client.get("/inventory/kits", headers=_headers(keeper)),

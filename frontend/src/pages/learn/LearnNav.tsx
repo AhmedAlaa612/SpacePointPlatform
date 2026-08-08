@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Home, BookOpen, GraduationCap, Bell, LogOut, Search,
+  Home, BookOpen, GraduationCap, Bell, LogOut, Route as RouteIcon, Search, User,
 } from "lucide-react";
 import { DomainIcon } from "@/components/ui/DomainIcon";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
@@ -13,12 +13,14 @@ import { useAuth } from "@/context/AuthContext";
 import { getNotificationsApi, markAllReadApi } from "@/api/notifications";
 import { cn } from "@/lib/utils";
 
-export type LearnNavActive = "home" | "catalog" | "my-courses";
+export type LearnNavActive = "home" | "catalog" | "paths" | "my-courses" | "profile";
 
 const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: typeof Home }[] = [
   { key: "home", label: "Home", to: "/learn", icon: Home },
   { key: "catalog", label: "Catalog", to: "/learn/catalog", icon: BookOpen },
+  { key: "paths", label: "Paths", to: "/learn/paths", icon: RouteIcon },
   { key: "my-courses", label: "My Courses", to: "/learn/my-courses", icon: GraduationCap },
+  { key: "profile", label: "Profile", to: "/learn/profile", icon: User },
 ];
 
 /** Horizontal nav for LearnShell (design 1b) — can't reuse Sidebar.tsx (D1:
@@ -207,11 +209,14 @@ function LearnProfileMenu() {
           </span>
           <span className="hidden lg:block text-left">
             <span className="block text-sm font-medium text-foreground leading-tight">{currentUser?.full_name}</span>
-            <span className="block text-[11px] text-muted-foreground leading-tight">Student</span>
+            <span className="block text-[11px] text-muted-foreground leading-tight">Explorer</span>
           </span>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent>
+        <DropdownMenuItem onClick={() => void navigate({ to: "/learn/profile" })}>
+          <User className="size-3.5" /> Profile
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => void handleLogout()} variant="destructive">
           <LogOut className="size-3.5" /> Sign out
         </DropdownMenuItem>

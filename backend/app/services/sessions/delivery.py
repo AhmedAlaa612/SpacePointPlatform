@@ -33,6 +33,7 @@ from app.models.user import User
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.email import try_send_email
 from app.services.sessions.registration import check_in, format_cohort_dates
+from app.services.sessions.staffing import resolve_session_location_display
 
 
 async def _get_deliverable_session(db: AsyncSession, session_id: UUID, user: User) -> Session:
@@ -210,6 +211,10 @@ async def _issue_student_certificate(
         return existing
 
     dates = format_cohort_dates(cohort)
+    # One-line venue snapshot on the stored certificate — resolved through
+    # the canonical resolver (cohort-only, tickets/certs have no session) so
+    # the printed line matches every other surface.
+    location = await resolve_session_location_display(db, None, cohort)
     template = (await db.execute(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
@@ -221,7 +226,7 @@ async def _issue_student_certificate(
     certificate = Certificate(
         id=uuid4(), contact_id=contact.id, registration_id=registration.id,
         type=CertificateType.student_completion,
-        workshop_name=program.name, workshop_date=dates, location=cohort.location,
+        workshop_name=program.name, workshop_date=dates, location=location["name"],
         generated_by=actor_user_id,
     )
     db.add(certificate)

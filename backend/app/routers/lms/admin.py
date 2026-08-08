@@ -23,6 +23,7 @@ from app.db.session import get_db
 from app.models.lms import (
     Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, ProgramCurriculum, VideoCheckpoint,
 )
+from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.schemas.lms_admin import (
@@ -42,6 +43,11 @@ from app.schemas.lms_admin import (
     ItemCreate,
     ItemReorderIn,
     ItemUpdate,
+    LearningPathAdminOut,
+    LearningPathCreate,
+    LearningPathStepIn,
+    LearningPathStepOut,
+    LearningPathUpdate,
     ModuleAdminOut,
     ModuleCreate,
     ModuleReorderIn,
@@ -55,6 +61,7 @@ from app.services import storage
 router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
 
 COURSE_IMAGE_BUCKET = "lms-course-images"
+LEARNING_PATH_IMAGE_BUCKET = "lms-learning-path-images"
 MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8MB — a cover image, not a dataset
 
 
@@ -744,4 +751,192 @@ async def remove_curriculum_entry(
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Curriculum entry not found")
     await db.delete(entry)
+    await db.commit()
+
+
+# ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────
+
+async def _learning_path_admin_out(db: AsyncSession, path: LearningPath) -> LearningPathAdminOut:
+    return LearningPathAdminOut(
+        id=path.id, title=path.title, description=path.description,
+        is_published=path.is_published, created_by=path.created_by, created_at=path.created_at,
+        image_url=await storage.resolve_url(path.image_bucket, path.image_path),
+    )
+
+
+@router.get("/learning-paths", response_model=list[LearningPathAdminOut])
+async def list_learning_paths(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    rows = (await db.execute(select(LearningPath).order_by(LearningPath.created_at.desc()))).scalars().all()
+    return [await _learning_path_admin_out(db, p) for p in rows]
+
+
+@router.post("/learning-paths", response_model=LearningPathAdminOut, status_code=status.HTTP_201_CREATED)
+async def create_learning_path(
+    body: LearningPathCreate,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    path = LearningPath(id=uuid.uuid4(), created_by=current.id, **body.model_dump())
+    db.add(path)
+    await db.commit()
+    await db.refresh(path)
+    return await _learning_path_admin_out(db, path)
+
+
+@router.get("/learning-paths/{path_id}", response_model=LearningPathAdminOut)
+async def get_learning_path(
+    path_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    return await _learning_path_admin_out(db, path)
+
+
+@router.patch("/learning-paths/{path_id}", response_model=LearningPathAdminOut)
+async def update_learning_path(
+    path_id: uuid.UUID,
+    body: LearningPathUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(path, field, value)
+    await db.commit()
+    await db.refresh(path)
+    return await _learning_path_admin_out(db, path)
+
+
+@router.post("/learning-paths/{path_id}/image", response_model=LearningPathAdminOut)
+async def upload_learning_path_image(
+    path_id: uuid.UUID,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Empty upload")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image exceeds the 8MB limit")
+
+    suffix = Path(file.filename or "cover.jpg").suffix or ".jpg"
+    image_path = f"{path_id}/cover{suffix}"
+    await storage.upload_to_path(LEARNING_PATH_IMAGE_BUCKET, image_path, data, file.content_type or "image/jpeg")
+
+    path.image_bucket = LEARNING_PATH_IMAGE_BUCKET
+    path.image_path = image_path
+    await db.commit()
+    await db.refresh(path)
+    return await _learning_path_admin_out(db, path)
+
+
+@router.delete("/learning-paths/{path_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_learning_path(
+    path_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """No enrollment check like `delete_course` — a path itself grants no
+    access (its steps' courses do, independently), so deleting one never
+    strands a student mid-course. It only removes the curated grouping."""
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    await db.delete(path)
+    await db.commit()
+
+
+@router.get("/learning-paths/{path_id}/steps", response_model=list[LearningPathStepOut])
+async def list_learning_path_steps(
+    path_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    rows = (await db.execute(
+        select(LearningPathStep)
+        .where(LearningPathStep.learning_path_id == path_id)
+        .order_by(LearningPathStep.position)
+    )).scalars().all()
+    return rows
+
+
+@router.post(
+    "/learning-paths/{path_id}/steps",
+    response_model=LearningPathStepOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_learning_path_step(
+    path_id: uuid.UUID,
+    body: LearningPathStepIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    course = await db.get(Course, body.course_id)
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+
+    dup = (await db.execute(
+        select(LearningPathStep.id).where(
+            LearningPathStep.learning_path_id == path_id, LearningPathStep.course_id == body.course_id
+        )
+    )).first()
+    if dup:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This course is already a step in this path")
+
+    position = body.position
+    if position is None:
+        max_pos = await db.scalar(
+            select(func.max(LearningPathStep.position)).where(LearningPathStep.learning_path_id == path_id)
+        )
+        position = (max_pos or 0) + 1
+    else:
+        taken = (await db.execute(
+            select(LearningPathStep.id).where(
+                LearningPathStep.learning_path_id == path_id, LearningPathStep.position == position
+            )
+        )).first()
+        if taken:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Position {position} is already taken in this path")
+
+    step = LearningPathStep(id=uuid.uuid4(), learning_path_id=path_id, course_id=body.course_id, position=position)
+    db.add(step)
+    await db.commit()
+    await db.refresh(step)
+    return step
+
+
+@router.delete("/learning-paths/{path_id}/steps/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_learning_path_step(
+    path_id: uuid.UUID,
+    course_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    step = (await db.execute(
+        select(LearningPathStep).where(
+            LearningPathStep.learning_path_id == path_id, LearningPathStep.course_id == course_id
+        )
+    )).scalars().first()
+    if step is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Step not found")
+    await db.delete(step)
     await db.commit()

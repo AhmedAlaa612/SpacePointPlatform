@@ -333,15 +333,17 @@ async def list_available_sessions(
             a for a in await openings_svc.addons_for_session(db, s.id)
             if a["user_id"] is None and a["status"] == "agreed"
         ]
+        location = await staffing.resolve_session_location_display(db, s, c)
         out.append(AvailableSessionOut(
             session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,
             title=s.title,
-            location=c.location, meeting_date=s.meeting_date, starts_at=s.starts_at,
+            location=location["name"], meeting_date=s.meeting_date, starts_at=s.starts_at,
             interested_count=count, my_interest=interest is not None,
             my_note=interest.note if interest else None,
             program_type=p.program_type,
             description=p.description,
-            location_map_url=c.location_map_url,
+            location_address=location["address"],
+            location_map_url=location["maps_url"],
             duration_hours=float(await openings_svc.resolve_duration(db, s) or 0) or None,
             openings=[
                 OpeningSummary(
@@ -372,16 +374,20 @@ async def list_my_sessions(
     current_user: User = Depends(require_instructor_or_facilitator),
 ):
     rows = await staffing.list_my_sessions(db, current_user)
-    return [
-        MySessionOut(
+    out = []
+    for s, c, p, role in rows:
+        location = await staffing.resolve_session_location_display(db, s, c)
+        out.append(MySessionOut(
             session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,
             title=s.title,
-            location=c.location, meeting_date=s.meeting_date, starts_at=s.starts_at,
+            location=location["name"],
+            location_address=location["address"],
+            location_maps_url=location["maps_url"],
+            meeting_date=s.meeting_date, starts_at=s.starts_at,
             my_role=role, staffing_status=s.staffing_status,
             started_at=s.started_at, completed_at=s.completed_at,
-        )
-        for s, c, p, role in rows
-    ]
+        ))
+    return out
 
 
 # ── Instructor: register / withdraw interest ────────────────────────────────
@@ -492,8 +498,9 @@ async def list_eligible_instructors(
             interested=interest is not None, note=interest.note if interest else None,
             interest_role_id=interest.role_id if interest else None,
             interest_role_name=role_name,
+            available_in_city=available_in_city,
         )
-        for u, interest, role_name in rows
+        for u, interest, role_name, available_in_city in rows
     ]
 
 
@@ -513,12 +520,15 @@ async def select_instructors(
     session = await db.get(Session, session_id)
     cohort = await db.get(Cohort, session.cohort_id) if session else None
     role_names = dict((await db.execute(select(DeliveryRole.id, DeliveryRole.name))).all())
+    location = await staffing.resolve_session_location_display(db, session, cohort) if session else {}
+    where = f" at {location.get('name')}" if location.get("name") else ""
+    if location.get("address"):
+        where += f", {location['address']}"
     for assignment in assignments:
         await create_notification(
             db, assignment.user_id, "You've been assigned to a session",
             body=f"You're assigned ({role_names.get(assignment.role_id, 'instructor')}) "
-                 f"to a session on {session.meeting_date}"
-                 + (f" at {cohort.location}." if cohort and cohort.location else "."),
+                 f"to a session on {session.meeting_date}{where}.",
             type="staffing_assigned",
         )
         await safe_enqueue(arq_redis, "send_assignment_email", str(session_id), str(assignment.user_id))

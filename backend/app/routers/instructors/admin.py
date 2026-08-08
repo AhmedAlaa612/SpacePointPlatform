@@ -15,6 +15,7 @@ from app.models.enums import ApplicationStatus, ModuleSubmissionStatus, UserRole
 from sqlalchemy import func
 
 from app.models.certificate import Certificate
+from app.models.inventory.city import City
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
 from app.models.instructors.checklist import ChecklistModule
@@ -74,10 +75,11 @@ async def overview(db: AsyncSession = Depends(get_db), current_user: User = Depe
     university_distribution = [{"name": name, "count": count} for name, count in university_rows]
 
     city_rows = (await db.execute(
-        select(ApplicantProfile.city_of_residence, func.count())
+        select(City.name, func.count())
+        .select_from(ApplicantProfile)
         .join(User, User.id == ApplicantProfile.user_id)
-        .where(ApplicantProfile.city_of_residence.is_not(None))
-        .group_by(ApplicantProfile.city_of_residence)
+        .join(City, City.id == ApplicantProfile.city_of_residence_id)
+        .group_by(City.name)
         .order_by(func.count().desc())
     )).all()
     city_distribution = [{"name": name, "count": count} for name, count in city_rows]
@@ -109,12 +111,18 @@ async def list_applicants(db: AsyncSession = Depends(get_db), current_user: User
         .where(User.roles.any("applicant"))
         .order_by(User.created_at.desc())
     )).all()
+
+    city_ids = {p.city_of_residence_id for _, _, p in rows if p and p.city_of_residence_id}
+    cities_by_id = {}
+    if city_ids:
+        cities_by_id = {c.id: c.name for c in (await db.execute(select(City).where(City.id.in_(city_ids)))).scalars().all()}
+
     return [
         {
             "id": str(u.id), "full_name": u.full_name, "email": u.email,
             "status": review.status, "feedback": review.feedback,
             "university": profile.university if profile else None,
-            "city_of_residence": profile.city_of_residence if profile else None,
+            "city_of_residence": cities_by_id.get(profile.city_of_residence_id) if profile else None,
             "referred_by_ambassador_id": str(u.invited_by_id) if u.invited_by_id else None,
             "created_at": u.created_at,
             "submitted_at": review.submitted_at,
@@ -305,7 +313,10 @@ async def review_applicant(
                 pass
         user.roles = sorted(kept)
 
-        living_area = (profile.city_of_residence if profile and profile.city_of_residence else None) or \
+        residence_city = (
+            await db.get(City, profile.city_of_residence_id)
+        ) if profile and profile.city_of_residence_id else None
+        living_area = (residence_city.name if residence_city else None) or \
             (profile.country if profile else "United Arab Emirates")
 
         contract_bytes = await asyncio.to_thread(generate_contract_pdf, user.full_name, living_area)

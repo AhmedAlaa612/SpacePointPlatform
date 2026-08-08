@@ -38,6 +38,15 @@ class User(Base):
     recruit_points_awarded = Column(Boolean, nullable=False, default=False)
     phone = Column(String(50), nullable=True)
     country = Column(String(100), nullable=True)
+    # Structured (2026-08-08) — independent of the Contact spine's own
+    # free-text city (too broad a field to restructure just for this),
+    # same precedent as `country` above already being its own copy on User.
+    city_id = Column(UUID(as_uuid=True), ForeignKey("cities.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Free-text fallback (2026-08-08) — the city pickers offer an "Other"
+    # option for countries with no SpacePoint city; the typed value lands
+    # here so form-prefill and admin review can show it. Mutually exclusive
+    # with city_id in practice (Other only renders when no cities exist).
+    city_other = Column(String(100), nullable=True)
     photo_url = Column(String, nullable=True)   # stored ready-to-use URL (hot read path); photo_path is the durable source of truth (A2)
     photo_path = Column(String, nullable=True)  # path inside the "profile_pictures" bucket
     linkedin_url = Column(String, nullable=True)

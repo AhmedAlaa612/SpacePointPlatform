@@ -9,7 +9,7 @@ import pytest
 from app.models.lms import Course, CourseModule, ModuleItem
 from app.models.user import User
 from app.services.lms import enroll, item_progress
-from app.services.lms.dashboard import my_courses_dashboard
+from app.services.lms.dashboard import my_courses_dashboard, recent_activity
 
 
 async def _author(db) -> User:
@@ -125,3 +125,27 @@ async def test_completed_course_excluded_from_resume_candidates(db):
     assert result["courses"][0]["status"] == "completed"
     assert result["stats"]["modules_done"] == 2
     assert result["resume"] is None
+
+
+@pytest.mark.asyncio
+async def test_recent_activity_lists_completed_items_newest_first(db):
+    author = await _author(db)
+    student = await _student(db)
+    course, _m1, _m2, items = await _course_with_two_modules(db, author=author)
+    await db.commit()
+    await enroll(db, user_id=student.id, course_id=course.id)
+    await item_progress(db, user_id=student.id, item_id=items[0].id, action="text-viewed")
+    await item_progress(db, user_id=student.id, item_id=items[1].id, action="text-viewed")
+    await db.commit()
+
+    result = await recent_activity(db, user_id=student.id)
+    assert [row["item_id"] for row in result] == [items[1].id, items[0].id]
+    assert all(row["course_id"] == course.id for row in result)
+
+
+@pytest.mark.asyncio
+async def test_recent_activity_empty_for_untouched_student(db):
+    student = await _student(db)
+    await db.commit()
+
+    assert await recent_activity(db, user_id=student.id) == []

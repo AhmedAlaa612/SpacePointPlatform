@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import get_password_hash
 from app.db.session import get_db
 from app.models.application import Application
+from app.models.inventory.city import City
 from app.core.apply_config import ROLES_REQUIRING_CODE, ROLES_WITH_CV, VALID_ROLES
 from app.models.application_question import ApplicationQuestion
 from app.models.user import User
@@ -48,6 +49,7 @@ async def submit_application(
     password: str = Form(...),
     phone: Optional[str] = Form(None),
     country: Optional[str] = Form(None),
+    city_id: Optional[str] = Form(None),
     invite_code: Optional[str] = Form(None),
     answers: Optional[str] = Form(None),   # JSON string
     cv: Optional[UploadFile] = File(None),
@@ -99,6 +101,20 @@ async def submit_application(
         except Exception:
             pass
 
+    # City (2026-08-08) — optional and validated like auth signup does: the
+    # apply form only offers cities in the chosen (mobile) country, so an
+    # unknown id means the client is out of sync, not a soft ignore.
+    if city_id:
+        try:
+            city_uuid = uuid.UUID(city_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Unknown city")
+        city = await db.get(City, city_uuid)
+        if not city:
+            raise HTTPException(status_code=400, detail="Unknown city")
+    else:
+        city_uuid = None
+
     app = Application(
         id=app_id,
         role=role,
@@ -106,6 +122,7 @@ async def submit_application(
         email=email,
         phone=phone,
         country=country,
+        city_id=city_uuid,
         password_hash=get_password_hash(password),
         invite_code=invite_code,
         invited_by_id=invited_by_id,

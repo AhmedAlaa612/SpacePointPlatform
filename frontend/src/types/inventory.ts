@@ -6,16 +6,32 @@ export type KitStatus = "working" | "damaged" | "retired" | "lost"
 export type MovementReason =
   | "issue" | "return" | "transfer" | "refill" | "receive" | "writeoff" | "adjust" | "sold"
 
-export interface Location {
+export interface City {
   id: string
   name: string
   country: string
+  is_active: boolean
+  created_at: string | null
+}
+
+export interface Location {
+  id: string
+  name: string
+  /** Derived from the city server-side (a location is in a city, a city is
+   *  in a country) — never entered in a form. Null for legacy rows with no
+   *  city yet. */
+  country: string | null
   is_active: boolean
   notes: string | null
   /** Where cohorts/sessions send instructors — the physical address and a
    *  map link, both optional. */
   address: string | null
   maps_url: string | null
+  /** Structured (2026-08-08) — required when creating a location; what
+   *  staffing matches against instructors' "cities open to work in".
+   *  city_name is resolved by the backend. */
+  city_id: string | null
+  city_name: string | null
   created_at: string | null
 }
 

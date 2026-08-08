@@ -16,6 +16,8 @@ from arq.connections import ArqRedis
 
 from app.db.session import get_db
 from app.core.rate_limit import enforce_rate_limit
+from app.models.inventory.city import City
+from app.models.inventory.location import Location
 from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.cohort_interest import CohortInterest
@@ -24,18 +26,32 @@ from app.models.lms.course import Course
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.sessions.session import Session, SessionInstructor
-from app.models.spine.contact import Contact, ContactRelationship
+from app.models.spine.contact import Contact
 from app.models.user import User
+from app.schemas.inventory.catalog import CityOut
 from app.schemas.sessions.catalog import CatalogCohortOut, CatalogSessionOut, PublicTicketOut
 from app.schemas.sessions.public_registration import PublicInterestRequest, PublicRegistrationRequest
 from app.services.documents.ticket import generate_ticket_qr_png
-from app.services.spine.identity import resolve_or_create_contact
+from app.services.spine.identity import ensure_guardian_relationship, resolve_or_create_contact
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES, format_cohort_dates, register
+from app.services.sessions.staffing import resolve_session_location_display
 from app.workers.settings import get_arq_redis, safe_enqueue
 
 router = APIRouter(prefix="/public", tags=["public-registration"])
 
 _OPEN_STATUSES = ("planned", "registration_open")
+
+
+@router.get("/cities", response_model=list[CityOut])
+async def public_cities(db: AsyncSession = Depends(get_db)):
+    """Active cities only, no auth — the instructor-apply form and LMS
+    student signup both run pre-account, so they can't hit the
+    authenticated `/inventory/cities` (2026-08-08). City names aren't
+    sensitive, same posture as `/public/catalog`."""
+    rows = (await db.execute(
+        select(City).where(City.is_active.is_(True)).order_by(City.country, City.name)
+    )).scalars().all()
+    return rows
 
 
 @router.get("/catalog", response_model=list[CatalogCohortOut])
@@ -59,11 +75,19 @@ async def public_catalog(db: AsyncSession = Depends(get_db)):
 
     cohort_ids = [cohort.id for cohort, _ in rows]
     program_ids = {program.id for _, program in rows}
+    location_ids = {cohort.location_id for cohort, _ in rows if cohort.location_id}
 
     active_counts: dict[uuid.UUID, int] = {}
     sessions_by_cohort: dict[uuid.UUID, list[Session]] = {}
     instructors_by_cohort: dict[uuid.UUID, set[str]] = {}
     curriculum_by_program: dict[uuid.UUID, list[str]] = {}
+    locations_by_id: dict[uuid.UUID, Location] = {}
+
+    if location_ids:
+        location_rows = (await db.execute(
+            select(Location).where(Location.id.in_(location_ids))
+        )).scalars().all()
+        locations_by_id = {loc.id: loc for loc in location_rows}
 
     if cohort_ids:
         count_rows = (await db.execute(
@@ -121,6 +145,11 @@ async def public_catalog(db: AsyncSession = Depends(get_db)):
         else:
             price_display = "Paid"
 
+        location_row = locations_by_id.get(cohort.location_id) if cohort.location_id else None
+        location_name = location_row.name if location_row else cohort.location
+        location_address = location_row.address if location_row else None
+        location_maps_url = (location_row.maps_url if location_row else None) or cohort.location_map_url
+
         items.append(CatalogCohortOut(
             cohort_id=cohort.id,
             program_name=program.name,
@@ -129,6 +158,9 @@ async def public_catalog(db: AsyncSession = Depends(get_db)):
             starts_on=cohort.starts_on,
             ends_on=cohort.ends_on,
             location=cohort.location,
+            location_name=location_name,
+            location_address=location_address,
+            location_maps_url=location_maps_url,
             price_display=price_display,
             capacity=cohort.capacity,
             spots_left=spots_left,
@@ -191,7 +223,7 @@ async def public_register(
             contact_roles=["parent_guardian"],
         )
         payer_contact_id = guardian.id
-        await _ensure_guardian_relationship(db, student_id=student.id, guardian_id=guardian.id)
+        await ensure_guardian_relationship(db, student_id=student.id, guardian_id=guardian.id)
 
     registration = await register(
         db,
@@ -257,22 +289,6 @@ async def public_register_interest(
     }
 
 
-async def _ensure_guardian_relationship(db: AsyncSession, *, student_id: uuid.UUID, guardian_id: uuid.UUID) -> None:
-    result = await db.execute(
-        select(ContactRelationship).where(
-            ContactRelationship.contact_id == guardian_id,
-            ContactRelationship.related_contact_id == student_id,
-            ContactRelationship.relation == "guardian_of",
-        )
-    )
-    if result.scalars().first() is not None:
-        return
-    db.add(ContactRelationship(
-        id=uuid.uuid4(), contact_id=guardian_id, related_contact_id=student_id, relation="guardian_of",
-    ))
-    await db.flush()
-
-
 def _mask_email(email: str) -> str:
     name, _, domain = email.partition("@")
     if len(name) <= 2:
@@ -307,12 +323,18 @@ async def public_ticket(ticket_token: str, db: AsyncSession = Depends(get_db)):
         .where(AttendanceRecord.registration_id == registration.id)
     )) or 0
 
+    # Cohort-only resolution (tickets have no session) through the canonical
+    # resolver — name + address + maps link, legacy fields as fallback.
+    location = await resolve_session_location_display(db, None, cohort)
+
     return PublicTicketOut(
         student_name=contact.full_name if contact else "—",
         program_name=program.name if program else "Workshop",
         cohort_name=cohort.name if cohort else "—",
         dates=format_cohort_dates(cohort),
-        location=cohort.location if cohort else None,
+        location=location["name"],
+        location_address=location["address"],
+        location_maps_url=location["maps_url"],
         ticket_token=registration.ticket_token,
         status=registration.status,
         checked_in=bool(checked_in),

@@ -6,6 +6,8 @@ import { getApplyQuestionsApi, submitApplicationApi } from "@/api/apply"
 import { applyInstructorApi } from "@/api/auth"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { CountrySelect } from "@/components/ui/CountrySelect"
+import { CitySelect } from "@/components/ui/CitySelect"
 
 const ROLE_LABEL: Record<string, string> = {
   ambassador: "Ambassador",
@@ -37,6 +39,8 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
   const [email, setEmail] = useState("")
   const [phone, setPhone] = useState("")
   const [country, setCountry] = useState("")
+  const [cityId, setCityId] = useState("")
+  const [cityOther, setCityOther] = useState("")
   const [password, setPassword] = useState("")
   const [inviteCode, setInviteCode] = useState(prefillCode ?? "")
   const [cv, setCv] = useState<File | null>(null)
@@ -66,9 +70,13 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
       form.append("password", password)
       if (phone)      form.append("phone", phone)
       if (country)    form.append("country", country)
+      if (cityId)     form.append("city_id", cityId)
       if (inviteCode) form.append("invite_code", inviteCode)
       if (cv)         form.append("cv", cv)
-      form.append("answers", JSON.stringify(answers))
+      form.append("answers", JSON.stringify({
+        ...answers,
+        ...(cityOther && !cityId ? { city_other: cityOther } : {}),
+      }))
       return submitApplicationApi(role, form)
     },
     onSuccess: (data: any) => {
@@ -155,10 +163,21 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
                     onChange={(e) => setPhone(e.target.value)} />
                 </Field>
                 <Field label="Country">
-                  <input className="input" placeholder="Egypt" value={country}
-                    onChange={(e) => setCountry(e.target.value)} />
+                  <CountrySelect value={country} onChange={setCountry} className="input" placeholder="Select country..." />
                 </Field>
               </div>
+              {country && (
+                <Field label="City">
+                  <CitySelect
+                    country={country}
+                    value={cityId}
+                    onChange={setCityId}
+                    otherValue={cityOther}
+                    onOtherChange={setCityOther}
+                    className="input"
+                  />
+                </Field>
+              )}
               <Field label="Password" required>
                 <input className="input" type="password" placeholder="Min. 6 characters" value={password}
                   onChange={(e) => setPassword(e.target.value)} />

@@ -13,6 +13,7 @@ every new contact FK must be registered there or a contact merge will
 silently orphan the rows.
 """
 
+from app.models.inventory.city import City
 from app.models.inventory.cohort_kit import CohortKit
 from app.models.inventory.equipment_flag import EquipmentReturnFlag
 from app.models.inventory.item import Item
@@ -26,6 +27,7 @@ from app.models.inventory.session_kit import KitCheck, SessionKit
 from app.models.inventory.stock import StockLevel
 
 __all__ = [
+    "City",
     "Location",
     "Warehouse",
     "Item",

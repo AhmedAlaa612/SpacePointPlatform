@@ -17,6 +17,8 @@ from app.core.security import (
     verify_password,
 )
 from app.db.session import get_db
+from app.models.inventory.city import City
+from app.models.spine.contact import Contact
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
@@ -30,19 +32,27 @@ from app.schemas.auth import (
     UserOut,
 )
 from app.models.enums import UserRole
-from app.models.instructors.invitation_code import InvitationCode
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.application_review import ApplicationReview
 from app.schemas.user import InstructorApply
+from app.services.invitations import resolve_invite_code
 from app.services.notification import create_notification as notify
-from app.services.spine.identity import resolve_or_create_contact
+from app.services.spine.identity import ensure_guardian_relationship, resolve_or_create_contact
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-async def _user_out(user: User, profile: ApplicantProfile | None = None) -> dict:
+async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | None = None) -> dict:
     from app.services import storage
+
+    # Demographic fields (date_of_birth/grade, 2026-08-08) live on the
+    # spine Contact, not on User — resolved here so every /auth response
+    # (signup, login, /auth/me) can carry them for form-prefill purposes.
+    # None for staff users without a linked contact_id.
+    contact = await db.get(Contact, user.contact_id) if user.contact_id else None
+    city = await db.get(City, user.city_id) if user.city_id else None
+
     return {
         "id": str(user.id),
         "full_name": user.full_name,
@@ -56,10 +66,15 @@ async def _user_out(user: User, profile: ApplicantProfile | None = None) -> dict
         "photo_url": await storage.resolve_url("profile_pictures", user.photo_path, user.photo_url),
         "linkedin_url": user.linkedin_url,
         "created_at": user.created_at,
+        "date_of_birth": contact.date_of_birth if contact else None,
+        "grade": contact.grade if contact else None,
+        "city_id": user.city_id,
+        "city_name": city.name if city else None,
+        "city_other": user.city_other,
         # Applicant-profile fields — surfaced on Profile & Settings for
         # instructors/facilitators/applicants. None when no profile exists.
-        "city_of_residence": profile.city_of_residence if profile else None,
-        "deliver_cities": profile.deliver_cities if profile else None,
+        "city_of_residence_id": profile.city_of_residence_id if profile else None,
+        "deliver_city_ids": profile.deliver_city_ids if profile else None,
         "has_own_transportation": profile.has_own_transportation if profile else None,
     }
 
@@ -87,7 +102,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         "access_token": create_access_token(user.id, roles),
         "refresh_token": create_refresh_token(user.id, roles),
         "token_type": "bearer",
-        "user": await _user_out(user),
+        "user": await _user_out(db, user),
     }
 
 
@@ -103,13 +118,30 @@ async def student_signup(data: StudentSignupRequest, db: AsyncSession = Depends(
 
     A duplicate email is a 409 with a friendly "log in" prompt — never a raw
     IntegrityError. The email check runs *before* any contact work so a repeat
-    signup can't churn the spine layer."""
+    signup can't churn the spine layer.
+
+    invite_code/parent_* (2026-08-08) reuse the exact mechanisms
+    instructor_apply and public_register already use — see
+    services/invitations.py::resolve_invite_code and
+    services/spine/identity.py::ensure_guardian_relationship.
+    country/city_id (2026-08-08) live on `User` directly, not the Contact
+    spine (too broad a field to restructure for this) — see
+    models/user.py::User.city_id's docstring. The resolved city name is
+    still gap-filled onto the Contact's free-text `city` too, so the CRM's
+    existing Contact views show it without needing to know about the new
+    structured field."""
     email = _lower_email(data.email)
     if await _email_taken(db, email):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists — log in instead.",
         )
+
+    code = data.invite_code.strip().upper() if data.invite_code else None
+    invitation, ambassador = await resolve_invite_code(db, code)
+    referred_by_ambassador_id = ambassador.id if ambassador else None
+
+    city = await db.get(City, data.city_id) if data.city_id else None
 
     contact, _ = await resolve_or_create_contact(
         db,
@@ -118,7 +150,20 @@ async def student_signup(data: StudentSignupRequest, db: AsyncSession = Depends(
         email=email,
         contact_roles=["student"],
         role_event_source="lms_signup",
+        date_of_birth=data.date_of_birth,
+        country=data.country,
+        city=city.name if city else (data.city_other or None),
     )
+
+    if data.parent_name and data.parent_phone:
+        guardian, _ = await resolve_or_create_contact(
+            db,
+            full_name=data.parent_name,
+            phone=data.parent_phone,
+            email=data.parent_email,
+            contact_roles=["parent_guardian"],
+        )
+        await ensure_guardian_relationship(db, student_id=contact.id, guardian_id=guardian.id)
 
     user = User(
         full_name=data.full_name,
@@ -129,8 +174,21 @@ async def student_signup(data: StudentSignupRequest, db: AsyncSession = Depends(
         must_change_password=False,
         contact_id=contact.id,
         phone=data.phone,
+        country=data.country,
+        city_id=data.city_id,
+        city_other=data.city_other,
+        invited_by_id=referred_by_ambassador_id,
+        invitation_code_used=code,
     )
     db.add(user)
+    await db.flush()  # assign user.id
+
+    if invitation:
+        invitation.used_count += 1
+    if referred_by_ambassador_id:
+        await notify(db, referred_by_ambassador_id, "New Student Signup",
+                     f"{data.full_name} signed up as a student with your invite code.", type="student")
+
     await db.commit()
     await db.refresh(user)
 
@@ -139,7 +197,7 @@ async def student_signup(data: StudentSignupRequest, db: AsyncSession = Depends(
         "access_token": create_access_token(user.id, roles),
         "refresh_token": create_refresh_token(user.id, roles),
         "token_type": "bearer",
-        "user": await _user_out(user),
+        "user": await _user_out(db, user),
     }
 
 
@@ -184,7 +242,7 @@ async def me(
     db: AsyncSession = Depends(get_db),
 ):
     profile = await _load_applicant_profile(db, current_user.id)
-    return await _user_out(current_user, profile)
+    return await _user_out(db, current_user, profile)
 
 
 @router.get("/users/{user_id}", response_model=UserOut)
@@ -200,7 +258,7 @@ async def get_user_profile(
     user = (await db.execute(select(User).where(User.id == uid))).scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return await _user_out(user)
+    return await _user_out(db, user)
 
 
 @router.get("/users/{user_id}/stats")
@@ -342,7 +400,7 @@ async def upload_my_photo(
     current_user.photo_url = url
     current_user.photo_path = photo_path
     await db.commit()
-    return await _user_out(current_user)
+    return await _user_out(db, current_user)
 
 
 @router.patch("/me", response_model=UserOut)
@@ -359,21 +417,25 @@ async def update_me(
         current_user.country = data.country or None
     if data.linkedin_url is not None:
         current_user.linkedin_url = data.linkedin_url or None
+    if data.city_id is not None:
+        current_user.city_id = data.city_id
+    if data.city_other is not None:
+        current_user.city_other = data.city_other or None
 
     # Applicant-profile fields (Profile & Settings for instructors/facilitators).
     # Only written when the user actually has an applicant_profile; otherwise the
     # scalar user fields above still save and these are silently ignored.
     profile = await _load_applicant_profile(db, current_user.id)
     if profile is not None:
-        if data.city_of_residence is not None:
-            profile.city_of_residence = data.city_of_residence or None
-        if data.deliver_cities is not None:
-            profile.deliver_cities = data.deliver_cities
+        if data.city_of_residence_id is not None:
+            profile.city_of_residence_id = data.city_of_residence_id
+        if data.deliver_city_ids is not None:
+            profile.deliver_city_ids = data.deliver_city_ids
         if data.has_own_transportation is not None:
             profile.has_own_transportation = data.has_own_transportation
 
     await db.commit()
-    return await _user_out(current_user, profile)
+    return await _user_out(db, current_user, profile)
 
 
 @router.post("/logout")
@@ -452,32 +514,11 @@ async def instructor_apply(
         raise HTTPException(status_code=400, detail="Email already registered")
 
     code = payload.invite_code.strip().upper() if payload.invite_code else None
-    referred_by_ambassador_id = None
-    invitation = None
-
     # Code is optional (organic applicants have none) — but if one is
     # supplied it must be valid, so a typo'd/expired code doesn't silently
     # drop the referral.
-    if code:
-        invitation = (await db.execute(
-            select(InvitationCode).where(InvitationCode.code == code, InvitationCode.is_active.is_(True))
-        )).scalars().first()
-        if invitation:
-            if invitation.expires_at and invitation.expires_at < datetime.now(timezone.utc):
-                raise HTTPException(status_code=400, detail="Invitation code has expired")
-            if invitation.used_count >= invitation.max_uses:
-                raise HTTPException(status_code=400, detail="Invitation code has reached its usage limit")
-        else:
-            amb = (await db.execute(
-                select(User).where(
-                    User.invite_code == code,
-                    User.roles.any("ambassador"),
-                    User.status == "active",
-                )
-            )).scalars().first()
-            if not amb:
-                raise HTTPException(status_code=400, detail="Invalid or inactive invite code")
-            referred_by_ambassador_id = amb.id
+    invitation, ambassador = await resolve_invite_code(db, code)
+    referred_by_ambassador_id = ambassador.id if ambassador else None
 
     user = User(
         full_name=payload.full_name,
@@ -515,8 +556,8 @@ async def instructor_apply(
         university=payload.university,
         highest_degree=payload.highest_degree,
         highest_degree_other=payload.highest_degree_other,
-        city_of_residence=payload.city_of_residence,
-        deliver_cities=payload.deliver_cities,
+        city_of_residence_id=payload.city_of_residence_id,
+        deliver_city_ids=payload.deliver_city_ids,
         background_areas=payload.background_areas,
         background_other=payload.background_other,
         has_own_transportation=payload.has_own_transportation,
@@ -545,30 +586,22 @@ async def instructor_apply(
         "access_token": create_access_token(user.id, roles),
         "refresh_token": create_refresh_token(user.id, roles),
         "token_type": "bearer",
-        "user": await _user_out(user),
+        "user": await _user_out(db, user),
     }
 
 
 @router.get("/invite/{code}")
 async def validate_invite(code: str, db: AsyncSession = Depends(get_db)):
-    normalized = code.strip().upper()
-    invitation = (await db.execute(
-        select(InvitationCode).where(InvitationCode.code == normalized, InvitationCode.is_active.is_(True))
-    )).scalars().first()
+    # This endpoint's contract predates resolve_invite_code() and differs
+    # from it slightly (404 "not found" rather than 400 "bad request", no
+    # used_count/invited_by_id side effects — it's a read-only check) — reuse
+    # the shared lookup/expiry/usage-limit logic, just remap the exceptions.
+    try:
+        invitation, ambassador = await resolve_invite_code(db, code)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_400_BAD_REQUEST and exc.detail == "Invalid or inactive invite code":
+            raise HTTPException(status_code=404, detail=exc.detail)
+        raise
     if invitation:
-        if invitation.expires_at and invitation.expires_at < datetime.now(timezone.utc):
-            raise HTTPException(status_code=400, detail="Invitation code has expired")
-        if invitation.used_count >= invitation.max_uses:
-            raise HTTPException(status_code=400, detail="Invitation code has reached its usage limit")
         return {"ambassador_name": None, "valid": True}
-
-    amb = (await db.execute(
-        select(User).where(
-            User.invite_code == code,
-            User.roles.any("ambassador"),
-            User.status == "active"
-        )
-    )).scalars().first()
-    if not amb:
-        raise HTTPException(status_code=404, detail="Invalid or inactive invite code")
-    return {"ambassador_name": amb.full_name, "valid": True}
+    return {"ambassador_name": ambassador.full_name, "valid": True}

@@ -1,8 +1,9 @@
 import { useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Boxes, ImagePlus, MapPin, Pencil, Plus, Search, Tag, Trash2, X } from "lucide-react"
-import type { Item, ItemCategory, ItemCategoryDef, KitTemplate, Location, StockLevel, Warehouse } from "@/types/inventory"
+import type { City, Item, ItemCategory, ItemCategoryDef, KitTemplate, Location, StockLevel, Warehouse } from "@/types/inventory"
 import {
+  createCityApi,
   createItemApi,
   createItemCategoryApi,
   createLocationApi,
@@ -10,6 +11,7 @@ import {
   createWarehouseApi,
   deleteItemCategoryApi,
   deleteTemplateApi,
+  getCitiesApi,
   getItemCategoriesApi,
   getItemsApi,
   getLocationsApi,
@@ -20,6 +22,7 @@ import {
   removeItemImageApi,
   setItemImageApi,
   setTemplateItemsApi,
+  updateCityApi,
   updateItemApi,
   updateItemCategoryApi,
   updateLocationApi,
@@ -29,9 +32,11 @@ import {
 import { Field, Modal, ModalActions, Spinner } from "@/pages/admin/components/common"
 import { StockCountModal } from "@/pages/operations/inventory/StockCountModal"
 import { VariantsModal } from "@/pages/operations/inventory/VariantsModal"
+import { CountrySelect } from "@/components/ui/CountrySelect"
 import { cn } from "@/lib/utils"
+import { getCountries } from "@/lib/countries"
 
-type Tab = "templates" | "items" | "locations" | "warehouses" | "categories"
+type Tab = "templates" | "items" | "locations" | "cities" | "warehouses" | "categories"
 
 export default function Catalog() {
   const [tab, setTab] = useState<Tab>("templates")
@@ -46,7 +51,7 @@ export default function Catalog() {
       </div>
 
       <div className="flex gap-1 border-b border-border">
-        {(["templates", "items", "locations", "warehouses", "categories"] as Tab[]).map((t) => (
+        {(["templates", "items", "locations", "cities", "warehouses", "categories"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -65,6 +70,7 @@ export default function Catalog() {
       {tab === "templates" && <Templates />}
       {tab === "items" && <Items />}
       {tab === "locations" && <Locations />}
+      {tab === "cities" && <Cities />}
       {tab === "warehouses" && <Warehouses />}
       {tab === "categories" && <Categories />}
     </div>
@@ -792,8 +798,9 @@ function Locations() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground -mt-1">
-        A location is a city or site — Dubai, Cairo. Most need only one warehouse underneath;
-        add a second only where there genuinely are two separate stores (see the Warehouses tab).
+        A location is a site — a workshop space, an office. No warehouse is
+        created automatically; add one from the Warehouses tab once you
+        actually need to hold stock here.
       </p>
       <button
         onClick={() => setOpen(true)}
@@ -812,7 +819,7 @@ function Locations() {
             <div className="min-w-0">
               <p className="text-sm text-foreground">{l.name}</p>
               <p className="text-xs text-muted-foreground truncate">
-                {l.country}
+                {l.city_name ? `${l.city_name}${l.country ? `, ${l.country}` : ""}` : (l.country ?? "no city yet")}
                 {l.address && ` · ${l.address}`}
               </p>
             </div>
@@ -850,10 +857,19 @@ function LocationModal({ location, onClose }: { location: Location | null; onClo
   const queryClient = useQueryClient()
   const isEdit = !!location
   const [name, setName] = useState(location?.name ?? "")
-  const [country, setCountry] = useState(location?.country ?? "AE")
+  const [cityId, setCityId] = useState(location?.city_id ?? "")
   const [address, setAddress] = useState(location?.address ?? "")
   const [mapsUrl, setMapsUrl] = useState(location?.maps_url ?? "")
   const [error, setError] = useState("")
+
+  const { data: cities = [] } = useQuery({ queryKey: ["inv-cities"], queryFn: () => getCitiesApi() })
+
+  // A location is in a city, a city is in a country — the country shown is
+  // always the picked city's, never entered by hand.
+  const pickedCity = cities.find((c) => c.id === cityId)
+  const countryName = pickedCity
+    ? (getCountries().find((c) => c.code === pickedCity.country)?.name ?? pickedCity.country)
+    : null
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["inv-locations-all"] })
@@ -863,11 +879,12 @@ function LocationModal({ location, onClose }: { location: Location | null; onClo
   const mutation = useMutation({
     mutationFn: () => isEdit
       ? updateLocationApi({
-          id: location!.id, name, country,
+          id: location!.id, name, city_id: cityId,
           address: address.trim() || null, maps_url: mapsUrl.trim() || null,
         })
       : createLocationApi({
-          name, country, address: address.trim() || null, maps_url: mapsUrl.trim() || null,
+          name, city_id: cityId,
+          address: address.trim() || null, maps_url: mapsUrl.trim() || null,
         }),
     onSuccess: () => { invalidate(); onClose() },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not save the location"),
@@ -878,18 +895,23 @@ function LocationModal({ location, onClose }: { location: Location | null; onClo
       <Field label="Name">
         <input
           value={name} onChange={(e) => setName(e.target.value)}
-          placeholder="Dubai, Abu Dhabi, Cairo…"
+          placeholder="SpacePoint HQ, Al Ain Depot…"
           className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
         />
       </Field>
-      <Field label="Country">
-        <input
-          value={country} maxLength={2}
-          onChange={(e) => setCountry(e.target.value.toUpperCase())}
-          className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
-        />
+      <Field label="City">
+        <select
+          value={cityId} onChange={(e) => setCityId(e.target.value)}
+          className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm cursor-pointer"
+        >
+          <option value="" disabled>— Pick a city —</option>
+          {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
         <p className="text-xs text-muted-foreground mt-1">
-          Two letters — AE, EG. Used to tell a local move from a cross-border one.
+          {countryName
+            ? `Country: ${countryName} — derived from the city, always.`
+            : "Every location sits in a city; the country follows from it."}
+          {" "}Manage the city list in the Cities tab.
         </p>
       </Field>
       <Field label="Address (optional)">
@@ -909,6 +931,121 @@ function LocationModal({ location, onClose }: { location: Location | null; onClo
           Instructors sent here won't have to find the place themselves.
         </p>
       </Field>
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      <ModalActions
+        onCancel={onClose}
+        onConfirm={() => { setError(""); mutation.mutate() }}
+        loading={mutation.isPending}
+        disabled={!name.trim() || !cityId}
+        label={isEdit ? "Save" : "Create"}
+      />
+    </Modal>
+  )
+}
+
+/* ── cities ────────────────────────────────────────────────────────────── */
+
+function Cities() {
+  const { data: cities = [], isLoading } = useQuery({
+    queryKey: ["inv-cities-all"],
+    queryFn: () => getCitiesApi(true),
+  })
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState<City | null>(null)
+
+  if (isLoading) return <Spinner />
+
+  return (
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-muted-foreground -mt-1">
+        The cities instructors can mark as "open to work in", and locations
+        can sit in — seeded with the UAE emirates, add more as the org
+        expands. Reflected live on the instructor apply form and profile.
+      </p>
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 w-fit"
+      >
+        <Plus size={14} /> New city
+      </button>
+
+      <div className="rounded-2xl border border-border bg-card divide-y divide-border">
+        {cities.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => setEditing(c)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 transition-colors"
+          >
+            <div className="min-w-0">
+              <p className="text-sm text-foreground">{c.name}</p>
+              <p className="text-xs text-muted-foreground">{c.country}</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {!c.is_active && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
+              )}
+              <Pencil size={12} className="text-muted-foreground" />
+            </div>
+          </button>
+        ))}
+        {cities.length === 0 && (
+          <div className="p-8 text-center text-sm text-muted-foreground">No cities yet.</div>
+        )}
+      </div>
+
+      {(open || editing) && (
+        <CityModal city={editing} onClose={() => { setOpen(false); setEditing(null) }} />
+      )}
+    </div>
+  )
+}
+
+function CityModal({ city, onClose }: { city: City | null; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const isEdit = !!city
+  const [name, setName] = useState(city?.name ?? "")
+  const [country, setCountry] = useState(city?.country ?? "AE")
+  const [error, setError] = useState("")
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["inv-cities-all"] })
+    queryClient.invalidateQueries({ queryKey: ["inv-cities"] })
+  }
+
+  const mutation = useMutation({
+    mutationFn: () => isEdit
+      ? updateCityApi({ id: city!.id, name, country })
+      : createCityApi({ name, country }),
+    onSuccess: () => { invalidate(); onClose() },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not save the city"),
+  })
+
+  return (
+    <Modal title={isEdit ? `Edit ${city!.name}` : "New city"} onClose={onClose}>
+      <Field label="Name">
+        <input
+          value={name} onChange={(e) => setName(e.target.value)}
+          placeholder="Dubai, Abu Dhabi, Cairo…"
+          className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
+        />
+      </Field>
+      <Field label="Country">
+        <CountrySelect
+          value={country} onChange={setCountry} valueType="code"
+          className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm cursor-pointer"
+        />
+      </Field>
+      {isEdit && (
+        <Field label="Status">
+          <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer w-fit">
+            <input
+              type="checkbox" checked={city!.is_active}
+              onChange={() => updateCityApi({ id: city!.id, is_active: !city!.is_active }).then(invalidate)}
+            />
+            Active
+          </label>
+        </Field>
+      )}
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
       <ModalActions
         onCancel={onClose}

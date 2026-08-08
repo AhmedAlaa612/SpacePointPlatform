@@ -62,10 +62,20 @@ export interface User {
   must_change_password?: boolean;
   created_at?: string;
   last_login_at?: string | null;
+  // Resolved from the user's linked Contact — null/absent for staff users
+  // without one, or students who never provided them.
+  date_of_birth?: string | null;
+  grade?: string | null;
+  // The user's own city (2026-08-08), available to every role.
+  city_id?: string | null;
+  city_name?: string | null;
+  // Free-text "Other" city (2026-08-08) — typed when the chosen country has
+  // no SpacePoint city; mutually exclusive with city_id in practice.
+  city_other?: string | null;
   // Applicant-derived fields (instructors/facilitators/applicants). Null/absent
-  // when the user has no applicant_profile.
-  city_of_residence?: string | null;
-  deliver_cities?: string[] | null;
+  // when the user has no applicant_profile. Structured — reference `cities`.
+  city_of_residence_id?: string | null;
+  deliver_city_ids?: string[] | null;
   has_own_transportation?: boolean | null;
 }
 

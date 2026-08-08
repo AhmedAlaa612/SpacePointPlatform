@@ -13,6 +13,7 @@ from app.db.session import get_db
 from app.models.application import Application
 from app.models.application_question import ApplicationQuestion
 from app.models.enums import UserRole
+from app.models.inventory.city import City
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
 from app.models.user import User
@@ -45,7 +46,7 @@ async def list_applications(
     if status:
         q = q.where(Application.status == status)
     rows = (await db.execute(q)).scalars().all()
-    return [_app_out(a) for a in rows]
+    return [await _app_out(db, a) for a in rows]
 
 
 @router.get("/applications/counts")
@@ -68,7 +69,7 @@ async def get_application(
     app = (await db.execute(select(Application).where(Application.id == app_id))).scalars().first()
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
-    out = _app_out(app)
+    out = await _app_out(db, app)
     cv_path = app.cv_path or (_path_from_url(app.cv_url) if app.cv_url else None)
     if cv_path:
         try:
@@ -106,6 +107,8 @@ async def approve_application(
         password_hash=app.password_hash,
         phone=app.phone,
         country=app.country,
+        city_id=app.city_id,
+        city_other=(app.answers or {}).get("city_other"),
         roles=[user_role],
         status="active",
         invite_code=secrets.token_hex(4).upper(),
@@ -237,11 +240,17 @@ async def onboard_application(
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _app_out(a: Application) -> dict:
+async def _app_out(db: AsyncSession, a: Application) -> dict:
+    city_name = None
+    if a.city_id:
+        city = await db.get(City, a.city_id)
+        city_name = city.name if city else None
+    if not city_name:
+        city_name = (a.answers or {}).get("city_other")  # "Other (type it)" (2026-08-08)
     return {
         "id": str(a.id), "role": a.role, "status": a.status,
         "full_name": a.full_name, "email": a.email,
-        "phone": a.phone, "country": a.country,
+        "phone": a.phone, "country": a.country, "city": city_name,
         "invite_code": a.invite_code,
         "has_cv": bool(a.cv_path or a.cv_url),
         "answers": a.answers,

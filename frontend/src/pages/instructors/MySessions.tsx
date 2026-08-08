@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { Calendar, MapPin, Search, Filter, CheckCircle2, PlayCircle, Clock, AlertTriangle } from "lucide-react"
+import { Calendar, MapPin, Search, Filter, CheckCircle2, PlayCircle, Clock, AlertTriangle, ExternalLink } from "lucide-react"
 import { listMySessionsApi, declineAssignmentApi } from "@/api/sessions/staffing"
 import type { MySession } from "@/types/sessions"
 import { Card, CardContent } from "@/components/ui/card"
@@ -179,6 +179,17 @@ export default function MySessions() {
                       </span>
                       {s.location && (
                         <span className="flex items-center gap-1.5 text-xs font-medium"><MapPin size={14} /> {s.location}</span>
+                      )}
+                      {s.location_address && (
+                        <span className="flex items-center gap-1.5 text-xs text-muted-foreground">{s.location_address}</span>
+                      )}
+                      {s.location_maps_url && (
+                        <a
+                          href={s.location_maps_url} target="_blank" rel="noreferrer"
+                          className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                        >
+                          Open in maps <ExternalLink size={11} />
+                        </a>
                       )}
                     </div>
 

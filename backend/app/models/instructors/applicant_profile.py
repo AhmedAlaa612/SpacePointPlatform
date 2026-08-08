@@ -11,8 +11,11 @@ class ApplicantProfile(Base):
     university = Column(String(255), nullable=True)
     highest_degree = Column(String(100), nullable=True)
     highest_degree_other = Column(String(255), nullable=True)
-    city_of_residence = Column(String(100), nullable=True)
-    deliver_cities = Column(ARRAY(String), nullable=True)
+    # Structured (2026-08-08) — replaced the old free-text city_of_residence/
+    # deliver_cities string columns; see the "cities" migration for the
+    # case-insensitive backfill that preserved existing applicants' data.
+    city_of_residence_id = Column(UUID(as_uuid=True), ForeignKey("cities.id", ondelete="SET NULL"), nullable=True)
+    deliver_city_ids = Column(ARRAY(UUID(as_uuid=True)), nullable=True)
     background_areas = Column(ARRAY(String), nullable=True)
     background_other = Column(String(255), nullable=True)
     has_own_transportation = Column(Boolean, nullable=False, default=False)

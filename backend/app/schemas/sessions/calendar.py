@@ -26,6 +26,10 @@ class CalendarEventOut(BaseModel):
     program_name: str | None = None
     program_type: str | None = None
     location: str | None = None
+    # Full resolved location (2026-08-08) — the calendar chip shows the
+    # address and links out to the map, not a bare name.
+    location_address: str | None = None
+    location_maps_url: str | None = None
     staffing_status: str | None = None
     delivery_status: Literal["scheduled", "in_progress", "completed"] | None = None
     instructors: list[CalendarInstructorOut] = []

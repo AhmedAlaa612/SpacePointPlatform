@@ -18,6 +18,9 @@ class Application(Base):
     email = Column(String(255), nullable=False, index=True)
     phone = Column(String(50), nullable=True)
     country = Column(String(100), nullable=True)
+    # Structured city (2026-08-08) — same `cities` table every other surface
+    # uses; `country` above stays as the free-text display for legacy rows.
+    city_id = Column(UUID(as_uuid=True), ForeignKey("cities.id", ondelete="SET NULL"), nullable=True)
     password_hash = Column(Text, nullable=False)
 
     invite_code = Column(String(50), nullable=True)

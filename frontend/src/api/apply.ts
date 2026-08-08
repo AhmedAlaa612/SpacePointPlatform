@@ -17,6 +17,7 @@ export interface ApplicationOut {
   email: string
   phone: string | null
   country: string | null
+  city: string | null
   invite_code: string | null
   has_cv: boolean
   answers: Record<string, unknown>

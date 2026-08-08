@@ -106,6 +106,9 @@ function SessionCard({ s }: { s: AvailableSession }) {
               )}
             </span>
           )}
+          {s.location_address && (
+            <span className="flex items-center gap-1.5">{s.location_address}</span>
+          )}
           {s.duration_hours != null && (
             <span className="flex items-center gap-1.5"><Clock size={14} /> {s.duration_hours}h</span>
           )}

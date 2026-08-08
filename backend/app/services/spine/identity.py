@@ -27,7 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import Base
-from app.models.spine.contact import Contact
+from app.models.spine.contact import Contact, ContactRelationship
 from app.models.spine.identity_alias import IdentityAlias
 from app.models.spine.merge_review import MergeReview
 from app.models.spine.organization import Organization
@@ -304,6 +304,26 @@ async def resolve_or_create_contact(
         await db.flush()
 
     return contact, evaluation
+
+
+async def ensure_guardian_relationship(db: AsyncSession, *, student_id: UUID, guardian_id: UUID) -> None:
+    """Idempotent — writes the `guardian_of` `ContactRelationship` row if one
+    doesn't already exist. Promoted 2026-08-08 from
+    `routers/sessions/public.py` (public registration) so LMS student
+    signup can create the same relationship without duplicating the check."""
+    result = await db.execute(
+        select(ContactRelationship).where(
+            ContactRelationship.contact_id == guardian_id,
+            ContactRelationship.related_contact_id == student_id,
+            ContactRelationship.relation == "guardian_of",
+        )
+    )
+    if result.scalars().first() is not None:
+        return
+    db.add(ContactRelationship(
+        id=uuid4(), contact_id=guardian_id, related_contact_id=student_id, relation="guardian_of",
+    ))
+    await db.flush()
 
 
 async def merge_contacts(

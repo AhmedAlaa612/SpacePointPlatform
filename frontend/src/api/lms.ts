@@ -156,6 +156,71 @@ export async function fetchMyCourses(): Promise<MyCourses> {
   return data;
 }
 
+export interface ActivityItem {
+  item_id: string;
+  item_title: string | null;
+  item_kind: "video" | "text" | "quiz" | "flashcards";
+  course_id: string;
+  course_title: string;
+  completed_at: string | null;
+}
+
+export async function fetchMyActivity(): Promise<ActivityItem[]> {
+  const { data } = await api.get<ActivityItem[]>("/lms/my-activity");
+  return data;
+}
+
+// ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────
+
+export interface LearningPathCatalogItem {
+  id: string;
+  title: string;
+  description: string | null;
+  image_url: string | null;
+  course_count: number;
+  mission_count: number;
+  total_duration_seconds: number;
+  pct: number;
+}
+
+export interface LearningPathStep {
+  position: number;
+  course_id: string;
+  title: string;
+  kind: "course" | "mission";
+  state: "done" | "current" | "mission" | "locked";
+  pct: number;
+  modules_done: number;
+  modules_total: number;
+}
+
+export interface LearningPathDetail {
+  id: string;
+  title: string;
+  description: string | null;
+  image_url: string | null;
+  pct: number;
+  course_count: number;
+  mission_count: number;
+  total_duration_seconds: number;
+  steps: LearningPathStep[];
+}
+
+export async function fetchLearningPaths(): Promise<LearningPathCatalogItem[]> {
+  const { data } = await api.get<LearningPathCatalogItem[]>("/lms/learning-paths");
+  return data;
+}
+
+export async function fetchLearningPath(pathId: string): Promise<LearningPathDetail> {
+  const { data } = await api.get<LearningPathDetail>(`/lms/learning-paths/${pathId}`);
+  return data;
+}
+
+export async function startLearningPath(pathId: string): Promise<LearningPathDetail> {
+  const { data } = await api.post<LearningPathDetail>(`/lms/learning-paths/${pathId}/start`);
+  return data;
+}
+
 // ── upcoming public programs (reuses /public/catalog — no LMS-specific
 // backend needed). Includes both `planned` (not yet open — "Notify me") and
 // `registration_open` ("Register now") public cohorts as of 2026-08-07. ───
@@ -174,6 +239,9 @@ export interface UpcomingProgram {
   starts_on: string | null;
   ends_on: string | null;
   location: string | null;
+  location_name: string | null;
+  location_address: string | null;
+  location_maps_url: string | null;
   price_display: string;
   capacity: number | null;
   spots_left: number | null;
@@ -191,13 +259,45 @@ export async function fetchUpcomingPrograms(): Promise<UpcomingProgram[]> {
   return data;
 }
 
+// ── cities (2026-08-08) — no-auth read for pre-account forms (apply,
+// signup) that can't call the authenticated /inventory/cities. ───────────
+export interface PublicCity {
+  id: string;
+  name: string;
+  country: string;
+  is_active: boolean;
+  created_at: string | null;
+}
+
+export async function fetchPublicCities(): Promise<PublicCity[]> {
+  const { data } = await api.get<PublicCity[]>("/public/cities");
+  return data;
+}
+
 export interface PublicLeadInput {
   student_name: string;
   email: string;
   phone: string;
 }
 
-export async function submitProgramRegistration(endpoint: string, body: PublicLeadInput): Promise<{ message: string }> {
+// Full registration — mirrors PublicRegistrationRequest field-for-field
+// (backend/app/schemas/sessions/public_registration.py). Only student_name/
+// email/phone are required; everything else is optional, matching the
+// backend schema exactly.
+export interface ProgramRegistrationInput {
+  student_name: string;
+  email: string;
+  phone: string;
+  city?: string;
+  date_of_birth?: string; // YYYY-MM-DD
+  grade?: string;
+  organization_name?: string;
+  parent_name?: string;
+  parent_phone?: string;
+  parent_email?: string;
+}
+
+export async function submitProgramRegistration(endpoint: string, body: ProgramRegistrationInput): Promise<{ message: string }> {
   const { data } = await api.post<{ message: string }>(endpoint, body);
   return data;
 }

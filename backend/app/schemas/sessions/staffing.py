@@ -44,6 +44,10 @@ class EligibleInstructorOut(BaseModel):
     # rather than guessing.
     interest_role_id: UUID | None = None
     interest_role_name: str | None = None
+    # 2026-08-08: did this instructor mark the session's resolved city
+    # (session.location_id, else its cohort's) as somewhere they're open to
+    # work? Always False if the session has no resolvable location/city.
+    available_in_city: bool = False
 
 
 class SelectInstructorsRequest(BaseModel):
@@ -145,6 +149,9 @@ class AvailableSessionOut(BaseModel):
     # of it reached them before: they got a cohort name, a date and a place.
     program_type: str | None = None
     description: str | None = None
+    # Full resolved location (2026-08-08) — the card shows name + address and
+    # links out to the map, instead of a bare name.
+    location_address: str | None = None
     location_map_url: str | None = None
     duration_hours: float | None = None
     # Per role: what is on offer, how many slots, how many are left.
@@ -179,6 +186,10 @@ class MySessionOut(BaseModel):
     program_name: str
     title: str | None = None
     location: str | None = None
+    # Full resolved location (2026-08-08) — the card shows name + address and
+    # links out to the map, instead of a bare name.
+    location_address: str | None = None
+    location_maps_url: str | None = None
     meeting_date: date
     starts_at: time | None = None
     my_role: str

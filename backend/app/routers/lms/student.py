@@ -23,14 +23,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_active_user, require_lms_student
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, ModuleVideo, VideoCheckpoint
+from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.user import User
 from app.schemas.lms import (
+    ActivityItemOut,
     CheckpointAnswerIn,
     CheckpointAnswerOut,
     CourseCatalogOut,
     CourseDetailOut,
     EnrollIn,
     EnrollmentOut,
+    LearningPathCatalogOut,
+    LearningPathDetailOut,
+    LearningPathStepOut,
     ModuleItemOut,
     ModuleLockOut,
     ModuleOut,
@@ -45,13 +50,15 @@ from app.services.lms import (
     course_completion,
     enroll,
     item_progress,
+    path_progress,
+    path_total_duration_seconds,
     sanitize_checkpoint,
     student_view,
     submit_checkpoint_answer,
     submit_quiz,
     unlock_state,
 )
-from app.services.lms.dashboard import my_courses_dashboard
+from app.services.lms.dashboard import my_courses_dashboard, recent_activity
 from app.services import storage
 
 router = APIRouter(prefix="/lms", tags=["lms"])
@@ -176,6 +183,93 @@ async def course_detail(
     )
 
 
+# ── learning paths (self-paced ordered course sequences) ────────────────────
+
+async def _published_path(db: AsyncSession, path_id: uuid.UUID) -> LearningPath:
+    path = await db.get(LearningPath, path_id)
+    if path is None or not path.is_published:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    return path
+
+
+async def _path_steps(db: AsyncSession, path_id: uuid.UUID) -> list[LearningPathStep]:
+    return list((await db.execute(
+        select(LearningPathStep)
+        .where(LearningPathStep.learning_path_id == path_id)
+        .order_by(LearningPathStep.position)
+    )).scalars().all())
+
+
+@router.get("/learning-paths", response_model=list[LearningPathCatalogOut])
+async def learning_paths_catalog(
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    paths = (await db.execute(
+        select(LearningPath).where(LearningPath.is_published.is_(True)).order_by(LearningPath.title)
+    )).scalars().all()
+
+    out: list[LearningPathCatalogOut] = []
+    for path in paths:
+        steps = await _path_steps(db, path.id)
+        progress = await path_progress(db, user_id=current.id, steps=steps)
+        duration = await path_total_duration_seconds(db, [s.course_id for s in steps])
+        out.append(LearningPathCatalogOut(
+            id=path.id, title=path.title, description=path.description,
+            image_url=await storage.resolve_url(path.image_bucket, path.image_path),
+            course_count=progress["course_count"], mission_count=progress["mission_count"],
+            total_duration_seconds=duration, pct=progress["pct"],
+        ))
+    return out
+
+
+@router.get("/learning-paths/{path_id}", response_model=LearningPathDetailOut)
+async def learning_path_detail(
+    path_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    path = await _published_path(db, path_id)
+    steps = await _path_steps(db, path.id)
+    progress = await path_progress(db, user_id=current.id, steps=steps)
+    duration = await path_total_duration_seconds(db, [s.course_id for s in steps])
+    return LearningPathDetailOut(
+        id=path.id, title=path.title, description=path.description,
+        image_url=await storage.resolve_url(path.image_bucket, path.image_path),
+        pct=progress["pct"], course_count=progress["course_count"],
+        mission_count=progress["mission_count"], total_duration_seconds=duration,
+        steps=[LearningPathStepOut(**row) for row in progress["steps"]],
+    )
+
+
+@router.post("/learning-paths/{path_id}/start", response_model=LearningPathDetailOut)
+async def start_learning_path(
+    path_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_student),
+):
+    """Bulk self-enrol in every step's course at once (idempotent, same
+    `enroll()` self-source path `POST /lms/enroll` already uses) — a path's
+    stats/progress only make sense once the student has access to every
+    course in it, mirroring how cohort-add already bulk-enrols a program's
+    whole curriculum in one shot."""
+    path = await _published_path(db, path_id)
+    steps = await _path_steps(db, path.id)
+    for step in steps:
+        await enroll(db, user_id=current.id, course_id=step.course_id, source="self")
+    await db.commit()
+
+    progress = await path_progress(db, user_id=current.id, steps=steps)
+    duration = await path_total_duration_seconds(db, [s.course_id for s in steps])
+    return LearningPathDetailOut(
+        id=path.id, title=path.title, description=path.description,
+        image_url=await storage.resolve_url(path.image_bucket, path.image_path),
+        pct=progress["pct"], course_count=progress["course_count"],
+        mission_count=progress["mission_count"], total_duration_seconds=duration,
+        steps=[LearningPathStepOut(**row) for row in progress["steps"]],
+    )
+
+
 # ── dashboard: student only ──────────────────────────────────────────────────
 
 @router.get("/my-courses", response_model=MyCoursesOut)
@@ -186,6 +280,16 @@ async def my_courses(
     """Stats + resume pointer + per-course progress for the landing page's
     resume band and the /learn/my-courses dashboard (LMS redesign)."""
     return await my_courses_dashboard(db, user_id=current.id)
+
+
+@router.get("/my-activity", response_model=list[ActivityItemOut])
+async def my_activity(
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_student),
+):
+    """Last 10 completed items across every course — the profile page's
+    activity feed."""
+    return await recent_activity(db, user_id=current.id)
 
 
 # ── enrollment: student only ────────────────────────────────────────────────

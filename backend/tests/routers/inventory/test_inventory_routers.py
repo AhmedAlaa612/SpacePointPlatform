@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import select
 
 from app.core.security import create_access_token, get_password_hash
-from app.models.inventory import Item, Kit, KitTemplate, KitTemplateItem, Location, StockLevel, Warehouse
+from app.models.inventory import City, Item, Kit, KitTemplate, KitTemplateItem, Location, StockLevel, Warehouse
 from app.models.user import User
 
 
@@ -112,13 +112,90 @@ async def _kit(db, wh, tpl, **kw) -> Kit:
 
 @pytest.mark.asyncio
 async def test_create_and_list_a_location(db, client, ops_headers):
+    city = City(id=uuid.uuid4(), name=f"Al Ain {uuid.uuid4().hex[:6]}", country="AE")
+    db.add(city)
+    await db.commit()
+
     resp = await client.post("/inventory/locations", headers=ops_headers,
-                             json={"name": "Al Ain", "country": "ae"})
+                             json={"name": "Al Ain", "city_id": str(city.id)})
     assert resp.status_code == 201, resp.text
-    assert resp.json()["country"] == "AE", "country is normalised to upper case"
+    # The country is never entered — it is derived from the city.
+    assert resp.json()["country"] == "AE"
+    assert resp.json()["city_id"] == str(city.id)
 
     listed = await client.get("/inventory/locations", headers=ops_headers)
     assert "Al Ain" in [loc["name"] for loc in listed.json()]
+
+
+@pytest.mark.asyncio
+async def test_create_location_rejects_an_unknown_city(db, client, ops_headers):
+    resp = await client.post("/inventory/locations", headers=ops_headers,
+                             json={"name": "Won't Land", "city_id": str(uuid.uuid4())})
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_location_does_not_auto_create_a_warehouse(db, client, ops_headers):
+    """Decoupled 2026-08-08 (operator request) — a location used to always
+    get a default "{Name} Warehouse" in the same transaction; now creating
+    one is a fully separate, manual POST /inventory/warehouses step."""
+    before = len((await db.execute(select(Warehouse))).scalars().all())
+    city = City(id=uuid.uuid4(), name=f"Fujairah {uuid.uuid4().hex[:6]}", country="AE")
+    db.add(city)
+    await db.commit()
+
+    resp = await client.post("/inventory/locations", headers=ops_headers,
+                             json={"name": "Fujairah Depot", "city_id": str(city.id)})
+    assert resp.status_code == 201, resp.text
+    location_id = resp.json()["id"]
+
+    after = len((await db.execute(select(Warehouse))).scalars().all())
+    assert after == before, "no warehouse should have been created"
+
+    warehouses_here = (await db.execute(
+        select(Warehouse).where(Warehouse.location_id == uuid.UUID(location_id))
+    )).scalars().all()
+    assert warehouses_here == []
+
+
+@pytest.mark.asyncio
+async def test_location_city_id_round_trips_with_resolved_name(db, client, ops_headers):
+    city = City(id=uuid.uuid4(), name=f"Testville {uuid.uuid4().hex[:6]}", country="AE")
+    db.add(city)
+    await db.commit()
+
+    created = await client.post("/inventory/locations", headers=ops_headers,
+                                json={"name": "City-Linked Hub", "country": "ae", "city_id": str(city.id)})
+    assert created.status_code == 201, created.text
+    assert created.json()["city_id"] == str(city.id)
+    assert created.json()["city_name"] == city.name
+
+    listed = await client.get("/inventory/locations", headers=ops_headers)
+    match = next(loc for loc in listed.json() if loc["name"] == "City-Linked Hub")
+    assert match["city_name"] == city.name
+
+
+@pytest.mark.asyncio
+async def test_city_crud(db, client, ops_headers, keeper_headers):
+    name = f"Testopolis {uuid.uuid4().hex[:6]}"
+    created = await client.post("/inventory/cities", headers=ops_headers,
+                                json={"name": name, "country": "ae"})
+    assert created.status_code == 201, created.text
+    assert created.json()["country"] == "AE"
+    city_id = created.json()["id"]
+
+    # storekeeper can read (same reasoning as locations — naming a city is
+    # a precondition of storekeeper work once locations reference one)
+    listed = await client.get("/inventory/cities", headers=keeper_headers)
+    assert listed.status_code == 200
+    assert name in [c["name"] for c in listed.json()]
+
+    updated = await client.patch(f"/inventory/cities/{city_id}", headers=ops_headers, json={"is_active": False})
+    assert updated.status_code == 200
+    assert updated.json()["is_active"] is False
+
+    active_only = await client.get("/inventory/cities", headers=keeper_headers)
+    assert city_id not in [c["id"] for c in active_only.json()]
 
 
 @pytest.mark.asyncio
@@ -709,7 +786,7 @@ async def test_a_storekeeper_cannot_touch_the_catalogue_or_the_kits(db, client, 
         }),
         await client.post("/inventory/items", headers=keeper_headers, json={"name": "Sneaky"}),
         await client.post("/inventory/locations", headers=keeper_headers, json={
-            "name": "Sneaky", "country": "AE",
+            "name": "Sneaky",
         }),
         await client.post("/inventory/templates", headers=keeper_headers, json={
             "name": "Sneaky", "code": "SNEAK",

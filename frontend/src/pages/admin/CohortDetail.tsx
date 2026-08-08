@@ -408,6 +408,9 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           onToggleSession={(id) =>
             setSelectedSessionIds((prev) => prev.includes(id) ? prev.filter((sid) => sid !== id) : [...prev, id])}
         />
+        <Card className="px-4 mt-5">
+          <CohortOpeningsPanel cohort={cohort} />
+        </Card>
         {/* Staffing lives with the sessions it staffs — one "Open a call"
             entry point, managed and closed as one entity. The old ungrouped
             "Open call for all" quick action is gone: it wrote to a model this
@@ -576,11 +579,6 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       <Card className="px-4">
         <CohortKitsPanel cohort={cohort} />
       </Card>
-
-      <Card className="px-4">
-        <CohortOpeningsPanel cohort={cohort} />
-      </Card>
-
 
       <div>
         <div className="flex items-center justify-between mb-2">

@@ -232,12 +232,19 @@ async def send_signed_contract_email(to_email: str, name: str, signed_pdf: bytes
 
 
 async def send_session_assignment_email(
-    to_email: str, name: str, program_name: str, meeting_date: str, location: str | None,
+    to_email: str, name: str, program_name: str, meeting_date: str,
+    location: str | None, location_address: str | None = None, location_maps_url: str | None = None,
 ) -> bool:
     """V2 W4 S4-2 — sent when ops selects an instructor for a session
     (whether through the marketplace or a direct assign). Transactional,
-    not a marketing send, so it never goes through a consent gate."""
+    not a marketing send, so it never goes through a consent gate.
+    The location is the fully-resolved one (name + address + maps link —
+    see `resolve_session_location_display`)."""
     where = f" at {location}" if location else ""
+    if location_address:
+        where += f" ({location_address})"
+    if location_maps_url:
+        where += f" — map: {location_maps_url}"
     body = (
         f"Hi {name},\n\n"
         f"You've been assigned to a session of \"{program_name}\" on {meeting_date}{where}.\n\n"
@@ -249,14 +256,21 @@ async def send_session_assignment_email(
 
 async def send_call_invite_email(
     to_email: str, name: str, program_name: str, meeting_date: str,
+    location: str | None = None, location_address: str | None = None, location_maps_url: str | None = None,
 ) -> bool:
     """Sent when ops targets an instructor on a staffing call (open_call /
     open_cohort_call with target_user_ids) — being targeted only showed up
     in the "Available sessions" list before this; targeted instructors had
-    no way to know unless they happened to check."""
+    no way to know unless they happened to check. The location is the
+    fully-resolved one (name + address + maps link)."""
+    where = f" at {location}" if location else ""
+    if location_address:
+        where += f" ({location_address})"
+    if location_maps_url:
+        where += f" — map: {location_maps_url}"
     body = (
         f"Hi {name},\n\n"
-        f"You're invited to take part in \"{program_name}\" on {meeting_date}.\n\n"
+        f"You're invited to take part in \"{program_name}\" on {meeting_date}{where}.\n\n"
         f"Visit the portal to register your interest: {settings.FRONTEND_URL}/instructors/available-sessions\n\n"
         "— SpacePoint"
     )

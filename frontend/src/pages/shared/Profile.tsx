@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Upload, X, CheckCircle2 } from "lucide-react"
+import { Check, Upload, CheckCircle2 } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import { updatePhotoApi, updateMeApi, getUserStatsApi, fetchMe, changePassword } from "@/api/auth"
 import { getIdCardApi } from "@/api/documents"
 import { ROLE_LABEL } from "@/types/shared"
 import { Button } from "@/components/ui/button"
+import { CountrySelect } from "@/components/ui/CountrySelect"
+import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect"
 import {
   Dialog,
   DialogContent,
@@ -31,10 +33,11 @@ export default function Profile() {
   const [fullName, setFullName] = useState(user?.full_name ?? "")
   const [phone, setPhone] = useState(user?.phone ?? "")
   const [country, setCountry] = useState(user?.country ?? "")
-  const [city, setCity] = useState("")
+  const countryCities = useCitiesForCountry(country)
+  const [cityOfResidenceId, setCityOfResidenceId] = useState("")
+  const [cityOther, setCityOther] = useState("")
   const [hasTransport, setHasTransport] = useState(false)
-  const [deliverCities, setDeliverCities] = useState<string[]>([])
-  const [cityInput, setCityInput] = useState("")
+  const [deliverCityIds, setDeliverCityIds] = useState<string[]>([])
   const [saved, setSaved] = useState(false)
   const [pwOpen, setPwOpen] = useState(false)
 
@@ -43,9 +46,10 @@ export default function Profile() {
     setFullName(me.full_name ?? "")
     setPhone(me.phone ?? "")
     setCountry(me.country ?? "")
-    setCity(me.city_of_residence ?? "")
+    setCityOfResidenceId(me.city_of_residence_id ?? "")
+    setCityOther(me.city_other ?? "")
     setHasTransport(!!me.has_own_transportation)
-    setDeliverCities(me.deliver_cities ?? [])
+    setDeliverCityIds(me.deliver_city_ids ?? [])
   }, [me])
 
   const { data: idCard } = useQuery({
@@ -70,8 +74,9 @@ export default function Profile() {
         country: country || undefined,
         ...(hasApplicantDetails
           ? {
-              city_of_residence: city || undefined,
-              deliver_cities: deliverCities,
+              city_of_residence_id: cityOfResidenceId || undefined,
+              city_other: cityOther || undefined,
+              deliver_city_ids: deliverCityIds,
               has_own_transportation: hasTransport,
             }
           : {}),
@@ -104,11 +109,8 @@ export default function Profile() {
     ? new Date(me.created_at).toLocaleDateString("en-US", { month: "long", year: "numeric" })
     : null
 
-  const addCity = () => {
-    const c = cityInput.trim()
-    if (c && !deliverCities.includes(c)) setDeliverCities((prev) => [...prev, c])
-    setCityInput("")
-  }
+  const toggleDeliverCity = (cityId: string) =>
+    setDeliverCityIds((prev) => (prev.includes(cityId) ? prev.filter((v) => v !== cityId) : [...prev, cityId]))
 
   const labelCls = "block text-[11px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5"
   const inputCls =
@@ -194,34 +196,31 @@ export default function Profile() {
 
           {hasApplicantDetails ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div>
-                <label className={labelCls}>City of Residence</label>
-                <input
-                  value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  placeholder="e.g. Dubai"
-                  className={inputCls}
-                />
-              </div>
+              {country && (
+                <div>
+                  <label className={labelCls}>City of Residence</label>
+                  <CitySelect
+                    country={country}
+                    value={cityOfResidenceId}
+                    onChange={(v) => {
+                      setCityOfResidenceId(v)
+                      if (v) setCityOther("")
+                    }}
+                    otherValue={cityOther}
+                    onOtherChange={setCityOther}
+                    className={inputCls}
+                  />
+                </div>
+              )}
               <div>
                 <label className={labelCls}>Country</label>
-                <input
-                  value={country}
-                  onChange={(e) => setCountry(e.target.value)}
-                  placeholder="United Arab Emirates"
-                  className={inputCls}
-                />
+                <CountrySelect value={country} onChange={setCountry} className={inputCls} />
               </div>
             </div>
           ) : (
             <div>
               <label className={labelCls}>Country</label>
-              <input
-                value={country}
-                onChange={(e) => setCountry(e.target.value)}
-                placeholder="Country"
-                className={inputCls}
-              />
+              <CountrySelect value={country} onChange={setCountry} className={inputCls} />
             </div>
           )}
 
@@ -250,51 +249,30 @@ export default function Profile() {
                 </button>
               </div>
 
+              {countryCities.length > 0 && (
               <div>
                 <label className={labelCls}>Cities I Can Deliver In</label>
-                <div className="flex gap-2 mb-2">
-                  <input
-                    value={cityInput}
-                    onChange={(e) => setCityInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault()
-                        addCity()
-                      }
-                    }}
-                    placeholder="Type a city and press Enter or Add"
-                    className={`flex-1 ${inputCls}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={addCity}
-                    className="px-4 py-2.5 rounded-xl bg-primary/10 hover:bg-primary hover:text-primary-foreground text-primary border border-primary/30 text-sm font-semibold transition-all shrink-0"
-                  >
-                    Add
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-2 min-h-[36px]">
-                  {deliverCities.length === 0 ? (
-                    <span className="text-muted-foreground/60 text-sm italic">No cities added yet.</span>
-                  ) : (
-                    deliverCities.map((c) => (
-                      <span
-                        key={c}
-                        className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-primary text-sm"
-                      >
-                        {c}
-                        <button
-                          type="button"
-                          onClick={() => setDeliverCities((prev) => prev.filter((x) => x !== c))}
-                          className="text-primary/60 hover:text-red-400 transition-colors"
-                        >
-                          <X size={13} />
-                        </button>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-1.5">
+                  {countryCities.map((c) => (
+                    <label
+                      key={c.id}
+                      className="flex items-center gap-2.5 rounded-xl border border-border px-3.5 py-2.5 text-sm cursor-pointer transition-colors hover:bg-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        checked={deliverCityIds.includes(c.id)}
+                        onChange={() => toggleDeliverCity(c.id)}
+                      />
+                      <span className="flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-md border border-border bg-background transition-colors peer-checked:border-primary peer-checked:bg-primary">
+                        <Check className="h-3 w-3 text-primary-foreground opacity-0 peer-checked:opacity-100" strokeWidth={3} />
                       </span>
-                    ))
-                  )}
+                      <span className="text-muted-foreground peer-checked:text-foreground">{c.name}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
+            )}
             </>
           )}
 

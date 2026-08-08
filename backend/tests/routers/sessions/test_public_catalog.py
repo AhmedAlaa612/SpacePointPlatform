@@ -88,6 +88,41 @@ async def test_catalog_lists_open_public_cohort_with_program_fields(db, client):
 
 
 @pytest.mark.asyncio
+async def test_catalog_resolves_rich_location_from_location_id(db, client):
+    from app.models.inventory.location import Location
+
+    location = Location(
+        id=uuid.uuid4(), name="SpacePoint HQ", country="AE",
+        address="Building 12, Dubai Silicon Oasis", maps_url="https://maps.example.com/hq",
+    )
+    db.add(location)
+    await db.flush()
+
+    program = await _make_program(db)
+    cohort = await _make_cohort(db, program, location_id=location.id)
+
+    resp = await client.get("/public/catalog")
+    match = next(i for i in resp.json() if i["cohort_id"] == str(cohort.id))
+    assert match["location_name"] == "SpacePoint HQ"
+    assert match["location_address"] == "Building 12, Dubai Silicon Oasis"
+    assert match["location_maps_url"] == "https://maps.example.com/hq"
+
+
+@pytest.mark.asyncio
+async def test_catalog_falls_back_to_legacy_location_fields_without_location_id(db, client):
+    program = await _make_program(db)
+    cohort = await _make_cohort(
+        db, program, location="Legacy Venue Text", location_map_url="https://maps.example.com/legacy",
+    )
+
+    resp = await client.get("/public/catalog")
+    match = next(i for i in resp.json() if i["cohort_id"] == str(cohort.id))
+    assert match["location_name"] == "Legacy Venue Text"
+    assert match["location_address"] is None
+    assert match["location_maps_url"] == "https://maps.example.com/legacy"
+
+
+@pytest.mark.asyncio
 async def test_catalog_includes_planned_excludes_private_and_closed_cohorts(db, client):
     """2026-08-07: `planned` cohorts are now included (the planned/
     registration_open dual CTA — "Notify me" vs "Register now") — this test

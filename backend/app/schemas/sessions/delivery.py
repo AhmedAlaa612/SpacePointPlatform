@@ -40,6 +40,10 @@ class SessionDeliveryOut(BaseModel):
     cohort_name: str
     program_name: str
     location: str | None = None
+    # Full resolved location (2026-08-08) — the instructor's "where do I go
+    # today" screen shows address and the maps link, not a bare name.
+    location_address: str | None = None
+    location_maps_url: str | None = None
     meeting_date: date
     starts_at: time | None = None
     title: str | None = None

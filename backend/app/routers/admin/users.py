@@ -18,6 +18,7 @@ from app.models.certificate import Certificate
 from app.models.document import Document
 from app.models.enums import CertificateType, UserRole
 from app.models.id_card import IdCard
+from app.models.inventory.city import City
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.checklist import ChecklistModule
 from app.models.instructors.instructor_document import InstructorDocument
@@ -116,10 +117,13 @@ async def get_user_dossier(id: UUID, db: AsyncSession = Depends(get_db), current
 
     applicant_profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == id))).scalars().first()
     if applicant_profile:
+        residence_city = (
+            await db.get(City, applicant_profile.city_of_residence_id)
+        ) if applicant_profile.city_of_residence_id else None
         items.append(DossierItem(
             category="Applicant Pipeline",
             label="Applicant Profile",
-            meta=f"{applicant_profile.city_of_residence or ''} {applicant_profile.country or ''}".strip() or None,
+            meta=f"{residence_city.name if residence_city else ''} {applicant_profile.country or ''}".strip() or None,
         ))
 
     app_row = (await db.execute(

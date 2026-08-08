@@ -5,6 +5,8 @@ import { Check, Upload } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import { applyInstructorApi, validateInviteApi } from "@/api/auth"
 import { Button } from "@/components/ui/button"
+import { CountrySelect } from "@/components/ui/CountrySelect"
+import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect"
 import { SiteFooter } from "@/components/layout/SiteFooter"
 import { BODY_BACKGROUND } from "@/lib/theme"
 
@@ -16,40 +18,6 @@ import { BODY_BACKGROUND } from "@/lib/theme"
 
 const DEGREES = ["Currently Pursuing Bachelors Degree", "Bachelors", "Masters", "PhD", "Other"]
 const BACKGROUNDS = ["Engineering", "Science", "Education", "Other"]
-const UAE_CITIES = ["Dubai", "Abu Dhabi", "Sharjah", "Al Ain", "Ajman", "Umm Al Quwain", "Fujairah", "Ras Al Khaimah"]
-
-const COUNTRIES = [
-  "United Arab Emirates", "Afghanistan", "Albania", "Algeria", "Andorra", "Angola",
-  "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
-  "Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin",
-  "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria",
-  "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia", "Cameroon", "Canada",
-  "Central African Republic", "Chad", "Chile", "China", "Colombia", "Comoros",
-  "Congo (Congo-Brazzaville)", "Costa Rica", "Croatia", "Cuba", "Cyprus", "Czechia",
-  "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica",
-  "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea", "Eritrea",
-  "Estonia", "Eswatini", "Ethiopia", "Fiji", "Finland", "France", "Gabon", "Gambia",
-  "Georgia", "Germany", "Ghana", "Greece", "Grenada", "Guatemala", "Guinea",
-  "Guinea-Bissau", "Guyana", "Haiti", "Honduras", "Hungary", "Iceland", "India",
-  "Indonesia", "Iran", "Iraq", "Ireland", "Israel", "Italy", "Jamaica", "Japan", "Jordan",
-  "Kazakhstan", "Kenya", "Kiribati", "Kuwait", "Kyrgyzstan", "Laos", "Latvia", "Lebanon",
-  "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania", "Luxembourg",
-  "Madagascar", "Malawi", "Malaysia", "Maldives", "Mali", "Malta",
-  "Marshall Islands", "Mauritania", "Mauritius", "Mexico", "Micronesia", "Moldova",
-  "Monaco", "Mongolia", "Montenegro", "Morocco", "Mozambique", "Myanmar", "Namibia",
-  "Nauru", "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger", "Nigeria",
-  "North Korea", "North Macedonia", "Norway", "Oman", "Pakistan", "Palau", "Panama",
-  "Papua New Guinea", "Paraguay", "Peru", "Philippines", "Poland", "Portugal", "Qatar",
-  "Romania", "Russia", "Rwanda", "Saint Kitts and Nevis", "Saint Lucia",
-  "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe",
-  "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone", "Singapore",
-  "Slovakia", "Slovenia", "Solomon Islands", "Somalia", "South Africa", "South Korea",
-  "South Sudan", "Spain", "Sri Lanka", "Sudan", "Suriname", "Sweden", "Switzerland",
-  "Syria", "Taiwan", "Tajikistan", "Tanzania", "Thailand", "Timor-Leste", "Togo",
-  "Tonga", "Trinidad and Tobago", "Tunisia", "Turkey", "Turkmenistan", "Tuvalu",
-  "Uganda", "Ukraine", "United Kingdom", "United States", "Uruguay", "Uzbekistan",
-  "Vanuatu", "Vatican City", "Venezuela", "Vietnam", "Yemen", "Zambia", "Zimbabwe",
-]
 
 type ApplyLocation = "within" | "outside"
 
@@ -71,12 +39,14 @@ export default function InstructorApplyPage() {
   const [form, setForm] = useState({
     full_name: "", phone: "", email: "", password: "",
     university: "", highest_degree: "", highest_degree_other: "",
-    city_of_residence: "", background_other: "", has_own_transportation: "" as "" | "true" | "false",
+    city_of_residence_id: "", background_other: "", has_own_transportation: "" as "" | "true" | "false",
     country: "United Arab Emirates",
   })
   const [backgroundAreas, setBackgroundAreas] = useState<string[]>([])
-  const [deliverCities, setDeliverCities] = useState<string[]>([])
+  const [deliverCityIds, setDeliverCityIds] = useState<string[]>([])
   const [cv, setCv] = useState<File | null>(null)
+
+  const countryCities = useCitiesForCountry(form.country)
 
   // Pre-fill from a referral link (/apply/instructor/$code) and show the
   // referrer right away — still just informational, doesn't gate the form.
@@ -94,14 +64,14 @@ export default function InstructorApplyPage() {
   const toggleBackground = (value: string) =>
     setBackgroundAreas((a) => (a.includes(value) ? a.filter((v) => v !== value) : [...a, value]))
 
-  const toggleDeliverCity = (value: string) =>
-    setDeliverCities((a) => (a.includes(value) ? a.filter((v) => v !== value) : [...a, value]))
+  const toggleDeliverCity = (cityId: string) =>
+    setDeliverCityIds((a) => (a.includes(cityId) ? a.filter((v) => v !== cityId) : [...a, cityId]))
 
   const handleLocationChange = (loc: ApplyLocation) => {
     setApplyLocation(loc)
     if (loc === "outside") {
-      setForm((f) => ({ ...f, city_of_residence: "", has_own_transportation: "" }))
-      setDeliverCities([])
+      setForm((f) => ({ ...f, city_of_residence_id: "", has_own_transportation: "" }))
+      setDeliverCityIds([])
     } else {
       setForm((f) => ({ ...f, country: "United Arab Emirates" }))
     }
@@ -140,7 +110,7 @@ export default function InstructorApplyPage() {
     }
 
     if (applyLocation === "within") {
-      if (deliverCities.length === 0) {
+      if (deliverCityIds.length === 0) {
         setError("Please select at least one delivery city.")
         return
       }
@@ -176,8 +146,8 @@ export default function InstructorApplyPage() {
         university: form.university,
         highest_degree: form.highest_degree,
         highest_degree_other: form.highest_degree === "Other" ? form.highest_degree_other : undefined,
-        city_of_residence: applyLocation === "within" ? form.city_of_residence : undefined,
-        deliver_cities: applyLocation === "within" ? deliverCities : [],
+        city_of_residence_id: applyLocation === "within" ? form.city_of_residence_id : undefined,
+        deliver_city_ids: applyLocation === "within" ? deliverCityIds : [],
         background_areas: backgroundAreas,
         background_other: backgroundAreas.includes("Other") ? form.background_other : undefined,
         has_own_transportation: applyLocation === "within" ? form.has_own_transportation === "true" : false,
@@ -334,26 +304,28 @@ export default function InstructorApplyPage() {
 
             <div>
               <label className="block text-sm font-medium text-foreground mb-1">Country of Residence</label>
-              <select
+              <CountrySelect
                 className="input"
                 value={form.country}
-                onChange={set("country")}
+                onChange={(name) => setForm((f) => ({ ...f, country: name }))}
                 disabled={applyLocation === "within"}
                 required
-              >
-                {COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              />
             </div>
 
-            {applyLocation === "within" && (
+            {applyLocation === "within" && countryCities.length > 0 && (
               <>
                 {/* City of residence */}
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1">City of Residence</label>
-                  <select className="input" value={form.city_of_residence} onChange={set("city_of_residence")} required>
-                    <option value="" disabled>Select...</option>
-                    {UAE_CITIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <CitySelect
+                    country={form.country}
+                    value={form.city_of_residence_id}
+                    onChange={(v) => setForm((f) => ({ ...f, city_of_residence_id: v }))}
+                    placeholder="Select..."
+                    required
+                    className="input"
+                  />
                 </div>
 
                 {/* Own transportation */}
@@ -393,21 +365,21 @@ export default function InstructorApplyPage() {
                     Can you deliver sessions in any of the following cities?
                   </p>
                   <div className="grid grid-cols-2 gap-3">
-                    {UAE_CITIES.map((c) => (
+                    {countryCities.map((c) => (
                       <label
-                        key={c}
+                        key={c.id}
                         className="flex items-center gap-3 rounded-xl border border-border px-4 py-3 text-sm cursor-pointer transition-colors hover:bg-muted"
                       >
                         <input
                           type="checkbox"
                           className="sr-only peer"
-                          checked={deliverCities.includes(c)}
-                          onChange={() => toggleDeliverCity(c)}
+                          checked={deliverCityIds.includes(c.id)}
+                          onChange={() => toggleDeliverCity(c.id)}
                         />
                         <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border bg-background transition-colors peer-checked:border-primary peer-checked:bg-primary">
                           <Check className="h-3.5 w-3.5 text-primary-foreground opacity-0 peer-checked:opacity-100" strokeWidth={3} />
                         </span>
-                        <span className="text-muted-foreground peer-checked:text-foreground">{c}</span>
+                        <span className="text-muted-foreground peer-checked:text-foreground">{c.name}</span>
                       </label>
                     ))}
                   </div>

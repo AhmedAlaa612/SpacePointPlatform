@@ -7,7 +7,7 @@
  */
 import { useQuery } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
-import { CalendarDays, MapPin, CheckCircle2, Ticket as TicketIcon } from "lucide-react"
+import { CalendarDays, MapPin, ExternalLink, CheckCircle2, Ticket as TicketIcon } from "lucide-react"
 
 import { apiBaseUrl } from "@/api/client"
 import { getPublicTicketApi } from "@/api/sessions/public"
@@ -65,6 +65,21 @@ export default function Ticket() {
                     <MapPin size={15} className="text-muted-foreground shrink-0" />
                     {ticket.location}
                   </p>
+                )}
+                {ticket.location_address && (
+                  <p className="flex items-center gap-2 text-muted-foreground">
+                    <span className="w-[15px] shrink-0" />
+                    {ticket.location_address}
+                  </p>
+                )}
+                {ticket.location_maps_url && (
+                  <a
+                    href={ticket.location_maps_url} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-2 text-sm font-medium text-primary hover:underline w-fit"
+                  >
+                    <span className="w-[15px] shrink-0" />
+                    Open in Google Maps <ExternalLink size={12} />
+                  </a>
                 )}
               </div>
 

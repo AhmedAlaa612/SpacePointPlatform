@@ -22,6 +22,7 @@ from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.schemas.sessions.calendar import CalendarEventOut, CalendarInstructorOut, CalendarOut
+from app.services.sessions.staffing import resolve_session_location_display
 
 router = APIRouter(prefix="/sessions", tags=["sessions-calendar"])
 
@@ -74,11 +75,14 @@ async def get_calendar(
             .order_by(DeliveryRole.sort_order, User.full_name)
         )).all()
         starts_at = datetime.combine(session.meeting_date, session.starts_at or time.min, tzinfo=timezone.utc)
+        location = await resolve_session_location_display(db, session, cohort)
         events.append(CalendarEventOut(
             id=f"session:{session.id}", source="session", session_id=session.id,
             cohort_id=cohort.id, cohort_name=cohort.name, program_id=program.id,
             program_name=program.name, program_type=program.program_type,
-            title=session.title or program.name, starts_at=starts_at, location=cohort.location,
+            title=session.title or program.name, starts_at=starts_at, location=location["name"],
+            location_address=location["address"],
+            location_maps_url=location["maps_url"],
             staffing_status=session.staffing_status, delivery_status=_delivery_status(session),
             instructors=[CalendarInstructorOut(user_id=row.user_id, full_name=name, role=role_name) for row, name, role_name in instructor_rows],
         ))

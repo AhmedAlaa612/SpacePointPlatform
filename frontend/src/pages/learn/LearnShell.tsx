@@ -21,7 +21,9 @@ export function LearnShell() {
   const { pathname } = useLocation();
   const active: LearnNavActive =
     pathname.startsWith("/learn/catalog") ? "catalog"
+    : pathname.startsWith("/learn/paths") ? "paths"
     : pathname.startsWith("/learn/my-courses") ? "my-courses"
+    : pathname.startsWith("/learn/profile") ? "profile"
     : "home";
 
   return (

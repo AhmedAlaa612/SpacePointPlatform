@@ -28,6 +28,7 @@ from app.schemas.sessions.delivery import (
 from app.schemas.sessions.reports import SessionReportOut
 from app.services.sessions import delivery
 from app.services.sessions import reports as reports_service
+from app.services.sessions import staffing as staffing_svc
 
 router = APIRouter(prefix="/sessions", tags=["sessions-delivery"])
 
@@ -49,9 +50,13 @@ async def _session_delivery_out(db: AsyncSession, session_id: uuid.UUID, user: U
             )).scalars().all()
         }
     report_rows = await reports_service.list_session_reports(db, session_id)
+    location = await staffing_svc.resolve_session_location_display(db, session, cohort)
     return SessionDeliveryOut(
         id=session.id, cohort_id=cohort.id, cohort_name=cohort.name, program_name=program.name,
-        location=cohort.location, meeting_date=session.meeting_date, starts_at=session.starts_at,
+        location=location["name"],
+        location_address=location["address"],
+        location_maps_url=location["maps_url"],
+        meeting_date=session.meeting_date, starts_at=session.starts_at,
         title=session.title, material_url=session.material_url, started_at=session.started_at, completed_at=session.completed_at,
         notes=session.notes,
         roster=[

@@ -79,11 +79,12 @@ export function PlayerLayout({
                             isSelected ? "bg-primary/10 text-foreground font-medium" : "text-muted-foreground hover:bg-foreground/5",
                           )}
                         >
-                          {isDone ? (
-                            <CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />
-                          ) : (
-                            <Icon className={cn("size-3.5 shrink-0", isSelected && "text-primary")} />
-                          )}
+                          <span className="relative shrink-0">
+                            <Icon className={cn("size-3.5", isDone && "text-emerald-500", isSelected && "text-primary")} />
+                            {isDone && (
+                              <CheckCircle2 className="absolute -top-0.5 -right-1 size-2.5 text-emerald-500 bg-card rounded-full" />
+                            )}
+                          </span>
                           <span className="truncate">{item.title ?? item.kind}</span>
                         </button>
                       );
