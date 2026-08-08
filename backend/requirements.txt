@@ -61,3 +61,11 @@ python-bidi
 # LMS content ingest (LM1-9) — pulling the boss's Drive dump straight to the
 # VPS instead of through the operator's slow upload.
 gdown
+
+# LMS content ingest, private-folder path (2026-08-09) — the Drive folder
+# turned out to be shared with the operator's specific account, not
+# "anyone with the link", so gdown (unauthenticated) can't reach it. OAuth
+# authenticates as the operator's own account instead, using whatever
+# access they already have — no re-sharing, no service account.
+google-auth-oauthlib
+google-api-python-client

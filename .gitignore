@@ -86,3 +86,13 @@ myenv/
 # DB dumps/snapshots — real prod data if anyone ever drops one in-repo
 *.dump
 *.sql.gz
+
+# LMS Drive import (2026-08-09) — OAuth client secret + cached refresh
+# token (lms_drive_oauth_download.py) are real credentials; the drive dump
+# itself is real (large) course content, and its manifest just tracks
+# already-created LMS ids. None of this belongs in git.
+backend/scripts/*credentials*.json
+backend/scripts/.lms_drive_token.json
+.lms_drive_token.json
+lms-drive-dump/
+.lms_import_manifest.json
