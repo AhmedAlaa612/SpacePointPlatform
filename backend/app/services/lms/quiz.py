@@ -44,6 +44,35 @@ async def _progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID
     return row
 
 
+async def check_quiz_answer(
+    db: AsyncSession, *, item_id: uuid.UUID, question_index: int, answer: int,
+) -> dict:
+    """Stateless single-question grading (2026-08-09) — same posture as
+    `checkpoint.py`'s `submit_checkpoint_answer`: nothing recorded, no
+    ItemProgress touched, just this one question's own `is_correct`/
+    `explanation` handed back immediately. Lets the player show live
+    feedback while stepping through questions one at a time, without
+    changing what `submit_quiz` above still does at the end (the real,
+    once-per-attempt grade + completion record)."""
+    item = await db.get(ModuleItem, item_id)
+    if item is None or item.kind != "quiz":
+        raise HTTPException(404, detail="Quiz item not found")
+
+    questions: list[dict] = (item.content or {}).get("questions") or []
+    if not (0 <= question_index < len(questions)):
+        raise HTTPException(400, detail="question_index is out of range")
+
+    options = questions[question_index].get("options") or []
+    if not isinstance(answer, int) or isinstance(answer, bool) or not (0 <= answer < len(options)):
+        raise HTTPException(400, detail="answer is out of range")
+
+    return {
+        "correct": bool(options[answer].get("is_correct")),
+        "explanation": questions[question_index].get("explanation"),
+        "correct_text": next((o.get("text") for o in options if o.get("is_correct")), None),
+    }
+
+
 async def submit_quiz(
     db: AsyncSession,
     *,

@@ -9,7 +9,7 @@ from app.services.lms.checkpoint import submit_checkpoint_answer
 from app.services.lms.enrollment import enroll
 from app.services.lms.learning_paths import path_progress, path_total_duration_seconds
 from app.services.lms.progress import course_completion, item_progress, unlock_state
-from app.services.lms.quiz import submit_quiz
+from app.services.lms.quiz import check_quiz_answer, submit_quiz
 from app.services.lms.serialize import sanitize_checkpoint, student_view
 
 __all__ = [
@@ -18,6 +18,7 @@ __all__ = [
     "item_progress",
     "course_completion",
     "submit_quiz",
+    "check_quiz_answer",
     "submit_checkpoint_answer",
     "student_view",
     "sanitize_checkpoint",

@@ -230,6 +230,18 @@ class QuizAnswersIn(BaseModel):
     answers: list[int]
 
 
+class QuizAnswerCheckIn(BaseModel):
+    question_index: int
+    answer: int
+
+
+class QuizAnswerCheckOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    correct: bool
+    explanation: str | None = None
+    correct_text: str | None = None
+
+
 class QuizReviewItemOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
     prompt: str | None = None

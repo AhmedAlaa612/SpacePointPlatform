@@ -319,6 +319,56 @@ async def test_quiz_submit_grades_server_side_and_requires_enrollment(db, client
 
 
 @pytest.mark.asyncio
+async def test_quiz_check_gives_live_feedback_without_recording_an_attempt(db, client):
+    """quiz/check (2026-08-09) — the live, one-question-at-a-time feedback
+    the submit test above doesn't cover: no ItemProgress row, no attempts
+    counted, same correct/explanation/correct_text shape as a submit
+    review's per-question entry."""
+    course, module, _, quiz = await _tree_with_quiz(db)
+    stranger = await _user(db)
+
+    not_enrolled = await client.post(
+        f"/lms/items/{quiz.id}/quiz/check", headers=_headers(stranger),
+        json={"question_index": 0, "answer": 1},
+    )
+    assert not_enrolled.status_code == http_status.HTTP_404_NOT_FOUND
+
+    await enroll(db, user_id=stranger.id, course_id=course.id)
+    await db.commit()
+
+    wrong = await client.post(
+        f"/lms/items/{quiz.id}/quiz/check", headers=_headers(stranger),
+        json={"question_index": 0, "answer": 0},
+    )
+    assert wrong.status_code == 200
+    body = wrong.json()
+    assert body["correct"] is False
+    assert body["correct_text"] == "4"
+    assert body["explanation"] == "Because addition."
+
+    right = await client.post(
+        f"/lms/items/{quiz.id}/quiz/check", headers=_headers(stranger),
+        json={"question_index": 0, "answer": 1},
+    )
+    assert right.status_code == 200
+    assert right.json()["correct"] is True
+
+    out_of_range = await client.post(
+        f"/lms/items/{quiz.id}/quiz/check", headers=_headers(stranger),
+        json={"question_index": 5, "answer": 0},
+    )
+    assert out_of_range.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    # Stateless: none of the checks above touched ItemProgress at all.
+    rows = (await db.execute(
+        select(ItemProgress).where(
+            ItemProgress.user_id == stranger.id, ItemProgress.item_id == quiz.id
+        )
+    )).scalars().all()
+    assert rows == []
+
+
+@pytest.mark.asyncio
 async def test_progress_write_requires_enrollment_and_valid_action(db, client):
     course, module, text, _quiz = await _tree_with_quiz(db)
     stranger = await _user(db)

@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  recordProgress, submitQuiz, type ModuleItem, type QuizReview,
+  checkQuizAnswer, recordProgress, submitQuiz,
+  type ModuleItem, type QuizAnswerCheck, type QuizReview,
 } from "@/api/lms";
 import { VideoPlayer } from "./VideoPlayer";
 
@@ -143,6 +144,11 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
   const questions = content?.questions ?? [];
   const passThreshold = content?.pass_threshold ?? 0;
   const [answers, setAnswers] = useState<number[]>(() => questions.map(() => -1));
+  // One entry per question once its answer has been live-checked — drives
+  // both "has this question been revealed yet" and what to show for it.
+  // Keyed by question index so Back/Next never re-fetches an already-seen one.
+  const [checks, setChecks] = useState<Record<number, QuizAnswerCheck>>({});
+  const [checking, setChecking] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [review, setReview] = useState<QuizReview | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -151,6 +157,19 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
 
   const allAnswered = answers.every((a) => a >= 0);
   const isLastQuestion = currentIndex === questions.length - 1;
+  const currentCheck = checks[currentIndex];
+
+  const selectAnswer = async (oi: number) => {
+    if (checks[currentIndex] || checking) return; // locked once revealed
+    setAnswers((prev) => prev.map((a, idx) => (idx === currentIndex ? oi : a)));
+    setChecking(true);
+    try {
+      const result = await checkQuizAnswer(item.id, currentIndex, oi);
+      setChecks((prev) => ({ ...prev, [currentIndex]: result }));
+    } finally {
+      setChecking(false);
+    }
+  };
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -166,6 +185,7 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
   const retry = () => {
     setReview(null);
     setAnswers(questions.map(() => -1));
+    setChecks({});
     setCurrentIndex(0);
   };
 
@@ -235,9 +255,11 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
   }
 
   // Answering phase: one question on screen at a time, Back/Next between
-  // them, Submit only reachable once every question has an answer (matches
-  // the operator's ask — "one by one with next and back", not the whole
-  // quiz as a single long form).
+  // them. Picking an option immediately checks it live (right/wrong +
+  // explanation shown right there, options lock) instead of waiting for
+  // the final Submit — the operator's ask. Submit (still the real,
+  // once-per-attempt grade via quiz/submit) only reachable once every
+  // question has been answered *and* revealed.
   const q = questions[currentIndex];
   if (!q) return null;
 
@@ -257,19 +279,41 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
         <div className="flex flex-col gap-2">
           {q.options.map((opt, oi) => {
             const isSelected = answers[currentIndex] === oi;
+            const isRevealedCorrectOption = currentCheck && !currentCheck.correct
+              && currentCheck.correct_text != null && opt.text === currentCheck.correct_text;
             return (
               <button
                 key={oi}
-                onClick={() => setAnswers((prev) => prev.map((a, idx) => (idx === currentIndex ? oi : a)))}
-                className={`text-left px-3.5 py-2.5 rounded-xl ring-1 text-sm cursor-pointer flex items-center justify-between gap-2 transition-colors ${
-                  isSelected ? "ring-primary/40 bg-primary/10" : "ring-border hover:bg-muted/50"
+                disabled={!!currentCheck || checking}
+                onClick={() => void selectAnswer(oi)}
+                className={`text-left px-3.5 py-2.5 rounded-xl ring-1 text-sm flex items-center justify-between gap-2 transition-colors ${
+                  currentCheck ? "cursor-default" : "cursor-pointer"
+                } ${
+                  isSelected ? "ring-primary/40 bg-primary/10" : isRevealedCorrectOption ? "ring-emerald-500/40 bg-emerald-500/5" : "ring-border hover:bg-muted/50"
                 }`}
               >
                 <span>{opt.text}</span>
+                {isSelected && currentCheck && (currentCheck.correct ? (
+                  <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />
+                ) : (
+                  <XCircle className="size-4 text-destructive shrink-0" />
+                ))}
+                {!isSelected && isRevealedCorrectOption && (
+                  <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />
+                )}
               </button>
             );
           })}
         </div>
+        {checking && <p className="mt-3 text-xs text-muted-foreground">Checking...</p>}
+        {currentCheck && (
+          <p className={`mt-3 text-xs ${currentCheck.correct ? "text-emerald-500" : "text-destructive"}`}>
+            {currentCheck.correct ? "Correct!" : `Not quite — the answer was "${currentCheck.correct_text ?? ""}"`}
+          </p>
+        )}
+        {currentCheck?.explanation && (
+          <p className="mt-1 text-xs text-muted-foreground">{currentCheck.explanation}</p>
+        )}
       </div>
 
       <div className="flex gap-2">
@@ -284,14 +328,14 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
           <Button
             size="xl" className="w-fit"
             onClick={() => void handleSubmit()}
-            disabled={!allAnswered || submitting}
+            disabled={!allAnswered || !currentCheck || submitting}
           >
             {submitting ? "Submitting..." : "Submit"}
           </Button>
         ) : (
           <Button
             size="xl" className="w-fit"
-            disabled={answers[currentIndex] < 0}
+            disabled={!currentCheck}
             onClick={() => setCurrentIndex((i) => i + 1)}
           >
             Next <ChevronRight className="size-4" />

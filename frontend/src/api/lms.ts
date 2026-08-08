@@ -89,6 +89,12 @@ export interface QuizReview {
   questions: QuizReviewQuestion[];
 }
 
+export interface QuizAnswerCheck {
+  correct: boolean;
+  explanation: string | null;
+  correct_text: string | null;
+}
+
 export interface ProgressResult {
   status: string;
   quiz_attempts: number;
@@ -328,6 +334,11 @@ export async function fetchModule(moduleId: string): Promise<ModuleDetail> {
 
 export async function submitQuiz(itemId: string, answers: number[]): Promise<QuizReview> {
   const { data } = await api.post<QuizReview>(`/lms/items/${itemId}/quiz/submit`, { answers });
+  return data;
+}
+
+export async function checkQuizAnswer(itemId: string, questionIndex: number, answer: number): Promise<QuizAnswerCheck> {
+  const { data } = await api.post<QuizAnswerCheck>(`/lms/items/${itemId}/quiz/check`, { question_index: questionIndex, answer });
   return data;
 }
 

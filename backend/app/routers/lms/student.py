@@ -42,11 +42,14 @@ from app.schemas.lms import (
     MyCoursesOut,
     ProgressIn,
     ProgressOut,
+    QuizAnswerCheckIn,
+    QuizAnswerCheckOut,
     QuizAnswersIn,
     QuizReviewOut,
     VideoCheckpointOut,
 )
 from app.services.lms import (
+    check_quiz_answer,
     course_completion,
     enroll,
     item_progress,
@@ -397,6 +400,24 @@ async def list_checkpoints(
 
 
 # ── learner writes: student AND enrolled ────────────────────────────────────
+
+@router.post("/items/{item_id}/quiz/check", response_model=QuizAnswerCheckOut)
+async def quiz_check_answer(
+    item_id: uuid.UUID,
+    body: QuizAnswerCheckIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_student),
+):
+    """Live, per-question feedback while stepping through a quiz — stateless,
+    same posture as checkpoint_answer below. `quiz/submit` (unchanged) is
+    still what actually records the attempt once every question's been
+    answered; this just lets the player reveal correct/explanation as the
+    student goes, one question at a time, instead of only at the end."""
+    await _enrolled_item(db, current.id, item_id)
+    return await check_quiz_answer(
+        db, item_id=item_id, question_index=body.question_index, answer=body.answer,
+    )
+
 
 @router.post("/items/{item_id}/quiz/submit", response_model=QuizReviewOut)
 async def quiz_submit(
