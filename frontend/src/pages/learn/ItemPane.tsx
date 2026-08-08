@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronRight, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   recordProgress, submitQuiz, type ModuleItem, type QuizReview,
@@ -143,12 +143,14 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
   const questions = content?.questions ?? [];
   const passThreshold = content?.pass_threshold ?? 0;
   const [answers, setAnswers] = useState<number[]>(() => questions.map(() => -1));
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [review, setReview] = useState<QuizReview | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   if (!content) return null;
 
   const allAnswered = answers.every((a) => a >= 0);
+  const isLastQuestion = currentIndex === questions.length - 1;
 
   const handleSubmit = async () => {
     setSubmitting(true);
@@ -164,11 +166,15 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
   const retry = () => {
     setReview(null);
     setAnswers(questions.map(() => -1));
+    setCurrentIndex(0);
   };
 
-  return (
-    <div className="flex flex-col gap-5">
-      {review && (
+  // Reviewing a submitted attempt: the whole point is scanning every
+  // result at a glance (right/wrong, explanations), so this stays one
+  // list — only the *answering* phase below is paginated.
+  if (review) {
+    return (
+      <div className="flex flex-col gap-5">
         <div className="flex items-center gap-4 p-4 rounded-2xl ring-1 ring-border bg-card/60">
           <ScoreRing score={review.score} />
           <div className="min-w-0">
@@ -182,60 +188,116 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
             </p>
           </div>
         </div>
-      )}
 
-      {!review && passThreshold > 0 && (
-        <p className="text-xs text-muted-foreground">Passing score: {passThreshold}%</p>
-      )}
+        {questions.map((q, qi) => {
+          const reviewQ = review.questions[qi];
+          return (
+            <div key={qi} className="p-4 rounded-2xl ring-1 ring-border bg-card/60">
+              <p className="font-medium text-sm mb-3">{q.prompt}</p>
+              <div className="flex flex-col gap-2">
+                {q.options.map((opt, oi) => {
+                  const isSelected = answers[qi] === oi;
+                  return (
+                    <button
+                      key={oi}
+                      disabled
+                      className={`text-left px-3.5 py-2.5 rounded-xl ring-1 text-sm cursor-default disabled:cursor-default flex items-center justify-between gap-2 transition-colors ${
+                        isSelected ? "ring-primary/40 bg-primary/10" : "ring-border"
+                      }`}
+                    >
+                      <span>{opt.text}</span>
+                      {isSelected && (reviewQ?.correct ? (
+                        <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />
+                      ) : (
+                        <XCircle className="size-4 text-destructive shrink-0" />
+                      ))}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className={`mt-2 text-xs ${reviewQ.correct ? "text-emerald-500" : "text-destructive"}`}>
+                {reviewQ.correct
+                  ? `Your answer: ${q.options[reviewQ.selected]?.text ?? ""} ✓`
+                  : `You said: ${q.options[reviewQ.selected]?.text ?? ""}${reviewQ.correct_text ? ` · Correct: ${reviewQ.correct_text}` : ""}`}
+              </p>
+              {!reviewQ.correct && reviewQ.explanation && (
+                <p className="mt-1 text-xs text-muted-foreground">{reviewQ.explanation}</p>
+              )}
+            </div>
+          );
+        })}
 
-      {questions.map((q, qi) => (
-        <div key={qi} className="p-4 rounded-2xl ring-1 ring-border bg-card/60">
-          <p className="font-medium text-sm mb-3">{q.prompt}</p>
-          <div className="flex flex-col gap-2">
-            {q.options.map((opt, oi) => {
-              const reviewQ = review?.questions[qi];
-              const isSelected = answers[qi] === oi;
-              const showResult = review != null && isSelected;
-              return (
-                <button
-                  key={oi}
-                  disabled={review != null}
-                  onClick={() => setAnswers((prev) => prev.map((a, idx) => (idx === qi ? oi : a)))}
-                  className={`text-left px-3.5 py-2.5 rounded-xl ring-1 text-sm cursor-pointer disabled:cursor-default flex items-center justify-between gap-2 transition-colors ${
-                    isSelected ? "ring-primary/40 bg-primary/10" : "ring-border hover:bg-muted/50"
-                  }`}
-                >
-                  <span>{opt.text}</span>
-                  {showResult && (reviewQ?.correct ? (
-                    <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />
-                  ) : (
-                    <XCircle className="size-4 text-destructive shrink-0" />
-                  ))}
-                </button>
-              );
-            })}
-          </div>
-          {review && (
-            <p className={`mt-2 text-xs ${review.questions[qi].correct ? "text-emerald-500" : "text-destructive"}`}>
-              {review.questions[qi].correct
-                ? `Your answer: ${q.options[review.questions[qi].selected]?.text ?? ""} ✓`
-                : `You said: ${q.options[review.questions[qi].selected]?.text ?? ""}${review.questions[qi].correct_text ? ` · Correct: ${review.questions[qi].correct_text}` : ""}`}
-            </p>
-          )}
-          {review && !review.questions[qi].correct && review.questions[qi].explanation && (
-            <p className="mt-1 text-xs text-muted-foreground">{review.questions[qi].explanation}</p>
-          )}
+        {!review.passed && (
+          <Button size="xl" onClick={retry} className="w-fit">Retry</Button>
+        )}
+      </div>
+    );
+  }
+
+  // Answering phase: one question on screen at a time, Back/Next between
+  // them, Submit only reachable once every question has an answer (matches
+  // the operator's ask — "one by one with next and back", not the whole
+  // quiz as a single long form).
+  const q = questions[currentIndex];
+  if (!q) return null;
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-muted-foreground">
+          Question {currentIndex + 1} of {questions.length}
+        </p>
+        {passThreshold > 0 && (
+          <p className="text-xs text-muted-foreground">Passing score: {passThreshold}%</p>
+        )}
+      </div>
+
+      <div className="p-4 rounded-2xl ring-1 ring-border bg-card/60">
+        <p className="font-medium text-sm mb-3">{q.prompt}</p>
+        <div className="flex flex-col gap-2">
+          {q.options.map((opt, oi) => {
+            const isSelected = answers[currentIndex] === oi;
+            return (
+              <button
+                key={oi}
+                onClick={() => setAnswers((prev) => prev.map((a, idx) => (idx === currentIndex ? oi : a)))}
+                className={`text-left px-3.5 py-2.5 rounded-xl ring-1 text-sm cursor-pointer flex items-center justify-between gap-2 transition-colors ${
+                  isSelected ? "ring-primary/40 bg-primary/10" : "ring-border hover:bg-muted/50"
+                }`}
+              >
+                <span>{opt.text}</span>
+              </button>
+            );
+          })}
         </div>
-      ))}
+      </div>
 
-      {!review && (
-        <Button size="xl" onClick={() => void handleSubmit()} disabled={!allAnswered || submitting} className="w-fit">
-          {submitting ? "Submitting..." : "Submit"}
+      <div className="flex gap-2">
+        <Button
+          size="xl" variant="outline" className="w-fit"
+          disabled={currentIndex === 0}
+          onClick={() => setCurrentIndex((i) => i - 1)}
+        >
+          <ChevronLeft className="size-4" /> Back
         </Button>
-      )}
-      {review && !review.passed && (
-        <Button size="xl" onClick={retry} className="w-fit">Retry</Button>
-      )}
+        {isLastQuestion ? (
+          <Button
+            size="xl" className="w-fit"
+            onClick={() => void handleSubmit()}
+            disabled={!allAnswered || submitting}
+          >
+            {submitting ? "Submitting..." : "Submit"}
+          </Button>
+        ) : (
+          <Button
+            size="xl" className="w-fit"
+            disabled={answers[currentIndex] < 0}
+            onClick={() => setCurrentIndex((i) => i + 1)}
+          >
+            Next <ChevronRight className="size-4" />
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
