@@ -181,3 +181,71 @@ UPDATE applicant_profiles
 SET deliver_cities = array_replace(deliver_cities, 'Abudhabi', 'Abu Dhabi')
 WHERE deliver_cities @> ARRAY['Abudhabi'];
 ```
+
+**Also run before deploying** (already applied on production, 2026-08-08 — noted here for anyone
+rehearsing against a fresh snapshot):
+
+```sql
+UPDATE users SET country = 'United Arab Emirates' WHERE country = 'UAE';
+UPDATE applications SET country = 'United Arab Emirates' WHERE country = 'UAE';
+```
+
+## Third act: country free-text → ISO code (2026-08-08)
+
+Closes the two-storage-convention split `CountrySelect.tsx` was built to accommodate (§4 above):
+`users.country`, `applicant_profiles.country`, `applications.country` move from free-text display
+names onto the same ISO-3166-1 alpha-2 codes `Location.country`/`City.country` already use.
+Operator's call, made explicitly after walking through why (locale-dependent display names, country
+renames, and it's the same convention already established for `Location`/`City` — see
+`backend/app/services/countries.py`'s module docstring for the full reasoning).
+
+- **New:** `backend/app/services/countries.py` — `COUNTRY_NAMES` (code → English name, generated
+  once from Node's `Intl.DisplayNames`, the same engine `frontend/src/lib/countries.ts` uses, so
+  the two lists can't drift on contested/renamed names) and `resolve_country_code()` (case/
+  whitespace-insensitive name-or-code → code, with a `"uae"` alias for the one real-world variant
+  seen in production data).
+- **Migration** `alembic/versions/cd01bf6967f0_country_codes.py` — per table, per distinct
+  non-null value, resolves via `resolve_country_code()` and rewrites in place. No column type
+  change. An unresolved value (typo, unrecognized name) is left as-is rather than guessed or
+  nulled — same discipline as the `locations` → `city_id` backfill. Verified against both dev and
+  a restored prod snapshot: 100% resolved (`AE`/`KW`/`NG`, blanks stay blank) — the pre-deploy
+  `UPDATE ... WHERE country = 'UAE'` above means production has zero unresolved values by the time
+  this runs.
+- **Frontend writers** (`valueType="code"` on `CountrySelect`, was the default `"name"`):
+  `Profile.tsx`, `LearnSignup.tsx`, `LearnProfile.tsx`, `ApplyFlow.tsx`, `InstructorApply.tsx`
+  (`Catalog.tsx` already used `valueType="code"` — that's `Location`/`City`, unaffected).
+- **Frontend readers** — resolve code → name via `getCountries()` at render time (mirrors
+  `Catalog.tsx`'s existing `countryName` pattern for `Location`), fixed everywhere a raw
+  `.country` was printed: `UserProfileModal.tsx`, `Applications.tsx` (admin), `LearnProfile.tsx`
+  (account info), `ApplicantReview.tsx`, ambassador `Leaderboard.tsx` (both the shared table
+  component and the standalone teacher table), `AdminAmbassador.tsx`.
+- **Backend readers** (human-facing documents, not API JSON — those stay raw codes, frontend's
+  job) — `COUNTRY_NAMES.get(code, code)` fixed in: `instructors/admin.py` and
+  `instructors/instructor.py` (both build a `living_area` string that gets printed into the
+  instructor contract PDF), `admin/users.py` (dossier item `meta` text, rendered directly in
+  `UserProfileModal.tsx`), `services/spine/identity.py::find_or_create_contact` (gap-fills
+  `Contact.country`, which stays its own independent free-text convention — resolves to a name so
+  this doesn't leak a raw code into a field nothing else writes as a code).
+- **Found in passing, fixed:** `instructors/admin.py`'s `applicant_detail` endpoint returned the
+  raw `ApplicantProfile` ORM object, whose `city_of_residence` column was renamed to
+  `city_of_residence_id` earlier in this same cleanup — `ApplicantReview.tsx`'s
+  `detail.profile.city_of_residence` reference had gone silently stale (filtered out by
+  `.filter(Boolean)`, no crash, just missing from the page). Fixed by resolving the FK server-side
+  under the same `city_of_residence` key, matching how `_location_out` already resolves
+  `Location.city_id`.
+- **Tests:** new `backend/tests/services/test_countries.py` (the resolver, pure function). Updated
+  five existing tests that asserted the old display-name convention
+  (`test_apply_city.py`, `test_onboard_application.py`, `test_applicant_role_promotion.py`,
+  `test_instructor_apply_cities.py`, `test_lms_signup.py`) plus one that asserted
+  `find_or_create_contact`'s old pass-through behavior (`test_backfill_user_contacts.py`) to
+  match the new, intentional resolve-to-name behavior. Full suite green after.
+- **Live-verified:** signup/apply/profile country pickers all submit codes (checked the actual
+  `<option value>` in the DOM); a real applicant's already-saved `"AE"` pre-selects correctly on
+  profile load; a real `/apply/intern` submission round-tripped through the live API — sent `"AE"`,
+  stored `"AE"`, `GET /admin/applications` returned `"AE"` (frontend resolves to the display name
+  at render, confirmed via the `Applications.tsx` fix above).
+- **Out of scope, left alone:** `Contact.country`/`Organization.country` stay their own
+  independent free-text convention — this migration doesn't touch them (only gap-fills into them,
+  fixed above); the two ambassador/teacher public-profile endpoints (`ambassadors/public.py`)
+  return raw `country` with no frontend consumer found anywhere in this repo — nothing to fix,
+  flagged in case an external site consumes that API directly.

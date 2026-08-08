@@ -132,6 +132,7 @@ export default function LearnSignup() {
                 <CountrySelect
                   value={country}
                   onChange={setCountry}
+                  valueType="code"
                   className="w-full h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
                 />
               </div>

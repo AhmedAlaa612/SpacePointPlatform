@@ -9,6 +9,9 @@ import { getTeacherLeaderboardApi } from "@/api/ambassadors/teacher"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { PageHeader, Spinner, EmptyState } from "@/pages/ambassadors/components/common"
 import { LeaderboardTable } from "@/pages/ambassadors/components/Leaderboard"
+import { getCountries } from "@/lib/countries"
+
+const countryName = (code: string) => getCountries().find((c) => c.code === code)?.name ?? code
 
 const MEDAL_SHADES = [
   "text-zinc-900 dark:text-zinc-100",
@@ -104,7 +107,7 @@ function TeacherLeaderboard({ meId }: { meId?: string }) {
                           {i < 3 ? <Medal size={18} className={`inline ${MEDAL_SHADES[i]}`} strokeWidth={2.2} /> : `#${i + 1}`}
                         </td>
                         <td className="py-2.5 pr-3 font-semibold text-foreground">{t.name}{me && " (you)"}</td>
-                        <td className="py-2.5 pr-3 text-muted-foreground">{t.country}</td>
+                        <td className="py-2.5 pr-3 text-muted-foreground">{countryName(t.country)}</td>
                         <td className="py-2.5 pr-3 text-center text-green-600 dark:text-green-400 font-semibold">{t.sessions_done}</td>
                         <td className="py-2.5 pr-3 text-center text-affair dark:text-heliotrope font-semibold">{t.points.toLocaleString()}</td>
                         <td className="py-2.5 pr-3 text-right font-bold text-foreground">{t.students_reached.toLocaleString()}</td>

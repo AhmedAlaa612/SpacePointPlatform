@@ -58,7 +58,7 @@ async def _applicant(db, roles: list[str], *, also_grant: str | None = None) -> 
     db.add(user)
     await db.flush()
     db.add(ApplicantProfile(
-        user_id=user.id, country="United Arab Emirates", also_grant_role=also_grant,
+        user_id=user.id, country="AE", also_grant_role=also_grant,
     ))
     db.add(ApplicationReview(user_id=user.id, status=ApplicationStatus.under_review))
     await db.flush()

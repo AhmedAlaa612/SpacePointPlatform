@@ -33,6 +33,7 @@ from app.models.spine.merge_review import MergeReview
 from app.models.spine.organization import Organization
 from app.models.spine.touchpoint import Touchpoint
 from app.models.user import User
+from app.services.countries import COUNTRY_NAMES
 from app.services.spine.role_history import record_role_diff
 
 # Only these user roles carry a matching contact_roles value; every other
@@ -431,7 +432,12 @@ async def ensure_user_contact(db: AsyncSession, user: User, *, source: str = "ba
         primary_phone_e164=normalize_phone(user.phone),
         email=normalize_email(user.email),
         preferred_language="ar",
-        country=user.country,
+        # `user.country` is an ISO code (2026-08-08 country-code migration);
+        # `Contact.country` stays free text on its own, older convention
+        # (never migrated) — resolve to a name so this gap-fill doesn't leak
+        # a raw code into a field every other write to it treats as a
+        # human-typed display string.
+        country=COUNTRY_NAMES.get(user.country, user.country) if user.country else None,
         owner_user_id=None,
     )
     db.add(contact)

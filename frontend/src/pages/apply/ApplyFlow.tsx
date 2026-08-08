@@ -60,7 +60,7 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
       if (role === "instructor") {
         const user = await applyInstructorApi({
           full_name: fullName, email, password,
-          invite_code: inviteCode, country: country || "United Arab Emirates",
+          invite_code: inviteCode, country: country || "AE",
         })
         return { instructor: true, user }
       }
@@ -163,7 +163,7 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
                     onChange={(e) => setPhone(e.target.value)} />
                 </Field>
                 <Field label="Country">
-                  <CountrySelect value={country} onChange={setCountry} className="input" placeholder="Select country..." />
+                  <CountrySelect value={country} onChange={setCountry} valueType="code" className="input" placeholder="Select country..." />
                 </Field>
               </div>
               {country && (

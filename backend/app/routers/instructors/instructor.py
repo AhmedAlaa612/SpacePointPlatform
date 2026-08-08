@@ -29,6 +29,7 @@ from app.schemas.instructors.instructor import (
     SignContractRequest,
 )
 from app.services import storage
+from app.services.countries import COUNTRY_NAMES
 from app.services.documents.contract import generate_contract_pdf
 from app.services.documents.id_card import ensure_card_id, render_card_png, render_card_back_png
 from app.services.email import send_contract_signed_notification_email, send_signed_contract_email
@@ -98,8 +99,14 @@ async def sign_contract(
     residence_city = (
         await db.get(City, applicant_profile.city_of_residence_id)
     ) if applicant_profile and applicant_profile.city_of_residence_id else None
-    living_area = (residence_city.name if residence_city else None) or \
-        (applicant_profile.country if applicant_profile else "United Arab Emirates")
+    # `applicant_profile.country` is an ISO code (2026-08-08 country-code
+    # migration) — this feeds a printed contract PDF, so it needs the
+    # human-readable name, not the raw code.
+    country_name = (
+        COUNTRY_NAMES.get(applicant_profile.country, applicant_profile.country)
+        if applicant_profile and applicant_profile.country else None
+    )
+    living_area = (residence_city.name if residence_city else None) or country_name or "United Arab Emirates"
 
     now = datetime.now(timezone.utc)
     try:

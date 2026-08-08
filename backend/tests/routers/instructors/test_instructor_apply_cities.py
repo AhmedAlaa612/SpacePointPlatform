@@ -31,7 +31,7 @@ async def test_instructor_apply_persists_structured_city_fields(db, client):
         "deliver_city_ids": [str(dubai.id), str(abu_dhabi.id)],
         "background_areas": ["Engineering"],
         "has_own_transportation": True,
-        "country": "United Arab Emirates",
+        "country": "AE",
     }
     # Mixing Form()+File() on the endpoint forces multipart parsing even
     # when no file is attached — the `files=` dict (rather than `data=`

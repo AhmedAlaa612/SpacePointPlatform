@@ -65,7 +65,10 @@ async def test_backfill_creates_contact_and_links_user(db):
     assert contact.contact_roles == ["instructor"]
     assert contact.primary_phone_e164 == "+971501234567"
     assert contact.email == "jane.instructor@example.com"
-    assert contact.country == "AE"
+    # `user.country` is an ISO code (2026-08-08 country-code migration);
+    # `Contact.country` stays free text on its own, older convention, so
+    # find_or_create_contact resolves it to a display name on the way in.
+    assert contact.country == "United Arab Emirates"
     assert contact.owner_user_id is None
 
 

@@ -40,6 +40,7 @@ from app.schemas.instructors.admin import (
 )
 from app.models.enums import CertificateType, PaymentLetterStatus
 from app.services import storage
+from app.services.countries import COUNTRY_NAMES
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.contract import generate_contract_pdf
 from app.services.documents.dossier import build_applicant_dossier_pdf
@@ -241,11 +242,25 @@ async def applicant_detail(
             } if sub else None
         })
 
+    # Raw `profile` used to serialize fine when `city_of_residence` was a
+    # plain string; it's now `city_of_residence_id` (a FK, not a name) —
+    # resolve it here under the same "city_of_residence" key the frontend
+    # already reads, same pattern `_location_out` uses for `Location.city_id`
+    # (resolve the FK to a name; `country` stays a raw ISO code either way —
+    # that's the frontend's job to display, same as everywhere else).
+    profile_out = None
+    if profile:
+        residence_city = (
+            await db.get(City, profile.city_of_residence_id)
+        ) if profile.city_of_residence_id else None
+        profile_out = {c.name: getattr(profile, c.name) for c in ApplicantProfile.__table__.columns}
+        profile_out["city_of_residence"] = residence_city.name if residence_city else None
+
     return {
         "id": str(user.id), "full_name": user.full_name, "email": user.email, "phone": user.phone,
         "invite_code_used": invite_code_used,
         "cv_url": await storage.get_signed_url("cvs", profile.cv_path) if profile and profile.cv_path else None,
-        "profile": profile, "review": {"status": review.status, "feedback": review.feedback} if review else None,
+        "profile": profile_out, "review": {"status": review.status, "feedback": review.feedback} if review else None,
         "videos": videos, "presentation_link": presentation.video_link if presentation else None,
         "assessment": {
             "file_url": await storage.resolve_url(assessment.bucket, assessment.file_path, assessment.file_url),
@@ -316,8 +331,11 @@ async def review_applicant(
         residence_city = (
             await db.get(City, profile.city_of_residence_id)
         ) if profile and profile.city_of_residence_id else None
-        living_area = (residence_city.name if residence_city else None) or \
-            (profile.country if profile else "United Arab Emirates")
+        # `profile.country` is an ISO code (2026-08-08 country-code migration) —
+        # this feeds a printed contract PDF, so it needs the human-readable name,
+        # not the raw code.
+        country_name = COUNTRY_NAMES.get(profile.country, profile.country) if profile and profile.country else None
+        living_area = (residence_city.name if residence_city else None) or country_name or "United Arab Emirates"
 
         contract_bytes = await asyncio.to_thread(generate_contract_pdf, user.full_name, living_area)
         contract_bucket, contract_path = "contracts", f"{user_id}/agreement.pdf"

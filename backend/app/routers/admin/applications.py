@@ -211,7 +211,7 @@ async def onboard_application(
         db.add(ApplicantProfile(
             user_id=new_user.id,
             cv_path=app.cv_path,
-            country=app.country or "United Arab Emirates",
+            country=app.country or "AE",
             also_grant_role="intern",
         ))
     else:

@@ -260,16 +260,16 @@ async def test_signup_with_country_and_city_id_persists_and_exposes_via_me(db, c
 
     resp = await client.post("/auth/signup", json={
         "full_name": "Farah", "email": "farah@example.com", "password": "pass-farah",
-        "country": "United Arab Emirates", "city_id": str(city.id),
+        "country": "AE", "city_id": str(city.id),
     })
     assert resp.status_code == http_status.HTTP_201_CREATED, resp.text
     body = resp.json()["user"]
-    assert body["country"] == "United Arab Emirates"
+    assert body["country"] == "AE"
     assert body["city_id"] == str(city.id)
     assert body["city_name"] == city.name
 
     user = (await db.execute(select(User).where(User.email == "farah@example.com"))).scalars().first()
-    assert user.country == "United Arab Emirates"
+    assert user.country == "AE"
     assert user.city_id == city.id
 
     me = await client.get("/auth/me", headers={"Authorization": f"Bearer {resp.json()['access_token']}"})
@@ -304,7 +304,7 @@ async def test_signup_with_other_city_persists_and_updates(db, client):
     via PATCH /auth/me."""
     resp = await client.post("/auth/signup", json={
         "full_name": "Layla", "email": "layla@example.com", "password": "pass-layla",
-        "country": "Egypt", "city_other": "Alexandria",
+        "country": "EG", "city_other": "Alexandria",
     })
     assert resp.status_code == http_status.HTTP_201_CREATED, resp.text
     assert resp.json()["user"]["city_other"] == "Alexandria"

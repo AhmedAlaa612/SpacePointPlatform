@@ -7,6 +7,14 @@ import {
 } from "@/api/apply"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { getCountries } from "@/lib/countries"
+
+// `application.country` is stored as an ISO code (2026-08-08 country-code
+// migration) — resolve to a display name, same as `Catalog.tsx` does for
+// `Location.country`. Falls back to the raw value for anything unresolved
+// (pre-migration garbage, a code this list doesn't recognize) rather than
+// hiding it.
+const countryName = (code: string) => getCountries().find((c) => c.code === code)?.name ?? code
 
 const ROLE_OPTIONS = [
   { value: "ambassador", label: "Ambassador" },
@@ -120,7 +128,7 @@ function ApplicationsTab() {
                     {app.status}
                   </span>
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">{app.email}{app.country ? ` · ${app.country}` : ""}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{app.email}{app.country ? ` · ${countryName(app.country)}` : ""}</p>
               </div>
               <p className="text-xs text-muted-foreground shrink-0">
                 {app.created_at ? new Date(app.created_at).toLocaleDateString() : "—"}
@@ -197,7 +205,7 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                       <Info label="Role" value={app.role} />
                       <Info label="Status" value={app.status} />
                       {app.phone && <Info label="WhatsApp" value={app.phone} />}
-                      {app.country && <Info label="Country" value={app.country} />}
+                      {app.country && <Info label="Country" value={countryName(app.country)} />}
                       {app.city && <Info label="City" value={app.city} />}
                       {app.invite_code && <Info label="Invite code" value={app.invite_code} />}
                       {app.created_at && <Info label="Applied" value={new Date(app.created_at).toLocaleDateString()} />}

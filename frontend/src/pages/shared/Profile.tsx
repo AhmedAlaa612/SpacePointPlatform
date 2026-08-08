@@ -214,13 +214,13 @@ export default function Profile() {
               )}
               <div>
                 <label className={labelCls}>Country</label>
-                <CountrySelect value={country} onChange={setCountry} className={inputCls} />
+                <CountrySelect value={country} onChange={setCountry} valueType="code" className={inputCls} />
               </div>
             </div>
           ) : (
             <div>
               <label className={labelCls}>Country</label>
-              <CountrySelect value={country} onChange={setCountry} className={inputCls} />
+              <CountrySelect value={country} onChange={setCountry} valueType="code" className={inputCls} />
             </div>
           )}
 

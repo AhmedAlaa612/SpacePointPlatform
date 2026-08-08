@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState, Spinner, StatCard, StatusPill } from "@/pages/ambassadors/components/common"
 import { AchievementGrid, TitleProgress } from "@/pages/ambassadors/components/title"
 import { NetworkTree } from "@/pages/ambassadors/components/NetworkTree"
+import { getCountries } from "@/lib/countries"
 
 export default function AdminAmbassador() {
   const { ambassadorId } = useParams({ strict: false }) as { ambassadorId: string }
@@ -46,7 +47,9 @@ export default function AdminAmbassador() {
               <p className="text-xl font-bold">{a.full_name}</p>
               <StatusPill status={a.status} />
             </div>
-            <p className="text-sm text-muted-foreground">{a.email}{a.country ? ` · ${a.country}` : ""}</p>
+            <p className="text-sm text-muted-foreground">
+              {a.email}{a.country ? ` · ${getCountries().find((c) => c.code === a.country)?.name ?? a.country}` : ""}
+            </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {stats.rank != null ? `Rank #${stats.rank} · ` : ""}{stats.points.balance.toLocaleString()} lifetime pts · {stats.points.season.toLocaleString()} this month
               {a.invite_code ? ` · invite ${a.invite_code}` : ""}

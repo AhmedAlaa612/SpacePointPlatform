@@ -31,6 +31,7 @@ from app.schemas.documents import DossierItem, UserDossierOut
 from app.schemas.instructors.instructor import IdCardOut
 from app.schemas.user import UserCreate, UserOut, UserUpdate
 from app.services import storage, user as user_service
+from app.services.countries import COUNTRY_NAMES
 from app.services.documents.id_card import ensure_card_id, render_card_back_png, render_card_png
 
 router = APIRouter(prefix="/users", tags=["admin"])
@@ -123,7 +124,8 @@ async def get_user_dossier(id: UUID, db: AsyncSession = Depends(get_db), current
         items.append(DossierItem(
             category="Applicant Pipeline",
             label="Applicant Profile",
-            meta=f"{residence_city.name if residence_city else ''} {applicant_profile.country or ''}".strip() or None,
+            meta=f"{residence_city.name if residence_city else ''} "
+                 f"{COUNTRY_NAMES.get(applicant_profile.country, applicant_profile.country or '')}".strip() or None,
         ))
 
     app_row = (await db.execute(

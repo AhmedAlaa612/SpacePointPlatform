@@ -128,7 +128,7 @@ async def test_onboarding_someone_already_in_the_instructor_pipeline_is_not_a_du
     )
     db.add(existing)
     await db.flush()
-    db.add(ApplicantProfile(user_id=existing.id, country="United Arab Emirates", cv_path="cvs/existing.pdf"))
+    db.add(ApplicantProfile(user_id=existing.id, country="AE", cv_path="cvs/existing.pdf"))
     db.add(ApplicationReview(user_id=existing.id))
     application = await _make_application(db, email)
     await db.commit()

@@ -7,6 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState, Spinner, StatusPill } from "@/pages/instructors/components/common"
 import { cn } from "@/lib/utils"
+import { getCountries } from "@/lib/countries"
+
+const countryName = (code: string) => getCountries().find((c) => c.code === code)?.name ?? code
 
 export default function ApplicantReviewPage() {
   const { userId } = useParams({ from: "/auth/instructors/admin/applicants/$userId" })
@@ -144,7 +147,11 @@ export default function ApplicantReviewPage() {
             <p className="text-sm text-muted-foreground mt-1">{detail.email}</p>
             {detail.profile && (
               <p className="text-sm text-muted-foreground mt-0.5">
-                {[detail.profile.university, detail.profile.city_of_residence, detail.profile.country]
+                {[
+                  detail.profile.university,
+                  detail.profile.city_of_residence,
+                  detail.profile.country ? countryName(detail.profile.country as string) : null,
+                ]
                   .filter(Boolean)
                   .join(" — ")}
               </p>
@@ -175,7 +182,7 @@ export default function ApplicantReviewPage() {
               {detail.profile && (
                 <>
                   <div className="h-px bg-border/50 my-3" />
-                  <p><span className="text-muted-foreground">Country:</span> <span className="text-foreground font-medium">{(detail.profile.country as string) || "United Arab Emirates"}</span></p>
+                  <p><span className="text-muted-foreground">Country:</span> <span className="text-foreground font-medium">{detail.profile.country ? countryName(detail.profile.country as string) : "United Arab Emirates"}</span></p>
                   {!!detail.profile.university && (
                     <p><span className="text-muted-foreground">University:</span> <span className="text-foreground font-medium">{detail.profile.university as string}</span></p>
                   )}

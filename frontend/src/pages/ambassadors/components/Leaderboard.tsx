@@ -1,7 +1,10 @@
 import { Medal } from "lucide-react"
 import type { LeaderboardEntry } from "@/types/ambassadors"
 import { cn } from "@/lib/utils"
+import { getCountries } from "@/lib/countries"
 import { EmptyState } from "./common"
+
+const countryName = (code: string) => getCountries().find((c) => c.code === code)?.name ?? code
 
 // Monochrome podium shades for ranks 1, 2, 3.
 const MEDAL_SHADES = [
@@ -57,7 +60,7 @@ export function LeaderboardTable({
                   {i < 3 ? <Medal size={18} className={cn("inline", MEDAL_SHADES[i])} strokeWidth={2.2} /> : `#${i + 1}`}
                 </td>
                 <td className="py-2.5 pr-3 font-semibold text-foreground">{r.name}{me && " (you)"}</td>
-                <td className="py-2.5 pr-3 text-muted-foreground">{r.country}</td>
+                <td className="py-2.5 pr-3 text-muted-foreground">{countryName(r.country)}</td>
                 <td className="py-2.5 pr-3 text-center text-foreground">{r.teachers}</td>
                 <td className="py-2.5 pr-3 text-center text-green-600 dark:text-green-400 font-semibold">{r.sessions_done}</td>
                 <td className="py-2.5 pr-3 text-center text-foreground">{r.students_reached}</td>

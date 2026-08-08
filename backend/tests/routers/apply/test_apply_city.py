@@ -62,7 +62,7 @@ async def test_apply_submits_with_a_city_and_admin_list_resolves_its_name(db, cl
         "full_name": "Aya Hassan",
         "email": email,
         "password": "secret123",
-        "country": "United Arab Emirates",
+        "country": "AE",
         "city_id": str(city.id),
     })
     assert resp.status_code == 201, resp.text
@@ -70,7 +70,7 @@ async def test_apply_submits_with_a_city_and_admin_list_resolves_its_name(db, cl
     listed = await client.get("/admin/applications", params={"role": "intern"}, headers=admin_headers)
     assert listed.status_code == 200, listed.text
     match = next(a for a in listed.json() if a["email"] == email)
-    assert match["country"] == "United Arab Emirates"
+    assert match["country"] == "AE"
     assert match["city"] == city.name
 
 

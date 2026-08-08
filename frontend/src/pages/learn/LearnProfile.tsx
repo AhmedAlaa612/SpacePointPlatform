@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CountrySelect } from "@/components/ui/CountrySelect";
 import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect";
+import { getCountries } from "@/lib/countries";
 import { EmptyState } from "@/components/ui/primitives";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -146,7 +147,14 @@ export default function LearnProfile() {
               <div className="flex flex-col gap-3">
                 <AccountField label="Email" value={me.email} />
                 <AccountField label="WhatsApp" value={me.phone || "Not set"} />
-                <AccountField label="Location" value={[me.city_name, me.country].filter(Boolean).join(", ") || "Not set"} />
+                <AccountField
+                  label="Location"
+                  value={
+                    [me.city_name, getCountries().find((c) => c.code === me.country)?.name ?? me.country]
+                      .filter(Boolean)
+                      .join(", ") || "Not set"
+                  }
+                />
                 {memberSince && <AccountField label="Member since" value={memberSince} />}
               </div>
               <div className="h-px bg-border" />
@@ -309,7 +317,7 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
                   Country <span className="normal-case font-normal">(optional)</span>
                 </label>
                 <CountrySelect
-                  value={country} onChange={setCountry}
+                  value={country} onChange={setCountry} valueType="code"
                   className="w-full h-11 rounded-xl border border-border bg-background px-3.5 text-sm focus:outline-none focus:border-primary transition-colors"
                 />
               </div>

@@ -40,7 +40,7 @@ export default function InstructorApplyPage() {
     full_name: "", phone: "", email: "", password: "",
     university: "", highest_degree: "", highest_degree_other: "",
     city_of_residence_id: "", background_other: "", has_own_transportation: "" as "" | "true" | "false",
-    country: "United Arab Emirates",
+    country: "AE",
   })
   const [backgroundAreas, setBackgroundAreas] = useState<string[]>([])
   const [deliverCityIds, setDeliverCityIds] = useState<string[]>([])
@@ -73,7 +73,7 @@ export default function InstructorApplyPage() {
       setForm((f) => ({ ...f, city_of_residence_id: "", has_own_transportation: "" }))
       setDeliverCityIds([])
     } else {
-      setForm((f) => ({ ...f, country: "United Arab Emirates" }))
+      setForm((f) => ({ ...f, country: "AE" }))
     }
   }
 
@@ -307,7 +307,8 @@ export default function InstructorApplyPage() {
               <CountrySelect
                 className="input"
                 value={form.country}
-                onChange={(name) => setForm((f) => ({ ...f, country: name }))}
+                onChange={(code) => setForm((f) => ({ ...f, country: code }))}
+                valueType="code"
                 disabled={applyLocation === "within"}
                 required
               />

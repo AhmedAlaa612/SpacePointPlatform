@@ -9,6 +9,7 @@ import { deleteCertificateApi } from "@/api/instructors/payments_admin"
 import { ROLE_LABEL } from "@/types/shared"
 import { Card, CardContent } from "@/components/ui/card"
 import { ROLE_BADGE, AmbassadorCard, TeacherCard, InstructorCard } from "@/components/ProfileStatsCards"
+import { getCountries } from "@/lib/countries"
 
 const DELETABLE_CATEGORIES: Record<string, (id: string) => Promise<unknown>> = {
   Documents: deleteGeneratedDocumentApi,
@@ -194,7 +195,11 @@ export function UserProfileModal({ userId, onClose }: Props) {
                     <div className="min-w-0 flex-1">
                       <p className="text-lg font-bold text-foreground truncate">{user.full_name}</p>
                       <p className="text-sm text-muted-foreground truncate">{user.email}</p>
-                      {user.country && <p className="text-xs text-muted-foreground mt-0.5">{user.country}</p>}
+                      {user.country && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {getCountries().find((c) => c.code === user.country)?.name ?? user.country}
+                        </p>
+                      )}
                       <div className="flex flex-wrap gap-1.5 mt-2">
                         {roles.map((r) => (
                           <span key={r} className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${ROLE_BADGE[r] ?? "bg-muted text-foreground"}`}>
