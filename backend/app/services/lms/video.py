@@ -34,7 +34,7 @@ from app.services import storage
 logger = logging.getLogger("services.lms.video")
 
 HLS_BUCKET = "lms-hls"
-_SEGMENT_SECONDS = 6
+_SEGMENT_SECONDS = 4
 
 
 @dataclass
@@ -111,7 +111,19 @@ def _ffmpeg_encode_hls_sync(source: Path) -> EncodeResult:
 
         codec_args = (
             ["-c", "copy"] if _probe_is_h264_aac(source)
-            else ["-c:v", "libx264", "-vf", "scale=-2:720", "-c:a", "aac"]
+            # Keyframe-forced at exactly _SEGMENT_SECONDS so -hls_time cuts
+            # land precisely instead of drifting to wherever the encoder's
+            # own GOP structure happened to place the nearest keyframe —
+            # only meaningful here (re-encoding), not on the -c copy path
+            # above, which can't move existing keyframes without re-encoding
+            # either. ~800kbps keeps 720p reasonable for the segment size
+            # this buys (was unbounded/default-quality before).
+            else [
+                "-c:v", "libx264", "-vf", "scale=-2:720",
+                "-b:v", "800k", "-maxrate", "800k", "-bufsize", "1600k",
+                "-force_key_frames", f"expr:gte(t,n_forced*{_SEGMENT_SECONDS})",
+                "-c:a", "aac",
+            ]
         )
         _run([
             "ffmpeg", "-y", "-i", str(source), *codec_args,
