@@ -550,19 +550,59 @@ async def create_facilitator(
 
 @router.get("/instructors")
 async def list_instructors(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
+    """Instructor directory, with the city fields the admin list filters on.
+
+    Cities are returned as both id and name (2026-08-09): the id is what the
+    filter matches on (exact, same as staffing city-matching — never compare
+    names), the name is what the row renders.
+
+    Residence resolves `users.city_id` -> `users.city_other` ->
+    `ApplicantProfile.city_of_residence_id`, the same precedence as
+    `_resolve_living_area` in routers/instructors/instructor.py. Reading only
+    `users.city_id` is wrong in practice: instructors who came through the
+    applicant pipeline before that general field existed (2026-08-08) have
+    their city ONLY on the applicant profile, and would show as "No city"
+    here while their contract correctly prints it.
+
+    Open-to-work cities come from `ApplicantProfile.deliver_city_ids`, so
+    instructors with no applicant profile simply have none.
+    """
     rows = (await db.execute(
-        select(User, InstructorProfile)
-        .outerjoin(InstructorProfile, InstructorProfile.user_id == User.id)
+        select(User, ApplicantProfile)
+        .outerjoin(ApplicantProfile, ApplicantProfile.user_id == User.id)
         .where(User.roles.any("instructor"))
         .order_by(User.created_at.desc())
     )).all()
-    return [
-        {
+
+    # One lookup for every city referenced by any row, rather than per-user.
+    needed: set[uuid.UUID] = set()
+    for u, p in rows:
+        if u.city_id:
+            needed.add(u.city_id)
+        if p and p.city_of_residence_id:
+            needed.add(p.city_of_residence_id)
+        needed.update(p.deliver_city_ids or [] if p else [])
+    city_names: dict[uuid.UUID, str] = {}
+    if needed:
+        found = (await db.execute(select(City).where(City.id.in_(needed)))).scalars().all()
+        city_names = {c.id: c.name for c in found}
+
+    out = []
+    for u, p in rows:
+        deliver_ids = list(p.deliver_city_ids or []) if p else []
+        # Structured id first, applicant-profile id second; city_other is a
+        # display-only fallback with no id, so it can be shown but not
+        # filtered on (the filter's options are built from ids).
+        city_id = u.city_id or (p.city_of_residence_id if p else None)
+        out.append({
             "id": str(u.id), "full_name": u.full_name, "email": u.email, "status": u.status,
             "linkedin_url": u.linkedin_url, "created_at": u.created_at,
-        }
-        for u, p in rows
-    ]
+            "city_id": str(city_id) if city_id else None,
+            "city_name": city_names.get(city_id) if city_id else u.city_other,
+            "deliver_city_ids": [str(i) for i in deliver_ids if i in city_names],
+            "deliver_city_names": [city_names[i] for i in deliver_ids if i in city_names],
+        })
+    return out
 
 
 @router.get("/instructors/{user_id}")

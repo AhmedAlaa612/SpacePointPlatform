@@ -53,6 +53,25 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
     contact = await db.get(Contact, user.contact_id) if user.contact_id else None
     city = await db.get(City, user.city_id) if user.city_id else None
 
+    # City NAMES alongside the ids (2026-08-09). Every consumer that displays
+    # a user — the admin profile modal, the instructor directory — needs names,
+    # and resolving them client-side meant every such surface separately
+    # fetching /public/cities just to build an id->name map. Resolved in one
+    # query here instead. Order follows deliver_city_ids so the printed list
+    # matches whatever order the instructor picked.
+    residence_city = (
+        await db.get(City, profile.city_of_residence_id)
+        if profile and profile.city_of_residence_id
+        else None
+    )
+    deliver_ids = list(profile.deliver_city_ids or []) if profile else []
+    deliver_names: list[str] = []
+    if deliver_ids:
+        found = (await db.execute(select(City).where(City.id.in_(deliver_ids)))).scalars().all()
+        by_id = {c.id: c.name for c in found}
+        # Skip ids whose city was deleted rather than emitting a null hole.
+        deliver_names = [by_id[i] for i in deliver_ids if i in by_id]
+
     return {
         "id": str(user.id),
         "full_name": user.full_name,
@@ -74,7 +93,9 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         # Applicant-profile fields — surfaced on Profile & Settings for
         # instructors/facilitators/applicants. None when no profile exists.
         "city_of_residence_id": profile.city_of_residence_id if profile else None,
+        "city_of_residence_name": residence_city.name if residence_city else None,
         "deliver_city_ids": profile.deliver_city_ids if profile else None,
+        "deliver_city_names": deliver_names or None,
         "has_own_transportation": profile.has_own_transportation if profile else None,
     }
 
@@ -258,7 +279,12 @@ async def get_user_profile(
     user = (await db.execute(select(User).where(User.id == uid))).scalars().first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return await _user_out(db, user)
+    # Load the applicant profile (2026-08-09) — without it _user_out reports
+    # city_of_residence/deliver_city_ids as null for EVERY user, which is why
+    # the admin profile modal could never show an instructor's residence or
+    # open-to-work cities. /auth/me and login already passed it; this endpoint
+    # was the outlier.
+    return await _user_out(db, user, await _load_applicant_profile(db, uid))
 
 
 @router.get("/users/{user_id}/stats")

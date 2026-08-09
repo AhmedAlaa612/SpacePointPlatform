@@ -76,6 +76,12 @@ export interface User {
   // when the user has no applicant_profile. Structured — reference `cities`.
   city_of_residence_id?: string | null;
   deliver_city_ids?: string[] | null;
+  // Names resolved server-side (2026-08-09) so display surfaces don't each
+  // fetch /public/cities to build an id->name map. deliver_city_names follows
+  // deliver_city_ids order but omits deleted cities, so it can be SHORTER —
+  // never index one array by the other's position.
+  city_of_residence_name?: string | null;
+  deliver_city_names?: string[] | null;
   has_own_transportation?: boolean | null;
 }
 

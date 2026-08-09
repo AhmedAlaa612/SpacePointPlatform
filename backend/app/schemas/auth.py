@@ -82,6 +82,13 @@ class UserOut(BaseModel):
     # Structured (2026-08-08) — reference `cities` instead of free text.
     city_of_residence_id: UUID | None = None
     deliver_city_ids: list[UUID] | None = None
+    # Resolved names for the two id fields above (2026-08-09) so consumers can
+    # display cities without separately fetching /public/cities to build an
+    # id->name map. deliver_city_names follows deliver_city_ids order and
+    # omits ids whose city has since been deleted, so it can be SHORTER than
+    # deliver_city_ids — never index one by the other's position.
+    city_of_residence_name: str | None = None
+    deliver_city_names: list[str] | None = None
     has_own_transportation: bool | None = None
 
 

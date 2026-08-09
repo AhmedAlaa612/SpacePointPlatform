@@ -242,6 +242,55 @@ export function UserProfileModal({ userId, onClose }: Props) {
                   </CardContent>
                 </Card>
 
+                {/* Location — the user's city, plus (instructors only) the
+                    cities they're open to work in. Always shown for
+                    instructors, since "no cities set" is itself information
+                    an admin needs when staffing; hidden for other roles with
+                    no city so students don't get an empty card. */}
+                {(isInstructor || user.city_name || user.city_other || user.city_of_residence_name) && (
+                  <Card>
+                    <CardContent className="p-5 flex flex-col gap-3">
+                      <p className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Location</p>
+                      <div className="flex flex-col gap-3 text-sm">
+                        <div>
+                          <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-0.5">City</p>
+                          {/* Same precedence as the contract generator's
+                              _resolve_living_area: structured city first,
+                              then free-text "Other", then the applicant
+                              profile — instructors onboarded before the
+                              general city field existed have it only there. */}
+                          <p className="text-foreground">
+                            {user.city_name || user.city_other || user.city_of_residence_name || (
+                              <span className="text-muted-foreground italic">Not set</span>
+                            )}
+                          </p>
+                        </div>
+                        {isInstructor && (
+                          <div>
+                            <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-1">
+                              Open to work in
+                            </p>
+                            {user.deliver_city_names?.length ? (
+                              <div className="flex flex-wrap gap-1.5">
+                                {user.deliver_city_names.map((name) => (
+                                  <span
+                                    key={name}
+                                    className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20"
+                                  >
+                                    {name}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-muted-foreground italic">Not set</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
                 {isAmbassador && stats?.ambassador && (
                   <AmbassadorCard name={user.full_name} stats={stats.ambassador} />
                 )}

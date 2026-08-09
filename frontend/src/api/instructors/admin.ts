@@ -53,6 +53,16 @@ export interface InstructorListItem {
   status: string
   linkedin_url: string | null
   created_at: string
+  // Residence city from users.city_id. `city_id` is null (and `city_name`
+  // carries the free-text "Other" value) for countries with no SpacePoint
+  // city — such rows can be shown but not filtered by id.
+  city_id: string | null
+  city_name: string | null
+  // Open-to-work cities from ApplicantProfile.deliver_city_ids. Empty for
+  // instructors with no applicant profile. ids and names are index-aligned
+  // here — the backend drops deleted cities from BOTH.
+  deliver_city_ids: string[]
+  deliver_city_names: string[]
 }
 
 export const getAdminOverviewApi = () => api.get<AdminOverview>("/instructors/admin/overview").then((r) => r.data)
