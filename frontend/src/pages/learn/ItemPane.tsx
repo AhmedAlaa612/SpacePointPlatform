@@ -1,12 +1,23 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, ChevronLeft, ChevronRight, FileWarning, XCircle } from "lucide-react";
+import * as pdfjsLib from "pdfjs-dist";
+import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
+// ?url: served as a raw asset, bypassing Vite's dev-mode JS transform (which
+// injects an HMR-client import that breaks once this runs inside a Worker).
+import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { Button } from "@/components/ui/button";
 import {
   checkQuizAnswer, getAttachmentUrl, recordProgress, submitQuiz,
   type ModuleItem, type QuizAnswerCheck, type QuizReview,
 } from "@/api/lms";
 import { VideoPlayer } from "./VideoPlayer";
+
+// A worker bundled by pdfjs-dist itself — not the browser's own PDF plugin.
+// Native <iframe>/browser PDF viewing depends on the visitor's Chrome setting
+// ("open PDFs" vs "download PDFs"); rendering to canvas ourselves sidesteps
+// that entirely and works the same for every reader.
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 /** One switch on item.kind → the five content panes (design 1i). Net-new,
  * replacing the inline switch that used to live directly in the module
@@ -86,10 +97,69 @@ function AttachmentBlock({ itemId, onDone }: { itemId: string; onDone: () => voi
     queryFn: () => getAttachmentUrl(itemId),
   });
 
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [doc, setDoc] = useState<PDFDocumentProxy | null>(null);
+  const [pageNum, setPageNum] = useState(1);
+  const [pdfError, setPdfError] = useState(false);
+
+  useEffect(() => {
+    if (!data?.url) return;
+    let cancelled = false;
+    let loadedDoc: PDFDocumentProxy | null = null;
+    setPdfError(false);
+    setDoc(null);
+    const loadingTask = pdfjsLib.getDocument(data.url);
+    loadingTask.promise.then((loaded) => {
+      if (cancelled) { loaded.destroy(); return; }
+      loadedDoc = loaded;
+      setDoc(loaded);
+      setPageNum(1);
+    }).catch(() => { if (!cancelled) setPdfError(true); });
+    return () => {
+      cancelled = true;
+      loadedDoc?.destroy();
+    };
+  }, [data?.url]);
+
+  // Renders straight to canvas rather than an <iframe src=pdfUrl> — the
+  // native-viewer approach — because whether that renders inline or silently
+  // tries (and, inside an iframe, fails) to download depends on the
+  // visitor's own Chrome PDF setting.
+  //
+  // The RenderTask must be explicitly .cancel()'d in cleanup (not just
+  // ignored via a `cancelled` flag) — pdfjs only auto-supersedes a prior
+  // render on the same canvas if the earlier task is properly cancelled
+  // first; otherwise a second render() on the same canvas (e.g. React
+  // StrictMode's double-invoke in dev) leaves the worker's queue stuck and
+  // the new task never resolves.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!doc || !canvas) return;
+    let cancelled = false;
+    let renderTask: RenderTask | null = null;
+    doc.getPage(pageNum).then((page) => {
+      if (cancelled) return;
+      const containerWidth = containerRef.current?.clientWidth ?? 800;
+      const unscaled = page.getViewport({ scale: 1 });
+      const viewport = page.getViewport({ scale: containerWidth / unscaled.width });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      renderTask = page.render({ canvas, viewport });
+      renderTask.promise.catch((err) => {
+        if (!cancelled && err?.name !== "RenderingCancelledException") setPdfError(true);
+      });
+    }).catch(() => { if (!cancelled) setPdfError(true); });
+    return () => {
+      cancelled = true;
+      renderTask?.cancel();
+    };
+  }, [doc, pageNum]);
+
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading document...</p>;
   }
-  if (isError || !data) {
+  if (isError || !data || pdfError) {
     return (
       <div className="flex items-center gap-2 p-4 rounded-2xl ring-1 ring-destructive/30 bg-destructive/5 text-destructive text-sm">
         <FileWarning className="size-4 shrink-0" /> Couldn't load this document.
@@ -102,11 +172,32 @@ function AttachmentBlock({ itemId, onDone }: { itemId: string; onDone: () => voi
       {data.filename && (
         <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">{data.filename}</p>
       )}
-      <iframe
-        src={data.url}
-        title={data.filename ?? "Attachment"}
-        className="w-full h-[70vh] rounded-2xl ring-1 ring-border bg-card"
-      />
+      <div
+        ref={containerRef}
+        className="w-full max-h-[70vh] overflow-auto rounded-2xl ring-1 ring-border bg-card flex justify-center p-3"
+      >
+        {!doc && <p className="text-sm text-muted-foreground py-16">Loading document...</p>}
+        <canvas ref={canvasRef} className={doc ? "max-w-full h-auto" : "hidden"} />
+      </div>
+      {doc && doc.numPages > 1 && (
+        <div className="flex items-center justify-between gap-2">
+          <Button
+            variant="outline" className="w-fit"
+            disabled={pageNum <= 1}
+            onClick={() => setPageNum((p) => p - 1)}
+          >
+            <ChevronLeft className="size-4" /> Previous page
+          </Button>
+          <p className="text-xs text-muted-foreground">Page {pageNum} of {doc.numPages}</p>
+          <Button
+            variant="outline" className="w-fit"
+            disabled={pageNum >= doc.numPages}
+            onClick={() => setPageNum((p) => p + 1)}
+          >
+            Next page <ChevronRight className="size-4" />
+          </Button>
+        </div>
+      )}
       <Button size="xl" onClick={onDone} className="w-fit">
         Mark as read <ChevronRight className="size-4" />
       </Button>
@@ -368,7 +459,7 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
         )}
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex items-center justify-between gap-2">
         <Button
           size="xl" variant="outline" className="w-fit"
           disabled={currentIndex === 0}
