@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Calendar, MapPin, Users, BookOpen, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { useAuth } from "@/context/AuthContext";
 import { submitProgramInterest, type UpcomingProgram } from "@/api/lms";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -85,16 +86,23 @@ export function UpcomingProgramRow({ program }: { program: UpcomingProgram }) {
 function NotifyMeDialog({
   program, open, onOpenChange,
 }: { program: UpcomingProgram; open: boolean; onOpenChange: (open: boolean) => void }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+  // Pre-fill for a signed-in student — this dialog also serves anonymous
+  // marketing-site visitors (submitProgramInterest is a public lead-capture
+  // endpoint, not tied to accounts), so a blank form is right for THEM, but
+  // asking someone who's already logged in to retype what we already know
+  // about them is just friction.
+  const { user } = useAuth();
+  const [name, setName] = useState(user?.full_name ?? "");
+  const [email, setEmail] = useState(user?.email ?? "");
+  const [phone, setPhone] = useState(user?.phone ?? "");
   const [website, setWebsite] = useState(""); // honeypot — never shown to a real user
   const [error, setError] = useState("");
   const [result, setResult] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const reset = () => {
-    setName(""); setEmail(""); setPhone(""); setWebsite(""); setError(""); setResult(null);
+    setName(user?.full_name ?? ""); setEmail(user?.email ?? ""); setPhone(user?.phone ?? "");
+    setWebsite(""); setError(""); setResult(null);
   };
 
   const submit = async () => {
