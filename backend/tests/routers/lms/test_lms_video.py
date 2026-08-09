@@ -224,12 +224,14 @@ async def test_streaming_routes_require_a_valid_matching_unexpired_token(db, cli
     await _ready_video(db, item)
     await db.commit()
 
-    # valid token -> playlist rewritten with token-bearing absolute URLs
+    # valid token -> playlist rewritten with token-bearing relative URLs
+    # (relative, not absolute — so they resolve correctly regardless of any
+    # reverse-proxy prefix in front of the API; see _rewrite_playlist)
     token = create_video_token(student.id, item.id)
     ok = await client.get(f"/lms/videos/{item.id}/playlist", params={"token": token})
     assert ok.status_code == 200
-    assert f"/lms/videos/{item.id}/segment/segment_000.ts?token={token}" in ok.text
-    assert f"/lms/videos/{item.id}/key?token={token}" in ok.text
+    assert f"segment/segment_000.ts?token={token}" in ok.text
+    assert f'URI="key?token={token}"' in ok.text
 
     seg = await client.get(f"/lms/videos/{item.id}/segment/segment_000.ts", params={"token": token})
     assert seg.status_code == 200 and seg.content == b"ts-bytes"

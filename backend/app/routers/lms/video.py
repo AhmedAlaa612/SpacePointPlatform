@@ -140,15 +140,24 @@ def _rewrite_playlist(raw: bytes, item_id: uuid.UUID, token: str) -> bytes:
     """Stored playlists carry plain relative filenames (token-agnostic — one
     file serves every viewer). Rewritten per-request so every segment/key
     reference carries *this* request's short-lived token (D2: never a static
-    URL)."""
+    URL).
+
+    URLs here are relative (no leading slash) rather than absolute paths —
+    the browser resolves them against wherever it fetched *this* playlist
+    from, so whatever reverse-proxy prefix got it there (e.g. nginx's
+    `/api/`, present in production, absent in local dev where the backend is
+    hit directly) carries through automatically. An absolute `/lms/videos/…`
+    path bypasses that prefix entirely — invisible in dev, breaks every
+    segment/key fetch in prod (they resolve to the site root, land in the
+    SPA's catch-all route, and hls.js fails trying to parse HTML as media)."""
     key_line = re.compile(r'URI="[^"]*"')
     lines = raw.decode("utf-8").splitlines()
     out = []
     for line in lines:
         if line.startswith("#EXT-X-KEY"):
-            out.append(key_line.sub(f'URI="/lms/videos/{item_id}/key?token={token}"', line))
+            out.append(key_line.sub(f'URI="key?token={token}"', line))
         elif line and not line.startswith("#"):
-            out.append(f"/lms/videos/{item_id}/segment/{line}?token={token}")
+            out.append(f"segment/{line}?token={token}")
         else:
             out.append(line)
     return ("\n".join(out) + "\n").encode("utf-8")
