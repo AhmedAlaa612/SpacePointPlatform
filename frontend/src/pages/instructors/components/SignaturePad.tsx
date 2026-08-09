@@ -74,6 +74,8 @@ export function SignaturePad({ onSign, signing }: SignaturePadProps) {
         <SignatureCanvas
           ref={ref}
           penColor="#000000"
+          minWidth={1.5}
+          maxWidth={4}
           canvasProps={{ className: "w-full h-40 rounded-lg" }}
         />
       </div>

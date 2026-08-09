@@ -2,6 +2,7 @@ import asyncio
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from xml.sax.saxutils import escape
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile
@@ -15,6 +16,7 @@ from app.models.enums import ApplicationStatus, ModuleSubmissionStatus, UserRole
 from sqlalchemy import func
 
 from app.models.certificate import Certificate
+from app.models.document_template import DocumentTemplate
 from app.models.inventory.city import City
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
@@ -39,8 +41,8 @@ from app.schemas.instructors.admin import (
     PortalSettingUpdate,
 )
 from app.models.enums import CertificateType, PaymentLetterStatus
+from app.routers.instructors.instructor import _resolve_living_area
 from app.services import storage
-from app.services.countries import COUNTRY_NAMES
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.contract import generate_contract_pdf
 from app.services.documents.dossier import build_applicant_dossier_pdf
@@ -328,14 +330,11 @@ async def review_applicant(
                 pass
         user.roles = sorted(kept)
 
-        residence_city = (
-            await db.get(City, profile.city_of_residence_id)
-        ) if profile and profile.city_of_residence_id else None
-        # `profile.country` is an ISO code (2026-08-08 country-code migration) —
-        # this feeds a printed contract PDF, so it needs the human-readable name,
-        # not the raw code.
-        country_name = COUNTRY_NAMES.get(profile.country, profile.country) if profile and profile.country else None
-        living_area = (residence_city.name if residence_city else None) or country_name or "United Arab Emirates"
+        # Shared with the lazy/signing paths (routers/instructors/instructor.py)
+        # so a missing city is handled the same way everywhere: this must never
+        # resolve to a country name, since the contract template's own static
+        # text already appends ", United Arab Emirates" right after it.
+        living_area = await _resolve_living_area(db, user)
 
         contract_bytes = await asyncio.to_thread(generate_contract_pdf, user.full_name, living_area)
         contract_bucket, contract_path = "contracts", f"{user_id}/agreement.pdf"
@@ -353,7 +352,17 @@ async def review_applicant(
         # Completion certificate auto-fires here — this approval is the one clean,
         # already-existing event for it (PLAN §8.2). Role-generic generator, same
         # one used for the interns-admin manual trigger (routers/interns/admin.py).
-        cert_bytes = generate_completion_certificate_pdf(user.full_name, "Instructor Program")
+        # Rendered from the editable `instructor_completion` system template
+        # (seeded by migration a3f7c91d0037) so admins can change the wording
+        # without a code change — same pattern as `workshop_delivery` in
+        # payments.py. Falls back to the original hardcoded wording if the
+        # template row is somehow missing (e.g. migration not yet applied).
+        cert_template = (await db.execute(
+            select(DocumentTemplate).where(DocumentTemplate.key == "instructor_completion")
+        )).scalars().first()
+        cert_body = (cert_template.body_text if cert_template else "Instructor Program") \
+            .replace("{name}", escape(user.full_name))
+        cert_bytes = generate_completion_certificate_pdf(user.full_name, cert_body)
         cert_bucket, cert_path = "certificates", f"{user_id}/instructor_completion.pdf"
         cert_url = await storage.upload_file(cert_bucket, cert_path, cert_bytes, "application/pdf")
         db.add(Certificate(

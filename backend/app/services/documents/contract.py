@@ -7,19 +7,27 @@ Signing (Phase 6): the template's signature block is a single paragraph
 (index 44) with two tab-column "Name/Date/Signature" rows. The admin's
 NAME and signature image are baked into the template as static content —
 but {{ today }} (run 21) is the admin's DATE field, a real Jinja
-placeholder, not static. Per the client's requirement, neither party's
-date should show until the instructor actually signs, and both dates
-must then match the signing date exactly — so {{ today }} renders BLANK
-on the initial (unsigned) generation, and gets overwritten (same value
-used for the Facilitator's date) at signing time, alongside the
-Facilitator side which was always blank until signing. Run indices below
-were confirmed by rendering the template and inspecting the resulting
-python-docx runs (docxtpl preserves run boundaries for simple {{ var }}
-substitutions, and an empty {{ today }} does not shift them either —
-verified directly).
+placeholder, not static, and the Facilitator's date (run 32) is filled in
+by `_fill_facilitator_date` directly on the rendered document. Both are
+always filled with the same value: `signed_date` once the instructor has
+actually signed, otherwise today's date (2026-08-09: previously left
+blank pre-signing — changed on operator request so an unsigned contract
+still shows a live, correct preview of both parties' dates rather than
+looking half-finished). Run indices below were confirmed by rendering the
+template and inspecting the resulting python-docx runs (docxtpl preserves
+run boundaries for simple {{ var }} substitutions).
+
+The Facilitator's SIGNATURE IMAGE (run 44's last run) is the only piece
+still gated on actually signing — `_add_facilitator_signature_image` is
+only called when `instructor_signature_b64` is provided.
+
+The Facilitator "Date:" row is column-aligned by `_fill_facilitator_date`,
+which keeps all 7 tabs at runs 24-30 and pads the date with a single space
+rather than a tab. See that function for the measured x-positions.
 """
 
 import base64
+import copy
 import io
 import subprocess
 import sys
@@ -29,8 +37,15 @@ from pathlib import Path
 
 from docx import Document
 from docx.oxml.ns import qn
-from docx.shared import Inches
+from docx.shared import Emu
 from docxtpl import DocxTemplate
+
+_R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+# Empirically matched (measured off a rendered PDF) to the Facilitator
+# "Signature:" tab-stop position, offset the same ~0.8" past the label that
+# the admin's own anchored signature sits past its label. See
+# `_add_facilitator_signature_image`.
+_FACILITATOR_SIG_OFFSET_H = 4_849_000
 
 _TEMPLATE = (
     Path(__file__).parent.parent.parent
@@ -57,24 +72,81 @@ def _libreoffice_to_pdf(docx_bytes: bytes) -> bytes:
         return (Path(tmp) / "doc.pdf").read_bytes()
 
 
-def _fill_facilitator_signature(doc: Document, signed_date: str, signature_b64: str) -> None:
-    """Fill the blank Facilitator Date + Signature on the signature paragraph.
+def _fill_facilitator_date(doc: Document, date_str: str) -> None:
+    """Fill the Facilitator "Date:" field on the signature paragraph.
 
     Run 31 = the (blank) Facilitator "Date:" label, run 32 = "\t" + padding
-    spaces to overwrite with the date. Run 43 = the (blank) Facilitator
-    "Signature:" label, the paragraph's last run — a new inline-picture run
-    is appended right after it, which reliably continues on the same line
-    (or wraps below it) without touching any of the preceding tab-stop math.
+    spaces to overwrite with the date.
+
+    All 7 tabs at runs 24-30 are kept, and run 32's leading tab is replaced
+    by a single space. Both were calibrated by measuring the rendered PDF
+    (letter page, 1" margins => default 0.5"/36pt tab stops from x=72):
+
+      * the admin's date wraps onto its own visual line ending at x~175,
+        and the 7 tabs walk 180 -> 216 -> ... -> 396, putting this label at
+        x=396.1 — exactly the "Name:"/"Signature:" column. Dropping tabs
+        here (an earlier calibration) left the label at x=324, well left of
+        its column.
+      * with the label in place, run 32's tab overshot to the next stop at
+        x=468. A space instead puts the date at x=434.3, flush under
+        "Ahmed" (x=430.2) — "Date:" is 1.3pt wider than "Name:", so the two
+        columns cannot be pixel-identical without custom tab stops, which
+        would also shift the "Signature:" line sharing this paragraph.
     """
     p = doc.paragraphs[_SIGNATURE_PARA_IDX]
     date_run = p.runs[32]._r
     wt = date_run.find(qn("w:t"))
     if wt is not None:
-        wt.text = f"\t{signed_date}"
+        wt.text = f" {date_str}"
         wt.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
 
+
+def _add_facilitator_signature_image(doc: Document, signature_b64: str) -> None:
+    """Anchor the instructor's signature at the Facilitator column.
+
+    A plain inline picture (the original approach — `run.add_picture()`
+    appended after the last run) flows with the paragraph's own text layout.
+    This paragraph is tab-heavy enough that the trailing image can fail to
+    fit on the line and wrap down to a new line starting at the paragraph's
+    LEFT margin instead of staying under "Facilitator" — landing visually on
+    top of, or beside, the admin's own signature instead of in its own
+    column. The admin's signature avoids this because it's a fixed-position
+    ANCHOR, not inline — so it's placed the same way here: clone the admin's
+    anchor XML, swap its image, and shift only the horizontal offset to the
+    Facilitator column. Same technique as `payment_letter.py`'s
+    `_inject_signatures`.
+    """
+    p = doc.paragraphs[_SIGNATURE_PARA_IDX]
+    anchor_run = next(
+        (r for r in p._p.findall(qn("w:r")) if r.find(qn("w:drawing")) is not None),
+        None,
+    )
+    if anchor_run is None:
+        return
+
+    extent = anchor_run.find(".//" + qn("wp:extent"))
+    sig_cx, sig_cy = int(extent.get("cx")), int(extent.get("cy"))
+
     raw = signature_b64.split(",", 1)[-1] if "," in signature_b64 else signature_b64
-    p.add_run().add_picture(io.BytesIO(base64.b64decode(raw)), width=Inches(1.1))
+    tmp = doc.add_paragraph()
+    tmp.add_run().add_picture(io.BytesIO(base64.b64decode(raw)), width=Emu(sig_cx), height=Emu(sig_cy))
+    blip = tmp._p.find(".//" + qn("a:blip"))
+    new_rId = blip.get(f"{{{_R_NS}}}embed")
+    tmp._p.getparent().remove(tmp._p)
+
+    instr_run = copy.deepcopy(anchor_run)
+    instr_run.find(".//" + qn("a:blip")).set(f"{{{_R_NS}}}embed", new_rId)
+
+    pos_h = instr_run.find(".//" + qn("wp:positionH"))
+    pos_h.find(qn("wp:posOffset")).text = str(_FACILITATOR_SIG_OFFSET_H)
+
+    # Unique shape IDs — must not collide with the admin's own anchor.
+    instr_run.find(".//" + qn("wp:docPr")).set("id", "9001")
+    instr_run.find(".//" + qn("wp:docPr")).set("name", "instructor_sig")
+    instr_run.find(".//" + qn("pic:cNvPr")).set("id", "9001")
+    instr_run.find(".//" + qn("pic:cNvPr")).set("name", "instructor_sig")
+
+    p._p.append(instr_run)
 
 
 def generate_contract_pdf(
@@ -85,11 +157,8 @@ def generate_contract_pdf(
     instructor_signature_b64: str | None = None,
 ) -> bytes:
     is_signing = bool(instructor_signature_b64)
-    if is_signing:
-        d = date.today()
-        today = signed_date or f"{d.day} {d.strftime('%B %Y')}"  # "26 June 2026" (cross-platform)
-    else:
-        today = ""  # neither party's date shows until the instructor actually signs
+    d = date.today()
+    today = signed_date or f"{d.day} {d.strftime('%B %Y')}"  # "26 June 2026" (cross-platform)
 
     tpl = DocxTemplate(str(_TEMPLATE))
     tpl.render({
@@ -101,11 +170,12 @@ def generate_contract_pdf(
     tpl.save(buf)
     buf.seek(0)
 
+    doc = Document(buf)
+    _fill_facilitator_date(doc, today)
     if is_signing:
-        doc = Document(buf)
-        _fill_facilitator_signature(doc, today, instructor_signature_b64)
-        buf = io.BytesIO()
-        doc.save(buf)
-        buf.seek(0)
+        _add_facilitator_signature_image(doc, instructor_signature_b64)
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
 
     return _libreoffice_to_pdf(buf.getvalue())

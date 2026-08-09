@@ -423,9 +423,22 @@ async def update_me(
         current_user.city_other = data.city_other or None
 
     # Applicant-profile fields (Profile & Settings for instructors/facilitators).
-    # Only written when the user actually has an applicant_profile; otherwise the
-    # scalar user fields above still save and these are silently ignored.
+    # Used to silently no-op when the user had no applicant_profile row — true
+    # for any instructor whose account wasn't created via the applicant
+    # pipeline (seeded, invited directly, promoted pre-pipeline). City of
+    # Residence and Delivery Cities would "save" in the UI and vanish on
+    # refresh. Lazily create the row instead, same precedent as
+    # InstructorProfile's own get-or-create (routers/instructors/instructor.py)
+    # — every field here is nullable or has a default, so an empty row is safe.
     profile = await _load_applicant_profile(db, current_user.id)
+    wants_applicant_fields = any(
+        f is not None
+        for f in (data.city_of_residence_id, data.deliver_city_ids, data.has_own_transportation)
+    )
+    if profile is None and wants_applicant_fields:
+        profile = ApplicantProfile(user_id=current_user.id)
+        db.add(profile)
+        await db.flush()
     if profile is not None:
         if data.city_of_residence_id is not None:
             profile.city_of_residence_id = data.city_of_residence_id

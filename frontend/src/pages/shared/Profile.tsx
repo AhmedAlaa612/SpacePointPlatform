@@ -84,6 +84,13 @@ export default function Profile() {
     onSuccess: (updated) => {
       setCurrentUser(updated)
       qc.invalidateQueries({ queryKey: ["me"] })
+      // Contract preview is regenerated server-side from current name/city on
+      // every unsigned GET /instructors/profile (routers/instructors/instructor.py
+      // ::_ensure_contract) — but only when that query actually refetches.
+      // Without this, "instructor-profile" keeps serving its cached value
+      // (staleTime: 30s, main.tsx) and Personal Documents shows the contract
+      // as it looked before this save.
+      qc.invalidateQueries({ queryKey: ["instructor-profile"] })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
     },

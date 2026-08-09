@@ -23,6 +23,7 @@ from app.services.documents.id_card import ensure_card_id, render_card_png, rend
 from app.models.certificate import Certificate
 from app.models.document_request import DocumentRequest
 from app.models.document_template import DocumentTemplate
+from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.enums import CertificateType
 from app.services.settings import get_portal_setting as _get_setting
 from app.models.document import Document
@@ -1104,6 +1105,24 @@ async def delete_bucket_file(
     )).scalars().first()
     if cert:
         await db.delete(cert)
+
+    # Contracts aren't Document/Certificate rows — they live on InstructorProfile.
+    # Deleting the signed PDF here used to leave contract_signed_at set with a
+    # dangling signed_contract_url (404 on click), and _ensure_contract
+    # (routers/instructors/instructor.py) refuses to regenerate anything once
+    # signed — so the instructor was permanently stuck. Reset back to unsigned
+    # so the instructor gets a fresh contract to sign on their next profile
+    # load. An admin deleting the unsigned draft needs no special handling —
+    # _ensure_contract already regenerates that unconditionally pre-signing.
+    if bucket == "contracts":
+        signed_profile = (await db.execute(
+            select(InstructorProfile).where(InstructorProfile.signed_contract_path == path)
+        )).scalars().first()
+        if signed_profile:
+            signed_profile.contract_signed_at = None
+            signed_profile.signed_contract_url = None
+            signed_profile.signed_contract_path = None
+            signed_profile.contract_signature_data = None
 
     await db.commit()
     return {"message": "File deleted successfully"}
