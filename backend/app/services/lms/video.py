@@ -48,7 +48,20 @@ class EncodeResult:
 Encoder = Callable[[Path], Awaitable[EncodeResult]]
 
 
-def _run(cmd: list[str]) -> str:
+def _run(cmd: list[str], *, low_priority: bool = False) -> str:
+    """`low_priority` runs the command under `nice -n 19`.
+
+    The API and the ARQ worker share one 4-vCPU box, so an unniced ffmpeg
+    encode pins every core and the whole portal goes sluggish for everyone
+    else for as long as a course is being imported. Only the encode is niced —
+    the ffprobe calls are short and sit on the critical path of deciding
+    whether to remux or transcode at all.
+
+    POSIX-only: `nice` doesn't exist on Windows, which is where this is
+    developed (ffmpeg itself only ships in the Linux image, so the guard
+    never fires anywhere it would matter)."""
+    if low_priority and os.name == "posix":
+        cmd = ["nice", "-n", "19", *cmd]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
     return proc.stdout
 
@@ -106,7 +119,7 @@ def _ffmpeg_encode_hls_sync(source: Path) -> EncodeResult:
             "-hls_key_info_file", str(keyinfo_file),
             "-hls_segment_filename", segment_pattern,
             str(playlist_path),
-        ])
+        ], low_priority=True)
 
         segments = {p.name: p.read_bytes() for p in sorted(tmp_path.glob("segment_*.ts"))}
         return EncodeResult(

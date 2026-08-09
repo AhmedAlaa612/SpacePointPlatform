@@ -15,6 +15,7 @@ Two surfaces:
 
 import re
 import uuid
+from datetime import timedelta
 from pathlib import Path
 
 from arq.connections import ArqRedis
@@ -38,7 +39,11 @@ router = APIRouter(tags=["lms-video"])
 
 VIDEO_SOURCE_BUCKET = "lms-video-sources"
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2GB ceiling (§8 Q7, closed)
-_VIDEO_TOKEN_MINUTES = 15
+# Must cover the longest lecture plus a mid-lesson pause — see create_video_token.
+# Passed to create_video_token explicitly rather than relying on its default:
+# this constant is what the client is *told* the expiry is, so if the two drift
+# the player's refresh timing silently disagrees with reality.
+_VIDEO_TOKEN_MINUTES = 4 * 60
 _SEGMENT_NAME_RE = re.compile(r"^segment_\d{3}\.ts$")
 
 
@@ -108,7 +113,9 @@ async def issue_video_token(
     if video is None or video.transcode_status != "ready":
         raise HTTPException(status.HTTP_409_CONFLICT, detail="Video is not ready yet")
 
-    token = create_video_token(current.id, item_id)
+    token = create_video_token(
+        current.id, item_id, expires_delta=timedelta(minutes=_VIDEO_TOKEN_MINUTES)
+    )
     return {"token": token, "expires_in_seconds": _VIDEO_TOKEN_MINUTES * 60}
 
 

@@ -51,11 +51,18 @@ def create_video_token(user_id: Any, item_id: Any, expires_delta: timedelta | No
     """Short-lived token scoping one student to one video item (LMS D2) — never
     a static URL. Deliberately its own "type" so it can't be replayed as an
     access/refresh token, and carries no roles claim (it authorizes nothing
-    beyond this one item; the enrollment check still runs per request)."""
+    beyond this one item; the enrollment check still runs per request).
+
+    The default must outlast the longest lecture *plus* any pause a student
+    takes mid-way. It was 15 minutes, which silently broke every video longer
+    than that: hls.js keeps fetching segments for the whole runtime, so the
+    token aged out mid-playback, segments started 403-ing, and the student
+    got a flat "playback failed" an hour into a course. Callers that want a
+    tighter window still pass expires_delta."""
     payload = {
         "sub": str(user_id),
         "item_id": str(item_id),
-        "exp": datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=15)),
+        "exp": datetime.now(timezone.utc) + (expires_delta or timedelta(hours=4)),
         "type": "lms_video",
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)

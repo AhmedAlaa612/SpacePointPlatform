@@ -55,40 +55,75 @@ export function VideoPlayer({ itemId, transcodeStatus, onEnded }: VideoPlayerPro
     fetchCheckpoints(itemId).then(setCheckpoints).catch(() => setCheckpoints([]));
   }, [itemId]);
 
+  // One retry per mount. A fatal error is usually either an expired playback
+  // token (segments start 403-ing) or a dropped connection — both recover by
+  // re-issuing the token and rebuilding the source, so the student sees a
+  // blip instead of a dead end. A second failure is real; surface it.
+  const retriedRef = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
+    retriedRef.current = false;
 
-    async function load() {
-      setLoading(true);
-      setError("");
-      try {
-        const { token } = await fetchVideoToken(itemId);
-        if (cancelled) return;
-        const src = videoPlaylistUrl(itemId, token);
-        const video = videoRef.current;
-        if (!video) return;
+    async function attach() {
+      const { token } = await fetchVideoToken(itemId);
+      if (cancelled) return;
+      const src = videoPlaylistUrl(itemId, token);
+      const video = videoRef.current;
+      if (!video) return;
 
-        if (Hls.isSupported()) {
-          const hls = new Hls();
-          hlsRef.current = hls;
-          hls.loadSource(src);
-          hls.attachMedia(video);
-          hls.on(Hls.Events.ERROR, (_evt, data) => {
-            if (data.fatal) setError("Video playback failed. Please try again.");
+      // Rebuilding after an error: come back to where the student was rather
+      // than restarting a 60-minute lecture from zero.
+      const resumeAt = video.currentTime;
+
+      if (Hls.isSupported()) {
+        hlsRef.current?.destroy();
+        const hls = new Hls();
+        hlsRef.current = hls;
+        hls.loadSource(src);
+        hls.attachMedia(video);
+        if (resumeAt > 0) {
+          hls.once(Hls.Events.MANIFEST_PARSED, () => {
+            video.currentTime = resumeAt;
+            void video.play().catch(() => undefined);
           });
-        } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-          // Safari/iOS: native HLS support, no hls.js needed.
-          video.src = src;
-        } else {
-          setError("Your browser can't play this video.");
         }
-      } catch {
-        if (!cancelled) setError("Couldn't load this video. Please try again.");
-      } finally {
-        if (!cancelled) setLoading(false);
+        hls.on(Hls.Events.ERROR, (_evt, data) => {
+          if (!data.fatal || cancelled) return;
+          if (!retriedRef.current) {
+            retriedRef.current = true;
+            // recoverMediaError() is hls.js's own in-place fix for a decode
+            // stall and doesn't need a new token; a network error does.
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) hls.recoverMediaError();
+            else void attach().catch(() => setError("Video playback failed. Please try again."));
+            return;
+          }
+          setError("Video playback failed. Please try again.");
+          setLoading(false);
+        });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        // Safari/iOS: native HLS support, no hls.js needed.
+        video.src = src;
+        if (resumeAt > 0) video.currentTime = resumeAt;
+      } else {
+        setError("Your browser can't play this video.");
+        setLoading(false);
       }
     }
-    void load();
+
+    // No setLoading(true)/setError("") reset here: ItemPane mounts this with
+    // key={item.id}, so switching lessons remounts and useState gives us a
+    // clean loading=true / error="" already.
+    //
+    // NB: loading is cleared by the <video>'s onCanPlay, NOT here. Clearing it
+    // once attach() resolves only means hls.js has been *told* to start — the
+    // first segment is still downloading, so the spinner used to vanish and
+    // leave a black player with a live control bar for several seconds.
+    void attach().catch(() => {
+      if (cancelled) return;
+      setError("Couldn't load this video. Please try again.");
+      setLoading(false);
+    });
 
     return () => {
       cancelled = true;
@@ -207,6 +242,7 @@ export function VideoPlayer({ itemId, transcodeStatus, onEnded }: VideoPlayerPro
           playsInline
           onEnded={onEnded}
           onTimeUpdate={handleTimeUpdate}
+          onCanPlay={() => setLoading(false)}
           onLoadedMetadata={() => setDuration(videoRef.current?.duration ?? 0)}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
