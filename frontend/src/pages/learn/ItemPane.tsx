@@ -206,12 +206,16 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
   const isLastQuestion = currentIndex === questions.length - 1;
   const currentCheck = checks[currentIndex];
 
-  const selectAnswer = async (oi: number) => {
-    if (checks[currentIndex] || checking) return; // locked once revealed
+  const selectAnswer = (oi: number) => {
+    if (currentCheck) return; // locked once checked
     setAnswers((prev) => prev.map((a, idx) => (idx === currentIndex ? oi : a)));
+  };
+
+  const checkCurrent = async () => {
+    if (checking || currentCheck || answers[currentIndex] < 0) return;
     setChecking(true);
     try {
-      const result = await checkQuizAnswer(item.id, currentIndex, oi);
+      const result = await checkQuizAnswer(item.id, currentIndex, answers[currentIndex]);
       setChecks((prev) => ({ ...prev, [currentIndex]: result }));
     } finally {
       setChecking(false);
@@ -301,12 +305,13 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
     );
   }
 
-  // Answering phase: one question on screen at a time, Back/Next between
-  // them. Picking an option immediately checks it live (right/wrong +
-  // explanation shown right there, options lock) instead of waiting for
-  // the final Submit — the operator's ask. Submit (still the real,
-  // once-per-attempt grade via quiz/submit) only reachable once every
-  // question has been answered *and* revealed.
+  // Answering phase: one question on screen at a time, Previous/Submit
+  // between them. Picking an option just selects it; clicking Submit is
+  // what checks it live (right/wrong + explanation shown right there,
+  // options lock) — the operator's ask, so feedback appears on an explicit
+  // action rather than the instant an option is clicked. The final Submit
+  // (the real, once-per-attempt grade via quiz/submit) only appears once
+  // the last question has been checked.
   const q = questions[currentIndex];
   if (!q) return null;
 
@@ -331,8 +336,8 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
             return (
               <button
                 key={oi}
-                disabled={!!currentCheck || checking}
-                onClick={() => void selectAnswer(oi)}
+                disabled={!!currentCheck}
+                onClick={() => selectAnswer(oi)}
                 className={`text-left px-3.5 py-2.5 rounded-xl ring-1 text-sm flex items-center justify-between gap-2 transition-colors ${
                   currentCheck ? "cursor-default" : "cursor-pointer"
                 } ${
@@ -369,20 +374,27 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
           disabled={currentIndex === 0}
           onClick={() => setCurrentIndex((i) => i - 1)}
         >
-          <ChevronLeft className="size-4" /> Back
+          <ChevronLeft className="size-4" /> Previous
         </Button>
-        {isLastQuestion ? (
+        {!currentCheck ? (
+          <Button
+            size="xl" className="w-fit"
+            disabled={answers[currentIndex] < 0 || checking}
+            onClick={() => void checkCurrent()}
+          >
+            {checking ? "Submitting..." : "Submit"}
+          </Button>
+        ) : isLastQuestion ? (
           <Button
             size="xl" className="w-fit"
             onClick={() => void handleSubmit()}
-            disabled={!allAnswered || !currentCheck || submitting}
+            disabled={!allAnswered || submitting}
           >
-            {submitting ? "Submitting..." : "Submit"}
+            {submitting ? "Submitting..." : "Finish"}
           </Button>
         ) : (
           <Button
             size="xl" className="w-fit"
-            disabled={!currentCheck}
             onClick={() => setCurrentIndex((i) => i + 1)}
           >
             Next <ChevronRight className="size-4" />
