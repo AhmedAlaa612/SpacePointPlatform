@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from "react";
 import {
-  CheckCircle2, ChevronDown, FileText, HelpCircle, Layers, Lock, PlayCircle, Video as VideoIcon,
+  CheckCircle2, ChevronDown, FileText, HelpCircle, Layers, Lock, Paperclip, PlayCircle, Video as VideoIcon,
 } from "lucide-react";
 import type { CourseDetail, ModuleDetail, ModuleItem } from "@/api/lms";
 import { cn } from "@/lib/utils";
 
 const KIND_ICON: Record<ModuleItem["kind"], typeof VideoIcon> = {
-  video: VideoIcon, text: FileText, quiz: HelpCircle, flashcards: Layers,
+  video: VideoIcon, text: FileText, quiz: HelpCircle, flashcards: Layers, attachment: Paperclip,
 };
 
 /** The sidebar + content-pane split (design 1h) — owns which item is

@@ -15,7 +15,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ModuleItemKind = Literal["video", "text", "quiz", "flashcards"]
+ModuleItemKind = Literal["video", "text", "quiz", "flashcards", "attachment"]
 
 
 class InstructorOptionOut(BaseModel):
@@ -63,7 +63,21 @@ class AdminContentVideo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-AdminModuleContent = Union[AdminContentQuiz, AdminContentFlashcards, AdminContentText, AdminContentVideo]
+class AdminContentAttachment(BaseModel):
+    """Empty on purpose, same reasoning as AdminContentVideo — a PDF is
+    binary, so it can't ride the JSON create/update body. The upload
+    endpoint (POST .../items/{id}/attachment) writes bucket/path/filename/
+    size_bytes into `content` directly once the file is actually on disk,
+    same two-step "create the item, then upload the file" shape video
+    uses (2026-08-09). No separate table needed like module_videos — a PDF
+    has no async processing step, so there's nothing to track a state
+    machine for; the file reference alone is the whole story."""
+    model_config = ConfigDict(extra="forbid")
+
+
+AdminModuleContent = Union[
+    AdminContentQuiz, AdminContentFlashcards, AdminContentText, AdminContentVideo, AdminContentAttachment,
+]
 
 
 # ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ───────

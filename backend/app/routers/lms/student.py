@@ -27,6 +27,7 @@ from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.user import User
 from app.schemas.lms import (
     ActivityItemOut,
+    AttachmentUrlOut,
     CheckpointAnswerIn,
     CheckpointAnswerOut,
     CourseCatalogOut,
@@ -450,6 +451,27 @@ async def checkpoint_answer(
     return await submit_checkpoint_answer(
         db, checkpoint_id=checkpoint_id, item_id=video_item_id, answer=body.answer,
     )
+
+
+@router.get("/items/{item_id}/attachment/url", response_model=AttachmentUrlOut)
+async def attachment_url(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_student),
+):
+    """A signed URL is minted fresh per request (short-lived, same posture
+    as every other resolve_url() call in this codebase) rather than baked
+    into the module-read payload — keeps student_view() a plain sync
+    function with no storage I/O in it."""
+    item = await _enrolled_item(db, current.id, item_id)
+    if item.kind != "attachment":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attachment not found")
+    bucket = item.content.get("bucket") if item.content else None
+    path = item.content.get("path") if item.content else None
+    if not bucket or not path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No file uploaded for this attachment yet")
+    url = await storage.get_signed_url(bucket, path)
+    return AttachmentUrlOut(url=url, filename=item.content.get("filename"))
 
 
 @router.post("/items/{item_id}/progress", response_model=ProgressOut)

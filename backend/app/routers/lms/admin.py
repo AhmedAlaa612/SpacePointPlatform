@@ -29,6 +29,7 @@ from app.models.user import User
 from app.schemas.lms_admin import (
     AdminCheckpointNoteContent,
     AdminCheckpointQuizContent,
+    AdminContentAttachment,
     AdminContentFlashcards,
     AdminContentQuiz,
     AdminContentText,
@@ -63,6 +64,8 @@ router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
 COURSE_IMAGE_BUCKET = "lms-course-images"
 LEARNING_PATH_IMAGE_BUCKET = "lms-learning-path-images"
 MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8MB — a cover image, not a dataset
+ATTACHMENT_BUCKET = "lms-attachments"
+MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024  # 25MB — a reading, not a video
 
 
 async def _course_admin_out(db: AsyncSession, course: Course) -> CourseAdminOut:
@@ -88,6 +91,7 @@ _CONTENT_MODEL = {
     "quiz": AdminContentQuiz,
     "flashcards": AdminContentFlashcards,
     "video": AdminContentVideo,
+    "attachment": AdminContentAttachment,
 }
 
 
@@ -578,6 +582,44 @@ async def delete_item(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
     await db.delete(item)
     await db.commit()
+
+
+# ── attachments (PDF reader, 2026-08-09) ─────────────────────────────────────
+# Same two-step shape as video (create the empty item, then upload the file),
+# but synchronous — a PDF has no transcode step, so the file reference alone
+# (bucket/path/filename/size_bytes) is the whole story, written straight into
+# `content` with no separate state table.
+
+@router.post("/items/{item_id}/attachment", response_model=ItemAdminOut)
+async def upload_attachment(
+    item_id: uuid.UUID,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    item = await db.get(ModuleItem, item_id)
+    if item is None or item.kind != "attachment":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attachment item not found")
+
+    if file.content_type != "application/pdf":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Only PDF files are supported")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Empty upload")
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="PDF exceeds the 25MB limit")
+
+    filename = Path(file.filename or "document.pdf").name
+    path = f"{item_id}/{filename}"
+    await storage.upload_to_path(ATTACHMENT_BUCKET, path, data, "application/pdf")
+
+    item.content = {
+        "bucket": ATTACHMENT_BUCKET, "path": path, "filename": filename, "size_bytes": len(data),
+    }
+    await db.commit()
+    await db.refresh(item)
+    return await _item_admin_out(db, item)
 
 
 # ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ───────

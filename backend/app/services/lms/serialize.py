@@ -50,6 +50,14 @@ def _sanitize_flashcards(content: dict) -> dict:
     }
 
 
+def _sanitize_attachment(content: dict) -> dict:
+    # bucket/path are internal storage details, not the student's business —
+    # same posture as video's token-gated stream: the actual viewing URL
+    # comes from a dedicated endpoint (GET .../attachment/url), not this
+    # payload, so nothing here needs signing or expiry handling.
+    return {"filename": content.get("filename"), "size_bytes": content.get("size_bytes")}
+
+
 def _sanitize(kind: str, content: dict | None) -> dict:
     content = content or {}
     if kind == "quiz":
@@ -58,6 +66,8 @@ def _sanitize(kind: str, content: dict | None) -> dict:
         return _sanitize_text(content)
     if kind == "flashcards":
         return _sanitize_flashcards(content)
+    if kind == "attachment":
+        return _sanitize_attachment(content)
     # video (and any unknown kind) exposes nothing from the JSONB at all —
     # it carries `{}` by design and everything real lives in module_videos.
     return {}

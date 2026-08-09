@@ -10,7 +10,7 @@ import { ItemPane } from "./ItemPane";
 
 const COMPLETED = new Set(["completed", "skipped"]);
 const ITEM_KIND_LABEL: Record<ModuleItem["kind"], string> = {
-  video: "Video", text: "Reading", quiz: "Quiz", flashcards: "Flashcards",
+  video: "Video", text: "Reading", quiz: "Quiz", flashcards: "Flashcards", attachment: "Attachment",
 };
 
 /** Ordered items across every unlocked module — module position, then item

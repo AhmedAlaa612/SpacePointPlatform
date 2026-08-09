@@ -53,11 +53,12 @@ export type ModuleItemContent =
   | { body: string } // text
   | { pass_threshold: number; questions: QuizQuestion[] } // quiz
   | { title: string | null; cards: { term: string; definition: string }[] } // flashcards
-  | { transcode_status: string | null; duration_seconds: number | null }; // video
+  | { transcode_status: string | null; duration_seconds: number | null } // video
+  | { filename: string | null; size_bytes: number | null }; // attachment
 
 export interface ModuleItem {
   id: string;
-  kind: "video" | "text" | "quiz" | "flashcards";
+  kind: "video" | "text" | "quiz" | "flashcards" | "attachment";
   title: string | null;
   position: number;
   content: ModuleItemContent;
@@ -342,7 +343,17 @@ export async function checkQuizAnswer(itemId: string, questionIndex: number, ans
   return data;
 }
 
-export type ProgressAction = "video-watched" | "text-viewed" | "quiz-attempt" | "flashcards-skipped";
+export interface AttachmentUrl {
+  url: string;
+  filename: string | null;
+}
+
+export async function getAttachmentUrl(itemId: string): Promise<AttachmentUrl> {
+  const { data } = await api.get<AttachmentUrl>(`/lms/items/${itemId}/attachment/url`);
+  return data;
+}
+
+export type ProgressAction = "video-watched" | "text-viewed" | "quiz-attempt" | "flashcards-skipped" | "attachment-viewed";
 
 export async function recordProgress(itemId: string, action: ProgressAction): Promise<ProgressResult> {
   const { data } = await api.post<ProgressResult>(`/lms/items/${itemId}/progress`, { action });

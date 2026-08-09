@@ -55,7 +55,13 @@ class ContentVideo(BaseModel):
     duration_seconds: int | None = None
 
 
-ModuleContent = Union[ContentQuiz, ContentText, ContentFlashcards, ContentVideo]
+class ContentAttachment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    filename: str | None = None
+    size_bytes: int | None = None
+
+
+ModuleContent = Union[ContentQuiz, ContentText, ContentFlashcards, ContentVideo, ContentAttachment]
 
 
 # ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ───────
@@ -197,7 +203,7 @@ class EnrollmentOut(BaseModel):
 
 class ModuleItemOut(BaseModel):
     id: UUID
-    kind: Literal["video", "text", "quiz", "flashcards"]
+    kind: Literal["video", "text", "quiz", "flashcards", "attachment"]
     title: str | None = None
     position: int
     content: ModuleContent
@@ -216,7 +222,7 @@ class ModuleOut(BaseModel):
 # ── progress + quiz submission ──────────────────────────────────────────────
 
 class ProgressIn(BaseModel):
-    action: Literal["video-watched", "text-viewed", "quiz-attempt", "flashcards-skipped"]
+    action: Literal["video-watched", "text-viewed", "quiz-attempt", "flashcards-skipped", "attachment-viewed"]
 
 
 class ProgressOut(BaseModel):
@@ -240,6 +246,12 @@ class QuizAnswerCheckOut(BaseModel):
     correct: bool
     explanation: str | None = None
     correct_text: str | None = None
+
+
+class AttachmentUrlOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str
+    filename: str | None = None
 
 
 class QuizReviewItemOut(BaseModel):

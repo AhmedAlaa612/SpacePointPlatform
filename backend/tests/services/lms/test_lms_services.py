@@ -201,10 +201,12 @@ async def test_item_progress_marks_viewed_items_completed(db):
     m = await _module(db, course)
     video = await _item(db, m, position=1, kind="video", content={})
     text = await _item(db, m, position=2, kind="text", content={"body": "hi"})
+    attachment = await _item(db, m, position=3, kind="attachment", content={})
     student = await _user(db)
 
     await item_progress(db, user_id=student.id, item_id=video.id, action="video-watched")
     await item_progress(db, user_id=student.id, item_id=text.id, action="text-viewed")
+    await item_progress(db, user_id=student.id, item_id=attachment.id, action="attachment-viewed")
 
     rows = (await db.execute(
         select(ItemProgress).where(ItemProgress.user_id == student.id)
@@ -212,6 +214,7 @@ async def test_item_progress_marks_viewed_items_completed(db):
     assert {r.item_id: (r.status, r.completed_at is not None) for r in rows} == {
         video.id: ("completed", True),
         text.id: ("completed", True),
+        attachment.id: ("completed", True),
     }
 
 

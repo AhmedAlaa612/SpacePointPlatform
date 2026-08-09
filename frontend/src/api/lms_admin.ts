@@ -4,7 +4,7 @@ import { api } from "@/api/client";
 
 export type CourseKind = "course" | "mission";
 export type CourseLevel = "beginner" | "intermediate" | "advanced";
-export type ModuleItemKind = "video" | "text" | "quiz" | "flashcards";
+export type ModuleItemKind = "video" | "text" | "quiz" | "flashcards" | "attachment";
 
 export interface AdminCourse {
   id: string;
@@ -61,7 +61,11 @@ export type AdminItemContent =
   | { body: string }
   | { pass_threshold: number; questions: AdminQuizQuestion[] }
   | { title: string | null; cards: { term: string; definition: string }[] }
-  | { transcode_status: VideoTranscodeStatus | null; transcode_error: string | null; duration_seconds: number | null };
+  | { transcode_status: VideoTranscodeStatus | null; transcode_error: string | null; duration_seconds: number | null }
+  // Empty until uploaded (same two-step shape as video) — every field optional
+  // rather than a second union member, since {} and the populated shape are
+  // both valid at different points in the same item's life.
+  | { bucket?: string; path?: string; filename?: string; size_bytes?: number };
 
 export interface AdminItem {
   id: string;
@@ -175,6 +179,25 @@ export const uploadVideoApi = (
   form.append("file", file);
   return api
     .post<VideoUploadResult>(`/lms/admin/items/${itemId}/video`, form, {
+      signal: opts?.signal,
+      onUploadProgress: (evt) => {
+        if (opts?.onProgress && evt.total) opts.onProgress(Math.round((evt.loaded / evt.total) * 100));
+      },
+    })
+    .then((r) => r.data);
+};
+
+// ── attachment (PDF reader, 2026-08-09) ─────────────────────────────────────
+
+export const uploadAttachmentApi = (
+  itemId: string,
+  file: File,
+  opts?: { onProgress?: (pct: number) => void; signal?: AbortSignal },
+) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api
+    .post<AdminItem>(`/lms/admin/items/${itemId}/attachment`, form, {
       signal: opts?.signal,
       onUploadProgress: (evt) => {
         if (opts?.onProgress && evt.total) opts.onProgress(Math.round((evt.loaded / evt.total) * 100));

@@ -81,11 +81,15 @@ class CourseModule(Base):
 class ModuleItem(Base):
     """One content item inside a module — the atomic unit of student progress.
 
-    `kind` is video|text|quiz|flashcards. `content` holds the authored payload
-    for every kind (text body, quiz questions/options/answers, flashcard
-    cards); the video kind keeps its payload empty here and the real state in
-    `module_videos` (async columns the worker writes — this table stays
-    sync-authored only).
+    `kind` is video|text|quiz|flashcards|attachment. `content` holds the
+    authored payload for every kind (text body, quiz questions/options/
+    answers, flashcard cards, attachment file reference); the video kind
+    keeps its payload empty here and the real state in `module_videos`
+    (async columns the worker writes — this table stays sync-authored
+    only). `attachment` (2026-08-09, a PDF reader) is empty here too until
+    the upload endpoint sets bucket/path/filename/size_bytes directly —
+    same two-step shape as video, but no separate state table: a PDF has
+    no async transcode step, so there's no state machine to track.
 
     A module unlocks when every *mandatory* item of the previous module is
     completed (D6) — optional items (`is_required=False`) are skippable and

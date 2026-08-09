@@ -3,24 +3,28 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams } from "@tanstack/react-router"
 import {
   Plus, Pencil, ArrowLeft, ArrowUp, ArrowDown, FileText, HelpCircle, Layers, Video as VideoIcon, Loader2,
-  StickyNote, MessageCircleQuestion,
+  StickyNote, MessageCircleQuestion, Paperclip,
 } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import {
   listItemsApi, createItemApi, updateItemApi, deleteItemApi, uploadVideoApi, reorderItemsApi,
   listCheckpointsApi, createCheckpointApi, updateCheckpointApi, deleteCheckpointApi,
-  getModuleApi, updateModuleApi,
+  getModuleApi, updateModuleApi, uploadAttachmentApi,
   type AdminItem, type ModuleItemKind, type AdminQuizQuestion, type VideoTranscodeStatus,
   type AdminCheckpoint, type CheckpointKind, type CheckpointQuestionType, type AdminQuizOption,
   type AdminModule,
 } from "@/api/lms_admin"
 
 const KIND_ICON: Record<ModuleItemKind, React.ComponentType<{ size?: number; className?: string }>> = {
-  text: FileText, quiz: HelpCircle, flashcards: Layers, video: VideoIcon,
+  text: FileText, quiz: HelpCircle, flashcards: Layers, video: VideoIcon, attachment: Paperclip,
 }
 const KIND_LABEL: Record<ModuleItemKind, string> = {
-  text: "Text", quiz: "Quiz", flashcards: "Flashcards", video: "Video",
+  text: "Text", quiz: "Quiz", flashcards: "Flashcards", video: "Video", attachment: "Attachment",
+}
+
+function attachmentFilename(item: AdminItem): string | null {
+  return "filename" in item.content ? (item.content.filename ?? null) : null
 }
 
 const IN_FLIGHT_STATUSES = new Set<VideoTranscodeStatus>(["pending", "processing"])
@@ -122,7 +126,7 @@ export default function LmsModuleDetail() {
                 <Pencil size={12} /> Rename
               </button>
             )}
-            {(["text", "flashcards", "quiz", "video"] as ModuleItemKind[]).map((kind) => (
+            {(["text", "flashcards", "quiz", "video", "attachment"] as ModuleItemKind[]).map((kind) => (
               <button
                 key={kind}
                 onClick={() => setAddKind(kind)}
@@ -180,6 +184,11 @@ export default function LmsModuleDetail() {
                     {item.kind === "video" && "transcode_error" in item.content && item.content.transcode_error && (
                       <p className="text-xs text-red-500 mt-0.5">{item.content.transcode_error}</p>
                     )}
+                    {item.kind === "attachment" && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {attachmentFilename(item) ?? "No file uploaded yet"}
+                      </p>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0 ml-3">
@@ -197,6 +206,14 @@ export default function LmsModuleDetail() {
                       className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
                     >
                       {videoStatus(item) === "ready" ? "Replace video" : "Upload video"}
+                    </button>
+                  )}
+                  {item.kind === "attachment" && (
+                    <button
+                      onClick={() => setUploadTarget(item)}
+                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
+                    >
+                      {attachmentFilename(item) ? "Replace PDF" : "Upload PDF"}
                     </button>
                   )}
                   {item.kind !== "video" && (
@@ -247,8 +264,11 @@ export default function LmsModuleDetail() {
           onSuccess={() => { invalidate(); setEditItem(null) }}
         />
       )}
-      {uploadTarget && (
+      {uploadTarget && uploadTarget.kind === "video" && (
         <VideoUploadModal item={uploadTarget} onClose={() => setUploadTarget(null)} onSuccess={() => { invalidate(); setUploadTarget(null) }} />
+      )}
+      {uploadTarget && uploadTarget.kind === "attachment" && (
+        <AttachmentUploadModal item={uploadTarget} onClose={() => setUploadTarget(null)} onSuccess={() => { invalidate(); setUploadTarget(null) }} />
       )}
       {checkpointTarget && (
         <CheckpointsModal item={checkpointTarget} onClose={() => setCheckpointTarget(null)} />
@@ -308,7 +328,122 @@ function ItemEditorModal({ moduleId, kind, item, onClose, onSuccess }: {
   }
   if (kind === "text") return <TextItemModal moduleId={moduleId} item={item} onClose={onClose} onSuccess={onSuccess} />
   if (kind === "flashcards") return <FlashcardsItemModal moduleId={moduleId} item={item} onClose={onClose} onSuccess={onSuccess} />
+  if (kind === "attachment") {
+    // Same story as video — content is empty until the upload endpoint
+    // fills it in. This modal only ever sets the title.
+    return <AttachmentItemModal moduleId={moduleId} item={item} onClose={onClose} onSuccess={onSuccess} />
+  }
   return <QuizItemModal moduleId={moduleId} item={item} onClose={onClose} onSuccess={onSuccess} />
+}
+
+function AttachmentItemModal({ moduleId, item, onClose, onSuccess }: {
+  moduleId: string; item?: AdminItem; onClose: () => void; onSuccess: () => void
+}) {
+  const [title, setTitle] = useState(item?.title ?? "")
+  const [isRequired, setIsRequired] = useState(item?.is_required ?? true)
+  const [error, setError] = useState("")
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      item
+        ? updateItemApi(item.id, { title: title.trim() || undefined, is_required: isRequired })
+        : createItemApi(moduleId, { kind: "attachment", title: title.trim() || undefined, is_required: isRequired, content: {} }),
+    onSuccess,
+    onError: (e: any) => setError(e?.response?.data?.detail?.toString?.() ?? "Failed to save item"),
+  })
+
+  return (
+    <Modal title={item ? "Edit attachment" : "Add attachment"} onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <Field label="Title (optional)">
+          <input
+            value={title} onChange={(e) => setTitle(e.target.value)} autoFocus
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+        </Field>
+        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+          <input type="checkbox" checked={isRequired} onChange={(e) => setIsRequired(e.target.checked)} />
+          Mandatory (blocks the next module until viewed)
+        </label>
+        {!item && <p className="text-xs text-muted-foreground">Upload the actual PDF from the module list after creating this item.</p>}
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        <ModalActions onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} disabled={false} label={item ? "Save changes" : "Add attachment"} />
+      </div>
+    </Modal>
+  )
+}
+
+function AttachmentUploadModal({ item, onClose, onSuccess }: { item: AdminItem; onClose: () => void; onSuccess: () => void }) {
+  const [file, setFile] = useState<File | null>(null)
+  const [error, setError] = useState("")
+  const [result, setResult] = useState<string | null>(null)
+  const [progress, setProgress] = useState(0)
+  const abortRef = useRef<AbortController | null>(null)
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const controller = new AbortController()
+      abortRef.current = controller
+      setProgress(0)
+      return uploadAttachmentApi(item.id, file!, { signal: controller.signal, onProgress: setProgress })
+    },
+    onSuccess: () => setResult("Uploaded."),
+    onError: (e: any) => {
+      abortRef.current = null
+      if (e?.code === "ERR_CANCELED") { setError(""); return }
+      setError(e?.response?.data?.detail ?? "Upload failed")
+    },
+  })
+
+  const cancel = () => {
+    abortRef.current?.abort()
+    abortRef.current = null
+  }
+
+  return (
+    <Modal title={`Upload PDF — ${item.title ?? "Attachment"}`} onClose={onClose}>
+      <div className="flex flex-col gap-3">
+        <Field label="PDF file (up to 25MB)">
+          <input
+            type="file" accept="application/pdf"
+            disabled={mutation.isPending}
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="w-full text-sm text-foreground file:mr-3 file:h-9 file:px-3 file:rounded-lg file:border-0 file:bg-primary file:text-primary-foreground file:text-sm file:cursor-pointer disabled:opacity-50"
+          />
+        </Field>
+        {mutation.isPending && (
+          <div className="flex flex-col gap-1.5">
+            <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
+              <div className="h-full bg-primary transition-[width] duration-150" style={{ width: `${progress}%` }} />
+            </div>
+            <p className="text-xs text-muted-foreground">Uploading — {progress}%</p>
+          </div>
+        )}
+        {result && <p className="text-xs text-primary">{result}</p>}
+        {error && <p className="text-xs text-red-500">{error}</p>}
+        {result ? (
+          <button onClick={() => { onSuccess() }} className="h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors">
+            Done
+          </button>
+        ) : mutation.isPending ? (
+          <button
+            onClick={cancel}
+            className="h-10 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            Cancel upload
+          </button>
+        ) : (
+          <button
+            onClick={() => mutation.mutate()}
+            disabled={!file}
+            className="h-10 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+          >
+            Upload
+          </button>
+        )}
+      </div>
+    </Modal>
+  )
 }
 
 function VideoItemModal({ moduleId, item, onClose, onSuccess }: {

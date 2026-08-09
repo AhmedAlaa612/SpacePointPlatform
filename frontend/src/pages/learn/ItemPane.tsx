@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { CheckCircle2, ChevronLeft, ChevronRight, XCircle } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { CheckCircle2, ChevronLeft, ChevronRight, FileWarning, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  checkQuizAnswer, recordProgress, submitQuiz,
+  checkQuizAnswer, getAttachmentUrl, recordProgress, submitQuiz,
   type ModuleItem, type QuizAnswerCheck, type QuizReview,
 } from "@/api/lms";
 import { VideoPlayer } from "./VideoPlayer";
@@ -43,6 +44,16 @@ export function ItemPane({
     return <QuizBlock item={item} onPassed={onProgressed} />;
   }
 
+  if (item.kind === "attachment") {
+    return (
+      <AttachmentBlock
+        key={item.id}
+        itemId={item.id}
+        onDone={() => recordProgress(item.id, "attachment-viewed").finally(onProgressed)}
+      />
+    );
+  }
+
   return null;
 }
 
@@ -62,6 +73,42 @@ function TextBlock({ body, onContinue }: { body: string; onContinue: () => void 
       </div>
       <Button size="xl" onClick={onContinue} className="mt-5">
         Continue <ChevronRight className="size-4" />
+      </Button>
+    </div>
+  );
+}
+
+function AttachmentBlock({ itemId, onDone }: { itemId: string; onDone: () => void }) {
+  // Signed URL is fetched fresh per view (short-lived, same posture as the
+  // video token) — never baked into the module-read payload.
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["attachment-url", itemId],
+    queryFn: () => getAttachmentUrl(itemId),
+  });
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Loading document...</p>;
+  }
+  if (isError || !data) {
+    return (
+      <div className="flex items-center gap-2 p-4 rounded-2xl ring-1 ring-destructive/30 bg-destructive/5 text-destructive text-sm">
+        <FileWarning className="size-4 shrink-0" /> Couldn't load this document.
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      {data.filename && (
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">{data.filename}</p>
+      )}
+      <iframe
+        src={data.url}
+        title={data.filename ?? "Attachment"}
+        className="w-full h-[70vh] rounded-2xl ring-1 ring-border bg-card"
+      />
+      <Button size="xl" onClick={onDone} className="w-fit">
+        Mark as read <ChevronRight className="size-4" />
       </Button>
     </div>
   );

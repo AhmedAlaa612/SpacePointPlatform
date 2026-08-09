@@ -36,6 +36,7 @@ _ACTION_KINDS: dict[str, set[str]] = {
     "text-viewed": {"text"},
     "quiz-attempt": {"quiz"},
     "flashcards-skipped": {"flashcards"},
+    "attachment-viewed": {"attachment"},
 }
 
 # action -> resulting status
@@ -44,6 +45,7 @@ _ACTION_STATUS: dict[str, str] = {
     "text-viewed": "completed",
     "quiz-attempt": "in_progress",
     "flashcards-skipped": "skipped",
+    "attachment-viewed": "completed",
 }
 
 COMPLETED_STATUSES = ("completed", "skipped")
