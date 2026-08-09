@@ -1,0 +1,145 @@
+"""Re-render already-signed instructor contracts with the fixed layout.
+
+The signature block's Facilitator column was misaligned in the DOCX
+template pipeline (the "Date:" label sat a full inch left of its column,
+and the date itself was tab-snapped away from the label). Both were fixed
+in services/documents/contract.py on 2026-08-09. Unsigned drafts need no
+backfill — `_ensure_contract` (routers/instructors/instructor.py) already
+re-renders those from scratch on every profile load — but signed PDFs are
+written once at signing time and never touched again, so they keep the old
+broken layout forever unless something rewrites them. That's this script.
+
+Everything needed to reproduce a signed contract byte-for-byte (modulo the
+layout fix itself) is persisted on InstructorProfile: `contract_signature_data`
+holds the signature image, `contract_signed_at` the date that was printed.
+
+DECISIONS (operator, 2026-08-09)
+  * Living area is re-resolved live via the router's own `_resolve_living_area`
+    rather than being recovered from the old PDF. No instructor has changed
+    city, so live resolution reproduces what was originally printed. If that
+    ever stops being true, this script would silently reprint a DIFFERENT
+    city than the one signed against — re-check the assumption before reusing
+    it for a later backfill.
+  * The date is re-derived as `contract_signed_at.strftime("%d %B %Y")`,
+    matching the signing endpoint exactly — zero-padded ("09 August 2026").
+    Note this differs from the unsigned-draft path, which prints a non-padded
+    day; that difference is pre-existing and deliberately preserved here so
+    the re-render matches what was actually signed.
+  * The signed PDF is REPLACED IN PLACE at its existing `signed_contract_path`,
+    with no archival copy of the original. The as-signed artifact is not
+    recoverable afterwards. This was an explicit call made when exactly one
+    signed contract existed and it was visibly broken; for a larger or
+    legally-scrutinised set, archive first instead.
+
+Only the stored PDF changes. `contract_signed_at`, `contract_signature_data`
+and `signed_contract_path` are all left exactly as they are — this is not a
+re-signing, and it must never look like one.
+
+USAGE
+    python -m scripts.rerender_signed_contracts [--dry-run]
+
+IDEMPOTENCY
+    Safe to re-run: each run regenerates from the same persisted inputs and
+    overwrites the same path, so a second run produces the same bytes as the
+    first (the printed date comes from contract_signed_at, never today).
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.instructors.instructor_profile import InstructorProfile
+from app.models.user import User
+from app.routers.instructors.instructor import _resolve_living_area
+from app.services import storage
+from app.services.documents.contract import generate_contract_pdf
+
+
+async def rerender_signed_contracts(db: AsyncSession, *, dry_run: bool = False) -> tuple[int, int]:
+    """Re-render every signed contract in place. Returns (rerendered, skipped).
+
+    Flushes but never commits/rolls back — that's the caller's job, matching
+    scripts/backfill_user_contacts.py.
+    """
+    rows = (await db.execute(
+        select(InstructorProfile, User)
+        .join(User, User.id == InstructorProfile.user_id)
+        .where(InstructorProfile.contract_signed_at.is_not(None))
+    )).all()
+
+    rerendered = skipped = 0
+    for profile, user in rows:
+        # A signed profile missing either of these can't be reproduced: the
+        # signature image is unrecoverable, and without a path there's nothing
+        # to overwrite. Skip loudly rather than writing a contract with a
+        # blank signature over a real one.
+        if not profile.signed_contract_path or not profile.contract_signature_data:
+            print(f"  SKIP {user.full_name} ({user.id}): "
+                  f"path={profile.signed_contract_path!r} "
+                  f"signature={'present' if profile.contract_signature_data else 'MISSING'}")
+            skipped += 1
+            continue
+
+        living_area = await _resolve_living_area(db, user)
+        signed_date = profile.contract_signed_at.strftime("%d %B %Y")
+
+        pdf_bytes = await asyncio.to_thread(
+            generate_contract_pdf,
+            user.full_name,
+            living_area,
+            signed_date=signed_date,
+            instructor_signature_b64=profile.contract_signature_data,
+        )
+
+        if dry_run:
+            print(f"  WOULD REPLACE {user.full_name} -> {profile.signed_contract_path} "
+                  f"({len(pdf_bytes)} bytes, city={living_area!r}, date={signed_date!r})")
+        else:
+            url = await storage.upload_file(
+                "contracts", profile.signed_contract_path, pdf_bytes, "application/pdf"
+            )
+            # Path is unchanged; refresh the legacy *_url column only because
+            # it's still the fallback in _profile_out when path is unset.
+            profile.signed_contract_url = url
+            print(f"  REPLACED {user.full_name} -> {profile.signed_contract_path} "
+                  f"({len(pdf_bytes)} bytes, city={living_area!r}, date={signed_date!r})")
+        rerendered += 1
+
+    await db.flush()
+    return rerendered, skipped
+
+
+async def run(dry_run: bool = False) -> tuple[int, int]:
+    from app.db.session import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        rerendered, skipped = await rerender_signed_contracts(db, dry_run=dry_run)
+        if dry_run:
+            await db.rollback()
+            print(f"[rerender_signed_contracts] DRY RUN — would re-render {rerendered} "
+                  f"signed contract(s), skipped {skipped}; nothing written.")
+        else:
+            await db.commit()
+            print(f"[rerender_signed_contracts] re-rendered {rerendered} "
+                  f"signed contract(s), skipped {skipped}.")
+    return rerendered, skipped
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--dry-run", action="store_true",
+                   help="Report what would be replaced; write nothing to storage or the DB.")
+    return p.parse_args(argv)
+
+
+def main() -> None:
+    args = parse_args()
+    asyncio.run(run(dry_run=args.dry_run))
+
+
+if __name__ == "__main__":
+    main()

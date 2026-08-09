@@ -75,26 +75,28 @@ def _libreoffice_to_pdf(docx_bytes: bytes) -> bytes:
 def _fill_facilitator_date(doc: Document, date_str: str) -> None:
     """Fill the Facilitator "Date:" field on the signature paragraph.
 
-    Run 31 = the (blank) Facilitator "Date:" label, run 32 = "\t" + padding
-    spaces to overwrite with the date.
+    Run 31 = the (blank) Facilitator "Date:" label, run 32 = a <w:tab/>
+    element followed by padding spaces, overwritten here with the date.
 
-    All 7 tabs at runs 24-30 are kept, and run 32's leading tab is replaced
-    by a single space. Both were calibrated by measuring the rendered PDF
-    (letter page, 1" margins => default 0.5"/36pt tab stops from x=72):
+    Both the label's column and the gap after it were calibrated by
+    measuring word x-positions in the rendered PDF (letter page, 1"
+    margins => default 0.5"/36pt tab stops from x=72):
 
-      * the admin's date wraps onto its own visual line ending at x~175,
-        and the 7 tabs walk 180 -> 216 -> ... -> 396, putting this label at
-        x=396.1 — exactly the "Name:"/"Signature:" column. Dropping tabs
-        here (an earlier calibration) left the label at x=324, well left of
-        its column.
-      * with the label in place, run 32's tab overshot to the next stop at
-        x=468. A space instead puts the date at x=434.3, flush under
-        "Ahmed" (x=430.2) — "Date:" is 1.3pt wider than "Name:", so the two
-        columns cannot be pixel-identical without custom tab stops, which
-        would also shift the "Signature:" line sharing this paragraph.
+      * all 7 tabs at runs 24-30 are kept. The admin's date wraps onto its
+        own visual line ending at x~175, and those 7 tabs walk
+        180 -> 216 -> ... -> 396, putting this label at x=396.1 — exactly
+        the "Name:"/"Signature:" column. Dropping tabs here (an earlier
+        calibration) left the label at x=324, well left of its column.
+      * run 32's <w:tab/> is removed and the date padded with a single
+        space, mirroring the admin's own "Date: " + date runs exactly. The
+        tab was snapping the date to the next stop instead, opening a gap
+        wider than the admin's. Note the tab is an ELEMENT, not a "\t" in
+        the run's w:t — rewriting only the text leaves it in place.
     """
     p = doc.paragraphs[_SIGNATURE_PARA_IDX]
     date_run = p.runs[32]._r
+    for tab in date_run.findall(qn("w:tab")):
+        date_run.remove(tab)
     wt = date_run.find(qn("w:t"))
     if wt is not None:
         wt.text = f" {date_str}"
