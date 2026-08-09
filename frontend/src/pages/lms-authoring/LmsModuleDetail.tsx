@@ -20,7 +20,7 @@ const KIND_ICON: Record<ModuleItemKind, React.ComponentType<{ size?: number; cla
   text: FileText, quiz: HelpCircle, flashcards: Layers, video: VideoIcon, attachment: Paperclip,
 }
 const KIND_LABEL: Record<ModuleItemKind, string> = {
-  text: "Text", quiz: "Quiz", flashcards: "Flashcards", video: "Video", attachment: "Attachment",
+  text: "Reading", quiz: "Quiz", flashcards: "Flashcards", video: "Video", attachment: "Attachment",
 }
 
 function attachmentFilename(item: AdminItem): string | null {
@@ -140,7 +140,7 @@ export default function LmsModuleDetail() {
       />
 
       {items.length === 0 ? (
-        <EmptyState title="No items yet" hint="Add text, a quiz, flashcards, or a video." />
+        <EmptyState title="No items yet" hint="Add a reading, a quiz, flashcards, or a video." />
       ) : (
         <div className="flex flex-col gap-2">
           {items.map((item, index) => {
@@ -216,14 +216,12 @@ export default function LmsModuleDetail() {
                       {attachmentFilename(item) ? "Replace PDF" : "Upload PDF"}
                     </button>
                   )}
-                  {item.kind !== "video" && (
-                    <button
-                      onClick={() => setEditItem(item)}
-                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
-                    >
-                      Edit
-                    </button>
-                  )}
+                  <button
+                    onClick={() => setEditItem(item)}
+                    className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
+                  >
+                    Edit
+                  </button>
                   <button
                     onClick={() => setDeleteTarget(item)}
                     className="h-8 px-3 rounded-lg text-xs font-medium text-red-600 hover:bg-red-500/10 transition-colors"
@@ -569,7 +567,7 @@ function TextItemModal({ moduleId, item, onClose, onSuccess }: {
   })
 
   return (
-    <Modal title={item ? "Edit text" : "Add text"} onClose={onClose} maxWidth="sm:max-w-xl max-w-xl">
+    <Modal title={item ? "Edit reading" : "Add reading"} onClose={onClose} maxWidth="sm:max-w-xl max-w-xl">
       <div className="flex flex-col gap-3">
         <Field label="Title (optional)">
           <input
