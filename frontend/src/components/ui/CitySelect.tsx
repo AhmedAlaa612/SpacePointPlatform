@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchPublicCities } from "@/api/lms";
@@ -64,16 +64,33 @@ export function CitySelect({
   const { isPending } = useQuery({ queryKey: ["public-cities"], queryFn: fetchPublicCities });
 
   const otherField = !!onOtherChange;
-  const showingOther = otherField && !value && otherValue !== undefined && otherValue !== "";
+  // Explicit mode flag — can't infer "should show the text field" purely
+  // from `otherValue !== ""`, since picking "Other" starts with nothing
+  // typed yet either; that made the dropdown just re-render itself instead
+  // of switching to the text input. Starts true when editing a profile that
+  // already has a saved custom city.
+  const [otherMode, setOtherMode] = useState(!!otherValue);
 
   useEffect(() => {
     if (isPending) return;
     if (value && !options.some((c) => c.id === value)) onChange("");
   }, [value, options, onChange, isPending]);
 
+  // A different country invalidates whatever custom city was typed for the
+  // old one — back to the dropdown, not a stale free-text value. Skips the
+  // first run: on mount this would otherwise immediately wipe a saved
+  // custom city before the user ever touched the country field.
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return; }
+    setOtherMode(false);
+    onOtherChange?.("");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [country]);
+
   if (!country) return null;
 
-  if (showingOther) {
+  if (otherField && otherMode) {
     return (
       <input
         type="text"
@@ -92,6 +109,7 @@ export function CitySelect({
       onChange={(e) => {
         if (e.target.value === CITY_OTHER) {
           onChange("");
+          setOtherMode(true);
         } else {
           onChange(e.target.value);
           onOtherChange?.("");
