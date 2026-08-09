@@ -1035,9 +1035,18 @@ async def list_bucket_files(
             if "signed" in lower_name:
                 return "Signed Payment Letter"
             return "Payment Letter Draft"
+        # Each instructor has up to two rows here: the unsigned draft at
+        # "{user_id}/agreement.pdf" (re-rendered on every profile load until
+        # they sign) and the final "{user_id}/signed.pdf". Both used to
+        # report "Signed Contract", making the draft look like a duplicate
+        # signed copy. UUID path segments are hex-only, so they can never
+        # contain "signed" and trip this check.
         if b == "contracts":
-            return "Signed Contract"
-            
+            if "signed" in lower_name:
+                return "Signed Contract"
+            return "Contract Draft"
+
+
         # Fallback parsing
         basename = filename.split("/")[-1]
         name_no_ext = basename.split(".")[0]
