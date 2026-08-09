@@ -5,7 +5,7 @@ land (R2-2's import-batch email job, later phases' scheduled jobs) — don't
 replace these lists, extend them.
 """
 
-from arq import cron
+from arq import cron, func
 
 from app.workers.heartbeat import heartbeat
 from app.workers.settings import redis_settings
@@ -25,7 +25,14 @@ class WorkerSettings:
         send_assignment_email,
         send_call_invite_emails,
         send_inventory_reminders,
-        transcode_lms_video,
+        # arq's default job_timeout is 300s — fine for every other job here,
+        # but a real ffmpeg HLS encode of a few-hundred-MB video routinely
+        # runs well past that on a VPS with no hardware encoding. Hit this
+        # for real on the Introduction course import: everything over ~90MB
+        # got killed mid-encode. Scoped to this one function so other jobs
+        # keep the short default (a stuck email/import job should still be
+        # caught quickly).
+        func(transcode_lms_video, timeout=3600),
         sync_import_batch_lms_accounts,
         send_cohort_interest_notifications,
     ]

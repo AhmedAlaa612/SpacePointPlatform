@@ -14,6 +14,7 @@ quality ladder (§8 Q1, closed).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import subprocess
@@ -158,6 +159,18 @@ async def run_transcode(db: AsyncSession, item_id: uuid.UUID, *, encoder: Encode
         video.duration_seconds = result.duration_seconds
         video.transcode_status = "ready"
         await db.commit()
+    except asyncio.CancelledError:
+        # arq's job_timeout cancels the task from outside — CancelledError is
+        # a BaseException (not Exception, since Python 3.8), so it would
+        # otherwise skip the handler below entirely and leave the row stuck
+        # at "processing" forever with no automatic retry. Record failure,
+        # then re-raise so arq's own cancellation/retry bookkeeping still
+        # sees it.
+        logger.exception("Transcode cancelled (job timeout?) for item %s", item_id)
+        video.transcode_status = "failed"
+        video.transcode_error = "Transcode timed out or was cancelled"
+        await db.commit()
+        raise
     except Exception as exc:  # noqa: BLE001 — record on the row, never crash the worker
         logger.exception("Transcode failed for item %s", item_id)
         video.transcode_status = "failed"
