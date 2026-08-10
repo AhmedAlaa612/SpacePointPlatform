@@ -9,19 +9,25 @@ reuses the existing entitlement path instead of building a second one
 and not-open-yet both read as a flat 404 — same don't-leak-existence
 posture as `routers/lms/student.py`.
 
-Prerequisite gating is P5-6 — `mission_prerequisites` rows exist from P5-1
-but nothing here evaluates them yet.
+Prerequisite gating (P5-6): `mission_prerequisites` stores DAG edges (P5-1),
+`services/missions/prerequisites.py` evaluates them. `access_mode` decides
+eligibility (a grant — is this mission visible at all); prerequisites
+decide readiness (a computed rule — has this student earned the right to
+attempt it). Two different mechanisms, not collapsed (Stage 5 note ②). An
+unrelated mission (no edges naming it) has an empty prerequisite set and is
+always available.
 """
 
 import uuid
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user
+from app.models.missions.mission import Mission, MissionAttempt, MissionPrerequisite, MissionVariant
 from app.db.session import get_db
-from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.user import User
 from app.schemas.missions import (
     MissionAttemptOut,
@@ -30,12 +36,14 @@ from app.schemas.missions import (
     MissionAttemptSubmitOut,
     MissionCatalogOut,
     MissionDetailOut,
+    MissionGraphNodeOut,
+    MissionPrerequisiteOut,
     MissionQuizReviewOut,
     MissionVariantOut,
     MissionVariantSummaryOut,
 )
 from app.services import storage
-from app.services.missions import start_attempt
+from app.services.missions import is_unlocked, prerequisite_status, start_attempt
 from app.services.missions.serialize import variant_student_view
 from app.services.missions.verifiers.quiz import submit_quiz_attempt
 from app.services.missions.verifiers.submission import submit_submission_attempt
@@ -78,6 +86,36 @@ async def mission_catalog(db: AsyncSession = Depends(get_db), current: User = De
                 MissionVariantSummaryOut(id=v.id, label=v.label, position=v.position, points=v.points)
                 for v in variants
             ],
+            locked=not await is_unlocked(db, mission_id=mission.id, user_id=current.id),
+        ))
+    return out
+
+
+@router.get("/graph", response_model=list[MissionGraphNodeOut])
+async def mission_graph(db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user)):
+    """The constellation view's data — every open mission plus its
+    prerequisite edges and this student's own lock state. Registered before
+    `/{mission_id}` on purpose: 'graph' would otherwise parse as a mission_id
+    and 422 (same routing-order lesson as admin_router vs student_router in
+    routers/missions/__init__.py)."""
+    missions = (await db.execute(
+        select(Mission).where(Mission.status == "published", Mission.access_mode == "open")
+        .order_by(Mission.created_at.desc())
+    )).scalars().all()
+    mission_ids = [m.id for m in missions]
+    edges = (await db.execute(
+        select(MissionPrerequisite).where(MissionPrerequisite.mission_id.in_(mission_ids))
+    )).scalars().all()
+    requires_by_mission: dict[uuid.UUID, list[uuid.UUID]] = defaultdict(list)
+    for edge in edges:
+        requires_by_mission[edge.mission_id].append(edge.requires_mission_id)
+
+    out = []
+    for mission in missions:
+        out.append(MissionGraphNodeOut(
+            id=mission.id, title=mission.title, kind=mission.kind, track=mission.track,
+            locked=not await is_unlocked(db, mission_id=mission.id, user_id=current.id),
+            requires=requires_by_mission.get(mission.id, []),
         ))
     return out
 
@@ -96,6 +134,7 @@ async def mission_detail(
             MissionAttempt.mission_id == mission.id, MissionAttempt.user_id == current.id,
         ).order_by(MissionAttempt.attempt_no)
     )).scalars().all()
+    prereqs = await prerequisite_status(db, mission_id=mission.id, user_id=current.id)
     return MissionDetailOut(
         id=mission.id, title=mission.title, slug=mission.slug, summary=mission.summary,
         description=mission.description, kind=mission.kind, track=mission.track,
@@ -105,6 +144,8 @@ async def mission_detail(
             _attempt_out(a, variant_label=variant_by_id[a.variant_id].label if a.variant_id in variant_by_id else "")
             for a in attempts
         ],
+        prerequisites=[MissionPrerequisiteOut(**p) for p in prereqs],
+        locked=not all(p["satisfied"] for p in prereqs),
     )
 
 
@@ -117,6 +158,8 @@ async def start_mission_attempt(
     variant = await db.get(MissionVariant, body.variant_id)
     if variant is None or variant.mission_id != mission.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Variant not found")
+    if not await is_unlocked(db, mission_id=mission.id, user_id=current.id):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Complete the required missions first")
     attempt = await start_attempt(db, user_id=current.id, mission_id=mission.id, variant_id=body.variant_id)
     await db.commit()
     await db.refresh(attempt)

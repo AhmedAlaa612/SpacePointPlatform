@@ -43,6 +43,12 @@ class MissionVariantOut(BaseModel):
     config: MissionVariantConfig
 
 
+class MissionPrerequisiteOut(BaseModel):
+    mission_id: UUID
+    title: str
+    satisfied: bool
+
+
 class MissionCatalogOut(BaseModel):
     id: UUID
     title: str
@@ -52,6 +58,16 @@ class MissionCatalogOut(BaseModel):
     track: str | None = None
     image_url: str | None = None
     variants: list[MissionVariantSummaryOut]
+    locked: bool = False
+
+
+class MissionGraphNodeOut(BaseModel):
+    id: UUID
+    title: str
+    kind: str
+    track: str | None = None
+    locked: bool
+    requires: list[UUID] = []
 
 
 class MissionAttemptOut(BaseModel):
@@ -79,6 +95,8 @@ class MissionDetailOut(BaseModel):
     image_url: str | None = None
     variants: list[MissionVariantOut]
     attempts: list[MissionAttemptOut]
+    prerequisites: list[MissionPrerequisiteOut] = []
+    locked: bool = False
 
 
 class MissionAttemptStartIn(BaseModel):
