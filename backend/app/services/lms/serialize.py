@@ -58,6 +58,13 @@ def _sanitize_attachment(content: dict) -> dict:
     return {"filename": content.get("filename"), "size_bytes": content.get("size_bytes")}
 
 
+def _sanitize_mission(content: dict) -> dict:
+    # Nothing secret here — mission_id/variant_id are pointers, not answers.
+    # The router enriches with mission_title/points/attempt_status (P5-5),
+    # same two-step shape ContentVideo's transcode_status already uses.
+    return {"mission_id": content.get("mission_id"), "variant_id": content.get("variant_id")}
+
+
 def _sanitize(kind: str, content: dict | None) -> dict:
     content = content or {}
     if kind == "quiz":
@@ -68,6 +75,8 @@ def _sanitize(kind: str, content: dict | None) -> dict:
         return _sanitize_flashcards(content)
     if kind == "attachment":
         return _sanitize_attachment(content)
+    if kind == "mission":
+        return _sanitize_mission(content)
     # video (and any unknown kind) exposes nothing from the JSONB at all —
     # it carries `{}` by design and everything real lives in module_videos.
     return {}

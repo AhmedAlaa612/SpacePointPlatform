@@ -29,6 +29,7 @@ from app.core.dependencies import get_current_active_user, require_lms_student
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, ModuleVideo, VideoCheckpoint
 from app.models.lms.learning_path import LearningPath, LearningPathStep
+from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.user import User
 from app.schemas.lms import (
     ActivityItemOut,
@@ -438,6 +439,36 @@ async def _video_state(db: AsyncSession, item: ModuleItem) -> dict:
     }
 
 
+async def _mission_embed_state(db: AsyncSession, item: ModuleItem, user_id: uuid.UUID) -> dict:
+    """P5-5 — enriches a mission item's sanitized `{mission_id, variant_id}`
+    with display fields looked up fresh per request (same two-step shape as
+    `_video_state`, nothing here is stored on the item itself)."""
+    content = item.content or {}
+    mission_id = content.get("mission_id")
+    if mission_id is None:
+        return {"mission_title": None, "mission_kind": None, "points": None, "attempt_status": None}
+
+    mission = await db.get(Mission, mission_id)
+    variant_id = content.get("variant_id")
+    points = None
+    if variant_id:
+        variant = await db.get(MissionVariant, variant_id)
+        points = variant.points if variant else None
+
+    attempt = (await db.execute(
+        select(MissionAttempt)
+        .where(MissionAttempt.mission_id == mission_id, MissionAttempt.user_id == user_id)
+        .order_by(MissionAttempt.attempt_no.desc())
+    )).scalars().first()
+
+    return {
+        "mission_title": mission.title if mission else None,
+        "mission_kind": mission.kind if mission else None,
+        "points": points,
+        "attempt_status": attempt.status if attempt else None,
+    }
+
+
 @router.get("/modules/{module_id}", response_model=ModuleOut)
 async def module_read(
     module_id: uuid.UUID,
@@ -468,6 +499,8 @@ async def module_read(
         payload = student_view(item)
         if item.kind == "video":
             payload["content"].update(await _video_state(db, item))
+        if item.kind == "mission":
+            payload["content"].update(await _mission_embed_state(db, item, current.id))
         row = progress_map.get(item.id)
         item_payloads.append(ModuleItemOut(
             id=item.id,

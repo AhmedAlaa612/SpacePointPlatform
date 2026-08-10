@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.missions.mission import MissionAttempt, MissionVariant
 from app.services.lms.points import award_points
+from app.services.missions.embedding import complete_embedded_items
 
 MISSION_POINTS_SOURCE = "mission"
 
@@ -95,5 +96,10 @@ async def decide_attempt(
                 "mission_id": str(attempt.mission_id),
                 "variant_id": str(attempt.variant_id),
             },
+        )
+        # Rule ① (Stage 5): never client-assertable — this is the only path
+        # that can complete an embedded mission item's ItemProgress row.
+        await complete_embedded_items(
+            db, mission_id=attempt.mission_id, variant_id=attempt.variant_id, user_id=attempt.user_id,
         )
     return attempt

@@ -61,7 +61,21 @@ class ContentAttachment(BaseModel):
     size_bytes: int | None = None
 
 
-ModuleContent = Union[ContentQuiz, ContentText, ContentFlashcards, ContentVideo, ContentAttachment]
+class ContentMission(BaseModel):
+    """P5-5 — a mission embedded in a course module. `mission_title`/
+    `mission_kind`/`points`/`attempt_status` are enriched by the router
+    (mirrors ContentVideo's transcode_status — not stored in `content`
+    itself, looked up fresh per request)."""
+    model_config = ConfigDict(extra="forbid")
+    mission_id: UUID
+    variant_id: UUID | None = None
+    mission_title: str | None = None
+    mission_kind: str | None = None
+    points: int | None = None
+    attempt_status: str | None = None
+
+
+ModuleContent = Union[ContentQuiz, ContentText, ContentFlashcards, ContentVideo, ContentAttachment, ContentMission]
 
 
 # ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ───────
@@ -207,7 +221,7 @@ class EnrollmentOut(BaseModel):
 
 class ModuleItemOut(BaseModel):
     id: UUID
-    kind: Literal["video", "text", "quiz", "flashcards", "attachment"]
+    kind: Literal["video", "text", "quiz", "flashcards", "attachment", "mission"]
     title: str | None = None
     position: int
     content: ModuleContent

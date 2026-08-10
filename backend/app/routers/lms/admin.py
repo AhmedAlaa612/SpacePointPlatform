@@ -33,6 +33,7 @@ from app.schemas.lms_admin import (
     AdminCheckpointQuizContent,
     AdminContentAttachment,
     AdminContentFlashcards,
+    AdminContentMission,
     AdminContentQuiz,
     AdminContentText,
     AdminContentVideo,
@@ -104,6 +105,7 @@ _CONTENT_MODEL = {
     "flashcards": AdminContentFlashcards,
     "video": AdminContentVideo,
     "attachment": AdminContentAttachment,
+    "mission": AdminContentMission,
 }
 
 
@@ -115,7 +117,12 @@ def _validated_content(*, kind: str, content: dict) -> dict:
         parsed = model(**content)
     except ValidationError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=exc.errors())
-    return parsed.model_dump()
+    # mode="json": AdminContentMission's mission_id/variant_id are UUID
+    # fields (the first content model with one) — plain model_dump() would
+    # hand back UUID objects, which JSONB can't bind. mode="json" stringifies
+    # them; every other kind's fields are already JSON-native, so this is a
+    # no-op for them.
+    return parsed.model_dump(mode="json")
 
 
 _CHECKPOINT_CONTENT_MODEL = {

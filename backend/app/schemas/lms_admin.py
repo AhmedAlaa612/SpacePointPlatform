@@ -15,7 +15,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-ModuleItemKind = Literal["video", "text", "quiz", "flashcards", "attachment"]
+ModuleItemKind = Literal["video", "text", "quiz", "flashcards", "attachment", "mission"]
 
 
 class InstructorOptionOut(BaseModel):
@@ -87,8 +87,21 @@ class AdminContentAttachment(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class AdminContentMission(BaseModel):
+    """P5-5 — embeds a standalone mission inside a course module. `variant_id`
+    pinned means every student sees that one difficulty; omitted means the
+    student picks, same as attempting it standalone. No FK-existence check
+    here (this validator has no db access, same shallow-validation posture
+    every other kind's model already has) — an unknown mission_id just 404s
+    when the student actually opens the item."""
+    model_config = ConfigDict(extra="forbid")
+    mission_id: UUID
+    variant_id: UUID | None = None
+
+
 AdminModuleContent = Union[
     AdminContentQuiz, AdminContentFlashcards, AdminContentText, AdminContentVideo, AdminContentAttachment,
+    AdminContentMission,
 ]
 
 
