@@ -12,6 +12,8 @@ export interface CourseCatalogItem {
   image_url: string | null;
   level: "beginner" | "intermediate" | "advanced" | null;
   track: string | null;
+  access_mode: "open" | "invite" | "paid"; // P1-7
+  enrolled: boolean;
 }
 
 export interface ModuleLock {
@@ -38,6 +40,7 @@ export interface CourseDetail {
   instructor_name: string | null;
   instructor_title: string | null;
   instructor_photo_url: string | null;
+  access_mode: "open" | "invite" | "paid"; // P1-7
 }
 
 export interface QuizOption {

@@ -114,6 +114,41 @@ async def test_catalog_lists_only_published_courses(db, client):
 
 
 @pytest.mark.asyncio
+async def test_catalog_lists_invite_courses_locked_not_hidden(db, client):
+    """P1-7: invite courses stay in the catalog with access_mode='invite' —
+    the lock is client-rendered, never a server-side hide."""
+    author = await _user(db, roles=["operations"])
+    invite_course = await _course(db, author=author, access_mode="invite")
+    student = await _user(db)
+
+    resp = await client.get("/lms/catalog", headers=_headers(student))
+    assert resp.status_code == 200
+    by_id = {c["id"]: c for c in resp.json()}
+    assert str(invite_course.id) in by_id
+    assert by_id[str(invite_course.id)]["access_mode"] == "invite"
+    assert by_id[str(invite_course.id)]["enrolled"] is False
+
+
+@pytest.mark.asyncio
+async def test_catalog_reflects_the_callers_own_enrollment(db, client):
+    author = await _user(db, roles=["operations"])
+    course = await _course(db, author=author)
+    student = await _user(db)
+    await enroll(db, user_id=student.id, course_id=course.id)
+    await db.commit()
+
+    resp = await client.get("/lms/catalog", headers=_headers(student))
+    by_id = {c["id"]: c for c in resp.json()}
+    assert by_id[str(course.id)]["enrolled"] is True
+
+    # a different, unenrolled caller sees the same course as not enrolled
+    stranger = await _user(db)
+    resp2 = await client.get("/lms/catalog", headers=_headers(stranger))
+    by_id2 = {c["id"]: c for c in resp2.json()}
+    assert by_id2[str(course.id)]["enrolled"] is False
+
+
+@pytest.mark.asyncio
 async def test_catalog_search_matches_title_or_description_case_insensitively(db, client):
     author = await _user(db, roles=["operations"])
     orbits = await _course(db, author=author, title="Orbital Mechanics", description="periapsis and apoapsis")
@@ -233,6 +268,7 @@ async def test_course_outline_shows_locks_and_completion(db, client):
     assert resp.status_code == 200
     body = resp.json()
     assert body["enrolled"] is True and body["completed"] is False
+    assert body["access_mode"] == "open"
     locks = {m["position"]: m["locked"] for m in body["modules"]}
     assert locks == {1: False, 2: True}
 
@@ -303,6 +339,20 @@ async def test_self_enroll_on_a_paid_course_is_402(db, client):
         sa_select(Enrollment).where(Enrollment.user_id == student.id, Enrollment.course_id == course.id)
     )).scalars().first()
     assert row is None
+
+
+@pytest.mark.asyncio
+async def test_course_detail_reports_access_mode_for_a_not_yet_enrolled_caller(db, client):
+    """P1-7: the detail payload carries access_mode so the frontend CTA can
+    render Enrol / Buy / a lock without a second round trip."""
+    author = await _user(db, roles=["operations"])
+    course = await _course(db, author=author, access_mode="paid")
+    student = await _user(db)
+
+    resp = await client.get(f"/lms/courses/{course.id}", headers=_headers(student))
+    assert resp.status_code == 200
+    assert resp.json()["access_mode"] == "paid"
+    assert resp.json()["enrolled"] is False
 
 
 @pytest.mark.asyncio

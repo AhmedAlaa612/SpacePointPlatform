@@ -114,6 +114,8 @@ class CourseCatalogOut(BaseModel):
     image_url: str | None = None
     level: str | None = None
     track: str | None = None
+    access_mode: str = "open"  # P1-7 — open|invite|paid
+    enrolled: bool = False  # this caller's own active, unexpired enrollment
 
 
 # ── my-courses dashboard (student, LMS redesign 2026-08-06) ────────────────
@@ -183,6 +185,7 @@ class CourseDetailOut(BaseModel):
     instructor_name: str | None = None
     instructor_title: str | None = None
     instructor_photo_url: str | None = None
+    access_mode: str = "open"  # P1-7 — open|invite|paid, drives the CTA
 
 
 # ── enrollment ──────────────────────────────────────────────────────────────

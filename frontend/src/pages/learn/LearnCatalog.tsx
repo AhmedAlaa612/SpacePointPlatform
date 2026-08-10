@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, CheckCircle2, Search, X } from "lucide-react";
+import { BookOpen, CheckCircle2, Lock, Search, X } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchCatalog, fetchMyCourses, fetchUpcomingPrograms } from "@/api/lms";
@@ -87,11 +87,15 @@ export default function LearnCatalog() {
                     className="h-[130px] rounded-t-2xl bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.11)_0px,hsl(var(--primary)/0.11)_8px,hsl(var(--primary)/0.03)_8px,hsl(var(--primary)/0.03)_16px)] flex items-start justify-end p-3 overflow-hidden"
                     style={course.image_url ? { backgroundImage: `url(${course.image_url})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
                   >
-                    {enrolled && (
+                    {enrolled ? (
                       <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-500 bg-background/80 backdrop-blur px-2 py-1 rounded-md">
                         <CheckCircle2 className="size-3" /> ENROLLED
                       </span>
-                    )}
+                    ) : course.access_mode !== "open" ? (
+                      <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground bg-background/80 backdrop-blur px-2 py-1 rounded-md">
+                        <Lock className="size-3" /> {course.access_mode === "paid" ? "PAID" : "INVITE ONLY"}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="p-4 flex flex-col gap-2">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">

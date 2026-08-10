@@ -1,10 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, Link } from "@tanstack/react-router";
+import { isAxiosError } from "axios";
 import { CheckCircle2, ChevronRight, Lock, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { enrollInCourse, fetchCourse, type CourseDetail } from "@/api/lms";
 import { CourseProgress } from "./CourseProgress";
+
+function errorDetail(err: unknown, fallback: string): string {
+  if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
+  return fallback;
+}
 
 /** Course landing (design 1g) — orient & enrol only; in-progress state lives
  * on /learn/my-courses, the player is /learn/courses/$id/learn. Browsing
@@ -18,6 +24,11 @@ export default function LearnCourse() {
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [error, setError] = useState("");
   const [enrolling, setEnrolling] = useState(false);
+  // Separate from `error` (a fatal, whole-page load failure below) — an
+  // enroll attempt failing (invite-only, payment not available yet) is a
+  // transient, in-place message, not a reason to blank out the page the
+  // student is currently looking at.
+  const [enrollError, setEnrollError] = useState("");
 
   const load = useCallback(() => {
     fetchCourse(courseId)
@@ -31,11 +42,15 @@ export default function LearnCourse() {
 
   const handleEnroll = async () => {
     setEnrolling(true);
+    setEnrollError("");
     try {
       await enrollInCourse(courseId);
       load();
-    } catch {
-      setError("Couldn't enroll right now. Please try again.");
+    } catch (err) {
+      // Surfaces the backend's own message — it already distinguishes
+      // invite-only (403) and not-yet-available payment (402) from a
+      // genuine failure (P1-7).
+      setEnrollError(errorDetail(err, "Couldn't enroll right now. Please try again."));
     } finally {
       setEnrolling(false);
     }
@@ -152,11 +167,19 @@ export default function LearnCourse() {
                     {itemCta}
                   </Button>
                 </>
+              ) : course.access_mode === "invite" ? (
+                <>
+                  <Button size="xl" className="w-full" disabled>
+                    <Lock className="size-4" /> Invite only
+                  </Button>
+                  <p className="text-xs text-muted-foreground text-center">Ask an admin for access.</p>
+                </>
               ) : (
                 <Button size="xl" className="w-full" onClick={() => void handleEnroll()} disabled={enrolling}>
-                  {enrolling ? "Enrolling..." : "Enroll"}
+                  {enrolling ? "Enrolling..." : course.access_mode === "paid" ? "Buy" : "Enroll"}
                 </Button>
               )}
+              {enrollError && <p className="text-xs text-destructive text-center">{enrollError}</p>}
               <div className="h-px bg-border" />
               <div className="flex items-center gap-2.5 text-sm text-muted-foreground">
                 <PlayCircle className="size-4 shrink-0" /> Learn at your own pace

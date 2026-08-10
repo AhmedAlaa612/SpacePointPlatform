@@ -138,18 +138,31 @@ async def _published_course(
 async def catalog(
     q: str | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_active_user),
+    current: User = Depends(get_current_active_user),
 ):
+    """P1-7: `invite` courses list *with a lock* (access_mode + enrolled),
+    never hidden — the catalog stays the full picture; access_mode is what
+    the client renders "Enrol" / "Buy" / a lock icon from."""
     stmt = select(Course).where(Course.is_published.is_(True))
     if q and q.strip():
         pattern = f"%{q.strip()}%"
         stmt = stmt.where(or_(Course.title.ilike(pattern), Course.description.ilike(pattern)))
     rows = (await db.execute(stmt.order_by(Course.title))).scalars().all()
+
+    enrolled_course_ids = set((await db.execute(
+        select(Enrollment.course_id).where(
+            Enrollment.user_id == current.id,
+            Enrollment.course_id.in_([c.id for c in rows]),
+            *enrollment_is_active(),
+        )
+    )).scalars().all())
+
     return [
         CourseCatalogOut(
             id=c.id, title=c.title, description=c.description, kind=c.kind,
             image_url=await storage.resolve_url(c.image_bucket, c.image_path),
             level=c.level, track=c.track,
+            access_mode=c.access_mode, enrolled=c.id in enrolled_course_ids,
         )
         for c in rows
     ]
@@ -201,6 +214,7 @@ async def course_detail(
         instructor_name=instructor_name,
         instructor_title=course.instructor_title,
         instructor_photo_url=instructor_photo_url,
+        access_mode=course.access_mode,
         modules=[
             ModuleLockOut(
                 module_id=row["module_id"],
