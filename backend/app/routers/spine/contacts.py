@@ -37,6 +37,7 @@ from app.schemas.spine.contacts import (
     OrganizationUpdate,
 )
 from app.services.spine.identity import resolve_or_create_organization
+from app.services.spine.learning_panel import build_learning_panel
 from app.services.spine.role_history import record_role_diff
 
 router = APIRouter(prefix="/spine", tags=["spine-contacts"])
@@ -77,6 +78,8 @@ async def _build_contact_detail(db: AsyncSession, contact: Contact) -> ContactDe
             other_contact=ContactBrief.model_validate(other) if other else None,
         ))
 
+    learning = await build_learning_panel(db, contact)
+
     return ContactDetail(
         id=contact.id,
         full_name=contact.full_name,
@@ -99,6 +102,7 @@ async def _build_contact_detail(db: AsyncSession, contact: Contact) -> ContactDe
         created_at=contact.created_at,
         updated_at=contact.updated_at,
         relationships=relationships,
+        learning=learning,
     )
 
 

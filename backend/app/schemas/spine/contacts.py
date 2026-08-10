@@ -12,6 +12,7 @@ docstring) and this file doesn't add a UI-only backdoor for that.
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Literal, Optional
 
 from pydantic import BaseModel, model_validator
@@ -75,6 +76,53 @@ class ContactSearchResponse(BaseModel):
     offset: int
 
 
+# ── Learning panel (P3-1, LMS Phase 2 Stage 3, 2026-08-10) — "what is this
+# student's situation", on the contact detail page. Built on `contacts`, not
+# a second `users`-keyed list (Stage 3's own framing). Populated only when
+# the contact holds the `student` role — every other contact gets `None`,
+# no extra queries spent on staff/lead/parent records. ────────────────────
+
+class LearningPanelEnrollmentOut(BaseModel):
+    enrollment_id: UUID
+    course_id: UUID
+    course_title: str
+    status: str
+    source: str
+    granted_by_name: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    progress_pct: int
+
+
+class LearningPanelRegistrationOut(BaseModel):
+    id: UUID
+    cohort_id: UUID
+    cohort_name: str
+    program_name: str
+    status: str
+    payment_status: str
+    price_charged: Optional[Decimal] = None
+    attended_sessions: int
+    total_sessions: int
+
+
+class LearningPanelCertificateOut(BaseModel):
+    id: UUID
+    type: str
+    generated_at: Optional[datetime] = None
+
+
+class LearningPanelOut(BaseModel):
+    has_account: bool
+    user_id: Optional[UUID] = None
+    email: Optional[str] = None
+    account_status: Optional[str] = None
+    must_change_password: Optional[bool] = None
+    points_total: int
+    enrollments: list[LearningPanelEnrollmentOut] = []
+    registrations: list[LearningPanelRegistrationOut] = []
+    certificates: list[LearningPanelCertificateOut] = []
+
+
 class ContactDetail(BaseModel):
     id: UUID
     full_name: str
@@ -97,6 +145,7 @@ class ContactDetail(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
     relationships: list[ContactRelationshipOut] = []
+    learning: Optional[LearningPanelOut] = None
 
     class Config:
         from_attributes = True
