@@ -197,6 +197,7 @@ class EnrollmentOut(BaseModel):
     source: str
     status: str
     created_at: datetime | None = None
+    expires_at: datetime | None = None  # P1-3 — NULL means perpetual
 
 
 # ── module read (enrolled student only) ─────────────────────────────────────

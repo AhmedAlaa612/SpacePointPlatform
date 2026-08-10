@@ -277,6 +277,45 @@ async def test_student_self_enrolls_idempotently_despite_a_draft(db, client):
     assert again.json()["id"] == first.json()["id"]
 
 
+@pytest.mark.asyncio
+async def test_self_enroll_rejects_an_invite_only_course(db, client):
+    author = await _user(db, roles=["operations"])
+    course = await _course(db, author=author, access_mode="invite")
+    student = await _user(db)
+
+    resp = await client.post("/lms/enroll", headers=_headers(student), json={"course_id": str(course.id)})
+    assert resp.status_code == http_status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_self_enroll_on_a_paid_course_is_402(db, client):
+    author = await _user(db, roles=["operations"])
+    course = await _course(db, author=author, access_mode="paid")
+    student = await _user(db)
+
+    resp = await client.post("/lms/enroll", headers=_headers(student), json={"course_id": str(course.id)})
+    assert resp.status_code == http_status.HTTP_402_PAYMENT_REQUIRED
+
+    # Neither rejection actually created an enrollment.
+    from app.models.lms import Enrollment
+    from sqlalchemy import select as sa_select
+    row = (await db.execute(
+        sa_select(Enrollment).where(Enrollment.user_id == student.id, Enrollment.course_id == course.id)
+    )).scalars().first()
+    assert row is None
+
+
+@pytest.mark.asyncio
+async def test_self_enroll_on_an_open_course_sets_expiry_from_access_days(db, client):
+    author = await _user(db, roles=["operations"])
+    course = await _course(db, author=author, access_mode="open", access_days=30)
+    student = await _user(db)
+
+    resp = await client.post("/lms/enroll", headers=_headers(student), json={"course_id": str(course.id)})
+    assert resp.status_code == 200
+    assert resp.json()["expires_at"] is not None
+
+
 # ── module read: student AND enrolled, leak-free ────────────────────────────
 
 async def _tree_with_quiz(db):

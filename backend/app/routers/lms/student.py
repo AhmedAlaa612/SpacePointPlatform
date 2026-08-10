@@ -328,9 +328,28 @@ async def enroll_self(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_student),
 ):
-    """Self-enrol from the catalog (D8 source='self'). Idempotent — enrolling
-    again returns the same row; a reinstated account reactivates in place."""
-    await _published_course(db, body.course_id)
+    """Self-enrol from the catalog (D8 source='self'), branched on the
+    course's access_mode (P1-4): `open` enrols outright; `invite` 403s — a
+    student can't self-enrol into an invite-only course, only an admin grant
+    (P1-5) gets them in; `paid` 402s with a plain "not available yet"
+    message — real checkout is Stage S, not built yet, so this is the
+    correct shape (right status code, right branch) without a fabricated
+    payment flow behind it. Idempotent for `open` — enrolling again returns
+    the same row; a reinstated or re-expired enrollment (re)activates in
+    place."""
+    course = await _published_course(db, body.course_id)
+
+    if course.access_mode == "invite":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="This course is invite-only — ask an admin to grant you access",
+        )
+    if course.access_mode == "paid":
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            detail="This course requires payment — checkout isn't available yet",
+        )
+
     enrollment = await enroll(
         db, user_id=current.id, course_id=body.course_id, source="self"
     )
@@ -341,6 +360,7 @@ async def enroll_self(
         source=enrollment.source,
         status=enrollment.status,
         created_at=enrollment.created_at,
+        expires_at=enrollment.expires_at,
     )
 
 

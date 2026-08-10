@@ -138,6 +138,59 @@ async def test_enroll_reactivates_an_inactive_row(db):
 
 
 @pytest.mark.asyncio
+async def test_enroll_sets_expiry_from_course_access_days(db):
+    student = await _user(db)
+    course = await _course(db, access_days=30)
+
+    enrollment = await enroll(db, user_id=student.id, course_id=course.id)
+
+    assert enrollment.expires_at is not None
+    delta = enrollment.expires_at - datetime.now(timezone.utc)
+    assert 29 <= delta.days <= 30
+
+
+@pytest.mark.asyncio
+async def test_enroll_perpetual_when_course_has_no_access_days(db):
+    student = await _user(db)
+    course = await _course(db)  # access_days defaults to NULL
+
+    enrollment = await enroll(db, user_id=student.id, course_id=course.id)
+
+    assert enrollment.expires_at is None
+
+
+@pytest.mark.asyncio
+async def test_enroll_reactivates_and_restarts_the_expiry_window(db):
+    """A fresh grant restarts the access window rather than inheriting
+    whatever was left of the old one — same discipline for both the
+    'reinstated after cancellation' and 'expired, re-granted' paths."""
+    from datetime import timedelta
+
+    student = await _user(db)
+    course = await _course(db, access_days=30)
+    first = await enroll(db, user_id=student.id, course_id=course.id)
+
+    first.expires_at = datetime.now(timezone.utc) - timedelta(days=1)  # simulate expiry
+    await db.flush()
+
+    again = await enroll(db, user_id=student.id, course_id=course.id)
+    assert again.id == first.id
+    assert again.status == "active"
+    assert again.expires_at > datetime.now(timezone.utc)
+
+
+@pytest.mark.asyncio
+async def test_enroll_records_granted_by(db):
+    student = await _user(db)
+    admin = await _user(db, roles=["operations"])
+    course = await _course(db)
+
+    enrollment = await enroll(db, user_id=student.id, course_id=course.id, source="ops", granted_by=admin.id)
+
+    assert enrollment.granted_by == admin.id
+
+
+@pytest.mark.asyncio
 async def test_enroll_404_for_unknown_course(db):
     student = await _user(db)
     with pytest.raises(HTTPException) as e:
