@@ -94,17 +94,27 @@ async def enroll_in_program_curriculum(
     ]
 
 
-async def _send_set_password_email(user: User) -> bool:
+async def send_set_password_email(user: User, *, purpose: str = "welcome") -> bool:
+    """Public (P3-3, 2026-08-10) — was module-private until the student
+    panel's "create account & invite" and "password reset" actions needed
+    to call it directly, not just via `sync_registration_lms`. Same token
+    mechanism either way (`create_password_set_token`, 24h, stateless) —
+    `purpose` only changes the copy, since "an account was created for you"
+    reads wrong for a reset on an account that already existed."""
     from app.core.config import settings
     token = create_password_set_token(user.id)
     link = f"{settings.FRONTEND_URL}/learn/set-password?token={token}"
+    intro = (
+        "An account was created for you on the SpacePoint LMS."
+        if purpose == "welcome" else
+        "Here's the link to reset your SpacePoint LMS password."
+    )
     return await try_send_email(
         user.email,
         "Your SpacePoint learning account",
         (
             f"<p>Hi {user.full_name},</p>"
-            f"<p>An account was created for you on the SpacePoint LMS. "
-            f'Set your password to get started: <a href="{link}">{link}</a></p>'
+            f'<p>{intro} Set your password here: <a href="{link}">{link}</a></p>'
             "<p>This link is valid for 24 hours.</p>"
             "<p>— SpacePoint</p>"
         ),
@@ -130,7 +140,7 @@ async def sync_registration_lms(
             db, user_id=user.id, program_id=cohort.program_id, registration_id=registration.id,
         )
         if created:
-            await _send_set_password_email(user)
+            await send_set_password_email(user)
         return user
     except Exception:
         logger.exception("sync_registration_lms failed for registration %s", registration.id)

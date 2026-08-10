@@ -150,6 +150,70 @@ async def test_role_filter(db, client, ops_user):
 
 
 @pytest.mark.asyncio
+async def test_city_filter(db, client, ops_user):
+    tag = uuid.uuid4().hex[:8]
+    dubai = _new_contact(full_name=f"Dubai {tag}", city="Dubai")
+    cairo = _new_contact(full_name=f"Cairo {tag}", city="Cairo")
+    db.add_all([dubai, cairo])
+    await db.flush()
+
+    resp = await client.get("/spine/contacts", params={"city": "Dubai", "q": tag}, headers=_auth_headers(ops_user))
+    assert resp.status_code == 200, resp.text
+    ids = {item["id"] for item in resp.json()["items"]}
+    assert str(dubai.id) in ids
+    assert str(cairo.id) not in ids
+
+
+@pytest.mark.asyncio
+async def test_cohort_and_program_filters(db, client, ops_user):
+    """P3-2: the student-management view is this endpoint plus cohort_id/
+    program_id — no second, students-only list endpoint."""
+    from app.models.sessions.cohort import Cohort
+    from app.models.sessions.program import Program
+    from app.models.sessions.registration import Registration
+
+    tag = uuid.uuid4().hex[:8]
+    program = Program(
+        id=uuid.uuid4(), code=f"P-{tag}", name="Filter Program",
+        program_type="workshop", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(
+        id=uuid.uuid4(), program_id=program.id, name="Filter Cohort",
+        status="registration_open", visibility="public",
+    )
+    db.add(cohort)
+    await db.flush()
+
+    in_cohort = _new_contact(full_name=f"In Cohort {tag}")
+    not_in_cohort = _new_contact(full_name=f"Not In Cohort {tag}")
+    db.add_all([in_cohort, not_in_cohort])
+    await db.flush()
+    db.add(Registration(
+        id=uuid.uuid4(), contact_id=in_cohort.id, cohort_id=cohort.id, status="registered",
+        ticket_token=uuid.uuid4().hex, registered_via="desk", payment_status="waived",
+    ))
+    await db.flush()
+
+    by_cohort = await client.get(
+        "/spine/contacts", params={"cohort_id": str(cohort.id)}, headers=_auth_headers(ops_user),
+    )
+    assert by_cohort.status_code == 200, by_cohort.text
+    cohort_ids = {item["id"] for item in by_cohort.json()["items"]}
+    assert str(in_cohort.id) in cohort_ids
+    assert str(not_in_cohort.id) not in cohort_ids
+
+    by_program = await client.get(
+        "/spine/contacts", params={"program_id": str(program.id)}, headers=_auth_headers(ops_user),
+    )
+    assert by_program.status_code == 200, by_program.text
+    program_ids = {item["id"] for item in by_program.json()["items"]}
+    assert str(in_cohort.id) in program_ids
+    assert str(not_in_cohort.id) not in program_ids
+
+
+@pytest.mark.asyncio
 async def test_merged_contacts_excluded_from_search(db, client, ops_user):
     tag = uuid.uuid4().hex[:8]
     winner = _new_contact(full_name=f"Winner {tag}")

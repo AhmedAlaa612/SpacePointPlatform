@@ -19,6 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_operations
 from app.db.session import get_db
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact, ContactRelationship
 from app.models.spine.contact_role_event import ContactRoleEvent
 from app.models.spine.organization import Organization
@@ -36,6 +38,7 @@ from app.schemas.spine.contacts import (
     OrganizationOut,
     OrganizationUpdate,
 )
+from app.services.lms.ops_integration import get_or_create_student_account, send_set_password_email
 from app.services.spine.identity import resolve_or_create_organization
 from app.services.spine.learning_panel import build_learning_panel
 from app.services.spine.role_history import record_role_diff
@@ -112,11 +115,21 @@ async def search_contacts(
     role: str | None = None,
     lifecycle_stage: str | None = None,
     country: str | None = None,
+    city: str | None = None,
+    cohort_id: uuid.UUID | None = None,
+    program_id: uuid.UUID | None = None,
     limit: int = 20,
     offset: int = 0,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operations),
 ):
+    """P3-2: the student-management list is this same endpoint with
+    `role=student` (already supported) plus whatever of `city`/`cohort_id`/
+    `program_id` narrows it further — no second, students-only list
+    endpoint. `cohort_id`/`program_id` filter via an EXISTS-shaped subquery
+    on `registrations` (a repeat student can hold more than one
+    registration; a JOIN would need a DISTINCT to avoid duplicate rows —
+    a subquery sidesteps that entirely)."""
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
 
@@ -138,6 +151,18 @@ async def search_contacts(
         stmt = stmt.where(Contact.lifecycle_stage == lifecycle_stage)
     if country:
         stmt = stmt.where(Contact.country == country)
+    if city:
+        stmt = stmt.where(Contact.city == city)
+    if cohort_id is not None:
+        stmt = stmt.where(Contact.id.in_(
+            select(Registration.contact_id).where(Registration.cohort_id == cohort_id)
+        ))
+    if program_id is not None:
+        stmt = stmt.where(Contact.id.in_(
+            select(Registration.contact_id)
+            .join(Cohort, Cohort.id == Registration.cohort_id)
+            .where(Cohort.program_id == program_id)
+        ))
 
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
 
@@ -229,6 +254,65 @@ async def get_contact_role_history(
         )
         for event, changed_by_name in rows
     ]
+
+
+# ── student management actions (P3-3, Phase 2 Stage 3, 2026-08-10) ─────────
+#
+# "Each action is the admin endpoint, not a new code path" — enrol/unenrol
+# reuse the P1-5 admin enrollment endpoints
+# (POST/DELETE /lms/admin/courses/{id}/enrollments...) directly from the
+# panel; cohort assignment reuses the existing desk-registration endpoint
+# (POST /sessions/cohorts/{id}/registrations), which already creates a
+# Registration row and optionally an LMS account in one call. The two
+# endpoints below are new HTTP entry points, but not new business logic —
+# both call the exact functions `sync_registration_lms` already uses
+# (services/lms/ops_integration.py), just without requiring a
+# registration/cohort context, for a contact ops wants to onboard directly.
+
+@router.post("/contacts/{contact_id}/lms-account", response_model=ContactDetail)
+async def create_lms_account(
+    contact_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    """Create (or link) an LMS account for this contact. Idempotent — a
+    contact who already has one just gets it returned, no second account,
+    no re-sent email (get_or_create_student_account's own semantics)."""
+    contact = await db.get(Contact, contact_id)
+    if contact is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Contact not found")
+
+    user, created = await get_or_create_student_account(db, contact_id)
+    if user is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This contact has no email on file")
+    if created:
+        await send_set_password_email(user, purpose="welcome")
+    await db.commit()
+    return await _build_contact_detail(db, contact)
+
+
+@router.post("/contacts/{contact_id}/lms-account/reset-password")
+async def reset_lms_password(
+    contact_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    """Re-send the set-password link for a contact's EXISTING account —
+    the ops-desk equivalent of "forgot password", since students don't
+    have a self-serve reset flow yet. 404 (not a silent no-op) if there's
+    no linked account: that's "create account & invite" instead."""
+    contact = await db.get(Contact, contact_id)
+    if contact is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Contact not found")
+
+    user = (await db.execute(
+        select(User).where(User.contact_id == contact_id).order_by(User.created_at)
+    )).scalars().first()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This contact has no linked account")
+
+    sent = await send_set_password_email(user, purpose="reset")
+    return {"sent": sent}
 
 
 @router.post(
