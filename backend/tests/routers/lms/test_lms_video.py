@@ -266,3 +266,10 @@ async def test_streaming_routes_require_a_valid_matching_unexpired_token(db, cli
     # path traversal in the segment name -> 404, never touches storage
     traversal = await client.get(f"/lms/videos/{item.id}/segment/..%2F..%2Fetc%2Fpasswd", params={"token": token})
     assert traversal.status_code == http_status.HTTP_404_NOT_FOUND
+
+    # segment_1000.ts (B1): "%03d" in the encoder is a *minimum* width, so a
+    # video past 999 segments (66m36s at 4s/segment) writes segment_1000.ts —
+    # a fixed \d{3} regex 404s on it mid-playback. 4+ digits must resolve.
+    await storage.upload_to_path(HLS_BUCKET, f"{item.id}/segment_1000.ts", b"late-ts-bytes", "video/mp2t")
+    late_seg = await client.get(f"/lms/videos/{item.id}/segment/segment_1000.ts", params={"token": token})
+    assert late_seg.status_code == 200 and late_seg.content == b"late-ts-bytes"

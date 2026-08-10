@@ -44,7 +44,12 @@ MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2GB ceiling (§8 Q7, closed)
 # this constant is what the client is *told* the expiry is, so if the two drift
 # the player's refresh timing silently disagrees with reality.
 _VIDEO_TOKEN_MINUTES = 4 * 60
-_SEGMENT_NAME_RE = re.compile(r"^segment_\d{3}\.ts$")
+# `%03d` in services/lms/video.py is a *minimum* width — segment 1000 writes as
+# "segment_1000.ts". A fixed \d{3} 404s on anything past segment 999 (66m36s
+# at the 4s segment length), a hard mid-playback stop indistinguishable from a
+# network failure (B1). The literal prefix/suffix/anchors are what block path
+# traversal; the digit count was never carrying that weight.
+_SEGMENT_NAME_RE = re.compile(r"^segment_\d{3,}\.ts$")
 
 
 # ── admin: upload ────────────────────────────────────────────────────────
