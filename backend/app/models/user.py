@@ -57,6 +57,15 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Per-account login lockout (B6, 2026-08-10). The existing rate_limit.py
+    # brake is deliberately generous (1000/min/IP — a whole school shares one
+    # IP) and useless against password guessing; this is the actual defence.
+    # failed_login_count resets to 0 on a successful login; locked_until is
+    # set once the count crosses the threshold and read before the password
+    # is even checked, so a locked account can't be probed during its window.
+    failed_login_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+
     # Every user is also a spine contact (V2 R2-6) — lets staff (instructors,
     # ambassadors, etc.) show up in Contacts/merge-review flows the same way
     # public registrants do. Backfilled by scripts/backfill_user_contacts.py;

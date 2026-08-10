@@ -1,14 +1,15 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import uuid as uuid_lib
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from jose import JWTError, jwt
 from sqlalchemy import func, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.dependencies import get_current_active_user
+from app.core.rate_limit import enforce_rate_limit
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -41,6 +42,13 @@ from app.services.notification import create_notification as notify
 from app.services.spine.identity import ensure_guardian_relationship, resolve_or_create_contact
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# B6: the existing rate_limit.py brake is 1000 req/min/IP (deliberately
+# generous — a whole school shares one IP), useless against password
+# guessing. This is the real defence: a per-account counter, checked before
+# the password itself so a locked account can't be probed during its window.
+_MAX_FAILED_LOGIN_ATTEMPTS = 10
+_LOCKOUT_MINUTES = 15
 
 
 async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | None = None) -> dict:
@@ -109,11 +117,32 @@ async def _load_applicant_profile(db: AsyncSession, user_id) -> ApplicantProfile
 @router.post("/login", response_model=LoginResponse)
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = (await db.execute(select(User).where(User.email == data.email))).scalars().first()
+
+    # Checked before the password compare, on purpose — a locked account
+    # gets the same 429 regardless of whether this guess would've been
+    # right, so lockout state itself can't be probed.
+    if user and user.locked_until and user.locked_until > datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed attempts — try again later",
+        )
+
     if not user or not verify_password(data.password, user.password_hash):
+        if user:
+            user.failed_login_count += 1
+            if user.failed_login_count >= _MAX_FAILED_LOGIN_ATTEMPTS:
+                user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=_LOCKOUT_MINUTES)
+            await db.commit()
         raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    # Correct password proven — reset lockout state regardless of what the
+    # active-status check below decides.
+    user.failed_login_count = 0
+    user.locked_until = None
 
     roles = user.role_values
     if "admin" not in roles and user.status != "active":
+        await db.commit()
         raise HTTPException(status_code=403, detail="Account is not active")
 
     user.last_login_at = datetime.now(timezone.utc)
@@ -128,8 +157,13 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/signup", status_code=status.HTTP_201_CREATED, response_model=LoginResponse)
-async def student_signup(data: StudentSignupRequest, db: AsyncSession = Depends(get_db)):
+async def student_signup(data: StudentSignupRequest, request: Request, db: AsyncSession = Depends(get_db)):
     """LMS student self-signup (LM1-4).
+
+    B6 (2026-08-10): rate-limited the same way the public registration form
+    is (`LMS_EXECUTION_PLAN.md` §8 Q6 closed this the same way and it was
+    never wired up) — the generous per-IP brake, not a per-account counter
+    (there's no account yet to key one on).
 
     Identity evaluate → find-or-create contact (`resolve_or_create_contact`, so
     a public-form registrant who never made an account gets *linked*, not
@@ -151,6 +185,8 @@ async def student_signup(data: StudentSignupRequest, db: AsyncSession = Depends(
     still gap-filled onto the Contact's free-text `city` too, so the CRM's
     existing Contact views show it without needing to know about the new
     structured field."""
+    enforce_rate_limit(request)
+
     email = _lower_email(data.email)
     if await _email_taken(db, email):
         raise HTTPException(
