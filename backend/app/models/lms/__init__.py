@@ -19,6 +19,7 @@ from app.models.lms.course import Course, CourseModule, ModuleItem, ModuleVideo,
 from app.models.lms.curriculum import ProgramCurriculum
 from app.models.lms.enrollment import Enrollment, ItemProgress
 from app.models.lms.learning_path import LearningPath, LearningPathStep
+from app.models.lms.points import PointEvent
 
 __all__ = [
     "Course",
@@ -31,4 +32,5 @@ __all__ = [
     "ItemProgress",
     "LearningPath",
     "LearningPathStep",
+    "PointEvent",
 ]

@@ -96,3 +96,18 @@ class ItemProgress(Base):
     best_score = Column(Numeric(5, 2), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), nullable=True)
+
+    # P2-3 (Phase 2 Stage 2, 2026-08-10, audit §9.2 amendment) — quiz points
+    # integrity. `check_quiz_answer` (live per-question feedback) increments
+    # this; completion/unlock ignore it entirely, only the point award scales
+    # by it. `first_score`/`first_scored_at` are written once by submit_quiz
+    # and never updated again — the point award keys on the FIRST submission,
+    # never on `best_score`. Why: `submit_quiz`'s own review sheet reveals
+    # every correct_text after each submission with unlimited retries, so
+    # submit(garbage) -> read answers -> submit(correct) is a guaranteed 100%
+    # in two calls, bypassing hints_used entirely (it never touches `check`).
+    # Keying the award on first_score closes that path without touching the
+    # review sheet itself, which is deliberate pedagogy (D7) and must stay.
+    hints_used = Column(Integer, nullable=False, default=0)
+    first_score = Column(Numeric(5, 2), nullable=True)
+    first_scored_at = Column(DateTime(timezone=True), nullable=True)

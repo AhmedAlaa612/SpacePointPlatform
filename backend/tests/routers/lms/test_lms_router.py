@@ -495,9 +495,10 @@ async def test_quiz_submit_grades_server_side_and_requires_enrollment(db, client
 @pytest.mark.asyncio
 async def test_quiz_check_gives_live_feedback_without_recording_an_attempt(db, client):
     """quiz/check (2026-08-09) — the live, one-question-at-a-time feedback
-    the submit test above doesn't cover: no ItemProgress row, no attempts
-    counted, same correct/explanation/correct_text shape as a submit
-    review's per-question entry."""
+    the submit test above doesn't cover: no attempt counted, no grading/
+    completion state touched, same correct/explanation/correct_text shape
+    as a submit review's per-question entry. It DOES record hints_used
+    (P2-3, 2026-08-10) — that's the one thing it's allowed to touch."""
     course, module, _, quiz = await _tree_with_quiz(db)
     stranger = await _user(db)
 
@@ -533,13 +534,18 @@ async def test_quiz_check_gives_live_feedback_without_recording_an_attempt(db, c
     )
     assert out_of_range.status_code == http_status.HTTP_400_BAD_REQUEST
 
-    # Stateless: none of the checks above touched ItemProgress at all.
-    rows = (await db.execute(
+    # No grading/completion state touched — but hints_used counted the two
+    # successful checks (the out-of-range one 400d before reaching it).
+    row = (await db.execute(
         select(ItemProgress).where(
             ItemProgress.user_id == stranger.id, ItemProgress.item_id == quiz.id
         )
-    )).scalars().all()
-    assert rows == []
+    )).scalars().first()
+    assert row is not None
+    assert row.hints_used == 2
+    assert row.status == "not_started"
+    assert row.quiz_attempts == 0
+    assert row.first_score is None
 
 
 @pytest.mark.asyncio

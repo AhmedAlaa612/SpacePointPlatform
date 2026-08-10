@@ -9,6 +9,14 @@ once, and a later failed retry never downgrades it back. The review payload
 is the *post-submit* answer sheet, which is exactly when `explanation` is
 allowed to leave the server (§2 — the leak test governs `student_view`,
 the pre-submit path).
+
+P2-3 (Phase 2 Stage 2, audit §9.2): `first_score`/`first_scored_at` are
+written once, on the first-ever submission, and drive the points award —
+never `best_score`, because the review sheet above is itself an answer
+oracle on unlimited retries (see services/lms/points.py::award_quiz_points
+for the full reasoning). `hints_used` (incremented by `check_quiz_answer`)
+never affects grading or completion, only how many points that first
+submission is worth.
 """
 
 from __future__ import annotations
@@ -23,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.course import ModuleItem
 from app.models.lms.enrollment import ItemProgress
+from app.services.lms.points import award_quiz_points
 
 
 async def _progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID) -> ItemProgress:
@@ -39,21 +48,22 @@ async def _progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID
             item_id=item_id,
             status="not_started",
             quiz_attempts=0,
+            hints_used=0,
         )
         db.add(row)
     return row
 
 
 async def check_quiz_answer(
-    db: AsyncSession, *, item_id: uuid.UUID, question_index: int, answer: int,
+    db: AsyncSession, *, user_id: uuid.UUID, item_id: uuid.UUID, question_index: int, answer: int,
 ) -> dict:
-    """Stateless single-question grading (2026-08-09) — same posture as
-    `checkpoint.py`'s `submit_checkpoint_answer`: nothing recorded, no
-    ItemProgress touched, just this one question's own `is_correct`/
-    `explanation` handed back immediately. Lets the player show live
-    feedback while stepping through questions one at a time, without
-    changing what `submit_quiz` above still does at the end (the real,
-    once-per-attempt grade + completion record)."""
+    """Live per-question feedback (2026-08-09), same posture as
+    `checkpoint.py`'s `submit_checkpoint_answer`: no completion/grading
+    state touched — the real, once-per-attempt grade still happens in
+    `submit_quiz` below. The one thing this DOES record (P2-3, 2026-08-10)
+    is `item_progress.hints_used`, so the points award (keyed on the first
+    submission) can scale down for a first attempt that leaned on live
+    feedback — completion and unlock still ignore it entirely."""
     item = await db.get(ModuleItem, item_id)
     if item is None or item.kind != "quiz":
         raise HTTPException(404, detail="Quiz item not found")
@@ -65,6 +75,10 @@ async def check_quiz_answer(
     options = questions[question_index].get("options") or []
     if not isinstance(answer, int) or isinstance(answer, bool) or not (0 <= answer < len(options)):
         raise HTTPException(400, detail="answer is out of range")
+
+    row = await _progress_row(db, user_id, item_id)
+    row.hints_used += 1
+    await db.flush()
 
     return {
         "correct": bool(options[answer].get("is_correct")),
@@ -130,6 +144,15 @@ async def submit_quiz(
     new_best = Decimal(str(score))
     row.best_score = new_best if row.best_score is None else max(row.best_score, new_best)
 
+    # P2-3: written once, on the first-ever submission, and never again —
+    # `first_score is None` is the guard, both for "is this the first
+    # attempt" and for "has the points award already fired" (award_quiz_
+    # points is itself idempotent too, but this avoids even trying twice).
+    is_first_submission = row.first_score is None
+    if is_first_submission:
+        row.first_score = new_best
+        row.first_scored_at = datetime.now(timezone.utc)
+
     if passed:
         if row.status != "completed":
             row.status = "completed"
@@ -138,6 +161,12 @@ async def submit_quiz(
         # a failed retry never un-completes a quiz that was already passed
         row.status = "in_progress"
     await db.flush()
+
+    if is_first_submission:
+        await award_quiz_points(
+            db, user_id=user_id, item_id=item_id, first_score=row.first_score,
+            hints_used_at_first_submit=row.hints_used, pass_threshold=pass_threshold,
+        )
 
     review = [
         {

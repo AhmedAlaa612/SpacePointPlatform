@@ -479,14 +479,16 @@ async def quiz_check_answer(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
 ):
-    """Live, per-question feedback while stepping through a quiz — stateless,
-    same posture as checkpoint_answer below. `quiz/submit` (unchanged) is
-    still what actually records the attempt once every question's been
-    answered; this just lets the player reveal correct/explanation as the
-    student goes, one question at a time, instead of only at the end."""
+    """Live, per-question feedback while stepping through a quiz — no
+    grading/completion state touched, same posture as checkpoint_answer
+    below. `quiz/submit` is still what actually records the attempt once
+    every question's been answered; this just lets the player reveal
+    correct/explanation as the student goes, one question at a time,
+    instead of only at the end. Does record item_progress.hints_used
+    (P2-3) so the points award can see it was used."""
     await _enrolled_item(db, current.id, item_id)
     return await check_quiz_answer(
-        db, item_id=item_id, question_index=body.question_index, answer=body.answer,
+        db, user_id=current.id, item_id=item_id, question_index=body.question_index, answer=body.answer,
     )
 
 
