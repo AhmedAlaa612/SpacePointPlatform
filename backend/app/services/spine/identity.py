@@ -365,6 +365,37 @@ async def merge_contacts(
 
         result = await db.execute(select(pk_col).where(col == loser_id))
         row_ids = [row[0] for row in result.all()]
+
+        if table_name == "users" and column_name == "contact_id":
+            # D1: contact_id is UNIQUE now (Phase 2 Stage 1). Every other
+            # registry entry below treats a repoint conflict as "the winner
+            # already has an equivalent row, so drop the loser's duplicate" —
+            # correct for a duplicate *row*, never for a duplicate *account*.
+            # Falling through to that generic handling here would silently
+            # delete a real login. Route to a human instead; leave both
+            # accounts exactly as they are until someone decides what
+            # "reconciles the two accounts" means for this pair (whose
+            # enrollments/progress/login survives) — that's a product
+            # decision this merge, and this migration, deliberately don't
+            # make automatically.
+            if row_ids:
+                winner_has_account = bool(
+                    (await db.execute(select(pk_col).where(col == winner_id).limit(1))).first()
+                )
+                if winner_has_account:
+                    db.add(MergeReview(
+                        id=uuid4(), candidate_a=winner_id, candidate_b=loser_id,
+                        reason="dual_lms_accounts", status="pending",
+                        detail={
+                            "note": "both contacts hold a linked user account; the contact merge "
+                                    "went ahead but left both accounts untouched — resolve manually",
+                        },
+                    ))
+                    await db.flush()
+                else:
+                    await db.execute(update(table).where(col == loser_id).values(**values))
+            continue
+
         for row_id in row_ids:
             try:
                 async with db.begin_nested():

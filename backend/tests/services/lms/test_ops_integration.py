@@ -103,29 +103,45 @@ async def test_reuses_an_existing_account_linked_to_the_contact_and_adds_student
 
 
 @pytest.mark.asyncio
-async def test_resolves_to_the_same_account_when_a_contact_has_duplicates(db):
-    """B4: contact_id isn't UNIQUE yet (that's Phase 2 Stage 1's D1
-    migration) — a merge can leave a contact pointing at two accounts. Until
-    then, repeated lookups must at least be deterministic, not "whatever
-    Postgres returns first" from an unordered scan."""
+async def test_repeated_lookups_return_the_same_account(db):
+    """B4 mitigation: the lookup carries a deterministic .order_by regardless
+    of whether duplicates are even possible — belt-and-suspenders alongside
+    D1's UNIQUE(users.contact_id) (Phase 2 Stage 1), which now makes a
+    duplicate impossible to create in the first place (see the test below)."""
     contact = await _contact(db)
-    older = User(
-        id=uuid.uuid4(), full_name="Older Account", email="older@example.com",
+    existing = User(
+        id=uuid.uuid4(), full_name="The Account", email="the-account@example.com",
         password_hash="x", roles=["student"], contact_id=contact.id, status="active",
     )
-    db.add(older)
-    await db.flush()
-    newer = User(
-        id=uuid.uuid4(), full_name="Newer Account", email="newer@example.com",
-        password_hash="x", roles=["student"], contact_id=contact.id, status="active",
-    )
-    db.add(newer)
+    db.add(existing)
     await db.commit()
 
     first, _ = await get_or_create_student_account(db, contact.id)
     second, _ = await get_or_create_student_account(db, contact.id)
-    assert first.id == older.id
-    assert second.id == older.id
+    assert first.id == existing.id
+    assert second.id == existing.id
+
+
+@pytest.mark.asyncio
+async def test_a_second_account_on_the_same_contact_violates_the_d1_constraint(db):
+    """D1 (Phase 2 Stage 1): one account per contact, enforced by
+    UNIQUE(users.contact_id) — not just convention. B4's duplicate-account
+    scenario this test used to construct is no longer a valid DB state."""
+    from sqlalchemy.exc import IntegrityError
+
+    contact = await _contact(db)
+    db.add(User(
+        id=uuid.uuid4(), full_name="First Account", email="first@example.com",
+        password_hash="x", roles=["student"], contact_id=contact.id, status="active",
+    ))
+    await db.commit()
+
+    db.add(User(
+        id=uuid.uuid4(), full_name="Second Account", email="second@example.com",
+        password_hash="x", roles=["student"], contact_id=contact.id, status="active",
+    ))
+    with pytest.raises(IntegrityError):
+        await db.commit()
 
 
 @pytest.mark.asyncio

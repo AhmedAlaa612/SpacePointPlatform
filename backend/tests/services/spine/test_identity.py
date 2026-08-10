@@ -14,6 +14,7 @@ from app.models.spine.consent import ConsentRecord
 from app.models.spine.contact import Contact, ContactRelationship
 from app.models.spine.contact_role_event import ContactRoleEvent
 from app.models.spine.identity_alias import IdentityAlias
+from app.models.spine.merge_review import MergeReview
 from app.models.spine.organization import Organization
 from app.models.spine.touchpoint import Touchpoint
 from app.models.sessions.cohort import Cohort
@@ -296,6 +297,50 @@ async def test_merge_contacts_writes_a_touchpoint_on_the_winner(db):
     assert touchpoint is not None
     assert touchpoint.touchpoint_type == "other"
     assert str(loser.id) in touchpoint.raw_platform_id
+
+
+@pytest.mark.asyncio
+async def test_merge_contacts_routes_dual_accounts_to_merge_review_instead_of_deleting(db):
+    """D1 (Phase 2 Stage 1): once UNIQUE(users.contact_id) exists, a blind
+    repoint-or-delete (the generic registry-loop fallback every other table
+    uses) would silently delete a real account the moment both contacts
+    being merged already have one. Must route to a human via merge_reviews
+    instead, and leave both accounts exactly as they were."""
+    winner = _new_contact(full_name="Winner")
+    loser = _new_contact(full_name="Loser")
+    db.add_all([winner, loser])
+    await db.flush()
+
+    winner_user = User(
+        id=uuid.uuid4(), full_name="Winner Account", email=f"{uuid.uuid4().hex}@example.com",
+        password_hash="x", roles=["student"], contact_id=winner.id, status="active",
+    )
+    loser_user = User(
+        id=uuid.uuid4(), full_name="Loser Account", email=f"{uuid.uuid4().hex}@example.com",
+        password_hash="x", roles=["student"], contact_id=loser.id, status="active",
+    )
+    db.add_all([winner_user, loser_user])
+    await db.flush()
+
+    await merge_contacts(db, winner_id=winner.id, loser_id=loser.id, actor_user_id=None)  # must not raise
+
+    # Neither account was touched.
+    await db.refresh(winner_user)
+    await db.refresh(loser_user)
+    assert winner_user.contact_id == winner.id
+    assert loser_user.contact_id == loser.id  # not deleted, not repointed
+
+    # The contact-level merge still went ahead (D1 doesn't block that).
+    assert loser.merged_into_id == winner.id
+
+    review = (await db.execute(
+        select(MergeReview).where(
+            MergeReview.candidate_a == winner.id, MergeReview.candidate_b == loser.id,
+            MergeReview.reason == "dual_lms_accounts",
+        )
+    )).scalars().first()
+    assert review is not None
+    assert review.status == "pending"
 
 
 # ── resolve_or_create_organization / DOB+grade+org on resolve_or_create_contact
