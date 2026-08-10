@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
-import { CheckCircle2, ChevronRight, Rocket, Sparkles, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronRight, Lock, Rocket, Sparkles, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -36,6 +36,17 @@ export default function MissionPage() {
         setSelectedVariantId((prev) => prev ?? m.variants[0]?.id ?? null);
       })
       .catch(() => setError("Couldn't load this mission."));
+  }, [missionId]);
+
+  // Client-side navigation between two mission pages (e.g. a prerequisite
+  // chip) reuses this component without remounting — reset per-mission
+  // state before the new fetch lands, or a stale selectedVariantId from
+  // the previous mission survives and 404s the new one's start call.
+  useEffect(() => {
+    setMission(null);
+    setSelectedVariantId(null);
+    setQuizReview(null);
+    setError("");
   }, [missionId]);
 
   useEffect(() => {
@@ -133,6 +144,28 @@ export default function MissionPage() {
         </Card>
       )}
 
+      {mission.locked && (
+        <Card className="p-5 flex flex-col gap-2">
+          <p className="text-sm font-semibold flex items-center gap-1.5"><Lock className="size-4" /> Locked</p>
+          <p className="text-xs text-muted-foreground">Complete these missions first:</p>
+          <div className="flex flex-wrap gap-2 mt-1">
+            {mission.prerequisites.map((p) => (
+              <Link
+                key={p.mission_id}
+                to="/learn/missions/$missionId"
+                params={{ missionId: p.mission_id }}
+                className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg ring-1 ${
+                  p.satisfied ? "ring-emerald-500/30 text-emerald-500" : "ring-border text-muted-foreground"
+                }`}
+              >
+                {p.satisfied ? <CheckCircle2 className="size-3" /> : <Lock className="size-3" />}
+                {p.title}
+              </Link>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {(!activeAttempt || decided) && (
         <Card className="p-5 flex flex-col gap-4">
           {mission.variants.length > 1 && (
@@ -154,8 +187,8 @@ export default function MissionPage() {
               </div>
             </div>
           )}
-          <Button size="xl" className="w-fit" onClick={() => void handleStart()} disabled={starting || !selectedVariantId}>
-            {starting ? "Starting..." : decided ? "Try again" : "Start mission"}
+          <Button size="xl" className="w-fit" onClick={() => void handleStart()} disabled={starting || !selectedVariantId || mission.locked}>
+            {mission.locked ? "Locked" : starting ? "Starting..." : decided ? "Try again" : "Start mission"}
           </Button>
           {startError && <p className="text-xs text-destructive">{startError}</p>}
         </Card>

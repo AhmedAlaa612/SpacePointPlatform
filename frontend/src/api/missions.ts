@@ -19,6 +19,22 @@ export interface MissionCatalogItem {
   track: string | null;
   image_url: string | null;
   variants: MissionVariantSummary[];
+  locked: boolean;
+}
+
+export interface MissionPrerequisite {
+  mission_id: string;
+  title: string;
+  satisfied: boolean;
+}
+
+export interface MissionGraphNode {
+  id: string;
+  title: string;
+  kind: MissionCatalogItem["kind"];
+  track: string | null;
+  locked: boolean;
+  requires: string[];
 }
 
 export interface MissionQuizQuestion {
@@ -63,6 +79,8 @@ export interface MissionDetail {
   image_url: string | null;
   variants: MissionVariant[];
   attempts: MissionAttempt[];
+  prerequisites: MissionPrerequisite[];
+  locked: boolean;
 }
 
 export interface MissionQuizReviewQuestion {
@@ -86,6 +104,11 @@ export interface MissionAttemptSubmitResult {
 
 export async function fetchMissionCatalog(): Promise<MissionCatalogItem[]> {
   const { data } = await api.get<MissionCatalogItem[]>("/missions");
+  return data;
+}
+
+export async function fetchMissionGraph(): Promise<MissionGraphNode[]> {
+  const { data } = await api.get<MissionGraphNode[]>("/missions/graph");
   return data;
 }
 
