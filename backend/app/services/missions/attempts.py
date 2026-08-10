@@ -84,6 +84,19 @@ async def start_attempt(
     return attempt
 
 
+async def _attempt_recipients(db: AsyncSession, attempt: MissionAttempt) -> list[uuid.UUID]:
+    """Who a passing attempt owes points/completion to: the solo student,
+    or (P6-3) every member of the `mission_attempt_members` snapshot frozen
+    at `start_attempt` time — never live `MissionTeamMember` roster, which
+    may have changed since."""
+    if attempt.user_id is not None:
+        return [attempt.user_id]
+    rows = (await db.execute(
+        select(MissionAttemptMember.user_id).where(MissionAttemptMember.attempt_id == attempt.id)
+    )).scalars().all()
+    return list(rows)
+
+
 async def decide_attempt(
     db: AsyncSession,
     *,
@@ -93,10 +106,16 @@ async def decide_attempt(
     decided_by: uuid.UUID | None = None,
 ) -> MissionAttempt:
     """Flips `attempt` to passed/failed and, on pass, awards the variant's
-    points. Idempotency key is `(mission_id, variant_id)` — passing the same
-    variant again on a later attempt doesn't re-award, but passing a
-    *harder* variant of the same mission is a new key and does (replaying at
-    higher difficulty stays meaningful, MISSIONS_REPORT.md Ch.2).
+    points. Idempotency key is `(mission_id, variant_id)`, scoped per
+    recipient — passing the same variant again on a later attempt doesn't
+    re-award, but passing a *harder* variant of the same mission is a new
+    key and does (replaying at higher difficulty stays meaningful,
+    MISSIONS_REPORT.md Ch.2).
+
+    A team attempt (P6-3) awards *every* member of the frozen roster
+    individually — "collaborative work, individual leaderboard"
+    (MISSIONS_REPORT.md Ch.2 idea 5) — each carrying `ref.team_id`, not a
+    single shared award.
     """
     attempt.status = "passed" if passed else "failed"
     attempt.score = score
@@ -106,21 +125,26 @@ async def decide_attempt(
 
     if passed:
         variant = await db.get(MissionVariant, attempt.variant_id)
-        await award_points(
-            db,
-            user_id=attempt.user_id,
-            source=MISSION_POINTS_SOURCE,
-            points=variant.points,
-            idempotency_key=f"{attempt.mission_id}:{attempt.variant_id}",
-            ref={
-                "attempt_id": str(attempt.id),
-                "mission_id": str(attempt.mission_id),
-                "variant_id": str(attempt.variant_id),
-            },
-        )
+        recipients = await _attempt_recipients(db, attempt)
+        ref = {
+            "attempt_id": str(attempt.id),
+            "mission_id": str(attempt.mission_id),
+            "variant_id": str(attempt.variant_id),
+        }
+        if attempt.mission_team_id is not None:
+            ref["team_id"] = str(attempt.mission_team_id)
+        for user_id in recipients:
+            await award_points(
+                db,
+                user_id=user_id,
+                source=MISSION_POINTS_SOURCE,
+                points=variant.points,
+                idempotency_key=f"{attempt.mission_id}:{attempt.variant_id}",
+                ref=ref,
+            )
         # Rule ① (Stage 5): never client-assertable — this is the only path
         # that can complete an embedded mission item's ItemProgress row.
         await complete_embedded_items(
-            db, mission_id=attempt.mission_id, variant_id=attempt.variant_id, user_id=attempt.user_id,
+            db, mission_id=attempt.mission_id, variant_id=attempt.variant_id, user_ids=recipients,
         )
     return attempt

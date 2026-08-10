@@ -33,14 +33,21 @@ async def _progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID
 
 
 async def complete_embedded_items(
-    db: AsyncSession, *, mission_id: uuid.UUID, variant_id: uuid.UUID, user_id: uuid.UUID
+    db: AsyncSession, *, mission_id: uuid.UUID, variant_id: uuid.UUID, user_ids: list[uuid.UUID]
 ) -> None:
     """A mission attempt just passed — complete every `module_item` that
     embeds this exact mission (and, if the item pins a variant, only when
-    that variant is the one that just passed), for every course the student
-    holds an active enrollment in. A standalone attempt (the common case,
-    P5-4) touches no module_items at all — this is a no-op unless embedding
-    is actually in play.
+    that variant is the one that just passed), for every `user_ids` member
+    who holds an active enrollment in that item's course. A standalone
+    attempt (the common case, P5-4) touches no module_items at all — this
+    is a no-op unless embedding is actually in play.
+
+    `user_ids` is one user for a solo attempt, or the whole
+    `mission_attempt_members` snapshot for a team attempt (P6-2/P6-3): a
+    team mission embedded in a course completes it only for members who
+    are actually enrolled there — the others still keep their attempt
+    record and their points, they just don't get an ItemProgress row for a
+    course they never joined (the P6-2 edge case).
     """
     items = (await db.execute(
         select(ModuleItem).where(
@@ -58,16 +65,15 @@ async def complete_embedded_items(
         module = await db.get(CourseModule, item.module_id)
         if module is None:
             continue
-        enrollment = (await db.execute(
-            select(Enrollment).where(
-                Enrollment.user_id == user_id, Enrollment.course_id == module.course_id, *enrollment_is_active(),
+        enrolled_ids = (await db.execute(
+            select(Enrollment.user_id).where(
+                Enrollment.user_id.in_(user_ids), Enrollment.course_id == module.course_id, *enrollment_is_active(),
             )
-        )).scalars().first()
-        if enrollment is None:
-            continue
-        row = await _progress_row(db, user_id, item.id)
-        if row.status != "completed":
-            row.status = "completed"
-            row.completed_at = datetime.now(timezone.utc)
-        row.updated_at = datetime.now(timezone.utc)
+        )).scalars().all()
+        for user_id in enrolled_ids:
+            row = await _progress_row(db, user_id, item.id)
+            if row.status != "completed":
+                row.status = "completed"
+                row.completed_at = datetime.now(timezone.utc)
+            row.updated_at = datetime.now(timezone.utc)
     await db.flush()
