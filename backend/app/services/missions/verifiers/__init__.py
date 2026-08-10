@@ -6,8 +6,8 @@ here enforces a shared base class since `submission` (human-reviewed) and
 "kind string -> the module that knows how to run it", for router dispatch.
 """
 
-from app.services.missions.verifiers import submission
+from app.services.missions.verifiers import quiz, submission
 
 VERIFIER_KINDS = {"submission", "quiz", "checklist", "design", "external"}
 
-__all__ = ["VERIFIER_KINDS", "submission"]
+__all__ = ["VERIFIER_KINDS", "quiz", "submission"]

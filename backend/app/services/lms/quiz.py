@@ -87,30 +87,18 @@ async def check_quiz_answer(
     }
 
 
-async def submit_quiz(
-    db: AsyncSession,
-    *,
-    user_id: uuid.UUID,
-    item_id: uuid.UUID,
-    answers: list[int],
-) -> dict:
-    """Grade a quiz submission against the authored content and record it.
+def grade_quiz(*, questions: list[dict], answers: list[int], pass_threshold: int) -> dict:
+    """Pure grading: validates `answers` against `questions` and returns
+    `{score, passed, questions}` (the per-question review sheet). Raises
+    HTTPException(400) on malformed input — a mismatched answer count, an
+    out-of-range index, or a threshold outside 0-100 — since the client is
+    never trusted to state its own score.
 
-    `answers` is one option index per question, in order. A mismatch in
-    count or an out-of-range index is a 400 — the client is not trusted to
-    state its own score. Returns the review sheet: score, pass state, the
-    attempts/best counters, and per-question correctness + explanation.
+    Shared by `submit_quiz` (LMS quiz items) and the mission `quiz` kind
+    (P5-3, `services/missions/verifiers/quiz.py`) — one grading algorithm,
+    two callers, so a future scoring change (e.g. partial credit) only has
+    one place to land.
     """
-    item = await db.get(ModuleItem, item_id)
-    if item is None:
-        raise HTTPException(404, detail="Item not found")
-    if item.kind != "quiz":
-        raise HTTPException(400, detail="Only quiz items can be submitted")
-
-    content = item.content or {}
-    questions: list[dict] = content.get("questions") or []
-    pass_threshold = content.get("pass_threshold", 0)
-
     if len(answers) != len(questions):
         raise HTTPException(
             400, detail="Answer count does not match the number of questions"
@@ -130,12 +118,57 @@ async def submit_quiz(
         )
         score = round(correct / len(questions) * 100, 2)
     else:
-        correct = 0
         score = 0.0
 
     if not (0 <= pass_threshold <= 100):
         raise HTTPException(400, detail="pass_threshold must be between 0 and 100")
     passed = pass_threshold == 0 or score >= pass_threshold
+
+    review = [
+        {
+            "prompt": questions[idx].get("prompt"),
+            "selected": answers[idx],
+            "correct": bool((questions[idx].get("options") or [])[answers[idx]].get("is_correct")),
+            "explanation": questions[idx].get("explanation"),
+            # Safe to reveal post-submit — same moment `explanation` already
+            # leaves the server (§2). Lets the review show "Your answer" vs
+            # "Correct" instead of just an explanation blurb.
+            "correct_text": next(
+                (o.get("text") for o in (questions[idx].get("options") or []) if o.get("is_correct")), None,
+            ),
+        }
+        for idx in range(len(questions))
+    ]
+
+    return {"score": score, "passed": passed, "questions": review}
+
+
+async def submit_quiz(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    item_id: uuid.UUID,
+    answers: list[int],
+) -> dict:
+    """Grade a quiz submission against the authored content and record it.
+
+    `answers` is one option index per question, in order. Returns the
+    review sheet: score, pass state, the attempts/best counters, and
+    per-question correctness + explanation.
+    """
+    item = await db.get(ModuleItem, item_id)
+    if item is None:
+        raise HTTPException(404, detail="Item not found")
+    if item.kind != "quiz":
+        raise HTTPException(400, detail="Only quiz items can be submitted")
+
+    content = item.content or {}
+    questions: list[dict] = content.get("questions") or []
+    pass_threshold = content.get("pass_threshold", 0)
+
+    graded = grade_quiz(questions=questions, answers=answers, pass_threshold=pass_threshold)
+    score = graded["score"]
+    passed = graded["passed"]
 
     row = await _progress_row(db, user_id, item_id)
     row.quiz_attempts += 1
@@ -168,27 +201,11 @@ async def submit_quiz(
             hints_used_at_first_submit=row.hints_used, pass_threshold=pass_threshold,
         )
 
-    review = [
-        {
-            "prompt": questions[idx].get("prompt"),
-            "selected": answers[idx],
-            "correct": bool((questions[idx].get("options") or [])[answers[idx]].get("is_correct")),
-            "explanation": questions[idx].get("explanation"),
-            # Safe to reveal post-submit — same moment `explanation` already
-            # leaves the server (§2). Lets the review show "Your answer" vs
-            # "Correct" instead of just an explanation blurb.
-            "correct_text": next(
-                (o.get("text") for o in (questions[idx].get("options") or []) if o.get("is_correct")), None,
-            ),
-        }
-        for idx in range(len(questions))
-    ]
-
     return {
         "score": score,
         "passed": passed,
         "pass_threshold": pass_threshold,
         "attempts": row.quiz_attempts,
         "best_score": float(row.best_score) if row.best_score is not None else None,
-        "questions": review,
+        "questions": graded["questions"],
     }
