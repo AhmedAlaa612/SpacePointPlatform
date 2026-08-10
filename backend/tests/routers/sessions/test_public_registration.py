@@ -11,6 +11,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from app.core.security import create_access_token, get_password_hash
 from app.db.session import get_db
 from app.main import app
 from app.models.sessions.cohort import Cohort
@@ -19,6 +20,7 @@ from app.models.spine.contact import Contact, ContactRelationship
 from app.models.spine.identity_alias import IdentityAlias
 from app.models.sessions.registration import Registration
 from app.models.spine.touchpoint import Touchpoint
+from app.models.user import User
 from app.workers.settings import get_arq_redis
 
 
@@ -104,7 +106,9 @@ async def test_registration_creates_everything_correctly(db, arq_client, arq_red
     await db.refresh(registration)
     assert registration.ticket_sent_at is None
     queued_jobs = await arq_redis.zrange("arq:queue", 0, -1)
-    assert len(queued_jobs) == 1
+    # send_ticket_email + sync_registration_lms_job (B2 — public_register now
+    # provisions LMS access the same way desk_register and the importer do).
+    assert len(queued_jobs) == 2
 
 
 @pytest.mark.asyncio
@@ -217,6 +221,52 @@ async def test_honeypot_filled_drops_silently(db, client):
         select(Contact).where(Contact.email == "bot@example.com")
     )).scalars().first()
     assert contact is None  # ...but nothing was actually created
+
+
+@pytest.mark.asyncio
+async def test_signed_in_caller_reuses_own_contact_instead_of_retyped_email(db, client):
+    """B2: /learn/programs/$cohortId posts here with the caller's own auth
+    header if they're signed in (the shared axios client attaches it
+    unconditionally). Must reuse their linked contact rather than re-resolving
+    identity from the form's email/phone, which could otherwise land on a
+    different contact than the one their account is tied to."""
+    cohort = await _make_public_cohort(db)
+    headers = _unique_ip_headers("signed_in_reuse")
+
+    existing_contact = Contact(
+        id=uuid.uuid4(), full_name="Already A Student", email="already.student@example.com",
+        contact_roles=["student"],
+    )
+    db.add(existing_contact)
+    await db.flush()
+    student_user = User(
+        id=uuid.uuid4(), full_name="Already A Student", email="already.student@example.com",
+        password_hash=get_password_hash("x"), roles=["student"], contact_id=existing_contact.id, status="active",
+    )
+    db.add(student_user)
+    await db.flush()
+    token = create_access_token(student_user.id, student_user.role_values)
+    headers["Authorization"] = f"Bearer {token}"
+
+    resp = await client.post(
+        f"/public/register/{cohort.id}",
+        # Deliberately a DIFFERENT, typo'd email from the account's own —
+        # this must be ignored in favor of the session's linked contact.
+        json={"student_name": "Typo'd Name", "email": "typo@example.com", "phone": "050 000 0001"},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    registration = (await db.execute(
+        select(Registration).where(Registration.cohort_id == cohort.id)
+    )).scalars().first()
+    assert registration.contact_id == existing_contact.id
+
+    # No second contact was created from the re-typed email.
+    typo_contact = (await db.execute(
+        select(Contact).where(Contact.email == "typo@example.com")
+    )).scalars().first()
+    assert typo_contact is None
 
 
 @pytest.mark.asyncio

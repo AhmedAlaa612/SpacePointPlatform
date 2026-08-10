@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arq.connections import ArqRedis
 
 from app.db.session import get_db
+from app.core.dependencies import get_current_user_optional
 from app.core.rate_limit import enforce_rate_limit
 from app.models.inventory.city import City
 from app.models.inventory.location import Location
@@ -186,6 +187,7 @@ async def public_register(
     request: Request,
     db: AsyncSession = Depends(get_db),
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
+    current_user: User | None = Depends(get_current_user_optional),
 ):
     # Rate-limit before the honeypot check, so a flood of bot-filled requests
     # still gets throttled even though they'll be dropped either way.
@@ -201,17 +203,25 @@ async def public_register(
     if cohort is None or cohort.status != "registration_open" or cohort.visibility != "public":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration is not open for this cohort")
 
-    student, _ = await resolve_or_create_contact(
-        db,
-        full_name=body.student_name,
-        phone=body.phone,
-        email=body.email,
-        contact_roles=["student"],
-        city=body.city,
-        date_of_birth=body.date_of_birth,
-        grade=body.grade,
-        organization_name=body.organization_name,
-    )
+    # B2: this endpoint also serves /learn/programs/$cohortId, posted with the
+    # caller's own auth header if they're signed in (the shared axios client
+    # attaches it unconditionally). A signed-in student already has a linked
+    # contact — reuse it directly rather than re-resolving identity from a
+    # re-typed email/phone, which could land on a different contact than the
+    # one their account is actually tied to.
+    student = await db.get(Contact, current_user.contact_id) if current_user and current_user.contact_id else None
+    if student is None:
+        student, _ = await resolve_or_create_contact(
+            db,
+            full_name=body.student_name,
+            phone=body.phone,
+            email=body.email,
+            contact_roles=["student"],
+            city=body.city,
+            date_of_birth=body.date_of_birth,
+            grade=body.grade,
+            organization_name=body.organization_name,
+        )
 
     payer_contact_id = None
     if body.parent_name and body.parent_phone:
@@ -241,6 +251,13 @@ async def public_register(
     # or slow send — or Redis being unreachable at all (safe_enqueue) — must
     # never hold up or undo a successful registration.
     await safe_enqueue(arq_redis, "send_ticket_email", str(registration.id))
+
+    # B2: this was the missing half — a public/LMS-page registration produced
+    # a ticket but no LMS account or curriculum enrollments. Same enqueued
+    # shape as the ticket email (never call sync_registration_lms inline from
+    # an unauthenticated route); create_account=True by default here since
+    # there's no desk-staff checkbox to read.
+    await safe_enqueue(arq_redis, "sync_registration_lms_job", str(registration.id))
 
     return {
         "message": "You're registered! Check your email for your ticket.",

@@ -1,10 +1,19 @@
-"""LMS worker jobs: video transcode (LM1-6) + import-batch account sync (LM1-7).
+"""LMS worker jobs: video transcode (LM1-6) + import-batch account sync (LM1-7)
++ single-registration account sync (B2, 2026-08-10).
 
 `sync_import_batch_lms_accounts` mirrors `workers/tasks/imports.py`'s
 `send_import_batch_emails` exactly — same contact_id lookup off the committed
 batch, same "one job per batch, driven off real commit" shape — so LMS
 account creation never runs inside the importer's rolled-back dry-run
 SAVEPOINT (services/sessions/importer.py's whole design point).
+
+`sync_registration_lms_job` is the same idea for `public_register`
+(routers/sessions/public.py) — that endpoint is unauthenticated, so unlike
+`desk_register` it must not call `sync_registration_lms` inline: an LMS
+hiccup, however unlikely (it never raises itself, but the enqueue/worker
+hop keeps a slow email send off the request), still shouldn't hold up the
+response to a public form submitter. Enqueued right beside the existing
+`send_ticket_email` job, same commit-then-enqueue discipline.
 """
 
 import uuid
@@ -23,6 +32,19 @@ async def transcode_lms_video(ctx, item_id: str) -> dict:
     async with AsyncSessionLocal() as db:
         await run_transcode(db, uuid.UUID(item_id))
     return {"item_id": item_id}
+
+
+async def sync_registration_lms_job(ctx, registration_id: str) -> dict:
+    async with AsyncSessionLocal() as db:
+        registration = await db.get(Registration, uuid.UUID(registration_id))
+        if registration is None:
+            return {"synced": False}
+        cohort = await db.get(Cohort, registration.cohort_id)
+        if cohort is None:
+            return {"synced": False}
+        user = await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=True)
+        await db.commit()
+        return {"synced": user is not None}
 
 
 async def sync_import_batch_lms_accounts(ctx, batch_id: str) -> dict:

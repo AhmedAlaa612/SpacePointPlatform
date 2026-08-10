@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
 
 async def get_current_user(
@@ -31,6 +32,26 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
     return user
+
+
+async def get_current_user_optional(
+    token: str | None = Depends(oauth2_scheme_optional), db: AsyncSession = Depends(get_db)
+) -> User | None:
+    """Same decode as get_current_user, but never raises — None for no token,
+    a garbage token, or an unknown subject. For public endpoints that behave
+    differently for a signed-in caller without *requiring* auth (B2:
+    public_register reusing the caller's own contact_id instead of
+    re-resolving identity from a re-typed email)."""
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        sub = payload.get("sub")
+        if sub is None or payload.get("type") != "access":
+            return None
+    except JWTError:
+        return None
+    return (await db.execute(select(User).where(User.id == sub))).scalars().first()
 
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
