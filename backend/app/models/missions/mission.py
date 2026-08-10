@@ -8,10 +8,8 @@ gating via `MissionPrerequisite`, a DAG edge table. `access_mode` (a grant,
 earned the right to attempt it") are two different mechanisms and both are
 correct; do not collapse them (PHASE2_EXECUTION_PLAN.md §Stage 5 note ②).
 
-Solo only this stage: `mission_attempts.user_id` is nullable already (ahead
-of Stage 6, which adds `mission_team_id` + a CHECK exactly-one), but every
-row this stage always sets it. The `mission_teams` table does not exist yet,
-so its FK is deliberately not forward-referenced here.
+`mission_attempts.user_id` XOR `mission_team_id` (P6-2, Stage 6) — a solo
+attempt sets the former, a team attempt the latter, CHECK-enforced.
 """
 
 import uuid
@@ -128,20 +126,36 @@ class MissionAttempt(Base):
     without knowing what it was attempted against, so neither can be
     deleted out from under grading history (there is no mission-delete
     endpoint this stage; archiving is `missions.status`, not a row delete).
+
+    `user_id` XOR `mission_team_id` (P6-2, CHECK-enforced): a solo attempt
+    sets `user_id`; a team attempt sets `mission_team_id` and snapshots the
+    team's roster into `MissionAttemptMember` at start time — who's on the
+    hook for this specific attempt's grade is frozen there, since the team
+    itself (`MissionTeamMember`) can change membership afterward.
     """
 
     __tablename__ = "mission_attempts"
     __table_args__ = (
         UniqueConstraint("mission_id", "user_id", "attempt_no", name="uq_mission_attempts_mission_user_no"),
+        UniqueConstraint("mission_id", "mission_team_id", "attempt_no", name="uq_mission_attempts_mission_team_no"),
+        CheckConstraint(
+            "(user_id IS NOT NULL AND mission_team_id IS NULL) OR (user_id IS NULL AND mission_team_id IS NOT NULL)",
+            name="ck_mission_attempts_user_xor_team",
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     mission_id = Column(UUID(as_uuid=True), ForeignKey("missions.id", ondelete="RESTRICT"), nullable=False)
     variant_id = Column(UUID(as_uuid=True), ForeignKey("mission_variants.id", ondelete="RESTRICT"), nullable=False)
     attempt_no = Column(Integer, nullable=False, default=1)
-    # Nullable ahead of Stage 6 (team attempts) — every row this stage sets
-    # it; solo only, no mission_team_id column exists yet.
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    # P6-2 — RESTRICT, not SET NULL: the XOR CHECK above means a team
+    # attempt's mission_team_id can never actually go NULL (there's no
+    # user_id to fall back on), so SET NULL would just turn "delete this
+    # team" into a constraint-violation error instead of a clean RESTRICT
+    # one. Same "can't delete out from under grading history" reasoning as
+    # mission_id/variant_id above — a team with attempts isn't deletable.
+    mission_team_id = Column(UUID(as_uuid=True), ForeignKey("mission_teams.id", ondelete="RESTRICT"), nullable=True)
     # in_progress|submitted|passed|failed|abandoned
     status = Column(String(12), nullable=False, default="in_progress", server_default="in_progress")
     score = Column(Numeric(5, 2), nullable=True)
@@ -150,3 +164,19 @@ class MissionAttempt(Base):
     submitted_at = Column(DateTime(timezone=True), nullable=True)
     decided_at = Column(DateTime(timezone=True), nullable=True)
     decided_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+class MissionAttemptMember(Base):
+    """Snapshot of who was on the team for one specific attempt (P6-2),
+    frozen at `start_attempt` time from `MissionTeamMember`'s roster at that
+    moment. `MissionTeamMember` can change after this; this table is what
+    the attempt's eventual grade and per-member point award actually mean —
+    editing the team later never rewrites who earned what."""
+
+    __tablename__ = "mission_attempt_members"
+    __table_args__ = (
+        PrimaryKeyConstraint("attempt_id", "user_id", name="pk_mission_attempt_members"),
+    )
+
+    attempt_id = Column(UUID(as_uuid=True), ForeignKey("mission_attempts.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)

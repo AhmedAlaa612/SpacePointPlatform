@@ -1,11 +1,16 @@
-"""Mission attempt lifecycle (P5-2, Phase 2 Stage 5, 2026-08-11).
+"""Mission attempt lifecycle (P5-2, Phase 2 Stage 5/6, 2026-08-11).
 
 Two functions every verifier kind shares: `start_attempt` (template →
-instance, single-flight — a student can't be "in progress" on two attempts
+instance, single-flight — an owner can't be "in progress" on two attempts
 of the same mission at once) and `decide_attempt` (the one place a verifier
 lands a final passed/failed and, on pass, mints the points award). Kind-
 specific grading lives in `services/missions/verifiers/*`; this module has
 no opinion on what "passed" means for any given kind.
+
+P6-2: `start_attempt` takes `user_id` XOR `team_id` — exactly one, matching
+`mission_attempts`' own CHECK constraint. A team attempt snapshots the
+team's *current* roster into `MissionAttemptMember` at this exact moment;
+`MissionTeamMember` can change afterward without touching that snapshot.
 """
 
 from __future__ import annotations
@@ -14,29 +19,38 @@ import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
+from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.missions.mission import MissionAttempt, MissionVariant
+from app.models.missions.mission import MissionAttempt, MissionAttemptMember, MissionVariant
 from app.services.lms.points import award_points
 from app.services.missions.embedding import complete_embedded_items
+from app.services.missions.teams import team_member_ids
 
 MISSION_POINTS_SOURCE = "mission"
 
 
 async def start_attempt(
-    db: AsyncSession, *, user_id: uuid.UUID, mission_id: uuid.UUID, variant_id: uuid.UUID
+    db: AsyncSession, *, mission_id: uuid.UUID, variant_id: uuid.UUID,
+    user_id: uuid.UUID | None = None, team_id: uuid.UUID | None = None,
 ) -> MissionAttempt:
-    """Resumes this user's in-progress attempt on `mission_id` if one exists
-    (ignoring the requested `variant_id` in that case — finish what you
-    started before beginning something new), otherwise starts a new one at
-    `attempt_no = max(existing) + 1`.
+    """Resumes the owner's (a user or a team — exactly one) in-progress
+    attempt on `mission_id` if one exists (ignoring the requested
+    `variant_id` in that case — finish what you started before beginning
+    something new), otherwise starts a new one at
+    `attempt_no = max(existing) + 1`, scoped to the same owner.
     """
+    if (user_id is None) == (team_id is None):
+        raise HTTPException(400, detail="Exactly one of user_id or team_id is required")
+    owner_column = MissionAttempt.user_id if user_id is not None else MissionAttempt.mission_team_id
+    owner_value = user_id if user_id is not None else team_id
+
     existing = await db.scalar(
         select(MissionAttempt)
         .where(
             MissionAttempt.mission_id == mission_id,
-            MissionAttempt.user_id == user_id,
+            owner_column == owner_value,
             MissionAttempt.status == "in_progress",
         )
         .order_by(MissionAttempt.started_at.desc())
@@ -47,7 +61,7 @@ async def start_attempt(
     max_no = await db.scalar(
         select(func.max(MissionAttempt.attempt_no)).where(
             MissionAttempt.mission_id == mission_id,
-            MissionAttempt.user_id == user_id,
+            owner_column == owner_value,
         )
     )
     attempt = MissionAttempt(
@@ -55,11 +69,18 @@ async def start_attempt(
         mission_id=mission_id,
         variant_id=variant_id,
         user_id=user_id,
+        mission_team_id=team_id,
         attempt_no=(max_no or 0) + 1,
         status="in_progress",
     )
     db.add(attempt)
     await db.flush()
+
+    if team_id is not None:
+        for member_id in await team_member_ids(db, team_id=team_id):
+            db.add(MissionAttemptMember(attempt_id=attempt.id, user_id=member_id))
+        await db.flush()
+
     return attempt
 
 
