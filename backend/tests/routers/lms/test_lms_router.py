@@ -348,22 +348,32 @@ async def _tree_with_quiz(db):
 
 
 @pytest.mark.asyncio
-async def test_module_read_requires_student_role_and_enrollment(db, client):
+async def test_module_read_gates_on_enrollment_not_role(db, client):
+    """P1-6/D2 (2026-08-10): "yes, staff can take LMS courses" — content
+    routes gate purely on enrollment now, not on holding the `student` role."""
     course, module, *_ = await _tree_with_quiz(db)
+
+    # a not-yet-enrolled staff member gets 404, never a role-based 403 —
+    # same don't-leak-existence treatment a student gets.
     ops = await _user(db, roles=["operations"])
-    # role guard first: a non-student gets 403 regardless of enrollment state
     resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(ops))
-    assert resp.status_code == http_status.HTTP_403_FORBIDDEN
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
 
     # a student who is NOT enrolled gets 404, never 403 — don't leak existence
     stranger = await _user(db)
     resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(stranger))
     assert resp.status_code == http_status.HTTP_404_NOT_FOUND
 
-    # enrolled -> 200
+    # enrolled -> 200, for a student...
     await enroll(db, user_id=stranger.id, course_id=course.id)
     await db.commit()
     resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(stranger))
+    assert resp.status_code == 200
+
+    # ...and equally for enrolled staff (D2).
+    await enroll(db, user_id=ops.id, course_id=course.id)
+    await db.commit()
+    resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(ops))
     assert resp.status_code == 200
 
 

@@ -1,11 +1,15 @@
 """LMS student routes (LM1-3) — `/lms/*`.
 
 Catalog and course outline are any-authenticated-user reads; module content
-(the actual lessons), progress writes and quiz submissions are
-`require_lms_student` **and** enrolled. Not-enrolled is a 404, never a 403 —
-a student who hasn't joined must not learn whether a course exists and is a
-particular course, only that access is unavailable. Draft (unpublished)
-courses 404 from every route for the same reason.
+(the actual lessons), progress writes and quiz submissions are gated purely
+on enrollment, not on holding the `student` role (P1-6, D2 — 2026-08-10:
+"yes, staff can take LMS courses"). `require_lms_student` stays only on the
+account-shaped routes: signup, `/my-courses`, `/my-activity`, `/enroll`, and
+`/learning-paths/{id}/start` (a bulk variant of self-enrol). Not-enrolled is
+a 404, never a 403 — a student (or an enrolled staff member) who hasn't
+joined must not learn whether a course exists and is a particular course,
+only that access is unavailable. Draft (unpublished) courses 404 from every
+route for the same reason.
 
 Every item payload flows through `student_view` (§2) — the answer-stripping
 choke point — and the Pydantic response models (`extra="forbid"`) enforce the
@@ -280,11 +284,19 @@ async def start_learning_path(
     `enroll()` self-source path `POST /lms/enroll` already uses) — a path's
     stats/progress only make sense once the student has access to every
     course in it, mirroring how cohort-add already bulk-enrols a program's
-    whole curriculum in one shot."""
+    whole curriculum in one shot.
+
+    Only `open` steps self-enrol (P1-6) — this bulk path is a shortcut for
+    the same self-enrol `POST /lms/enroll` does, so it must respect the same
+    access_mode gate (P1-4) rather than silently granting access to an
+    invite-only or paid course the single-course endpoint would 403/402 on.
+    A restricted step is just skipped; the rest of the path still starts."""
     path = await _published_path(db, path_id)
     steps = await _path_steps(db, path.id)
     for step in steps:
-        await enroll(db, user_id=current.id, course_id=step.course_id, source="self")
+        course = await db.get(Course, step.course_id)
+        if course is not None and course.access_mode == "open":
+            await enroll(db, user_id=current.id, course_id=step.course_id, source="self")
     await db.commit()
 
     progress = await path_progress(db, user_id=current.id, steps=steps)
@@ -382,7 +394,7 @@ async def _video_state(db: AsyncSession, item: ModuleItem) -> dict:
 async def module_read(
     module_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     """The actual lessons — every item through `student_view`, plus this
     student's per-item status and the video transcode state the player needs."""
@@ -431,7 +443,7 @@ async def module_read(
 async def list_checkpoints(
     video_item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     item = await _enrolled_item(db, current.id, video_item_id)
     if item.kind != "video":
@@ -444,14 +456,14 @@ async def list_checkpoints(
     return [sanitize_checkpoint(c) for c in rows]
 
 
-# ── learner writes: student AND enrolled ────────────────────────────────────
+# ── learner writes: enrolled (P1-6/D2 — role no longer gates this) ─────────
 
 @router.post("/items/{item_id}/quiz/check", response_model=QuizAnswerCheckOut)
 async def quiz_check_answer(
     item_id: uuid.UUID,
     body: QuizAnswerCheckIn,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     """Live, per-question feedback while stepping through a quiz — stateless,
     same posture as checkpoint_answer below. `quiz/submit` (unchanged) is
@@ -469,7 +481,7 @@ async def quiz_submit(
     item_id: uuid.UUID,
     body: QuizAnswersIn,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     """Server-side grading (D7) — the review sheet returns after submission,
     which is exactly when the explanations are allowed to leave the server."""
@@ -487,7 +499,7 @@ async def checkpoint_answer(
     checkpoint_id: uuid.UUID,
     body: CheckpointAnswerIn,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     """Stateless grading (checkpoint.py) — a checkpoint quiz gates playback,
     not module completion, so there's nothing to commit here."""
@@ -501,7 +513,7 @@ async def checkpoint_answer(
 async def attachment_url(
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     """A signed URL is minted fresh per request (short-lived, same posture
     as every other resolve_url() call in this codebase) rather than baked
@@ -523,7 +535,7 @@ async def submit_progress(
     item_id: uuid.UUID,
     body: ProgressIn,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     await _enrolled_item(db, current.id, item_id)
     row = await item_progress(db, user_id=current.id, item_id=item_id, action=body.action)

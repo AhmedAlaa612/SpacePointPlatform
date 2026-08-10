@@ -185,6 +185,33 @@ async def test_start_path_bulk_enrolls_every_step_course(db, client):
     assert len(enrollments_again) == 2
 
 
+@pytest.mark.asyncio
+async def test_start_path_skips_invite_and_paid_steps(db, client):
+    """P1-6: this bulk self-enrol is a shortcut for POST /lms/enroll and must
+    respect the same access_mode gate (P1-4) — an invite-only or paid step
+    inside a path can't be silently unlocked by starting the path."""
+    ops = await _user(db)
+    student = await _user(db, roles=["student"])
+    path = await _path(db, author=ops)
+    open_course, _ = await _course_with_one_module_one_item(db, author=ops)
+    invite_course, _ = await _course_with_one_module_one_item(db, author=ops)
+    invite_course.access_mode = "invite"
+    paid_course, _ = await _course_with_one_module_one_item(db, author=ops)
+    paid_course.access_mode = "paid"
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=open_course.id, position=1))
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=invite_course.id, position=2))
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=paid_course.id, position=3))
+    await db.commit()
+
+    resp = await client.post(f"/lms/learning-paths/{path.id}/start", headers=_headers(student))
+    assert resp.status_code == 200
+
+    enrollments = (await db.execute(
+        select(Enrollment).where(Enrollment.user_id == student.id)
+    )).scalars().all()
+    assert {e.course_id for e in enrollments} == {open_course.id}
+
+
 # ── path_progress state rollup (service layer) ──────────────────────────────
 
 @pytest.mark.asyncio

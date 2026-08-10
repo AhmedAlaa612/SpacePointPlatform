@@ -3,8 +3,9 @@
 Two surfaces:
 - `POST /lms/admin/items/{item_id}/video` — `require_lms_content`, multipart
   upload of the source MP4, enqueues the transcode job.
-- `GET /lms/items/{item_id}/video/token` — `require_lms_student` + enrolled +
-  ready, issues a short-lived token (core/security.py's `create_video_token`).
+- `GET /lms/items/{item_id}/video/token` — enrolled (P1-6/D2 — role no longer
+  gates this) + ready, issues a short-lived token
+  (core/security.py's `create_video_token`).
 - `GET /lms/videos/{item_id}/playlist|segment/{name}|key` — token in the
   query string (the HLS-player convention; hls.js can't attach headers to
   segment/key fetches it makes itself). **Never a static URL** (D2): the
@@ -25,7 +26,7 @@ from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_lms_content, require_lms_student
+from app.core.dependencies import get_current_active_user, require_lms_content
 from app.core.security import create_video_token, decode_video_token
 from app.db.session import get_db
 from app.models.lms import CourseModule, ModuleItem, ModuleVideo
@@ -104,7 +105,7 @@ async def upload_video(
 async def issue_video_token(
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     item = await db.get(ModuleItem, item_id)
     if item is None or item.kind != "video":
