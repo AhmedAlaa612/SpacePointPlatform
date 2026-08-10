@@ -311,3 +311,13 @@ class LearningPathDetailOut(BaseModel):
     mission_count: int
     total_duration_seconds: int
     steps: list[LearningPathStepOut]
+
+
+# ── leaderboard (P2-4) — not wired into any student-facing page yet, D6 is
+# still an open operator decision (PHASE2_EXECUTION_PLAN.md §2) ────────────
+
+class LeaderboardEntryOut(BaseModel):
+    rank: int
+    user_id: UUID
+    display_name: str
+    points: int

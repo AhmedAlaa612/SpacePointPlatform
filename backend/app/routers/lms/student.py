@@ -17,6 +17,7 @@ leak guarantee a second time at the response boundary.
 """
 
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import or_, select
@@ -38,6 +39,7 @@ from app.schemas.lms import (
     CourseDetailOut,
     EnrollIn,
     EnrollmentOut,
+    LeaderboardEntryOut,
     LearningPathCatalogOut,
     LearningPathDetailOut,
     LearningPathStepOut,
@@ -68,6 +70,7 @@ from app.services.lms import (
     unlock_state,
 )
 from app.services.lms.dashboard import my_courses_dashboard, recent_activity
+from app.services.lms.leaderboard import leaderboard
 from app.services import storage
 
 router = APIRouter(prefix="/lms", tags=["lms"])
@@ -344,6 +347,23 @@ async def my_activity(
     """Last 10 completed items across every course — the profile page's
     activity feed."""
     return await recent_activity(db, user_id=current.id)
+
+
+@router.get("/leaderboard", response_model=list[LeaderboardEntryOut])
+async def get_leaderboard(
+    scope: Literal["cohort", "global"] = "global",
+    cohort_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+):
+    """P2-4. ⚠️ Backend only — not linked from any student-facing page yet.
+    D6 (scope + display-name policy) is still an open operator decision
+    (PHASE2_EXECUTION_PLAN.md §2); `display_name` here is a private-by-
+    default stand-in (first name + last-initial), not the real answer.
+    Do not surface this in the frontend until D6 is actually settled."""
+    if scope == "cohort" and cohort_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="cohort_id is required for scope=cohort")
+    return await leaderboard(db, cohort_id=cohort_id if scope == "cohort" else None)
 
 
 # ── enrollment: student only ────────────────────────────────────────────────

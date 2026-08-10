@@ -149,6 +149,31 @@ async def test_catalog_reflects_the_callers_own_enrollment(db, client):
 
 
 @pytest.mark.asyncio
+async def test_global_leaderboard_endpoint_ranks_by_points(db, client):
+    from app.services.lms.points import award_points
+
+    top = await _user(db)
+    bottom = await _user(db)
+    await award_points(db, user_id=top.id, source="quiz", points=50, idempotency_key="a")
+    await award_points(db, user_id=bottom.id, source="quiz", points=10, idempotency_key="b")
+    await db.commit()
+
+    resp = await client.get("/lms/leaderboard", headers=_headers(top))
+    assert resp.status_code == 200
+    body = resp.json()
+    ids_in_order = [row["user_id"] for row in body]
+    assert ids_in_order.index(str(top.id)) < ids_in_order.index(str(bottom.id))
+    assert all("display_name" in row for row in body)
+
+
+@pytest.mark.asyncio
+async def test_cohort_leaderboard_requires_cohort_id(db, client):
+    student = await _user(db)
+    resp = await client.get("/lms/leaderboard", headers=_headers(student), params={"scope": "cohort"})
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
 async def test_catalog_search_matches_title_or_description_case_insensitively(db, client):
     author = await _user(db, roles=["operations"])
     orbits = await _course(db, author=author, title="Orbital Mechanics", description="periapsis and apoapsis")
