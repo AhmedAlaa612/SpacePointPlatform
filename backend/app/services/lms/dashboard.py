@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.course import Course, CourseModule, ModuleItem
 from app.models.lms.enrollment import Enrollment, ItemProgress
+from app.services.lms.enrollment import enrollment_is_active
 from app.services.lms.progress import COMPLETED_STATUSES, course_completion
 
 
@@ -140,7 +141,7 @@ async def my_courses_dashboard(db: AsyncSession, *, user_id: uuid.UUID) -> dict:
     rows = (await db.execute(
         select(Course)
         .join(Enrollment, Enrollment.course_id == Course.id)
-        .where(Enrollment.user_id == user_id, Enrollment.status == "active")
+        .where(Enrollment.user_id == user_id, *enrollment_is_active())
         .order_by(Enrollment.created_at.desc())
     )).scalars().all()
 

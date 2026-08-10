@@ -171,6 +171,52 @@ async def test_self_enroll_still_requires_a_published_course(db, client):
 
 
 @pytest.mark.asyncio
+async def test_expired_enrollment_reads_as_not_enrolled(db, client):
+    """P1-3: expires_at is decorative unless the access check reads it
+    (audit §9.3(c)) — an enrollment whose expiry has passed must gate
+    exactly like never having enrolled at all: flat 404, not a distinct
+    "your access expired" response (don't leak existence, LM1-3 spec,
+    extended to *why* access is gone)."""
+    from datetime import datetime, timedelta, timezone
+
+    author = await _user(db, roles=["operations"])
+    course = await _course(db, author=author)
+    m1 = await _module(db, course, position=1)
+    await _item(db, m1, position=1, kind="text", content={"body": "A"})
+    student = await _user(db)
+    enrollment = await enroll(db, user_id=student.id, course_id=course.id)
+    enrollment.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+    await db.commit()
+
+    resp = await client.get(f"/lms/courses/{course.id}", headers=_headers(student))
+    assert resp.status_code == 200  # outline is login-only, not enrollment-gated
+    assert resp.json()["enrolled"] is False
+
+    module = await client.get(f"/lms/modules/{m1.id}", headers=_headers(student))
+    assert module.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_not_yet_expired_enrollment_still_grants_access(db, client):
+    from datetime import datetime, timedelta, timezone
+
+    author = await _user(db, roles=["operations"])
+    course = await _course(db, author=author)
+    m1 = await _module(db, course, position=1)
+    await _item(db, m1, position=1, kind="text", content={"body": "A"})
+    student = await _user(db)
+    enrollment = await enroll(db, user_id=student.id, course_id=course.id)
+    enrollment.expires_at = datetime.now(timezone.utc) + timedelta(days=1)
+    await db.commit()
+
+    resp = await client.get(f"/lms/courses/{course.id}", headers=_headers(student))
+    assert resp.json()["enrolled"] is True
+
+    module = await client.get(f"/lms/modules/{m1.id}", headers=_headers(student))
+    assert module.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_course_outline_shows_locks_and_completion(db, client):
     author = await _user(db, roles=["operations"])
     course = await _course(db, author=author)

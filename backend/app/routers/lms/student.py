@@ -53,6 +53,7 @@ from app.services.lms import (
     check_quiz_answer,
     course_completion,
     enroll,
+    enrollment_is_active,
     item_progress,
     path_progress,
     path_total_duration_seconds,
@@ -72,12 +73,15 @@ async def _assert_enrolled(
     db: AsyncSession, user_id: uuid.UUID, course_id: uuid.UUID
 ) -> None:
     """Flat 404 for "not enrolled" *and* for "unknown course" — the two are
-    indistinguishable on purpose (don't leak existence, LM1-3 spec)."""
+    indistinguishable on purpose (don't leak existence, LM1-3 spec). An
+    expired enrollment (P1-3) reads the same as never having enrolled — no
+    separate "your access expired" message, same don't-leak-existence
+    reasoning extended to *why* access is gone."""
     enrollment = (await db.execute(
         select(Enrollment).where(
             Enrollment.user_id == user_id,
             Enrollment.course_id == course_id,
-            Enrollment.status == "active",
+            *enrollment_is_active(),
         )
     )).scalars().first()
     if enrollment is None:
@@ -116,7 +120,7 @@ async def _published_course(
             select(Enrollment.id).where(
                 Enrollment.user_id == user_id,
                 Enrollment.course_id == course_id,
-                Enrollment.status == "active",
+                *enrollment_is_active(),
             )
         )).first()
         if enrolled is not None:
@@ -165,7 +169,7 @@ async def course_detail(
         select(Enrollment).where(
             Enrollment.user_id == current.id,
             Enrollment.course_id == course.id,
-            Enrollment.status == "active",
+            *enrollment_is_active(),
         )
     )).scalars().first()
 

@@ -15,13 +15,33 @@ from typing import Literal
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.course import Course
 from app.models.lms.enrollment import Enrollment
 
 EnrollmentSource = Literal["self", "ops", "registration"]
+
+
+def enrollment_is_active() -> tuple:
+    """`Enrollment.status == 'active'` AND not expired — the one predicate
+    every enrollment gate or listing should use (P1-3, audit §9.3(c)).
+    `expires_at IS NULL` is perpetual, never a `9999` sentinel. Splice into a
+    `.where(Enrollment.user_id == ..., *enrollment_is_active())`; kept as a
+    tuple of clauses rather than a single boolean so callers can still add
+    their own `.join`/other predicates around it.
+
+    Five call sites read enrollment status/expiry today: `_assert_enrolled`
+    (the actual gate), `course_detail`'s own `enrolled` flag, and
+    `my_courses_dashboard`'s listing all use this. `_video_from_token`
+    delegates to `_assert_enrolled`. `instructor_progress` deliberately does
+    not — it's a staff-facing history report, and an expired student's past
+    progress is still real progress an instructor should be able to see."""
+    return (
+        Enrollment.status == "active",
+        or_(Enrollment.expires_at.is_(None), Enrollment.expires_at > func.now()),
+    )
 
 
 async def enroll(

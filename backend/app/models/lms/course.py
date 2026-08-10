@@ -62,6 +62,19 @@ class Course(Base):
     )
     instructor_title = Column(String(120), nullable=True)  # e.g. "Lead Systems Engineer, SpacePoint"
 
+    # P1-2 (Phase 2 Stage 1, 2026-08-10) — open: anyone logged in self-enrols.
+    # invite: lists with a lock, only an admin grant enrols. paid: self-enrol
+    # starts a checkout (Stage S). Existing courses default to 'open', so
+    # today's behaviour is unchanged by this column's arrival.
+    access_mode = Column(String(12), nullable=False, default="open", server_default="open")
+    # NULL = perpetual access once enrolled — never a 9999 sentinel (this
+    # codebase's NULL-means-unrestricted convention, applied here per audit
+    # §9.3(d)). Paired with enrollments.expires_at, which the access check
+    # actually reads (see routers/lms/student.py::_assert_enrolled) — shipped
+    # in the same stage so there's no window where expiry looks implemented
+    # and silently isn't.
+    access_days = Column(Integer, nullable=True)
+
 
 class CourseModule(Base):
     """An ordered lesson inside a course. Position is the order; reordering is

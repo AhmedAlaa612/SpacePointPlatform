@@ -57,6 +57,18 @@ class Enrollment(Base):
     status = Column(String(10), nullable=False, default="active")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    # P1-3 (Phase 2 Stage 1, 2026-08-10) — who put this specific person in
+    # this specific course; SET NULL so the enrollment (and the answer to
+    # "did ops grant this") survives the granter's account being removed.
+    # NULL for self/registration-sourced rows — nobody "granted" those.
+    granted_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # NULL = perpetual (this codebase's absent-means-unrestricted convention
+    # — no 9999 sentinel). Derived from Course.access_days at grant time, not
+    # recomputed later. Decorative unless the access check reads it — it
+    # does, in _assert_enrolled and every other enrollment lookup (audit
+    # §9.3(c)); no cron flips status, expiry is read at request time.
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+
 
 class ItemProgress(Base):
     """One row per student per item — the raw material completion is derived from.

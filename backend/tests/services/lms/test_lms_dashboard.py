@@ -61,6 +61,24 @@ async def test_no_enrollments_returns_empty_dashboard(db):
 
 
 @pytest.mark.asyncio
+async def test_expired_enrollment_excluded_from_my_courses(db):
+    """P1-3: My Courses must stop listing a course once its enrollment has
+    expired — the same predicate the access-check gate reads."""
+    from datetime import datetime, timedelta, timezone
+
+    author = await _author(db)
+    course, _m1, _m2, _items = await _course_with_two_modules(db, author=author)
+    student = await _student(db)
+    enrollment = await enroll(db, user_id=student.id, course_id=course.id)
+    enrollment.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+    await db.commit()
+
+    result = await my_courses_dashboard(db, user_id=student.id)
+    assert result["courses"] == []
+    assert result["stats"]["total_enrolled"] == 0
+
+
+@pytest.mark.asyncio
 async def test_resume_points_at_first_item_when_never_touched(db):
     author = await _author(db)
     student = await _student(db)
