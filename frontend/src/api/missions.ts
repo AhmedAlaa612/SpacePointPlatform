@@ -10,6 +10,8 @@ export interface MissionVariantSummary {
   points: number;
 }
 
+export type MissionTeamPolicy = "solo" | "team" | "either";
+
 export interface MissionCatalogItem {
   id: string;
   title: string;
@@ -20,6 +22,15 @@ export interface MissionCatalogItem {
   image_url: string | null;
   variants: MissionVariantSummary[];
   locked: boolean;
+  team_policy: MissionTeamPolicy;
+}
+
+export interface MissionTeam {
+  id: string;
+  name: string;
+  cohort_id: string | null;
+  member_ids: string[];
+  member_names: string[];
 }
 
 export interface MissionPrerequisite {
@@ -66,6 +77,8 @@ export interface MissionAttempt {
   started_at: string | null;
   submitted_at: string | null;
   decided_at: string | null;
+  team_id: string | null;
+  team_name: string | null;
 }
 
 export interface MissionDetail {
@@ -81,6 +94,8 @@ export interface MissionDetail {
   attempts: MissionAttempt[];
   prerequisites: MissionPrerequisite[];
   locked: boolean;
+  team_policy: MissionTeamPolicy;
+  my_teams: MissionTeam[];
 }
 
 export interface MissionQuizReviewQuestion {
@@ -117,8 +132,22 @@ export async function fetchMission(missionId: string): Promise<MissionDetail> {
   return data;
 }
 
-export async function startMissionAttempt(missionId: string, variantId: string): Promise<MissionAttempt> {
-  const { data } = await api.post<MissionAttempt>(`/missions/${missionId}/attempts`, { variant_id: variantId });
+export async function startMissionAttempt(
+  missionId: string, variantId: string, teamId?: string,
+): Promise<MissionAttempt> {
+  const { data } = await api.post<MissionAttempt>(`/missions/${missionId}/attempts`, {
+    variant_id: variantId, team_id: teamId || null,
+  });
+  return data;
+}
+
+export async function fetchMyTeams(): Promise<MissionTeam[]> {
+  const { data } = await api.get<MissionTeam[]>("/missions/teams/mine");
+  return data;
+}
+
+export async function createTeam(name: string, memberIds: string[] = []): Promise<MissionTeam> {
+  const { data } = await api.post<MissionTeam>("/missions/teams", { name, member_ids: memberIds });
   return data;
 }
 

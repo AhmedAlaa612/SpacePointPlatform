@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
-import { CheckCircle2, ChevronRight, Lock, Rocket, Sparkles, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronRight, Lock, Rocket, Sparkles, Users, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-  fetchMission, startMissionAttempt, submitQuizAttempt, submitSubmissionAttempt,
-  type MissionAttempt, type MissionDetail, type MissionQuizReview,
+  createTeam, fetchMission, startMissionAttempt, submitQuizAttempt, submitSubmissionAttempt,
+  type MissionAttempt, type MissionDetail, type MissionQuizReview, type MissionTeam,
 } from "@/api/missions";
 
 function errorDetail(err: unknown, fallback: string): string {
@@ -28,12 +28,20 @@ export default function MissionPage() {
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState("");
   const [quizReview, setQuizReview] = useState<MissionQuizReview | null>(null);
+  // "either" missions let the student pick; "team" forces it; "solo" never shows this.
+  const [asTeam, setAsTeam] = useState(false);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [newTeamName, setNewTeamName] = useState("");
+  const [creatingTeam, setCreatingTeam] = useState(false);
+  const [teamError, setTeamError] = useState("");
 
   const load = useCallback(() => {
     fetchMission(missionId)
       .then((m) => {
         setMission(m);
         setSelectedVariantId((prev) => prev ?? m.variants[0]?.id ?? null);
+        setSelectedTeamId((prev) => prev ?? m.my_teams[0]?.id ?? null);
+        setAsTeam((prev) => prev || m.team_policy === "team");
       })
       .catch(() => setError("Couldn't load this mission."));
   }, [missionId]);
@@ -47,6 +55,9 @@ export default function MissionPage() {
     setSelectedVariantId(null);
     setQuizReview(null);
     setError("");
+    setAsTeam(false);
+    setSelectedTeamId(null);
+    setTeamError("");
   }, [missionId]);
 
   useEffect(() => {
@@ -61,16 +72,33 @@ export default function MissionPage() {
 
   const handleStart = async () => {
     if (!mission || !selectedVariantId) return;
+    if (asTeam && !selectedTeamId) return;
     setStarting(true);
     setStartError("");
     setQuizReview(null);
     try {
-      await startMissionAttempt(mission.id, selectedVariantId);
+      await startMissionAttempt(mission.id, selectedVariantId, asTeam ? selectedTeamId! : undefined);
       load();
     } catch (err) {
       setStartError(errorDetail(err, "Couldn't start this mission right now."));
     } finally {
       setStarting(false);
+    }
+  };
+
+  const handleCreateTeam = async () => {
+    if (!newTeamName.trim()) return;
+    setCreatingTeam(true);
+    setTeamError("");
+    try {
+      const team = await createTeam(newTeamName.trim());
+      setNewTeamName("");
+      setSelectedTeamId(team.id);
+      load();
+    } catch (err) {
+      setTeamError(errorDetail(err, "Couldn't create this team right now."));
+    } finally {
+      setCreatingTeam(false);
     }
   };
 
@@ -119,11 +147,17 @@ export default function MissionPage() {
         <MissionSubmissionForm attemptId={activeAttempt.id} onSubmitted={load} />
       )}
 
+      {activeAttempt?.team_name && (inProgress || activeAttempt.status === "submitted" || decided) && (
+        <div className="w-fit flex items-center gap-1.5 text-xs text-muted-foreground px-2.5 py-1 rounded-lg ring-1 ring-border">
+          <Users className="size-3.5" /> Team: {activeAttempt.team_name}
+        </div>
+      )}
+
       {activeAttempt?.status === "submitted" && (
         <Card className="p-5 flex flex-col gap-1.5">
           <p className="text-sm font-medium">Awaiting review</p>
           <p className="text-xs text-muted-foreground">
-            You submitted this attempt — a reviewer will score it soon. Check back on this page later.
+            {activeAttempt.team_name ? "Your team submitted" : "You submitted"} this attempt — a reviewer will score it soon. Check back on this page later.
           </p>
         </Card>
       )}
@@ -187,11 +221,101 @@ export default function MissionPage() {
               </div>
             </div>
           )}
-          <Button size="xl" className="w-fit" onClick={() => void handleStart()} disabled={starting || !selectedVariantId || mission.locked}>
+
+          {mission.team_policy !== "solo" && (
+            <TeamPicker
+              teamPolicy={mission.team_policy}
+              myTeams={mission.my_teams}
+              asTeam={asTeam}
+              onModeChange={setAsTeam}
+              selectedTeamId={selectedTeamId}
+              onSelectTeam={setSelectedTeamId}
+              newTeamName={newTeamName}
+              onNewTeamNameChange={setNewTeamName}
+              onCreateTeam={() => void handleCreateTeam()}
+              creatingTeam={creatingTeam}
+              teamError={teamError}
+            />
+          )}
+
+          <Button
+            size="xl" className="w-fit" onClick={() => void handleStart()}
+            disabled={starting || !selectedVariantId || mission.locked || (asTeam && !selectedTeamId)}
+          >
             {mission.locked ? "Locked" : starting ? "Starting..." : decided ? "Try again" : "Start mission"}
           </Button>
           {startError && <p className="text-xs text-destructive">{startError}</p>}
         </Card>
+      )}
+    </div>
+  );
+}
+
+function TeamPicker({
+  teamPolicy, myTeams, asTeam, onModeChange, selectedTeamId, onSelectTeam,
+  newTeamName, onNewTeamNameChange, onCreateTeam, creatingTeam, teamError,
+}: {
+  teamPolicy: MissionDetail["team_policy"];
+  myTeams: MissionTeam[];
+  asTeam: boolean;
+  onModeChange: (asTeam: boolean) => void;
+  selectedTeamId: string | null;
+  onSelectTeam: (teamId: string) => void;
+  newTeamName: string;
+  onNewTeamNameChange: (name: string) => void;
+  onCreateTeam: () => void;
+  creatingTeam: boolean;
+  teamError: string;
+}) {
+  return (
+    <div className="flex flex-col gap-2 pt-1 border-t border-border">
+      {teamPolicy === "either" && (
+        <div className="flex items-center gap-2 pt-3">
+          <button
+            onClick={() => onModeChange(false)}
+            className={`px-3 py-1.5 rounded-xl text-sm ring-1 transition-colors ${!asTeam ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"}`}
+          >
+            Solo
+          </button>
+          <button
+            onClick={() => onModeChange(true)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm ring-1 transition-colors ${asTeam ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"}`}
+          >
+            <Users className="size-3.5" /> Team
+          </button>
+        </div>
+      )}
+      {asTeam && (
+        <div className={teamPolicy === "either" ? "flex flex-col gap-2" : "flex flex-col gap-2 pt-3"}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your team</p>
+          {myTeams.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {myTeams.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => onSelectTeam(t.id)}
+                  className={`px-3 py-1.5 rounded-xl text-sm ring-1 transition-colors ${
+                    t.id === selectedTeamId ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
+                  }`}
+                >
+                  {t.name} <span className="text-xs text-muted-foreground">({t.member_names.length})</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
+            <input
+              value={newTeamName}
+              onChange={(e) => onNewTeamNameChange(e.target.value)}
+              placeholder="New team name..."
+              className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors flex-1 min-w-0"
+            />
+            <Button size="sm" onClick={onCreateTeam} disabled={!newTeamName.trim() || creatingTeam}>
+              {creatingTeam ? "Creating..." : "Create"}
+            </Button>
+          </div>
+          {teamError && <p className="text-xs text-destructive">{teamError}</p>}
+        </div>
       )}
     </div>
   );
