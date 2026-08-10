@@ -20,10 +20,13 @@ from app.models.missions.mission import (
     MissionPrerequisite,
     MissionVariant,
 )
+from app.models.missions.team import MissionTeam, MissionTeamMember
 
 __all__ = [
     "Mission",
     "MissionAttempt",
     "MissionPrerequisite",
     "MissionVariant",
+    "MissionTeam",
+    "MissionTeamMember",
 ]
