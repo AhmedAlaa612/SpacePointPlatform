@@ -42,6 +42,18 @@ class AdminQuizQuestionIn(BaseModel):
     explanation: str | None = None
     options: list[AdminQuizOptionIn] = Field(min_length=2)
 
+    @model_validator(mode="after")
+    def _validate_correct_option(self) -> "AdminQuizQuestionIn":
+        # submit_quiz/check_quiz_answer take one answer index per question
+        # (services/lms/quiz.py) — multi-answer isn't a supported shape, and
+        # zero correct answers is a question no student can ever pass (B3).
+        correct_count = sum(1 for o in self.options if o.is_correct)
+        if correct_count != 1:
+            raise ValueError(
+                f"quiz questions need exactly one correct option, got {correct_count}"
+            )
+        return self
+
 
 class AdminContentQuiz(BaseModel):
     pass_threshold: int = Field(ge=0, le=100, default=0)

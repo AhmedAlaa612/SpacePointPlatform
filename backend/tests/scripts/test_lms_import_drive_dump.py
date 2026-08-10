@@ -67,10 +67,11 @@ def test_load_questions_groups_by_video_and_marks_correct_option(tmp_path):
         ("2- What is a satellite-2.mp4", "desc", "What is a satellite?", "A star", "An orbiting object", "A rocket", "An atmosphere", "B"),
     ])
 
-    by_video = _load_questions_by_video(xlsx)
+    by_video, warnings = _load_questions_by_video(xlsx)
 
     assert set(by_video.keys()) == {"1- Intro-1.mp4", "2- What is a satellite-2.mp4"}
     assert len(by_video["1- Intro-1.mp4"]) == 2
+    assert warnings == []
 
     first = by_video["1- Intro-1.mp4"][0]
     assert first["prompt"] == "Who built Sputnik?"
@@ -84,3 +85,20 @@ def test_load_questions_groups_by_video_and_marks_correct_option(tmp_path):
     year_question = by_video["1- Intro-1.mp4"][1]
     assert [o["text"] for o in year_question["options"]] == ["1947", "1957", "1969", "1981"]
     assert year_question["options"][1]["is_correct"] is True
+
+
+@pytest.mark.parametrize("bad_correct", [None, "", "a)", "1", "Option A", "The Soviet Union", "E", "BB"])
+def test_load_questions_flags_unparseable_answer_cell(tmp_path, bad_correct):
+    """B3 — a Correct Answer cell that isn't a bare A/B/C/D used to produce a
+    question with zero correct options and no warning anywhere. Every option
+    must come back is_correct=False, and the row must be reported."""
+    xlsx = _make_xlsx(tmp_path, [
+        ("1- Intro-1.mp4", "desc", "Who built Sputnik?", "NASA", "The Soviet Union", "China", "Japan", bad_correct),
+    ])
+
+    by_video, warnings = _load_questions_by_video(xlsx)
+
+    question = by_video["1- Intro-1.mp4"][0]
+    assert all(o["is_correct"] is False for o in question["options"])
+    assert len(warnings) == 1
+    assert "Who built Sputnik?" in warnings[0]

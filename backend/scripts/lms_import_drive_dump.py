@@ -104,18 +104,29 @@ def _option_text(raw) -> str:
     return str(raw).strip()
 
 
-def _load_questions_by_video(xlsx_path: Path) -> dict[str, list[dict]]:
+def _load_questions_by_video(xlsx_path: Path) -> tuple[dict[str, list[dict]], list[str]]:
+    """Returns (questions_by_video, warnings). A warning means the answer
+    cell didn't parse to a bare A/B/C/D — the question would otherwise ship
+    with zero correct options and be permanently unpassable (B3). Flagged
+    here, at parse time, so the operator sees the exact video/question/cell
+    instead of a generic 422 from the authoring API's own validator."""
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     ws = wb.worksheets[0]
     rows = list(ws.iter_rows(min_row=2, values_only=True))  # skip header
 
     by_video: dict[str, list[dict]] = {}
+    warnings: list[str] = []
     for row in rows:
         if not row or not row[0]:
             continue
         video_name, _description, prompt, opt_a, opt_b, opt_c, opt_d, correct = row[:8]
         options_raw = [opt_a, opt_b, opt_c, opt_d]
         correct_index = _CORRECT_LETTER_TO_COLUMN.get(str(correct).strip().upper())
+        if correct_index is None:
+            warnings.append(
+                f"{video_name!r}: {str(prompt).strip()[:60]!r} — unparsed answer cell "
+                f"{correct!r}, question would have zero correct options"
+            )
         question = {
             "prompt": str(prompt).strip(),
             "options": [
@@ -125,7 +136,7 @@ def _load_questions_by_video(xlsx_path: Path) -> dict[str, list[dict]]:
             ],
         }
         by_video.setdefault(str(video_name).strip(), []).append(question)
-    return by_video
+    return by_video, warnings
 
 
 class LmsAdminClient:
@@ -186,7 +197,7 @@ class Manifest:
 
 def _import_course(
     client: LmsAdminClient, manifest: Manifest, course_dir: Path, label: str, *, dry_run: bool,
-) -> None:
+) -> list[str]:
     """`label` drives the course title and manifest keys — kept separate
     from `course_dir` (where the files actually live on disk) so a folder
     downloaded straight from a single course's Drive link (its contents
@@ -211,9 +222,13 @@ def _import_course(
         key=lambda p: _leading_number(p.name),
     )
     xlsx_candidates = list(course_dir.glob("*.xlsx"))
-    questions_by_video = _load_questions_by_video(xlsx_candidates[0]) if xlsx_candidates else {}
-    if not xlsx_candidates:
+    if xlsx_candidates:
+        questions_by_video, warnings = _load_questions_by_video(xlsx_candidates[0])
+    else:
+        questions_by_video, warnings = {}, []
         print(f"  (no *.xlsx found in {course_dir} — modules will have a video but no quiz)")
+    for warning in warnings:
+        print(f"  [WARN] zero-correct-answer question — {warning}")
 
     for position, video_path in enumerate(videos, start=1):
         module_key = f"module:{label}/{video_path.name}"
@@ -247,6 +262,8 @@ def _import_course(
             print(f"         quiz: {len(questions)} question(s)")
         else:
             print(f"         quiz: no matching rows for {video_path.name!r} in the Excel — skipped")
+
+    return warnings
 
 
 def main() -> int:
@@ -303,11 +320,21 @@ def main() -> int:
         print(f"Logging in to {args.api_base_url} as {args.email}...")
         client = LmsAdminClient.login(args.api_base_url, args.email, args.password)
 
+    all_warnings: list[str] = []
     for course_dir, label in courses:
         print(f"\n=== {label} ===")
-        _import_course(client, manifest, course_dir, label, dry_run=args.dry_run)
+        all_warnings.extend(_import_course(client, manifest, course_dir, label, dry_run=args.dry_run))
 
     print("\nDry run complete — nothing was created." if args.dry_run else "\nDone.")
+    if all_warnings:
+        print(
+            f"\n{len(all_warnings)} zero-correct-answer question(s) found (B3) — "
+            "fix the source spreadsheet's answer column and re-run:",
+            file=sys.stderr,
+        )
+        for warning in all_warnings:
+            print(f"  - {warning}", file=sys.stderr)
+        return 1
     return 0
 
 
