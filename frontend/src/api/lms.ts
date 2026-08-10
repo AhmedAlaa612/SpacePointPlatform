@@ -57,11 +57,21 @@ export type ModuleItemContent =
   | { pass_threshold: number; questions: QuizQuestion[] } // quiz
   | { title: string | null; cards: { term: string; definition: string }[] } // flashcards
   | { transcode_status: string | null; duration_seconds: number | null } // video
-  | { filename: string | null; size_bytes: number | null }; // attachment
+  | { filename: string | null; size_bytes: number | null } // attachment
+  | {
+      // mission (P5-5) — mission_title/mission_kind/points/attempt_status
+      // are enriched by the backend per request, not authored content.
+      mission_id: string;
+      variant_id: string | null;
+      mission_title: string | null;
+      mission_kind: string | null;
+      points: number | null;
+      attempt_status: "in_progress" | "submitted" | "passed" | "failed" | "abandoned" | null;
+    };
 
 export interface ModuleItem {
   id: string;
-  kind: "video" | "text" | "quiz" | "flashcards" | "attachment";
+  kind: "video" | "text" | "quiz" | "flashcards" | "attachment" | "mission";
   title: string | null;
   position: number;
   content: ModuleItemContent;

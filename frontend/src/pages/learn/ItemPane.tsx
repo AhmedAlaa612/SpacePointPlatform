@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, ChevronLeft, ChevronRight, FileWarning, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, FileWarning, Rocket, XCircle } from "lucide-react";
 import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 // ?url: served as a raw asset, bypassing Vite's dev-mode JS transform (which
 // injects an HMR-client import that breaks once this runs inside a Worker).
 import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import {
   checkQuizAnswer, getAttachmentUrl, recordProgress, submitQuiz,
   type ModuleItem, type QuizAnswerCheck, type QuizReview,
@@ -66,7 +68,45 @@ export function ItemPane({
     );
   }
 
+  if (item.kind === "mission" && "mission_id" in item.content) {
+    return <MissionEmbedBlock content={item.content} />;
+  }
+
   return null;
+}
+
+// P5-5 — the attempt flow itself lives on the standalone mission page
+// (/learn/missions/$missionId), reused as-is rather than rebuilt inline:
+// completion is server-driven (rule ①, decide_attempt writes ItemProgress
+// directly), so this block only orients and links out, it never calls
+// recordProgress — there is no client-assertable action for a mission item.
+function MissionEmbedBlock({ content }: { content: Extract<ModuleItem["content"], { mission_id: string }> }) {
+  const passed = content.attempt_status === "passed";
+  const statusLabel =
+    content.attempt_status === "passed" ? "Passed"
+    : content.attempt_status === "failed" ? "Not yet passed"
+    : content.attempt_status === "submitted" ? "Awaiting review"
+    : content.attempt_status === "in_progress" ? "In progress"
+    : "Not started";
+
+  return (
+    <Card className="p-6 flex flex-col gap-4 items-start">
+      <div className="flex items-center gap-2 text-xs text-primary font-semibold uppercase tracking-wide">
+        <Rocket className="size-3.5" /> Mission
+      </div>
+      <div>
+        <p className="font-display text-lg font-bold">{content.mission_title ?? "Mission"}</p>
+        <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5">
+          {passed ? <CheckCircle2 className="size-3.5 text-emerald-500" /> : null}
+          {statusLabel}
+          {content.points != null && ` · ${content.points} pts`}
+        </p>
+      </div>
+      <Link to="/learn/missions/$missionId" params={{ missionId: content.mission_id }}>
+        <Button size="lg">{passed ? "Review mission" : "Go to mission"}</Button>
+      </Link>
+    </Card>
+  );
 }
 
 function readingMinutes(body: string): number {
