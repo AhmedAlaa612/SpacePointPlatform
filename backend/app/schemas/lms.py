@@ -8,7 +8,7 @@ again at the response boundary (plan: "Pydantic response models on the student
 routes enforce it a second time").
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Union
 from uuid import UUID
 
@@ -321,3 +321,28 @@ class LeaderboardEntryOut(BaseModel):
     user_id: UUID
     display_name: str
     points: int
+
+
+# ── my-programs (P4-3) — the cohort view a student cannot currently see ────
+
+class MyProgramCourseOut(BaseModel):
+    course_id: UUID
+    title: str
+    enrolled: bool
+    progress_pct: int
+
+
+class MyProgramOut(BaseModel):
+    registration_id: UUID
+    cohort_id: UUID
+    program_name: str
+    cohort_name: str
+    starts_on: date | None = None
+    ends_on: date | None = None
+    location_name: str | None = None
+    location_address: str | None = None
+    instructor_name: str | None = None
+    attended_sessions: int
+    total_sessions: int
+    courses: list[MyProgramCourseOut] = []
+    missions: list = []  # Stage 5 fills this in; empty, not omitted, until then

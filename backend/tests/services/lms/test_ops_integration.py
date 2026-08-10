@@ -15,9 +15,9 @@ from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.user import User
+from app.services.lms.curriculum import enroll_in_cohort_curriculum
 from app.services.lms.ops_integration import (
     deactivate_registration_enrollments,
-    enroll_in_program_curriculum,
     get_or_create_student_account,
     sync_registration_lms,
 )
@@ -167,7 +167,7 @@ async def test_email_collision_with_a_different_account_skips_without_raising(db
     assert user is None and created is False
 
 
-# ── enroll_in_program_curriculum ────────────────────────────────────────────
+# ── enroll_in_cohort_curriculum ─────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_enrolls_in_every_curriculum_course(db):
@@ -186,8 +186,8 @@ async def test_enrolls_in_every_curriculum_course(db):
     registration = await _registration(db, contact=contact, cohort=cohort)
     await db.commit()
 
-    enrollments = await enroll_in_program_curriculum(
-        db, user_id=student.id, program_id=program.id, registration_id=registration.id,
+    enrollments = await enroll_in_cohort_curriculum(
+        db, user_id=student.id, cohort_id=cohort.id, registration_id=registration.id,
     )
     assert {e.course_id for e in enrollments} == {course_a.id, course_b.id}
     assert all(e.source == "registration" and e.registration_id == registration.id for e in enrollments)

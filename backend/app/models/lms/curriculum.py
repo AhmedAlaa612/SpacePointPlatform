@@ -41,3 +41,32 @@ class ProgramCurriculum(Base):
         UUID(as_uuid=True), ForeignKey("courses.id", ondelete="CASCADE"), nullable=False
     )
     position = Column(Integer, nullable=False)
+
+
+class CohortCurriculum(Base):
+    """P4-1 (LMS Phase 2 Stage 4, 2026-08-10) — same shape as
+    `ProgramCurriculum`, one level down. A cohort with ANY rows here
+    overrides its program's curriculum outright, the same "nearest level
+    with any rows wins, never merges" idiom `session_materials` already
+    uses (see that model's docstring) — merging the two sets would make it
+    impossible to *remove* a program course for one specific cohort.
+
+    `resolve_cohort_curriculum` (services/lms/curriculum.py) is the one
+    place that reads both tables and applies the override; nothing else
+    should query `program_curriculum` to figure out what a COHORT teaches.
+    """
+
+    __tablename__ = "cohort_curriculum"
+    __table_args__ = (
+        UniqueConstraint("cohort_id", "course_id", name="uq_cohort_curriculum_cohort_course"),
+        UniqueConstraint("cohort_id", "position", name="uq_cohort_curriculum_cohort_position"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cohort_id = Column(
+        UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False
+    )
+    course_id = Column(
+        UUID(as_uuid=True), ForeignKey("courses.id", ondelete="CASCADE"), nullable=False
+    )
+    position = Column(Integer, nullable=False)

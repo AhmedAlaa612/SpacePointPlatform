@@ -47,6 +47,7 @@ from app.schemas.lms import (
     ModuleLockOut,
     ModuleOut,
     MyCoursesOut,
+    MyProgramOut,
     ProgressIn,
     ProgressOut,
     QuizAnswerCheckIn,
@@ -71,6 +72,7 @@ from app.services.lms import (
 )
 from app.services.lms.dashboard import my_courses_dashboard, recent_activity
 from app.services.lms.leaderboard import leaderboard
+from app.services.lms.my_programs import my_programs
 from app.services import storage
 
 router = APIRouter(prefix="/lms", tags=["lms"])
@@ -337,6 +339,18 @@ async def my_courses(
     """Stats + resume pointer + per-course progress for the landing page's
     resume band and the /learn/my-courses dashboard (LMS redesign)."""
     return await my_courses_dashboard(db, user_id=current.id)
+
+
+@router.get("/my-programs", response_model=list[MyProgramOut])
+async def my_programs_route(
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_student),
+):
+    """P4-3 — the cohort view a student cannot currently see at all: dates,
+    location, instructor, attendance, courses. `missions` is an empty list
+    from day one (Stage 5 fills it in) so the frontend never has to branch
+    on whether the key exists."""
+    return await my_programs(db, user=current)
 
 
 @router.get("/my-activity", response_model=list[ActivityItemOut])

@@ -21,9 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
 from app.models.lms import (
-    Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, ProgramCurriculum, VideoCheckpoint,
+    CohortCurriculum, Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, ProgramCurriculum, VideoCheckpoint,
 )
 from app.models.lms.learning_path import LearningPath, LearningPathStep
+from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.user import User
@@ -37,6 +38,7 @@ from app.schemas.lms_admin import (
     AdminContentVideo,
     BulkGrantIn,
     BulkGrantOut,
+    CohortCurriculumEntryOut,
     CourseAdminOut,
     CourseCreate,
     CourseUpdate,
@@ -58,12 +60,14 @@ from app.schemas.lms_admin import (
     ModuleCreate,
     ModuleReorderIn,
     ModuleUpdate,
+    ReconcileEnrollmentsOut,
     VideoCheckpointAdminOut,
     VideoCheckpointCreate,
     VideoCheckpointUpdate,
 )
 from app.services import storage
 from app.services.lms import enroll, enrollment_is_active
+from app.services.lms.curriculum import reconcile_cohort_enrollments, reconcile_cohorts_inheriting_program
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
 router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
@@ -796,6 +800,11 @@ async def add_curriculum_entry(
 
     entry = ProgramCurriculum(id=uuid.uuid4(), program_id=program_id, course_id=body.course_id, position=position)
     db.add(entry)
+    await db.flush()
+    # P4-2, trigger 1: reaches every cohort that inherits this program's
+    # curriculum (no cohort_curriculum override of its own) — otherwise a
+    # course added here reaches nobody already registered, silently.
+    await reconcile_cohorts_inheriting_program(db, program_id)
     await db.commit()
     await db.refresh(entry)
     return entry
@@ -817,6 +826,112 @@ async def remove_curriculum_entry(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Curriculum entry not found")
     await db.delete(entry)
     await db.commit()
+
+
+# ── cohort curriculum (P4-1, Phase 2 Stage 4, 2026-08-10) ───────────────────
+# A cohort with ANY rows here overrides its program's curriculum outright —
+# see models/lms/curriculum.py::CohortCurriculum's docstring.
+
+@router.get("/cohorts/{cohort_id}/curriculum", response_model=list[CohortCurriculumEntryOut])
+async def list_cohort_curriculum(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    rows = (await db.execute(
+        select(CohortCurriculum).where(CohortCurriculum.cohort_id == cohort_id).order_by(CohortCurriculum.position)
+    )).scalars().all()
+    return rows
+
+
+@router.post(
+    "/cohorts/{cohort_id}/curriculum", response_model=CohortCurriculumEntryOut, status_code=status.HTTP_201_CREATED,
+)
+async def add_cohort_curriculum_entry(
+    cohort_id: uuid.UUID,
+    body: CurriculumEntryIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    course = await db.get(Course, body.course_id)
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+
+    dup = (await db.execute(
+        select(CohortCurriculum.id).where(
+            CohortCurriculum.cohort_id == cohort_id, CohortCurriculum.course_id == body.course_id
+        )
+    )).first()
+    if dup:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This course is already in the cohort's curriculum")
+
+    position = body.position
+    if position is None:
+        max_pos = await db.scalar(
+            select(func.max(CohortCurriculum.position)).where(CohortCurriculum.cohort_id == cohort_id)
+        )
+        position = (max_pos or 0) + 1
+    else:
+        taken = (await db.execute(
+            select(CohortCurriculum.id).where(
+                CohortCurriculum.cohort_id == cohort_id, CohortCurriculum.position == position
+            )
+        )).first()
+        if taken:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Position {position} is already taken in this curriculum")
+
+    entry = CohortCurriculum(id=uuid.uuid4(), cohort_id=cohort_id, course_id=body.course_id, position=position)
+    db.add(entry)
+    await db.flush()
+    # P4-2, trigger 1: this cohort's curriculum just changed (or just
+    # started overriding its program's) — reach everyone already
+    # registered, not just future registrations.
+    await reconcile_cohort_enrollments(db, cohort_id)
+    await db.commit()
+    await db.refresh(entry)
+    return entry
+
+
+@router.delete("/cohorts/{cohort_id}/curriculum/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_cohort_curriculum_entry(
+    cohort_id: uuid.UUID,
+    course_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    entry = (await db.execute(
+        select(CohortCurriculum).where(
+            CohortCurriculum.cohort_id == cohort_id, CohortCurriculum.course_id == course_id
+        )
+    )).scalars().first()
+    if entry is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Curriculum entry not found")
+    await db.delete(entry)
+    await db.commit()
+
+
+@router.post("/cohorts/{cohort_id}/reconcile-enrollments", response_model=ReconcileEnrollmentsOut)
+async def reconcile_cohort_enrollments_now(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """P4-2, trigger 3: a manual "re-sync now" action — for whenever staff
+    suspect drift (e.g. after a bulk data fix) rather than a curriculum
+    edit specifically. Same idempotent function the other two triggers
+    call; safe to press as often as wanted."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    created = await reconcile_cohort_enrollments(db, cohort_id)
+    await db.commit()
+    return ReconcileEnrollmentsOut(created=created)
 
 
 # ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────

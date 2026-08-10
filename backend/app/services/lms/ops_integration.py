@@ -21,13 +21,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_password_set_token, get_password_hash
-from app.models.lms import Enrollment, ProgramCurriculum
+from app.models.lms import Enrollment
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.email import try_send_email
-from app.services.lms import enroll
+from app.services.lms.curriculum import enroll_in_cohort_curriculum
 
 logger = logging.getLogger("services.lms.ops_integration")
 
@@ -79,21 +79,6 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
     return user, True
 
 
-async def enroll_in_program_curriculum(
-    db: AsyncSession, *, user_id: uuid.UUID, program_id: uuid.UUID, registration_id: uuid.UUID,
-) -> list:
-    course_ids = (await db.execute(
-        select(ProgramCurriculum.course_id).where(ProgramCurriculum.program_id == program_id)
-    )).scalars().all()
-    return [
-        await enroll(
-            db, user_id=user_id, course_id=course_id, source="registration",
-            program_id=program_id, registration_id=registration_id,
-        )
-        for course_id in course_ids
-    ]
-
-
 async def send_set_password_email(user: User, *, purpose: str = "welcome") -> bool:
     """Public (P3-3, 2026-08-10) — was module-private until the student
     panel's "create account & invite" and "password reset" actions needed
@@ -136,8 +121,8 @@ async def sync_registration_lms(
         user, created = await get_or_create_student_account(db, registration.contact_id)
         if user is None:
             return None
-        await enroll_in_program_curriculum(
-            db, user_id=user.id, program_id=cohort.program_id, registration_id=registration.id,
+        await enroll_in_cohort_curriculum(
+            db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id,
         )
         if created:
             await send_set_password_email(user)

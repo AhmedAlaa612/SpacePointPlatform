@@ -284,6 +284,18 @@ class CurriculumEntryOut(BaseModel):
     position: int
 
 
+class CohortCurriculumEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    cohort_id: UUID
+    course_id: UUID
+    position: int
+
+
+class ReconcileEnrollmentsOut(BaseModel):
+    created: int
+
+
 # ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────
 
 class LearningPathCreate(BaseModel):
