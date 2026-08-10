@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Home, BookOpen, GraduationCap, Bell, LogOut, Route as RouteIcon, Search, User,
+  Home, BookOpen, GraduationCap, Bell, LogOut, Rocket, Route as RouteIcon, Search, User,
 } from "lucide-react";
 import { DomainIcon } from "@/components/ui/DomainIcon";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
@@ -13,11 +13,12 @@ import { useAuth } from "@/context/AuthContext";
 import { getNotificationsApi, markAllReadApi } from "@/api/notifications";
 import { cn } from "@/lib/utils";
 
-export type LearnNavActive = "home" | "catalog" | "paths" | "my-courses" | "profile";
+export type LearnNavActive = "home" | "catalog" | "missions" | "paths" | "my-courses" | "profile";
 
 const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: typeof Home }[] = [
   { key: "home", label: "Home", to: "/learn", icon: Home },
   { key: "catalog", label: "Catalog", to: "/learn/catalog", icon: BookOpen },
+  { key: "missions", label: "Missions", to: "/learn/missions", icon: Rocket },
   { key: "paths", label: "Paths", to: "/learn/paths", icon: RouteIcon },
   { key: "my-courses", label: "My Courses", to: "/learn/my-courses", icon: GraduationCap },
   { key: "profile", label: "Profile", to: "/learn/profile", icon: User },

@@ -124,6 +124,8 @@ import LearnPaths from "@/pages/learn/LearnPaths";
 import LearnPath from "@/pages/learn/LearnPath";
 import LearnProfile from "@/pages/learn/LearnProfile";
 import LearnProgram from "@/pages/learn/LearnProgram";
+import MissionCatalog from "@/pages/learn/MissionCatalog";
+import MissionPage from "@/pages/learn/MissionPage";
 
 // LMS authoring surface (LM1-13) — shared by operations + facilitator
 // (backend's require_lms_content), own top-level path so one URL space works
@@ -860,6 +862,20 @@ const learnProfileRoute = createRoute({
 // Upcoming-program detail page (2026-08-08) — replaces UpcomingProgramRow's
 // inline expand with a real page (full details, location + map, full
 // registration form).
+// Missions (Phase 2 Stage 5) — standalone challenges, sibling of the course
+// catalog rather than nested under it (own table, own attempt flow).
+const learnMissionsRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/missions",
+  component: MissionCatalog,
+});
+
+const learnMissionRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/missions/$missionId",
+  component: MissionPage,
+});
+
 const learnProgramRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/programs/$cohortId",
@@ -876,6 +892,7 @@ const routeTree = rootRoute.addChildren([
   learnLayoutRoute.addChildren([
     learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
     learnPathsRoute, learnPathRoute, learnProfileRoute, learnProgramRoute,
+    learnMissionsRoute, learnMissionRoute,
   ]),
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,
