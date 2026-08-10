@@ -59,6 +59,7 @@ class MissionCatalogOut(BaseModel):
     image_url: str | None = None
     variants: list[MissionVariantSummaryOut]
     locked: bool = False
+    team_policy: str = "solo"
 
 
 class MissionGraphNodeOut(BaseModel):
@@ -82,6 +83,22 @@ class MissionAttemptOut(BaseModel):
     started_at: datetime | None = None
     submitted_at: datetime | None = None
     decided_at: datetime | None = None
+    # P6-4 — set only for a team attempt (mutually exclusive with a solo one).
+    team_id: UUID | None = None
+    team_name: str | None = None
+
+
+class MissionTeamOut(BaseModel):
+    id: UUID
+    name: str
+    cohort_id: UUID | None = None
+    member_ids: list[UUID] = []
+    member_names: list[str] = []
+
+
+class MissionTeamCreateIn(BaseModel):
+    name: str
+    member_ids: list[UUID] = []
 
 
 class MissionDetailOut(BaseModel):
@@ -97,10 +114,13 @@ class MissionDetailOut(BaseModel):
     attempts: list[MissionAttemptOut]
     prerequisites: list[MissionPrerequisiteOut] = []
     locked: bool = False
+    team_policy: str = "solo"
+    my_teams: list[MissionTeamOut] = []
 
 
 class MissionAttemptStartIn(BaseModel):
     variant_id: UUID
+    team_id: UUID | None = None
 
 
 class MissionAttemptSubmitIn(BaseModel):

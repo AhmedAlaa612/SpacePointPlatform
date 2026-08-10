@@ -92,8 +92,12 @@ class MissionAttemptAdminOut(BaseModel):
     mission_title: str
     variant_id: UUID
     variant_label: str
-    user_id: UUID
+    # user_id XOR team_id — solo attempts set the former, team attempts (P6-2)
+    # the latter, mirroring mission_attempts' own CHECK constraint.
+    user_id: UUID | None = None
     student_name: str | None = None
+    team_id: UUID | None = None
+    team_name: str | None = None
     attempt_no: int
     status: str
     score: float | None = None
@@ -101,3 +105,19 @@ class MissionAttemptAdminOut(BaseModel):
     started_at: datetime | None = None
     submitted_at: datetime | None = None
     decided_at: datetime | None = None
+
+
+class MissionTeamCreateAdminIn(BaseModel):
+    """Ops-assign (P6-4): cohort_id required — self-form (schemas/missions.py
+    ::MissionTeamCreateIn) is the same primitive without one."""
+    name: str
+    cohort_id: UUID
+    member_ids: list[UUID] = []
+
+
+class MissionTeamAdminOut(BaseModel):
+    id: UUID
+    name: str
+    cohort_id: UUID | None = None
+    member_ids: list[UUID] = []
+    member_names: list[str] = []

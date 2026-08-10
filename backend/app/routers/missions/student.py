@@ -1,4 +1,4 @@
-"""Mission student routes (P5-4) — `/missions/*`.
+"""Mission student routes (P5-4/P6-4) — `/missions/*`.
 
 Standalone catalog only lists `published` + `access_mode == 'open'`
 missions — `invite` missions carry no grant table of their own (unlike
@@ -16,18 +16,25 @@ decide readiness (a computed rule — has this student earned the right to
 attempt it). Two different mechanisms, not collapsed (Stage 5 note ②). An
 unrelated mission (no edges naming it) has an empty prerequisite set and is
 always available.
+
+Team formation (P6-4): self-form here is the same `create_team` primitive
+ops-assign (`routers/missions/admin.py`) calls, just without a `cohort_id`
+— "both write the same rows" (MISSIONS_REPORT.md §Q5). `/teams` and
+`/teams/mine` are registered before `/{mission_id}` for the same static-
+before-dynamic routing-order reason `/graph` already is.
 """
 
 import uuid
 from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user
-from app.models.missions.mission import Mission, MissionAttempt, MissionPrerequisite, MissionVariant
 from app.db.session import get_db
+from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember, MissionPrerequisite, MissionVariant
+from app.models.missions.team import MissionTeam
 from app.models.user import User
 from app.schemas.missions import (
     MissionAttemptOut,
@@ -39,11 +46,20 @@ from app.schemas.missions import (
     MissionGraphNodeOut,
     MissionPrerequisiteOut,
     MissionQuizReviewOut,
+    MissionTeamCreateIn,
+    MissionTeamOut,
     MissionVariantOut,
     MissionVariantSummaryOut,
 )
 from app.services import storage
-from app.services.missions import is_unlocked, prerequisite_status, start_attempt
+from app.services.missions import (
+    create_team,
+    is_unlocked,
+    prerequisite_status,
+    start_attempt,
+    team_member_ids,
+    teams_for_user,
+)
 from app.services.missions.serialize import variant_student_view
 from app.services.missions.verifiers.quiz import submit_quiz_attempt
 from app.services.missions.verifiers.submission import submit_submission_attempt
@@ -58,12 +74,26 @@ async def _open_mission(db: AsyncSession, mission_id: uuid.UUID) -> Mission:
     return mission
 
 
-def _attempt_out(attempt: MissionAttempt, *, variant_label: str) -> MissionAttemptOut:
+async def _team_out(db: AsyncSession, team: MissionTeam) -> MissionTeamOut:
+    member_ids = await team_member_ids(db, team_id=team.id)
+    members = [await db.get(User, uid) for uid in member_ids]
+    return MissionTeamOut(
+        id=team.id, name=team.name, cohort_id=team.cohort_id, member_ids=member_ids,
+        member_names=[m.full_name for m in members if m is not None],
+    )
+
+
+async def _attempt_out(db: AsyncSession, attempt: MissionAttempt, *, variant_label: str) -> MissionAttemptOut:
+    team_name = None
+    if attempt.mission_team_id is not None:
+        team = await db.get(MissionTeam, attempt.mission_team_id)
+        team_name = team.name if team else None
     return MissionAttemptOut(
         id=attempt.id, mission_id=attempt.mission_id, variant_id=attempt.variant_id,
         variant_label=variant_label, attempt_no=attempt.attempt_no, status=attempt.status,
         score=float(attempt.score) if attempt.score is not None else None, payload=attempt.payload or {},
         started_at=attempt.started_at, submitted_at=attempt.submitted_at, decided_at=attempt.decided_at,
+        team_id=attempt.mission_team_id, team_name=team_name,
     )
 
 
@@ -87,6 +117,7 @@ async def mission_catalog(db: AsyncSession = Depends(get_db), current: User = De
                 for v in variants
             ],
             locked=not await is_unlocked(db, mission_id=mission.id, user_id=current.id),
+            team_policy=mission.team_policy,
         ))
     return out
 
@@ -120,6 +151,26 @@ async def mission_graph(db: AsyncSession = Depends(get_db), current: User = Depe
     return out
 
 
+# ── team formation: self-form (P6-4) ─────────────────────────────────────
+
+@router.post("/teams", response_model=MissionTeamOut, status_code=status.HTTP_201_CREATED)
+async def form_team(
+    body: MissionTeamCreateIn, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Self-form from the public catalog — no `cohort_id` (MISSIONS_REPORT.md
+    §Q5). Same `create_team` primitive ops-assign calls."""
+    team = await create_team(db, name=body.name, created_by=current.id, member_ids=body.member_ids)
+    await db.commit()
+    await db.refresh(team)
+    return await _team_out(db, team)
+
+
+@router.get("/teams/mine", response_model=list[MissionTeamOut])
+async def my_teams(db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user)):
+    teams = await teams_for_user(db, user_id=current.id)
+    return [await _team_out(db, t) for t in teams]
+
+
 @router.get("/{mission_id}", response_model=MissionDetailOut)
 async def mission_detail(
     mission_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
@@ -131,21 +182,30 @@ async def mission_detail(
     variant_by_id = {v.id: v for v in variants}
     attempts = (await db.execute(
         select(MissionAttempt).where(
-            MissionAttempt.mission_id == mission.id, MissionAttempt.user_id == current.id,
+            MissionAttempt.mission_id == mission.id,
+            or_(
+                MissionAttempt.user_id == current.id,
+                MissionAttempt.id.in_(
+                    select(MissionAttemptMember.attempt_id).where(MissionAttemptMember.user_id == current.id)
+                ),
+            ),
         ).order_by(MissionAttempt.attempt_no)
     )).scalars().all()
     prereqs = await prerequisite_status(db, mission_id=mission.id, user_id=current.id)
+    my_team_rows = await teams_for_user(db, user_id=current.id) if mission.team_policy != "solo" else []
     return MissionDetailOut(
         id=mission.id, title=mission.title, slug=mission.slug, summary=mission.summary,
         description=mission.description, kind=mission.kind, track=mission.track,
         image_url=await storage.resolve_url(mission.image_bucket, mission.image_path),
         variants=[MissionVariantOut(**variant_student_view(v, kind=mission.kind)) for v in variants],
         attempts=[
-            _attempt_out(a, variant_label=variant_by_id[a.variant_id].label if a.variant_id in variant_by_id else "")
+            await _attempt_out(db, a, variant_label=variant_by_id[a.variant_id].label if a.variant_id in variant_by_id else "")
             for a in attempts
         ],
         prerequisites=[MissionPrerequisiteOut(**p) for p in prereqs],
         locked=not all(p["satisfied"] for p in prereqs),
+        team_policy=mission.team_policy,
+        my_teams=[await _team_out(db, t) for t in my_team_rows],
     )
 
 
@@ -160,18 +220,41 @@ async def start_mission_attempt(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Variant not found")
     if not await is_unlocked(db, mission_id=mission.id, user_id=current.id):
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Complete the required missions first")
-    attempt = await start_attempt(db, user_id=current.id, mission_id=mission.id, variant_id=body.variant_id)
+
+    if body.team_id is not None:
+        if mission.team_policy == "solo":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This mission is solo only")
+        team = await db.get(MissionTeam, body.team_id)
+        if team is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+        if current.id not in await team_member_ids(db, team_id=team.id):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You are not a member of this team")
+        attempt = await start_attempt(db, mission_id=mission.id, variant_id=body.variant_id, team_id=body.team_id)
+    else:
+        if mission.team_policy == "team":
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This mission requires a team")
+        attempt = await start_attempt(db, mission_id=mission.id, variant_id=body.variant_id, user_id=current.id)
+
     await db.commit()
     await db.refresh(attempt)
     active_variant = await db.get(MissionVariant, attempt.variant_id)
-    return _attempt_out(attempt, variant_label=active_variant.label if active_variant else "")
+    return await _attempt_out(db, attempt, variant_label=active_variant.label if active_variant else "")
 
 
 async def _own_attempt(db: AsyncSession, attempt_id: uuid.UUID, user: User) -> MissionAttempt:
+    """"Own" means the caller is either the solo student, or (P6-2) a
+    member of the frozen `mission_attempt_members` snapshot for a team
+    attempt — any teammate can view/submit on the team's behalf."""
     attempt = await db.get(MissionAttempt, attempt_id)
-    if attempt is None or attempt.user_id != user.id:
+    if attempt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
-    return attempt
+    if attempt.user_id == user.id:
+        return attempt
+    if attempt.mission_team_id is not None:
+        member = await db.get(MissionAttemptMember, (attempt.id, user.id))
+        if member is not None:
+            return attempt
+    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
 
 
 @router.get("/attempts/{attempt_id}", response_model=MissionAttemptOut)
@@ -180,7 +263,7 @@ async def get_mission_attempt(
 ):
     attempt = await _own_attempt(db, attempt_id, current)
     variant = await db.get(MissionVariant, attempt.variant_id)
-    return _attempt_out(attempt, variant_label=variant.label if variant else "")
+    return await _attempt_out(db, attempt, variant_label=variant.label if variant else "")
 
 
 @router.post("/attempts/{attempt_id}/submit", response_model=MissionAttemptSubmitOut)
@@ -199,7 +282,7 @@ async def submit_mission_attempt(
         await db.commit()
         await db.refresh(decided)
         return MissionAttemptSubmitOut(
-            attempt=_attempt_out(decided, variant_label=variant.label),
+            attempt=await _attempt_out(db, decided, variant_label=variant.label),
             review=MissionQuizReviewOut(score=graded["score"], passed=graded["passed"], questions=graded["questions"]),
         )
 
@@ -211,6 +294,8 @@ async def submit_mission_attempt(
         )
         await db.commit()
         await db.refresh(submitted)
-        return MissionAttemptSubmitOut(attempt=_attempt_out(submitted, variant_label=variant.label), review=None)
+        return MissionAttemptSubmitOut(
+            attempt=await _attempt_out(db, submitted, variant_label=variant.label), review=None,
+        )
 
     raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Mission kind '{mission.kind}' has no submit flow yet")
