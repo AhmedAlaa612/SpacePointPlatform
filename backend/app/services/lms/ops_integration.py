@@ -40,7 +40,12 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
     user (rare: pre-existing staff account with the same email, not linked
     to this contact) — ops still gets the registration, just not the auto
     LMS account; nothing here is fatal to registration."""
-    existing = (await db.execute(select(User).where(User.contact_id == contact_id))).scalars().first()
+    # .order_by: contact_id isn't unique yet (B4/D1, Phase 2 Stage 1 fixes it
+    # properly) — deterministic ordering means a repeated lookup at least
+    # resolves to the same account every time.
+    existing = (await db.execute(
+        select(User).where(User.contact_id == contact_id).order_by(User.created_at)
+    )).scalars().first()
     if existing is not None:
         if "student" not in existing.role_values:
             existing.roles = [*existing.roles, "student"]

@@ -79,8 +79,11 @@ async def session_lms_progress(db: AsyncSession, *, session_id: UUID, user: User
 
     students = []
     for _reg, contact, _att in roster:
+        # .order_by: contact_id isn't unique yet (B4/D1, Phase 2 Stage 1
+        # fixes it properly) — deterministic ordering means a repeated
+        # lookup at least resolves to the same account every time.
         student_user = (await db.execute(
-            select(User).where(User.contact_id == contact.id)
+            select(User).where(User.contact_id == contact.id).order_by(User.created_at)
         )).scalars().first()
 
         course_rows = []

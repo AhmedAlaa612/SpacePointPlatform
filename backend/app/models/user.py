@@ -61,8 +61,15 @@ class User(Base):
     # ambassadors, etc.) show up in Contacts/merge-review flows the same way
     # public registrants do. Backfilled by scripts/backfill_user_contacts.py;
     # repointed on merge via identity.MERGE_FK_REGISTRY.
+    # index=True (B4, 2026-08-10): every LMS lookup by contact_id was a
+    # sequential scan. Standalone — not unique yet, contact_id can hold
+    # duplicates until Phase 2 Stage 1's D1 migration reconciles them and
+    # adds a UNIQUE constraint, which will make this index redundant
+    # (Postgres backs a UNIQUE constraint with its own index) and it should
+    # be dropped then.
     contact_id = Column(
-        UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="SET NULL", name="fk_users_contact_id"), nullable=True
+        UUID(as_uuid=True), ForeignKey("contacts.id", ondelete="SET NULL", name="fk_users_contact_id"),
+        nullable=True, index=True,
     )
 
     @property

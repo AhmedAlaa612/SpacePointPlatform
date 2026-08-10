@@ -103,6 +103,32 @@ async def test_reuses_an_existing_account_linked_to_the_contact_and_adds_student
 
 
 @pytest.mark.asyncio
+async def test_resolves_to_the_same_account_when_a_contact_has_duplicates(db):
+    """B4: contact_id isn't UNIQUE yet (that's Phase 2 Stage 1's D1
+    migration) — a merge can leave a contact pointing at two accounts. Until
+    then, repeated lookups must at least be deterministic, not "whatever
+    Postgres returns first" from an unordered scan."""
+    contact = await _contact(db)
+    older = User(
+        id=uuid.uuid4(), full_name="Older Account", email="older@example.com",
+        password_hash="x", roles=["student"], contact_id=contact.id, status="active",
+    )
+    db.add(older)
+    await db.flush()
+    newer = User(
+        id=uuid.uuid4(), full_name="Newer Account", email="newer@example.com",
+        password_hash="x", roles=["student"], contact_id=contact.id, status="active",
+    )
+    db.add(newer)
+    await db.commit()
+
+    first, _ = await get_or_create_student_account(db, contact.id)
+    second, _ = await get_or_create_student_account(db, contact.id)
+    assert first.id == older.id
+    assert second.id == older.id
+
+
+@pytest.mark.asyncio
 async def test_no_email_skips_account_creation_without_raising(db):
     contact = await _contact(db, email=None)
     await db.commit()
