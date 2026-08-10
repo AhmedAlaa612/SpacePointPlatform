@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import secrets
 from datetime import datetime, timezone
+from decimal import Decimal
 from html import escape
 from typing import Literal
 from uuid import UUID, uuid4
@@ -45,6 +46,28 @@ ACTIVE_REGISTRATION_STATUSES = ("registered", "attended", "completed")
 # is a bulk sheet upload (no human channel, hence 'system'); 'desk' is an ops
 # staff member registering someone in person/by phone.
 _CHANNEL_BY_REGISTERED_VIA = {"form": "web", "import": "system", "desk": "offline"}
+
+
+async def resolve_registration_price(
+    db: AsyncSession, *, program: Program, session_ids: list[UUID] | None = None,
+) -> Decimal:
+    """P0-8: what a registration for `program` (optionally scoped to
+    `session_ids`) should snapshot into `price_charged`. `0` for a free
+    program — never `NULL`, so "free" and "not yet resolved" stop being the
+    same value (LMS_DESIGN_AUDIT.md §5.1).
+
+    Follows the I5-2 fallback chain (Session.price falls back to
+    Program.price when NULL — see Session's docstring): with specific
+    sessions selected, sum each one's own resolved price, since attending N
+    priced sessions of a multi-session program costs N session fees, not the
+    whole program. With none selected (the common single-session-workshop
+    case), the program's own price."""
+    if program.pricing_model == "free":
+        return Decimal("0")
+    if session_ids:
+        sessions = (await db.execute(select(Session).where(Session.id.in_(session_ids)))).scalars().all()
+        return sum((s.price if s.price is not None else program.price) or Decimal("0") for s in sessions)
+    return program.price or Decimal("0")
 
 
 async def register(

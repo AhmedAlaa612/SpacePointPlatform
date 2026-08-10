@@ -34,7 +34,12 @@ from app.schemas.sessions.catalog import CatalogCohortOut, CatalogSessionOut, Pu
 from app.schemas.sessions.public_registration import PublicInterestRequest, PublicRegistrationRequest
 from app.services.documents.ticket import generate_ticket_qr_png
 from app.services.spine.identity import ensure_guardian_relationship, resolve_or_create_contact
-from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES, format_cohort_dates, register
+from app.services.sessions.registration import (
+    ACTIVE_REGISTRATION_STATUSES,
+    format_cohort_dates,
+    register,
+    resolve_registration_price,
+)
 from app.services.sessions.staffing import resolve_session_location_display
 from app.workers.settings import get_arq_redis, safe_enqueue
 
@@ -202,6 +207,7 @@ async def public_register(
     cohort = await db.get(Cohort, cohort_key)
     if cohort is None or cohort.status != "registration_open" or cohort.visibility != "public":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration is not open for this cohort")
+    program = await db.get(Program, cohort.program_id)
 
     # B2: this endpoint also serves /learn/programs/$cohortId, posted with the
     # caller's own auth header if they're signed in (the shared axios client
@@ -235,6 +241,11 @@ async def public_register(
         payer_contact_id = guardian.id
         await ensure_guardian_relationship(db, student_id=student.id, guardian_id=guardian.id)
 
+    # P0-8: public_register never set this, so every website registration
+    # recorded NULL — indistinguishable from "not yet resolved" even for a
+    # free programme. Snapshot a real number now (LMS_DESIGN_AUDIT.md §5.1).
+    price_charged = await resolve_registration_price(db, program=program, session_ids=body.session_ids)
+
     registration = await register(
         db,
         contact_id=student.id,
@@ -242,6 +253,7 @@ async def public_register(
         payer_contact_id=payer_contact_id,
         registered_via="form",
         session_ids=body.session_ids,
+        price_charged=price_charged,
     )
 
     await db.commit()

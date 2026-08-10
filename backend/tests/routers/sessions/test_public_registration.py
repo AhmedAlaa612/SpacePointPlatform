@@ -6,6 +6,8 @@ entirely (see MASTER_EXECUTION_PLAN.md amendment).
 """
 
 import uuid
+from datetime import date
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -16,6 +18,7 @@ from app.db.session import get_db
 from app.main import app
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.sessions.session import Session
 from app.models.spine.contact import Contact, ContactRelationship
 from app.models.spine.identity_alias import IdentityAlias
 from app.models.sessions.registration import Registration
@@ -90,6 +93,9 @@ async def test_registration_creates_everything_correctly(db, arq_client, arq_red
     )).scalars().first()
     assert registration is not None
     assert registration.registered_via == "form"
+    # P0-8: a free programme snapshots 0, never NULL — "free" and "unknown"
+    # must stop being the same value.
+    assert registration.price_charged == Decimal("0")
 
     touchpoint = (await db.execute(
         select(Touchpoint).where(Touchpoint.contact_id == contact.id, Touchpoint.touchpoint_type == "registration")
@@ -267,6 +273,76 @@ async def test_signed_in_caller_reuses_own_contact_instead_of_retyped_email(db, 
         select(Contact).where(Contact.email == "typo@example.com")
     )).scalars().first()
     assert typo_contact is None
+
+
+@pytest.mark.asyncio
+async def test_paid_program_snapshots_its_price_on_the_registration(db, client):
+    program = Program(
+        id=uuid.uuid4(), code=f"PAID-{uuid.uuid4().hex[:8]}", name="Paid Workshop",
+        program_type="workshop", pricing_model="paid", price=Decimal("250.00"), active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(
+        id=uuid.uuid4(), program_id=program.id, name="Paid Cohort",
+        status="registration_open", visibility="public",
+    )
+    db.add(cohort)
+    await db.commit()
+    headers = _unique_ip_headers("paid_program_price")
+
+    resp = await client.post(
+        f"/public/register/{cohort.id}",
+        json={"student_name": "Paying Student", "email": "paying.student@example.com", "phone": "050 222 3333"},
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    registration = (await db.execute(
+        select(Registration).where(Registration.cohort_id == cohort.id)
+    )).scalars().first()
+    assert registration.price_charged == Decimal("250.00")
+
+
+@pytest.mark.asyncio
+async def test_session_scoped_registration_sums_selected_session_prices(db, client):
+    """I5-2's fallback chain: a session with its own price override wins over
+    the program's; one without inherits it. Attending 2 of a multi-session
+    program's priced sessions costs 2 session fees, not the whole program."""
+    program = Program(
+        id=uuid.uuid4(), code=f"MULTI-{uuid.uuid4().hex[:8]}", name="Multi-Session Course",
+        program_type="course", pricing_model="paid", price=Decimal("100.00"), active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(
+        id=uuid.uuid4(), program_id=program.id, name="Multi-Session Cohort",
+        status="registration_open", visibility="public",
+    )
+    db.add(cohort)
+    await db.flush()
+    # Own override (150) + inherits the program's 100 (no override) — 3 total sessions exist.
+    priced_session = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 9, 1), price=Decimal("150.00"))
+    inherited_session = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 9, 8))
+    unselected_session = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 9, 15), price=Decimal("999.00"))
+    db.add_all([priced_session, inherited_session, unselected_session])
+    await db.commit()
+    headers = _unique_ip_headers("session_scoped_price")
+
+    resp = await client.post(
+        f"/public/register/{cohort.id}",
+        json={
+            "student_name": "Partial Student", "email": "partial.student@example.com", "phone": "050 444 5555",
+            "session_ids": [str(priced_session.id), str(inherited_session.id)],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    registration = (await db.execute(
+        select(Registration).where(Registration.cohort_id == cohort.id)
+    )).scalars().first()
+    assert registration.price_charged == Decimal("250.00")  # 150 + 100, not 999
 
 
 @pytest.mark.asyncio
