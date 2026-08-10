@@ -25,6 +25,7 @@ from app.models.lms import (
 )
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.sessions.program import Program
+from app.models.sessions.registration import Registration
 from app.models.user import User
 from app.schemas.lms_admin import (
     AdminCheckpointNoteContent,
@@ -34,11 +35,15 @@ from app.schemas.lms_admin import (
     AdminContentQuiz,
     AdminContentText,
     AdminContentVideo,
+    BulkGrantIn,
+    BulkGrantOut,
     CourseAdminOut,
     CourseCreate,
     CourseUpdate,
     CurriculumEntryIn,
     CurriculumEntryOut,
+    EnrollmentAdminOut,
+    EnrollmentGrantIn,
     InstructorOptionOut,
     ItemAdminOut,
     ItemCreate,
@@ -58,6 +63,8 @@ from app.schemas.lms_admin import (
     VideoCheckpointUpdate,
 )
 from app.services import storage
+from app.services.lms import enroll, enrollment_is_active
+from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
 router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
 
@@ -84,6 +91,7 @@ async def _course_admin_out(db: AsyncSession, course: Course) -> CourseAdminOut:
         image_url=image_url, outcomes=course.outcomes or [], level=course.level, track=course.track,
         instructor_id=course.instructor_id, instructor_name=instructor_name,
         instructor_title=course.instructor_title,
+        access_mode=course.access_mode, access_days=course.access_days,
     )
 
 _CONTENT_MODEL = {
@@ -997,3 +1005,140 @@ async def remove_learning_path_step(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Step not found")
     await db.delete(step)
     await db.commit()
+
+
+# ── enrollment admin (P1-5, Phase 2 Stage 1) ─────────────────────────────────
+
+async def _enrollment_admin_out(db: AsyncSession, enrollment: Enrollment) -> EnrollmentAdminOut:
+    student = await db.get(User, enrollment.user_id)
+    return EnrollmentAdminOut(
+        id=enrollment.id, user_id=enrollment.user_id,
+        student_name=student.full_name if student else "(deleted user)",
+        student_email=student.email if student else "",
+        course_id=enrollment.course_id, source=enrollment.source, status=enrollment.status,
+        granted_by=enrollment.granted_by, expires_at=enrollment.expires_at, created_at=enrollment.created_at,
+    )
+
+
+@router.get("/courses/{course_id}/roster", response_model=list[EnrollmentAdminOut])
+async def course_roster(
+    course_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    rows = (await db.execute(
+        select(Enrollment).where(Enrollment.course_id == course_id).order_by(Enrollment.created_at.desc())
+    )).scalars().all()
+    return [await _enrollment_admin_out(db, e) for e in rows]
+
+
+@router.post(
+    "/courses/{course_id}/enrollments", response_model=EnrollmentAdminOut, status_code=status.HTTP_201_CREATED,
+)
+async def grant_enrollment(
+    course_id: uuid.UUID,
+    body: EnrollmentGrantIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    """Put a named person into a named course from the UI (P1-5) — works
+    regardless of the course's access_mode; that field only gates
+    *self*-enrol (P1-4). An ops grant is always allowed."""
+    student = await db.get(User, body.user_id)
+    if student is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+    enrollment = await enroll(
+        db, user_id=body.user_id, course_id=course_id, source="ops", granted_by=current.id,
+    )
+    await db.commit()
+    return await _enrollment_admin_out(db, enrollment)
+
+
+@router.post("/enrollments/{enrollment_id}/revoke", response_model=EnrollmentAdminOut)
+async def revoke_enrollment(
+    enrollment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Sets status='inactive', never deletes (P1-5) — the row, and whatever
+    progress/points hang off it later, survive; enroll() reactivates it in
+    place if access is ever restored."""
+    enrollment = await db.get(Enrollment, enrollment_id)
+    if enrollment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Enrollment not found")
+    enrollment.status = "inactive"
+    await db.commit()
+    return await _enrollment_admin_out(db, enrollment)
+
+
+@router.get("/users/{user_id}/enrollments", response_model=list[EnrollmentAdminOut])
+async def student_enrollments(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Per-student view (P1-5) — every course this account has ever been
+    enrolled in, active or not. The richer contact-centric panel (linked
+    account, registrations, cohorts, points) is Stage 3's P3-1; this is the
+    narrower building block the roster/grant UI needs today."""
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+    rows = (await db.execute(
+        select(Enrollment).where(Enrollment.user_id == user_id).order_by(Enrollment.created_at.desc())
+    )).scalars().all()
+    return [await _enrollment_admin_out(db, e) for e in rows]
+
+
+@router.post("/courses/{course_id}/enrollments/bulk", response_model=BulkGrantOut)
+async def bulk_grant_enrollment(
+    course_id: uuid.UUID,
+    body: BulkGrantIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    """One-shot iteration over a roster or a role (§3) — not a live
+    membership rule. cohort_id: every contact with an active registration in
+    that cohort who already has a linked LMS account (bulk-grant doesn't
+    create accounts — see BulkGrantOut.skipped_no_account's docstring).
+    role: every user holding that role, D2's "staff can take LMS courses
+    too" made concrete."""
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+
+    skipped_no_account = 0
+    if body.role is not None:
+        user_ids = list((await db.execute(
+            select(User.id).where(User.roles.any(body.role))
+        )).scalars().all())
+    else:
+        contact_ids = list((await db.execute(
+            select(Registration.contact_id).where(
+                Registration.cohort_id == body.cohort_id,
+                Registration.status.in_(ACTIVE_REGISTRATION_STATUSES),
+            )
+        )).scalars().all())
+        user_ids = list((await db.execute(
+            select(User.id).where(User.contact_id.in_(contact_ids))
+        )).scalars().all())
+        skipped_no_account = len(set(contact_ids)) - len(set(user_ids))
+
+    granted = already_enrolled = 0
+    for user_id in user_ids:
+        existing = (await db.execute(
+            select(Enrollment.id).where(
+                Enrollment.user_id == user_id, Enrollment.course_id == course_id, *enrollment_is_active(),
+            )
+        )).first()
+        if existing is not None:
+            already_enrolled += 1
+            continue
+        await enroll(db, user_id=user_id, course_id=course_id, source="ops", granted_by=current.id)
+        granted += 1
+
+    await db.commit()
+    return BulkGrantOut(granted=granted, already_enrolled=already_enrolled, skipped_no_account=skipped_no_account)

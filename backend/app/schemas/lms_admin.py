@@ -157,6 +157,10 @@ class VideoCheckpointAdminOut(BaseModel):
 # ── courses ──────────────────────────────────────────────────────────────────
 
 CourseLevel = Literal["beginner", "intermediate", "advanced"]
+# P1-2 — open: any logged-in student self-enrols. invite: lists with a lock,
+# only an admin grant (P1-5) enrols. paid: self-enrol starts a checkout
+# (Stage S, not built yet — POST /lms/enroll 402s in the meantime).
+CourseAccessMode = Literal["open", "invite", "paid"]
 
 
 class CourseCreate(BaseModel):
@@ -168,6 +172,8 @@ class CourseCreate(BaseModel):
     track: str | None = None
     instructor_id: UUID | None = None
     instructor_title: str | None = None
+    access_mode: CourseAccessMode = "open"
+    access_days: int | None = Field(default=None, ge=1)  # NULL = perpetual
 
 
 class CourseUpdate(BaseModel):
@@ -179,6 +185,8 @@ class CourseUpdate(BaseModel):
     track: str | None = None
     instructor_id: UUID | None = None
     instructor_title: str | None = None
+    access_mode: CourseAccessMode | None = None
+    access_days: int | None = Field(default=None, ge=1)
 
 
 class CourseAdminOut(BaseModel):
@@ -197,6 +205,8 @@ class CourseAdminOut(BaseModel):
     instructor_id: UUID | None = None
     instructor_name: str | None = None
     instructor_title: str | None = None
+    access_mode: str = "open"
+    access_days: int | None = None
 
 
 # ── modules ──────────────────────────────────────────────────────────────────
@@ -309,3 +319,46 @@ class LearningPathStepOut(BaseModel):
     learning_path_id: UUID
     course_id: UUID
     position: int
+
+
+# ── enrollment admin (P1-5) ──────────────────────────────────────────────────
+
+class EnrollmentAdminOut(BaseModel):
+    id: UUID
+    user_id: UUID
+    student_name: str
+    student_email: str
+    course_id: UUID
+    source: str
+    status: str
+    granted_by: UUID | None = None
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
+
+
+class EnrollmentGrantIn(BaseModel):
+    user_id: UUID
+
+
+class BulkGrantIn(BaseModel):
+    """Exactly one of cohort_id (every student with an active registration in
+    that cohort) or role (every user holding that role — D2, staff can take
+    LMS courses too) — a one-shot iteration, never a live membership rule
+    (§3: "do not build a groups/audiences table")."""
+    cohort_id: UUID | None = None
+    role: str | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> "BulkGrantIn":
+        if (self.cohort_id is None) == (self.role is None):
+            raise ValueError("give exactly one of cohort_id or role")
+        return self
+
+
+class BulkGrantOut(BaseModel):
+    granted: int
+    already_enrolled: int
+    # Only meaningful for cohort mode — a registered contact with no linked
+    # LMS account. Bulk-grant doesn't create accounts; that's
+    # ops_integration.sync_registration_lms's job, a separate concern.
+    skipped_no_account: int = 0
