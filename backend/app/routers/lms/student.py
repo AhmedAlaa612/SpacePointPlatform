@@ -97,11 +97,31 @@ async def _enrolled_item(
     return item
 
 
-async def _published_course(db: AsyncSession, course_id: uuid.UUID) -> Course:
+async def _published_course(
+    db: AsyncSession, course_id: uuid.UUID, user_id: uuid.UUID | None = None
+) -> Course:
+    """Published, OR the caller already holds an active enrollment (B5) — ops
+    can deliberately enrol a student into a course still pending a publish
+    review (e.g. via a program's curriculum), and that access must not
+    dead-end at a 404. Enrollment implies visibility, not the other way
+    round: self-enrol (below) omits user_id, since nobody can hold an
+    enrollment in a course they haven't self-enrolled into yet."""
     course = await db.get(Course, course_id)
-    if course is None or not course.is_published:
+    if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-    return course
+    if course.is_published:
+        return course
+    if user_id is not None:
+        enrolled = (await db.execute(
+            select(Enrollment.id).where(
+                Enrollment.user_id == user_id,
+                Enrollment.course_id == course_id,
+                Enrollment.status == "active",
+            )
+        )).first()
+        if enrolled is not None:
+            return course
+    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
 
 
 # ── catalog + course outline: any authenticated user ────────────────────────
@@ -139,7 +159,7 @@ async def course_detail(
     module are what enrollment gates. Lock states for a non-student or a
     not-yet-enrolled student simply read as module-1-open, rest-locked.
     """
-    course = await _published_course(db, course_id)
+    course = await _published_course(db, course_id, current.id)
 
     enrolled_row = (await db.execute(
         select(Enrollment).where(

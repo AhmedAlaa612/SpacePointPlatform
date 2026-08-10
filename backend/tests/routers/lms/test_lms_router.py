@@ -133,11 +133,40 @@ async def test_catalog_search_matches_title_or_description_case_insensitively(db
 
 
 @pytest.mark.asyncio
-async def test_unpublished_course_is_404_even_to_an_authenticated_user(db, client):
+async def test_unpublished_course_is_404_to_an_authenticated_but_unenrolled_user(db, client):
     author = await _user(db, roles=["operations"])
     draft = await _course(db, author=author, published=False)
     student = await _user(db)
     resp = await client.get(f"/lms/courses/{draft.id}", headers=_headers(student))
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_unpublished_course_is_reachable_by_an_enrolled_student(db, client):
+    """B5: ops can enrol a student into a course still pending a publish
+    review (e.g. via a program's curriculum) — that access must not
+    dead-end at a 404 once the *My Courses* card is clicked."""
+    author = await _user(db, roles=["operations"])
+    draft = await _course(db, author=author, published=False)
+    student = await _user(db)
+    await enroll(db, user_id=student.id, course_id=draft.id, source="registration")
+    await db.commit()
+
+    resp = await client.get(f"/lms/courses/{draft.id}", headers=_headers(student))
+    assert resp.status_code == 200
+    assert resp.json()["id"] == str(draft.id)
+
+
+@pytest.mark.asyncio
+async def test_self_enroll_still_requires_a_published_course(db, client):
+    """Enrollment implies visibility, not the other way round — self-enrol
+    into a draft course must still 404, since nobody can already hold an
+    enrollment in a course they haven't self-enrolled into yet."""
+    author = await _user(db, roles=["operations"])
+    draft = await _course(db, author=author, published=False)
+    student = await _user(db)
+
+    resp = await client.post("/lms/enroll", json={"course_id": str(draft.id)}, headers=_headers(student))
     assert resp.status_code == http_status.HTTP_404_NOT_FOUND
 
 
