@@ -49,6 +49,12 @@ class AnomalyStateOut(BaseModel):
     # same answer-leakage posture as every other verifier's student view.
 
 
+class CrewMemberOut(BaseModel):
+    user_id: UUID
+    name: str
+    role: str | None = None
+
+
 class OperateStateOut(BaseModel):
     attempt_id: UUID
     mission_id: UUID
@@ -63,6 +69,16 @@ class OperateStateOut(BaseModel):
     triggered_count: int
     resolved_count: int
     pass_threshold: float
+    # Stage 7B-5 — empty for a solo attempt. crew is {role: user_id} for
+    # filled roles only; roster lists every team member whether or not
+    # they hold a role, so the frontend can offer the open seats.
+    is_team: bool = False
+    crew: dict[str, str] = {}
+    roster: list[CrewMemberOut] = []
+
+
+class AssignCrewRoleIn(BaseModel):
+    role: str | None = None  # None clears whatever role the caller holds
 
 
 class IssueCommandIn(BaseModel):

@@ -1,4 +1,4 @@
-"""Operate mission routes (Phase 2B, Stage 7B-3) — `/missions/operate/*`.
+"""Operate mission routes (Phase 2B, Stage 7B-3/7B-5) — `/missions/operate/*`.
 Registered before `/missions/{mission_id}` in `routers/missions/__init__.py`
 for the same static-before-dynamic reason as `/missions/design`,
 `/missions/admin`, `/missions/graph`, and `/missions/teams`.
@@ -6,23 +6,27 @@ for the same static-before-dynamic reason as `/missions/design`,
 Authorization reuses `routers/missions/student.py::_own_attempt` — the
 solo student, or any member of a team attempt's frozen roster. Same
 posture as the design mission: nothing here is operate-specific about
-who may act on an attempt.
+who may act on an attempt (crew role gating happens one level down, at
+command-issue time, not at the attempt-access level).
 """
 
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user
 from app.db.session import get_db
-from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
+from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember, MissionVariant
 from app.models.user import User
 from app.routers.missions.student import _own_attempt
 from app.schemas.missions_operate import (
     AnomalyStateOut,
+    AssignCrewRoleIn,
     CommandEventOut,
+    CrewMemberOut,
     FinishOperationOut,
     IssueCommandIn,
     IssueCommandOut,
@@ -31,7 +35,14 @@ from app.schemas.missions_operate import (
 )
 from app.services.missions.operate.evaluator import evaluate_operation
 from app.services.missions.operate.telemetry import compute_telemetry
-from app.services.missions.verifiers.operate import attempt_events, commands_issued, finish_operation, issue_command
+from app.services.missions.verifiers.operate import (
+    assign_crew_role,
+    attempt_crew,
+    attempt_events,
+    commands_issued,
+    finish_operation,
+    issue_command,
+)
 
 router = APIRouter(prefix="/missions/operate", tags=["missions-operate"])
 
@@ -60,6 +71,21 @@ async def _state_out(db: AsyncSession, attempt: MissionAttempt) -> OperateStateO
         pass_threshold=config.get("pass_threshold", 70),
     )
 
+    crew = attempt_crew(attempt)
+    roster: list[CrewMemberOut] = []
+    is_team = attempt.mission_team_id is not None
+    if is_team:
+        member_ids = (await db.execute(
+            select(MissionAttemptMember.user_id).where(MissionAttemptMember.attempt_id == attempt.id)
+        )).scalars().all()
+        role_by_user = {uid: role for role, uid in crew.items()}
+        for uid in member_ids:
+            member = await db.get(User, uid)
+            roster.append(CrewMemberOut(
+                user_id=uid, name=member.full_name if member else "Unknown",
+                role=role_by_user.get(str(uid)),
+            ))
+
     return OperateStateOut(
         attempt_id=attempt.id, mission_id=mission.id, variant_id=variant.id, variant_label=variant.label,
         attempt_status=attempt.status, elapsed_seconds=round(elapsed, 1),
@@ -71,6 +97,7 @@ async def _state_out(db: AsyncSession, attempt: MissionAttempt) -> OperateStateO
         ],
         score=result.score, triggered_count=result.triggered_count, resolved_count=result.resolved_count,
         pass_threshold=config.get("pass_threshold", 70),
+        is_team=is_team, crew=crew, roster=roster,
     )
 
 
@@ -79,6 +106,22 @@ async def get_operate_state(
     attempt_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_operate_attempt(db, attempt_id, current)
+    return await _state_out(db, attempt)
+
+
+@router.post("/attempts/{attempt_id}/crew", response_model=OperateStateOut)
+async def set_crew_role(
+    attempt_id: uuid.UUID, body: AssignCrewRoleIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Any team member may set their own role (or vacate it with
+    `role: null`) — same low-ceremony self-service as the rest of this
+    platform's team formation. Solo attempts have nothing to assign."""
+    attempt = await _own_operate_attempt(db, attempt_id, current)
+    if attempt.mission_team_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Crew roles only apply to team attempts")
+    await assign_crew_role(db, attempt=attempt, role=body.role, user_id=current.id)
+    await db.commit()
     return await _state_out(db, attempt)
 
 

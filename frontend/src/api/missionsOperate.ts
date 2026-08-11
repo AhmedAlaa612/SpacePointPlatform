@@ -38,6 +38,23 @@ export interface AnomalyState {
   resolved: boolean;
 }
 
+export interface CrewMember {
+  user_id: string;
+  name: string;
+  role: string | null;
+}
+
+export const CREW_ROLES = ["commander", "eps", "adcs", "comms", "payload"] as const;
+export type CrewRole = (typeof CREW_ROLES)[number];
+
+export const CREW_ROLE_LABELS: Record<CrewRole, string> = {
+  commander: "Commander",
+  eps: "Power Engineer",
+  adcs: "Flight Dynamics Officer",
+  comms: "Comms Officer",
+  payload: "Payload/Science Officer",
+};
+
 export interface OperateState {
   attempt_id: string;
   mission_id: string;
@@ -52,6 +69,9 @@ export interface OperateState {
   triggered_count: number;
   resolved_count: number;
   pass_threshold: number;
+  is_team: boolean;
+  crew: Record<string, string>;
+  roster: CrewMember[];
 }
 
 export async function fetchOperateState(attemptId: string): Promise<OperateState> {
@@ -66,5 +86,10 @@ export async function sendCommand(attemptId: string, command: string): Promise<{
 
 export async function finishOperation(attemptId: string): Promise<{ passed: boolean; score: number; state: OperateState }> {
   const { data } = await api.post(`/missions/operate/attempts/${attemptId}/finish`);
+  return data;
+}
+
+export async function setCrewRole(attemptId: string, role: CrewRole | null): Promise<OperateState> {
+  const { data } = await api.post<OperateState>(`/missions/operate/attempts/${attemptId}/crew`, { role });
   return data;
 }

@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
-import { AlertTriangle, CheckCircle2, ChevronRight, Radio, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, Radio, Users, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { fetchOperateState, finishOperation, sendCommand, type OperateState } from "@/api/missionsOperate";
+import { useAuth } from "@/context/AuthContext";
+import {
+  CREW_ROLES, CREW_ROLE_LABELS, fetchOperateState, finishOperation, sendCommand, setCrewRole,
+  type CrewRole, type OperateState,
+} from "@/api/missionsOperate";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
@@ -27,12 +31,14 @@ function subsystemStatus(state: OperateState, subsystem: string): "nominal" | "c
  * there's no session state client and server could disagree about. */
 export default function OperateMissionPage() {
   const { attemptId } = useParams({ strict: false }) as { attemptId: string };
+  const { currentUser } = useAuth();
   const [state, setState] = useState<OperateState | null>(null);
   const [error, setError] = useState("");
   const [command, setCommand] = useState("");
   const [sending, setSending] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [finishError, setFinishError] = useState("");
+  const [crewError, setCrewError] = useState("");
   const terminalEndRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
@@ -79,6 +85,15 @@ export default function OperateMissionPage() {
     }
   };
 
+  const handleTakeRole = async (role: CrewRole | null) => {
+    setCrewError("");
+    try {
+      setState(await setCrewRole(attemptId, role));
+    } catch (err) {
+      setCrewError(errorDetail(err, "Couldn't update your role right now."));
+    }
+  };
+
   if (error) return <div className="mx-auto max-w-[1000px] px-5 py-10"><p className="text-sm text-destructive">{error}</p></div>;
   if (!state) return <div className="mx-auto max-w-[1000px] px-5 py-10"><p className="text-sm text-muted-foreground">Establishing uplink...</p></div>;
 
@@ -112,6 +127,36 @@ export default function OperateMissionPage() {
         )}
       </div>
       {finishError && <p className="text-xs text-destructive">{finishError}</p>}
+
+      {/* Crew roles -- only for team attempts (Stage 7B-5) */}
+      {state.is_team && (
+        <Card className="p-4 flex flex-col gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+            <Users className="size-3.5" /> Crew
+          </p>
+          <div className="grid sm:grid-cols-5 gap-2">
+            {CREW_ROLES.map((role) => {
+              const holder = state.roster.find((m) => m.role === role);
+              const isMine = holder?.user_id === currentUser?.id;
+              return (
+                <div key={role} className={`flex flex-col gap-1 px-3 py-2 rounded-xl ring-1 ${isMine ? "ring-primary/40 bg-primary/10" : "ring-border"}`}>
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{CREW_ROLE_LABELS[role]}</span>
+                  <span className="text-xs">{holder ? holder.name : "Open seat"}</span>
+                  {!decided && (holder ? isMine : true) && (
+                    <button
+                      onClick={() => void handleTakeRole(isMine ? null : role)}
+                      className="text-[10px] text-primary hover:opacity-80 text-left"
+                    >
+                      {isMine ? "Leave seat" : "Take seat"}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {crewError && <p className="text-xs text-destructive">{crewError}</p>}
+        </Card>
+      )}
 
       {/* Subsystem health lights */}
       <div className="grid grid-cols-5 gap-2">
