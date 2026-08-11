@@ -126,6 +126,7 @@ import LearnProfile from "@/pages/learn/LearnProfile";
 import LearnProgram from "@/pages/learn/LearnProgram";
 import MissionCatalog from "@/pages/learn/MissionCatalog";
 import MissionPage from "@/pages/learn/MissionPage";
+import DesignMissionPage from "@/pages/learn/DesignMissionPage";
 
 // LMS authoring surface (LM1-13) — shared by operations + facilitator
 // (backend's require_lms_content), own top-level path so one URL space works
@@ -876,6 +877,16 @@ const learnMissionRoute = createRoute({
   component: MissionPage,
 });
 
+// The design-mission wizard (P7-5) — a distinct nine-step surface, not the
+// generic attempt-flow page above (a design is iterative, saved freely
+// across many steps; a submission/quiz attempt is a single act). Keyed on
+// attempt_id, not mission_id: /missions/design/$attemptId.
+const learnDesignMissionRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/missions/design/$attemptId",
+  component: DesignMissionPage,
+});
+
 const learnProgramRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/programs/$cohortId",
@@ -892,7 +903,7 @@ const routeTree = rootRoute.addChildren([
   learnLayoutRoute.addChildren([
     learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
     learnPathsRoute, learnPathRoute, learnProfileRoute, learnProgramRoute,
-    learnMissionsRoute, learnMissionRoute,
+    learnMissionsRoute, learnDesignMissionRoute, learnMissionRoute,
   ]),
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,

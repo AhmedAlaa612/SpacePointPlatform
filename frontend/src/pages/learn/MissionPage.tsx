@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "@tanstack/react-router";
+import { useParams, useNavigate, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
 import { CheckCircle2, ChevronRight, Lock, Rocket, Sparkles, Users, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ function errorDetail(err: unknown, fallback: string): string {
  * reviewed. */
 export default function MissionPage() {
   const { missionId } = useParams({ strict: false }) as { missionId: string };
+  const navigate = useNavigate();
   const [mission, setMission] = useState<MissionDetail | null>(null);
   const [error, setError] = useState("");
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
@@ -70,6 +71,17 @@ export default function MissionPage() {
     return mission.attempts[mission.attempts.length - 1];
   }, [mission]);
 
+  // A design mission is a whole nine-step wizard, not a single attempt
+  // form — it lives at its own route, keyed on the attempt (P7-5). Any
+  // existing attempt (in_progress or passed — a design attempt never
+  // becomes "failed", it just stays in_progress until it's ready) sends
+  // the student straight there.
+  useEffect(() => {
+    if (mission?.kind === "design" && activeAttempt) {
+      navigate({ to: "/learn/missions/design/$attemptId", params: { attemptId: activeAttempt.id }, replace: true });
+    }
+  }, [mission, activeAttempt, navigate]);
+
   const handleStart = async () => {
     if (!mission || !selectedVariantId) return;
     if (asTeam && !selectedTeamId) return;
@@ -77,7 +89,11 @@ export default function MissionPage() {
     setStartError("");
     setQuizReview(null);
     try {
-      await startMissionAttempt(mission.id, selectedVariantId, asTeam ? selectedTeamId! : undefined);
+      const attempt = await startMissionAttempt(mission.id, selectedVariantId, asTeam ? selectedTeamId! : undefined);
+      if (mission.kind === "design") {
+        navigate({ to: "/learn/missions/design/$attemptId", params: { attemptId: attempt.id } });
+        return;
+      }
       load();
     } catch (err) {
       setStartError(errorDetail(err, "Couldn't start this mission right now."));
