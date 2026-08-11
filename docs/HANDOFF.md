@@ -33,6 +33,7 @@ this repo (`C:\Users\ahmed\Downloads\spaceCRM`), not in this codebase.**
 | [`HANDOFF_SESSIONS.md`](./HANDOFF_SESSIONS.md) | Programs, cohorts, sessions, registration, staffing, delivery |
 | [`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md) | Applicant pipeline, contracts, payments, certificates |
 | [`HANDOFF_INTERNS.md`](./HANDOFF_INTERNS.md) | Projects, epics, tasks, kanban, teams |
+| [`MISSIONS_INTERN_SPEC.md`](./MISSIONS_INTERN_SPEC.md) | Intern-facing: how to propose a mission, what gets ported vs. rebuilt, lessons from the first real port (SatKit → Operate Your Satellite, Phase 2B) |
 | [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions |
 | [`HANDOFF_INVENTORY_TESTING.md`](./HANDOFF_INVENTORY_TESTING.md) | Built 2026-08-02 — bulk stock counts, direct kit counts, inventory UI fast-follows, and lightweight T-shirt-style size/variant grouping. Unit/type-checked; the browser-verification the doc asks for has **not** happened as of 2026-08-04. Read before touching Stock/Catalogue/Fulfilment/Kits pages. Note: `alembic upgrade head` has since been run against `spacepoint_dev`/`spacepoint_test` (both at `d1e4c73f0038`) |
 | `HANDOFF_EVERYTHING.md` *(repo root)* | **Historical** — a session log from 2026-07-25, predates the cutover. Not current state |
