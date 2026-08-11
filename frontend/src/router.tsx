@@ -127,6 +127,7 @@ import LearnProgram from "@/pages/learn/LearnProgram";
 import MissionCatalog from "@/pages/learn/MissionCatalog";
 import MissionPage from "@/pages/learn/MissionPage";
 import DesignMissionPage from "@/pages/learn/DesignMissionPage";
+import OperateMissionPage from "@/pages/learn/OperateMissionPage";
 
 // LMS authoring surface (LM1-13) — shared by operations + facilitator
 // (backend's require_lms_content), own top-level path so one URL space works
@@ -887,6 +888,15 @@ const learnDesignMissionRoute = createRoute({
   component: DesignMissionPage,
 });
 
+// The operate-mission console (Stage 7B-4) — same reasoning as design
+// above: a bounded live session, not a single quiz/submission-shaped
+// attempt form. Keyed on attempt_id.
+const learnOperateMissionRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/missions/operate/$attemptId",
+  component: OperateMissionPage,
+});
+
 const learnProgramRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/programs/$cohortId",
@@ -903,7 +913,7 @@ const routeTree = rootRoute.addChildren([
   learnLayoutRoute.addChildren([
     learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
     learnPathsRoute, learnPathRoute, learnProfileRoute, learnProgramRoute,
-    learnMissionsRoute, learnDesignMissionRoute, learnMissionRoute,
+    learnMissionsRoute, learnDesignMissionRoute, learnOperateMissionRoute, learnMissionRoute,
   ]),
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,

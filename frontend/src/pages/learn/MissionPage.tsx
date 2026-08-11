@@ -71,14 +71,19 @@ export default function MissionPage() {
     return mission.attempts[mission.attempts.length - 1];
   }, [mission]);
 
-  // A design mission is a whole nine-step wizard, not a single attempt
-  // form — it lives at its own route, keyed on the attempt (P7-5). Any
-  // existing attempt (in_progress or passed — a design attempt never
-  // becomes "failed", it just stays in_progress until it's ready) sends
-  // the student straight there.
+  // A design mission is a whole nine-step wizard and an operate mission is
+  // a live console — neither is a single attempt form, each lives at its
+  // own route, keyed on the attempt (P7-5 / Stage 7B-4). Any existing
+  // attempt sends the student straight there: design attempts never
+  // become "failed" (stay in_progress until ready), operate attempts can,
+  // but a decided operate attempt is still best viewed on its own console
+  // (it shows the final telemetry/score), not back on this generic page.
   useEffect(() => {
-    if (mission?.kind === "design" && activeAttempt) {
+    if (!mission || !activeAttempt) return;
+    if (mission.kind === "design") {
       navigate({ to: "/learn/missions/design/$attemptId", params: { attemptId: activeAttempt.id }, replace: true });
+    } else if (mission.kind === "operate") {
+      navigate({ to: "/learn/missions/operate/$attemptId", params: { attemptId: activeAttempt.id }, replace: true });
     }
   }, [mission, activeAttempt, navigate]);
 
@@ -92,6 +97,10 @@ export default function MissionPage() {
       const attempt = await startMissionAttempt(mission.id, selectedVariantId, asTeam ? selectedTeamId! : undefined);
       if (mission.kind === "design") {
         navigate({ to: "/learn/missions/design/$attemptId", params: { attemptId: attempt.id } });
+        return;
+      }
+      if (mission.kind === "operate") {
+        navigate({ to: "/learn/missions/operate/$attemptId", params: { attemptId: attempt.id } });
         return;
       }
       load();
