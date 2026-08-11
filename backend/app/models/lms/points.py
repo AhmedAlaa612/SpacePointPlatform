@@ -8,8 +8,9 @@ Append-only: a row is written once, at the moment of award, and never
 updated or deleted (derive-don't-cache extends to "never recompute a past
 award", not just "never cache a running total" — a leaderboard total is a
 `SUM(points) GROUP BY user_id`, never a stored column). `source` names what
-kind of event minted the row (quiz, migration-backfill, and — once built —
-game/mission/attendance). `idempotency_key` scoped per-source, per-user, so
+kind of event minted the row (quiz, migration-backfill, mission, game
+(Live Games Phase 2C, 8-6), and — once built — attendance).
+`idempotency_key` scoped per-source, per-user, so
 a quiz's key can collide harmlessly with a different source's key for the
 same string, and a replay of the same award is a no-op by constraint —
 the same discipline as `enroll()`/`register()` everywhere else here.

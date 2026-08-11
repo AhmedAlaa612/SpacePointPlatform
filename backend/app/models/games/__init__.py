@@ -15,5 +15,9 @@ is untouched.
 
 from app.models.games.game import Game, GameQuestion
 from app.models.games.session_assignment import GameSessionAssignment, GameSessionQuestion
+from app.models.games.run import GameRun, GameParticipant, GameAnswer
 
-__all__ = ["Game", "GameQuestion", "GameSessionAssignment", "GameSessionQuestion"]
+__all__ = [
+    "Game", "GameQuestion", "GameSessionAssignment", "GameSessionQuestion",
+    "GameRun", "GameParticipant", "GameAnswer",
+]
