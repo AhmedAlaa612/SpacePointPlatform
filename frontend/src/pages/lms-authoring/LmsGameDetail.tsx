@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams, useNavigate } from "@tanstack/react-router"
 import {
-  ArrowLeft, ArrowUp, ArrowDown, Plus, Pencil, Copy, Trash2, Sparkle, Timer, CheckCircle2, SlidersHorizontal,
+  ArrowLeft, ArrowUp, ArrowDown, ArrowRight, Plus, Pencil, Copy, Trash2, Sparkle, Timer, CheckCircle2, SlidersHorizontal, Eye,
 } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
@@ -140,6 +140,57 @@ function QuestionEditor({
   )
 }
 
+/** Read-only walk-through of the question set as a student would see each
+ * card, with the correct answer marked for the facilitator's own reference. */
+function PreviewModal({ game, onClose }: { game: GameDetail; onClose: () => void }) {
+  const [index, setIndex] = useState(0)
+  const q = game.questions[index]
+
+  return (
+    <Modal title={`Preview · ${index + 1} of ${game.questions.length}`} onClose={onClose} maxWidth="sm:max-w-lg max-w-lg">
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span className="inline-flex items-center gap-1"><Timer size={12} />{q.time_limit_seconds ?? game.default_time_limit_seconds}s</span>
+          <span className={`inline-flex items-center gap-1 ${q.points_mode === "double" ? "text-primary font-semibold" : ""}`}>
+            <Sparkle size={12} />{q.max_points} pts{q.points_mode === "double" ? " · X2" : ""}
+          </span>
+        </div>
+        <p className="text-base font-semibold text-foreground">{q.prompt}</p>
+        <div className="grid grid-cols-1 gap-2">
+          {q.options.map((opt, i) => (
+            <div
+              key={i}
+              className={`flex items-center gap-2 h-11 px-3 rounded-xl border text-sm ${
+                opt.is_correct ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600" : "border-border text-foreground"
+              }`}
+            >
+              <span className="w-5 h-5 flex-none flex items-center justify-center rounded-md border border-current text-[10px] font-bold">
+                {String.fromCharCode(65 + i)}
+              </span>
+              <span className="flex-1 truncate">{opt.text}</span>
+              {opt.is_correct && <CheckCircle2 size={14} />}
+            </div>
+          ))}
+        </div>
+        <div className="flex items-center justify-between pt-2">
+          <button
+            onClick={() => setIndex((i) => Math.max(0, i - 1))} disabled={index === 0}
+            className="h-9 px-3 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted disabled:opacity-30 transition-colors"
+          >
+            Previous
+          </button>
+          <button
+            onClick={() => index === game.questions.length - 1 ? onClose() : setIndex((i) => i + 1)}
+            className="h-9 px-4 bg-primary text-primary-foreground rounded-xl text-xs font-semibold hover:opacity-90 transition-colors flex items-center gap-1.5"
+          >
+            {index === game.questions.length - 1 ? "Done" : "Next"} <ArrowRight size={12} />
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 function GameDefaultsPanel({ game, gameId }: { game: GameDetail; gameId: string }) {
   const queryClient = useQueryClient()
   const [timeLimit, setTimeLimit] = useState(game.default_time_limit_seconds.toString())
@@ -221,6 +272,7 @@ export default function LmsGameDetail() {
   const navigate = useNavigate()
   const [editing, setEditing] = useState<GameQuestion | "new" | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<GameQuestion | null>(null)
+  const [previewing, setPreviewing] = useState(false)
 
   const { data: game, isLoading } = useQuery<GameDetail>({
     queryKey: ["games-admin", gameId],
@@ -272,6 +324,14 @@ export default function LmsGameDetail() {
 
       <div className="flex items-center justify-between">
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Questions · {game.question_count}</p>
+        {game.questions.length > 0 && (
+          <button
+            onClick={() => setPreviewing(true)}
+            className="h-8 px-3 border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors flex items-center gap-1.5"
+          >
+            <Eye size={12} /> Preview
+          </button>
+        )}
       </div>
 
       {game.questions.length === 0 ? (
@@ -338,6 +398,10 @@ export default function LmsGameDetail() {
       >
         <Plus size={14} /> Add question
       </button>
+
+      {previewing && game.questions.length > 0 && (
+        <PreviewModal game={game} onClose={() => setPreviewing(false)} />
+      )}
 
       {editing && (
         <QuestionEditor
