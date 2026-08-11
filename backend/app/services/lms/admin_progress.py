@@ -34,9 +34,8 @@ from app.models.sessions.registration import Registration
 from app.models.user import User
 from app.services.lms.curriculum import resolve_cohort_curriculum
 from app.services.lms.progress import batch_course_completion
+from app.services.missions.best_attempt import best_attempt
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
-
-_STATUS_RANK = {"abandoned": 0, "failed": 1, "in_progress": 2, "submitted": 3, "passed": 4}
 
 
 async def _cohort_roster(db: AsyncSession, cohort_id: uuid.UUID) -> list[User]:
@@ -93,14 +92,10 @@ async def _mission_status_by_user(
 
     result: dict[uuid.UUID, dict[uuid.UUID, MissionAttempt]] = {}
     for uid, attempts in attempts_by_user.items():
-        best_by_mission: dict[uuid.UUID, MissionAttempt] = {}
+        by_mission: dict[uuid.UUID, list[MissionAttempt]] = {}
         for attempt in attempts:
-            current = best_by_mission.get(attempt.mission_id)
-            if current is None or (_STATUS_RANK[attempt.status], attempt.attempt_no) > (
-                _STATUS_RANK[current.status], current.attempt_no
-            ):
-                best_by_mission[attempt.mission_id] = attempt
-        result[uid] = best_by_mission
+            by_mission.setdefault(attempt.mission_id, []).append(attempt)
+        result[uid] = {mission_id: best_attempt(group) for mission_id, group in by_mission.items()}
     return result
 
 

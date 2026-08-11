@@ -16,6 +16,7 @@ import SharedProfile from "@/pages/shared/Profile";
 // Interns domain pages
 import Dashboard from "@/pages/interns/Dashboard";
 import ProposeMission from "@/pages/interns/ProposeMission";
+import ManageMissions from "@/pages/interns/ManageMissions";
 import Tracker from "@/pages/interns/Tracker";
 import Calendar from "@/pages/interns/Calendar";
 import Leaderboard from "@/pages/interns/Leaderboard";
@@ -296,6 +297,7 @@ const internsRoutes = [
   createRoute({ getParentRoute: p, path: "/mind-map/$epicId", component: MindMap }),
   createRoute({ getParentRoute: p, path: "/mind-map/project/$projectId", component: ProjectMindMap }),
   createRoute({ getParentRoute: p, path: "/propose-mission", component: ProposeMission }),
+  createRoute({ getParentRoute: p, path: "/manage-missions", component: ManageMissions }),
 ];
 
 const ambassadorsLayoutRoute = createRoute({

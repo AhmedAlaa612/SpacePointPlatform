@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
 from app.models.missions.design import DesignStepGate
+from app.models.missions.manager import MissionManager
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.missions.team import MissionTeam
 from app.models.user import User
@@ -38,6 +39,7 @@ from app.schemas.missions_admin import (
     MissionVariantCreate,
     MissionVariantUpdate,
 )
+from app.schemas.missions_manager import MissionManagerAssignIn, MissionManagerOut
 from app.services import storage
 from app.services.missions import create_team, team_member_ids
 from app.services.missions.design.gating import GATED_STEPS
@@ -201,6 +203,52 @@ async def update_mission(mission_id: uuid.UUID, body: MissionUpdate, db: AsyncSe
     await db.commit()
     await db.refresh(mission)
     return await _mission_admin_out(db, mission)
+
+
+# ── mission managers (7B-7) — resource-scoped permission, staff-assigned ──
+
+async def _manager_out(db: AsyncSession, manager: MissionManager) -> MissionManagerOut:
+    user = await db.get(User, manager.user_id)
+    return MissionManagerOut(
+        user_id=manager.user_id, full_name=user.full_name if user else "(deleted user)",
+        granted_by=manager.granted_by, created_at=manager.created_at,
+    )
+
+
+@router.get("/{mission_id}/managers", response_model=list[MissionManagerOut])
+async def list_mission_managers(mission_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await _get_mission_or_404(db, mission_id)
+    rows = (await db.execute(
+        select(MissionManager).where(MissionManager.mission_id == mission_id)
+    )).scalars().all()
+    return [await _manager_out(db, m) for m in rows]
+
+
+@router.post("/{mission_id}/managers", response_model=MissionManagerOut, status_code=status.HTTP_201_CREATED)
+async def assign_mission_manager(
+    mission_id: uuid.UUID, body: MissionManagerAssignIn,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_lms_content),
+):
+    await _get_mission_or_404(db, mission_id)
+    if await db.get(User, body.user_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+    existing = await db.get(MissionManager, (mission_id, body.user_id))
+    if existing is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Already a manager of this mission")
+    manager = MissionManager(mission_id=mission_id, user_id=body.user_id, granted_by=current_user.id)
+    db.add(manager)
+    await db.commit()
+    await db.refresh(manager)
+    return await _manager_out(db, manager)
+
+
+@router.delete("/{mission_id}/managers/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_mission_manager(mission_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    manager = await db.get(MissionManager, (mission_id, user_id))
+    if manager is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Not a manager of this mission")
+    await db.delete(manager)
+    await db.commit()
 
 
 @router.post("/{mission_id}/variants", response_model=MissionVariantAdminOut, status_code=status.HTTP_201_CREATED)

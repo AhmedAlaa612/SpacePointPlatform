@@ -31,6 +31,7 @@ from app.models.missions.design import (
     DesignPowerBudgetEntry,
     DesignStepGate,
 )
+from app.models.missions.manager import MissionManager
 from app.models.missions.mission import (
     Mission,
     MissionAttempt,
@@ -46,6 +47,7 @@ __all__ = [
     "MissionAttemptMember",
     "MissionVariant",
     "MissionProposal",
+    "MissionManager",
     "MissionTeam",
     "MissionTeamMember",
     "Design",

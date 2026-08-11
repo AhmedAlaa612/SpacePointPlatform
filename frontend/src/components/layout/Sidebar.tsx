@@ -277,6 +277,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Board", "/interns"),
       mk("Tracker", "/interns/tracker"),
       mk("Propose a Mission", "/interns/propose-mission"),
+      mk("Manage Missions", "/interns/manage-missions"),
       mk("Documents", "/interns/documents"),
       mk("ID Card", "/interns/id-card"),
     ];
@@ -376,6 +377,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Board", "/interns"),
       mk("Tracker", "/interns/tracker"),
       mk("Propose a Mission", "/interns/propose-mission"),
+      mk("Manage Missions", "/interns/manage-missions"),
       mk("Documents", "/interns/documents"),
       mk("ID Card", "/interns/id-card"),
     ];
