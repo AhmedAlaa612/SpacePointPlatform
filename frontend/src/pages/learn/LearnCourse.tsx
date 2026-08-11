@@ -174,6 +174,25 @@ export default function LearnCourse() {
                   </Button>
                   <p className="text-xs text-muted-foreground text-center">Ask an admin for access.</p>
                 </>
+              ) : course.locked ? (
+                <>
+                  <Button size="xl" className="w-full" disabled>
+                    <Lock className="size-4" /> Locked
+                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    {course.prerequisites.map((p) => (
+                      <span
+                        key={p.item_id}
+                        className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg ring-1 ${
+                          p.satisfied ? "ring-emerald-500/30 text-emerald-500" : "ring-border text-muted-foreground"
+                        }`}
+                      >
+                        {p.satisfied ? <CheckCircle2 className="size-3" /> : <Lock className="size-3" />}
+                        {p.title}
+                      </span>
+                    ))}
+                  </div>
+                </>
               ) : (
                 <Button size="xl" className="w-full" onClick={() => void handleEnroll()} disabled={enrolling}>
                   {enrolling ? "Enrolling..." : course.access_mode === "paid" ? "Buy" : "Enroll"}

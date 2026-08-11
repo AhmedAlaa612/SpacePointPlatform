@@ -8,7 +8,12 @@ derived completion, and the student-view serializer. Nothing here touches
 from app.services.lms.checkpoint import submit_checkpoint_answer
 from app.services.lms.enrollment import enroll, enrollment_is_active
 from app.services.lms.learning_paths import path_progress, path_total_duration_seconds
-from app.services.lms.progress import course_completion, item_progress, unlock_state
+from app.services.lms.progress import (
+    batch_course_completion,
+    course_completion,
+    item_progress,
+    unlock_state,
+)
 from app.services.lms.quiz import check_quiz_answer, submit_quiz
 from app.services.lms.serialize import sanitize_checkpoint, student_view
 
@@ -18,6 +23,7 @@ __all__ = [
     "unlock_state",
     "item_progress",
     "course_completion",
+    "batch_course_completion",
     "submit_quiz",
     "check_quiz_answer",
     "submit_checkpoint_answer",

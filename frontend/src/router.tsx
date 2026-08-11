@@ -138,6 +138,8 @@ import LmsModuleDetail from "@/pages/lms-authoring/LmsModuleDetail";
 import LmsCurriculum from "@/pages/lms-authoring/LmsCurriculum";
 import LmsLearningPaths from "@/pages/lms-authoring/LmsLearningPaths";
 import LmsLearningPathDetail from "@/pages/lms-authoring/LmsLearningPathDetail";
+import LmsProgressGrid from "@/pages/lms-authoring/LmsProgressGrid";
+import LmsPrerequisites from "@/pages/lms-authoring/LmsPrerequisites";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -708,6 +710,8 @@ const lmsAuthoringRoutes = [
   createRoute({ getParentRoute: pla, path: "/curriculum", component: LmsCurriculum }),
   createRoute({ getParentRoute: pla, path: "/learning-paths", component: LmsLearningPaths }),
   createRoute({ getParentRoute: pla, path: "/learning-paths/$pathId", component: LmsLearningPathDetail }),
+  createRoute({ getParentRoute: pla, path: "/progress", component: LmsProgressGrid }),
+  createRoute({ getParentRoute: pla, path: "/prerequisites", component: LmsPrerequisites }),
 ];
 
 // Apply routes — all use shared ApplyFlow (instructor uses InstructorApply for its own pipeline)

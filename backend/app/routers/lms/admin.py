@@ -12,6 +12,7 @@ This is also the API LM1-9's bulk-import script drives.
 
 import uuid
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import ValidationError
@@ -66,8 +67,12 @@ from app.schemas.lms_admin import (
     VideoCheckpointCreate,
     VideoCheckpointUpdate,
 )
+from app.schemas.curriculum import PrerequisiteEdgeIn, PrerequisiteEdgeOut
+from app.schemas.lms_progress_grid import ProgressGridOut
+from app.services import curriculum as curriculum_service
 from app.services import storage
 from app.services.lms import enroll, enrollment_is_active
+from app.services.lms.admin_progress import cohort_progress_grid
 from app.services.lms.curriculum import reconcile_cohort_enrollments, reconcile_cohorts_inheriting_program
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
@@ -161,6 +166,82 @@ async def list_instructor_options(
         .order_by(User.full_name)
     )).scalars().all()
     return [InstructorOptionOut(id=u.id, full_name=u.full_name, photo_url=u.photo_url) for u in rows]
+
+
+# ── progress grid (7B-1, Missions Phase 2B) ─────────────────────────────────
+# Registered before /courses/{course_id} would matter if it shared a path
+# segment — it doesn't ('progress-grid' is its own static prefix) — but kept
+# up here, next to the other cross-cutting views, rather than buried among
+# course CRUD.
+
+@router.get("/progress-grid", response_model=ProgressGridOut)
+async def progress_grid(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Every active student in one cohort x every course in its curriculum x
+    every mission any of them has attempted. Scoped to one cohort at a time
+    — see `services/lms/admin_progress.py` for why there's no
+    platform-wide variant."""
+    grid = await cohort_progress_grid(db, cohort_id=cohort_id)
+    if grid is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    return grid
+
+
+# ── unified prerequisites (7B-2) ────────────────────────────────────────────
+# One authoring surface for both item kinds — a course's prerequisites and a
+# mission's prerequisites are edges in the same `prerequisites` table now
+# (D2), so this lives here rather than duplicated under
+# routers/missions/admin.py. Neither kind had an admin CRUD path before
+# 7B-2 either; `mission_prerequisites` rows were only ever seeded directly.
+
+async def _prerequisite_edge_out(db: AsyncSession, edge) -> PrerequisiteEdgeOut:
+    return PrerequisiteEdgeOut(
+        item_type=edge.item_type, item_id=edge.item_id,
+        requires_type=edge.requires_type, requires_id=edge.requires_id,
+        requires_title=await curriculum_service.item_title(
+            db, item_type=edge.requires_type, item_id=edge.requires_id,
+        ),
+    )
+
+
+@router.get("/prerequisites", response_model=list[PrerequisiteEdgeOut])
+async def list_prerequisites(
+    item_type: Literal["course", "mission"], item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    edges = await curriculum_service.prerequisites_of(db, item_type=item_type, item_id=item_id)
+    return [await _prerequisite_edge_out(db, e) for e in edges]
+
+
+@router.post("/prerequisites", response_model=PrerequisiteEdgeOut, status_code=status.HTTP_201_CREATED)
+async def add_prerequisite(
+    body: PrerequisiteEdgeIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    edge = await curriculum_service.add_prerequisite(
+        db, item_type=body.item_type, item_id=body.item_id,
+        requires_type=body.requires_type, requires_id=body.requires_id,
+    )
+    await db.commit()
+    return await _prerequisite_edge_out(db, edge)
+
+
+@router.delete("/prerequisites", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_prerequisite(
+    item_type: Literal["course", "mission"], item_id: uuid.UUID,
+    requires_type: Literal["course", "mission"], requires_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    await curriculum_service.remove_prerequisite(
+        db, item_type=item_type, item_id=item_id, requires_type=requires_type, requires_id=requires_id,
+    )
+    await db.commit()
 
 
 # ── courses ──────────────────────────────────────────────────────────────────

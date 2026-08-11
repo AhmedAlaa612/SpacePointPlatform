@@ -12,6 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.curriculum import PrerequisiteItemOut
 from app.schemas.lms import QuizQuestionOut, QuizReviewItemOut
 
 
@@ -41,12 +42,6 @@ class MissionVariantOut(BaseModel):
     position: int
     points: int
     config: MissionVariantConfig
-
-
-class MissionPrerequisiteOut(BaseModel):
-    mission_id: UUID
-    title: str
-    satisfied: bool
 
 
 class MissionCatalogOut(BaseModel):
@@ -112,7 +107,7 @@ class MissionDetailOut(BaseModel):
     image_url: str | None = None
     variants: list[MissionVariantOut]
     attempts: list[MissionAttemptOut]
-    prerequisites: list[MissionPrerequisiteOut] = []
+    prerequisites: list[PrerequisiteItemOut] = []
     locked: bool = False
     team_policy: str = "solo"
     my_teams: list[MissionTeamOut] = []

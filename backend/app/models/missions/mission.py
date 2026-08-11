@@ -3,10 +3,11 @@
 Template/instance split, same shape as `courses`/`enrollments`: a `Mission`
 is authored once, a `MissionAttempt` is one student's run against it. Unlike
 a course, a mission has difficulty — `MissionVariant` rows — and readiness
-gating via `MissionPrerequisite`, a DAG edge table. `access_mode` (a grant,
-"can you see this at all") and prerequisites (a computed rule, "have you
-earned the right to attempt it") are two different mechanisms and both are
-correct; do not collapse them (PHASE2_EXECUTION_PLAN.md §Stage 5 note ②).
+gating via `Prerequisite` (`models/curriculum.py`), a unified DAG edge table
+shared with courses since 7B-2. `access_mode` (a grant, "can you see this
+at all") and prerequisites (a computed rule, "have you earned the right to
+attempt it") are two different mechanisms and both are correct; do not
+collapse them (PHASE2_EXECUTION_PLAN.md §Stage 5 note ②).
 
 `mission_attempts.user_id` XOR `mission_team_id` (P6-2, Stage 6) — a solo
 attempt sets the former, a team attempt the latter, CHECK-enforced.
@@ -89,22 +90,6 @@ class MissionVariant(Base):
     position = Column(Integer, nullable=False)
     points = Column(Integer, nullable=False)
     config = Column(JSONB, nullable=False, default=dict)
-
-
-class MissionPrerequisite(Base):
-    """A DAG edge: `mission_id` cannot be attempted until `requires_mission_id`
-    has a passing attempt (P5-6 evaluates the rule; this table only stores
-    edges). No self-reference — a mission cannot require itself.
-    """
-
-    __tablename__ = "mission_prerequisites"
-    __table_args__ = (
-        PrimaryKeyConstraint("mission_id", "requires_mission_id", name="pk_mission_prerequisites"),
-        CheckConstraint("mission_id != requires_mission_id", name="ck_mission_prereq_not_self"),
-    )
-
-    mission_id = Column(UUID(as_uuid=True), ForeignKey("missions.id", ondelete="CASCADE"), nullable=False)
-    requires_mission_id = Column(UUID(as_uuid=True), ForeignKey("missions.id", ondelete="CASCADE"), nullable=False)
 
 
 class MissionAttempt(Base):

@@ -14,6 +14,18 @@ export interface CourseCatalogItem {
   track: string | null;
   access_mode: "open" | "invite" | "paid"; // P1-7
   enrolled: boolean;
+  locked: boolean; // 7B-2 — unmet prerequisites; independent of access_mode
+}
+
+/** 7B-2 — a unified course/mission prerequisite edge, evaluated for the
+ * caller. `item_type: "mission"` has no course-side page to link to, so
+ * it's rendered as plain text here (mirrors how a course prerequisite on a
+ * mission's own page has no mission-side page to link to either). */
+export interface CoursePrerequisite {
+  item_type: "course" | "mission";
+  item_id: string;
+  title: string;
+  satisfied: boolean;
 }
 
 export interface ModuleLock {
@@ -41,6 +53,8 @@ export interface CourseDetail {
   instructor_title: string | null;
   instructor_photo_url: string | null;
   access_mode: "open" | "invite" | "paid"; // P1-7
+  locked: boolean; // 7B-2 — unmet prerequisites; independent of access_mode
+  prerequisites: CoursePrerequisite[];
 }
 
 export interface QuizOption {

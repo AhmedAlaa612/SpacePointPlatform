@@ -32,7 +32,7 @@ from app.services.lms import (
     submit_quiz,
     unlock_state,
 )
-from app.services.lms.progress import COMPLETED_STATUSES
+from app.services.lms.progress import COMPLETED_STATUSES, batch_course_completion
 
 
 # ── factories ───────────────────────────────────────────────────────────────
@@ -474,6 +474,54 @@ async def test_course_completion_is_derived_from_all_modules(db):
     result = await course_completion(db, user_id=student.id, course_id=course.id)
     assert result["modules"][1]["completed"] is True
     assert result["completed"] is True
+
+
+# ── batch_course_completion: same rule, one call for many students (7B-1) ──
+
+@pytest.mark.asyncio
+async def test_batch_course_completion_matches_single_student_calls(db):
+    course = await _course(db)
+    m1 = await _module(db, course, position=1)
+    m2 = await _module(db, course, position=2)
+    a = await _item(db, m1, position=1, kind="text", content={"body": "A"})
+    await _item(db, m1, position=2, kind="text", is_required=False, content={"body": "opt"})
+    b = await _item(db, m2, position=1, kind="text", content={"body": "B"})
+
+    untouched = await _user(db)
+    half_done = await _user(db)
+    all_done = await _user(db)
+
+    await item_progress(db, user_id=half_done.id, item_id=a.id, action="text-viewed")
+    await item_progress(db, user_id=all_done.id, item_id=a.id, action="text-viewed")
+    await item_progress(db, user_id=all_done.id, item_id=b.id, action="text-viewed")
+
+    user_ids = [untouched.id, half_done.id, all_done.id]
+    batch = await batch_course_completion(db, user_ids=user_ids, course_id=course.id)
+
+    for uid in user_ids:
+        single = await course_completion(db, user_id=uid, course_id=course.id)
+        expected_done = sum(1 for m in single["modules"] if m["completed"])
+        assert batch[uid]["modules_done"] == expected_done
+        assert batch[uid]["modules_total"] == len(single["modules"])
+        expected_pct = round(100 * expected_done / len(single["modules"]))
+        assert batch[uid]["pct"] == expected_pct
+
+    assert batch[untouched.id]["modules_done"] == 0
+    assert batch[half_done.id]["modules_done"] == 1
+    assert batch[all_done.id]["modules_done"] == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_course_completion_empty_inputs(db):
+    course = await _course(db)
+    assert await batch_course_completion(db, user_ids=[], course_id=course.id) == {}
+
+    # a course with no modules at all is vacuously 100% for everyone, same as
+    # course_completion's "no modules means nothing blocks you" behavior
+    empty_course = await _course(db)
+    student = await _user(db)
+    result = await batch_course_completion(db, user_ids=[student.id], course_id=empty_course.id)
+    assert result[student.id]["pct"] == 100
 
 
 # ── student_view: the answer-leakage choke point (§2) ──────────────────────

@@ -14,6 +14,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.curriculum import PrerequisiteItemOut
+
 
 class ContentText(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -130,6 +132,7 @@ class CourseCatalogOut(BaseModel):
     track: str | None = None
     access_mode: str = "open"  # P1-7 — open|invite|paid
     enrolled: bool = False  # this caller's own active, unexpired enrollment
+    locked: bool = False  # 7B-2 — unmet prerequisites; independent of access_mode
 
 
 # ── my-courses dashboard (student, LMS redesign 2026-08-06) ────────────────
@@ -200,6 +203,8 @@ class CourseDetailOut(BaseModel):
     instructor_title: str | None = None
     instructor_photo_url: str | None = None
     access_mode: str = "open"  # P1-7 — open|invite|paid, drives the CTA
+    locked: bool = False  # 7B-2 — unmet prerequisites; independent of access_mode
+    prerequisites: list[PrerequisiteItemOut] = []
 
 
 # ── enrollment ──────────────────────────────────────────────────────────────

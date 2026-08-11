@@ -182,3 +182,56 @@ async def course_completion(
         "completed": all(r["completed"] for r in rows),
         "modules": rows,
     }
+
+
+async def batch_course_completion(
+    db: AsyncSession, *, user_ids: list[uuid.UUID], course_id: uuid.UUID
+) -> dict[uuid.UUID, dict]:
+    """The same completion rule as `course_completion`, computed for many
+    students in one call instead of one call per student — three queries
+    total for the whole batch, not three per student. Exists specifically
+    for the Stage 7B-1 progress grid: calling `course_completion` in a
+    per-student loop for N students x M courses is the exact N+1 shape
+    B11 already fixed for `session_lms_progress`, and a grid is precisely
+    the "many students, many courses, one screen" case where it matters
+    most.
+    """
+    modules = (await db.execute(
+        select(CourseModule).where(CourseModule.course_id == course_id).order_by(CourseModule.position)
+    )).scalars().all()
+    if not modules or not user_ids:
+        return {uid: {"pct": 100, "modules_done": 0, "modules_total": 0} for uid in user_ids}
+
+    items = (await db.execute(
+        select(ModuleItem).where(ModuleItem.module_id.in_([m.id for m in modules]))
+    )).scalars().all()
+    mandatory_by_module: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for i in items:
+        if i.is_required:
+            mandatory_by_module.setdefault(i.module_id, []).append(i.id)
+    all_mandatory_ids = [iid for ids in mandatory_by_module.values() for iid in ids]
+
+    completed_by_user: dict[uuid.UUID, set[uuid.UUID]] = {}
+    if all_mandatory_ids:
+        progress_rows = (await db.execute(
+            select(ItemProgress.user_id, ItemProgress.item_id, ItemProgress.status).where(
+                ItemProgress.user_id.in_(user_ids), ItemProgress.item_id.in_(all_mandatory_ids),
+            )
+        )).all()
+        for uid, item_id, status in progress_rows:
+            if status in COMPLETED_STATUSES:
+                completed_by_user.setdefault(uid, set()).add(item_id)
+
+    result: dict[uuid.UUID, dict] = {}
+    for uid in user_ids:
+        done = completed_by_user.get(uid, set())
+        modules_done = sum(
+            1 for m in modules
+            if not mandatory_by_module.get(m.id) or all(iid in done for iid in mandatory_by_module[m.id])
+        )
+        modules_total = len(modules)
+        result[uid] = {
+            "pct": round(100 * modules_done / modules_total) if modules_total else 100,
+            "modules_done": modules_done, "modules_total": modules_total,
+        }
+    return result

@@ -5,7 +5,8 @@ from `lms.courses` but embeddable inside one via `module_items.kind='mission'`
 - `missions` — the authored challenge (template)
 - `mission_variants` — difficulty levels of one mission, each with its own
   points and kind-specific `config`
-- `mission_prerequisites` — a DAG edge, "mission_id requires requires_mission_id"
+- prerequisites live in `models/curriculum.py::Prerequisite` since 7B-2 —
+  unified with courses, no longer a mission-only table here
 - `mission_attempts` — one run (template → instance), verifier-graded,
   `user_id` XOR `mission_team_id` (P6-2)
 - `mission_teams` / `mission_team_members` — the current roster of a team
@@ -34,7 +35,6 @@ from app.models.missions.mission import (
     Mission,
     MissionAttempt,
     MissionAttemptMember,
-    MissionPrerequisite,
     MissionVariant,
 )
 from app.models.missions.team import MissionTeam, MissionTeamMember
@@ -43,7 +43,6 @@ __all__ = [
     "Mission",
     "MissionAttempt",
     "MissionAttemptMember",
-    "MissionPrerequisite",
     "MissionVariant",
     "MissionTeam",
     "MissionTeamMember",

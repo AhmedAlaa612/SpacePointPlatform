@@ -1,6 +1,8 @@
 """P5-6 router tests — prerequisite gating over HTTP, plus the /missions/graph
 routing-order regression (must not be swallowed by /missions/{mission_id}).
-Redis-free (uses the `client` fixture).
+Unified onto `Prerequisite` (7B-2) — these tests exercise the mission-mission
+slice of the DAG; `tests/routers/lms/test_lms_prerequisites.py` covers the
+course-involving edges. Redis-free (uses the `client` fixture).
 """
 
 import uuid
@@ -9,7 +11,8 @@ import pytest
 from fastapi import status as http_status
 
 from app.core.security import create_access_token
-from app.models.missions.mission import Mission, MissionPrerequisite, MissionVariant
+from app.models.curriculum import Prerequisite
+from app.models.missions.mission import Mission, MissionVariant
 from app.models.user import User
 from app.services.missions import decide_attempt, start_attempt
 
@@ -41,6 +44,10 @@ async def _mission(db, *, author, title="Mission") -> tuple[Mission, MissionVari
     return mission, variant
 
 
+def _requires_mission(mission_id: uuid.UUID, requires_id: uuid.UUID) -> Prerequisite:
+    return Prerequisite(item_type="mission", item_id=mission_id, requires_type="mission", requires_id=requires_id)
+
+
 @pytest.mark.asyncio
 async def test_missions_graph_route_is_not_swallowed_by_mission_id_route(db, client):
     author = await _user(db, roles=["operations"])
@@ -58,7 +65,7 @@ async def test_catalog_and_detail_report_locked_state(db, client):
     author = await _user(db, roles=["operations"])
     basic, basic_variant = await _mission(db, author=author, title="Catalog Basic")
     advanced, _ = await _mission(db, author=author, title="Catalog Advanced")
-    db.add(MissionPrerequisite(mission_id=advanced.id, requires_mission_id=basic.id))
+    db.add(_requires_mission(advanced.id, basic.id))
     await db.commit()
     student = await _user(db)
     await db.commit()
@@ -71,7 +78,9 @@ async def test_catalog_and_detail_report_locked_state(db, client):
     detail = await client.get(f"/missions/{advanced.id}", headers=_headers(student))
     body = detail.json()
     assert body["locked"] is True
-    assert body["prerequisites"] == [{"mission_id": str(basic.id), "title": "Catalog Basic", "satisfied": False}]
+    assert body["prerequisites"] == [
+        {"item_type": "mission", "item_id": str(basic.id), "title": "Catalog Basic", "satisfied": False}
+    ]
 
 
 @pytest.mark.asyncio
@@ -79,7 +88,7 @@ async def test_starting_a_locked_mission_is_forbidden(db, client):
     author = await _user(db, roles=["operations"])
     basic, _ = await _mission(db, author=author, title="Gate Basic")
     advanced, advanced_variant = await _mission(db, author=author, title="Gate Advanced")
-    db.add(MissionPrerequisite(mission_id=advanced.id, requires_mission_id=basic.id))
+    db.add(_requires_mission(advanced.id, basic.id))
     await db.commit()
     student = await _user(db)
     await db.commit()
@@ -96,7 +105,7 @@ async def test_starting_unlocks_after_passing_the_prerequisite(db, client):
     author = await _user(db, roles=["operations"])
     basic, basic_variant = await _mission(db, author=author, title="Unlock Basic")
     advanced, advanced_variant = await _mission(db, author=author, title="Unlock Advanced")
-    db.add(MissionPrerequisite(mission_id=advanced.id, requires_mission_id=basic.id))
+    db.add(_requires_mission(advanced.id, basic.id))
     await db.commit()
     student = await _user(db)
     await db.commit()
@@ -120,7 +129,7 @@ async def test_an_unrelated_mission_has_no_prerequisites_and_is_always_available
     # not leak into this mission's own (empty) prerequisite set.
     other_a, _ = await _mission(db, author=author, title="Other A")
     other_b, _ = await _mission(db, author=author, title="Other B")
-    db.add(MissionPrerequisite(mission_id=other_b.id, requires_mission_id=other_a.id))
+    db.add(_requires_mission(other_b.id, other_a.id))
     await db.commit()
     student = await _user(db)
     await db.commit()

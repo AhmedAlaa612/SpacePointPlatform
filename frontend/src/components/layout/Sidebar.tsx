@@ -141,6 +141,8 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Courses", "/lms-authoring/courses"),
       mk("Curriculum", "/lms-authoring/curriculum"),
       mk("Learning Paths", "/lms-authoring/learning-paths"),
+      mk("Progress Grid", "/lms-authoring/progress"),
+      mk("Prerequisites", "/lms-authoring/prerequisites"),
       mk(
         "Back",
         activeRole === "facilitator" ? "/instructors/facilitator/training" : "/operations/dashboard",

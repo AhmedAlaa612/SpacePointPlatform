@@ -34,7 +34,8 @@ export interface MissionTeam {
 }
 
 export interface MissionPrerequisite {
-  mission_id: string;
+  item_type: "course" | "mission";
+  item_id: string;
   title: string;
   satisfied: boolean;
 }

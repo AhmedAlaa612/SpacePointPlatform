@@ -206,21 +206,24 @@ export default function MissionPage() {
       {mission.locked && (
         <Card className="p-5 flex flex-col gap-2">
           <p className="text-sm font-semibold flex items-center gap-1.5"><Lock className="size-4" /> Locked</p>
-          <p className="text-xs text-muted-foreground">Complete these missions first:</p>
+          <p className="text-xs text-muted-foreground">Complete these first:</p>
           <div className="flex flex-wrap gap-2 mt-1">
-            {mission.prerequisites.map((p) => (
-              <Link
-                key={p.mission_id}
-                to="/learn/missions/$missionId"
-                params={{ missionId: p.mission_id }}
-                className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg ring-1 ${
-                  p.satisfied ? "ring-emerald-500/30 text-emerald-500" : "ring-border text-muted-foreground"
-                }`}
-              >
-                {p.satisfied ? <CheckCircle2 className="size-3" /> : <Lock className="size-3" />}
-                {p.title}
-              </Link>
-            ))}
+            {mission.prerequisites.map((p) => {
+              const chipClass = `flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg ring-1 ${
+                p.satisfied ? "ring-emerald-500/30 text-emerald-500" : "ring-border text-muted-foreground"
+              }`
+              const icon = p.satisfied ? <CheckCircle2 className="size-3" /> : <Lock className="size-3" />
+              // a course prerequisite has no page in this router's space
+              // (missions and courses live in separate frontend domains),
+              // so only a mission prerequisite is a clickable link.
+              return p.item_type === "mission" ? (
+                <Link key={p.item_id} to="/learn/missions/$missionId" params={{ missionId: p.item_id }} className={chipClass}>
+                  {icon}{p.title}
+                </Link>
+              ) : (
+                <span key={p.item_id} className={chipClass}>{icon}{p.title} (course)</span>
+              )
+            })}
           </div>
         </Card>
       )}

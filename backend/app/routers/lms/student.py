@@ -31,6 +31,7 @@ from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, Modul
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.user import User
+from app.schemas.curriculum import PrerequisiteItemOut
 from app.schemas.lms import (
     ActivityItemOut,
     AttachmentUrlOut,
@@ -71,6 +72,7 @@ from app.services.lms import (
     submit_quiz,
     unlock_state,
 )
+from app.services.curriculum import is_unlocked, prerequisite_status
 from app.services.lms.dashboard import my_courses_dashboard, recent_activity
 from app.services.lms.leaderboard import leaderboard
 from app.services.lms.my_programs import my_programs
@@ -169,6 +171,7 @@ async def catalog(
             image_url=await storage.resolve_url(c.image_bucket, c.image_path),
             level=c.level, track=c.track,
             access_mode=c.access_mode, enrolled=c.id in enrolled_course_ids,
+            locked=not await is_unlocked(db, item_type="course", item_id=c.id, user_id=current.id),
         )
         for c in rows
     ]
@@ -198,6 +201,7 @@ async def course_detail(
 
     locks = await unlock_state(db, user_id=current.id, course_id=course.id)
     completion = await course_completion(db, user_id=current.id, course_id=course.id)
+    prereqs = await prerequisite_status(db, item_type="course", item_id=course.id, user_id=current.id)
 
     instructor_name = instructor_photo_url = None
     if course.instructor_id:
@@ -221,6 +225,8 @@ async def course_detail(
         instructor_title=course.instructor_title,
         instructor_photo_url=instructor_photo_url,
         access_mode=course.access_mode,
+        locked=not all(p["satisfied"] for p in prereqs),
+        prerequisites=[PrerequisiteItemOut(**p) for p in prereqs],
         modules=[
             ModuleLockOut(
                 module_id=row["module_id"],
@@ -395,9 +401,11 @@ async def enroll_self(
     (P1-5) gets them in; `paid` 402s with a plain "not available yet"
     message — real checkout is Stage S, not built yet, so this is the
     correct shape (right status code, right branch) without a fabricated
-    payment flow behind it. Idempotent for `open` — enrolling again returns
-    the same row; a reinstated or re-expired enrollment (re)activates in
-    place."""
+    payment flow behind it. `access_mode` and prerequisites (7B-2) are two
+    different mechanisms and both apply here — a grant alone isn't enough
+    if the unified DAG says a required course/mission isn't done yet.
+    Idempotent for `open` — enrolling again returns the same row; a
+    reinstated or re-expired enrollment (re)activates in place."""
     course = await _published_course(db, body.course_id)
 
     if course.access_mode == "invite":
@@ -409,6 +417,11 @@ async def enroll_self(
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED,
             detail="This course requires payment — checkout isn't available yet",
+        )
+    if not await is_unlocked(db, item_type="course", item_id=course.id, user_id=current.id):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Complete the required courses/missions first",
         )
 
     enrollment = await enroll(
