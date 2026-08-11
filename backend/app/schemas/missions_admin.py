@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-MissionKind = Literal["design", "submission", "quiz", "checklist", "external"]
+MissionKind = Literal["design", "submission", "quiz", "checklist", "operate", "external"]
 MissionTeamPolicy = Literal["solo", "team", "either"]
 MissionStatus = Literal["draft", "in_review", "published", "archived"]
 MissionAccessMode = Literal["open", "invite"]  # never 'paid' — see models/missions/mission.py
