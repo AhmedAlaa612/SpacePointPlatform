@@ -9,6 +9,7 @@ import { getLocationsApi, getWarehousesApi } from "@/api/inventory"
 import { SessionKitAssignment } from "@/pages/admin/components/SessionKitAssignment"
 import { SessionOpeningsPanel } from "@/pages/admin/components/SessionOpeningsPanel"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
+import { GameAssignmentPanel } from "@/pages/admin/components/GameAssignmentPanel"
 import {
   getCohortApi, getSessionsApi, updateSessionApi, assignInstructorApi, unassignInstructorApi, deleteSessionApi,
   getSessionHistoryApi,
@@ -214,6 +215,10 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
               level="cohort"
               inheritedNote="Leave empty to use the cohort's (or the program's)."
             />
+          </Card>
+
+          <Card className="px-4">
+            <GameAssignmentPanel sessionId={session.id} />
           </Card>
 
           <details className="rounded-2xl border border-border bg-card group">

@@ -89,3 +89,38 @@ class GameOut(BaseModel):
 
 class GameDetailOut(GameOut):
     questions: list[GameQuestionOut]
+
+
+# ── session assignment (8-4) ────────────────────────────────────────────
+# Question CRUD on an assignment's snapshot reuses GameQuestionIn/Update/
+# ReorderIn/Out as-is — the shape (prompt/options/time_limit_seconds/
+# points_mode/position) is identical to the template's own questions.
+
+class GameSessionAssignmentCreate(BaseModel):
+    game_id: UUID
+    instructor_note: str | None = None
+
+
+class GameSessionAssignmentUpdate(BaseModel):
+    instructor_note: str | None = None
+    time_limit_seconds: int | None = Field(gt=0, default=None)
+    floor_pct: int | None = Field(ge=0, le=100, default=None)
+    blackout_count: int | None = Field(ge=0, default=None)
+
+
+class GameSessionAssignmentOut(BaseModel):
+    id: UUID
+    session_id: UUID
+    game_id: UUID
+    game_title: str
+    instructor_note: str | None
+    time_limit_seconds: int
+    floor_pct: int
+    blackout_count: int
+    assigned_by: UUID
+    created_at: datetime | None
+    question_count: int
+
+
+class GameSessionAssignmentDetailOut(GameSessionAssignmentOut):
+    questions: list[GameQuestionOut]

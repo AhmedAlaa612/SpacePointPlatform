@@ -86,6 +86,7 @@ import AdminPrograms from "@/pages/admin/Programs";
 import AdminCohorts from "@/pages/admin/Cohorts";
 import AdminCohortDetail from "@/pages/admin/CohortDetail";
 import AdminSessionDetail from "@/pages/admin/SessionDetail";
+import SessionGameAssignmentDetail from "@/pages/admin/SessionGameAssignmentDetail";
 import AdminContacts from "@/pages/admin/Contacts";
 import AdminMergeReviews from "@/pages/admin/MergeReviews";
 import AdminCheckIn from "@/pages/admin/CheckIn";
@@ -680,6 +681,7 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/cohorts", component: AdminCohorts }),
   createRoute({ getParentRoute: po, path: "/cohorts/$cohortId", component: AdminCohortDetail }),
   createRoute({ getParentRoute: po, path: "/cohorts/$cohortId/sessions/$sessionId", component: AdminSessionDetail }),
+  createRoute({ getParentRoute: po, path: "/game-assignments/$assignmentId", component: SessionGameAssignmentDetail }),
   createRoute({ getParentRoute: po, path: "/contacts", component: AdminContacts }),
   createRoute({ getParentRoute: po, path: "/merge-reviews", component: AdminMergeReviews }),
   createRoute({ getParentRoute: po, path: "/checkin", component: AdminCheckIn }),
