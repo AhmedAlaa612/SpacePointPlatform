@@ -278,3 +278,6 @@ class DesignStateOut(BaseModel):
     band_presets: dict[str, dict] = {}
 
     dashboard: DashboardOut
+    # P7-7 — which of the five budget steps are locked for this design's
+    # cohort. Empty for a standalone (never-gated) attempt.
+    locked_steps: list[str] = []

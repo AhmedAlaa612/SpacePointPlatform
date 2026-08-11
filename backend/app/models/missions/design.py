@@ -280,3 +280,24 @@ class DesignLinkBudgetEntry(Base):
     is_saved = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class DesignStepGate(Base):
+    """Server-side step gating, per cohort (P7-7) — replaces Madar's
+    `page_access`, which was enforced only in the browser (S1: the budget
+    API endpoints had no page-access dependency at all; a student who knew
+    the URL bypassed the entire instructor-paced release mechanism). A
+    missing row for `(cohort_id, step_key)` means locked, matching Madar's
+    own "defaults to locked" behavior for the five budget steps —
+    Mission Setup / Components / CONOPS are never gated at all."""
+
+    __tablename__ = "design_step_gates"
+    __table_args__ = (
+        PrimaryKeyConstraint("cohort_id", "step_key", name="pk_design_step_gates"),
+    )
+
+    cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False)
+    # data_budget|power_budget|link_budget|mass_budget|cost_budget
+    step_key = Column(String(20), nullable=False)
+    is_unlocked = Column(Boolean, nullable=False, default=False, server_default="false")
+    updated_at = Column(DateTime(timezone=True), nullable=True)

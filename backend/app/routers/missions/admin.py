@@ -19,11 +19,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
+from app.models.missions.design import DesignStepGate
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.missions.team import MissionTeam
 from app.models.user import User
 from app.schemas.lms_admin import AdminContentQuiz
 from app.schemas.missions_admin import (
+    DesignStepGateOut,
+    DesignStepGateUpdateIn,
     MissionAdminOut,
     MissionAttemptAdminOut,
     MissionAttemptReviewIn,
@@ -37,7 +40,13 @@ from app.schemas.missions_admin import (
 )
 from app.services import storage
 from app.services.missions import create_team, team_member_ids
+from app.services.missions.design.gating import GATED_STEPS
 from app.services.missions.verifiers.submission import review_submission_attempt
+
+_STEP_LABELS = {
+    "data_budget": "Data Budget", "power_budget": "Power Budget", "link_budget": "Link Budget",
+    "mass_budget": "Mass Budget", "cost_budget": "Cost Budget",
+}
 
 router = APIRouter(prefix="/missions/admin", tags=["missions-admin"], dependencies=[Depends(require_lms_content)])
 
@@ -143,6 +152,39 @@ async def assign_team(
     await db.commit()
     await db.refresh(team)
     return await _team_admin_out(db, team)
+
+
+# ── design step gates: server-side, per cohort (P7-7) ────────────────────
+# Registered before /{mission_id} for the same routing-order reason as
+# /teams above — 'design' would otherwise parse as a mission_id.
+
+@router.get("/design/step-gates", response_model=list[DesignStepGateOut])
+async def list_design_step_gates(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    rows = {
+        g.step_key: g for g in (await db.execute(
+            select(DesignStepGate).where(DesignStepGate.cohort_id == cohort_id)
+        )).scalars().all()
+    }
+    return [
+        DesignStepGateOut(step_key=key, label=_STEP_LABELS[key], is_unlocked=rows[key].is_unlocked if key in rows else False)
+        for key in sorted(GATED_STEPS)
+    ]
+
+
+@router.put("/design/step-gates/{cohort_id}/{step_key}", response_model=DesignStepGateOut)
+async def update_design_step_gate(
+    cohort_id: uuid.UUID, step_key: str, body: DesignStepGateUpdateIn, db: AsyncSession = Depends(get_db),
+):
+    if step_key not in GATED_STEPS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"'{step_key}' is not a gated step")
+    gate = await db.get(DesignStepGate, (cohort_id, step_key))
+    if gate is None:
+        gate = DesignStepGate(cohort_id=cohort_id, step_key=step_key, is_unlocked=body.is_unlocked)
+        db.add(gate)
+    else:
+        gate.is_unlocked = body.is_unlocked
+    await db.commit()
+    return DesignStepGateOut(step_key=step_key, label=_STEP_LABELS[step_key], is_unlocked=gate.is_unlocked)
 
 
 @router.get("/{mission_id}", response_model=MissionAdminOut)

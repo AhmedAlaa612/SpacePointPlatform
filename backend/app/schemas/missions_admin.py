@@ -121,3 +121,13 @@ class MissionTeamAdminOut(BaseModel):
     cohort_id: UUID | None = None
     member_ids: list[UUID] = []
     member_names: list[str] = []
+
+
+class DesignStepGateOut(BaseModel):
+    step_key: str
+    label: str
+    is_unlocked: bool
+
+
+class DesignStepGateUpdateIn(BaseModel):
+    is_unlocked: bool

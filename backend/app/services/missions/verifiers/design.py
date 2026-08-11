@@ -22,17 +22,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.missions.design import Design
 from app.models.missions.mission import MissionAttempt, MissionVariant
 from app.services.missions.attempts import decide_attempt
+from app.services.missions.design.gating import resolve_student_cohort
 from app.services.missions.design.service import compute_dashboard
 
 
 async def ensure_design(db: AsyncSession, *, attempt: MissionAttempt, design_name: str = "My CubeSat") -> Design:
     """Get-or-create the 1:1 Design row for this attempt — mirrors the
     idempotent-create pattern Madar's own `_ensure_constraint`/
-    `_ensure_entry` used, just keyed on attempt_id instead of mission_id."""
+    `_ensure_entry` used, just keyed on attempt_id instead of mission_id.
+    `cohort_id` (P7-7 gating scope) is resolved once at creation from the
+    solo student's own registration; a team attempt gets an ungated
+    design (see `gating.py::resolve_student_cohort`)."""
     design = (await db.execute(select(Design).where(Design.attempt_id == attempt.id))).scalars().first()
     if design is not None:
         return design
-    design = Design(id=uuid.uuid4(), attempt_id=attempt.id, design_name=design_name)
+    cohort_id = await resolve_student_cohort(db, user_id=attempt.user_id) if attempt.user_id else None
+    design = Design(id=uuid.uuid4(), attempt_id=attempt.id, design_name=design_name, cohort_id=cohort_id)
     db.add(design)
     await db.flush()
     return design

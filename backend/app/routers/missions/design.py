@@ -70,6 +70,7 @@ from app.schemas.missions_design import (
 from app.services import storage
 from app.services.missions.design import service as design_service
 from app.services.missions.design.calculators import CUBESAT_PRESETS
+from app.services.missions.design.gating import GATED_STEPS, assert_step_unlocked, is_step_unlocked
 from app.services.missions.design.rf_calc import BAND_PRESETS
 from app.services.missions.verifiers.design import ensure_design, mark_design_complete
 from app.routers.missions.student import _own_attempt
@@ -157,6 +158,8 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
             notes=link_entry.notes, is_saved=link_entry.is_saved,
         )
 
+    locked_steps = [s for s in GATED_STEPS if not await is_step_unlocked(db, cohort_id=design.cohort_id, step_key=s)]
+
     dash = await design_service.compute_dashboard(db, design=design, variant_config=variant.config or {})
     thresholds = dash["thresholds"]
     limits = dash["cubesat_limits"]
@@ -202,6 +205,7 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
         cubesat_presets=[CubeSatPresetOut(size=k, **v) for k, v in CUBESAT_PRESETS.items()],
         band_presets=BAND_PRESETS,
         dashboard=dashboard_out,
+        locked_steps=locked_steps,
     )
 
 
@@ -301,6 +305,7 @@ async def save_data_budget(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
+    await assert_step_unlocked(db, design=design, step_key="data_budget")
     await design_service.save_data_entry(db, design_component_id=design_component_id, **body.model_dump())
     await db.commit()
     return await _design_state_out(db, attempt=attempt, design=design)
@@ -313,6 +318,7 @@ async def save_power_budget(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
+    await assert_step_unlocked(db, design=design, step_key="power_budget")
     await design_service.save_power_entry(db, design_component_id=design_component_id, **body.model_dump())
     await db.commit()
     return await _design_state_out(db, attempt=attempt, design=design)
@@ -325,6 +331,7 @@ async def save_mass_budget(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
+    await assert_step_unlocked(db, design=design, step_key="mass_budget")
     await design_service.save_mass_entry(db, design_component_id=design_component_id, **body.model_dump())
     await db.commit()
     return await _design_state_out(db, attempt=attempt, design=design)
@@ -337,6 +344,7 @@ async def save_cost_budget(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
+    await assert_step_unlocked(db, design=design, step_key="cost_budget")
     await design_service.save_cost_entry(db, design_component_id=design_component_id, **body.model_dump())
     await db.commit()
     return await _design_state_out(db, attempt=attempt, design=design)
@@ -349,6 +357,7 @@ async def save_link_budget(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
+    await assert_step_unlocked(db, design=design, step_key="link_budget")
     await design_service.save_link_entry(db, design_id=design.id, **body.model_dump())
     await db.commit()
     return await _design_state_out(db, attempt=attempt, design=design)

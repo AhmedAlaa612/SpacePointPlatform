@@ -28,6 +28,7 @@ from app.models.missions.design import (
     DesignMassBudgetEntry,
     DesignMode,
     DesignPowerBudgetEntry,
+    DesignStepGate,
 )
 from app.models.missions.mission import (
     Mission,
@@ -56,4 +57,5 @@ __all__ = [
     "DesignMassBudgetEntry",
     "DesignMode",
     "DesignPowerBudgetEntry",
+    "DesignStepGate",
 ]
