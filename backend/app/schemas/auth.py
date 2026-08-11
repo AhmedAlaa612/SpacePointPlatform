@@ -67,6 +67,7 @@ class UserOut(BaseModel):
     invite_code: str | None = None
     photo_url: str | None = None
     linkedin_url: str | None = None
+    nickname: str | None = None  # students only — the public identity leaderboards/games show
     created_at: datetime | None = None
     # Resolved from the user's linked Contact (2026-08-08) — None for staff
     # users without a contact_id, or students who never provided them.

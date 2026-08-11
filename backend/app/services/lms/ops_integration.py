@@ -28,6 +28,7 @@ from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.email import try_send_email
 from app.services.lms.curriculum import enroll_in_cohort_curriculum
+from app.services.nicknames import assign_nickname
 
 logger = logging.getLogger("services.lms.ops_integration")
 
@@ -49,6 +50,7 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
     if existing is not None:
         if "student" not in existing.role_values:
             existing.roles = [*existing.roles, "student"]
+            await assign_nickname(db, existing)
         return existing, False
 
     contact = await db.get(Contact, contact_id)
@@ -76,6 +78,7 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
     )
     db.add(user)
     await db.flush()
+    await assign_nickname(db, user)
     return user, True
 
 

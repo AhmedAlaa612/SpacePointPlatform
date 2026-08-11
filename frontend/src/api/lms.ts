@@ -401,6 +401,19 @@ export function videoPlaylistUrl(itemId: string, token: string): string {
   return `${base}/lms/videos/${itemId}/playlist?token=${encodeURIComponent(token)}`;
 }
 
+// Leaderboard (P2-4, linked into the frontend in Live Games Phase 2C 8-2 —
+// display_name is the student's nickname, never a real name).
+export interface LeaderboardEntry {
+  rank: number;
+  user_id: string;
+  display_name: string;
+  points: number;
+}
+
+export const getLeaderboardApi = (scope: "cohort" | "global", cohortId?: string) =>
+  api.get<LeaderboardEntry[]>("/lms/leaderboard", { params: { scope, cohort_id: cohortId } })
+    .then((r) => r.data);
+
 export async function fetchCheckpoints(videoItemId: string): Promise<VideoCheckpoint[]> {
   const { data } = await api.get<VideoCheckpoint[]>(`/lms/items/${videoItemId}/checkpoints`);
   return data;

@@ -1,6 +1,8 @@
 """P2-4 (LMS Phase 2 Stage 2, 2026-08-10) — leaderboard: derived (SUM...
-GROUP BY, never cached), cohort- or global-scoped, D6-pending display
-names. Redis-free, HTTP-free.
+GROUP BY, never cached), cohort- or global-scoped. Display names went from
+a D6-pending stand-in to nickname-first (Live Games Phase 2C, 8-2) once
+services/nicknames.py (8-1) gave every student a public identity. Redis-free,
+HTTP-free.
 """
 
 import uuid
@@ -14,6 +16,7 @@ from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.lms.leaderboard import _display_name, leaderboard
 from app.services.lms.points import award_points
+from app.services.nicknames import assign_nickname
 
 
 async def _user(db, *, full_name="Student", contact_id=None) -> User:
@@ -52,7 +55,7 @@ async def _register(db, *, contact: Contact, cohort: Cohort) -> Registration:
     return reg
 
 
-# ── _display_name: the D6 stand-in ──────────────────────────────────────────
+# ── _display_name: nickname-first, name-fallback for staff (8-2) ───────────
 
 @pytest.mark.parametrize("full_name,expected", [
     ("Ahmed Al Ali", "Ahmed A."),
@@ -60,8 +63,12 @@ async def _register(db, *, contact: Contact, cohort: Cohort) -> Registration:
     ("  Noor   Hassan  ", "Noor H."),
     ("", "Student"),
 ])
-def test_display_name_first_name_and_last_initial(full_name, expected):
-    assert _display_name(full_name) == expected
+def test_display_name_falls_back_to_first_name_and_last_initial_with_no_nickname(full_name, expected):
+    assert _display_name(nickname=None, full_name=full_name) == expected
+
+
+def test_display_name_prefers_the_nickname_when_present():
+    assert _display_name(nickname="NebulaFalcon482", full_name="Ahmed Al Ali") == "NebulaFalcon482"
 
 
 # ── leaderboard: global ──────────────────────────────────────────────────────
@@ -105,6 +112,18 @@ async def test_leaderboard_display_name_is_never_the_full_legal_name(db):
     rows = await leaderboard(db)
     assert rows[0]["display_name"] == "Ahmed A."
     assert rows[0]["display_name"] != "Ahmed Al Ali"
+
+
+@pytest.mark.asyncio
+async def test_leaderboard_shows_the_nickname_once_the_student_has_one(db):
+    student = await _user(db, full_name="Ahmed Al Ali")
+    await assign_nickname(db, student)
+    await award_points(db, user_id=student.id, source="quiz", points=10, idempotency_key="a")
+    await db.commit()
+
+    rows = await leaderboard(db)
+    assert rows[0]["display_name"] == student.nickname
+    assert rows[0]["display_name"] != "Ahmed A."
 
 
 # ── leaderboard: cohort scope ───────────────────────────────────────────────

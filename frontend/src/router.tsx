@@ -125,6 +125,7 @@ import LearnPlayer from "@/pages/learn/LearnPlayer";
 import LearnPaths from "@/pages/learn/LearnPaths";
 import LearnPath from "@/pages/learn/LearnPath";
 import LearnProfile from "@/pages/learn/LearnProfile";
+import LearnLeaderboard from "@/pages/learn/LearnLeaderboard";
 import LearnProgram from "@/pages/learn/LearnProgram";
 import MissionCatalog from "@/pages/learn/MissionCatalog";
 import MissionPage from "@/pages/learn/MissionPage";
@@ -913,6 +914,13 @@ const learnProgramRoute = createRoute({
   component: LearnProgram,
 });
 
+// Leaderboard (P2-4, linked into the frontend in Live Games Phase 2C 8-2).
+const learnLeaderboardRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/leaderboard",
+  component: LearnLeaderboard,
+});
+
 const routeTree = rootRoute.addChildren([
   ticketRoute,
   kitScanRoute,
@@ -922,7 +930,7 @@ const routeTree = rootRoute.addChildren([
   learnSetPasswordRoute,
   learnLayoutRoute.addChildren([
     learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
-    learnPathsRoute, learnPathRoute, learnProfileRoute, learnProgramRoute,
+    learnPathsRoute, learnPathRoute, learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
     learnMissionsRoute, learnDesignMissionRoute, learnOperateMissionRoute, learnMissionRoute,
   ]),
   applyAmbassadorRoute,

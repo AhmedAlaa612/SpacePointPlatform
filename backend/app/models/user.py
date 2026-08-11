@@ -81,6 +81,14 @@ class User(Base):
         nullable=True, index=True,
     )
 
+    # Live Games (Phase 2C, 8-1). Students-only public identity: auto-
+    # generated at account creation (services/nicknames.py), never a real
+    # name — the platform's leaderboards and live games show this, never
+    # full_name. NULL for every non-student account. Unique so two students
+    # are never confusable on a shared leaderboard.
+    nickname = Column(String(64), unique=True, nullable=True)
+    nickname_rerolled_at = Column(DateTime(timezone=True), nullable=True)
+
     @property
     def role_values(self) -> list[str]:
         """Roles as plain strings, regardless of how the driver hydrates the array."""

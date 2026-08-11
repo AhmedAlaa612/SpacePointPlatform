@@ -38,6 +38,7 @@ from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.application_review import ApplicationReview
 from app.schemas.user import InstructorApply
 from app.services.invitations import resolve_invite_code
+from app.services.nicknames import assign_nickname, reroll_nickname
 from app.services.notification import create_notification as notify
 from app.services.spine.identity import ensure_guardian_relationship, resolve_or_create_contact
 
@@ -92,6 +93,7 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "invite_code": user.invite_code,
         "photo_url": await storage.resolve_url("profile_pictures", user.photo_path, user.photo_url),
         "linkedin_url": user.linkedin_url,
+        "nickname": user.nickname,
         "created_at": user.created_at,
         "date_of_birth": contact.date_of_birth if contact else None,
         "grade": contact.grade if contact else None,
@@ -239,6 +241,7 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
     )
     db.add(user)
     await db.flush()  # assign user.id
+    await assign_nickname(db, user)
 
     if invitation:
         invitation.used_count += 1
@@ -298,6 +301,22 @@ async def me(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    profile = await _load_applicant_profile(db, current_user.id)
+    return await _user_out(db, current_user, profile)
+
+
+@router.post("/me/nickname/reroll", response_model=UserOut)
+async def reroll_my_nickname(
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Student self-service only (8-1/D2) — no staff override endpoint
+    exists. 429s if called again within 7 days of the last reroll."""
+    if "student" not in current_user.role_values:
+        raise HTTPException(status_code=400, detail="Only student accounts have a nickname")
+    await reroll_nickname(db, current_user)
+    await db.commit()
+    await db.refresh(current_user)
     profile = await _load_applicant_profile(db, current_user.id)
     return await _user_out(db, current_user, profile)
 

@@ -1,20 +1,19 @@
-"""LMS leaderboard (P2-4, Phase 2 Stage 2, 2026-08-10).
+"""LMS leaderboard (P2-4, Phase 2 Stage 2, 2026-08-10; turned on in Live
+Games Phase 2C, 8-2).
 
 Derived, never cached — every read is a `SUM(points) GROUP BY user_id`
 straight off `point_events`; if this ever needs to be faster, the
 escalation is a materialised view, never a stored total column (§6).
 
-⚠️ D6 (leaderboard scope + display names) is still an open operator
-decision (PHASE2_EXECUTION_PLAN.md §2) — this ships the backend the rest
-of Phase 2 needs to build against, but is NOT wired into any
-student-facing page. The plan's own stated default is "cohort-scoped,
-chosen display name" — "chosen" implies a handle-picking feature that
-doesn't exist yet and is out of this stage's scope to invent unprompted.
-`_display_name` below is a safe, private-by-default stand-in (first name +
-last-initial, no new schema) so the query itself can be built and tested
-now; swap it for whatever D6 actually decides once it's answered. The user
-base skews toward minors — full legal names are not an acceptable default
-in the meantime.
+D6 (leaderboard scope + display names) was an open operator decision from
+Stage 2 that kept this backend built but never linked into the frontend —
+showing real names on a leaderboard isn't acceptable given the user base
+skews toward minors, and nobody had picked what to show instead.
+`services/nicknames.py` (8-1) is that answer: every student already has an
+auto-generated public nickname, so `_display_name` uses it directly.
+Non-student accounts (staff can take LMS courses too, D2) have no
+nickname — they fall back to the old first-name + last-initial stand-in,
+since a staff member's name isn't the privacy concern D6 was about.
 """
 
 from __future__ import annotations
@@ -31,7 +30,9 @@ from app.models.user import User
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
 
-def _display_name(full_name: str) -> str:
+def _display_name(*, nickname: str | None, full_name: str) -> str:
+    if nickname:
+        return nickname
     parts = (full_name or "").strip().split()
     if not parts:
         return "Student"
@@ -49,9 +50,9 @@ async def leaderboard(
     appear — no zero-point padding."""
     total_col = func.sum(PointEvent.points).label("total")
     stmt = (
-        select(User.id, User.full_name, total_col)
+        select(User.id, User.full_name, User.nickname, total_col)
         .join(PointEvent, PointEvent.user_id == User.id)
-        .group_by(User.id, User.full_name)
+        .group_by(User.id, User.full_name, User.nickname)
         .order_by(total_col.desc())
         .limit(limit)
     )
@@ -70,7 +71,7 @@ async def leaderboard(
         {
             "rank": i + 1,
             "user_id": row.id,
-            "display_name": _display_name(row.full_name),
+            "display_name": _display_name(nickname=row.nickname, full_name=row.full_name),
             "points": int(row.total),
         }
         for i, row in enumerate(rows)

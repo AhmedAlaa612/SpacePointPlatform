@@ -377,11 +377,9 @@ async def get_leaderboard(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
-    """P2-4. ⚠️ Backend only — not linked from any student-facing page yet.
-    D6 (scope + display-name policy) is still an open operator decision
-    (PHASE2_EXECUTION_PLAN.md §2); `display_name` here is a private-by-
-    default stand-in (first name + last-initial), not the real answer.
-    Do not surface this in the frontend until D6 is actually settled."""
+    """P2-4, linked into the frontend as of Live Games Phase 2C (8-2). D6
+    (scope + display-name policy) is settled: `display_name` is the
+    student's nickname (`services/nicknames.py`, 8-1), never a real name."""
     if scope == "cohort" and cohort_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="cohort_id is required for scope=cohort")
     return await leaderboard(db, cohort_id=cohort_id if scope == "cohort" else None)

@@ -24,6 +24,7 @@ export function LearnShell() {
     : pathname.startsWith("/learn/missions") ? "missions"
     : pathname.startsWith("/learn/paths") ? "paths"
     : pathname.startsWith("/learn/my-courses") ? "my-courses"
+    : pathname.startsWith("/learn/leaderboard") ? "leaderboard"
     : pathname.startsWith("/learn/profile") ? "profile"
     : "home";
 
