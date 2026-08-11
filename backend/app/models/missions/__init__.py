@@ -17,6 +17,18 @@ Everything keys on `users`, same as the rest of `lms` — `MERGE_FK_REGISTRY`
 is untouched.
 """
 
+from app.models.missions.design import (
+    Design,
+    DesignComponent,
+    DesignComponentLibrary,
+    DesignComponentModeState,
+    DesignCostBudgetEntry,
+    DesignDataBudgetEntry,
+    DesignLinkBudgetEntry,
+    DesignMassBudgetEntry,
+    DesignMode,
+    DesignPowerBudgetEntry,
+)
 from app.models.missions.mission import (
     Mission,
     MissionAttempt,
@@ -34,4 +46,14 @@ __all__ = [
     "MissionVariant",
     "MissionTeam",
     "MissionTeamMember",
+    "Design",
+    "DesignComponent",
+    "DesignComponentLibrary",
+    "DesignComponentModeState",
+    "DesignCostBudgetEntry",
+    "DesignDataBudgetEntry",
+    "DesignLinkBudgetEntry",
+    "DesignMassBudgetEntry",
+    "DesignMode",
+    "DesignPowerBudgetEntry",
 ]
