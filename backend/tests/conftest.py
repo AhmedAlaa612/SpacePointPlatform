@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
+from app.services.games.realtime import get_realtime_redis_dep
 from app.workers.settings import get_arq_redis, redis_settings
 
 if not settings.DATABASE_URL_TEST:
@@ -116,8 +117,12 @@ async def client(db):
     async def _override_get_arq_redis():
         return None
 
+    async def _override_get_realtime_redis():
+        return None
+
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_arq_redis] = _override_get_arq_redis
+    app.dependency_overrides[get_realtime_redis_dep] = _override_get_realtime_redis
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         yield c
@@ -137,6 +142,30 @@ async def arq_client(db, arq_redis):
 
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_arq_redis] = _override_get_arq_redis
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def realtime_client(db, realtime_redis):
+    """`client`, but wired to a real live-games broadcast connection — for
+    the handful of tests that assert a WS message actually got published.
+    Take `realtime_redis` alongside it to subscribe and inspect what went
+    out. **Requires a running Redis**; prefer `client`."""
+    async def _override_get_db():
+        yield db
+
+    async def _override_get_arq_redis():
+        return None
+
+    async def _override_get_realtime_redis():
+        return realtime_redis
+
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_arq_redis] = _override_get_arq_redis
+    app.dependency_overrides[get_realtime_redis_dep] = _override_get_realtime_redis
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         yield c

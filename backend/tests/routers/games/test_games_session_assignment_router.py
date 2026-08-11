@@ -221,3 +221,37 @@ async def test_assignment_routes_require_content_role(db, client):
 
     ok = await client.get(f"/games/sessions/{session.id}/assignments", headers=_headers(ops))
     assert ok.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_instructor_can_edit_questions_but_not_attach_or_remove_a_game(db, client):
+    """8-7's own grilling round: an instructor can edit their session's
+    assigned game's questions ("even mid game"), but attaching/removing a
+    game from a session is still an ops/facilitator planning action."""
+    ops = await _user(db)
+    instructor = await _user(db, roles=["instructor"])
+    session = await _session(db)
+    game = await _game_with_questions(db, author=ops, count=1)
+    await db.commit()
+
+    blocked_create = await client.post(
+        f"/games/sessions/{session.id}/assignments", headers=_headers(instructor), json={"game_id": str(game.id)},
+    )
+    assert blocked_create.status_code == http_status.HTTP_403_FORBIDDEN
+
+    created = await client.post(
+        f"/games/sessions/{session.id}/assignments", headers=_headers(ops), json={"game_id": str(game.id)},
+    )
+    assignment_id = created.json()["id"]
+
+    # Instructor can read it and add a question to their session's copy.
+    read = await client.get(f"/games/sessions/assignments/{assignment_id}", headers=_headers(instructor))
+    assert read.status_code == 200, read.text
+    added = await client.post(
+        f"/games/sessions/assignments/{assignment_id}/questions", headers=_headers(instructor),
+        json={"prompt": "Instructor's own question", "options": [{"text": "A", "is_correct": True}, {"text": "B", "is_correct": False}]},
+    )
+    assert added.status_code == 201, added.text
+
+    blocked_delete = await client.delete(f"/games/sessions/assignments/{assignment_id}", headers=_headers(instructor))
+    assert blocked_delete.status_code == http_status.HTTP_403_FORBIDDEN

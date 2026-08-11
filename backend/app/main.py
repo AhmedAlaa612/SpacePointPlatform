@@ -17,6 +17,7 @@ from app.routers.ambassadors import router as ambassadors_router
 from app.routers.instructors import router as instructors_router
 from app.routers.inventory import router as inventory_router
 from app.routers.games import router as games_router
+from app.services.games.realtime import get_realtime_redis
 from app.routers.lms import router as lms_router
 from app.routers.missions import router as missions_router
 from app.routers.sessions import router as sessions_router
@@ -51,9 +52,26 @@ async def lifespan(app: FastAPI):
             exc_info=True,
         )
         app.state.arq_redis = None
+
+    # Live games' real-time broadcast connection (8-7) — separate from the
+    # ARQ pool above (job-queue traffic, different tuning); same
+    # None-if-unreachable resilience, see get_realtime_redis_dep.
+    try:
+        app.state.realtime_redis = get_realtime_redis()
+        await app.state.realtime_redis.ping()
+    except Exception:
+        logger.warning(
+            "Could not connect to Redis for live-games broadcasts at startup — "
+            "the API itself still starts; broadcasts drop until it's available.",
+            exc_info=True,
+        )
+        app.state.realtime_redis = None
+
     yield
     if app.state.arq_redis is not None:
-        await app.state.arq_redis.close()
+        await app.state.arq_redis.aclose()
+    if app.state.realtime_redis is not None:
+        await app.state.realtime_redis.aclose()
 
 
 app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)

@@ -27,7 +27,7 @@ from app.models.games.session_assignment import GameSessionAssignment, GameSessi
 from app.models.user import User
 from app.services.games.points import max_points_for
 from app.services.games.scoring import score_answer
-from app.services.lms.points import award_points
+from app.services.lms.points import award_points, reverse_points
 
 GAME_POINTS_SOURCE = "game"
 
@@ -78,16 +78,31 @@ async def get_current_question(db: AsyncSession, run: GameRun) -> GameSessionQue
     )
 
 
+async def count_questions(db: AsyncSession, assignment_id: uuid.UUID) -> int:
+    return (
+        await db.scalar(
+            select(func.count()).select_from(GameSessionQuestion).where(GameSessionQuestion.assignment_id == assignment_id)
+        )
+    ) or 0
+
+
+def is_blackout_active(*, current_question_position: int | None, total_questions: int, blackout_count: int) -> bool:
+    """D10: the last N questions (blackout_count, default 3) hide the
+    leaderboard from students — they still see their own score, just not
+    rank or others'. The instructor sees everything regardless."""
+    if current_question_position is None or blackout_count <= 0:
+        return False
+    return (total_questions - current_question_position) < blackout_count
+
+
 async def advance_run(db: AsyncSession, *, run: GameRun) -> GameRun:
     """Moves to the next question by position, or ends the run once past
     the last one. D18's late-join / no-catch-up falls out of this for
     free — a student who joins mid-run simply has no GameAnswer rows for
     whatever positions already passed."""
-    total = await db.scalar(
-        select(func.count()).select_from(GameSessionQuestion).where(GameSessionQuestion.assignment_id == run.assignment_id)
-    )
+    total = await count_questions(db, run.assignment_id)
     next_position = (run.current_question_position or 0) + 1
-    if next_position > (total or 0):
+    if next_position > total:
         run.status = "ended"
         run.current_question_position = None
         run.ended_at = datetime.now(timezone.utc)
@@ -139,6 +154,88 @@ async def submit_answer(
     return answer
 
 
+async def end_run(db: AsyncSession, *, run: GameRun) -> GameRun:
+    """Instructor's explicit End button (D19) — distinct from `advance_run`'s
+    natural transition once the last question is passed."""
+    run.status = "ended"
+    run.current_question_position = None
+    run.ended_at = datetime.now(timezone.utc)
+    await db.flush()
+    return run
+
+
+async def _reverse_answers(db: AsyncSession, *, run_id: uuid.UUID, answers: list[GameAnswer]) -> None:
+    now = datetime.now(timezone.utc)
+    for answer in answers:
+        participant = await db.get(GameParticipant, answer.participant_id)
+        await reverse_points(
+            db, user_id=participant.user_id, source=GAME_POINTS_SOURCE, points=answer.points_awarded,
+            idempotency_key=f"{run_id}:{answer.question_id}:reversal",
+            ref={"run_id": str(run_id), "question_id": str(answer.question_id) if answer.question_id else None},
+        )
+        answer.reversed_at = now
+    await db.flush()
+
+
+async def reverse_run_points(db: AsyncSession, *, run: GameRun) -> int:
+    """D15/D17: reverses every not-yet-reversed positive-points answer in
+    this run, for every participant, all-or-nothing (never split by which
+    students are replaying) — new offsetting `point_events` rows, the
+    original award rows untouched. Returns the count of answers reversed."""
+    answers = (
+        await db.execute(
+            select(GameAnswer)
+            .join(GameParticipant, GameAnswer.participant_id == GameParticipant.id)
+            .where(
+                GameParticipant.run_id == run.id,
+                GameAnswer.points_awarded > 0,
+                GameAnswer.reversed_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    await _reverse_answers(db, run_id=run.id, answers=answers)
+    return len(answers)
+
+
+async def reverse_question_points(db: AsyncSession, *, run: GameRun, question_id: uuid.UUID) -> int:
+    """D16/D17: reverses only the answers tied to one specific question
+    within one specific run — the mid-game "delete an already-answered
+    question" path. Every other question's points in the same run are
+    untouched. Callers run this *before* actually deleting the question
+    row. Returns the count of answers reversed."""
+    answers = (
+        await db.execute(
+            select(GameAnswer)
+            .join(GameParticipant, GameAnswer.participant_id == GameParticipant.id)
+            .where(
+                GameParticipant.run_id == run.id,
+                GameAnswer.question_id == question_id,
+                GameAnswer.points_awarded > 0,
+                GameAnswer.reversed_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    await _reverse_answers(db, run_id=run.id, answers=answers)
+    return len(answers)
+
+
+async def restart_run(db: AsyncSession, *, run: GameRun, actor_id: uuid.UUID) -> GameRun:
+    """The single Restart action (D15) — always reverses every point this
+    run has awarded so far, then starts a brand-new run (fresh run_no)
+    against the assignment's current (possibly just-edited) question set.
+    The old run's rows are never touched beyond `reversed_at`/`ended_at` —
+    a full history of what was actually played survives, same "never
+    destroy history" posture as everywhere else in this codebase."""
+    await reverse_run_points(db, run=run)
+    if run.status != "ended":
+        run.status = "ended"
+        run.current_question_position = None
+        run.ended_at = datetime.now(timezone.utc)
+        await db.flush()
+    assignment = await db.get(GameSessionAssignment, run.assignment_id)
+    return await create_run(db, assignment=assignment, actor_id=actor_id)
+
+
 async def run_leaderboard(db: AsyncSession, run_id: uuid.UUID) -> list[dict]:
     """Nickname + avatar + score only — never the real name (D9); the
     real-name mapping is a separate staff-only lookup 8-7 builds. Scored
@@ -158,4 +255,53 @@ async def run_leaderboard(db: AsyncSession, run_id: uuid.UUID) -> list[dict]:
     return [
         {"participant_id": r.id, "nickname": r.nickname_snapshot, "avatar": r.avatar, "score": int(r.score)}
         for r in rows
+    ]
+
+
+async def run_roster(db: AsyncSession, *, run: GameRun) -> list[dict]:
+    """Instructor's live roster grid — nickname/avatar plus whether each
+    participant has answered the currently-live question yet (2a's
+    answered-count ring/grid)."""
+    participants = (
+        await db.execute(select(GameParticipant).where(GameParticipant.run_id == run.id).order_by(GameParticipant.joined_at))
+    ).scalars().all()
+    answered_ids: set[uuid.UUID] = set()
+    question = await get_current_question(db, run)
+    if question is not None and participants:
+        answered_ids = set((
+            await db.execute(
+                select(GameAnswer.participant_id).where(
+                    GameAnswer.question_id == question.id,
+                    GameAnswer.participant_id.in_([p.id for p in participants]),
+                )
+            )
+        ).scalars().all())
+    return [
+        {
+            "participant_id": p.id, "nickname": p.nickname_snapshot, "avatar": p.avatar,
+            "has_answered_current": p.id in answered_ids,
+        }
+        for p in participants
+    ]
+
+
+async def question_results(db: AsyncSession, *, run: GameRun, question: GameSessionQuestion) -> list[dict]:
+    """Per-option counts + percentages for the between-questions results
+    screen (2b) — how many participants (in this run) picked each option."""
+    counts_by_index = dict((
+        await db.execute(
+            select(GameAnswer.selected_option_index, func.count())
+            .join(GameParticipant, GameAnswer.participant_id == GameParticipant.id)
+            .where(GameParticipant.run_id == run.id, GameAnswer.question_id == question.id)
+            .group_by(GameAnswer.selected_option_index)
+        )
+    ).all())
+    total = sum(counts_by_index.values())
+    return [
+        {
+            "index": i, "text": opt["text"], "is_correct": opt["is_correct"],
+            "count": counts_by_index.get(i, 0),
+            "pct": round(counts_by_index.get(i, 0) / total * 100) if total else 0,
+        }
+        for i, opt in enumerate(question.options)
     ]

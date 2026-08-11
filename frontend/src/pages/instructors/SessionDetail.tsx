@@ -35,6 +35,7 @@ const LOCK_HINT_MS = 3000
 import { SessionKitsPanel } from "@/pages/instructors/components/SessionKitsPanel"
 import { SessionEquipmentPanel } from "@/pages/instructors/components/SessionEquipmentPanel"
 import { SessionMaterialsPanel } from "@/pages/instructors/components/SessionMaterialsPanel"
+import { SessionGamesPanel } from "@/pages/instructors/components/SessionGamesPanel"
 
 type Stage = "pre" | "session" | "post"
 
@@ -355,6 +356,8 @@ export default function SessionDetail() {
             </CardContent>
           </Card>
         )}
+
+        {isStarted && <SessionGamesPanel sessionId={sessionId} />}
 
         <div>
           <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">

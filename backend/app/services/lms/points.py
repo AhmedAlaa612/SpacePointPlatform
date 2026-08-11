@@ -68,6 +68,41 @@ async def award_points(
     return await db.get(PointEvent, event_id)
 
 
+async def reverse_points(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    source: str,
+    points: int,
+    idempotency_key: str,
+    ref: dict | None = None,
+) -> PointEvent | None:
+    """The reversal sibling of `award_points` (Live Games Phase 2C, 8-7/8-9,
+    D15/D16/D17) — a new offsetting ledger row, same append-only, never-
+    delete-the-original discipline; the original award row is untouched.
+    `points` is the positive magnitude to take back; this writes `-points`.
+
+    `award_points` itself refuses `points <= 0`, so it can't mint this row
+    — hence a sibling rather than a call with a negative amount. Callers
+    must pick an `idempotency_key` distinct from the original award's (the
+    unique constraint is per `user_id`+`source`, and the original row is
+    never deleted) — the games reversal callers use `f"{original_key}:reversal"`.
+    """
+    if points <= 0:
+        return None
+    event_id = uuid.uuid4()
+    stmt = insert(PointEvent).values(
+        id=event_id, user_id=user_id, source=source, points=-points,
+        ref=ref, idempotency_key=idempotency_key,
+    )
+    try:
+        async with db.begin_nested():
+            await db.execute(stmt)
+    except IntegrityError:
+        return None
+    return await db.get(PointEvent, event_id)
+
+
 async def award_quiz_points(
     db: AsyncSession,
     *,

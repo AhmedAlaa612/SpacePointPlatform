@@ -26,11 +26,15 @@ tuned/timed-out for job-queue traffic, not held open per WS connection.
 """
 
 import json
+import logging
 from typing import Literal
 
 import redis.asyncio as redis
+from fastapi import Request
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 MessageType = Literal[
     "question_started", "answer_ack", "leaderboard_update",
@@ -52,8 +56,35 @@ def get_realtime_redis(url: str | None = None) -> redis.Redis:
     return redis.from_url(url or settings.REDIS_URL, decode_responses=True)
 
 
+async def get_realtime_redis_dep(request: Request) -> redis.Redis | None:
+    """FastAPI dependency — the connection opened at app startup (main.py's
+    lifespan), same "None if Redis was unreachable, callers go through the
+    safe_* wrapper" convention `get_arq_redis`/`safe_enqueue` already use.
+    Only for one-shot HTTP-triggered publishes (8-7's live router); the WS
+    endpoint (8-5) opens its own dedicated subscriber connection per
+    connection instead, since `.pubsub()` needs a long-lived connection in
+    subscriber mode, not a shared pool."""
+    return request.app.state.realtime_redis
+
+
 async def publish_to_run(client: redis.Redis, run_id: str, type: MessageType, payload: dict) -> None:
     await client.publish(run_channel(run_id), json.dumps({"type": type, "payload": payload}))
+
+
+async def safe_publish_to_run(client: redis.Redis | None, run_id: str, type: MessageType, payload: dict) -> None:
+    """Never raises — a broadcast failing must not undo the database state
+    change that triggered it (same posture as `safe_enqueue`). A dropped
+    broadcast just means connected clients see stale state until their
+    next successful message or reconnect, not a failed request. HTTP
+    routes (8-7's live router) use this; the WS endpoint (8-5) and direct
+    service-level tests use the raw `publish_to_run` above."""
+    if client is None:
+        logger.warning("Live games: no Redis connection, dropped %r broadcast for run %s", type, run_id)
+        return
+    try:
+        await publish_to_run(client, run_id, type, payload)
+    except Exception:
+        logger.warning("Live games: broadcast failed for run %s", run_id, exc_info=True)
 
 
 async def publish_to_participant(client: redis.Redis, run_id: str, user_id: str, type: MessageType, payload: dict) -> None:

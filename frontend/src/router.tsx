@@ -72,6 +72,7 @@ import FacilitatorApplication from "@/pages/instructors/facilitator/Application"
 import InstructorAvailableSessions from "@/pages/instructors/AvailableSessions";
 import InstructorMySessions from "@/pages/instructors/MySessions";
 import InstructorSessionDetail from "@/pages/instructors/SessionDetail";
+import GameLiveConsole from "@/pages/instructors/GameLiveConsole";
 import InstructorMyHoldings from "@/pages/instructors/MyHoldings";
 
 // Admin hub
@@ -525,6 +526,7 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/my-sessions", component: InstructorMySessions }),
   createRoute({ getParentRoute: pi, path: "/my-holdings", component: InstructorMyHoldings }),
   createRoute({ getParentRoute: pi, path: "/sessions/$sessionId", component: InstructorSessionDetail }),
+  createRoute({ getParentRoute: pi, path: "/game-runs/$runId", component: GameLiveConsole }),
   createRoute({
     getParentRoute: pi,
     path: "/admin",
