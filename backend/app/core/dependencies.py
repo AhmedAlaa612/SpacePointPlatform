@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy import select
@@ -44,6 +44,23 @@ async def get_current_user_optional(
     re-resolving identity from a re-typed email)."""
     if not token:
         return None
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        sub = payload.get("sub")
+        if sub is None or payload.get("type") != "access":
+            return None
+    except JWTError:
+        return None
+    return (await db.execute(select(User).where(User.id == sub))).scalars().first()
+
+
+async def get_ws_user(token: str = Query(...), db: AsyncSession = Depends(get_db)) -> User | None:
+    """WS-safe variant of get_current_user (Live Games Phase 2C, 8-5, D7).
+    A browser `WebSocket()` can't send an `Authorization` header, so the
+    token travels as a query param instead — same decode/claim checks as
+    above, but never raises: an HTTPException doesn't render sensibly on
+    an upgraded connection, so the route itself closes the socket (code
+    1008) when this returns None."""
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         sub = payload.get("sub")

@@ -83,6 +83,21 @@ async def arq_redis(_arq_engine):
 
 
 @pytest_asyncio.fixture
+async def realtime_redis():
+    """A real redis.asyncio connection against REDIS_URL_TEST (never
+    REDIS_URL) for the live-games pub/sub tests (8-5). Flushed after
+    every test so channels/keys don't leak between tests. Requesting
+    this fixture is what makes a test need a live Redis, same convention
+    as `arq_redis`."""
+    from app.services.games.realtime import get_realtime_redis
+
+    client = get_realtime_redis(settings.REDIS_URL_TEST)
+    yield client
+    await client.flushdb()
+    await client.aclose()
+
+
+@pytest_asyncio.fixture
 async def client(db):
     """The default HTTP client: real app, real routes, **no Redis**.
 
