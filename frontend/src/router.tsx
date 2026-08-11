@@ -15,6 +15,7 @@ import SharedProfile from "@/pages/shared/Profile";
 
 // Interns domain pages
 import Dashboard from "@/pages/interns/Dashboard";
+import ProposeMission from "@/pages/interns/ProposeMission";
 import Tracker from "@/pages/interns/Tracker";
 import Calendar from "@/pages/interns/Calendar";
 import Leaderboard from "@/pages/interns/Leaderboard";
@@ -140,6 +141,7 @@ import LmsLearningPaths from "@/pages/lms-authoring/LmsLearningPaths";
 import LmsLearningPathDetail from "@/pages/lms-authoring/LmsLearningPathDetail";
 import LmsProgressGrid from "@/pages/lms-authoring/LmsProgressGrid";
 import LmsPrerequisites from "@/pages/lms-authoring/LmsPrerequisites";
+import LmsMissionProposals from "@/pages/lms-authoring/LmsMissionProposals";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -293,6 +295,7 @@ const internsRoutes = [
   }),
   createRoute({ getParentRoute: p, path: "/mind-map/$epicId", component: MindMap }),
   createRoute({ getParentRoute: p, path: "/mind-map/project/$projectId", component: ProjectMindMap }),
+  createRoute({ getParentRoute: p, path: "/propose-mission", component: ProposeMission }),
 ];
 
 const ambassadorsLayoutRoute = createRoute({
@@ -712,6 +715,7 @@ const lmsAuthoringRoutes = [
   createRoute({ getParentRoute: pla, path: "/learning-paths/$pathId", component: LmsLearningPathDetail }),
   createRoute({ getParentRoute: pla, path: "/progress", component: LmsProgressGrid }),
   createRoute({ getParentRoute: pla, path: "/prerequisites", component: LmsPrerequisites }),
+  createRoute({ getParentRoute: pla, path: "/mission-proposals", component: LmsMissionProposals }),
 ];
 
 // Apply routes — all use shared ApplyFlow (instructor uses InstructorApply for its own pipeline)

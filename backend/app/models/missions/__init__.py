@@ -37,6 +37,7 @@ from app.models.missions.mission import (
     MissionAttemptMember,
     MissionVariant,
 )
+from app.models.missions.proposal import MissionProposal
 from app.models.missions.team import MissionTeam, MissionTeamMember
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "MissionAttempt",
     "MissionAttemptMember",
     "MissionVariant",
+    "MissionProposal",
     "MissionTeam",
     "MissionTeamMember",
     "Design",

@@ -143,6 +143,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Learning Paths", "/lms-authoring/learning-paths"),
       mk("Progress Grid", "/lms-authoring/progress"),
       mk("Prerequisites", "/lms-authoring/prerequisites"),
+      mk("Mission Proposals", "/lms-authoring/mission-proposals"),
       mk(
         "Back",
         activeRole === "facilitator" ? "/instructors/facilitator/training" : "/operations/dashboard",
@@ -275,6 +276,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Board", "/interns"),
       mk("Tracker", "/interns/tracker"),
+      mk("Propose a Mission", "/interns/propose-mission"),
       mk("Documents", "/interns/documents"),
       mk("ID Card", "/interns/id-card"),
     ];
@@ -373,6 +375,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Board", "/interns"),
       mk("Tracker", "/interns/tracker"),
+      mk("Propose a Mission", "/interns/propose-mission"),
       mk("Documents", "/interns/documents"),
       mk("ID Card", "/interns/id-card"),
     ];
