@@ -21,4 +21,5 @@ from app.models import inventory  # noqa: F401  (I1-1 — locations/items/kits/t
 from app.models import lms  # noqa: F401  (LM1-1 — courses/modules/items/videos/curriculum/enrollments/progress)
 from app.models import missions  # noqa: F401  (Phase 2 Stage 5 — missions/variants/prerequisites/attempts)
 from app.models.curriculum import Prerequisite  # noqa: F401  (7B-2 — unified course/mission prerequisite DAG)
+from app.models import games  # noqa: F401  (Live Games Phase 2C — Kahoot-style live quiz)
 

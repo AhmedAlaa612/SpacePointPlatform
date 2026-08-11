@@ -16,6 +16,7 @@ from app.routers.interns import shared as interns_shared
 from app.routers.ambassadors import router as ambassadors_router
 from app.routers.instructors import router as instructors_router
 from app.routers.inventory import router as inventory_router
+from app.routers.games import router as games_router
 from app.routers.lms import router as lms_router
 from app.routers.missions import router as missions_router
 from app.routers.sessions import router as sessions_router
@@ -101,6 +102,9 @@ app.include_router(lms_router)
 
 # Missions domain (Phase 2 Stage 5): /missions/*
 app.include_router(missions_router)
+
+# Live games domain (Live Games Phase 2C): /games/*
+app.include_router(games_router)
 
 
 @app.get("/health", tags=["health"])

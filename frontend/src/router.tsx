@@ -144,6 +144,8 @@ import LmsLearningPathDetail from "@/pages/lms-authoring/LmsLearningPathDetail";
 import LmsProgressGrid from "@/pages/lms-authoring/LmsProgressGrid";
 import LmsPrerequisites from "@/pages/lms-authoring/LmsPrerequisites";
 import LmsMissionProposals from "@/pages/lms-authoring/LmsMissionProposals";
+import LmsGames from "@/pages/lms-authoring/LmsGames";
+import LmsGameDetail from "@/pages/lms-authoring/LmsGameDetail";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -719,6 +721,8 @@ const lmsAuthoringRoutes = [
   createRoute({ getParentRoute: pla, path: "/progress", component: LmsProgressGrid }),
   createRoute({ getParentRoute: pla, path: "/prerequisites", component: LmsPrerequisites }),
   createRoute({ getParentRoute: pla, path: "/mission-proposals", component: LmsMissionProposals }),
+  createRoute({ getParentRoute: pla, path: "/games", component: LmsGames }),
+  createRoute({ getParentRoute: pla, path: "/games/$gameId", component: LmsGameDetail }),
 ];
 
 // Apply routes — all use shared ApplyFlow (instructor uses InstructorApply for its own pipeline)
