@@ -258,6 +258,35 @@ async def run_leaderboard(db: AsyncSession, run_id: uuid.UUID) -> list[dict]:
     ]
 
 
+async def participant_score(db: AsyncSession, *, participant_id: uuid.UUID) -> int:
+    total = await db.scalar(
+        select(func.coalesce(func.sum(GameAnswer.points_awarded), 0)).where(
+            GameAnswer.participant_id == participant_id, GameAnswer.reversed_at.is_(None),
+        )
+    )
+    return int(total or 0)
+
+
+async def participant_streak(db: AsyncSession, *, participant_id: uuid.UUID) -> int:
+    """Consecutive correct answers ending at the most recently answered
+    question, in question order (not submission order) — 8-8's streak
+    counter."""
+    rows = (
+        await db.execute(
+            select(GameAnswer.is_correct)
+            .join(GameSessionQuestion, GameAnswer.question_id == GameSessionQuestion.id)
+            .where(GameAnswer.participant_id == participant_id)
+            .order_by(GameSessionQuestion.position.desc())
+        )
+    ).scalars().all()
+    streak = 0
+    for is_correct in rows:
+        if not is_correct:
+            break
+        streak += 1
+    return streak
+
+
 async def run_roster(db: AsyncSession, *, run: GameRun) -> list[dict]:
     """Instructor's live roster grid — nickname/avatar plus whether each
     participant has answered the currently-live question yet (2a's

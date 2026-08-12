@@ -128,6 +128,8 @@ import LearnPaths from "@/pages/learn/LearnPaths";
 import LearnPath from "@/pages/learn/LearnPath";
 import LearnProfile from "@/pages/learn/LearnProfile";
 import LearnLeaderboard from "@/pages/learn/LearnLeaderboard";
+import LearnGames from "@/pages/learn/LearnGames";
+import GamePlay from "@/pages/learn/GamePlay";
 import LearnProgram from "@/pages/learn/LearnProgram";
 import MissionCatalog from "@/pages/learn/MissionCatalog";
 import MissionPage from "@/pages/learn/MissionPage";
@@ -929,6 +931,19 @@ const learnLeaderboardRoute = createRoute({
   component: LearnLeaderboard,
 });
 
+// Live Quiz (Live Games Phase 2C, 8-8, D5) — own top-level surface.
+const learnGamesRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/games",
+  component: LearnGames,
+});
+
+const learnGamePlayRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/games/$runId",
+  component: GamePlay,
+});
+
 const routeTree = rootRoute.addChildren([
   ticketRoute,
   kitScanRoute,
@@ -939,6 +954,7 @@ const routeTree = rootRoute.addChildren([
   learnLayoutRoute.addChildren([
     learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
     learnPathsRoute, learnPathRoute, learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
+    learnGamesRoute, learnGamePlayRoute,
     learnMissionsRoute, learnDesignMissionRoute, learnOperateMissionRoute, learnMissionRoute,
   ]),
   applyAmbassadorRoute,

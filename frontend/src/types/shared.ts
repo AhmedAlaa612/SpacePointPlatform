@@ -54,6 +54,9 @@ export interface User {
   email: string;
   roles: Role[];
   status: string;
+  // Auto-generated student callsign (Live Games Phase 2C, 8-1) — present
+  // on student accounts, absent/null for other roles.
+  nickname?: string | null;
   phone?: string | null;
   country?: string | null;
   invite_code?: string | null;
