@@ -265,7 +265,11 @@ CI: `build-backend.yml` on `backend/**`, `build-frontend.yml` on `frontend/**` (
 
 Two traps: **`--env-file` is read at container creation**, so editing `/etc/spacepoint/env`
 does nothing until the container is recreated; and **`VITE_API_URL` is baked at build time**, so
-a second environment needs its own build. Full production detail in `HANDOFF_V2_LIVE.md`.
+a second environment needs its own build. Full production detail, including the deploy scripts'
+actual observed behavior, the recurring "deploy wipes the worker container's own filesystem"
+gotcha, and the nginx pattern for adding a new vanity subdomain, is in
+**`docs/HANDOFF_VPS_DEPLOYMENT.md`** (this repo, no secrets) — real credentials are still only in
+`HANDOFF_V2_LIVE.md` / `vps_envs.md` / `secrets.md`, outside this repo, never committed.
 
 ## 12. Running it locally
 
