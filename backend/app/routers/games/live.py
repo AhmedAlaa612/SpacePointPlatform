@@ -28,6 +28,7 @@ the end).
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_session_delivery
@@ -233,3 +234,22 @@ async def reveal_name(run_id: uuid.UUID, participant_id: uuid.UUID, db: AsyncSes
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Participant not found")
     user = await db.get(User, participant.user_id)
     return RevealNameOut(participant_id=participant.id, real_name=user.full_name if user else "(unknown)")
+
+
+@router.get("/runs/{run_id}/reveal-all", response_model=list[RevealNameOut])
+async def reveal_all_names(run_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """8-8b's podium-screen global "Reveal names" toggle — distinct from
+    the per-row popover above (same data, one request instead of one per
+    participant). Still staff-only, still never broadcast."""
+    participants = (
+        await db.execute(select(GameParticipant).where(GameParticipant.run_id == run_id))
+    ).scalars().all()
+    users = {
+        u.id: u for u in (
+            await db.execute(select(User).where(User.id.in_([p.user_id for p in participants])))
+        ).scalars().all()
+    }
+    return [
+        RevealNameOut(participant_id=p.id, real_name=users[p.user_id].full_name if p.user_id in users else "(unknown)")
+        for p in participants
+    ]

@@ -167,6 +167,32 @@ async def test_leaderboard_is_redacted_to_own_score_only_during_blackout(db, cli
 
 
 @pytest.mark.asyncio
+async def test_leaderboard_unlocks_fully_once_the_run_ends_even_after_a_blackout(db, client):
+    """8-8b's podium relies on this: is_blackout_active requires a live
+    current question, so ending the run (current_question_position ->
+    None) clears the redaction automatically — the same endpoint that
+    hid everyone else during blackout now returns the full board."""
+    assignment, cohort = await _assignment_with_questions(db, count=1, blackout_count=1)
+    alice = await _student_with_registration(db, cohort_id=cohort.id, nickname="Alice1")
+    bob = await _student_with_registration(db, cohort_id=cohort.id, nickname="Bob2")
+    await db.commit()
+    run = await create_run(db, assignment=assignment, actor_id=alice.id)
+    await join_run(db, run=run, user=alice)
+    await join_run(db, run=run, user=bob)
+    await start_run(db, run=run)
+    await db.commit()
+
+    from app.services.games.runs import end_run
+    await end_run(db, run=run)
+    await db.commit()
+
+    board = await client.get(f"/games/play/runs/{run.id}/leaderboard", headers=_headers(alice))
+    assert board.status_code == 200, board.text
+    nicknames = {row["nickname"] for row in board.json()}
+    assert nicknames == {"Alice1", "Bob2"}
+
+
+@pytest.mark.asyncio
 async def test_late_join_sees_current_question_no_catchup_score(db, client):
     assignment, cohort = await _assignment_with_questions(db, count=2)
     late = await _student_with_registration(db, cohort_id=cohort.id, nickname="LateJoiner1")

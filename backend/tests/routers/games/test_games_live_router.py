@@ -183,6 +183,30 @@ async def test_reveal_name_returns_the_real_name_never_broadcast(db, client):
 
 
 @pytest.mark.asyncio
+async def test_reveal_all_returns_every_participants_real_name_at_once(db, client):
+    """8-8b's podium-screen global toggle — distinct from the per-row
+    popover above, same underlying data, one request for everyone."""
+    instructor = await _user(db)
+    alice = await _user(db, roles=["student"], nickname="Alice1")
+    bob = await _user(db, roles=["student"], nickname="Bob2")
+    assignment = await _assignment_with_questions(db, count=1)
+    await db.commit()
+
+    run_resp = await client.post(f"/games/live/assignments/{assignment.id}/runs", headers=_headers(instructor))
+    run = await db.get(GameRun, uuid.UUID(run_resp.json()["id"]))
+    p_alice = await join_run(db, run=run, user=alice)
+    p_bob = await join_run(db, run=run, user=bob)
+    await db.commit()
+
+    revealed = await client.get(f"/games/live/runs/{run.id}/reveal-all", headers=_headers(instructor))
+    assert revealed.status_code == 200, revealed.text
+    by_participant = {row["participant_id"]: row["real_name"] for row in revealed.json()}
+    assert by_participant[str(p_alice.id)] == "Real Name Person"
+    assert by_participant[str(p_bob.id)] == "Real Name Person"
+    assert len(by_participant) == 2
+
+
+@pytest.mark.asyncio
 async def test_editing_or_reordering_a_question_is_blocked_while_live_but_add_delete_still_work(db, client):
     instructor = await _user(db)
     assignment = await _assignment_with_questions(db, count=2)

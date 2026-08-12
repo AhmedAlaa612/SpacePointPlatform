@@ -8,6 +8,7 @@ import {
 } from "@/api/games_play"
 import { useGameRunSocket } from "@/hooks/useGameRunSocket"
 import { useAuth } from "@/context/AuthContext"
+import { PodiumBoard } from "@/components/games/PodiumBoard"
 
 /** Student play screen (Live Games Phase 2C, 8-8) — Claude Design spec
  * Frames 03-05: lobby (waiting for start), answering (big mobile tap
@@ -45,6 +46,30 @@ function Countdown({ seconds, questionKey, onExpire }: { seconds: number; questi
   return (
     <div className={`text-2xl font-display font-extrabold ${remaining <= 5 ? "text-destructive" : "text-foreground"}`}>
       {remaining}s
+    </div>
+  )
+}
+
+/** The student's own final screen (8-8b, D19) — same podium, scaled to
+ * fit a phone, own placement highlighted. Blackout auto-clears once a
+ * run ends (`is_blackout_active` requires a live current question), so
+ * the same student leaderboard endpoint that was redacted mid-blackout
+ * now returns everyone — the podium moment doubles as the reveal. */
+function FinalStandings({ runId }: { runId: string }) {
+  const { data: board = [] } = useQuery<StudentLeaderboardEntry[]>({
+    queryKey: ["play-final-leaderboard", runId], queryFn: () => getStudentLeaderboardApi(runId),
+  })
+  const own = board.find((e) => e.is_me)
+
+  return (
+    <div className="flex flex-col items-center gap-6 pt-4">
+      <div className="text-center">
+        <Trophy className="size-10 text-primary mx-auto" />
+        <h1 className="font-display text-2xl font-extrabold mt-2">Game over!</h1>
+      </div>
+      <div className="w-full">
+        <PodiumBoard entries={board} ownParticipantId={own?.participant_id} />
+      </div>
     </div>
   )
 }
@@ -249,14 +274,7 @@ export default function GamePlay() {
         </div>
       )}
 
-      {phase === "ended" && (
-        <div className="flex flex-col items-center gap-4 text-center pt-16">
-          <Trophy className="size-12 text-primary" />
-          <h1 className="font-display text-2xl font-extrabold">Game over!</h1>
-          <p className="text-sm text-muted-foreground">Final score: <span className="font-semibold text-foreground">{myScore.data?.score ?? 0}</span></p>
-          <p className="text-xs text-muted-foreground">Podium screen coming soon.</p>
-        </div>
-      )}
+      {phase === "ended" && <FinalStandings runId={runId} />}
     </div>
   )
 }

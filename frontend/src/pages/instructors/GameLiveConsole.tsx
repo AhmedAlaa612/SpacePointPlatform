@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { CheckCircle2, ChevronLeft, EyeOff, RotateCcw, Square, Timer, Trophy, Users } from "lucide-react"
+import { CheckCircle2, ChevronLeft, Download, Eye, EyeOff, RotateCcw, Square, Timer, Trophy, Users } from "lucide-react"
 import {
   endRunApi, getCurrentQuestionApi, getLeaderboardApi, getRosterApi, getRunApi, nextQuestionApi,
-  revealParticipantNameApi, revealRunApi, restartRunApi, startRunApi,
+  revealAllNamesApi, revealParticipantNameApi, revealRunApi, restartRunApi, startRunApi,
   type LeaderboardEntry, type QuestionResult,
 } from "@/api/games_live"
 import { useGameRunSocket } from "@/hooks/useGameRunSocket"
@@ -12,6 +12,7 @@ import { PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { ConfirmDialog } from "@/pages/admin/components/common"
 import { Card, CardContent } from "@/components/ui/card"
 import { useToast } from "@/components/ui/toast"
+import { PodiumBoard } from "@/components/games/PodiumBoard"
 
 /** Instructor live console (Live Games Phase 2C, 8-7) — Claude Design
  * spec Frame 02: 2a "question" (prompt, countdown, roster grid ticking
@@ -72,6 +73,73 @@ function RevealNamePopover({ runId, participantId, nickname }: { runId: string; 
       {name ?? nickname}
       {loading && "…"}
     </button>
+  )
+}
+
+function csvEscape(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+}
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n")
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement("a")
+  a.href = url; a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+/** The instructor's projected final screen (Live Games Phase 2C, 8-8b,
+ * Frame 06) — built from the real final leaderboard, not mock data. The
+ * global "Reveal names" toggle is distinct from the live per-row popover
+ * (8-7): one flips every row at once for the class to see on the
+ * projector. */
+function FinalPodium({ runId }: { runId: string }) {
+  const [namesRevealed, setNamesRevealed] = useState(false)
+  const [names, setNames] = useState<Record<string, string>>({})
+
+  const { data: board = [] } = useQuery<LeaderboardEntry[]>({
+    queryKey: ["game-run-final-leaderboard", runId], queryFn: () => getLeaderboardApi(runId),
+  })
+
+  const revealAll = useMutation({
+    mutationFn: () => revealAllNamesApi(runId),
+    onSuccess: (rows) => {
+      setNames(Object.fromEntries(rows.map((r) => [r.participant_id, r.real_name])))
+      setNamesRevealed(true)
+    },
+  })
+
+  const exportResults = () => {
+    downloadCsv(`live-quiz-results-${runId}.csv`, [
+      ["Rank", "Nickname", "Real name", "Score"],
+      ...board.map((row, i) => [String(i + 1), row.nickname, namesRevealed ? (names[row.participant_id] ?? "") : "", String(row.score)]),
+    ])
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm font-semibold text-foreground">Final standings</p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => namesRevealed ? setNamesRevealed(false) : revealAll.mutate()}
+            disabled={revealAll.isPending}
+            className="h-8 px-3 border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {namesRevealed ? <EyeOff size={12} /> : <Eye size={12} />} {namesRevealed ? "Hide names" : "Reveal names"}
+          </button>
+          <button
+            onClick={exportResults}
+            className="h-8 px-3 border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors flex items-center gap-1.5"
+          >
+            <Download size={12} /> Export results
+          </button>
+        </div>
+      </div>
+      <PodiumBoard entries={board} revealedNames={namesRevealed ? names : undefined} />
+    </div>
   )
 }
 
@@ -316,15 +384,7 @@ export default function GameLiveConsole() {
         </div>
       )}
 
-      {phase === "ended" && (
-        <Card>
-          <CardContent className="p-6 text-center flex flex-col gap-2">
-            <Trophy size={28} className="text-primary mx-auto" />
-            <p className="text-sm font-semibold text-foreground">Game ended</p>
-            <p className="text-xs text-muted-foreground">Final standings land on the podium screen (coming soon).</p>
-          </CardContent>
-        </Card>
-      )}
+      {phase === "ended" && <FinalPodium runId={runId} />}
 
       {restartConfirm && (
         <ConfirmDialog

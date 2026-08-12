@@ -86,3 +86,6 @@ export const getLeaderboardApi = (runId: string) =>
 
 export const revealParticipantNameApi = (runId: string, participantId: string) =>
   api.get<{ participant_id: string; real_name: string }>(`/games/live/runs/${runId}/participants/${participantId}/reveal`).then((r) => r.data);
+
+export const revealAllNamesApi = (runId: string) =>
+  api.get<{ participant_id: string; real_name: string }[]>(`/games/live/runs/${runId}/reveal-all`).then((r) => r.data);
