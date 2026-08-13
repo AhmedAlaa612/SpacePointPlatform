@@ -7,8 +7,11 @@ import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/compone
 import {
   getCourseApi, updateCourseApi, uploadCourseImageApi, listInstructorOptionsApi,
   listModulesApi, createModuleApi, deleteModuleApi, reorderModulesApi,
-  type AdminCourse, type AdminModule, type CourseLevel,
+  listCourseRosterApi, grantCourseEnrollmentApi, bulkGrantCourseEnrollmentApi, revokeCourseEnrollmentApi,
+  type AdminCourse, type AdminModule, type CourseLevel, type BulkGrantResult,
 } from "@/api/lms_admin"
+import { AssignPanel } from "@/pages/lms-authoring/components/AssignPanel"
+import { PrerequisitesSection } from "@/pages/lms-authoring/components/PrerequisitesSection"
 
 export default function LmsCourseDetail() {
   const { courseId } = useParams({ strict: false }) as { courseId: string }
@@ -54,6 +57,25 @@ export default function LmsCourseDetail() {
     mutationFn: (file: File) => uploadCourseImageApi(courseId, file),
     onSuccess: () => { setImageError(""); invalidateCourse() },
     onError: (e: any) => setImageError(e?.response?.data?.detail ?? "Failed to upload image"),
+  })
+
+  const { data: roster = [], isLoading: rosterLoading } = useQuery({
+    queryKey: ["lms-admin-roster", courseId],
+    queryFn: () => listCourseRosterApi(courseId),
+  })
+  const [bulkResult, setBulkResult] = useState<BulkGrantResult | null>(null)
+  const invalidateRoster = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-roster", courseId] })
+  const grantMutation = useMutation({
+    mutationFn: (userId: string) => grantCourseEnrollmentApi(courseId, userId),
+    onSuccess: invalidateRoster,
+  })
+  const bulkGrantMutation = useMutation({
+    mutationFn: (role: string) => bulkGrantCourseEnrollmentApi(courseId, { role }),
+    onSuccess: (result) => { setBulkResult(result); invalidateRoster() },
+  })
+  const revokeMutation = useMutation({
+    mutationFn: (enrollmentId: string) => revokeCourseEnrollmentApi(enrollmentId),
+    onSuccess: invalidateRoster,
   })
 
   if (courseLoading || modulesLoading || !course) return <Spinner />
@@ -177,6 +199,24 @@ export default function LmsCourseDetail() {
           ))}
         </div>
       )}
+
+      <PrerequisitesSection itemType="course" itemId={courseId} />
+
+      <AssignPanel
+        roster={roster
+          .filter((e) => e.source === "ops")
+          .map((e) => ({
+            id: e.id, userId: e.user_id, name: e.student_name, email: e.student_email, status: e.status,
+          }))}
+        isLoading={rosterLoading}
+        onGrant={(userId) => grantMutation.mutate(userId)}
+        onBulkGrant={(role) => bulkGrantMutation.mutate(role)}
+        onRevoke={(enrollmentId) => revokeMutation.mutate(enrollmentId)}
+        grantPending={grantMutation.isPending}
+        bulkPending={bulkGrantMutation.isPending}
+        revokePending={revokeMutation.isPending}
+        bulkResult={bulkResult}
+      />
 
       {addOpen && (
         <AddModuleModal

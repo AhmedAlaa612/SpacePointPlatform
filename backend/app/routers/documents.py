@@ -372,6 +372,14 @@ def _placeholder_set(key: str | None, doc_type: str) -> dict[str, str | None]:
             "name": "Jane Doe", "workshop_name": "Intro to Orbits",
             "workshop_date": "12 August 2026", "location": "Dubai",
         }
+    # LMS certs (2026-08-13) are rendered by services/lms/certificates.py,
+    # which substitutes exactly these — the recipient's name is drawn
+    # separately by the generator, so `{name}` is deliberately absent here
+    # (offering it would print a literal `{name}` on a real certificate).
+    if key == "lms_course_completion":
+        return {"course_name": "Satellite Communications", "date": None}
+    if key == "lms_path_completion":
+        return {"path_name": "Space Science Foundations", "date": None}
     generic: dict[str, str | None] = {
         "name": "Jane Doe", "start_date": None, "end_date": None, "date": None,
         "role": "Instructor", "signatory_name": None, "signatory_title": None,

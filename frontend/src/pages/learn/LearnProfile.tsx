@@ -2,10 +2,10 @@ import { useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { CheckCircle2, LogOut, Pencil, Upload } from "lucide-react";
+import { Award, CheckCircle2, Download, LogOut, Pencil, RefreshCw, Upload } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
-import { changePassword, fetchMe, updateMeApi, updatePhotoApi } from "@/api/auth";
-import { fetchMyActivity, fetchMyCourses } from "@/api/lms";
+import { changePassword, fetchMe, rerollNicknameApi, updateMeApi, updatePhotoApi } from "@/api/auth";
+import { fetchMyActivity, fetchMyCertificates, fetchMyCourses } from "@/api/lms";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CountrySelect } from "@/components/ui/CountrySelect";
@@ -24,19 +24,33 @@ function errorDetail(err: unknown, fallback: string): string {
 
 /** /learn/profile (design 2a/2b) — follows the portal's own profile
  * vocabulary (`pages/shared/Profile.tsx`'s edit mutations, `StatTile` from
- * `ProfileStatsCards.tsx`) rather than inventing a new one. Certificates and
- * the achievements grid are deliberately not built here yet (LM2-4/Phase 2 —
- * see LMS_EXECUTION_PLAN.md); playback-preference toggles are cut too, since
- * there's no backend to persist them against. */
+ * `ProfileStatsCards.tsx`) rather than inventing a new one. Certificates
+ * landed 2026-08-13 (auto-issued on course/path completion, see
+ * `services/lms/certificates.py`); the achievements grid is still deferred,
+ * as are playback-preference toggles — there's no backend to persist those
+ * against. */
 export default function LearnProfile() {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, setCurrentUser, logout } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
   const [pwOpen, setPwOpen] = useState(false);
+  const [rerollError, setRerollError] = useState<string | null>(null);
 
   const { data: me } = useQuery({ queryKey: ["me"], queryFn: fetchMe, initialData: currentUser ?? undefined });
   const { data: dashboard } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses });
   const { data: activity } = useQuery({ queryKey: ["lms-my-activity"], queryFn: fetchMyActivity });
+  const { data: certificates } = useQuery({ queryKey: ["lms-my-certificates"], queryFn: fetchMyCertificates });
+
+  const reroll = useMutation({
+    mutationFn: rerollNicknameApi,
+    onSuccess: (updated) => {
+      setRerollError(null);
+      setCurrentUser(updated);
+      void queryClient.invalidateQueries({ queryKey: ["me"] });
+    },
+    onError: (err: unknown) => setRerollError(errorDetail(err, "Couldn't reroll your nickname")),
+  });
 
   if (!me) return null;
 
@@ -69,6 +83,20 @@ export default function LearnProfile() {
                 <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary">Student</span>
               </div>
               <div className="text-sm text-muted-foreground">{me.email}</div>
+              {me.nickname && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground" title="What other students see on leaderboards and in live games — never your real name.">
+                  <span>Nickname: <span className="font-medium text-foreground">{me.nickname}</span></span>
+                  <button
+                    onClick={() => { setRerollError(null); reroll.mutate(); }}
+                    disabled={reroll.isPending}
+                    className="inline-flex items-center gap-1 text-primary hover:opacity-80 cursor-pointer font-medium disabled:opacity-50"
+                  >
+                    <RefreshCw className={`size-3 ${reroll.isPending ? "animate-spin" : ""}`} />
+                    {reroll.isPending ? "Rerolling..." : "Reroll"}
+                  </button>
+                </div>
+              )}
+              {rerollError && <div className="text-xs text-destructive">{rerollError}</div>}
               {memberSince && <div className="text-xs text-muted-foreground">Student since {memberSince}</div>}
             </div>
             <Button variant="outline" onClick={() => setEditOpen(true)} className="shrink-0">
@@ -135,6 +163,46 @@ export default function LearnProfile() {
                             </div>
                           )}
                         </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+
+              <Card className="p-5 gap-4">
+                <h2 className="font-display text-base font-bold tracking-tight">Certificates</h2>
+                {!certificates || certificates.length === 0 ? (
+                  <EmptyState
+                    title="No certificates yet"
+                    hint="Finish a course or a learning path and its certificate appears here automatically."
+                  />
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {certificates.map((c) => (
+                      <div
+                        key={c.id}
+                        className="flex items-center gap-3 rounded-xl border border-border p-3"
+                      >
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-full ring-1 ring-primary/35 text-primary">
+                          <Award className="size-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-foreground truncate">{c.title}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {c.type === "lms_path_completion" ? "Learning path" : "Course"}
+                            {c.issued_at && ` · ${new Date(c.issued_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+                          </div>
+                        </div>
+                        {c.url && (
+                          <a
+                            href={c.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="shrink-0 flex items-center gap-1.5 text-sm font-medium text-primary hover:opacity-80"
+                          >
+                            <Download className="size-3.5" /> PDF
+                          </a>
+                        )}
                       </div>
                     ))}
                   </div>

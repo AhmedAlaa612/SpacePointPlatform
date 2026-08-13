@@ -477,7 +477,13 @@ async def export_applicant_dossier(
 
 @router.get("/invitations")
 async def list_invitations(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    rows = (await db.execute(select(InvitationCode).order_by(InvitationCode.created_at.desc()))).scalars().all()
+    # kind='instructor' only (2026-08-13) — student batch codes are ops-
+    # managed at /lms/admin/invite-codes and must not appear here, where
+    # editing one would silently change a school's signup code.
+    rows = (await db.execute(
+        select(InvitationCode).where(InvitationCode.kind == "instructor")
+        .order_by(InvitationCode.created_at.desc())
+    )).scalars().all()
     return rows
 
 
@@ -485,7 +491,9 @@ async def list_invitations(db: AsyncSession = Depends(get_db), current_user: Use
 async def create_invitation(
     body: InvitationCodeCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
 ):
-    code = InvitationCode(code=body.code.strip().upper(), max_uses=body.max_uses, is_active=body.is_active)
+    code = InvitationCode(
+        code=body.code.strip().upper(), max_uses=body.max_uses, is_active=body.is_active, kind="instructor",
+    )
     db.add(code)
     await db.commit()
     await db.refresh(code)

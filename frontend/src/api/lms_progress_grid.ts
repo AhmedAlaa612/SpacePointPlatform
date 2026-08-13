@@ -23,6 +23,8 @@ export interface MissionCell {
   status: MissionStatus;
   score: number | null;
   attempt_no: number;
+  /** Design v2 (7D-9) — per-step entry state for design missions. */
+  steps?: Record<string, boolean> | null;
 }
 
 export interface ProgressGridRow {
@@ -41,3 +43,39 @@ export interface ProgressGrid {
 
 export const getProgressGridApi = (cohortId: string) =>
   api.get<ProgressGrid>("/lms/admin/progress-grid", { params: { cohort_id: cohortId } }).then((r) => r.data);
+
+// ── all-students single-item views (2026-08-12) ─────────────────────────────
+
+export interface CourseProgressRow {
+  user_id: string;
+  full_name: string;
+  pct: number;
+}
+
+export interface CourseProgressAll {
+  course_id: string;
+  course_title: string;
+  rows: CourseProgressRow[];
+}
+
+export interface MissionProgressRow {
+  user_id: string;
+  full_name: string;
+  status: MissionStatus;
+  score: number | null;
+  attempt_no: number;
+}
+
+export interface MissionProgressAll {
+  mission_id: string;
+  mission_title: string;
+  rows: MissionProgressRow[];
+}
+
+export const getCourseProgressApi = (courseId: string, cohortId?: string) =>
+  api.get<CourseProgressAll>("/lms/admin/progress/courses", {
+    params: { course_id: courseId, cohort_id: cohortId || undefined },
+  }).then((r) => r.data);
+
+export const getMissionProgressApi = (missionId: string) =>
+  api.get<MissionProgressAll>(`/lms/admin/progress/missions/${missionId}`).then((r) => r.data);

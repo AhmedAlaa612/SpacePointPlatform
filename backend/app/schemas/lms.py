@@ -307,6 +307,24 @@ class LearningPathCatalogOut(BaseModel):
     mission_count: int
     total_duration_seconds: int
     pct: int
+    # 2026-08-12 — "am I on this path", so the landing page can split
+    # "your paths" from "explore". True iff the caller has an active
+    # enrollment in at least one of the path's courses; `pct` alone can't
+    # answer it (a freshly-started path is 0% but is still yours), which is
+    # the same distinction `CourseCatalogOut.enrolled` already draws.
+    enrolled: bool = False
+
+
+class MyCertificateOut(BaseModel):
+    """One earned LMS certificate (2026-08-13). `url` is signed at query
+    time from bucket/file_path, the resolve_url pattern — never stored."""
+    id: UUID
+    type: str  # lms_course_completion | lms_path_completion
+    title: str  # the course or learning path it was earned for
+    course_id: UUID | None = None
+    learning_path_id: UUID | None = None
+    issued_at: datetime | None = None
+    url: str | None = None
 
 
 class LearningPathStepOut(BaseModel):

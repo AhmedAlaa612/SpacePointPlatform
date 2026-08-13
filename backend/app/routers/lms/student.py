@@ -3,19 +3,25 @@
 Catalog and course outline are any-authenticated-user reads; module content
 (the actual lessons), progress writes and quiz submissions are gated purely
 on enrollment, not on holding the `student` role (P1-6, D2 — 2026-08-10:
-"yes, staff can take LMS courses"). `require_lms_student` stays only on the
-account-shaped routes: signup, `/my-courses`, `/my-activity`, `/enroll`, and
-`/learning-paths/{id}/start` (a bulk variant of self-enrol). Not-enrolled is
-a 404, never a 403 — a student (or an enrolled staff member) who hasn't
-joined must not learn whether a course exists and is a particular course,
-only that access is unavailable. Draft (unpublished) courses 404 from every
-route for the same reason.
+"yes, staff can take LMS courses"). `require_lms_student` stays only on
+`/enroll` and `/learning-paths/{id}/start` — the two *self-service* routes,
+where the role gate is a deliberate policy line (self-enrol is for accounts
+that hold the `student` role; staff access to a course is always an ops
+grant, never self-enrol, per the operator's 2026-08-12 "assigned to them
+only" instruction). `/my-courses`, `/my-programs` and `/my-activity` are
+read-only views of a user's own enrollments/activity and are open to any
+authenticated account (2026-08-12) so an ops-granted staff member can see
+what they were assigned. Not-enrolled is a 404, never a 403 — a student (or
+an enrolled staff member) who hasn't joined must not learn whether a course
+exists and is a particular course, only that access is unavailable. Draft
+(unpublished) courses 404 from every route for the same reason.
 
 Every item payload flows through `student_view` (§2) — the answer-stripping
 choke point — and the Pydantic response models (`extra="forbid"`) enforce the
 leak guarantee a second time at the response boundary.
 """
 
+import logging
 import uuid
 from typing import Literal
 
@@ -48,6 +54,7 @@ from app.schemas.lms import (
     ModuleItemOut,
     ModuleLockOut,
     ModuleOut,
+    MyCertificateOut,
     MyCoursesOut,
     MyProgramOut,
     ProgressIn,
@@ -73,10 +80,15 @@ from app.services.lms import (
     unlock_state,
 )
 from app.services.curriculum import is_unlocked, prerequisite_status
+from app.services.lms.certificates import award_for_course_completion
 from app.services.lms.dashboard import my_courses_dashboard, recent_activity
 from app.services.lms.leaderboard import leaderboard
 from app.services.lms.my_programs import my_programs
 from app.services import storage
+from app.models.certificate import Certificate
+from app.models.enums import CertificateType
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/lms", tags=["lms"])
 
@@ -111,6 +123,25 @@ async def _enrolled_item(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
     await _assert_enrolled(db, user_id, module.course_id)
     return item
+
+
+async def _award_certificates_for_item(db: AsyncSession, user_id: uuid.UUID, item: ModuleItem) -> None:
+    """Issue any certificate this progress write just earned (2026-08-13).
+
+    Best-effort: a failure here (storage down, reportlab error) must never
+    fail the progress write that triggered it — the student's completion is
+    already recorded, and the certificate is re-checked on their next write
+    and by `GET /lms/my-certificates`, so a miss is self-healing rather than
+    permanent. Cheap on the overwhelmingly common path: `course_completion`
+    returns False and nothing else runs.
+    """
+    module = await db.get(CourseModule, item.module_id)
+    if module is None:
+        return
+    try:
+        await award_for_course_completion(db, user_id=user_id, course_id=module.course_id)
+    except Exception:
+        logger.exception("certificate issuance failed for user=%s course=%s", user_id, module.course_id)
 
 
 async def _published_course(
@@ -272,11 +303,21 @@ async def learning_paths_catalog(
         steps = await _path_steps(db, path.id)
         progress = await path_progress(db, user_id=current.id, steps=steps)
         duration = await path_total_duration_seconds(db, [s.course_id for s in steps])
+        step_course_ids = [s.course_id for s in steps]
+        enrolled = False
+        if step_course_ids:
+            enrolled = (await db.execute(
+                select(Enrollment.id).where(
+                    Enrollment.user_id == current.id,
+                    Enrollment.course_id.in_(step_course_ids),
+                    *enrollment_is_active(),
+                ).limit(1)
+            )).first() is not None
         out.append(LearningPathCatalogOut(
             id=path.id, title=path.title, description=path.description,
             image_url=await storage.resolve_url(path.image_bucket, path.image_path),
             course_count=progress["course_count"], mission_count=progress["mission_count"],
-            total_duration_seconds=duration, pct=progress["pct"],
+            total_duration_seconds=duration, pct=progress["pct"], enrolled=enrolled,
         ))
     return out
 
@@ -341,33 +382,112 @@ async def start_learning_path(
 @router.get("/my-courses", response_model=MyCoursesOut)
 async def my_courses(
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     """Stats + resume pointer + per-course progress for the landing page's
-    resume band and the /learn/my-courses dashboard (LMS redesign)."""
+    resume band and the /learn/my-courses dashboard (LMS redesign).
+
+    Any authenticated account, not just `student` (2026-08-12): a staff
+    member ops-granted a course (D2, "yes, staff can take LMS courses") must
+    be able to see it here, same as a student would. `require_lms_student`
+    stayed on this route only because it predates that decision, not because
+    the dashboard is meant to be student-only — it has no role-shaped
+    content, just this user's own enrollments."""
     return await my_courses_dashboard(db, user_id=current.id)
 
 
 @router.get("/my-programs", response_model=list[MyProgramOut])
 async def my_programs_route(
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     """P4-3 — the cohort view a student cannot currently see at all: dates,
     location, instructor, attendance, courses. `missions` is an empty list
     from day one (Stage 5 fills it in) so the frontend never has to branch
-    on whether the key exists."""
+    on whether the key exists.
+
+    Opened to any authenticated account (2026-08-12), same reasoning as
+    `/my-courses` above — staff with no cohort just get an empty list."""
     return await my_programs(db, user=current)
 
 
 @router.get("/my-activity", response_model=list[ActivityItemOut])
 async def my_activity(
     db: AsyncSession = Depends(get_db),
-    current: User = Depends(require_lms_student),
+    current: User = Depends(get_current_active_user),
 ):
     """Last 10 completed items across every course — the profile page's
-    activity feed."""
+    activity feed.
+
+    Opened to any authenticated account (2026-08-12), same reasoning as
+    `/my-courses` above."""
     return await recent_activity(db, user_id=current.id)
+
+
+@router.get("/my-certificates", response_model=list[MyCertificateOut])
+async def my_certificates(
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Certificates this account has earned in the LMS (2026-08-13).
+
+    Deliberately scoped to the two LMS types — a staff member's workshop or
+    instructor-completion certs belong on their portal documents page, not
+    on the learner profile, and mixing them would put a cert they earned as
+    an employee next to ones they earned as a student.
+
+    Also acts as the self-heal for a certificate whose issuance failed at
+    completion time: anything now complete but uncertified is issued here.
+    """
+    await _backfill_missing_certificates(db, current.id)
+
+    rows = (await db.execute(
+        select(Certificate).where(
+            Certificate.user_id == current.id,
+            Certificate.type.in_([
+                CertificateType.lms_course_completion, CertificateType.lms_path_completion,
+            ]),
+        ).order_by(Certificate.generated_at.desc())
+    )).scalars().all()
+
+    out: list[MyCertificateOut] = []
+    for row in rows:
+        if row.course_id is not None:
+            course = await db.get(Course, row.course_id)
+            title = course.title if course else "Course"
+        else:
+            path = await db.get(LearningPath, row.learning_path_id) if row.learning_path_id else None
+            title = path.title if path else "Learning path"
+        out.append(MyCertificateOut(
+            id=row.id, type=row.type.value if hasattr(row.type, "value") else str(row.type),
+            title=title, course_id=row.course_id, learning_path_id=row.learning_path_id,
+            issued_at=row.generated_at,
+            url=await storage.resolve_url(row.bucket, row.file_path),
+        ))
+    return out
+
+
+async def _backfill_missing_certificates(db: AsyncSession, user_id: uuid.UUID) -> None:
+    """Issue anything the student has finished but wasn't certified for —
+    covers certificates missed while issuance was failing, and courses
+    completed before this feature existed. Best-effort and bounded to the
+    student's own active enrollments; `award_for_course_completion` is a
+    no-op for anything already certified or not yet complete.
+
+    `notify=False`: this can issue several certificates in one sweep for
+    work finished long ago, and a burst of congratulation emails for old
+    completions is worse than none. Only the live completion path emails."""
+    course_ids = (await db.execute(
+        select(Enrollment.course_id).where(
+            Enrollment.user_id == user_id, *enrollment_is_active(),
+        )
+    )).scalars().all()
+    for course_id in course_ids:
+        try:
+            await award_for_course_completion(db, user_id=user_id, course_id=course_id, notify=False)
+        except Exception:
+            logger.exception("certificate backfill failed for user=%s course=%s", user_id, course_id)
+    await db.commit()
 
 
 @router.get("/leaderboard", response_model=list[LeaderboardEntryOut])
@@ -579,10 +699,11 @@ async def quiz_submit(
 ):
     """Server-side grading (D7) — the review sheet returns after submission,
     which is exactly when the explanations are allowed to leave the server."""
-    await _enrolled_item(db, current.id, item_id)
+    item = await _enrolled_item(db, current.id, item_id)
     result = await submit_quiz(
         db, user_id=current.id, item_id=item_id, answers=body.answers
     )
+    await _award_certificates_for_item(db, current.id, item)
     await db.commit()
     return result
 
@@ -631,8 +752,9 @@ async def submit_progress(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
 ):
-    await _enrolled_item(db, current.id, item_id)
+    item = await _enrolled_item(db, current.id, item_id)
     row = await item_progress(db, user_id=current.id, item_id=item_id, action=body.action)
+    await _award_certificates_for_item(db, current.id, item)
     await db.commit()
     return ProgressOut(
         status=row.status,

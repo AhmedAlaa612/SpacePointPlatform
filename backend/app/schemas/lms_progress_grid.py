@@ -31,6 +31,10 @@ class MissionCellOut(BaseModel):
     status: str  # in_progress|submitted|passed|failed|abandoned
     score: float | None = None
     attempt_no: int
+    # Design v2 (7D-9) — per-step entry state for `design` missions, so the
+    # grid can say "stuck on the link budget" instead of "in progress".
+    # None for every other mission kind.
+    steps: dict[str, bool] | None = None
 
 
 class ProgressGridRowOut(BaseModel):
@@ -48,3 +52,31 @@ class ProgressGridOut(BaseModel):
     courses: list[ProgressGridCourseOut]
     missions: list[ProgressGridMissionOut]
     rows: list[ProgressGridRowOut]
+
+
+# ── all-students single-item views (2026-08-12) ─────────────────────────────
+
+class CourseProgressRowOut(BaseModel):
+    user_id: UUID
+    full_name: str
+    pct: int
+
+
+class CourseProgressAllOut(BaseModel):
+    course_id: UUID
+    course_title: str
+    rows: list[CourseProgressRowOut]
+
+
+class MissionProgressRowOut(BaseModel):
+    user_id: UUID
+    full_name: str
+    status: str
+    score: float | None = None
+    attempt_no: int
+
+
+class MissionProgressAllOut(BaseModel):
+    mission_id: UUID
+    mission_title: str
+    rows: list[MissionProgressRowOut]

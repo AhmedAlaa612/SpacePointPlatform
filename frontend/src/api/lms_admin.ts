@@ -29,6 +29,73 @@ export interface InstructorOption {
   photo_url: string | null;
 }
 
+export interface StaffOption {
+  id: string;
+  full_name: string;
+  email: string;
+  roles: string[];
+}
+
+export interface AdminEnrollment {
+  id: string;
+  user_id: string;
+  student_name: string;
+  student_email: string;
+  course_id: string;
+  course_title: string | null;
+  source: string;
+  status: string;
+  granted_by: string | null;
+  expires_at: string | null;
+  created_at: string | null;
+}
+
+export interface BulkGrantResult {
+  granted: number;
+  already_enrolled: number;
+  skipped_no_account: number;
+}
+
+export interface StudentSummary {
+  id: string;
+  full_name: string;
+  nickname: string | null;
+  email: string;
+  invite_code: string | null;
+  invite_label: string | null;
+}
+
+export interface InviteCode {
+  id: string;
+  code: string;
+  label: string | null;
+  is_active: boolean;
+  max_uses: number;
+  used_count: number;
+  expires_at: string | null;
+  created_at: string | null;
+  /** Accounts actually created on this code (counted from users, not the
+   * `used_count` counter, which only ever increments). */
+  signups: number;
+}
+
+export interface StudentProgram {
+  registration_id: string;
+  cohort_id: string;
+  program_name: string;
+  cohort_name: string;
+  starts_on: string | null;
+  ends_on: string | null;
+}
+
+export interface StudentProfile {
+  id: string;
+  full_name: string;
+  nickname: string | null;
+  email: string;
+  programs: StudentProgram[];
+}
+
 export interface CourseMetadataInput {
   outcomes?: string[];
   level?: CourseLevel | null;
@@ -245,6 +312,50 @@ export interface LearningPathStepEntry {
   course_id: string;
   position: number;
 }
+
+// ── staff assignment (2026-08-12) ───────────────────────────────────────────
+
+export const searchStaffApi = (params: { role?: string; q?: string } = {}) =>
+  api.get<StaffOption[]>("/lms/admin/users", { params }).then((r) => r.data);
+
+export const listCourseRosterApi = (courseId: string) =>
+  api.get<AdminEnrollment[]>(`/lms/admin/courses/${courseId}/roster`).then((r) => r.data);
+
+export const grantCourseEnrollmentApi = (courseId: string, userId: string) =>
+  api.post<AdminEnrollment>(`/lms/admin/courses/${courseId}/enrollments`, { user_id: userId }).then((r) => r.data);
+
+export const bulkGrantCourseEnrollmentApi = (courseId: string, body: { role?: string; cohort_id?: string }) =>
+  api.post<BulkGrantResult>(`/lms/admin/courses/${courseId}/enrollments/bulk`, body).then((r) => r.data);
+
+export const revokeCourseEnrollmentApi = (enrollmentId: string) =>
+  api.post<AdminEnrollment>(`/lms/admin/enrollments/${enrollmentId}/revoke`).then((r) => r.data);
+
+// ── student management (2026-08-12) ─────────────────────────────────────────
+
+export const searchStudentsApi = (params: { q?: string; invite_code?: string } = {}) =>
+  api.get<StudentSummary[]>("/lms/admin/students", { params }).then((r) => r.data);
+
+// ── student invite codes (2026-08-13) ───────────────────────────────────────
+
+export const listInviteCodesApi = () =>
+  api.get<InviteCode[]>("/lms/admin/invite-codes").then((r) => r.data);
+
+export const createInviteCodeApi = (data: {
+  code: string; label?: string | null; max_uses?: number; is_active?: boolean;
+}) => api.post<InviteCode>("/lms/admin/invite-codes", data).then((r) => r.data);
+
+export const updateInviteCodeApi = (id: string, data: Partial<{
+  code: string; label: string | null; max_uses: number; is_active: boolean;
+}>) => api.patch<InviteCode>(`/lms/admin/invite-codes/${id}`, data).then((r) => r.data);
+
+export const deleteInviteCodeApi = (id: string) =>
+  api.delete<void>(`/lms/admin/invite-codes/${id}`).then((r) => r.data);
+
+export const getStudentProfileApi = (userId: string) =>
+  api.get<StudentProfile>(`/lms/admin/students/${userId}`).then((r) => r.data);
+
+export const listUserEnrollmentsApi = (userId: string) =>
+  api.get<AdminEnrollment[]>(`/lms/admin/users/${userId}/enrollments`).then((r) => r.data);
 
 export const listLearningPathsApi = () =>
   api.get<AdminLearningPath[]>("/lms/admin/learning-paths").then((r) => r.data);

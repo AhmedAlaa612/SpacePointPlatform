@@ -53,7 +53,7 @@ export default function InstructorApplyPage() {
   useEffect(() => {
     if (!code) return
     setHasInviteCode(true)
-    validateInviteApi(code)
+    validateInviteApi(code, "instructor")
       .then((r) => setReferrer(r.ambassador_name))
       .catch(() => setInviteError("Invalid or expired invitation code."))
   }, [code])
@@ -99,7 +99,7 @@ export default function InstructorApplyPage() {
         return
       }
       try {
-        const r = await validateInviteApi(submittedCode)
+        const r = await validateInviteApi(submittedCode, "instructor")
         setReferrer(r.ambassador_name)
       } catch (err: any) {
         const msg = err?.response?.data?.detail || "Invalid or expired invitation code."

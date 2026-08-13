@@ -9,7 +9,7 @@ these into a student-facing route.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Union
 from uuid import UUID
 
@@ -24,6 +24,88 @@ class InstructorOptionOut(BaseModel):
     id: UUID
     full_name: str
     photo_url: str | None = None
+
+
+class StaffOptionOut(BaseModel):
+    """One row for the named-individual assignment picker (2026-08-12) —
+    any staff account (every role except `student`), searchable by name so
+    ops/facilitators can grant a course/mission to a specific person rather
+    than only via the role-wide bulk grant."""
+    id: UUID
+    full_name: str
+    email: str
+    roles: list[str]
+
+
+# ── student invite codes (2026-08-13) ───────────────────────────────────────
+
+class InviteCodeOut(BaseModel):
+    id: UUID
+    code: str
+    label: str | None = None
+    is_active: bool
+    max_uses: int
+    used_count: int
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
+    # Convenience for the ops list — how many accounts actually signed up on
+    # this code, counted from users.invitation_code_used rather than trusting
+    # `used_count`, which only ever increments and can drift if an account is
+    # later deleted.
+    signups: int = 0
+
+
+class InviteCodeCreate(BaseModel):
+    code: str
+    label: str | None = None
+    max_uses: int = 30
+    is_active: bool = True
+    expires_at: datetime | None = None
+
+
+class InviteCodeUpdate(BaseModel):
+    code: str | None = None
+    label: str | None = None
+    max_uses: int | None = None
+    is_active: bool | None = None
+    expires_at: datetime | None = None
+
+
+# ── student management (2026-08-12) ─────────────────────────────────────────
+
+class StudentSummaryOut(BaseModel):
+    """One row for the student search/list — deliberately minimal, the
+    profile page (`StudentProfileOut`) carries the rest."""
+    id: UUID
+    full_name: str
+    nickname: str | None = None
+    email: str
+    # The code this account signed up with, and its batch label if it was an
+    # ops-issued one (2026-08-13). None for students who predate the gate.
+    invite_code: str | None = None
+    invite_label: str | None = None
+
+
+class StudentProgramOut(BaseModel):
+    """A subset of `my_programs`'s per-registration shape — only what the
+    profile page shows; `my_programs` itself is reused as-is rather than
+    duplicated (it already composes cohort/program/registration correctly
+    for a given user, staff viewing a student is the same query shape as a
+    student viewing themself)."""
+    registration_id: UUID
+    cohort_id: UUID
+    program_name: str
+    cohort_name: str
+    starts_on: date | None = None
+    ends_on: date | None = None
+
+
+class StudentProfileOut(BaseModel):
+    id: UUID
+    full_name: str
+    nickname: str | None = None
+    email: str
+    programs: list[StudentProgramOut]
 
 
 # ── authored content shapes (mirrors LMS_EXECUTION_PLAN.md §2, answers included) ──
@@ -354,6 +436,10 @@ class EnrollmentAdminOut(BaseModel):
     student_name: str
     student_email: str
     course_id: UUID
+    # Only populated where the host page doesn't already know the course
+    # (the per-student view, 2026-08-12) — the per-course roster leaves this
+    # None rather than pay for a lookup the caller doesn't need.
+    course_title: str | None = None
     source: str
     status: str
     granted_by: UUID | None = None

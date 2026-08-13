@@ -1,8 +1,8 @@
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronRight, Lock, Rocket, Trophy } from "lucide-react";
+import { CheckCircle2, ChevronRight, Download, Lock, Rocket, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fetchLearningPath, startLearningPath, type LearningPathStep } from "@/api/lms";
+import { fetchLearningPath, fetchMyCertificates, startLearningPath, type LearningPathStep } from "@/api/lms";
 import { cn } from "@/lib/utils";
 
 /** /learn/paths/$id — design 4a "The ledger": one full-bleed hero, a single
@@ -20,6 +20,14 @@ export default function LearnPath() {
     queryKey: ["lms-learning-path", pathId],
     queryFn: () => fetchLearningPath(pathId),
   });
+  // The certificate is issued server-side on completion, so the source of
+  // truth for "earned" is the certificate list, never a client-side
+  // recomputation of whether the steps look done.
+  const { data: certificates } = useQuery({
+    queryKey: ["lms-my-certificates"],
+    queryFn: fetchMyCertificates,
+  });
+  const earned = certificates?.find((c) => c.learning_path_id === pathId);
 
   const start = useMutation({
     mutationFn: () => startLearningPath(pathId),
@@ -88,15 +96,32 @@ export default function LearnPath() {
         </div>
 
         <div className="flex items-center gap-5 sm:gap-6">
-          <div className="w-16 h-16 rounded-full ring-1 ring-primary/35 flex items-center justify-center text-primary shrink-0">
+          <div className={cn(
+            "w-16 h-16 rounded-full ring-1 flex items-center justify-center shrink-0",
+            earned ? "ring-primary bg-primary/10 text-primary" : "ring-primary/35 text-primary",
+          )}>
             <Trophy className="size-6" />
           </div>
-          <div>
-            <div className="font-display text-lg sm:text-xl font-semibold tracking-tight">Mission Specialist certificate</div>
+          <div className="min-w-0">
+            <div className="font-display text-lg sm:text-xl font-semibold tracking-tight">
+              {path.title} certificate
+            </div>
             <div className="text-sm text-muted-foreground mt-1 max-w-md text-pretty">
-              Awarded once every step above is complete. Certificates are coming in a future update.
+              {earned
+                ? "Earned — it's on your profile, and downloadable here."
+                : "Awarded automatically once every course above is complete."}
             </div>
           </div>
+          {earned?.url && (
+            <a
+              href={earned.url}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-auto shrink-0 inline-flex items-center gap-1.5 h-10 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-opacity"
+            >
+              <Download className="size-4" /> Download
+            </a>
+          )}
         </div>
       </div>
     </div>

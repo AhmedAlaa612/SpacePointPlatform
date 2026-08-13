@@ -43,3 +43,18 @@ class Certificate(Base):
     workshop_name = Column(String(255), nullable=True)
     workshop_date = Column(String(50), nullable=True)
     location = Column(String(255), nullable=True)
+
+    # LMS-only (2026-08-13) — what was completed to earn this. Exactly one is
+    # set, matching `type`: course_id for lms_course_completion,
+    # learning_path_id for lms_path_completion. These are also the
+    # idempotency key: partial unique indexes on (user_id, course_id) and
+    # (user_id, learning_path_id) are what stop a second certificate being
+    # issued every time an already-finished course is re-visited — the
+    # existing certs have no such guard because each has its own natural one
+    # (registration_id for student_completion, payment_session_id for
+    # workshop_delivery). CASCADE: deleting a course deletes its certs,
+    # consistent with enrollments/progress, which also vanish with it.
+    course_id = Column(UUID(as_uuid=True), ForeignKey("courses.id", ondelete="CASCADE"), nullable=True)
+    learning_path_id = Column(
+        UUID(as_uuid=True), ForeignKey("learning_paths.id", ondelete="CASCADE"), nullable=True
+    )

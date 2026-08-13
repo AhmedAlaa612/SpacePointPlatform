@@ -249,3 +249,61 @@ async def test_path_progress_state_rollup_done_current_mission_locked(db):
     assert result["course_count"] == 3
     assert result["mission_count"] == 1
     assert result["pct"] == 33  # 1 of 3 course-kind steps fully done
+
+
+# ── catalog `enrolled` flag (2026-08-12) ────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_catalog_enrolled_flag_splits_your_paths_from_the_rest(db, client):
+    """The landing page's "your paths" vs "explore" split keys on this. It
+    must be true for a path the student has only *started* (0% progress),
+    which is exactly the case `pct` alone can't distinguish."""
+    ops = await _user(db)
+    student = await _user(db, roles=["student"])
+
+    mine, mine_item = await _course_with_one_module_one_item(db, author=ops)
+    theirs = await _course(db, author=ops)
+
+    my_path = await _path(db, author=ops)
+    other_path = await _path(db, author=ops)
+    db.add_all([
+        LearningPathStep(id=uuid.uuid4(), learning_path_id=my_path.id, course_id=mine.id, position=1),
+        LearningPathStep(id=uuid.uuid4(), learning_path_id=other_path.id, course_id=theirs.id, position=1),
+    ])
+    await db.flush()
+
+    # Enrolled but zero progress — still "mine".
+    await enroll(db, user_id=student.id, course_id=mine.id)
+    await db.commit()
+
+    resp = await client.get("/lms/learning-paths", headers=_headers(student))
+    assert resp.status_code == 200, resp.text
+    by_id = {row["id"]: row for row in resp.json()}
+
+    assert by_id[str(my_path.id)]["enrolled"] is True
+    assert by_id[str(my_path.id)]["pct"] == 0, "the 0%-but-enrolled case is the point of this flag"
+    assert by_id[str(other_path.id)]["enrolled"] is False
+
+
+@pytest.mark.asyncio
+async def test_catalog_enrolled_flag_is_false_once_access_is_revoked(db, client):
+    """Uses the same active-enrollment predicate as every other access
+    check, so a revoked enrollment drops the path out of "yours"."""
+    ops = await _user(db)
+    student = await _user(db, roles=["student"])
+    course = await _course(db, author=ops)
+    path = await _path(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course.id, position=1))
+    await db.flush()
+
+    enrollment = await enroll(db, user_id=student.id, course_id=course.id)
+    await db.commit()
+
+    resp = await client.get("/lms/learning-paths", headers=_headers(student))
+    assert next(r for r in resp.json() if r["id"] == str(path.id))["enrolled"] is True
+
+    enrollment.status = "inactive"
+    await db.commit()
+
+    resp = await client.get("/lms/learning-paths", headers=_headers(student))
+    assert next(r for r in resp.json() if r["id"] == str(path.id))["enrolled"] is False

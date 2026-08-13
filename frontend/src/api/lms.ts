@@ -215,6 +215,9 @@ export interface LearningPathCatalogItem {
   mission_count: number;
   total_duration_seconds: number;
   pct: number;
+  /** True iff you have an active enrollment in at least one of the path's
+   * courses — `pct` can't answer this (a just-started path is still 0%). */
+  enrolled: boolean;
 }
 
 export interface LearningPathStep {
@@ -238,6 +241,25 @@ export interface LearningPathDetail {
   mission_count: number;
   total_duration_seconds: number;
   steps: LearningPathStep[];
+}
+
+// ── completion certificates (2026-08-13) ──────────────────────────────────
+
+export interface MyCertificate {
+  id: string;
+  type: "lms_course_completion" | "lms_path_completion";
+  /** The course or learning path it was earned for. */
+  title: string;
+  course_id: string | null;
+  learning_path_id: string | null;
+  issued_at: string | null;
+  /** Signed at query time — don't cache this beyond the request. */
+  url: string | null;
+}
+
+export async function fetchMyCertificates(): Promise<MyCertificate[]> {
+  const { data } = await api.get<MyCertificate[]>("/lms/my-certificates");
+  return data;
 }
 
 export async function fetchLearningPaths(): Promise<LearningPathCatalogItem[]> {

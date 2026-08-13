@@ -20,9 +20,31 @@ from app.models.spine.identity_alias import IdentityAlias
 from app.models.user import User
 
 
+# Student signup became invite-only on 2026-08-13, so every signup payload
+# below needs a valid student-pool code. Seeded per-test rather than once for
+# the module so `used_count` assertions can't be polluted by other tests.
+BATCH_CODE = "TESTBATCH"
+
+
+@pytest.fixture(autouse=True)
+async def _student_batch_code(db):
+    existing = (await db.execute(
+        select(InvitationCode).where(InvitationCode.code == BATCH_CODE)
+    )).scalars().first()
+    if existing is None:
+        db.add(InvitationCode(
+            id=uuid.uuid4(), code=BATCH_CODE, kind="student", label="Test Batch",
+            is_active=True, max_uses=10_000, used_count=0,
+        ))
+        await db.commit()
+    return BATCH_CODE
+
+
+
 @pytest.mark.asyncio
 async def test_signup_creates_user_contact_and_alias(db, client):
     resp = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
         "full_name": "Noor Al Ali",
         "email": "Noor.AlAli@Example.com",  # mixed case on purpose
         "phone": "+971 50 123 4567",
@@ -74,6 +96,7 @@ async def test_signup_links_to_an_existing_contact_by_email(db, client):
     await db.commit()
 
     resp = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
         "full_name": "Rashid",
         "email": "rashid@example.com",
         "password": "another-pass",
@@ -95,6 +118,7 @@ async def test_signup_links_to_an_existing_contact_by_email(db, client):
 @pytest.mark.asyncio
 async def test_duplicate_email_is_a_friendly_409(db, client):
     first = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
         "full_name": "Mariam",
         "email": "mariam@example.com",
         "password": "pass-one",
@@ -102,6 +126,7 @@ async def test_duplicate_email_is_a_friendly_409(db, client):
     assert first.status_code == http_status.HTTP_201_CREATED
 
     second = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
         "full_name": "Mariam Two",
         "email": "MARIAM@example.com",  # case-insensitive duplicate
         "password": "pass-two",
@@ -116,6 +141,7 @@ async def test_duplicate_email_is_a_friendly_409(db, client):
 @pytest.mark.asyncio
 async def test_signed_up_student_can_log_in(db, client):
     await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
         "full_name": "Hamdan",
         "email": "hamdan@example.com",
         "phone": "+971501111111",
@@ -141,6 +167,7 @@ async def test_signed_up_student_can_log_in(db, client):
 @pytest.mark.asyncio
 async def test_signup_stores_date_of_birth_on_contact_and_exposes_it_via_me(db, client):
     resp = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
         "full_name": "Dana", "email": "dana@example.com", "password": "pass-dana",
         "date_of_birth": "2012-03-14",
     })
@@ -157,7 +184,9 @@ async def test_signup_stores_date_of_birth_on_contact_and_exposes_it_via_me(db, 
 
 @pytest.mark.asyncio
 async def test_signup_with_valid_admin_invite_code_increments_usage(db, client):
-    code = InvitationCode(id=uuid.uuid4(), code="STUDENT1", is_active=True, max_uses=5, used_count=0)
+    code = InvitationCode(
+        id=uuid.uuid4(), code="STUDENT1", kind="student", is_active=True, max_uses=5, used_count=0,
+    )
     db.add(code)
     await db.commit()
 
@@ -208,6 +237,7 @@ async def test_signup_with_invalid_invite_code_is_400_and_creates_no_user(db, cl
 @pytest.mark.asyncio
 async def test_signup_with_parent_info_creates_guardian_relationship(db, client):
     resp = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
         "full_name": "Layla", "email": "layla@example.com", "password": "pass-layla",
         "parent_name": "Fatima", "parent_phone": "+971501234567", "parent_email": "fatima@example.com",
     })
@@ -237,6 +267,7 @@ async def test_signup_with_only_parent_name_does_not_create_guardian(db, client)
     """Mirrors PublicRegistrationRequest's rule exactly — both name and phone
     are required before a guardian contact/relationship is created."""
     resp = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
         "full_name": "Omar", "email": "omar@example.com", "password": "pass-omar",
         "parent_name": "Someone",
     })
@@ -259,6 +290,7 @@ async def test_signup_with_country_and_city_id_persists_and_exposes_via_me(db, c
     await db.commit()
 
     resp = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
         "full_name": "Farah", "email": "farah@example.com", "password": "pass-farah",
         "country": "AE", "city_id": str(city.id),
     })
@@ -285,6 +317,7 @@ async def test_update_me_sets_city_id(db, client):
     await db.commit()
 
     signup = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
         "full_name": "Update City Test", "email": "updatecity@example.com", "password": "pass-update",
     })
     token = signup.json()["access_token"]
@@ -303,6 +336,7 @@ async def test_signup_with_other_city_persists_and_updates(db, client):
     gap-filled onto the contact's free-text city so CRM views show it, editable
     via PATCH /auth/me."""
     resp = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
         "full_name": "Layla", "email": "layla@example.com", "password": "pass-layla",
         "country": "EG", "city_other": "Alexandria",
     })
@@ -321,3 +355,103 @@ async def test_signup_with_other_city_persists_and_updates(db, client):
     )
     assert updated.status_code == http_status.HTTP_200_OK, updated.text
     assert updated.json()["city_other"] == "Cairo"
+
+# ── invite-code gate + pool split (2026-08-13) ──────────────────────────────
+
+@pytest.mark.asyncio
+async def test_signup_without_an_invite_code_is_refused(db, client):
+    """The gate itself. Ported from Madar, where registration required a
+    valid, active, non-exhausted code."""
+    resp = await client.post("/auth/signup", json={
+        "full_name": "No Code", "email": "nocode@example.com", "password": "pass-nocode",
+    })
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+    assert "invite code" in resp.json()["detail"].lower()
+    assert (await db.execute(
+        select(User).where(User.email == "nocode@example.com")
+    )).scalars().first() is None
+
+
+@pytest.mark.asyncio
+async def test_a_blank_invite_code_is_refused_too(db, client):
+    resp = await client.post("/auth/signup", json={
+        "invite_code": "   ",
+        "full_name": "Blank Code", "email": "blank@example.com", "password": "pass-blank",
+    })
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_an_instructor_pool_code_does_not_open_student_signup(db, client):
+    """The whole point of splitting the pool — a code issued for instructor
+    applications must not admit a student."""
+    db.add(InvitationCode(
+        id=uuid.uuid4(), code="INSTRONLY", kind="instructor", is_active=True, max_uses=50, used_count=0,
+    ))
+    await db.commit()
+
+    resp = await client.post("/auth/signup", json={
+        "invite_code": "INSTRONLY",
+        "full_name": "Wrong Pool", "email": "wrongpool@example.com", "password": "pass-wrong",
+    })
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+    assert (await db.execute(
+        select(User).where(User.email == "wrongpool@example.com")
+    )).scalars().first() is None
+
+
+@pytest.mark.asyncio
+async def test_an_inactive_or_exhausted_student_code_is_refused(db, client):
+    db.add(InvitationCode(
+        id=uuid.uuid4(), code="DISABLED", kind="student", is_active=False, max_uses=50, used_count=0,
+    ))
+    db.add(InvitationCode(
+        id=uuid.uuid4(), code="FULLUP", kind="student", is_active=True, max_uses=2, used_count=2,
+    ))
+    await db.commit()
+
+    off = await client.post("/auth/signup", json={
+        "invite_code": "DISABLED",
+        "full_name": "A", "email": "disabled-code@example.com", "password": "pass-a",
+    })
+    assert off.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    full = await client.post("/auth/signup", json={
+        "invite_code": "FULLUP",
+        "full_name": "B", "email": "full-code@example.com", "password": "pass-b",
+    })
+    assert full.status_code == http_status.HTTP_400_BAD_REQUEST
+    assert "limit" in full.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_the_code_is_stamped_onto_the_student(db, client):
+    """Madar's "code stamped onto the user permanently" — this is what makes
+    the students-management batch filter possible."""
+    resp = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE.lower(),  # case-insensitive on the way in
+        "full_name": "Stamped", "email": "stamped@example.com", "password": "pass-stamp",
+    })
+    assert resp.status_code == http_status.HTTP_201_CREATED, resp.text
+
+    user = (await db.execute(
+        select(User).where(User.email == "stamped@example.com")
+    )).scalars().first()
+    assert user.invitation_code_used == BATCH_CODE, "stored uppercase, regardless of what was typed"
+
+
+@pytest.mark.asyncio
+async def test_an_ambassador_referral_code_still_admits_a_student(db, client):
+    """Operator's call (2026-08-13): the gate must not break the referral
+    pipeline — an ambassador's personal code is kind-agnostic."""
+    db.add(User(
+        id=uuid.uuid4(), full_name="Amb", email=f"amb-{uuid.uuid4().hex[:6]}@example.com",
+        password_hash="x", roles=["ambassador"], status="active", invite_code="AMBGATE",
+    ))
+    await db.commit()
+
+    resp = await client.post("/auth/signup", json={
+        "invite_code": "ambgate",
+        "full_name": "Referred", "email": "referred@example.com", "password": "pass-ref",
+    })
+    assert resp.status_code == http_status.HTTP_201_CREATED, resp.text

@@ -74,3 +74,9 @@ class CertificateType(str, enum.Enum):
     internship_completion = "internship_completion"
     instructor_completion = "instructor_completion"
     student_completion = "student_completion"  # W5 S5-3 — cohort completion, contact-owned
+    # LMS (2026-08-13) — earned by finishing a course or a learning path, not
+    # by attending a cohort. User-owned (an LMS learner always has a User row
+    # — enrollments key on user_id), unlike student_completion above which is
+    # contact-owned because a public registrant may have no account.
+    lms_course_completion = "lms_course_completion"
+    lms_path_completion = "lms_path_completion"

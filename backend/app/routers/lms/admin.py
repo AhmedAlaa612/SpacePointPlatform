@@ -16,7 +16,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_lms_content
@@ -25,6 +25,7 @@ from app.models.lms import (
     CohortCurriculum, Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, ProgramCurriculum, VideoCheckpoint,
 )
 from app.models.lms.learning_path import LearningPath, LearningPathStep
+from app.models.instructors.invitation_code import InvitationCode
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
@@ -49,6 +50,9 @@ from app.schemas.lms_admin import (
     EnrollmentAdminOut,
     EnrollmentGrantIn,
     InstructorOptionOut,
+    InviteCodeCreate,
+    InviteCodeOut,
+    InviteCodeUpdate,
     ItemAdminOut,
     ItemCreate,
     ItemReorderIn,
@@ -63,17 +67,22 @@ from app.schemas.lms_admin import (
     ModuleReorderIn,
     ModuleUpdate,
     ReconcileEnrollmentsOut,
+    StaffOptionOut,
+    StudentProfileOut,
+    StudentProgramOut,
+    StudentSummaryOut,
     VideoCheckpointAdminOut,
     VideoCheckpointCreate,
     VideoCheckpointUpdate,
 )
 from app.schemas.curriculum import PrerequisiteEdgeIn, PrerequisiteEdgeOut
-from app.schemas.lms_progress_grid import ProgressGridOut
+from app.schemas.lms_progress_grid import CourseProgressAllOut, MissionProgressAllOut, ProgressGridOut
 from app.services import curriculum as curriculum_service
 from app.services import storage
 from app.services.lms import enroll, enrollment_is_active
-from app.services.lms.admin_progress import cohort_progress_grid
+from app.services.lms.admin_progress import cohort_progress_grid, course_progress_all, mission_progress_all
 from app.services.lms.curriculum import reconcile_cohort_enrollments, reconcile_cohorts_inheriting_program
+from app.services.lms.my_programs import my_programs
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
 router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
@@ -168,6 +177,215 @@ async def list_instructor_options(
     return [InstructorOptionOut(id=u.id, full_name=u.full_name, photo_url=u.photo_url) for u in rows]
 
 
+# ── staff assignment picker (2026-08-12) ────────────────────────────────────
+
+@router.get("/users", response_model=list[StaffOptionOut])
+async def search_staff(
+    role: str | None = None,
+    q: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Named-individual search for the course/mission assignment picker —
+    any staff account (`student` excluded; that role self-enrols or is
+    bulk-granted by cohort, never picked by name here). `role` narrows to one
+    held role, `q` is a case-insensitive substring match on name or email.
+    Capped at 25 rows — a picker, not a roster export."""
+    stmt = select(User).where(~User.roles.contains(["student"]))
+    if role is not None:
+        stmt = stmt.where(User.roles.any(role))
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(or_(User.full_name.ilike(like), User.email.ilike(like)))
+    rows = (await db.execute(stmt.order_by(User.full_name).limit(25))).scalars().all()
+    return [StaffOptionOut(id=u.id, full_name=u.full_name, email=u.email, roles=u.role_values) for u in rows]
+
+
+# ── student management (2026-08-12) ─────────────────────────────────────────
+# require_admin's user list is admin-only and wrong for operations/facilitator
+# here — same reasoning as `search_staff` above, mirrored for the `student`
+# role instead of "every role but student".
+
+@router.get("/students", response_model=list[StudentSummaryOut])
+async def search_students(
+    q: str | None = None,
+    invite_code: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Name/email substring search over student accounts, capped at 50 rows
+    — the list view backing the student-management page.
+
+    `invite_code` filters to one batch (2026-08-13). The literal string
+    `none` selects students with no code at all — the ones who signed up
+    before the gate existed; without it they'd be unreachable through the
+    filter, since "no code" isn't a code you can type.
+    """
+    stmt = select(User).where(User.roles.any("student"))
+    if q:
+        like = f"%{q.strip()}%"
+        stmt = stmt.where(or_(User.full_name.ilike(like), User.email.ilike(like)))
+    if invite_code:
+        if invite_code.strip().lower() == "none":
+            stmt = stmt.where(User.invitation_code_used.is_(None))
+        else:
+            stmt = stmt.where(User.invitation_code_used == invite_code.strip().upper())
+    rows = (await db.execute(stmt.order_by(User.full_name).limit(50))).scalars().all()
+
+    labels = dict((await db.execute(
+        select(InvitationCode.code, InvitationCode.label).where(InvitationCode.kind == "student")
+    )).all())
+    return [
+        StudentSummaryOut(
+            id=u.id, full_name=u.full_name, nickname=u.nickname, email=u.email,
+            invite_code=u.invitation_code_used,
+            invite_label=labels.get(u.invitation_code_used) if u.invitation_code_used else None,
+        )
+        for u in rows
+    ]
+
+
+# ── student invite codes (2026-08-13) ───────────────────────────────────────
+# Ops-managed, distinct from the admin-only instructor codes at
+# /instructors/admin/invitations — same table, split by `kind` so a school
+# batch code can't open the instructor application pipeline.
+
+async def _invite_code_out(db: AsyncSession, row: InvitationCode) -> InviteCodeOut:
+    signups = await db.scalar(
+        select(func.count()).select_from(User).where(User.invitation_code_used == row.code)
+    )
+    return InviteCodeOut(
+        id=row.id, code=row.code, label=row.label, is_active=row.is_active,
+        max_uses=row.max_uses, used_count=row.used_count, expires_at=row.expires_at,
+        created_at=row.created_at, signups=signups or 0,
+    )
+
+
+@router.get("/invite-codes", response_model=list[InviteCodeOut])
+async def list_invite_codes(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    rows = (await db.execute(
+        select(InvitationCode).where(InvitationCode.kind == "student")
+        .order_by(InvitationCode.created_at.desc())
+    )).scalars().all()
+    return [await _invite_code_out(db, r) for r in rows]
+
+
+@router.post("/invite-codes", response_model=InviteCodeOut, status_code=status.HTTP_201_CREATED)
+async def create_invite_code(
+    body: InviteCodeCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    code = body.code.strip().upper()
+    if not code:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Code can't be blank")
+    # `code` is unique across both pools, so this has to check globally, not
+    # just within kind='student' — otherwise the insert fails on the
+    # constraint with an opaque 500 instead of this message.
+    existing = (await db.execute(
+        select(InvitationCode).where(InvitationCode.code == code)
+    )).scalars().first()
+    if existing is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="That code already exists")
+
+    row = InvitationCode(
+        id=uuid.uuid4(), code=code, kind="student", label=body.label,
+        max_uses=body.max_uses, is_active=body.is_active, expires_at=body.expires_at,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return await _invite_code_out(db, row)
+
+
+@router.patch("/invite-codes/{code_id}", response_model=InviteCodeOut)
+async def update_invite_code(
+    code_id: uuid.UUID,
+    body: InviteCodeUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    row = await db.get(InvitationCode, code_id)
+    if row is None or row.kind != "student":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
+
+    updates = body.model_dump(exclude_unset=True)
+    if "code" in updates and updates["code"]:
+        new_code = updates["code"].strip().upper()
+        if new_code != row.code:
+            clash = (await db.execute(
+                select(InvitationCode).where(InvitationCode.code == new_code)
+            )).scalars().first()
+            if clash is not None:
+                raise HTTPException(status.HTTP_409_CONFLICT, detail="That code already exists")
+            # Renaming leaves already-signed-up students stamped with the old
+            # string (users.invitation_code_used is a historical record of what
+            # was typed, not a live FK) — so they'd drop out of this batch's
+            # filter. Relabel instead of renaming once a code is in use.
+            if await db.scalar(
+                select(func.count()).select_from(User).where(User.invitation_code_used == row.code)
+            ):
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    detail="This code has already been used to sign up — change its label instead of its code.",
+                )
+        updates["code"] = new_code
+
+    for field, value in updates.items():
+        setattr(row, field, value)
+    await db.commit()
+    await db.refresh(row)
+    return await _invite_code_out(db, row)
+
+
+@router.delete("/invite-codes/{code_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_invite_code(
+    code_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Refuses once anyone has signed up on it — the code is the only record
+    of which batch those students belong to (users.invitation_code_used is a
+    plain string, not an FK, so deleting the row would silently orphan them
+    from the filter rather than cascade). Deactivate it instead."""
+    row = await db.get(InvitationCode, code_id)
+    if row is None or row.kind != "student":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
+    signups = await db.scalar(
+        select(func.count()).select_from(User).where(User.invitation_code_used == row.code)
+    )
+    if signups:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"{signups} student(s) signed up with this code. Deactivate it instead of deleting it.",
+        )
+    await db.delete(row)
+    await db.commit()
+
+
+@router.get("/students/{user_id}", response_model=StudentProfileOut)
+async def student_profile(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Profile: nickname, programs attended. Current courses are a separate
+    call — `GET /lms/admin/users/{user_id}/enrollments` already returns
+    exactly that (per-student enrollments, built in P1-5), so this endpoint
+    doesn't duplicate it."""
+    user = await db.get(User, user_id)
+    if user is None or "student" not in user.role_values:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    programs = await my_programs(db, user=user)
+    return StudentProfileOut(
+        id=user.id, full_name=user.full_name, nickname=user.nickname, email=user.email,
+        programs=[StudentProgramOut(**p) for p in programs],
+    )
+
+
 # ── progress grid (7B-1, Missions Phase 2B) ─────────────────────────────────
 # Registered before /courses/{course_id} would matter if it shared a path
 # segment — it doesn't ('progress-grid' is its own static prefix) — but kept
@@ -188,6 +406,37 @@ async def progress_grid(
     if grid is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     return grid
+
+
+@router.get("/progress/courses", response_model=CourseProgressAllOut)
+async def course_progress(
+    course_id: uuid.UUID,
+    cohort_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Every actively-enrolled student in one course, all-students by
+    default, `cohort_id` an optional narrowing filter (2026-08-12) —
+    the simple table the operator asked for, separate from the cohort-first
+    combined grid above."""
+    result = await course_progress_all(db, course_id=course_id, cohort_id=cohort_id)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    return result
+
+
+@router.get("/progress/missions/{mission_id}", response_model=MissionProgressAllOut)
+async def mission_progress(
+    mission_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Every student who has attempted one mission, across every cohort
+    (2026-08-12) — click a mission, see everyone on it."""
+    result = await mission_progress_all(db, mission_id=mission_id)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    return result
 
 
 # ── unified prerequisites (7B-2) ────────────────────────────────────────────
@@ -1293,7 +1542,13 @@ async def student_enrollments(
     rows = (await db.execute(
         select(Enrollment).where(Enrollment.user_id == user_id).order_by(Enrollment.created_at.desc())
     )).scalars().all()
-    return [await _enrollment_admin_out(db, e) for e in rows]
+    out = []
+    for e in rows:
+        row = await _enrollment_admin_out(db, e)
+        course = await db.get(Course, e.course_id)
+        row.course_title = course.title if course else None
+        out.append(row)
+    return out
 
 
 @router.post("/courses/{course_id}/enrollments/bulk", response_model=BulkGrantOut)
