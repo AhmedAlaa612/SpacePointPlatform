@@ -196,8 +196,22 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
             detail="An account with this email already exists — log in instead.",
         )
 
+    # Invite-code gate (2026-08-13, operator): student signup is invite-only,
+    # ported from Madar where registration required a valid, active,
+    # non-exhausted code and stamped it permanently onto the user
+    # (MISSIONS_REPORT.md §155). Enforced here rather than only in the
+    # schema so the message is a plain sentence rather than a 422 field
+    # error, and so it can't be bypassed by a client that omits the key.
     code = data.invite_code.strip().upper() if data.invite_code else None
-    invitation, ambassador = await resolve_invite_code(db, code)
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An invite code is required to sign up. Ask your instructor for one.",
+        )
+    # kind='student': an instructor-pool code must not open student signup.
+    # An ambassador's personal referral code still works (it's kind-agnostic
+    # inside resolve_invite_code) — the operator's explicit call.
+    invitation, ambassador = await resolve_invite_code(db, code, kind="student")
     referred_by_ambassador_id = ambassador.id if ambassador else None
 
     city = await db.get(City, data.city_id) if data.city_id else None
@@ -610,8 +624,9 @@ async def instructor_apply(
     code = payload.invite_code.strip().upper() if payload.invite_code else None
     # Code is optional (organic applicants have none) — but if one is
     # supplied it must be valid, so a typo'd/expired code doesn't silently
-    # drop the referral.
-    invitation, ambassador = await resolve_invite_code(db, code)
+    # drop the referral. kind='instructor' (2026-08-13): a student batch code
+    # must not open the instructor pipeline.
+    invitation, ambassador = await resolve_invite_code(db, code, kind="instructor")
     referred_by_ambassador_id = ambassador.id if ambassador else None
 
     user = User(
@@ -685,13 +700,17 @@ async def instructor_apply(
 
 
 @router.get("/invite/{code}")
-async def validate_invite(code: str, db: AsyncSession = Depends(get_db)):
+async def validate_invite(code: str, kind: str | None = None, db: AsyncSession = Depends(get_db)):
     # This endpoint's contract predates resolve_invite_code() and differs
     # from it slightly (404 "not found" rather than 400 "bad request", no
     # used_count/invited_by_id side effects — it's a read-only check) — reuse
     # the shared lookup/expiry/usage-limit logic, just remap the exceptions.
+    #
+    # `kind` is optional so the existing contract is unchanged for anything
+    # already calling this; the signup screens pass their own pool so a
+    # student batch code doesn't validate green on the instructor form.
     try:
-        invitation, ambassador = await resolve_invite_code(db, code)
+        invitation, ambassador = await resolve_invite_code(db, code, kind=kind)
     except HTTPException as exc:
         if exc.status_code == status.HTTP_400_BAD_REQUEST and exc.detail == "Invalid or inactive invite code":
             raise HTTPException(status_code=404, detail=exc.detail)

@@ -1,5 +1,6 @@
 import { Medal, Trophy } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { AvatarBadge } from "./AvatarBadge"
 
 /** Final standings — podium blocks for the top 3, a ranked list for
  * everyone else (Live Games Phase 2C, 8-8b, D19). Shared between the
@@ -42,6 +43,7 @@ export function PodiumBoard({
             return (
               <div key={entry.participant_id} className="flex flex-col items-center gap-2 w-24">
                 <Medal className={cn("size-6", MEDAL_SHADES[i])} />
+                <AvatarBadge avatar={entry.avatar} nickname={label(entry)} size={44} />
                 <p className={cn("text-xs font-semibold truncate w-full text-center", isMe && "text-primary")}>
                   {label(entry)}{isMe && " (you)"}
                 </p>
@@ -74,6 +76,7 @@ export function PodiumBoard({
                 )}
               >
                 <span className="w-6 text-center text-sm font-bold text-muted-foreground">{i + 4}</span>
+                <AvatarBadge avatar={entry.avatar} nickname={label(entry)} size={32} />
                 <span className="flex-1 text-sm font-medium truncate">
                   {label(entry)}{isMe && <span className="ml-1.5 font-normal text-muted-foreground">(you)</span>}
                 </span>

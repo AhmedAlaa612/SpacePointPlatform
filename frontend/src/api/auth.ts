@@ -123,8 +123,17 @@ export async function updateMeApi(
   return res
 }
 
-export const validateInviteApi = (code: string) =>
-  api.get<{ ambassador_name: string; valid: boolean }>(`/auth/invite/${code}`).then((r) => r.data)
+export async function rerollNicknameApi(): Promise<User> {
+  const { data } = await api.post<User>("/auth/me/nickname/reroll")
+  return data
+}
+
+/** `kind` scopes the check to one code pool (2026-08-13) so a student
+ * batch code doesn't validate green on the instructor application form. */
+export const validateInviteApi = (code: string, kind?: "instructor" | "student") =>
+  api.get<{ ambassador_name: string; valid: boolean }>(`/auth/invite/${code}`, {
+    params: kind ? { kind } : undefined,
+  }).then((r) => r.data)
 
 export async function applyInstructorApi(data: {
   full_name: string

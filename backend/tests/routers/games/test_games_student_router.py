@@ -19,7 +19,7 @@ from app.models.sessions.registration import Registration
 from app.models.sessions.session import Session
 from app.models.spine.contact import Contact
 from app.models.user import User
-from app.services.games.realtime import participant_channel
+from app.services.games.realtime import participant_channel, run_channel
 from app.services.games.runs import create_run, join_run, start_run
 
 
@@ -242,3 +242,117 @@ async def test_answer_ack_broadcasts_privately_to_the_participant(db, realtime_c
     assert body["type"] == "answer_ack"
     assert body["payload"]["is_correct"] is True
     await pubsub.aclose()
+
+
+@pytest.mark.asyncio
+async def test_join_broadcasts_participant_joined_on_the_run_channel(db, realtime_client, realtime_redis):
+    assignment, cohort = await _assignment_with_questions(db, count=1)
+    student = await _student_with_registration(db, cohort_id=cohort.id, nickname="Joiner1")
+    await db.commit()
+    run = await create_run(db, assignment=assignment, actor_id=student.id)
+    await db.commit()
+
+    pubsub = realtime_redis.pubsub()
+    await pubsub.subscribe(run_channel(str(run.id)))
+    await pubsub.get_message(ignore_subscribe_messages=True, timeout=2)
+
+    resp = await realtime_client.post(f"/games/play/runs/{run.id}/join", headers=_headers(student), json={})
+    assert resp.status_code == 201, resp.text
+
+    import json
+    msg = None
+    for _ in range(5):
+        msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=2)
+        if msg is not None:
+            break
+    assert msg is not None
+    body = json.loads(msg["data"])
+    assert body["type"] == "participant_joined"
+    assert body["payload"]["nickname"] == "Joiner1"
+    await pubsub.aclose()
+
+
+@pytest.mark.asyncio
+async def test_update_my_profile_changes_nickname_and_avatar_in_lobby(db, client):
+    assignment, cohort = await _assignment_with_questions(db, count=1)
+    student = await _student_with_registration(db, cohort_id=cohort.id, nickname="Default1")
+    await db.commit()
+    run = await create_run(db, assignment=assignment, actor_id=student.id)
+    await db.commit()
+    await client.post(f"/games/play/runs/{run.id}/join", headers=_headers(student), json={})
+
+    resp = await client.patch(
+        f"/games/play/runs/{run.id}/me", headers=_headers(student),
+        json={"nickname": "CustomCallsign", "avatar": "rocket"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["nickname"] == "CustomCallsign"
+    assert resp.json()["avatar"] == "rocket"
+
+    roster = await client.get(f"/games/play/runs/{run.id}/roster", headers=_headers(student))
+    assert roster.status_code == 200, roster.text
+    assert roster.json()[0]["nickname"] == "CustomCallsign"
+
+
+@pytest.mark.asyncio
+async def test_update_my_profile_rejects_unknown_avatar_preset(db, client):
+    assignment, cohort = await _assignment_with_questions(db, count=1)
+    student = await _student_with_registration(db, cohort_id=cohort.id)
+    await db.commit()
+    run = await create_run(db, assignment=assignment, actor_id=student.id)
+    await db.commit()
+    await client.post(f"/games/play/runs/{run.id}/join", headers=_headers(student), json={})
+
+    resp = await client.patch(
+        f"/games/play/runs/{run.id}/me", headers=_headers(student),
+        json={"nickname": "Whatever", "avatar": "not-a-real-preset"},
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_update_my_profile_locked_once_the_run_is_live(db, client):
+    assignment, cohort = await _assignment_with_questions(db, count=1)
+    student = await _student_with_registration(db, cohort_id=cohort.id)
+    await db.commit()
+    run = await create_run(db, assignment=assignment, actor_id=student.id)
+    await db.commit()
+    await client.post(f"/games/play/runs/{run.id}/join", headers=_headers(student), json={})
+    await start_run(db, run=run)
+    await db.commit()
+
+    resp = await client.patch(
+        f"/games/play/runs/{run.id}/me", headers=_headers(student),
+        json={"nickname": "TooLate", "avatar": None},
+    )
+    assert resp.status_code == http_status.HTTP_409_CONFLICT
+
+
+@pytest.mark.asyncio
+async def test_student_roster_requires_having_joined(db, client):
+    assignment, cohort = await _assignment_with_questions(db, count=1)
+    student = await _student_with_registration(db, cohort_id=cohort.id)
+    await db.commit()
+    run = await create_run(db, assignment=assignment, actor_id=student.id)
+    await db.commit()
+
+    resp = await client.get(f"/games/play/runs/{run.id}/roster", headers=_headers(student))
+    assert resp.status_code == http_status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_student_roster_lists_everyone_redacted(db, client):
+    assignment, cohort = await _assignment_with_questions(db, count=1)
+    alice = await _student_with_registration(db, cohort_id=cohort.id, nickname="Alice1")
+    bob = await _student_with_registration(db, cohort_id=cohort.id, nickname="Bob2")
+    await db.commit()
+    run = await create_run(db, assignment=assignment, actor_id=alice.id)
+    await db.commit()
+    await client.post(f"/games/play/runs/{run.id}/join", headers=_headers(alice), json={})
+    await client.post(f"/games/play/runs/{run.id}/join", headers=_headers(bob), json={})
+
+    resp = await client.get(f"/games/play/runs/{run.id}/roster", headers=_headers(alice))
+    assert resp.status_code == 200, resp.text
+    nicknames = {row["nickname"] for row in resp.json()}
+    assert nicknames == {"Alice1", "Bob2"}
+    assert all("real_name" not in row for row in resp.json())

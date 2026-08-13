@@ -5,11 +5,39 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
+
+from app.services.games.avatars import AVATAR_PRESETS
+
+
+def _validate_avatar(v: str | None) -> str | None:
+    if v is not None and v not in AVATAR_PRESETS:
+        raise ValueError(f"'{v}' is not a valid avatar — choose one of {sorted(AVATAR_PRESETS)}")
+    return v
 
 
 class JoinRunIn(BaseModel):
-    avatar: str | None = None  # None = use the profile photo (D18's default)
+    avatar: str | None = None  # None = initials fallback (world-class rework: icon presets only, no photo)
+
+    _validate_avatar = field_validator("avatar")(_validate_avatar)
+
+
+class UpdateParticipantProfileIn(BaseModel):
+    """Lobby-only nickname/avatar override for one game — distinct from the
+    profile-level nickname reroll (D2, weekly-cooldown-limited): this is a
+    lighter-weight, uncapped, per-game display override, per D18."""
+    nickname: str = Field(min_length=1, max_length=64)
+    avatar: str | None = None
+
+    _validate_avatar = field_validator("avatar")(_validate_avatar)
+
+    @field_validator("nickname")
+    @classmethod
+    def _strip_nickname(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("nickname can't be blank")
+        return v
 
 
 class ParticipantOut(BaseModel):

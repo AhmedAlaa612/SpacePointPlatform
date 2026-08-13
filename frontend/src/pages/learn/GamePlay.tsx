@@ -1,26 +1,31 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { CheckCircle2, Clock, EyeOff, Flame, Trophy, XCircle } from "lucide-react"
+import { CheckCircle2, Clock, EyeOff, Flame, Trophy, Users, XCircle } from "lucide-react"
 import {
-  getMyScoreApi, getPlayQuestionApi, getPlayRunApi, getStudentLeaderboardApi,
+  getMyScoreApi, getPlayQuestionApi, getPlayRosterApi, getPlayRunApi, getStudentLeaderboardApi,
   joinRunApi, submitAnswerApi, type AnswerAck, type StudentLeaderboardEntry,
 } from "@/api/games_play"
+import type { QuestionResult, RosterEntry } from "@/api/games_live"
 import { useGameRunSocket } from "@/hooks/useGameRunSocket"
 import { useAuth } from "@/context/AuthContext"
 import { PodiumBoard } from "@/components/games/PodiumBoard"
+import { AvatarBadge } from "@/components/games/AvatarBadge"
+import { AvatarNicknamePicker } from "@/components/games/AvatarNicknamePicker"
+import { CountdownLeadIn } from "@/components/games/CountdownLeadIn"
 
-/** Student play screen (Live Games Phase 2C, 8-8) — Claude Design spec
- * Frames 03-05: lobby (waiting for start), answering (big mobile tap
- * targets + countdown), feedback (own correct/incorrect + score
- * breakdown + streak, shown the instant the student answers — this is
- * client-driven, not waiting on the instructor's Reveal), between-
- * questions (the leaderboard once the instructor does Reveal, own-score-
- * only once blackout starts, D10). `game_restarted` swaps the page onto
- * the new run's channel by updating `runId` state, same pattern as the
- * instructor console. */
+/** Student play screen (Live Games Phase 2C, 8-8; world-class rework).
+ * Phases: join → lobby (named roster + avatar/nickname picker, D18) →
+ * countdown (shared 3-2-1 lead-in, synced off `question_started`) →
+ * question (one persistent question+options view — unanswered,
+ * locked-in-waiting, then revealed — replacing the old separate
+ * answering/feedback/between screens) → ended. Correctness only renders
+ * once `revealed` flips true (the instructor's Reveal broadcast, or their
+ * own timeout auto-triggering it), never the instant a student personally
+ * submits — the whole room finds out together. `game_restarted` swaps the
+ * page onto the new run's channel by updating `runId` state. */
 
-type LocalPhase = "join" | "lobby" | "answering" | "feedback" | "between" | "ended"
+type LocalPhase = "join" | "lobby" | "countdown" | "question" | "ended"
 
 function Countdown({ seconds, questionKey, onExpire }: { seconds: number; questionKey: string; onExpire: () => void }) {
   const [remaining, setRemaining] = useState(seconds)
@@ -81,10 +86,18 @@ export default function GamePlay() {
   const { currentUser } = useAuth()
 
   const [avatar] = useState<string | null>(null)
+  // My own in-game identity (nickname/avatar) — distinct from the profile
+  // nickname once the picker's been used, D18. Seeded by the join
+  // response and re-synced by an idempotent join call on page load (see
+  // the effect below), since a mid-lobby refresh never re-fires the
+  // "Join game" button's own click handler.
+  const [me, setMe] = useState<{ nickname: string; avatar: string | null } | null>(null)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [ack, setAck] = useState<AnswerAck | null>(null)
   const [revealed, setRevealed] = useState(false)
+  const [revealResults, setRevealResults] = useState<QuestionResult[] | null>(null)
   const [answeredPosition, setAnsweredPosition] = useState<number | null>(null)
+  const [leadIn, setLeadIn] = useState(false)
   const questionStartedAtRef = useRef<number>(Date.now())
 
   const runKey = ["play-run", runId]
@@ -102,32 +115,80 @@ export default function GamePlay() {
     enabled: hasJoined && run?.status === "live",
   })
 
+  const rosterKey = ["play-roster", runId]
+  const { data: roster = [] } = useQuery({
+    queryKey: rosterKey,
+    queryFn: () => getPlayRosterApi(runId),
+    enabled: hasJoined && (run?.status === "lobby" || run?.status === "live"),
+  })
+
   const { data: leaderboard = [] } = useQuery<StudentLeaderboardEntry[]>({
     queryKey: ["play-leaderboard", runId, run?.current_question_position],
     queryFn: () => getStudentLeaderboardApi(runId),
     enabled: hasJoined && revealed,
   })
 
-  useGameRunSocket(hasJoined ? runId : null, (msg) => {
+  const { connected } = useGameRunSocket(hasJoined ? runId : null, (msg) => {
     if (msg.type === "question_started") {
-      setSelectedIndex(null); setAck(null); setRevealed(false); setAnsweredPosition(null)
-      questionStartedAtRef.current = Date.now()
+      setSelectedIndex(null); setAck(null); setRevealed(false); setRevealResults(null); setAnsweredPosition(null)
+      setLeadIn(true)
       qc.invalidateQueries({ queryKey: runKey })
     } else if (msg.type === "leaderboard_update") {
       setRevealed(true)
+      setRevealResults(msg.payload.results ?? null)
       qc.invalidateQueries({ queryKey: ["play-leaderboard", runId] })
       qc.invalidateQueries({ queryKey: ["play-my-score", runId] })
     } else if (msg.type === "game_restarted") {
       void navigate({ to: "/learn/games/$runId", params: { runId: msg.payload.new_run_id } })
     } else if (msg.type === "game_ended") {
       qc.invalidateQueries({ queryKey: runKey })
+    } else if (msg.type === "participant_joined") {
+      qc.setQueryData<RosterEntry[]>(rosterKey, (old = []) =>
+        old.some((p) => p.participant_id === msg.payload.participant_id)
+          ? old
+          : [...old, {
+              participant_id: msg.payload.participant_id, nickname: msg.payload.nickname,
+              avatar: msg.payload.avatar, has_answered_current: false,
+            }],
+      )
+    } else if (msg.type === "participant_updated") {
+      qc.setQueryData<RosterEntry[]>(rosterKey, (old = []) =>
+        old.map((p) => p.participant_id === msg.payload.participant_id
+          ? { ...p, nickname: msg.payload.nickname, avatar: msg.payload.avatar } : p),
+      )
+    } else if (msg.type === "participant_answered") {
+      qc.setQueryData<RosterEntry[]>(rosterKey, (old = []) =>
+        old.map((p) => p.participant_id === msg.payload.participant_id ? { ...p, has_answered_current: true } : p),
+      )
     }
   })
 
+  // Redis pub/sub has no replay — a reconnect after a drop needs an
+  // explicit re-sync, not just a green "connected" dot.
+  useEffect(() => {
+    if (!connected) return
+    qc.invalidateQueries({ queryKey: runKey })
+    qc.invalidateQueries({ queryKey: rosterKey })
+    qc.invalidateQueries({ queryKey: ["play-leaderboard", runId] })
+    qc.invalidateQueries({ queryKey: ["play-my-score", runId] })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connected])
+
   const join = useMutation({
     mutationFn: () => joinRunApi(runId, avatar),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["play-my-score", runId] }) },
+    onSuccess: (p) => {
+      setMe({ nickname: p.nickname, avatar: p.avatar })
+      qc.invalidateQueries({ queryKey: ["play-my-score", runId] })
+    },
   })
+
+  // join_run is idempotent — safe to call again on a mid-lobby page
+  // refresh, purely to re-populate `me` (the join button's own onSuccess
+  // only fires once, the first time).
+  useEffect(() => {
+    if (hasJoined && !me && !join.isPending) join.mutate()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasJoined, me])
 
   const answer = useMutation({
     mutationFn: (index: number | null) => {
@@ -146,8 +207,12 @@ export default function GamePlay() {
     run.status === "ended" ? "ended"
     : !hasJoined ? "join"
     : run.status === "lobby" ? "lobby"
-    : answeredPosition === run.current_question_position ? (revealed ? "between" : "feedback")
-    : "answering"
+    : leadIn ? "countdown"
+    : "question"
+
+  const locked = !!question && answeredPosition === question.position
+  const answeredCount = roster.filter((r) => r.has_answered_current).length
+  const myNickname = me?.nickname ?? currentUser?.nickname ?? currentUser?.full_name ?? "You"
 
   return (
     <div className="mx-auto max-w-[520px] px-5 py-6 sm:py-10 flex flex-col gap-6 min-h-[70vh]">
@@ -157,7 +222,7 @@ export default function GamePlay() {
           <div>
             <h1 className="font-display text-2xl font-extrabold">Ready to play?</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              You'll play as <span className="font-semibold text-foreground">{currentUser?.nickname ?? currentUser?.full_name}</span>
+              You'll play as <span className="font-semibold text-foreground">{myNickname}</span>
             </p>
           </div>
           <button
@@ -171,104 +236,149 @@ export default function GamePlay() {
       )}
 
       {phase === "lobby" && (
-        <div className="flex flex-col items-center gap-4 text-center pt-16">
-          <div className="size-4 rounded-full bg-primary animate-pulse" />
-          <h1 className="font-display text-xl font-extrabold">You're in!</h1>
-          <p className="text-sm text-muted-foreground">Waiting for your instructor to start…</p>
+        <div className="flex flex-col items-center gap-6 pt-4">
+          <div className="text-center">
+            <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">You're in · waiting room</p>
+            <h1 className="font-display text-xl font-extrabold mt-1">
+              {run.total_questions} question{run.total_questions === 1 ? "" : "s"}
+            </h1>
+          </div>
+
+          <AvatarNicknamePicker
+            runId={runId}
+            nickname={myNickname}
+            avatar={me?.avatar ?? null}
+            onUpdated={setMe}
+          />
+
+          <div className="w-full flex flex-col gap-2">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+              <Users size={13} /> {roster.length} {roster.length === 1 ? "explorer" : "explorers"} in the room
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {roster.map((p) => (
+                <div key={p.participant_id} className="flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full bg-muted">
+                  <AvatarBadge avatar={p.avatar} nickname={p.nickname} size={32} />
+                  <span className="text-xs text-foreground">{p.nickname}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="w-full mt-auto flex items-center gap-2 px-4 py-3 rounded-2xl bg-card border border-border">
+            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+            <span className="text-xs text-muted-foreground">Starts when the instructor says go</span>
+          </div>
         </div>
       )}
 
-      {phase === "answering" && question && (
+      {phase === "countdown" && (
+        <CountdownLeadIn onDone={() => { questionStartedAtRef.current = Date.now(); setLeadIn(false) }} />
+      )}
+
+      {phase === "question" && question && (
         <div className="flex flex-col gap-6">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
               Question {question.position} of {run.total_questions}
             </span>
-            <Countdown
-              seconds={question.time_limit_seconds} questionKey={question.id}
-              onExpire={() => { if (!answer.isPending && selectedIndex === null) answer.mutate(null) }}
-            />
+            {!locked && (
+              <Countdown
+                seconds={question.time_limit_seconds} questionKey={question.id}
+                onExpire={() => { if (!answer.isPending && selectedIndex === null) answer.mutate(null) }}
+              />
+            )}
           </div>
           <h1 className="font-display text-xl font-bold leading-snug">{question.prompt}</h1>
           <div className="grid grid-cols-1 gap-3">
-            {question.options.map((o, i) => (
-              <button
-                key={i}
-                onClick={() => !answer.isPending && answer.mutate(i)}
-                disabled={answer.isPending}
-                className="h-16 px-5 rounded-2xl border-2 border-border bg-card text-left text-base font-semibold text-foreground hover:border-primary/50 active:scale-[0.98] transition-all disabled:opacity-60 flex items-center gap-3"
-              >
-                <span className="w-7 h-7 flex-none flex items-center justify-center rounded-lg border-2 border-current text-xs">
-                  {String.fromCharCode(65 + i)}
-                </span>
-                {o.text}
-              </button>
-            ))}
+            {question.options.map((o, i) => {
+              const result = revealResults?.[i]
+              const isMine = selectedIndex === i
+              let colorClass = "border-border bg-card"
+              if (revealed && result) {
+                if (result.is_correct) colorClass = "border-emerald-500 bg-emerald-500/10"
+                else if (isMine) colorClass = "border-destructive bg-destructive/10"
+              } else if (isMine) {
+                colorClass = "border-primary bg-primary/10"
+              }
+              return (
+                <button
+                  key={i}
+                  onClick={() => !locked && !answer.isPending && answer.mutate(i)}
+                  disabled={locked || answer.isPending}
+                  className={`h-16 px-5 rounded-2xl border-2 text-left text-base font-semibold text-foreground transition-all flex items-center gap-3 ${colorClass} ${
+                    !locked ? "hover:border-primary/50 active:scale-[0.98] disabled:opacity-60" : ""
+                  }`}
+                >
+                  <span className="w-7 h-7 flex-none flex items-center justify-center rounded-lg border-2 border-current text-xs">
+                    {String.fromCharCode(65 + i)}
+                  </span>
+                  <span className="flex-1">{o.text}</span>
+                  {revealed && result?.is_correct && <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />}
+                  {revealed && isMine && result && !result.is_correct && <XCircle size={18} className="text-destructive shrink-0" />}
+                </button>
+              )
+            })}
           </div>
-        </div>
-      )}
 
-      {phase === "feedback" && ack && (
-        <div className="flex flex-col items-center gap-5 text-center pt-8">
-          {ack.is_correct ? (
-            <CheckCircle2 className="size-14 text-emerald-500" />
-          ) : (
-            <XCircle className="size-14 text-destructive" />
+          {locked && !revealed && (
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+              <Clock size={12} /> {selectedIndex === null ? "Time's up" : "Locked in"} — waiting for the rest of the class
+              {roster.length > 0 && ` · ${answeredCount} of ${roster.length} answered`}
+            </p>
           )}
-          <h1 className="font-display text-2xl font-extrabold">{ack.is_correct ? "Correct!" : "Not quite"}</h1>
-          {ack.is_correct && (
-            <div className="flex flex-col gap-1.5 w-full max-w-xs">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Base (correct)</span>
-                <span className="font-semibold text-foreground">+{ack.base_points}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Speed bonus</span>
-                <span className="font-semibold text-foreground">+{ack.speed_bonus}</span>
-              </div>
-              <div className="flex justify-between text-base border-t border-border pt-1.5 mt-1">
-                <span className="font-semibold">Total</span>
-                <span className="font-display font-extrabold text-primary">+{ack.points_awarded}</span>
-              </div>
-            </div>
-          )}
-          {ack.streak >= 2 && (
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-sm font-semibold">
-              <Flame size={14} /> {ack.streak} in a row
-            </span>
-          )}
-          <p className="text-xs text-muted-foreground flex items-center gap-1.5"><Clock size={12} /> Waiting for the rest of the class…</p>
-        </div>
-      )}
 
-      {phase === "between" && (
-        <div className="flex flex-col gap-4">
-          {run.blackout_active ? (
-            <div className="flex flex-col items-center gap-3 text-center pt-8">
-              <EyeOff className="size-10 text-amber-500" />
-              <h1 className="font-display text-xl font-extrabold">Blackout round</h1>
-              <p className="text-sm text-muted-foreground">Leaderboard's hidden till the end — here's your score.</p>
-              <p className="font-display text-4xl font-extrabold text-primary mt-2">{myScore.data?.score ?? 0}</p>
-            </div>
-          ) : (
+          {revealed && (
             <>
-              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <Trophy size={13} /> Leaderboard
-              </p>
-              <div className="flex flex-col gap-2">
-                {leaderboard.map((row, i) => (
-                  <div
-                    key={row.participant_id}
-                    className={`flex items-center gap-3 rounded-xl border p-3 ${row.is_me ? "border-primary/40 bg-primary/5" : "border-border bg-card"}`}
-                  >
-                    <span className="w-6 text-center text-sm font-bold text-muted-foreground">{i + 1}</span>
-                    <span className="flex-1 text-sm font-medium truncate">
-                      {row.nickname}{row.is_me && <span className="ml-1.5 font-normal text-muted-foreground">(you)</span>}
+              {ack && (
+                <div className={`flex flex-col gap-2 p-4 rounded-2xl border ${ack.is_correct ? "border-emerald-500/30 bg-emerald-500/5" : "border-border bg-card"}`}>
+                  <div className="flex items-center justify-between">
+                    <span className={`text-sm font-bold ${ack.is_correct ? "text-emerald-500" : "text-muted-foreground"}`}>
+                      {ack.is_correct ? "Correct!" : selectedIndex === null ? "No answer submitted" : "Not quite"}
                     </span>
-                    <span className="font-display font-bold text-sm">{row.score}</span>
+                    <span className="font-display text-xl font-extrabold text-primary">+{ack.points_awarded}</span>
                   </div>
-                ))}
-              </div>
+                  {ack.is_correct && (
+                    <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+                      <div className="flex justify-between"><span>Base (correct)</span><span className="text-foreground font-medium">+{ack.base_points}</span></div>
+                      <div className="flex justify-between"><span>Speed bonus</span><span className="text-foreground font-medium">+{ack.speed_bonus}</span></div>
+                    </div>
+                  )}
+                  {ack.streak >= 2 && (
+                    <span className="inline-flex items-center gap-1.5 w-fit px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 text-xs font-semibold">
+                      <Flame size={12} /> {ack.streak} in a row
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {run.blackout_active ? (
+                <div className="flex flex-col items-center gap-2 text-center py-6">
+                  <EyeOff className="size-8 text-amber-500" />
+                  <p className="text-sm font-semibold">Blackout round</p>
+                  <p className="text-xs text-muted-foreground">Leaderboard's hidden till the end — here's your score.</p>
+                  <p className="font-display text-3xl font-extrabold text-primary mt-1">{myScore.data?.score ?? 0}</p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <Trophy size={13} /> Leaderboard
+                  </p>
+                  {leaderboard.map((row, i) => (
+                    <div
+                      key={row.participant_id}
+                      className={`flex items-center gap-3 rounded-xl border p-3 ${row.is_me ? "border-primary/40 bg-primary/5" : "border-border bg-card"}`}
+                    >
+                      <span className="w-6 text-center text-sm font-bold text-muted-foreground">{i + 1}</span>
+                      <AvatarBadge avatar={row.avatar} nickname={row.nickname} size={32} />
+                      <span className="flex-1 text-sm font-medium truncate">
+                        {row.nickname}{row.is_me && <span className="ml-1.5 font-normal text-muted-foreground">(you)</span>}
+                      </span>
+                      <span className="font-display font-bold text-sm">{row.score}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           )}
         </div>

@@ -14,11 +14,16 @@ every later task calls the moment something happens: 8-6 scoring, 8-7's
 instructor console (start/restart/end), 8-8's student flow, 8-9's
 reversal mechanics.
 
-Message envelope: `{"type": ..., "payload": {...}}`. `MessageType` is
-the seven types this stage's endpoint contract commits to (all
-server → client): `question_started`, `answer_ack` (private — see
-`participant_channel`), `leaderboard_update`, `question_added`,
-`question_deleted`, `game_restarted`, `game_ended`.
+Message envelope: `{"type": ..., "payload": {...}}`. `MessageType` covers
+all server → client broadcasts: `question_started`, `answer_ack` (private
+— see `participant_channel`), `leaderboard_update`, `question_added`,
+`question_deleted`, `game_restarted`, `game_ended`, plus three added for
+the world-class rework's live-lobby/roster updates: `participant_joined`,
+`participant_updated` (a lobby-phase nickname/avatar change),
+`participant_answered` (ticks the instructor's live answered-count without
+waiting on the 3s poll). All three carry only the same redacted
+nickname/avatar tuple the leaderboard already broadcasts — no new
+exposure surface.
 
 Uses a dedicated `redis.asyncio.Redis` connection, not `app.state.arq_redis`
 — `.pubsub()` puts a connection into subscriber mode, and the ARQ pool is
@@ -39,6 +44,7 @@ logger = logging.getLogger(__name__)
 MessageType = Literal[
     "question_started", "answer_ack", "leaderboard_update",
     "question_added", "question_deleted", "game_restarted", "game_ended",
+    "participant_joined", "participant_updated", "participant_answered",
 ]
 
 

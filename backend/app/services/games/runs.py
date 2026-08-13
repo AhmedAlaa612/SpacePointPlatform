@@ -19,7 +19,7 @@ silently no-op'ing against the old run's already-used key.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.games.run import GameAnswer, GameParticipant, GameRun
@@ -42,6 +42,30 @@ async def create_run(db: AsyncSession, *, assignment: GameSessionAssignment, act
     return run
 
 
+async def get_or_create_open_run(db: AsyncSession, *, assignment: GameSessionAssignment, actor_id: uuid.UUID) -> GameRun:
+    """Resumable-run fix — `open_run` used to call `create_run` unconditionally,
+    so navigating away and clicking "Run" again orphaned the first lobby
+    (students stuck on it, instructor can't find it). Reuses an existing
+    `lobby`/`live` run for this assignment if one exists; self-heals by
+    ending any *other* stale `lobby` rows for the same assignment, since an
+    unstarted lobby has no participants-with-answers to lose."""
+    existing = await db.scalar(
+        select(GameRun)
+        .where(GameRun.assignment_id == assignment.id, GameRun.status.in_(["lobby", "live"]))
+        .order_by(GameRun.run_no.desc())
+        .limit(1)
+    )
+    if existing is not None:
+        await db.execute(
+            update(GameRun)
+            .where(GameRun.assignment_id == assignment.id, GameRun.status == "lobby", GameRun.id != existing.id)
+            .values(status="ended", ended_at=datetime.now(timezone.utc))
+        )
+        await db.flush()
+        return existing
+    return await create_run(db, assignment=assignment, actor_id=actor_id)
+
+
 async def join_run(db: AsyncSession, *, run: GameRun, user: User, avatar: str | None = None) -> GameParticipant:
     existing = await db.scalar(
         select(GameParticipant).where(GameParticipant.run_id == run.id, GameParticipant.user_id == user.id)
@@ -53,6 +77,19 @@ async def join_run(db: AsyncSession, *, run: GameRun, user: User, avatar: str | 
         nickname_snapshot=user.nickname or user.full_name, avatar=avatar,
     )
     db.add(participant)
+    await db.flush()
+    return participant
+
+
+async def update_participant_profile(
+    db: AsyncSession, *, participant: GameParticipant, nickname: str, avatar: str | None,
+) -> GameParticipant:
+    """Lobby-only per-game nickname/avatar override (D18) — a separate,
+    uncapped mechanism from the profile-level nickname reroll (D2); callers
+    enforce the lobby-only window (`run.status == "lobby"`), not this
+    function, matching join_run's own "just write the row" scope."""
+    participant.nickname_snapshot = nickname
+    participant.avatar = avatar
     await db.flush()
     return participant
 

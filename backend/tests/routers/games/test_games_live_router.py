@@ -352,3 +352,64 @@ async def test_leaderboard_broadcast_is_redacted_during_blackout(db, realtime_cl
     # Staff's own leaderboard fetch is unaffected by blackout.
     staff_board = await realtime_client.get(f"/games/live/runs/{run_id}/leaderboard", headers=_headers(instructor))
     assert staff_board.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_reveal_broadcast_carries_per_option_results_even_during_blackout(db, realtime_client, realtime_redis):
+    """World-class rework: D10 only hides *rank*, never which answer was
+    correct — every student's screen needs `results` to recolor red/green
+    on reveal, blackout or not."""
+    instructor = await _user(db)
+    assignment = await _assignment_with_questions(db, count=1, blackout_count=1)
+    await db.commit()
+
+    opened = await realtime_client.post(f"/games/live/assignments/{assignment.id}/runs", headers=_headers(instructor))
+    run_id = opened.json()["id"]
+    await realtime_client.post(f"/games/live/runs/{run_id}/start", headers=_headers(instructor))
+
+    pubsub = realtime_redis.pubsub()
+    await pubsub.subscribe(run_channel(run_id))
+    await pubsub.get_message(ignore_subscribe_messages=True, timeout=2)
+
+    await realtime_client.post(f"/games/live/runs/{run_id}/reveal", headers=_headers(instructor))
+
+    msg = None
+    for _ in range(5):
+        msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=2)
+        if msg is not None:
+            break
+    assert msg is not None
+    payload = json.loads(msg["data"])["payload"]
+    assert payload["blackout"] is True
+    assert "question_id" in payload
+    assert len(payload["results"]) == 2
+    assert any(r["is_correct"] for r in payload["results"])
+    await pubsub.aclose()
+
+
+@pytest.mark.asyncio
+async def test_question_started_broadcast_carries_a_started_at_timestamp(db, realtime_client, realtime_redis):
+    """Anchors every connected client's 3-2-1 lead-in / answer-timing clock
+    to the same server moment instead of drifting per-device."""
+    instructor = await _user(db)
+    assignment = await _assignment_with_questions(db, count=1)
+    await db.commit()
+
+    opened = await realtime_client.post(f"/games/live/assignments/{assignment.id}/runs", headers=_headers(instructor))
+    run_id = opened.json()["id"]
+
+    pubsub = realtime_redis.pubsub()
+    await pubsub.subscribe(run_channel(run_id))
+    await pubsub.get_message(ignore_subscribe_messages=True, timeout=2)
+
+    await realtime_client.post(f"/games/live/runs/{run_id}/start", headers=_headers(instructor))
+
+    msg = None
+    for _ in range(5):
+        msg = await pubsub.get_message(ignore_subscribe_messages=True, timeout=2)
+        if msg is not None:
+            break
+    assert msg is not None
+    payload = json.loads(msg["data"])["payload"]
+    assert payload["started_at"]  # a non-empty ISO timestamp string
+    await pubsub.aclose()

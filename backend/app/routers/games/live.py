@@ -26,6 +26,7 @@ the end).
 """
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -54,9 +55,9 @@ from app.services.games.realtime import get_realtime_redis_dep, safe_publish_to_
 from app.services.games.runs import (
     advance_run,
     count_questions,
-    create_run,
     end_run,
     get_current_question,
+    get_or_create_open_run,
     is_blackout_active,
     question_results,
     restart_run,
@@ -82,6 +83,16 @@ def _public_question(question: GameSessionQuestion, assignment: GameSessionAssig
         time_limit_seconds=question.time_limit_seconds or assignment.time_limit_seconds,
         max_points=max_points_for(question.points_mode),
     )
+
+
+def _question_started_payload(question: GameSessionQuestion, assignment: GameSessionAssignment) -> dict:
+    """`started_at` is broadcast-only, never persisted (no migration for
+    this rework) — a wall-clock moment generated fresh at broadcast time so
+    every connected client's 3-2-1 lead-in and answer-timing clock anchor
+    to the same instant instead of drifting per-device."""
+    payload = _public_question(question, assignment).model_dump(mode="json")
+    payload["started_at"] = datetime.now(timezone.utc).isoformat()
+    return payload
 
 
 def _live_question(question: GameSessionQuestion, assignment: GameSessionAssignment) -> LiveQuestionOut:
@@ -114,7 +125,7 @@ async def open_run(assignment_id: uuid.UUID, db: AsyncSession = Depends(get_db),
     assignment = await db.get(GameSessionAssignment, assignment_id)
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
-    run = await create_run(db, assignment=assignment, actor_id=current.id)
+    run = await get_or_create_open_run(db, assignment=assignment, actor_id=current.id)
     await db.commit()
     return await _run_out(db, run)
 
@@ -142,7 +153,7 @@ async def start(run_id: uuid.UUID, db: AsyncSession = Depends(get_db), rt: redis
     await db.commit()
     question = await get_current_question(db, run)
     assignment = await db.get(GameSessionAssignment, run.assignment_id)
-    await safe_publish_to_run(rt, str(run_id), "question_started", _public_question(question, assignment).model_dump(mode="json"))
+    await safe_publish_to_run(rt, str(run_id), "question_started", _question_started_payload(question, assignment))
     return await _run_out(db, run)
 
 
@@ -152,7 +163,15 @@ async def reveal(run_id: uuid.UUID, db: AsyncSession = Depends(get_db), rt: redi
     advancing position — broadcasts the leaderboard (redacted during
     blackout, D10) so every connected client moves to the between-
     questions view. Returns the full per-option results for the
-    instructor's own screen."""
+    instructor's own screen.
+
+    World-class rework: the broadcast now also carries `question_id` +
+    `results` (the same per-option counts/percentages/is_correct this
+    endpoint already returns over HTTP) — always included, blackout or
+    not, since D10 only hides *rank*, never which answer was correct. This
+    is what lets every student's screen recolor to red/green simultaneously
+    off one broadcast, instead of each one discovering correctness the
+    instant they personally submitted."""
     run = await _run_or_404(db, run_id)
     question = await get_current_question(db, run)
     if question is None:
@@ -163,15 +182,16 @@ async def reveal(run_id: uuid.UUID, db: AsyncSession = Depends(get_db), rt: redi
         current_question_position=run.current_question_position, total_questions=total,
         blackout_count=assignment.blackout_count,
     )
-    if blackout:
-        await safe_publish_to_run(rt, str(run_id), "leaderboard_update", {"blackout": True})
-    else:
+    results = await question_results(db, run=run, question=question)
+    payload = {"blackout": blackout, "question_id": str(question.id), "results": results}
+    if not blackout:
         board = await run_leaderboard(db, run_id)
-        await safe_publish_to_run(rt, str(run_id), "leaderboard_update", {"blackout": False, "leaderboard": [
+        payload["leaderboard"] = [
             {"participant_id": str(r["participant_id"]), "nickname": r["nickname"], "avatar": r["avatar"], "score": r["score"]}
             for r in board
-        ]})
-    return await question_results(db, run=run, question=question)
+        ]
+    await safe_publish_to_run(rt, str(run_id), "leaderboard_update", payload)
+    return results
 
 
 @router.post("/runs/{run_id}/next", response_model=GameRunOut)
@@ -184,7 +204,7 @@ async def next_question(run_id: uuid.UUID, db: AsyncSession = Depends(get_db), r
     else:
         question = await get_current_question(db, run)
         assignment = await db.get(GameSessionAssignment, run.assignment_id)
-        await safe_publish_to_run(rt, str(run_id), "question_started", _public_question(question, assignment).model_dump(mode="json"))
+        await safe_publish_to_run(rt, str(run_id), "question_started", _question_started_payload(question, assignment))
     return await _run_out(db, run)
 
 

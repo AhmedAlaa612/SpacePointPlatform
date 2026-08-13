@@ -16,7 +16,8 @@ from app.models.sessions.program import Program
 from app.models.sessions.session import Session
 from app.models.user import User
 from app.services.games.runs import (
-    advance_run, create_run, get_current_question, join_run, run_leaderboard, start_run, submit_answer,
+    advance_run, create_run, get_current_question, get_or_create_open_run, join_run,
+    run_leaderboard, start_run, submit_answer,
 )
 from app.services.games.scoring import score_answer
 from app.services.lms.leaderboard import leaderboard as platform_leaderboard
@@ -269,3 +270,72 @@ async def test_game_points_flow_into_the_platform_leaderboard_with_no_extra_plum
     entry = next(row for row in board if row["user_id"] == student.id)
     assert entry["display_name"] == "LedgerCheck99"
     assert entry["points"] == 200
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_open_run_creates_when_none_exists(db):
+    assignment = await _assignment_with_questions(db, count=1)
+    student = await _user(db)
+    await db.flush()
+    run = await get_or_create_open_run(db, assignment=assignment, actor_id=student.id)
+    assert run.run_no == 1
+    assert run.status == "lobby"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_open_run_resumes_an_existing_lobby(db):
+    """The resumable-run fix: navigating away and clicking "Run" again must
+    land on the same lobby, not orphan it behind a second one."""
+    assignment = await _assignment_with_questions(db, count=1)
+    student = await _user(db)
+    await db.flush()
+    first = await get_or_create_open_run(db, assignment=assignment, actor_id=student.id)
+    again = await get_or_create_open_run(db, assignment=assignment, actor_id=student.id)
+    assert again.id == first.id
+    assert again.run_no == first.run_no
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_open_run_resumes_an_existing_live_run(db):
+    assignment = await _assignment_with_questions(db, count=1)
+    student = await _user(db)
+    await db.flush()
+    run = await get_or_create_open_run(db, assignment=assignment, actor_id=student.id)
+    await start_run(db, run=run)
+    resumed = await get_or_create_open_run(db, assignment=assignment, actor_id=student.id)
+    assert resumed.id == run.id
+    assert resumed.status == "live"
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_open_run_self_heals_stale_sibling_lobbies(db):
+    """Simulates the pre-fix bug's leftover state: two "lobby" rows for the
+    same assignment (from two separate old-behavior create_run calls).
+    Resolving should pick the newest and end the other, not just ignore it."""
+    assignment = await _assignment_with_questions(db, count=1)
+    student = await _user(db)
+    await db.flush()
+    stale = await create_run(db, assignment=assignment, actor_id=student.id)
+    newest = await create_run(db, assignment=assignment, actor_id=student.id)
+    assert stale.status == "lobby" and newest.status == "lobby"
+
+    resolved = await get_or_create_open_run(db, assignment=assignment, actor_id=student.id)
+    assert resolved.id == newest.id
+
+    await db.refresh(stale)
+    assert stale.status == "ended"
+    assert stale.ended_at is not None
+
+
+@pytest.mark.asyncio
+async def test_get_or_create_open_run_does_not_touch_an_ended_run(db):
+    assignment = await _assignment_with_questions(db, count=1)
+    student = await _user(db)
+    await db.flush()
+    ended_run = await create_run(db, assignment=assignment, actor_id=student.id)
+    ended_run.status = "ended"
+    await db.flush()
+
+    fresh = await get_or_create_open_run(db, assignment=assignment, actor_id=student.id)
+    assert fresh.id != ended_run.id
+    assert fresh.run_no == ended_run.run_no + 1

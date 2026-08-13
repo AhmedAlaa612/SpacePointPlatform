@@ -10,6 +10,7 @@ import pytest
 from fastapi import status as http_status
 
 from app.core.security import create_access_token
+from app.models.instructors.invitation_code import InvitationCode
 from app.models.user import User
 from app.services.nicknames import assign_nickname
 
@@ -30,7 +31,13 @@ def _headers(user: User) -> dict:
 
 @pytest.mark.asyncio
 async def test_student_signup_gets_a_nickname_immediately(db, client):
+    # Signup is invite-only as of 2026-08-13.
+    db.add(InvitationCode(
+        id=uuid.uuid4(), code="NICKBATCH", kind="student", is_active=True, max_uses=100, used_count=0,
+    ))
+    await db.commit()
     resp = await client.post("/auth/signup", json={
+        "invite_code": "NICKBATCH",
         "full_name": "New Explorer", "email": f"explorer-{uuid.uuid4().hex[:8]}@example.com", "password": "verypass123",
     })
     assert resp.status_code == 201, resp.text

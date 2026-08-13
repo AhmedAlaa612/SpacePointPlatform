@@ -1,7 +1,7 @@
 /** Live game student play API (Live Games Phase 2C, 8-8) — thin wrapper
  * over `/games/play/*`. Types mirror `schemas/games_play.py`. */
 import { api } from "@/api/client";
-import type { GameRun, PublicQuestion } from "@/api/games_live";
+import type { GameRun, PublicQuestion, RosterEntry } from "@/api/games_live";
 
 export interface JoinableRun {
   run_id: string;
@@ -45,6 +45,12 @@ export const getJoinableRunsApi = () => api.get<JoinableRun[]>("/games/play/join
 
 export const joinRunApi = (runId: string, avatar?: string | null) =>
   api.post<Participant>(`/games/play/runs/${runId}/join`, { avatar: avatar ?? null }).then((r) => r.data);
+
+export const updateMyProfileApi = (runId: string, nickname: string, avatar: string | null) =>
+  api.patch<Participant>(`/games/play/runs/${runId}/me`, { nickname, avatar }).then((r) => r.data);
+
+export const getPlayRosterApi = (runId: string) =>
+  api.get<RosterEntry[]>(`/games/play/runs/${runId}/roster`).then((r) => r.data);
 
 export const getPlayRunApi = (runId: string) => api.get<GameRun>(`/games/play/runs/${runId}`).then((r) => r.data);
 

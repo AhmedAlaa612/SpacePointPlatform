@@ -27,7 +27,7 @@ from app.models.games.session_assignment import GameSessionAssignment
 from app.models.sessions.registration import Registration
 from app.models.sessions.session import Session
 from app.models.user import User
-from app.schemas.games_live import GameRunOut, PublicQuestionOptionOut, PublicQuestionOut
+from app.schemas.games_live import GameRunOut, PublicQuestionOptionOut, PublicQuestionOut, RosterEntryOut
 from app.schemas.games_play import (
     AnswerAckOut,
     JoinableRunOut,
@@ -36,9 +36,10 @@ from app.schemas.games_play import (
     ParticipantOut,
     StudentLeaderboardEntryOut,
     SubmitAnswerIn,
+    UpdateParticipantProfileIn,
 )
 from app.services.games.points import max_points_for
-from app.services.games.realtime import get_realtime_redis_dep, publish_to_participant
+from app.services.games.realtime import get_realtime_redis_dep, publish_to_participant, safe_publish_to_run
 from app.services.games.runs import (
     count_questions,
     get_current_question,
@@ -47,7 +48,9 @@ from app.services.games.runs import (
     participant_score,
     participant_streak,
     run_leaderboard,
+    run_roster,
     submit_answer,
+    update_participant_profile,
 )
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
@@ -89,26 +92,73 @@ async def joinable_runs(db: AsyncSession = Depends(get_db), current: User = Depe
             .order_by(GameRun.created_at.desc())
         )
     ).all()
-    return [
-        JoinableRunOut(
+    # Defense-in-depth against stale duplicate lobby rows an assignment may
+    # already have from before get_or_create_open_run existed — rows are
+    # already ordered newest-first, so keeping the first occurrence per
+    # assignment_id keeps the most recent run and drops any orphaned ones.
+    seen_assignments: set[uuid.UUID] = set()
+    out = []
+    for run, game_title, session_title, meeting_date in rows:
+        if run.assignment_id in seen_assignments:
+            continue
+        seen_assignments.add(run.assignment_id)
+        out.append(JoinableRunOut(
             run_id=run.id, assignment_id=run.assignment_id, game_title=game_title, status=run.status,
             session_title=session_title, session_date=meeting_date.isoformat(),
-        )
-        for run, game_title, session_title, meeting_date in rows
-    ]
+        ))
+    return out
 
 
 @router.post("/runs/{run_id}/join", response_model=ParticipantOut, status_code=status.HTTP_201_CREATED)
-async def join(run_id: uuid.UUID, body: JoinRunIn, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user)):
+async def join(
+    run_id: uuid.UUID, body: JoinRunIn, db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user), rt=Depends(get_realtime_redis_dep),
+):
     run = await _run_or_404(db, run_id)
     if run.status == "ended":
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This game has ended")
     participant = await join_run(db, run=run, user=current, avatar=body.avatar)
     await db.commit()
+    await safe_publish_to_run(rt, str(run_id), "participant_joined", {
+        "participant_id": str(participant.id), "nickname": participant.nickname_snapshot,
+        "avatar": participant.avatar, "joined_at": participant.joined_at.isoformat() if participant.joined_at else None,
+    })
     return ParticipantOut(
         id=participant.id, run_id=participant.run_id, nickname=participant.nickname_snapshot,
         avatar=participant.avatar, joined_at=participant.joined_at,
     )
+
+
+@router.patch("/runs/{run_id}/me", response_model=ParticipantOut)
+async def update_my_profile(
+    run_id: uuid.UUID, body: UpdateParticipantProfileIn, db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user), rt=Depends(get_realtime_redis_dep),
+):
+    """Lobby-only per-game nickname/avatar override (D18) — locked once the
+    run leaves 'lobby' so identity never shifts mid-leaderboard."""
+    run = await _run_or_404(db, run_id)
+    if run.status != "lobby":
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Can't change your profile once the game has started")
+    participant = await _my_participant(db, run_id, current.id)
+    participant = await update_participant_profile(db, participant=participant, nickname=body.nickname, avatar=body.avatar)
+    await db.commit()
+    await safe_publish_to_run(rt, str(run_id), "participant_updated", {
+        "participant_id": str(participant.id), "nickname": participant.nickname_snapshot, "avatar": participant.avatar,
+    })
+    return ParticipantOut(
+        id=participant.id, run_id=participant.run_id, nickname=participant.nickname_snapshot,
+        avatar=participant.avatar, joined_at=participant.joined_at,
+    )
+
+
+@router.get("/runs/{run_id}/roster", response_model=list[RosterEntryOut])
+async def student_roster(run_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user)):
+    """Same redacted shape the staff console uses — nickname/avatar only,
+    never a real name. Powers the student's own lobby "who's here" view."""
+    run = await _run_or_404(db, run_id)
+    await _my_participant(db, run_id, current.id)
+    roster = await run_roster(db, run=run)
+    return [RosterEntryOut(**r) for r in roster]
 
 
 @router.get("/runs/{run_id}", response_model=GameRunOut)
@@ -176,6 +226,11 @@ async def answer(
             await publish_to_participant(rt, str(run_id), str(current.id), "answer_ack", ack.model_dump(mode="json"))
         except Exception:
             pass  # HTTP response already carries the same data — a dropped broadcast isn't fatal here
+    # Shared-channel broadcast, deliberately NOT the private answer_ack above
+    # — this only says "someone answered," never who or whether they were
+    # right, so it's safe on the run channel every student shares. Ticks the
+    # instructor's live answered-count without waiting on the 3s poll.
+    await safe_publish_to_run(rt, str(run_id), "participant_answered", {"participant_id": str(participant.id)})
     return ack
 
 
