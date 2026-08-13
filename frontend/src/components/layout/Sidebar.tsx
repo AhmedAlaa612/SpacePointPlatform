@@ -107,6 +107,9 @@ const ICONS: Record<string, LucideIcon> = {
   Fulfilment: Wrench,
   "Delivery Settings": SettingsIcon,
   Catalogue: ClipboardList,
+  Learn: GraduationCap,
+  Students: Users,
+  "Invite Codes": Ticket,
 };
 
 /** Inventory nav, shared by every role that can see it (I1-4). */
@@ -142,9 +145,11 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Curriculum", "/lms-authoring/curriculum"),
       mk("Learning Paths", "/lms-authoring/learning-paths"),
       mk("Live Quiz", "/lms-authoring/games"),
-      mk("Progress Grid", "/lms-authoring/progress"),
-      mk("Prerequisites", "/lms-authoring/prerequisites"),
-      mk("Mission Proposals", "/lms-authoring/mission-proposals"),
+      mk("Progress", "/lms-authoring/progress"),
+      mk("Missions", "/lms-authoring/missions"),
+      mk("Component library", "/lms-authoring/design-library"),
+      mk("Students", "/lms-authoring/students"),
+      mk("Invite Codes", "/lms-authoring/invite-codes"),
       mk(
         "Back",
         activeRole === "facilitator" ? "/instructors/facilitator/training" : "/operations/dashboard",
@@ -160,13 +165,14 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       return [
         mk("Stock", "/operations/inventory/stock"),
         mk("Fulfilment", "/operations/inventory/fulfilment"),
+        mk("Learn", "/learn"),
         mk("Profile & Settings", "/operations/profile"),
       ];
     }
     // I1-4: the COO approves inventory movement. Sessions and registrations
     // aren't theirs — `require_operations` rejects `coo` too.
     if (activeRole === "coo") {
-      return INVENTORY_NAV.map(([label, to]) => mk(label, to));
+      return [...INVENTORY_NAV.map(([label, to]) => mk(label, to)), mk("Learn", "/learn")];
     }
     return [
       mk("Dashboard", "/operations/dashboard"),
@@ -174,6 +180,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Cohorts", "/operations/cohorts"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("LMS Courses", "/lms-authoring/courses"),
+      mk("Learn", "/learn"),
       mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
     ];
@@ -184,6 +191,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("User Management", "/admin/users"),
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
+      mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       // I0-1: admin previously had NO navigational path into the registration/
       // sessions system at all — S6-2 stripped these pages from the admin
@@ -200,6 +208,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
         mk("Sessions", "/ambassadors/admin/sessions"),
         mk("Titles", "/ambassadors/admin/titles"),
         mk("Badges", "/ambassadors/admin/badges"),
+        mk("Learn", "/learn"),
         mk("Settings", "/ambassadors/admin/settings"),
       ];
     }
@@ -211,6 +220,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
         mk("Documents", "/ambassadors/documents"),
         mk("ID Card", "/ambassadors/id-card"),
         mk("Leaderboard", "/ambassadors/leaderboard"),
+        mk("Learn", "/learn"),
       ];
     }
     return [
@@ -222,6 +232,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Documents", "/ambassadors/documents"),
       mk("ID Card", "/ambassadors/id-card"),
       mk("Leaderboard", "/ambassadors/leaderboard"),
+      mk("Learn", "/learn"),
     ];
   }
   if (pathname.startsWith("/instructors")) {
@@ -234,6 +245,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
         mk("Facilitators", "/instructors/admin/facilitators"),
         mk("Payments", "/instructors/admin/payments"),
         mk("Certificates", "/instructors/admin/certificates"),
+        mk("Learn", "/learn"),
       ];
     }
     if (activeRole === "facilitator") {
@@ -243,6 +255,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
         mk("Training", "/instructors/facilitator/training"),
         mk("Library", "/instructors/facilitator/library"),
         mk("LMS Courses", "/lms-authoring/courses"),
+        mk("Learn", "/learn"),
         mk("Personal Documents", "/instructors/personal-documents"),
         mk("Instructor ID Card", "/instructors/id-card"),
         mk("Application", "/instructors/facilitator/application"),
@@ -253,6 +266,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
         mk("Status", "/instructors/status"),
         mk("Videos", "/instructors/videos"),
         mk("Modules", "/instructors/modules"),
+        mk("Learn", "/learn"),
       ];
     }
     return [
@@ -261,6 +275,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("My Kits & Items", "/instructors/my-holdings"),
       mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
+      mk("Learn", "/learn"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Instructor ID Card", "/instructors/id-card"),
       mk("Payments", "/instructors/payments"),
@@ -272,6 +287,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
         mk("Dashboard", "/interns"),
         mk("Tracker", "/interns/tracker"),
         mk("Team Management", "/interns/admin"),
+        mk("Learn", "/learn"),
       ];
     }
     return [
@@ -281,6 +297,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Manage Missions", "/interns/manage-missions"),
       mk("Documents", "/interns/documents"),
       mk("ID Card", "/interns/id-card"),
+      mk("Learn", "/learn"),
     ];
   }
   // Fallback based on activeRole (no domain in path yet).
@@ -294,6 +311,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Documents", "/ambassadors/documents"),
       mk("ID Card", "/ambassadors/id-card"),
       mk("Leaderboard", "/ambassadors/leaderboard"),
+      mk("Learn", "/learn"),
     ];
   }
   if (activeRole === "teacher") {
@@ -304,6 +322,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Documents", "/ambassadors/documents"),
       mk("ID Card", "/ambassadors/id-card"),
       mk("Leaderboard", "/ambassadors/leaderboard"),
+      mk("Learn", "/learn"),
     ];
   }
   if (activeRole === "applicant") {
@@ -311,6 +330,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Status", "/instructors/status"),
       mk("Videos", "/instructors/videos"),
       mk("Modules", "/instructors/modules"),
+      mk("Learn", "/learn"),
     ];
   }
   if (activeRole === "instructor") {
@@ -320,6 +340,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("My Kits & Items", "/instructors/my-holdings"),
       mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
+      mk("Learn", "/learn"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Instructor ID Card", "/instructors/id-card"),
       mk("Payments", "/instructors/payments"),
@@ -334,6 +355,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Training", "/instructors/facilitator/training"),
       mk("Library", "/instructors/facilitator/library"),
       mk("LMS Courses", "/lms-authoring/courses"),
+      mk("Learn", "/learn"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Profile & Settings", "/instructors/profile"),
       mk("Application", "/instructors/facilitator/application"),
@@ -345,6 +367,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("User Management", "/admin/users"),
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
+      mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       mk("Operations", "/operations/dashboard"),
     ];
@@ -356,6 +379,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Cohorts", "/operations/cohorts"),
       mk("Sessions Calendar", "/operations/calendar"),
       mk("LMS Courses", "/lms-authoring/courses"),
+      mk("Learn", "/learn"),
       mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
     ];
@@ -364,12 +388,14 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Stock", "/operations/inventory/stock"),
       mk("Fulfilment", "/operations/inventory/fulfilment"),
+      mk("Learn", "/learn"),
       mk("Profile & Settings", "/operations/profile"),
     ];
   }
   if (activeRole === "coo") {
     return [
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+      mk("Learn", "/learn"),
       mk("Profile & Settings", "/operations/profile"),
     ];
   }
@@ -381,6 +407,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Manage Missions", "/interns/manage-missions"),
       mk("Documents", "/interns/documents"),
       mk("ID Card", "/interns/id-card"),
+      mk("Learn", "/learn"),
     ];
   }
   return [];

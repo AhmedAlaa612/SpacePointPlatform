@@ -21,19 +21,25 @@ then patched:
   an explicit `is_saved` flag the caller passes in, backed by a real
   recorded fact instead of a timestamp heuristic (`DesignLinkBudgetEntry.
   is_saved`).
-- **F8** (per-component energy is computed then thrown away; only
-  instantaneous power is checked) — the per-orbit/per-day energy totals
-  are now *returned*, not discarded, even though the pass/fail check is
-  still instantaneous power vs. solar generation (matching Madar's actual
-  documented behavior — a full battery/depth-of-discharge model is P7-8,
-  explicitly optional/day-scale scope, not bundled here).
+- **F8** (per-component energy computed then thrown away; only
+  instantaneous power checked) — closed by `calc_energy_budget`, which
+  balances energy over a whole orbit and checks the battery's depth of
+  discharge through eclipse. Instantaneous power vs. generation is still
+  checked too; both matter, and a design can pass one and fail the other.
+- **F7** (the data budget never meets the link budget) — closed by
+  `calc_downlink_budget`. MISSIONS_REPORT.md called this "the single most
+  valuable systems-engineering lesson the tool is missing."
 
-F4 (a student can raise their own mass/volume limit) and F7 (data budget
-never checks against link capacity) are fixed one layer up, not here:
-F4 by making `max_allowed_mass_kg`/`available_internal_volume_cm3` inputs
-the caller derives from a hardcoded CubeSat-size preset table plus the
-mission variant's read-only `config`, never a student-editable column;
-F7 is P7-8 (optional).
+F4 (a student raising their own mass/volume limit) is fixed one layer up,
+by deriving `max_allowed_mass_kg`/`available_internal_volume_cm3` from a
+hardcoded CubeSat-size preset plus the variant's read-only `config`, never
+a student-editable column.
+
+**Why F7 and F8 belong together.** Both are cross-checks that consume the
+CONOPS matrix rather than a single budget's own inputs: F7 needs the Ground
+Station mode's duration, F8 needs the eclipse mode's. That is what makes
+the matrix load-bearing for four budgets instead of two, and it is the
+whole reason `MISSIONS_REPORT.md` §1.4 called it the best idea in Madar.
 """
 
 from __future__ import annotations
@@ -55,10 +61,22 @@ CUBESAT_PRESETS = {
 }
 
 
+# CONOPS mode roles. `position` is a reliable key because modes are not
+# authorable: `ensure_default_modes` creates exactly these four and the only
+# write endpoint is `save_mode_duration`, so a student can change how long a
+# mode lasts but never rename, add or remove one. If modes ever become
+# authorable this needs an explicit `role` column instead.
+MODE_SUN_POINTING = 0
+MODE_NADIR_POINTING = 1
+MODE_GROUND_STATION = 2
+MODE_ECLIPSE = 3
+
+
 @dataclass
 class ModeInput:
     id: str
     duration_min: float
+    position: int = -1
 
 
 @dataclass
@@ -146,6 +164,135 @@ def calc_data_budget(
         total_per_orbit_kb=round(total_per_orbit, 4), total_per_day_kb=round(total_per_day, 4),
         total_stored_per_day_kb=round(total_stored, 4), total_sent_per_day_kb=round(total_sent, 4),
         storage_remaining_kb=round(remaining, 4),
+    )
+
+
+# ── Downlink budget: data ↔ link ↔ CONOPS (F7) ────────────────────────────
+
+@dataclass
+class DownlinkBudgetResult:
+    is_valid: bool
+    has_data: bool
+    data_to_downlink_per_orbit_kb: float
+    downlink_capacity_per_orbit_kb: float
+    downlink_margin_kb: float
+    contact_minutes: float
+    utilisation_pct: float
+
+
+def calc_downlink_budget(
+    *, total_sent_per_day_kb: float, orbits_per_day: float, modes: list[ModeInput],
+    data_rate_kbps: float | None, link_is_saved: bool, required_margin_fraction: float = 0.10,
+) -> DownlinkBudgetResult:
+    """Can you actually get your science down?
+
+    Three numbers from three different steps meet here for the first time:
+    how much data you decided to send (data budget), how fast your radio is
+    (link budget), and how long the ground station is in view each orbit
+    (CONOPS). Madar computed the first, asked for the second, and never
+    compared them — so a student could specify 500 MB/day over a 9,600 bps
+    radio and pass every check.
+
+    `required_margin_fraction` reserves headroom, because a real pass is
+    never used at 100% efficiency: acquisition, handshaking and
+    retransmission all eat into it.
+    """
+    contact_min = sum(m.duration_min for m in modes if m.position == MODE_GROUND_STATION)
+    demand = (total_sent_per_day_kb / orbits_per_day) if orbits_per_day else 0.0
+    # kbps x seconds / 8 = kilobytes.
+    capacity = ((data_rate_kbps or 0.0) * contact_min * 60.0) / 8.0
+    usable = capacity * (1.0 - required_margin_fraction)
+
+    # Evaluable as soon as there is a link to evaluate against. Note that
+    # sending *nothing* is a failure, not a pass: a spacecraft that stores
+    # science forever and never downlinks it has no mission, and treating
+    # "Stored" as a way to skip this check would let a student sidestep the
+    # whole lesson by ticking one dropdown.
+    has_data = link_is_saved
+    return DownlinkBudgetResult(
+        is_valid=has_data and total_sent_per_day_kb > 0 and demand <= usable,
+        has_data=has_data,
+        data_to_downlink_per_orbit_kb=round(demand, 4),
+        downlink_capacity_per_orbit_kb=round(capacity, 4),
+        downlink_margin_kb=round(usable - demand, 4),
+        contact_minutes=round(contact_min, 4),
+        utilisation_pct=round((demand / capacity * 100.0), 2) if capacity > 0 else 0.0,
+    )
+
+
+# ── Energy budget: the orbit's energy balance and the battery (F8) ────────
+
+@dataclass
+class EnergyBudgetResult:
+    is_valid: bool
+    has_data: bool
+    sunlit_minutes: float
+    eclipse_minutes: float
+    generated_per_orbit_mwh: float
+    consumed_per_orbit_mwh: float
+    energy_margin_mwh: float
+    energy_balance_ok: bool
+    eclipse_draw_mwh: float
+    battery_capacity_mwh: float
+    depth_of_discharge_pct: float
+    max_depth_of_discharge_pct: float
+    depth_of_discharge_ok: bool
+
+
+def calc_energy_budget(
+    *, components: list[ComponentInput], modes: list[ModeInput], orbit_duration_min: float,
+    generated_power_mw: float, battery_capacity_wh: float | None,
+    max_depth_of_discharge_pct: float = 30.0,
+) -> EnergyBudgetResult:
+    """Two checks the power budget alone cannot make.
+
+    **Is the orbit sustainable?** The array only generates while the
+    spacecraft is in sunlight, and the illumination fraction is already in
+    the student's own CONOPS — it is whatever they did *not* allocate to
+    the eclipse mode. Energy in over a whole orbit has to cover energy out,
+    or the battery trends down every lap until the spacecraft dies. This is
+    the check that catches sizing an array for peak load.
+
+    **Does the battery survive the night?** Everything left running through
+    eclipse comes out of the battery. Discharging a lithium cell too deeply
+    every orbit — sixteen times a day, for years — is what actually kills
+    satellites, which is why depth of discharge is a hard limit rather than
+    a guideline. The limit is variant-owned, not student-editable (the F4
+    lesson): the student sizes the battery, the mission sets the rule.
+    """
+    eclipse_min = sum(m.duration_min for m in modes if m.position == MODE_ECLIPSE)
+    sunlit_min = max(0.0, orbit_duration_min - eclipse_min)
+
+    consumed = eclipse_draw = 0.0
+    eclipse_ids = {m.id for m in modes if m.position == MODE_ECLIPSE}
+    has_power_data = False
+    for c in components:
+        if c.voltage_v is not None or c.current_ma is not None:
+            has_power_data = True
+        v = c.voltage_v if c.voltage_v is not None else 0.0
+        i = c.current_ma if c.current_ma is not None else 0.0
+        p = v * i
+        consumed += p * c.active_minutes(modes) / 60.0
+        if c.on_mode_ids & eclipse_ids:
+            eclipse_draw += p * eclipse_min / 60.0
+
+    generated = generated_power_mw * sunlit_min / 60.0
+    margin = generated - consumed
+    energy_ok = generated > 0 and margin >= 0
+
+    battery_mwh = (battery_capacity_wh or 0.0) * 1000.0
+    dod = (eclipse_draw / battery_mwh * 100.0) if battery_mwh > 0 else 0.0
+    dod_ok = battery_mwh > 0 and dod <= max_depth_of_discharge_pct
+
+    has_data = has_power_data and battery_capacity_wh is not None and battery_capacity_wh > 0
+    return EnergyBudgetResult(
+        is_valid=has_data and energy_ok and dod_ok, has_data=has_data,
+        sunlit_minutes=round(sunlit_min, 4), eclipse_minutes=round(eclipse_min, 4),
+        generated_per_orbit_mwh=round(generated, 3), consumed_per_orbit_mwh=round(consumed, 3),
+        energy_margin_mwh=round(margin, 3), energy_balance_ok=energy_ok,
+        eclipse_draw_mwh=round(eclipse_draw, 3), battery_capacity_mwh=round(battery_mwh, 3),
+        depth_of_discharge_pct=round(dod, 2), max_depth_of_discharge_pct=max_depth_of_discharge_pct,
+        depth_of_discharge_ok=dod_ok,
     )
 
 

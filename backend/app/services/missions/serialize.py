@@ -24,13 +24,39 @@ def _sanitize_quiz_config(config: dict) -> dict:
     }
 
 
+def _sanitize_submission_config(config: dict) -> dict:
+    """A submission variant's brief is the one non-quiz config a student is
+    *meant* to read — it is the assignment. Rebuilt field by field like the
+    quiz sanitiser rather than passed through, so authoring a reviewer-only
+    note into the config can never leak it to the student."""
+    return {
+        "brief": config.get("brief") or "",
+        "deliverables": [
+            {"title": d.get("title", ""), "detail": d.get("detail", "")}
+            for d in (config.get("deliverables") or [])
+        ],
+        "rubric": [
+            {"criterion": r.get("criterion", ""), "detail": r.get("detail", "")}
+            for r in (config.get("rubric") or [])
+        ],
+        "accepted_formats": config.get("accepted_formats") or "",
+    }
+
+
 def variant_student_view(variant: MissionVariant, *, kind: str) -> dict:
     """The JSON-safe payload for a student-facing variant. `quiz` config is
-    rebuilt without `is_correct`/`explanation`; every other kind's config is
-    server-only working data (verifier instructions, constraints) with
-    nothing a student should read directly, so it's omitted entirely.
+    rebuilt without `is_correct`/`explanation`; `submission` config carries
+    the brief and rubric, which the student is meant to read; every other
+    kind's config is server-only working data (verifier instructions,
+    constraints) with nothing a student should see, so it's omitted.
     """
-    config = _sanitize_quiz_config(variant.config or {}) if kind == "quiz" else {}
+    raw = variant.config or {}
+    if kind == "quiz":
+        config = _sanitize_quiz_config(raw)
+    elif kind == "submission":
+        config = _sanitize_submission_config(raw)
+    else:
+        config = {}
     return {
         "id": str(variant.id),
         "label": variant.label,

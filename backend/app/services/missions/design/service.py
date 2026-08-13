@@ -34,9 +34,13 @@ from app.models.missions.design import (
     DesignMode,
     DesignPowerBudgetEntry,
 )
+from app.models.sessions.registration import Registration
+from app.models.user import User
 from app.services import storage
 from app.services.missions.design import rf_calc
 from app.services.missions.design.calculators import (
+    calc_downlink_budget,
+    calc_energy_budget,
     CUBESAT_PRESETS,
     ComponentInput,
     ModeInput,
@@ -60,6 +64,28 @@ DEFAULT_MODES = [
 
 # ── Design + variant config ─────────────────────────────────────────────
 
+async def resolve_student_cohort(db: AsyncSession, *, user_id: uuid.UUID) -> uuid.UUID | None:
+    """Which cohort a design belongs to — the student's most recent active
+    registration, or NULL for a standalone attempt outside any workshop.
+
+    This used to be the scope for per-cohort step gating (P7-7). That
+    feature is gone (Design v2 D1: instructors stay out of the mission, the
+    same call already made for operate), but the attribution is still worth
+    keeping: it is what lets the admin progress grid report designs by
+    cohort. It records where a design came from; it no longer gates
+    anything.
+    """
+    user = await db.get(User, user_id)
+    if user is None or user.contact_id is None:
+        return None
+    reg = (await db.execute(
+        select(Registration)
+        .where(Registration.contact_id == user.contact_id, Registration.status.in_(["registered", "attended"]))
+        .order_by(Registration.created_at.desc())
+    )).scalars().first()
+    return reg.cohort_id if reg else None
+
+
 async def get_or_404(db: AsyncSession, design_id: uuid.UUID) -> Design:
     design = await db.get(Design, design_id)
     if design is None:
@@ -79,6 +105,10 @@ def variant_thresholds(config: dict) -> dict:
         "transmit_power_dbm": config.get("transmit_power_dbm", 30.0),
         "good_link_margin_threshold_db": config.get("good_link_margin_threshold_db", 3.0),
         "weak_link_margin_threshold_db": config.get("weak_link_margin_threshold_db", 0.0),
+        # Design v2 (7D-2) — F8 and F7 thresholds. Variant-owned like every
+        # other limit here, never a student-editable column.
+        "max_depth_of_discharge_pct": config.get("max_depth_of_discharge_pct", 30.0),
+        "required_downlink_margin_fraction": config.get("required_downlink_margin_fraction", 0.10),
     }
 
 
@@ -302,7 +332,7 @@ async def _component_inputs(db: AsyncSession, *, design_id: uuid.UUID) -> list[C
 
 async def _mode_inputs(db: AsyncSession, *, design_id: uuid.UUID) -> list[ModeInput]:
     modes = await ensure_default_modes(db, design_id=design_id)
-    return [ModeInput(id=str(m.id), duration_min=m.duration_min) for m in modes]
+    return [ModeInput(id=str(m.id), duration_min=m.duration_min, position=m.position) for m in modes]
 
 
 # ── The dashboard: composes all six calculators + step status ──────────
@@ -351,12 +381,35 @@ async def compute_dashboard(db: AsyncSession, *, design: Design, variant_config:
         is_saved=bool(link_entry and link_entry.is_saved), link_status=link_status_str, margin_db=link_margin,
     )
 
+    # Design v2 (7D-2) — the two cross-checks Madar left open. Both read the
+    # CONOPS matrix rather than one budget's own inputs, which is what makes
+    # that matrix load-bearing for four budgets instead of two.
+    downlink = calc_downlink_budget(
+        total_sent_per_day_kb=data.total_sent_per_day_kb,
+        orbits_per_day=design.orbits_per_day or 1.0,
+        modes=modes,
+        data_rate_kbps=(link_entry.data_rate_kbps if link_entry else None),
+        link_is_saved=bool(link_entry and link_entry.is_saved),
+        required_margin_fraction=thresholds["required_downlink_margin_fraction"],
+    )
+    energy = calc_energy_budget(
+        components=components, modes=modes,
+        orbit_duration_min=design.orbit_duration_min or 0.0,
+        generated_power_mw=power.generated_power_mw,
+        battery_capacity_wh=design.battery_capacity_wh,
+        max_depth_of_discharge_pct=thresholds["max_depth_of_discharge_pct"],
+    )
+
     steps = {
         "components": {"has_data": len(components) > 0, "is_valid": len(components) > 0},
         "conops": {"has_data": conops.has_data, "is_valid": conops.is_valid},
         "data_budget": {"has_data": data.has_data, "is_valid": data.is_valid},
         "power_budget": {"has_data": power.has_data, "is_valid": power.is_valid},
+        "energy_budget": {"has_data": energy.has_data, "is_valid": energy.is_valid},
         "link_budget": {"has_data": link.has_data, "is_valid": link.is_valid},
+        # Not a tab of its own — a constraint that spans Data, Link and
+        # CONOPS. The dashboard's alerts say which of the three to change.
+        "downlink": {"has_data": downlink.has_data, "is_valid": downlink.is_valid},
         "mass_budget": {"has_data": mass.has_data, "is_valid": mass.is_valid},
         "cost_budget": {"has_data": cost.has_data, "is_valid": cost.is_valid},
     }
@@ -364,6 +417,7 @@ async def compute_dashboard(db: AsyncSession, *, design: Design, variant_config:
 
     return {
         "conops": conops, "data": data, "power": power, "link": link, "mass": mass, "cost": cost,
+        "downlink": downlink, "energy": energy,
         "steps": steps, "all_valid": all_valid,
         "cubesat_limits": limits, "thresholds": thresholds,
     }

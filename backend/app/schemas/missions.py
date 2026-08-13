@@ -22,11 +22,34 @@ class MissionQuizConfigOut(BaseModel):
     questions: list[QuizQuestionOut]
 
 
+class MissionDeliverableOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str
+    detail: str
+
+
+class MissionRubricRowOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    criterion: str
+    detail: str
+
+
+class MissionSubmissionConfigOut(BaseModel):
+    """The assignment itself — what to hand in and how it will be judged.
+    Unlike every other non-quiz config this is *for* the student."""
+
+    model_config = ConfigDict(extra="forbid")
+    brief: str = ""
+    deliverables: list[MissionDeliverableOut] = []
+    rubric: list[MissionRubricRowOut] = []
+    accepted_formats: str = ""
+
+
 class MissionEmptyConfigOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-MissionVariantConfig = MissionQuizConfigOut | MissionEmptyConfigOut
+MissionVariantConfig = MissionQuizConfigOut | MissionSubmissionConfigOut | MissionEmptyConfigOut
 
 
 class MissionVariantSummaryOut(BaseModel):

@@ -136,12 +136,13 @@ async def test_complete_design_end_to_end_through_http(db, client):
 
     await client.patch(
         f"/missions/design/attempts/{attempt_id}", headers=h,
-        json={"orbit_duration_min": 90.0, "orbits_per_day": 15.0, "selected_solar_cells": 5},
+        json={"orbit_duration_min": 90.0, "orbits_per_day": 15.0, "selected_solar_cells": 5,
+              "battery_capacity_wh": 10.0},
     )
 
     await client.post(
         f"/missions/design/attempts/{attempt_id}/components/{dc_id}/data-budget", headers=h,
-        json={"data_size_per_measurement_kb": 0.1, "measurements_per_minute": 1.0, "storage_mode": "Stored"},
+        json={"data_size_per_measurement_kb": 0.1, "measurements_per_minute": 1.0, "storage_mode": "Both"},
     )
     await client.post(
         f"/missions/design/attempts/{attempt_id}/components/{dc_id}/power-budget", headers=h,

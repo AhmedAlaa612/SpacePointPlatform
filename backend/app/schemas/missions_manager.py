@@ -37,3 +37,18 @@ class MissionStatsOut(BaseModel):
 class MyManagedMissionOut(BaseModel):
     mission_id: UUID
     title: str
+
+
+class MissionContentOut(BaseModel):
+    """Design v2 (7D-8) — the explanatory copy a mission manager may edit
+    on a published mission, alongside the authored default for each field
+    so an editor can always see what they changed."""
+
+    mission_id: UUID
+    mission_kind: str
+    mission_status: str
+    editable: dict = {}
+
+
+class MissionContentUpdateIn(BaseModel):
+    content: dict = {}

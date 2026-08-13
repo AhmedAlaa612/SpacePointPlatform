@@ -88,14 +88,17 @@ class DesignComponentLibrary(Base):
     datasheet_url = Column(String(512), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), nullable=True)
+    # Design v2 (7D-7) — the audit trail that bounds D7's decision to let
+    # mission managers, not just staff, edit this global catalog. An edit is
+    # seen by every design mission, so it has to be attributable.
+    updated_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
 
 class Design(Base):
     """One student's (or team's) satellite design — one per
-    `MissionAttempt`. `cohort_id` is the P7-7 step-gating scope: NULL means
-    this design was started outside a gated cohort context and every step
-    is always open (a standalone attempt, mirroring how a standalone
-    mission attempt needs no cohort at all)."""
+    `MissionAttempt`. `cohort_id` records which cohort this design was started in, for
+    admin reporting. It is attribution only — it gated budget steps until
+    Design v2 D1 removed instructor-paced release entirely."""
 
     __tablename__ = "designs"
 
@@ -109,6 +112,10 @@ class Design(Base):
     orbit_duration_min = Column(Float, nullable=True)
     orbits_per_day = Column(Float, nullable=True)
     selected_cubesat_size = Column(String(4), nullable=False, default="1U", server_default="1U")
+    # Design v2 (7D-2, D4) — the student sizes the battery; the variant owns
+    # the depth-of-discharge limit it is checked against (the F4 lesson: a
+    # student never sets their own pass threshold).
+    battery_capacity_wh = Column(Float, nullable=True)
     selected_solar_cells = Column(Integer, nullable=False, default=0, server_default="0")
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -282,22 +289,3 @@ class DesignLinkBudgetEntry(Base):
     updated_at = Column(DateTime(timezone=True), nullable=True)
 
 
-class DesignStepGate(Base):
-    """Server-side step gating, per cohort (P7-7) — replaces Madar's
-    `page_access`, which was enforced only in the browser (S1: the budget
-    API endpoints had no page-access dependency at all; a student who knew
-    the URL bypassed the entire instructor-paced release mechanism). A
-    missing row for `(cohort_id, step_key)` means locked, matching Madar's
-    own "defaults to locked" behavior for the five budget steps —
-    Mission Setup / Components / CONOPS are never gated at all."""
-
-    __tablename__ = "design_step_gates"
-    __table_args__ = (
-        PrimaryKeyConstraint("cohort_id", "step_key", name="pk_design_step_gates"),
-    )
-
-    cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False)
-    # data_budget|power_budget|link_budget|mass_budget|cost_budget
-    step_key = Column(String(20), nullable=False)
-    is_unlocked = Column(Boolean, nullable=False, default=False, server_default="false")
-    updated_at = Column(DateTime(timezone=True), nullable=True)

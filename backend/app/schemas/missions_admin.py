@@ -123,11 +123,31 @@ class MissionTeamAdminOut(BaseModel):
     member_names: list[str] = []
 
 
-class DesignStepGateOut(BaseModel):
-    step_key: str
-    label: str
-    is_unlocked: bool
 
 
-class DesignStepGateUpdateIn(BaseModel):
-    is_unlocked: bool
+class MissionAssignmentOut(BaseModel):
+    id: UUID
+    user_id: UUID
+    user_name: str
+    user_email: str
+    mission_id: UUID
+    source: str
+    status: str
+    granted_by: UUID | None = None
+    created_at: datetime | None = None
+
+
+class MissionAssignmentGrantIn(BaseModel):
+    user_id: UUID
+
+
+class MissionBulkAssignIn(BaseModel):
+    """Role-only — missions have no cohort curriculum table the way courses
+    do, so there is no cohort-based bulk path here (BulkGrantIn's other
+    branch)."""
+    role: str
+
+
+class MissionBulkAssignOut(BaseModel):
+    granted: int
+    already_assigned: int

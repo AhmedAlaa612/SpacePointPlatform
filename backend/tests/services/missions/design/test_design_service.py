@@ -122,7 +122,9 @@ async def _build_passing_design(db, design_id, library_id):
         await design_service.save_mode_duration(db, design_mode_id=m.id, duration_min=90 / len(modes))
     await design_service.save_data_entry(
         db, design_component_id=dc.id, data_size_per_measurement_kb=0.1,
-        measurements_per_minute=1.0, storage_mode="Stored",
+        # Design v2: "Both" — stored on board *and* downlinked. The F7 check
+        # treats sending nothing as a failed mission, not a skipped step.
+        measurements_per_minute=1.0, storage_mode="Both",
     )
     await design_service.save_power_entry(db, design_component_id=dc.id, voltage_v=5.0, current_ma=100.0)
     await design_service.save_mass_entry(db, design_component_id=dc.id)
@@ -136,6 +138,7 @@ async def _build_passing_design(db, design_id, library_id):
     design.orbit_duration_min = 90.0
     design.orbits_per_day = 15.0
     design.selected_solar_cells = 5
+    design.battery_capacity_wh = 10.0  # Design v2 (D4) — the energy step needs one
     await db.flush()
 
 

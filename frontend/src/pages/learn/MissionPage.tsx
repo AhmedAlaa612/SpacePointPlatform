@@ -5,8 +5,10 @@ import { CheckCircle2, ChevronRight, Lock, Rocket, Sparkles, Users, XCircle } fr
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-  createTeam, fetchMission, startMissionAttempt, submitQuizAttempt, submitSubmissionAttempt,
-  type MissionAttempt, type MissionDetail, type MissionQuizReview, type MissionTeam,
+  createTeam, fetchMission, startMissionAttempt, submissionBrief, submitQuizAttempt,
+  submitSubmissionAttempt,
+  type MissionAttempt, type MissionDetail, type MissionQuizReview, type MissionSubmissionBrief,
+  type MissionTeam,
 } from "@/api/missions";
 
 function errorDetail(err: unknown, fallback: string): string {
@@ -71,38 +73,56 @@ export default function MissionPage() {
     return mission.attempts[mission.attempts.length - 1];
   }, [mission]);
 
+  const decided = activeAttempt?.status === "passed" || activeAttempt?.status === "failed";
+
   // A design mission is a whole nine-step wizard and an operate mission is
   // a live console — neither is a single attempt form, each lives at its
-  // own route, keyed on the attempt (P7-5 / Stage 7B-4). Any existing
+  // own route, keyed on the attempt (P7-5 / Stage 7B-4). An in-progress
   // attempt sends the student straight there: design attempts never
-  // become "failed" (stay in_progress until ready), operate attempts can,
-  // but a decided operate attempt is still best viewed on its own console
-  // (it shows the final telemetry/score), not back on this generic page.
+  // become "failed" (stay in_progress until ready), operate attempts can.
+  // A *decided* operate attempt stays on this page instead — its own
+  // console has no way back to the variant picker, so redirecting there
+  // unconditionally trapped a passed/failed student with no way to ever
+  // retry at a different difficulty (this page's own decided-state panel,
+  // below, already has the "Try again" + variant picker for exactly this).
   useEffect(() => {
     if (!mission || !activeAttempt) return;
     if (mission.kind === "design") {
       navigate({ to: "/learn/missions/design/$attemptId", params: { attemptId: activeAttempt.id }, replace: true });
-    } else if (mission.kind === "operate") {
+    } else if (mission.kind === "operate" && !decided) {
       navigate({ to: "/learn/missions/operate/$attemptId", params: { attemptId: activeAttempt.id }, replace: true });
     }
-  }, [mission, activeAttempt, navigate]);
+  }, [mission, activeAttempt, decided, navigate]);
 
   const handleStart = async () => {
     if (!mission || !selectedVariantId) return;
     if (asTeam && !selectedTeamId) return;
+    // Design and operate missions both go to a briefing first (7D-4 /
+    // 7C-7). No attempt row is created until the student presses "Begin"
+    // there — reading what the mission is must never cost a retry, and both
+    // ports used to drop students straight into a wizard or a live console
+    // with no idea what any of it meant.
+    if (mission.kind === "design") {
+      navigate({
+        to: "/learn/missions/design/brief/$missionId",
+        params: { missionId: mission.id },
+        search: { variant: selectedVariantId, team: asTeam ? selectedTeamId! : undefined },
+      });
+      return;
+    }
+    if (mission.kind === "operate") {
+      navigate({
+        to: "/learn/missions/operate/brief/$missionId",
+        params: { missionId: mission.id },
+        search: { variant: selectedVariantId, team: asTeam ? selectedTeamId! : undefined },
+      });
+      return;
+    }
     setStarting(true);
     setStartError("");
     setQuizReview(null);
     try {
-      const attempt = await startMissionAttempt(mission.id, selectedVariantId, asTeam ? selectedTeamId! : undefined);
-      if (mission.kind === "design") {
-        navigate({ to: "/learn/missions/design/$attemptId", params: { attemptId: attempt.id } });
-        return;
-      }
-      if (mission.kind === "operate") {
-        navigate({ to: "/learn/missions/operate/$attemptId", params: { attemptId: attempt.id } });
-        return;
-      }
+      await startMissionAttempt(mission.id, selectedVariantId, asTeam ? selectedTeamId! : undefined);
       load();
     } catch (err) {
       setStartError(errorDetail(err, "Couldn't start this mission right now."));
@@ -132,7 +152,6 @@ export default function MissionPage() {
 
   const selectedVariant = mission.variants.find((v) => v.id === selectedVariantId) ?? mission.variants[0];
   const inProgress = activeAttempt?.status === "in_progress";
-  const decided = activeAttempt?.status === "passed" || activeAttempt?.status === "failed";
 
   return (
     <div className="mx-auto max-w-[900px] px-5 sm:px-8 py-6 sm:py-8 flex flex-col gap-6">
@@ -168,6 +187,10 @@ export default function MissionPage() {
         />
       )}
 
+      {mission.kind === "submission" && selectedVariant && (
+        <SubmissionBriefPanel brief={submissionBrief(selectedVariant.config)} />
+      )}
+
       {inProgress && mission.kind === "submission" && (
         <MissionSubmissionForm attemptId={activeAttempt.id} onSubmitted={load} />
       )}
@@ -200,6 +223,15 @@ export default function MissionPage() {
             </p>
             {activeAttempt.score != null && <p className="text-xs text-muted-foreground mt-0.5">Score: {activeAttempt.score}</p>}
           </div>
+          {mission.kind === "operate" && (
+            <Link
+              to="/learn/missions/operate/$attemptId"
+              params={{ attemptId: activeAttempt.id }}
+              className="ml-auto shrink-0 text-xs text-primary hover:opacity-80"
+            >
+              View debrief
+            </Link>
+          )}
         </Card>
       )}
 
@@ -270,7 +302,17 @@ export default function MissionPage() {
             size="xl" className="w-fit" onClick={() => void handleStart()}
             disabled={starting || !selectedVariantId || mission.locked || (asTeam && !selectedTeamId)}
           >
-            {mission.locked ? "Locked" : starting ? "Starting..." : decided ? "Try again" : "Start mission"}
+            {mission.locked
+              ? "Locked"
+              : starting
+                ? "Starting..."
+                : mission.kind === "design"
+                  ? (decided ? "Design again — read the briefing" : "Read the design briefing")
+                  : mission.kind === "operate"
+                  // The briefing is the next step, not the flight — say so,
+                  // or a student clicks expecting the clock to start.
+                  ? (decided ? "Fly again — read the briefing" : "Read the pre-flight briefing")
+                  : decided ? "Try again" : "Start mission"}
           </Button>
           {startError && <p className="text-xs text-destructive">{startError}</p>}
         </Card>
@@ -448,6 +490,77 @@ function MissionQuizForm({
         {submitting ? "Submitting..." : "Submit"}
       </Button>
       {submitError && <p className="text-xs text-destructive">{submitError}</p>}
+    </Card>
+  );
+}
+
+/** The assignment for a `submission` mission (Design v2, D6).
+ *
+ * Before this, a submission mission was a URL box and a mission
+ * description — a student had no statement of what to hand in or how it
+ * would be judged. The brief is authored in the variant's config and
+ * rebuilt field by field by `services/missions/serialize.py`, so it is the
+ * one non-quiz config a student is meant to read.
+ *
+ * Shown whether or not an attempt has been started: you should be able to
+ * read the assignment before committing to it, same reasoning as the
+ * design and operate briefings. */
+function SubmissionBriefPanel({ brief }: { brief: MissionSubmissionBrief | null }) {
+  if (!brief || (!brief.brief && brief.deliverables.length === 0)) return null;
+  return (
+    <Card className="p-5 flex flex-col gap-4">
+      {brief.brief && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
+            The assignment
+          </p>
+          <p className="text-sm leading-relaxed">{brief.brief}</p>
+        </div>
+      )}
+
+      {brief.deliverables.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            What to include
+          </p>
+          {brief.deliverables.map((d, i) => (
+            <div key={d.title} className="flex gap-3">
+              <span className="shrink-0 size-5 rounded-full bg-muted text-[10px] font-mono flex items-center justify-center mt-0.5">
+                {i + 1}
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{d.title}</p>
+                <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">{d.detail}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {brief.rubric.length > 0 && (
+        <div className="flex flex-col gap-2 border-t border-border/60 pt-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              How it will be judged
+            </p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              A reviewer reads against these. You are allowed to know them.
+            </p>
+          </div>
+          {brief.rubric.map((r) => (
+            <div key={r.criterion} className="flex flex-col gap-0.5">
+              <p className="text-xs font-medium">{r.criterion}</p>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">{r.detail}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {brief.accepted_formats && (
+        <p className="text-[11px] text-muted-foreground border-t border-border/60 pt-3">
+          <span className="font-semibold text-foreground">Format: </span>{brief.accepted_formats}
+        </p>
+      )}
     </Card>
   );
 }

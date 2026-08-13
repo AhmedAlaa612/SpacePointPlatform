@@ -137,6 +137,69 @@ export interface Dashboard {
   };
   cost: { total_cost_aed: number; cost_margin_aed: number; maximum_budget_aed: number };
   link: { margin_db: number; status: string };
+  /** Design v2 (7D-2, F8/D4) — energy over a whole orbit, and the battery. */
+  energy: {
+    sunlit_minutes: number; eclipse_minutes: number;
+    generated_per_orbit_mwh: number; consumed_per_orbit_mwh: number;
+    energy_margin_mwh: number; energy_balance_ok: boolean;
+    eclipse_draw_mwh: number; battery_capacity_mwh: number;
+    depth_of_discharge_pct: number; max_depth_of_discharge_pct: number; depth_of_discharge_ok: boolean;
+  };
+  /** Design v2 (7D-2, F7) — can you actually get the data down? */
+  downlink: {
+    data_to_downlink_per_orbit_kb: number; downlink_capacity_per_orbit_kb: number;
+    downlink_margin_kb: number; contact_minutes: number; utilisation_pct: number;
+  };
+  /** Design v2 (7D-3) — the payoff screen Madar had and the port dropped. */
+  overall: { label: string; all_valid: boolean; errors: number; warnings: number; incomplete: number };
+  kpis: Record<string, number>;
+  margins: MarginRow[];
+  module_cards: ModuleCard[];
+  charts: DesignCharts;
+  alerts: DesignAlert[];
+  recommendations: Recommendation[];
+}
+
+export type MarginStatus = "good" | "tight" | "fail" | "incomplete";
+
+export interface MarginRow {
+  key: string;
+  label: string;
+  value: number;
+  unit: string;
+  status: MarginStatus;
+  interpretation: string;
+}
+
+export interface ModuleCard {
+  key: string;
+  title: string;
+  status: MarginStatus;
+  kpi1_label: string;
+  kpi1_value: string;
+  kpi2_label: string;
+  kpi2_value: string;
+  tab: string;
+}
+
+export interface DesignAlert {
+  severity: "error" | "warning" | "info" | "success";
+  step: string | null;
+  message: string;
+}
+
+export interface Recommendation {
+  key: string;
+  title: string;
+  message: string;
+  why: string;
+}
+
+export interface DesignCharts {
+  power_by_subsystem: { subsystem: string; value: number }[];
+  mass_by_subsystem: { subsystem: string; value: number }[];
+  cost_by_subsystem: { subsystem: string; value: number }[];
+  mode_distribution: { mode_name: string; duration_min: number }[];
 }
 
 export interface DesignState {
@@ -153,6 +216,7 @@ export interface DesignState {
   orbits_per_day: number | null;
   selected_cubesat_size: string;
   selected_solar_cells: number;
+  battery_capacity_wh: number | null;
   created_at: string | null;
   components: DesignComponent[];
   modes: DesignMode[];
@@ -160,7 +224,8 @@ export interface DesignState {
   cubesat_presets: CubeSatPreset[];
   band_presets: Record<string, BandPreset>;
   dashboard: Dashboard;
-  locked_steps: string[];
+  /** F9 — what this teaching model simplifies, stated rather than hidden. */
+  assumptions: string[];
 }
 
 export async function fetchDesignState(attemptId: string): Promise<DesignState> {
@@ -177,6 +242,7 @@ export async function updateDesign(attemptId: string, body: Partial<{
   design_name: string; design_objective: string; orbit_type: string;
   orbit_duration_min: number; orbits_per_day: number;
   selected_cubesat_size: string; selected_solar_cells: number;
+  battery_capacity_wh: number;
 }>): Promise<DesignState> {
   const { data } = await api.patch<DesignState>(`/missions/design/attempts/${attemptId}`, body);
   return data;
@@ -230,5 +296,64 @@ export async function saveLinkBudget(attemptId: string, body: Omit<LinkEntry, "i
 
 export async function completeDesign(attemptId: string): Promise<DesignState> {
   const { data } = await api.post<DesignState>(`/missions/design/attempts/${attemptId}/complete`);
+  return data;
+}
+
+// ── Teaching surfaces (Design v2, 7D-4 / 7D-5) ──────────────────────────
+
+export interface DesignBriefing {
+  mission_id: string;
+  mission_title: string;
+  mission_summary: string | null;
+  variant_id: string;
+  variant_label: string;
+  points: number;
+  what_is_a_budget: string;
+  step_order: { key: string; label: string; detail: string; depends_on: string[] }[];
+  limits: { key: string; label: string; value: string; detail: string }[];
+  cubesat_sizes: { size: string; max_mass_kg: number; available_volume_cm3: number }[];
+  budgets: { key: string; title: string; checks: string; why_it_matters: string }[];
+  assumptions: string[];
+}
+
+export interface HandbookBudget {
+  key: string;
+  title: string;
+  checks: string;
+  formula: string;
+  means?: string;
+  fails_when?: string;
+  why_it_matters?: string;
+  fix?: string;
+}
+
+export interface HandbookMistake {
+  key: string;
+  title: string;
+  symptom: string;
+  steps: string[];
+  meaning?: string;
+  fix?: string;
+}
+
+export interface DesignHandbook {
+  disclosure: "full" | "symptoms" | "reference";
+  what_is_a_budget: string;
+  step_order: { key: string; label: string; detail: string; depends_on: string[] }[];
+  budgets: HandbookBudget[];
+  data_types: { name: string; detail: string }[];
+  mistakes: HandbookMistake[];
+  assumptions: string[];
+}
+
+export async function fetchDesignBriefing(missionId: string, variantId?: string): Promise<DesignBriefing> {
+  const { data } = await api.get<DesignBriefing>(`/missions/design/briefing/${missionId}`, {
+    params: variantId ? { variant_id: variantId } : undefined,
+  });
+  return data;
+}
+
+export async function fetchDesignHandbook(attemptId: string): Promise<DesignHandbook> {
+  const { data } = await api.get<DesignHandbook>(`/missions/design/attempts/${attemptId}/handbook`);
   return data;
 }

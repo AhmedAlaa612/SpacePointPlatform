@@ -54,9 +54,23 @@ export interface MissionQuizQuestion {
   options: { text: string }[];
 }
 
+/** A submission variant's brief — the one non-quiz config a student is
+ * meant to read, because it *is* the assignment (Design v2, D6). */
+export interface MissionSubmissionBrief {
+  brief: string;
+  deliverables: { title: string; detail: string }[];
+  rubric: { criterion: string; detail: string }[];
+  accepted_formats: string;
+}
+
 export type MissionVariantConfig =
   | Record<string, never>
-  | { pass_threshold: number; questions: MissionQuizQuestion[] };
+  | { pass_threshold: number; questions: MissionQuizQuestion[] }
+  | MissionSubmissionBrief;
+
+export function submissionBrief(config: MissionVariantConfig): MissionSubmissionBrief | null {
+  return "brief" in config ? (config as MissionSubmissionBrief) : null;
+}
 
 export interface MissionVariant {
   id: string;

@@ -135,6 +135,8 @@ import MissionCatalog from "@/pages/learn/MissionCatalog";
 import MissionPage from "@/pages/learn/MissionPage";
 import DesignMissionPage from "@/pages/learn/DesignMissionPage";
 import OperateMissionPage from "@/pages/learn/OperateMissionPage";
+import OperateBriefingPage from "@/pages/learn/OperateBriefingPage";
+import DesignBriefingPage from "@/pages/learn/DesignBriefingPage";
 
 // LMS authoring surface (LM1-13) — shared by operations + facilitator
 // (backend's require_lms_content), own top-level path so one URL space works
@@ -146,8 +148,12 @@ import LmsCurriculum from "@/pages/lms-authoring/LmsCurriculum";
 import LmsLearningPaths from "@/pages/lms-authoring/LmsLearningPaths";
 import LmsLearningPathDetail from "@/pages/lms-authoring/LmsLearningPathDetail";
 import LmsProgressGrid from "@/pages/lms-authoring/LmsProgressGrid";
-import LmsPrerequisites from "@/pages/lms-authoring/LmsPrerequisites";
-import LmsMissionProposals from "@/pages/lms-authoring/LmsMissionProposals";
+import LmsMissions from "@/pages/lms-authoring/LmsMissions";
+import LmsDesignLibrary from "@/pages/lms-authoring/LmsDesignLibrary";
+import LmsMissionDetail from "@/pages/lms-authoring/LmsMissionDetail";
+import LmsStudents from "@/pages/lms-authoring/LmsStudents";
+import LmsStudentDetail from "@/pages/lms-authoring/LmsStudentDetail";
+import LmsInviteCodes from "@/pages/lms-authoring/LmsInviteCodes";
 import LmsGames from "@/pages/lms-authoring/LmsGames";
 import LmsGameDetail from "@/pages/lms-authoring/LmsGameDetail";
 
@@ -725,8 +731,20 @@ const lmsAuthoringRoutes = [
   createRoute({ getParentRoute: pla, path: "/learning-paths", component: LmsLearningPaths }),
   createRoute({ getParentRoute: pla, path: "/learning-paths/$pathId", component: LmsLearningPathDetail }),
   createRoute({ getParentRoute: pla, path: "/progress", component: LmsProgressGrid }),
-  createRoute({ getParentRoute: pla, path: "/prerequisites", component: LmsPrerequisites }),
-  createRoute({ getParentRoute: pla, path: "/mission-proposals", component: LmsMissionProposals }),
+  createRoute({ getParentRoute: pla, path: "/missions", component: LmsMissions }),
+  // Design v2 (7D-7). Its own section, not per-mission admin: the
+  // component library has no mission_id and every design mission reads it.
+  createRoute({ getParentRoute: pla, path: "/design-library", component: LmsDesignLibrary }),
+  createRoute({ getParentRoute: pla, path: "/missions/$missionId", component: LmsMissionDetail }),
+  createRoute({
+    getParentRoute: pla, path: "/students", component: LmsStudents,
+    // ?invite_code=FALL26 — the invite-codes page deep-links into a batch.
+    validateSearch: (s: Record<string, unknown>) => ({
+      invite_code: typeof s.invite_code === "string" ? s.invite_code : undefined,
+    }),
+  }),
+  createRoute({ getParentRoute: pla, path: "/students/$userId", component: LmsStudentDetail }),
+  createRoute({ getParentRoute: pla, path: "/invite-codes", component: LmsInviteCodes }),
   createRoute({ getParentRoute: pla, path: "/games", component: LmsGames }),
   createRoute({ getParentRoute: pla, path: "/games/$gameId", component: LmsGameDetail }),
 ];
@@ -918,6 +936,34 @@ const learnOperateMissionRoute = createRoute({
   component: OperateMissionPage,
 });
 
+// Pre-design briefing (Design v2, 7D-4) — same split as the operate
+// briefing below: keyed on mission_id, read before an attempt exists, so
+// reading the flight rules never costs a retry.
+const learnDesignBriefingRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/missions/design/brief/$missionId",
+  component: DesignBriefingPage,
+  validateSearch: (search: Record<string, unknown>): { variant?: string; team?: string } => ({
+    variant: typeof search.variant === "string" ? search.variant : undefined,
+    team: typeof search.team === "string" ? search.team : undefined,
+  }),
+});
+
+// Pre-flight briefing (Operate v2, Stage 7C-7). Keyed on mission_id, not
+// attempt_id, because it is deliberately read *before* an attempt exists —
+// a student can re-read the flight rules as often as they like without
+// spending a retry. `?variant=` and `?team=` carry the choices made on the
+// mission page through to the "Begin flight" call that finally creates one.
+const learnOperateBriefingRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/missions/operate/brief/$missionId",
+  component: OperateBriefingPage,
+  validateSearch: (search: Record<string, unknown>): { variant?: string; team?: string } => ({
+    variant: typeof search.variant === "string" ? search.variant : undefined,
+    team: typeof search.team === "string" ? search.team : undefined,
+  }),
+});
+
 const learnProgramRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/programs/$cohortId",
@@ -955,7 +1001,8 @@ const routeTree = rootRoute.addChildren([
     learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
     learnPathsRoute, learnPathRoute, learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
     learnGamesRoute, learnGamePlayRoute,
-    learnMissionsRoute, learnDesignMissionRoute, learnOperateMissionRoute, learnMissionRoute,
+    learnMissionsRoute, learnDesignBriefingRoute, learnDesignMissionRoute, learnOperateBriefingRoute,
+    learnOperateMissionRoute, learnMissionRoute,
   ]),
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,

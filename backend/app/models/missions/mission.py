@@ -67,6 +67,12 @@ class Mission(Base):
     image_bucket = Column(String(64), nullable=True)
     image_path = Column(String(512), nullable=True)
     track = Column(String(80), nullable=True)  # free-text catalog grouping, matches courses.track
+    # D8 (Design v2) — authored *explanatory* content: briefing copy,
+    # handbook wording, advice text. Overrides only; anything absent falls
+    # back to the code-authored defaults. Unlike `mission_variants.config`
+    # this is always editable on a published mission, because changing an
+    # explanation can't re-grade anybody.
+    content = Column(JSONB, nullable=False, default=dict, server_default="{}")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

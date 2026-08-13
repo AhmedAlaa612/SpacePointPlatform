@@ -30,9 +30,16 @@ from app.db.session import get_db
 from app.models.missions.manager import MissionManager
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.missions.team import MissionTeam
+from app.models.missions.mission import Mission
 from app.models.user import User
+from app.services.missions.design import content as design_content
 from app.schemas.missions_admin import MissionAttemptAdminOut, MissionAttemptReviewIn
-from app.schemas.missions_manager import MissionStatsOut, MyManagedMissionOut
+from app.schemas.missions_manager import (
+    MissionContentOut,
+    MissionContentUpdateIn,
+    MissionStatsOut,
+    MyManagedMissionOut,
+)
 from app.services.missions.authorization import require_mission_manager_or_staff
 from app.services.missions.stats import mission_stats
 from app.services.missions.verifiers.submission import review_submission_attempt
@@ -108,3 +115,68 @@ async def manager_review_attempt(
     await db.commit()
     await db.refresh(reviewed)
     return await _attempt_admin_out(db, reviewed)
+
+
+# ── Authored content (Design v2, 7D-8 / D8) ─────────────────────────────
+
+@router.get("/{mission_id}/content", response_model=MissionContentOut)
+async def get_mission_content(
+    mission_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """The explanatory copy for this mission, with every field showing both
+    its current value and the authored default.
+
+    Editable while published, unlike `mission_variants.config` — that is
+    the D8 split, and the reason a mission manager is a useful role rather
+    than a read-only one. Changing how a budget is explained cannot change
+    anybody's grade.
+    """
+    await require_mission_manager_or_staff(db, mission_id=mission_id, user=current)
+    mission = await db.get(Mission, mission_id)
+    if mission is None:
+        raise HTTPException(404, detail="Mission not found")
+    return MissionContentOut(
+        mission_id=mission.id, mission_kind=mission.kind, mission_status=mission.status,
+        editable=design_content.editable_content(mission.content or {}) if mission.kind == "design" else {},
+    )
+
+
+@router.put("/{mission_id}/content", response_model=MissionContentOut)
+async def update_mission_content(
+    mission_id: uuid.UUID, body: MissionContentUpdateIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Overrides only. An empty string clears an override and restores the
+    default, so nothing is ever permanently lost to a bad edit."""
+    await require_mission_manager_or_staff(db, mission_id=mission_id, user=current)
+    mission = await db.get(Mission, mission_id)
+    if mission is None:
+        raise HTTPException(404, detail="Mission not found")
+    mission.content = _prune(body.content)
+    await db.commit()
+    return MissionContentOut(
+        mission_id=mission.id, mission_kind=mission.kind, mission_status=mission.status,
+        editable=design_content.editable_content(mission.content or {}) if mission.kind == "design" else {},
+    )
+
+
+def _prune(raw: dict) -> dict:
+    """Drop blanks so "cleared" means "back to the default" rather than
+    "overridden with nothing"."""
+    out: dict = {}
+    for key, value in (raw or {}).items():
+        if isinstance(value, str):
+            if value.strip():
+                out[key] = value
+        elif isinstance(value, list):
+            items = [str(v) for v in value if str(v).strip()]
+            if items:
+                out[key] = items
+        elif isinstance(value, dict):
+            nested = {k: {kk: vv for kk, vv in (v or {}).items() if isinstance(vv, str) and vv.strip()}
+                      for k, v in value.items()}
+            nested = {k: v for k, v in nested.items() if v}
+            if nested:
+                out[key] = nested
+    return out

@@ -46,7 +46,12 @@ from app.schemas.missions_design import (
     CostEntrySaveIn,
     CubeSatPresetOut,
     DashboardOut,
+    AlertOut,
     DataBudgetSummaryOut,
+    DesignBriefingOut,
+    DesignHandbookOut,
+    DownlinkBudgetSummaryOut,
+    EnergyBudgetSummaryOut,
     DataEntrySaveIn,
     DesignComponentAddIn,
     DesignComponentOut,
@@ -59,6 +64,10 @@ from app.schemas.missions_design import (
     DesignStateOut,
     DesignUpdateIn,
     LinkBudgetSummaryOut,
+    MarginRowOut,
+    ModuleCardOut,
+    OverallStatusOut,
+    RecommendationOut,
     LinkEntryOut,
     LinkEntrySaveIn,
     MassBudgetSummaryOut,
@@ -68,9 +77,10 @@ from app.schemas.missions_design import (
     StepStatusOut,
 )
 from app.services import storage
+from app.services.missions.design import content as design_content
+from app.services.missions.design import report as design_report
 from app.services.missions.design import service as design_service
 from app.services.missions.design.calculators import CUBESAT_PRESETS
-from app.services.missions.design.gating import GATED_STEPS, assert_step_unlocked, is_step_unlocked
 from app.services.missions.design.rf_calc import BAND_PRESETS
 from app.services.missions.verifiers.design import ensure_design, mark_design_complete
 from app.routers.missions.student import _own_attempt
@@ -87,6 +97,13 @@ async def _own_design_attempt(db: AsyncSession, attempt_id: uuid.UUID, user: Use
 
 
 async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design: Design) -> DesignStateOut:
+    """Callers must build this BEFORE `db.commit()`, not after — this
+    function's `ensure_default_modes()` call lazily creates the 4
+    `DesignMode` rows on first read, and only flushes them (never
+    commits). Committing first, then calling this, let those rows
+    survive just long enough to serialize into that one response before
+    the session closed and rolled them back — the next request's
+    `db.get()` on those now-nonexistent IDs 404'd with "Mode not found"."""
     mission = await db.get(Mission, attempt.mission_id)
     variant = await db.get(MissionVariant, attempt.variant_id)
 
@@ -158,11 +175,12 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
             notes=link_entry.notes, is_saved=link_entry.is_saved,
         )
 
-    locked_steps = [s for s in GATED_STEPS if not await is_step_unlocked(db, cohort_id=design.cohort_id, step_key=s)]
 
     dash = await design_service.compute_dashboard(db, design=design, variant_config=variant.config or {})
     thresholds = dash["thresholds"]
     limits = dash["cubesat_limits"]
+    margins = design_report.build_margins(dash, thresholds, limits)
+    alerts, recommendations = design_report.build_advice(dash, margins)
     dashboard_out = DashboardOut(
         all_valid=dash["all_valid"],
         steps={k: StepStatusOut(**v) for k, v in dash["steps"].items()},
@@ -192,6 +210,33 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
             maximum_budget_aed=thresholds["maximum_budget_aed"],
         ),
         link=LinkBudgetSummaryOut(margin_db=dash["link"].margin_db, status=dash["link"].status),
+        energy=EnergyBudgetSummaryOut(
+            sunlit_minutes=dash["energy"].sunlit_minutes, eclipse_minutes=dash["energy"].eclipse_minutes,
+            generated_per_orbit_mwh=dash["energy"].generated_per_orbit_mwh,
+            consumed_per_orbit_mwh=dash["energy"].consumed_per_orbit_mwh,
+            energy_margin_mwh=dash["energy"].energy_margin_mwh,
+            energy_balance_ok=dash["energy"].energy_balance_ok,
+            eclipse_draw_mwh=dash["energy"].eclipse_draw_mwh,
+            battery_capacity_mwh=dash["energy"].battery_capacity_mwh,
+            depth_of_discharge_pct=dash["energy"].depth_of_discharge_pct,
+            max_depth_of_discharge_pct=dash["energy"].max_depth_of_discharge_pct,
+            depth_of_discharge_ok=dash["energy"].depth_of_discharge_ok,
+        ),
+        downlink=DownlinkBudgetSummaryOut(
+            data_to_downlink_per_orbit_kb=dash["downlink"].data_to_downlink_per_orbit_kb,
+            downlink_capacity_per_orbit_kb=dash["downlink"].downlink_capacity_per_orbit_kb,
+            downlink_margin_kb=dash["downlink"].downlink_margin_kb,
+            contact_minutes=dash["downlink"].contact_minutes,
+            utilisation_pct=dash["downlink"].utilisation_pct,
+        ),
+        overall=OverallStatusOut(**design_report.overall_status(dash, margins)),
+        kpis=design_report.build_kpis(dash, len(component_out), len(mode_out)),
+        margins=[MarginRowOut(**m) for m in margins],
+        module_cards=[ModuleCardOut(**c) for c in design_report.build_module_cards(
+            dash, thresholds, len(component_out))],
+        charts=design_report.build_charts(component_out, mode_out),
+        alerts=[AlertOut(**a) for a in alerts],
+        recommendations=[RecommendationOut(**r) for r in recommendations],
     )
 
     return DesignStateOut(
@@ -200,13 +245,67 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
         design_name=design.design_name, design_objective=design.design_objective,
         orbit_type=design.orbit_type, orbit_duration_min=design.orbit_duration_min, orbits_per_day=design.orbits_per_day,
         selected_cubesat_size=design.selected_cubesat_size, selected_solar_cells=design.selected_solar_cells,
+        battery_capacity_wh=design.battery_capacity_wh,
         created_at=design.created_at,
         components=component_out, modes=mode_out, link_entry=link_out,
         cubesat_presets=[CubeSatPresetOut(size=k, **v) for k, v in CUBESAT_PRESETS.items()],
         band_presets=BAND_PRESETS,
         dashboard=dashboard_out,
-        locked_steps=locked_steps,
+        assumptions=design_content.ASSUMPTIONS,
     )
+
+
+@router.get("/briefing/{mission_id}", response_model=DesignBriefingOut)
+async def get_design_briefing(
+    mission_id: uuid.UUID, variant_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Pre-design briefing (7D-4). No attempt is created — a student can
+    read this as often as they like without spending a retry, which is why
+    it lives on its own route rather than inside the wizard."""
+    mission = await db.get(Mission, mission_id)
+    if mission is None or mission.kind != "design":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+
+    if variant_id is not None:
+        variant = await db.get(MissionVariant, variant_id)
+        if variant is None or variant.mission_id != mission.id:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Variant not found")
+    else:
+        variant = (await db.execute(
+            select(MissionVariant).where(MissionVariant.mission_id == mission.id)
+            .order_by(MissionVariant.position)
+        )).scalars().first()
+        if variant is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This mission has no difficulty variants")
+
+    return DesignBriefingOut(
+        mission_id=mission.id,
+        **design_content.apply_overrides(
+            design_content.briefing(variant, mission_title=mission.title, mission_summary=mission.summary),
+            mission.content or {},
+        ),
+    )
+
+
+@router.get("/attempts/{attempt_id}/handbook", response_model=DesignHandbookOut)
+async def get_design_handbook(
+    attempt_id: uuid.UUID, db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """The Design Handbook (7D-5) — available *while* designing at every
+    difficulty. What the variant controls is how much of the fix is written
+    down, via `config.handbook_disclosure`, the same knob the operate
+    mission uses."""
+    attempt = await _own_design_attempt(db, attempt_id, current)
+    variant = await db.get(MissionVariant, attempt.variant_id)
+    mission = await db.get(Mission, attempt.mission_id)
+    config = (variant.config or {}) if variant else {}
+    # D8 — the mission's own authored copy wins over the code defaults.
+    return DesignHandbookOut(**design_content.apply_overrides(
+        design_content.handbook(disclosure=str(config.get("handbook_disclosure", "full"))),
+        (mission.content or {}) if mission else {},
+    ))
 
 
 @router.get("/library", response_model=list[DesignLibraryComponentOut])
@@ -241,8 +340,9 @@ async def get_design_state(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
+    result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()
-    return await _design_state_out(db, attempt=attempt, design=design)
+    return result
 
 
 @router.patch("/attempts/{attempt_id}", response_model=DesignStateOut)
@@ -254,8 +354,9 @@ async def update_design(
     design = await ensure_design(db, attempt=attempt)
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(design, field, value)
+    result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()
-    return await _design_state_out(db, attempt=attempt, design=design)
+    return result
 
 
 @router.post("/attempts/{attempt_id}/components", response_model=DesignStateOut, status_code=status.HTTP_201_CREATED)
@@ -266,8 +367,9 @@ async def add_design_component(
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
     await design_service.add_component(db, design_id=design.id, library_component_id=body.library_component_id, quantity=body.quantity)
+    result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()
-    return await _design_state_out(db, attempt=attempt, design=design)
+    return result
 
 
 @router.delete("/attempts/{attempt_id}/components/{design_component_id}", response_model=DesignStateOut)
@@ -278,8 +380,9 @@ async def remove_design_component(
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
     await design_service.remove_component(db, design_id=design.id, design_component_id=design_component_id)
+    result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()
-    return await _design_state_out(db, attempt=attempt, design=design)
+    return result
 
 
 @router.post("/attempts/{attempt_id}/conops", response_model=DesignStateOut)
@@ -294,8 +397,9 @@ async def save_conops(
     for component_id, states in body.cell_states.items():
         for mode_id, is_on in states.items():
             await design_service.set_mode_state(db, design_component_id=component_id, design_mode_id=mode_id, is_on=is_on)
+    result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()
-    return await _design_state_out(db, attempt=attempt, design=design)
+    return result
 
 
 @router.post("/attempts/{attempt_id}/components/{design_component_id}/data-budget", response_model=DesignStateOut)
@@ -305,10 +409,10 @@ async def save_data_budget(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
-    await assert_step_unlocked(db, design=design, step_key="data_budget")
     await design_service.save_data_entry(db, design_component_id=design_component_id, **body.model_dump())
+    result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()
-    return await _design_state_out(db, attempt=attempt, design=design)
+    return result
 
 
 @router.post("/attempts/{attempt_id}/components/{design_component_id}/power-budget", response_model=DesignStateOut)
@@ -318,10 +422,10 @@ async def save_power_budget(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
-    await assert_step_unlocked(db, design=design, step_key="power_budget")
     await design_service.save_power_entry(db, design_component_id=design_component_id, **body.model_dump())
+    result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()
-    return await _design_state_out(db, attempt=attempt, design=design)
+    return result
 
 
 @router.post("/attempts/{attempt_id}/components/{design_component_id}/mass-budget", response_model=DesignStateOut)
@@ -331,10 +435,10 @@ async def save_mass_budget(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
-    await assert_step_unlocked(db, design=design, step_key="mass_budget")
     await design_service.save_mass_entry(db, design_component_id=design_component_id, **body.model_dump())
+    result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()
-    return await _design_state_out(db, attempt=attempt, design=design)
+    return result
 
 
 @router.post("/attempts/{attempt_id}/components/{design_component_id}/cost-budget", response_model=DesignStateOut)
@@ -344,10 +448,10 @@ async def save_cost_budget(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
-    await assert_step_unlocked(db, design=design, step_key="cost_budget")
     await design_service.save_cost_entry(db, design_component_id=design_component_id, **body.model_dump())
+    result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()
-    return await _design_state_out(db, attempt=attempt, design=design)
+    return result
 
 
 @router.post("/attempts/{attempt_id}/link-budget", response_model=DesignStateOut)
@@ -357,10 +461,10 @@ async def save_link_budget(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
-    await assert_step_unlocked(db, design=design, step_key="link_budget")
     await design_service.save_link_entry(db, design_id=design.id, **body.model_dump())
+    result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()
-    return await _design_state_out(db, attempt=attempt, design=design)
+    return result
 
 
 @router.post("/attempts/{attempt_id}/complete", response_model=DesignStateOut)
@@ -375,5 +479,6 @@ async def complete_design(
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
     await mark_design_complete(db, attempt=attempt)
+    result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()
-    return await _design_state_out(db, attempt=attempt, design=design)
+    return result

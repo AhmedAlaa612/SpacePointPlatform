@@ -180,6 +180,7 @@ class DesignUpdateIn(BaseModel):
     orbits_per_day: float | None = None
     selected_cubesat_size: Literal["1U", "2U", "3U", "6U"] | None = None
     selected_solar_cells: int | None = None
+    battery_capacity_wh: float | None = None
 
 
 # ── the dashboard (composed summary) ────────────────────────────────────
@@ -230,9 +231,72 @@ class LinkBudgetSummaryOut(BaseModel):
     status: str
 
 
+class EnergyBudgetSummaryOut(BaseModel):
+    sunlit_minutes: float
+    eclipse_minutes: float
+    generated_per_orbit_mwh: float
+    consumed_per_orbit_mwh: float
+    energy_margin_mwh: float
+    energy_balance_ok: bool
+    eclipse_draw_mwh: float
+    battery_capacity_mwh: float
+    depth_of_discharge_pct: float
+    max_depth_of_discharge_pct: float
+    depth_of_discharge_ok: bool
+
+
+class DownlinkBudgetSummaryOut(BaseModel):
+    data_to_downlink_per_orbit_kb: float
+    downlink_capacity_per_orbit_kb: float
+    downlink_margin_kb: float
+    contact_minutes: float
+    utilisation_pct: float
+
+
 class ConopsSummaryOut(BaseModel):
     total_mode_duration_min: float
     duration_difference_min: float
+
+
+class MarginRowOut(BaseModel):
+    key: str
+    label: str
+    value: float
+    unit: str
+    status: str  # good | tight | fail | incomplete
+    interpretation: str
+
+
+class ModuleCardOut(BaseModel):
+    key: str
+    title: str
+    status: str
+    kpi1_label: str
+    kpi1_value: str
+    kpi2_label: str
+    kpi2_value: str
+    tab: str
+
+
+class AlertOut(BaseModel):
+    severity: str  # error | warning | info | success
+    step: str | None = None
+    message: str
+
+
+class RecommendationOut(BaseModel):
+    key: str
+    title: str
+    message: str
+    why: str
+
+
+class OverallStatusOut(BaseModel):
+    label: str
+    all_valid: bool
+    errors: int
+    warnings: int
+    incomplete: int
 
 
 class DashboardOut(BaseModel):
@@ -244,6 +308,19 @@ class DashboardOut(BaseModel):
     mass: MassBudgetSummaryOut
     cost: CostBudgetSummaryOut
     link: LinkBudgetSummaryOut
+    energy: EnergyBudgetSummaryOut
+    downlink: DownlinkBudgetSummaryOut
+
+    # Design v2 (7D-3) — the payoff screen. Madar had all of this and the
+    # port rendered a boolean; the numbers were already here, the judgement
+    # was not.
+    overall: OverallStatusOut
+    kpis: dict
+    margins: list[MarginRowOut] = []
+    module_cards: list[ModuleCardOut] = []
+    charts: dict = {}
+    alerts: list[AlertOut] = []
+    recommendations: list[RecommendationOut] = []
 
 
 # ── the full state fetch ─────────────────────────────────────────────────
@@ -268,6 +345,7 @@ class DesignStateOut(BaseModel):
     orbits_per_day: float | None = None
     selected_cubesat_size: str
     selected_solar_cells: int
+    battery_capacity_wh: float | None = None
     created_at: datetime | None = None
 
     components: list[DesignComponentOut] = []
@@ -278,6 +356,94 @@ class DesignStateOut(BaseModel):
     band_presets: dict[str, dict] = {}
 
     dashboard: DashboardOut
-    # P7-7 — which of the five budget steps are locked for this design's
-    # cohort. Empty for a standalone (never-gated) attempt.
-    locked_steps: list[str] = []
+    # F9 — what the model simplifies, said out loud rather than hidden.
+    assumptions: list[str] = []
+
+
+# ── Teaching surfaces (Design v2, 7D-4 / 7D-5) ──────────────────────────
+
+class DesignBriefingOut(BaseModel):
+    """Read before designing. Served without an attempt existing, so opening
+    it never burns a retry."""
+
+    mission_id: UUID
+    mission_title: str
+    mission_summary: str | None = None
+    variant_id: UUID
+    variant_label: str
+    points: int
+    what_is_a_budget: str
+    step_order: list[dict]
+    limits: list[dict]
+    cubesat_sizes: list[dict]
+    budgets: list[dict]
+    assumptions: list[str]
+
+
+class DesignHandbookOut(BaseModel):
+    """The Design Handbook — open while designing, disclosure scaled by
+    variant exactly as the operate mission's Ops Handbook is."""
+
+    disclosure: str
+    what_is_a_budget: str
+    step_order: list[dict]
+    budgets: list[dict]
+    data_types: list[dict]
+    mistakes: list[dict]
+    assumptions: list[str]
+
+
+# ── Component library administration (Design v2, 7D-7) ──────────────────
+
+class LibraryComponentBase(BaseModel):
+    component_name: str | None = None
+    subsystem: str | None = None
+    tag: str | None = None
+    example_role: str | None = None
+    scaled_description: str | None = None
+    length_mm: float | None = None
+    width_mm: float | None = None
+    height_mm: float | None = None
+    scaled_mass_g: float | None = None
+    voltage_v: float | None = None
+    current_ma: float | None = None
+    data_size: str | None = None
+    assumed_cost_usd: float | None = None
+    temperature_range: str | None = None
+    key_specs: str | None = None
+    component_code: str | None = None
+    datasheet_url: str | None = None
+    notes: str | None = None
+
+
+class LibraryComponentCreateIn(LibraryComponentBase):
+    component_name: str
+    subsystem: str
+
+
+class LibraryComponentUpdateIn(LibraryComponentBase):
+    is_active: bool | None = None
+
+
+class LibraryComponentAdminOut(LibraryComponentBase):
+    id: UUID
+    component_name: str
+    subsystem: str
+    is_active: bool
+    image_url: str | None = None
+    updated_at: datetime | None = None
+    updated_by_name: str | None = None
+    # How many designs have ever added this. Retiring is safe at any count;
+    # this is here so an editor can see the blast radius of a *spec change*
+    # before making one.
+    used_in_designs: int = 0
+
+
+class LibraryBulkImportIn(BaseModel):
+    components: list[LibraryComponentCreateIn]
+
+
+class LibraryBulkImportOut(BaseModel):
+    created: int
+    updated: int
+    errors: list[str] = []

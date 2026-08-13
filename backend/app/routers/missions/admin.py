@@ -14,23 +14,25 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
-from app.models.missions.design import DesignStepGate
+from app.models.missions.assignment import MissionAssignment
 from app.models.missions.manager import MissionManager
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.missions.team import MissionTeam
 from app.models.user import User
 from app.schemas.lms_admin import AdminContentQuiz
 from app.schemas.missions_admin import (
-    DesignStepGateOut,
-    DesignStepGateUpdateIn,
     MissionAdminOut,
+    MissionAssignmentGrantIn,
+    MissionAssignmentOut,
     MissionAttemptAdminOut,
     MissionAttemptReviewIn,
+    MissionBulkAssignIn,
+    MissionBulkAssignOut,
     MissionCreate,
     MissionTeamAdminOut,
     MissionTeamCreateAdminIn,
@@ -42,13 +44,8 @@ from app.schemas.missions_admin import (
 from app.schemas.missions_manager import MissionManagerAssignIn, MissionManagerOut
 from app.services import storage
 from app.services.missions import create_team, team_member_ids
-from app.services.missions.design.gating import GATED_STEPS
+from app.services.missions.assignment import assign as assign_mission
 from app.services.missions.verifiers.submission import review_submission_attempt
-
-_STEP_LABELS = {
-    "data_budget": "Data Budget", "power_budget": "Power Budget", "link_budget": "Link Budget",
-    "mass_budget": "Mass Budget", "cost_budget": "Cost Budget",
-}
 
 router = APIRouter(prefix="/missions/admin", tags=["missions-admin"], dependencies=[Depends(require_lms_content)])
 
@@ -160,35 +157,6 @@ async def assign_team(
 # Registered before /{mission_id} for the same routing-order reason as
 # /teams above — 'design' would otherwise parse as a mission_id.
 
-@router.get("/design/step-gates", response_model=list[DesignStepGateOut])
-async def list_design_step_gates(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
-    rows = {
-        g.step_key: g for g in (await db.execute(
-            select(DesignStepGate).where(DesignStepGate.cohort_id == cohort_id)
-        )).scalars().all()
-    }
-    return [
-        DesignStepGateOut(step_key=key, label=_STEP_LABELS[key], is_unlocked=rows[key].is_unlocked if key in rows else False)
-        for key in sorted(GATED_STEPS)
-    ]
-
-
-@router.put("/design/step-gates/{cohort_id}/{step_key}", response_model=DesignStepGateOut)
-async def update_design_step_gate(
-    cohort_id: uuid.UUID, step_key: str, body: DesignStepGateUpdateIn, db: AsyncSession = Depends(get_db),
-):
-    if step_key not in GATED_STEPS:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"'{step_key}' is not a gated step")
-    gate = await db.get(DesignStepGate, (cohort_id, step_key))
-    if gate is None:
-        gate = DesignStepGate(cohort_id=cohort_id, step_key=step_key, is_unlocked=body.is_unlocked)
-        db.add(gate)
-    else:
-        gate.is_unlocked = body.is_unlocked
-    await db.commit()
-    return DesignStepGateOut(step_key=step_key, label=_STEP_LABELS[step_key], is_unlocked=gate.is_unlocked)
-
-
 @router.get("/{mission_id}", response_model=MissionAdminOut)
 async def get_mission(mission_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     mission = await _get_mission_or_404(db, mission_id)
@@ -203,6 +171,28 @@ async def update_mission(mission_id: uuid.UUID, body: MissionUpdate, db: AsyncSe
     await db.commit()
     await db.refresh(mission)
     return await _mission_admin_out(db, mission)
+
+
+@router.delete("/{mission_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_mission(mission_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Refuses if any attempt has ever been made (mirrors `delete_course`'s
+    guard, `routers/lms/admin.py`) — a mission with attempt history has real
+    student work behind it; archive it via `status` instead. Nothing else
+    references a mission with no attempts, so it cascades cleanly (variants,
+    managers, assignments)."""
+    mission = await _get_mission_or_404(db, mission_id)
+
+    attempt_count = await db.scalar(
+        select(func.count()).select_from(MissionAttempt).where(MissionAttempt.mission_id == mission_id)
+    )
+    if attempt_count:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"This mission has {attempt_count} attempt(s) and can't be deleted. Archive it instead.",
+        )
+
+    await db.delete(mission)
+    await db.commit()
 
 
 # ── mission managers (7B-7) — resource-scoped permission, staff-assigned ──
@@ -251,6 +241,86 @@ async def revoke_mission_manager(mission_id: uuid.UUID, user_id: uuid.UUID, db: 
     await db.commit()
 
 
+# ── mission assignment (2026-08-12) — bookkeeping, not a gate ────────────
+# Mirrors the enrollment grant/bulk/revoke/roster shape in
+# routers/lms/admin.py. Purely additive to `access_mode`: whether an
+# `invite` mission should require a row here before `MissionAttempt`
+# creation is an open question, deliberately not decided here — this is
+# just the admin-facing "who has this been given to" list.
+
+async def _assignment_out(db: AsyncSession, assignment: MissionAssignment) -> MissionAssignmentOut:
+    user = await db.get(User, assignment.user_id)
+    return MissionAssignmentOut(
+        id=assignment.id, user_id=assignment.user_id,
+        user_name=user.full_name if user else "(deleted user)",
+        user_email=user.email if user else "",
+        mission_id=assignment.mission_id, source=assignment.source, status=assignment.status,
+        granted_by=assignment.granted_by, created_at=assignment.created_at,
+    )
+
+
+@router.get("/{mission_id}/roster", response_model=list[MissionAssignmentOut])
+async def mission_roster(mission_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await _get_mission_or_404(db, mission_id)
+    rows = (await db.execute(
+        select(MissionAssignment).where(MissionAssignment.mission_id == mission_id)
+        .order_by(MissionAssignment.created_at.desc())
+    )).scalars().all()
+    return [await _assignment_out(db, a) for a in rows]
+
+
+@router.post(
+    "/{mission_id}/assignments", response_model=MissionAssignmentOut, status_code=status.HTTP_201_CREATED,
+)
+async def grant_mission_assignment(
+    mission_id: uuid.UUID, body: MissionAssignmentGrantIn,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_lms_content),
+):
+    if await db.get(User, body.user_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+    assignment = await assign_mission(db, user_id=body.user_id, mission_id=mission_id, granted_by=current_user.id)
+    await db.commit()
+    return await _assignment_out(db, assignment)
+
+
+@router.post("/{mission_id}/assignments/bulk", response_model=MissionBulkAssignOut)
+async def bulk_grant_mission_assignment(
+    mission_id: uuid.UUID, body: MissionBulkAssignIn,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_lms_content),
+):
+    """Every user holding `body.role` — role-only, missions have no cohort
+    curriculum table the way courses do."""
+    await _get_mission_or_404(db, mission_id)
+    user_ids = list((await db.execute(select(User.id).where(User.roles.any(body.role)))).scalars().all())
+
+    granted = already_assigned = 0
+    for user_id in user_ids:
+        existing = (await db.execute(
+            select(MissionAssignment.id).where(
+                MissionAssignment.user_id == user_id, MissionAssignment.mission_id == mission_id,
+                MissionAssignment.status == "active",
+            )
+        )).first()
+        if existing is not None:
+            already_assigned += 1
+            continue
+        await assign_mission(db, user_id=user_id, mission_id=mission_id, granted_by=current_user.id)
+        granted += 1
+
+    await db.commit()
+    return MissionBulkAssignOut(granted=granted, already_assigned=already_assigned)
+
+
+@router.post("/assignments/{assignment_id}/revoke", response_model=MissionAssignmentOut)
+async def revoke_mission_assignment(assignment_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    assignment = await db.get(MissionAssignment, assignment_id)
+    if assignment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
+    assignment.status = "inactive"
+    await db.commit()
+    return await _assignment_out(db, assignment)
+
+
 @router.post("/{mission_id}/variants", response_model=MissionVariantAdminOut, status_code=status.HTTP_201_CREATED)
 async def create_variant(mission_id: uuid.UUID, body: MissionVariantCreate, db: AsyncSession = Depends(get_db)):
     mission = await _get_mission_or_404(db, mission_id)
@@ -276,6 +346,19 @@ async def update_variant(
     if variant is None or variant.mission_id != mission.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Variant not found")
     updates = body.model_dump(exclude_unset=True)
+    # D8 (Design v2) — grading criteria are frozen while a mission is
+    # published. Editing a threshold on a live mission retroactively
+    # changes what an already-graded attempt was measured against, which is
+    # exactly the class of bug this port fixed once already for Madar's
+    # component library (F2/F4). Explanatory *content* is a different thing
+    # and stays editable — see `/missions/manager/{id}/content`.
+    frozen = {"config", "points"} & set(updates)
+    if frozen and mission.status == "published":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"{', '.join(sorted(frozen))} cannot change while this mission is published — "
+                   f"move it back to draft first. Briefing and handbook content stays editable.",
+        )
     if "config" in updates:
         updates["config"] = _validated_variant_config(mission_kind=mission.kind, config=updates["config"])
     for field, value in updates.items():
