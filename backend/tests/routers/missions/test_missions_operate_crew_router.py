@@ -37,7 +37,12 @@ async def _operate_mission(db, *, author) -> tuple[Mission, MissionVariant]:
         id=uuid.uuid4(), mission_id=mission.id, label="Engineer", position=2, points=200,
         config={
             "pass_threshold": 50,
-            "anomalies": [{"trigger_after_commands": 1, "subsystem": "EPS", "correct_command": "EPS_RECONFIG"}],
+            # Operate v2: faults are no longer a command-counter script.
+            # Crew gating is about *who may act*, so this variant keeps the
+            # flight quiet and lets the tests assert on authorization alone.
+            "injected_faults": [],
+            "shuffle_faults": False,
+            "orbit": {"orbits": 2, "time_compression": 18.0},
         },
     )
     db.add(variant)
@@ -104,18 +109,19 @@ async def test_unfilled_role_lets_anyone_issue_the_fix_and_filled_role_gates_it(
     )
     attempt_id = start.json()["id"]
 
-    # Trigger the anomaly first (unfilled role -- anyone may act).
+    # An open seat means anyone on the team may act.
     trigger = await client.post(
         f"/missions/operate/attempts/{attempt_id}/command", headers=h_bob, json={"command": "HELP"},
     )
-    assert trigger.json()["state"]["triggered_count"] == 1
+    assert trigger.status_code == 200
 
     # Still unfilled -- Bob can fix it.
     fix_open = await client.post(
         f"/missions/operate/attempts/{attempt_id}/command", headers=h_bob, json={"command": "EPS_RECONFIG"},
     )
     assert fix_open.status_code == 200
-    assert fix_open.json()["state"]["resolved_count"] == 1
+    assert fix_open.json()["event"]["success"] is True
+    assert fix_open.json()["event"]["command"] == "EPS_RECONFIG"
 
 
 @pytest.mark.asyncio
@@ -148,7 +154,8 @@ async def test_filled_role_blocks_a_non_assigned_teammate(db, client):
         f"/missions/operate/attempts/{attempt_id}/command", headers=h_alice, json={"command": "EPS_RECONFIG"},
     )
     assert fixed.status_code == 200
-    assert fixed.json()["state"]["resolved_count"] == 1
+    assert fixed.json()["event"]["success"] is True
+    assert any(e["command"] == "EPS_RECONFIG" for e in fixed.json()["state"]["events"])
 
 
 @pytest.mark.asyncio

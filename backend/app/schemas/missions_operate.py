@@ -1,52 +1,102 @@
-"""Operate mission schemas (Phase 2B, Stage 7B-3) — `/missions/operate/*`.
+"""Operate mission schemas (Operate v2, Stage 7C) — `/missions/operate/*`.
 
-One `GET .../attempts/{attempt_id}` returns everything the live console
-needs: current telemetry, the full command log, and the anomaly/score
-state — same "one fetch drives the whole page" shape the design mission's
-`DesignStateOut` already uses.
+Three payload shapes, one per surface:
+
+* `OperateStateOut` — the live console. One `GET` drives the whole page, the
+  same "one fetch, one render" posture `DesignStateOut` already uses.
+* `BriefingOut` — read before you fly. Served without an attempt existing,
+  so opening it never burns a retry.
+* `DebriefOut` — the replay. Served from the frozen trace once the flight
+  is decided.
+
+`telemetry` is deliberately an open dict rather than a fixed model. The
+channel list is authored in `services/missions/operate/telemetry.py:CHANNELS`
+alongside its nominal ranges, and pinning every channel a second time here
+would mean a new readout could only be added by editing two files that must
+agree — exactly the kind of drift the v1 port shipped (its `TelemetryOut`
+declared `solar_current`, which the simulator never actually set).
 """
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
 
 
-class TelemetryOut(BaseModel):
-    pitch: float
-    roll: float
-    yaw: float
-    battery_voltage: float
-    battery_current: float
-    battery_percentage: int
-    panel_temp: float
-    system_temp: float
-    solar_current: float
-    imu_x: float
-    imu_y: float
-    imu_z: float
-    reaction_wheel_speed: float
-    signal_strength: float
-    humidity: float
-    light: float
-
-
 class CommandEventOut(BaseModel):
     seq: int
     command: str
+    arg: str = ""
+    sim_t: float = 0.0
     issued_by: UUID
     success: bool
     message: str
     at: datetime
 
 
-class AnomalyStateOut(BaseModel):
-    index: int
+class SpacecraftLogOut(BaseModel):
+    """An event the *spacecraft* reported on its own — eclipse entry, AOS,
+    a fault detection firing. Distinct from the command transcript above,
+    and the student's primary alert channel. This is SatKit's `mission_logs`
+    surface, which the v1 port dropped entirely."""
+
+    t: float
+    level: str  # INFO | WARNING | ERROR
+    message: str
+
+
+class OrbitPhaseOut(BaseModel):
+    orbit_number: int
+    orbit_fraction: float
+    label: str
+    sunlit: bool
+    in_pass: bool
+    in_saa: bool
+    elevation_deg: float
+    seconds_to_next_aos: float
+    seconds_to_los: float
+    seconds_to_eclipse: float
+    seconds_to_sunrise: float
+
+
+class SubsystemRowOut(BaseModel):
+    key: str
+    label: str
+    value: Any
+    unit: str
+    status: str  # nominal | warn | alarm
+
+
+class SubsystemCardOut(BaseModel):
     subsystem: str
-    triggered: bool
-    resolved: bool
-    # correct_command is deliberately omitted — the fix is the puzzle,
-    # same answer-leakage posture as every other verifier's student view.
+    title: str
+    status: str  # nominal | warning | critical | off
+    rows: list[SubsystemRowOut]
+
+
+class AnomalyStateOut(BaseModel):
+    key: str
+    title: str
+    subsystem: str
+    origin: str  # injected | emergent
+    raised_t: float
+    cleared_t: float | None = None
+    outcome: str
+    # `action` and the correct command are deliberately omitted while the
+    # flight is live — the Ops Handbook is where a student looks up a
+    # response, and how much it tells them is the variant's difficulty
+    # setting. The debrief returns everything.
+
+
+class ObjectiveOut(BaseModel):
+    key: str
+    label: str
+    detail: str
+    target: float
+    actual: float
+    fraction: float
+    met: bool
 
 
 class CrewMemberOut(BaseModel):
@@ -61,20 +111,88 @@ class OperateStateOut(BaseModel):
     variant_id: UUID
     variant_label: str
     attempt_status: str
-    elapsed_seconds: float
-    telemetry: TelemetryOut
+
+    # flight clock
+    sim_t: float
+    session_seconds: float
+    time_compression: float
+    expired: bool
+    phase: OrbitPhaseOut
+    orbit: dict
+
+    telemetry: dict
+    subsystems: list[SubsystemCardOut]
     events: list[CommandEventOut]
+    spacecraft_log: list[SpacecraftLogOut]
     anomalies: list[AnomalyStateOut]
+
+    objectives: list[ObjectiveOut]
     score: float
-    triggered_count: int
-    resolved_count: int
+    objectives_score: float
+    performance_score: float
+    penalty_points: float
     pass_threshold: float
-    # Stage 7B-5 — empty for a solo attempt. crew is {role: user_id} for
-    # filled roles only; roster lists every team member whether or not
-    # they hold a role, so the frontend can offer the open seats.
+
     is_team: bool = False
     crew: dict[str, str] = {}
     roster: list[CrewMemberOut] = []
+
+    # Stage 7C-9 — non-empty when this flight's vehicle came from the
+    # student's own passed design attempt. One line per parameter that
+    # their design decided, so they can see what they're living with.
+    spacecraft_source: list[str] = []
+
+
+class BriefingOut(BaseModel):
+    mission_id: UUID
+    mission_title: str
+    mission_summary: str | None = None
+    variant_id: UUID
+    variant_label: str
+    points: int
+    pass_threshold: float
+    orbit: dict
+    spacecraft: dict
+    objectives: list[dict]
+    flight_rules: list[dict]
+    commands: list[dict]
+    handbook: list[dict]
+    crew_roles: list[dict]
+    assumptions: list[str]
+
+
+class HandbookOut(BaseModel):
+    """Fetched once when the console mounts, not on every 2-second poll —
+    it's static for the life of the attempt."""
+
+    disclosure: str
+    entries: list[dict]
+    commands: list[dict]
+    flight_rules: list[dict]
+    crew_roles: list[dict]
+    assumptions: list[str]
+
+
+class DebriefOut(BaseModel):
+    attempt_id: UUID
+    mission_id: UUID
+    variant_label: str
+    attempt_status: str
+    passed: bool
+    score: float
+    pass_threshold: float
+    objectives_score: float
+    performance_score: float
+    penalty_points: float
+    objectives: list[ObjectiveOut]
+    penalties: list[dict]
+    timeline: dict
+    trace: list[dict]
+    command_markers: list[dict]
+    anomaly_windows: list[dict]
+    report: dict
+    events: list[CommandEventOut]
+    spacecraft_log: list[SpacecraftLogOut]
 
 
 class AssignCrewRoleIn(BaseModel):
