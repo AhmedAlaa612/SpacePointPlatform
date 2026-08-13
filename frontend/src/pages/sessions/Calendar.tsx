@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react"
+import { useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { Link } from "@tanstack/react-router"
+import { useNavigate } from "@tanstack/react-router"
 import { CalendarDays, ChevronLeft, ChevronRight, Clock, ExternalLink, MapPin, Users } from "lucide-react"
 import { getCalendarApi } from "@/api/sessions/calendar"
 import type { CalendarEvent, ProgramType } from "@/types/sessions"
@@ -21,11 +21,56 @@ function fmtDate(value: string) { return new Date(`${value}T12:00:00`).toLocaleD
 function fmtTime(value: string) { return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }
 
 function EventCard({ event, opsView }: { event: CalendarEvent; opsView?: boolean }) {
+  const navigate = useNavigate()
   const tone = event.source === "teacher_session"
     ? "border-rose-400/50 bg-rose-500/10 text-rose-700 dark:text-rose-300"
     : programColors[event.program_type ?? "workshop"]
-  const body = (
-    <Card className={`transition-colors hover:border-primary/50 ${event.session_id ? "cursor-pointer" : ""}`}>
+
+  // The card holds a real <a> for the map link, so it can't itself be an <a>
+  // (nested anchors are invalid HTML and break hydration). Navigate
+  // programmatically instead and expose it as a keyboard-reachable link.
+  //
+  // Each destination calls `navigate` on its own branch rather than being
+  // collected into one `Parameters<typeof navigate>[0]` variable first.
+  // TanStack Router types each route's params against its own literal path,
+  // so a union of three differently-shaped destinations has no common type
+  // to widen to and fails to typecheck. Branching keeps every call site
+  // matched to its own route.
+  const clickable = Boolean(event.session_id)
+
+  const go = () => {
+    if (!event.session_id) return
+    if (!opsView) {
+      void navigate({ to: "/instructors/sessions/$sessionId", params: { sessionId: event.session_id } })
+      return
+    }
+    // Ops/admin lands on the specific session, not the bare cohort list —
+    // falls back to the cohort list if the cohort id is somehow missing,
+    // rather than a dead link.
+    if (event.cohort_id) {
+      void navigate({
+        to: "/operations/cohorts/$cohortId/sessions/$sessionId",
+        params: { cohortId: event.cohort_id, sessionId: event.session_id },
+      })
+      return
+    }
+    void navigate({ to: "/operations/cohorts" })
+  }
+
+  return (
+    <Card
+      className={`transition-colors hover:border-primary/50 ${clickable ? "cursor-pointer" : ""}`}
+      {...(clickable
+        ? {
+          role: "link",
+          tabIndex: 0,
+          onClick: go,
+          onKeyDown: (e: ReactKeyboardEvent) => {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go() }
+          },
+        }
+        : {})}
+    >
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -54,24 +99,6 @@ function EventCard({ event, opsView }: { event: CalendarEvent; opsView?: boolean
       </CardContent>
     </Card>
   )
-  if (!event.session_id) return body
-  if (opsView) {
-    // Ops/admin lands on the specific session, not the bare cohort list —
-    // falls back to the cohort page (or the list) if either id is somehow
-    // missing, rather than a dead link.
-    if (event.cohort_id) {
-      return (
-        <Link
-          to="/operations/cohorts/$cohortId/sessions/$sessionId"
-          params={{ cohortId: event.cohort_id, sessionId: event.session_id }}
-        >
-          {body}
-        </Link>
-      )
-    }
-    return <Link to="/operations/cohorts">{body}</Link>
-  }
-  return <Link to="/instructors/sessions/$sessionId" params={{ sessionId: event.session_id }}>{body}</Link>
 }
 
 import { SessionsSubNav } from "@/components/layout/SessionsSubNav"
