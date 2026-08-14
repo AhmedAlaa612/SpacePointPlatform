@@ -10,7 +10,11 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import select
+
 from app.models.missions.proposal import MissionProposal
+from app.models.user import User
+from app.services.notification import create_notification
 
 _REVIEW_STATUSES = ("in_review", "approved", "rejected")
 
@@ -28,6 +32,18 @@ async def submit_proposal(
     )
     db.add(proposal)
     await db.flush()
+
+    # A proposal nobody is told about is a proposal nobody reviews. There is
+    # no queue an operator passes anyway — reviewing lives behind a screen you
+    # have to already know exists — so the notification is the only thing that
+    # makes submission the start of a process rather than a write to a table.
+    submitter = await db.get(User, submitted_by)
+    who = submitter.full_name if submitter else "An intern"
+    for admin in (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all():
+        await create_notification(
+            db, admin.id, "New mission proposal",
+            f"{who} proposed \"{title}\".", type="mission_proposal",
+        )
     return proposal
 
 
@@ -44,4 +60,14 @@ async def review_proposal(
     proposal.review_notes = review_notes
     if review_status in ("approved", "rejected"):
         proposal.decided_at = datetime.now(timezone.utc)
+
+    # The intern hears back too. A decision they aren't told about is the same
+    # failure as a submission nobody sees, one step later.
+    await create_notification(
+        db, proposal.submitted_by,
+        f"Mission proposal {review_status.replace('_', ' ')}",
+        f"\"{proposal.title}\" is now {review_status.replace('_', ' ')}."
+        + (f" {review_notes}" if review_notes else ""),
+        type="mission_proposal",
+    )
     return proposal
