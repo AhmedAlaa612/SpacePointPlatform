@@ -44,9 +44,11 @@ export default function Users() {
   const [roleFilter, setRoleFilter] = useState<Role | "all">("all")
   // Students aren't in ALL_ROLES (they're not a role you hand-assign from
   // here — they come from signup/invite codes), so they need their own
-  // toggle rather than a dropdown option. On by default: this table's most
-  // common use is finding a student to reset a password or fix a name.
-  const [studentsOnly, setStudentsOnly] = useState(true)
+  // switch rather than a dropdown option. Staff by default: an admin
+  // landing on this page is far more often chasing a role/permission
+  // question than a student's name.
+  const [view, setView] = useState<"staff" | "students">("staff")
+  const studentsOnly = view === "students"
 
   const { data: users = [], isLoading } = useQuery<User[]>({
     queryKey: ["users"],
@@ -58,6 +60,7 @@ export default function Users() {
     return users.filter((u) => {
       if (q && !u.full_name.toLowerCase().includes(q)) return false
       if (studentsOnly) return u.roles.includes("student")
+      if (u.roles.includes("student")) return false
       if (roleFilter !== "all" && !u.roles.includes(roleFilter)) return false
       return true
     })
@@ -110,15 +113,23 @@ export default function Users() {
               <option key={r} value={r}>{ROLE_LABEL[r]}</option>
             ))}
           </select>
-          <label className="flex items-center gap-1.5 h-9 px-3 border border-border bg-card rounded-xl text-sm text-foreground cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={studentsOnly}
-              onChange={(e) => setStudentsOnly(e.target.checked)}
-              className="accent-primary"
-            />
-            View students
-          </label>
+        </div>
+
+        <div className="flex justify-center">
+          <div className="flex items-center h-9 p-1 border border-border bg-card rounded-xl text-sm">
+            {(["staff", "students"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={cn(
+                  "h-7 px-3 rounded-lg capitalize transition-colors cursor-pointer",
+                  view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex flex-col gap-2">
