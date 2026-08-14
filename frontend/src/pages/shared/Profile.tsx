@@ -15,7 +15,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog"
-import { AmbassadorCard, TeacherCard, InstructorCard } from "@/components/ProfileStatsCards"
+import { AmbassadorCard, TeacherCard, InstructorCard, StudentCard } from "@/components/ProfileStatsCards"
 
 export default function Profile() {
   const { user, roles, activeRole, setCurrentUser } = useAuth()
@@ -99,7 +99,9 @@ export default function Profile() {
   const { data: stats } = useQuery({
     queryKey: ["user-stats", user?.id],
     queryFn: () => getUserStatsApi(user!.id),
-    enabled: !!user && (isAmbassador || isTeacher || isInstructor),
+    // Every role's stats come from this one endpoint (see UserProfileModal),
+    // so gating it by role means students never fire this query at all.
+    enabled: !!user,
   })
 
   if (!user) return null
@@ -311,6 +313,7 @@ export default function Profile() {
       {isAmbassador && stats?.ambassador && <AmbassadorCard name={user.full_name} stats={stats.ambassador} />}
       {isTeacher && stats?.teacher && <TeacherCard name={user.full_name} stats={stats.teacher} />}
       {isInstructor && stats?.instructor && <InstructorCard stats={stats.instructor} />}
+      {stats?.student && <StudentCard stats={stats.student} />}
 
       <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} mustChange={!!user.must_change_password} />
     </div>

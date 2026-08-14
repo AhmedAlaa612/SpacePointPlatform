@@ -4,6 +4,7 @@ import { Trash2, UserPlus, FileText, Pencil } from "lucide-react"
 import type { Role, User } from "@/types/shared"
 import { ROLE_LABEL } from "@/types/shared"
 import { UserProfileModal } from "@/components/UserProfileModal"
+import { AVATAR_PRESETS } from "@/components/games/avatarPresets"
 import type { Team } from "@/types/interns"
 import { getUsersApi, createUserApi, updateUserApi, deleteUserApi } from "@/api/admin/users"
 import { getTeamsApi, addTeamMemberApi } from "@/api/interns/teams"
@@ -41,6 +42,11 @@ export default function Users() {
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
   const [roleFilter, setRoleFilter] = useState<Role | "all">("all")
+  // Students aren't in ALL_ROLES (they're not a role you hand-assign from
+  // here — they come from signup/invite codes), so they need their own
+  // toggle rather than a dropdown option. On by default: this table's most
+  // common use is finding a student to reset a password or fix a name.
+  const [studentsOnly, setStudentsOnly] = useState(true)
 
   const { data: users = [], isLoading } = useQuery<User[]>({
     queryKey: ["users"],
@@ -51,10 +57,12 @@ export default function Users() {
     const q = search.trim().toLowerCase()
     return users.filter((u) => {
       if (q && !u.full_name.toLowerCase().includes(q)) return false
+      if (studentsOnly) return u.roles.includes("student")
       if (roleFilter !== "all" && !u.roles.includes(roleFilter)) return false
       return true
     })
-  }, [users, search, roleFilter])
+  }, [users, search, roleFilter, studentsOnly])
+
 
   const deleteMutation = useMutation({
     mutationFn: deleteUserApi,
@@ -94,13 +102,23 @@ export default function Users() {
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value as Role | "all")}
-            className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            disabled={studentsOnly}
+            className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <option value="all">All roles</option>
             {ALL_ROLES.map((r) => (
               <option key={r} value={r}>{ROLE_LABEL[r]}</option>
             ))}
           </select>
+          <label className="flex items-center gap-1.5 h-9 px-3 border border-border bg-card rounded-xl text-sm text-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={studentsOnly}
+              onChange={(e) => setStudentsOnly(e.target.checked)}
+              className="accent-primary"
+            />
+            View students
+          </label>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -589,13 +607,21 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
   const [email,    setEmail]    = useState(user.email)
   const [roles,    setRoles]    = useState<Role[]>(user.roles)
   const [phone,    setPhone]    = useState(user.phone || "")
+  const [nickname, setNickname] = useState(user.nickname || "")
+  const [avatar,   setAvatar]   = useState(user.avatar || "")
   const [error,    setError]    = useState("")
+  const isStudent = user.roles.includes("student")
 
   const toggleRole = (role: Role) =>
     setRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]))
 
   const mutation = useMutation({
-    mutationFn: () => updateUserApi(user.id, { full_name: fullName, email, roles, phone: phone || undefined }),
+    mutationFn: () => updateUserApi(user.id, {
+      full_name: fullName, email, roles, phone: phone || undefined,
+      // Only sent for students — nickname and avatar are the live-games
+      // identity, and there is nothing for a staff account to set them on.
+      ...(isStudent ? { nickname: nickname || undefined, avatar: avatar || undefined } : {}),
+    }),
     onSuccess,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to update user"),
   })
@@ -631,6 +657,39 @@ function EditUserModal({ user, onClose, onSuccess }: { user: User; onClose: () =
           <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+20 10 0000 0000"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
+        {/* A generated callsign occasionally lands somewhere unusable in
+            front of a class, and until now nobody could change it for a
+            student — only the student themselves, from inside a lobby. */}
+        {isStudent && (
+          <>
+            <Field label="Nickname">
+              <input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="SpaceOtter77"
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
+            </Field>
+            <Field label="Avatar">
+              <div className="flex flex-wrap gap-1.5">
+                {AVATAR_PRESETS.map((preset) => {
+                  const Icon = preset.icon
+                  const active = avatar === preset.key
+                  return (
+                    <button
+                      key={preset.key}
+                      onClick={() => setAvatar(active ? "" : preset.key)}
+                      title={preset.label}
+                      className={cn(
+                        "size-10 rounded-xl border flex items-center justify-center transition-colors",
+                        active ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:bg-muted",
+                      )}
+                    >
+                      <Icon size={16} />
+                    </button>
+                  )
+                })}
+              </div>
+            </Field>
+          </>
+        )}
         {error && <p className="text-xs text-red-500">{error}</p>}
         <ModalActions
           onCancel={onClose} onConfirm={() => mutation.mutate()}

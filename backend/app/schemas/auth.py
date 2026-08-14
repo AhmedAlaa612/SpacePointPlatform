@@ -68,6 +68,8 @@ class UserOut(BaseModel):
     photo_url: str | None = None
     linkedin_url: str | None = None
     nickname: str | None = None  # students only — the public identity leaderboards/games show
+    avatar: str | None = None  # the account's default game avatar (AVATAR_PRESETS key)
+    invitation_code_used: str | None = None  # the code this person typed at signup
     created_at: datetime | None = None
     # Resolved from the user's linked Contact (2026-08-08) — None for staff
     # users without a contact_id, or students who never provided them.

@@ -88,6 +88,12 @@ class User(Base):
     # are never confusable on a shared leaderboard.
     nickname = Column(String(64), unique=True, nullable=True)
     nickname_rerolled_at = Column(DateTime(timezone=True), nullable=True)
+    # The student's default game avatar (a key from
+    # `services/games/avatars.py::AVATAR_PRESETS`). Avatars used to exist only
+    # per game participation, which meant there was nothing for an admin —
+    # or the student themselves outside a lobby — to actually set. A run still
+    # carries its own snapshot; this is what it defaults from.
+    avatar = Column(String(64), nullable=True)
 
     @property
     def role_values(self) -> list[str]:

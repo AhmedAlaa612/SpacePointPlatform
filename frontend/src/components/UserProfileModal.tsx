@@ -8,7 +8,7 @@ import { deleteGeneratedDocumentApi } from "@/api/documents"
 import { deleteCertificateApi } from "@/api/instructors/payments_admin"
 import { ROLE_LABEL } from "@/types/shared"
 import { Card, CardContent } from "@/components/ui/card"
-import { ROLE_BADGE, AmbassadorCard, TeacherCard, InstructorCard } from "@/components/ProfileStatsCards"
+import { ROLE_BADGE, AmbassadorCard, TeacherCard, InstructorCard, StudentCard } from "@/components/ProfileStatsCards"
 import { getCountries } from "@/lib/countries"
 
 const DELETABLE_CATEGORIES: Record<string, (id: string) => Promise<unknown>> = {
@@ -149,7 +149,11 @@ export function UserProfileModal({ userId, onClose }: Props) {
   const { data: stats, isLoading: loadingStats } = useQuery({
     queryKey: ["user-stats", userId],
     queryFn: () => getUserStatsApi(userId),
-    enabled: !!user && (isAmbassador || isTeacher || isInstructor),
+    // Every role's stats come from this one endpoint, so gating it by role
+    // means adding a role to the endpoint does nothing until someone
+    // remembers to add it here too — which is exactly what happened to
+    // students. `!!user` is the only condition that belongs here.
+    enabled: !!user,
   })
 
   const isLoading = loadingUser || loadingStats
@@ -300,6 +304,7 @@ export function UserProfileModal({ userId, onClose }: Props) {
                 {isInstructor && stats?.instructor && (
                   <InstructorCard stats={stats.instructor} />
                 )}
+                {stats?.student && <StudentCard stats={stats.student} />}
 
                 <DossierSection userId={userId} />
               </>

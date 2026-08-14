@@ -56,6 +56,23 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
     if "password" in update_data:
         update_data["password_hash"] = get_password_hash(update_data.pop("password"))
 
+    # `users.nickname` is UNIQUE, so an admin retyping a name already in use
+    # would otherwise surface as a 500 from the database rather than as the
+    # correctable mistake it is.
+    if update_data.get("nickname"):
+        nickname = update_data["nickname"].strip()
+        clash = (await db.execute(
+            select(User).where(User.nickname == nickname, User.id != user_id)
+        )).scalars().first()
+        if clash is not None:
+            raise HTTPException(409, detail=f"The nickname \"{nickname}\" is already taken")
+        update_data["nickname"] = nickname
+
+    if update_data.get("avatar"):
+        from app.services.games.avatars import AVATAR_PRESETS
+        if update_data["avatar"] not in AVATAR_PRESETS:
+            raise HTTPException(400, detail="Unknown avatar")
+
     # Capture the raw role list before it's overwritten (PATCH replaces the
     # whole array) so a role-history event can be recorded — see
     # services/spine/role_history.py. Uses the actual role strings

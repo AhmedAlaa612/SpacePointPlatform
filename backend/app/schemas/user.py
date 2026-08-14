@@ -23,6 +23,11 @@ class UserUpdate(BaseModel):
     password: str | None = None
     roles: list[UserRole] | None = None
     phone: str | None = None
+    # Student identity in live games. Editable by an admin because a
+    # generated nickname occasionally lands somewhere unusable in front of a
+    # class, and there was previously no way to change it for someone else.
+    nickname: str | None = None
+    avatar: str | None = None
 
 
 class UserSelfUpdate(BaseModel):
@@ -48,6 +53,17 @@ class UserOut(UserBase):
     linkedin_url: str | None = None
     invite_code: str | None = None
     created_at: datetime | None = None
+    # Live-games identity (students only).
+    nickname: str | None = None
+    avatar: str | None = None
+    # The code this person typed at signup — the column the students table
+    # groups by, and the answer to "which cohort did this account come from".
+    invitation_code_used: str | None = None
+    # Resolved from the linked Contact rather than stored on `users`. Absent
+    # for accounts without one; enriched by the admin list route in one
+    # batched query rather than per row.
+    grade: str | None = None
+    school_name: str | None = None
 
     class Config:
         from_attributes = True

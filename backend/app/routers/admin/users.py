@@ -26,6 +26,8 @@ from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.instructors.module_submission import ModuleSubmission
 from app.models.instructors.payment import PaymentLetter
 from app.models.instructors.presentation_submission import PresentationSubmission
+from app.models.spine.contact import Contact
+from app.models.spine.organization import Organization
 from app.models.user import User
 from app.schemas.documents import DossierItem, UserDossierOut
 from app.schemas.instructors.instructor import IdCardOut
@@ -50,7 +52,39 @@ async def create_user(user_in: UserCreate, db: AsyncSession = Depends(get_db), c
 
 @router.get("", response_model=List[UserOut])
 async def read_users(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)):
-    return await user_service.get_users(db)
+    """Every account, with the school and grade behind each one.
+
+    School and grade live on the linked spine `Contact`, not on `users`, so
+    the students table used to have no way to show them — which is most of
+    what makes a student row identifiable at a camp. Resolved here in two
+    batched queries rather than per row.
+    """
+    users = await user_service.get_users(db)
+
+    contact_ids = [u.contact_id for u in users if u.contact_id]
+    contacts = {
+        c.id: c for c in (
+            (await db.execute(select(Contact).where(Contact.id.in_(contact_ids)))).scalars().all()
+            if contact_ids else []
+        )
+    }
+    org_ids = {c.organization_id for c in contacts.values() if c.organization_id}
+    orgs = {
+        o.id: o for o in (
+            (await db.execute(select(Organization).where(Organization.id.in_(org_ids)))).scalars().all()
+            if org_ids else []
+        )
+    }
+
+    out: list[UserOut] = []
+    for user in users:
+        contact = contacts.get(user.contact_id) if user.contact_id else None
+        org = orgs.get(contact.organization_id) if contact and contact.organization_id else None
+        row = UserOut.model_validate(user)
+        row.grade = contact.grade if contact else None
+        row.school_name = org.name_latin if org else None
+        out.append(row)
+    return out
 
 
 @router.patch("/{id}", response_model=UserOut)

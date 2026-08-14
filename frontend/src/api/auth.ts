@@ -62,6 +62,52 @@ export interface UserStats {
   ambassador?: AmbassadorCardStats
   teacher?: TeacherCardStats
   instructor?: InstructorCardStats
+  student?: StudentCardStats
+}
+
+export interface StudentCourseProgress {
+  course_id: string
+  title: string
+  modules_total: number
+  modules_completed: number
+  percent: number
+  completed: boolean
+  enrolled_at: string | null
+}
+
+export interface MissionPhase {
+  key: string
+  label: string
+  done: boolean
+}
+
+export interface StudentMissionProgress {
+  mission_id: string
+  title: string
+  kind: string
+  /** Best outcome across every attempt, not the most recent one. */
+  status: string
+  score: number | null
+  attempts: number
+  /** The design mission's nine steps. Empty for kinds with no step model —
+   * an empty list means "this mission has no phases", not "none done". */
+  phases: MissionPhase[]
+}
+
+/** What a student has actually done here. The profile used to show their
+ * program registration and nothing else, which said how they got in but
+ * nothing about what they learned once they did. */
+export interface StudentCardStats {
+  points_balance: number
+  photo_url: string | null
+  nickname: string | null
+  invitation_code_used: string | null
+  school_name: string | null
+  grade: string | null
+  courses: StudentCourseProgress[]
+  courses_completed: number
+  missions: StudentMissionProgress[]
+  missions_passed: number
 }
 
 // These are re-exported so ProfileStatsCards.tsx can use them as prop types

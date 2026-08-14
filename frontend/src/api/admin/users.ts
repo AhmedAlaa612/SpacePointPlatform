@@ -14,7 +14,10 @@ export const createUserApi = (data: {
 
 export const updateUserApi = (
   id: string,
-  data: Partial<{ full_name: string; email: string; password: string; phone: string; roles: string[] }>
+  data: Partial<{
+    full_name: string; email: string; password: string; phone: string; roles: string[];
+    nickname: string; avatar: string;
+  }>
 ) => api.patch<User>(`/admin/users/${id}`, data).then((r) => r.data)
 
 export const deleteUserApi = (id: string) =>

@@ -94,6 +94,8 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "photo_url": await storage.resolve_url("profile_pictures", user.photo_path, user.photo_url),
         "linkedin_url": user.linkedin_url,
         "nickname": user.nickname,
+        "avatar": user.avatar,
+        "invitation_code_used": user.invitation_code_used,
         "created_at": user.created_at,
         "date_of_birth": contact.date_of_birth if contact else None,
         "grade": contact.grade if contact else None,
@@ -471,6 +473,124 @@ async def get_user_stats(
             "pending_signature": pending_sig,
             "completed_videos": int(completed_videos),
             "total_videos": int(total_videos),
+        }
+
+    if "student" in roles:
+        # A student's profile used to show only their program registration —
+        # everything they had actually *done* on the platform was invisible on
+        # the one screen meant to represent them. Courses and missions are the
+        # substance of a learner's record; the registration is just how they
+        # got in.
+        from app.models.lms.course import Course
+        from app.models.lms.enrollment import Enrollment
+        from app.models.missions.mission import Mission, MissionAttempt
+        from app.models.spine.contact import Contact
+        from app.models.spine.organization import Organization
+        from app.services.lms.admin_progress import DESIGN_STEP_LABELS, design_steps_for_attempts
+        from app.services.lms.progress import batch_course_completion
+        from app.services.points import lifetime_points as student_points
+
+        enrollments = (await db.execute(
+            select(Enrollment, Course)
+            .join(Course, Course.id == Enrollment.course_id)
+            .where(Enrollment.user_id == uid, Enrollment.status == "active")
+            .order_by(Course.title)
+        )).all()
+
+        courses: list[dict] = []
+        for enrollment, course in enrollments:
+            # One course at a time, but batched over a single-element list so
+            # the completion rule stays the one shared implementation rather
+            # than a second copy that can drift from it.
+            completion = (await batch_course_completion(
+                db, user_ids=[uid], course_id=course.id,
+            )).get(uid) or {"pct": 0, "modules_done": 0, "modules_total": 0}
+            total = completion["modules_total"]
+            done = completion["modules_done"]
+            courses.append({
+                "course_id": str(course.id),
+                "title": course.title,
+                "modules_total": total,
+                "modules_completed": done,
+                "percent": completion["pct"],
+                "completed": total > 0 and done == total,
+                "enrolled_at": enrollment.created_at.isoformat() if enrollment.created_at else None,
+            })
+
+        attempt_rows = (await db.execute(
+            select(MissionAttempt, Mission)
+            .join(Mission, Mission.id == MissionAttempt.mission_id)
+            .where(MissionAttempt.user_id == uid)
+            .order_by(MissionAttempt.started_at.desc())
+        )).all()
+
+        # One entry per mission, showing its best outcome — a profile is a
+        # record of what someone achieved, not a log of every retry.
+        best: dict[str, dict] = {}
+        for attempt, mission in attempt_rows:
+            key = str(mission.id)
+            score = float(attempt.score) if attempt.score is not None else None
+            current = best.get(key)
+            if current is None:
+                best[key] = {
+                    "mission_id": key, "title": mission.title, "kind": mission.kind,
+                    "status": attempt.status, "score": score, "attempts": 1,
+                    "phases": [],
+                }
+                continue
+            current["attempts"] += 1
+            if attempt.status == "passed" and current["status"] != "passed":
+                current["status"] = "passed"
+                current["score"] = score
+            elif score is not None and (current["score"] is None or score > current["score"]):
+                current["score"] = score
+
+        # The phases behind each mission row. A status word alone ("in
+        # progress") says a student is stuck without saying where — the
+        # phases are what turn the profile into something an instructor can
+        # act on. Design missions have real steps; other kinds report none
+        # rather than inventing a fake sequence to look uniform.
+        steps_by_attempt = await design_steps_for_attempts(
+            db, [attempt.id for attempt, _ in attempt_rows],
+        )
+        for attempt, mission in attempt_rows:
+            entry = best.get(str(mission.id))
+            steps = steps_by_attempt.get(attempt.id)
+            if entry is None or not steps:
+                continue
+            done = sum(1 for key, _ in DESIGN_STEP_LABELS if steps.get(key))
+            # Keep the furthest-along attempt's phases, which is not always
+            # the best-scoring one.
+            if done <= len(entry.get("phases") or []) and entry.get("phases"):
+                if done <= sum(1 for p in entry["phases"] if p["done"]):
+                    continue
+            entry["phases"] = [
+                {"key": key, "label": label, "done": bool(steps.get(key))}
+                for key, label in DESIGN_STEP_LABELS
+            ]
+
+        missions = list(best.values())
+
+        # Personal details the profile shows beside the progress — school and
+        # grade live on the contact behind the account, and the invite code is
+        # the one on the user row (which code they actually typed at signup).
+        contact = await db.get(Contact, user.contact_id) if user.contact_id else None
+        organization = (
+            await db.get(Organization, contact.organization_id)
+            if contact is not None and contact.organization_id else None
+        )
+
+        result["student"] = {
+            "points_balance": await student_points(db, uid),
+            "photo_url": user.photo_url,
+            "nickname": user.nickname,
+            "invitation_code_used": user.invitation_code_used,
+            "school_name": organization.name_latin if organization else None,
+            "grade": contact.grade if contact else None,
+            "courses": courses,
+            "courses_completed": sum(1 for c in courses if c["completed"]),
+            "missions": missions,
+            "missions_passed": sum(1 for m in missions if m["status"] == "passed"),
         }
 
     return result

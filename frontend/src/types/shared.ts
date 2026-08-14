@@ -57,6 +57,13 @@ export interface User {
   // Auto-generated student callsign (Live Games Phase 2C, 8-1) — present
   // on student accounts, absent/null for other roles.
   nickname?: string | null;
+  /** The account's default game avatar — an AVATAR_PRESETS key. A run still
+   * snapshots its own, this is what it defaults from. */
+  avatar?: string | null;
+  /** The code this person typed at signup. */
+  invitation_code_used?: string | null;
+  /** Resolved from the linked Contact — absent for accounts without one. */
+  school_name?: string | null;
   phone?: string | null;
   country?: string | null;
   invite_code?: string | null;
