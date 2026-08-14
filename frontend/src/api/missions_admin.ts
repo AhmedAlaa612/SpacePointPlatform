@@ -96,3 +96,27 @@ export const bulkGrantMissionAssignmentApi = (missionId: string, role: string) =
 
 export const revokeMissionAssignmentApi = (assignmentId: string) =>
   api.post<MissionAssignment>(`/missions/admin/assignments/${assignmentId}/revoke`).then((r) => r.data);
+
+// ── mission authors (mission_managers, 7B-7) ─────────────────────────────
+//
+// The many-to-many table and its endpoints have existed since 7B-7 but were
+// never wired to any screen, so a mission's authorship could only be changed
+// by writing to the database. Ops assigns; an assigned author gets the
+// mission's stats, its review queue and its teaching content — not its
+// grading thresholds, which stay frozen while published.
+
+export interface MissionAuthor {
+  user_id: string;
+  full_name: string;
+  granted_by: string | null;
+  created_at: string | null;
+}
+
+export const listMissionAuthorsApi = (missionId: string) =>
+  api.get<MissionAuthor[]>(`/missions/admin/${missionId}/managers`).then((r) => r.data);
+
+export const addMissionAuthorApi = (missionId: string, userId: string) =>
+  api.post<MissionAuthor>(`/missions/admin/${missionId}/managers`, { user_id: userId }).then((r) => r.data);
+
+export const removeMissionAuthorApi = (missionId: string, userId: string) =>
+  api.delete(`/missions/admin/${missionId}/managers/${userId}`).then((r) => r.data);

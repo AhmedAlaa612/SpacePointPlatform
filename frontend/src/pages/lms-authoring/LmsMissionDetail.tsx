@@ -11,6 +11,7 @@ import {
   type MissionAdmin, type MissionTeamPolicy, type MissionAccessMode,
 } from "@/api/missions_admin"
 import { AssignPanel } from "@/pages/lms-authoring/components/AssignPanel"
+import { MissionAuthorsSection } from "@/pages/lms-authoring/components/MissionAuthorsSection"
 import { MissionContentSection } from "@/pages/lms-authoring/components/MissionContentSection"
 import { PrerequisitesSection } from "@/pages/lms-authoring/components/PrerequisitesSection"
 
@@ -97,9 +98,11 @@ export default function LmsMissionDetail() {
         <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">{mission.status}</span>
         <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">{mission.kind}</span>
         {mission.track && <span className="text-xs text-muted-foreground">{mission.track}</span>}
-        {mission.authored_by_name && <span className="text-xs text-muted-foreground">Author: {mission.authored_by_name}</span>}
+        {mission.authored_by_name && <span className="text-xs text-muted-foreground">Created by {mission.authored_by_name}</span>}
       </div>
       {mission.description && <p className="text-sm text-muted-foreground max-w-2xl">{mission.description}</p>}
+
+      <MissionAuthorsSection missionId={missionId} />
 
       <PrerequisitesSection itemType="mission" itemId={missionId} />
 
