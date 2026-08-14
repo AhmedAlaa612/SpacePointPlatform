@@ -1,10 +1,16 @@
+import type * as React from "react";
 import "./satkit-assembly.js";
 
 /** Registers `<satkit-assembly>` (a plain custom element, no framework
  * dependency) and gives it a typed JSX wrapper. Assets live in
  * `public/assets/satkit/` (manifest.json + frames/), served as-is by Vite —
- * see that folder's README for attributes and how to change the cut. */
-declare global {
+ * see that folder's README for attributes and how to change the cut.
+ *
+ * React 19's @types/react moved the JSX namespace under `React.JSX` —
+ * augmenting the old bare global `JSX` namespace here silently doesn't
+ * merge into what TSX actually resolves against, so this has to be a
+ * module augmentation of "react" itself, not `declare global`. */
+declare module "react" {
   namespace JSX {
     interface IntrinsicElements {
       "satkit-assembly": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
