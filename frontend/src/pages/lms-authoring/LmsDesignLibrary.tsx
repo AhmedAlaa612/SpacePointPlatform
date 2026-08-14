@@ -24,8 +24,8 @@ import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-  bulkImportLibrary, createLibraryComponent, listLibrary, setLibraryRetired,
-  updateLibraryComponent, uploadLibraryImage, SUBSYSTEMS,
+  bulkImportLibrary, createLibraryComponent, listLibrary,
+  setLibraryRetired, updateLibraryComponent, uploadLibraryImage, SUBSYSTEMS,
   type LibraryComponentAdmin, type LibraryComponentInput,
 } from "@/api/missionsLibrary";
 
@@ -41,25 +41,44 @@ const NUMERIC_FIELDS = new Set([
   "length_mm", "width_mm", "height_mm", "scaled_mass_g", "voltage_v", "current_ma", "assumed_cost_usd",
 ]);
 
-const EDITABLE: { key: keyof LibraryComponentInput; label: string; wide?: boolean }[] = [
-  { key: "component_name", label: "Name", wide: true },
-  { key: "subsystem", label: "Subsystem" },
-  { key: "component_code", label: "Code" },
-  { key: "tag", label: "Tag" },
-  { key: "example_role", label: "Role", wide: true },
-  { key: "scaled_description", label: "Description", wide: true },
-  { key: "key_specs", label: "Key specs", wide: true },
-  { key: "scaled_mass_g", label: "Mass (g)" },
-  { key: "voltage_v", label: "Voltage (V)" },
-  { key: "current_ma", label: "Current (mA)" },
-  { key: "assumed_cost_usd", label: "Cost (USD)" },
-  { key: "length_mm", label: "L (mm)" },
-  { key: "width_mm", label: "W (mm)" },
-  { key: "height_mm", label: "H (mm)" },
-  { key: "data_size", label: "Data size" },
-  { key: "temperature_range", label: "Temp range" },
-  { key: "datasheet_url", label: "Datasheet URL", wide: true },
-  { key: "notes", label: "Notes", wide: true },
+/** Eighteen inputs in one undifferentiated grid is a wall, not a form —
+ * every field looks equally important and nothing tells you which ones the
+ * budgets actually consume. Grouping them by the budget they feed makes the
+ * form teach the same lesson the mission does: mass fields feed the mass
+ * budget, voltage and current feed power, and the rest is provenance. */
+type FieldGroup = "identity" | "physical" | "electrical" | "sourcing";
+
+const GROUPS: { key: FieldGroup; title: string; detail: string }[] = [
+  { key: "identity", title: "Identity", detail: "What students see in the picker." },
+  { key: "physical", title: "Physical — feeds the mass and volume budgets", detail: "Leave blank rather than guess; a blank reads as unknown, a wrong number reads as fact." },
+  { key: "electrical", title: "Electrical & data — feeds the power, energy and data budgets", detail: "Power is voltage x current, so both are needed for the component to count." },
+  { key: "sourcing", title: "Cost & sourcing", detail: "Where the numbers came from, so an instructor can check them." },
+];
+
+const EDITABLE: {
+  key: keyof LibraryComponentInput; label: string; group: FieldGroup; wide?: boolean; hint?: string;
+}[] = [
+  { key: "component_name", label: "Name", group: "identity", wide: true },
+  { key: "subsystem", label: "Subsystem", group: "identity" },
+  { key: "component_code", label: "Code", group: "identity", hint: "Internal part code, if you use one." },
+  { key: "tag", label: "Tag", group: "identity" },
+  { key: "example_role", label: "Role", group: "identity", wide: true, hint: "One line: what job this does on a spacecraft." },
+  { key: "scaled_description", label: "Description", group: "identity", wide: true },
+  { key: "key_specs", label: "Key specs", group: "identity", wide: true },
+
+  { key: "scaled_mass_g", label: "Mass (g)", group: "physical" },
+  { key: "length_mm", label: "L (mm)", group: "physical" },
+  { key: "width_mm", label: "W (mm)", group: "physical" },
+  { key: "height_mm", label: "H (mm)", group: "physical" },
+
+  { key: "voltage_v", label: "Voltage (V)", group: "electrical" },
+  { key: "current_ma", label: "Current (mA)", group: "electrical" },
+  { key: "data_size", label: "Data size", group: "electrical", hint: "Per measurement, e.g. \"2 MB\"." },
+  { key: "temperature_range", label: "Temp range", group: "electrical" },
+
+  { key: "assumed_cost_usd", label: "Cost (USD)", group: "sourcing" },
+  { key: "datasheet_url", label: "Datasheet URL", group: "sourcing", wide: true, hint: "Linked from the component card — this is where a student goes to check a number." },
+  { key: "notes", label: "Notes", group: "sourcing", wide: true },
 ];
 
 function Editor({ initial, onSave, onCancel, saving }: {
@@ -82,27 +101,38 @@ function Editor({ initial, onSave, onCancel, saving }: {
   };
 
   return (
-    <div className="grid sm:grid-cols-4 gap-3 p-4 rounded-xl ring-1 ring-primary/30 bg-primary/5">
-      {EDITABLE.map((f) => (
-        <div key={f.key} className={`flex flex-col gap-1 ${f.wide ? "sm:col-span-2" : ""}`}>
-          <label className={labelCls}>{f.label}</label>
-          {f.key === "subsystem" ? (
-            <select className={inputCls} value={form.subsystem ?? ""}
-              onChange={(e) => setForm((p) => ({ ...p, subsystem: e.target.value }))}>
-              <option value="">Select...</option>
-              {SUBSYSTEMS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          ) : (
-            <input
-              className={inputCls}
-              type={NUMERIC_FIELDS.has(f.key) ? "number" : "text"}
-              value={form[f.key] ?? ""}
-              onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
-            />
-          )}
+    <div className="flex flex-col gap-4 p-4 rounded-xl ring-1 ring-primary/30 bg-primary/5">
+      {GROUPS.map((g) => (
+        <div key={g.key} className="flex flex-col gap-2">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide">{g.title}</p>
+            <p className="text-[10px] text-muted-foreground">{g.detail}</p>
+          </div>
+          <div className="grid sm:grid-cols-4 gap-3">
+            {EDITABLE.filter((f) => f.group === g.key).map((f) => (
+              <div key={f.key} className={`flex flex-col gap-1 ${f.wide ? "sm:col-span-2" : ""}`}>
+                <label className={labelCls}>{f.label}</label>
+                {f.key === "subsystem" ? (
+                  <select className={inputCls} value={form.subsystem ?? ""}
+                    onChange={(e) => setForm((p) => ({ ...p, subsystem: e.target.value }))}>
+                    <option value="">Select...</option>
+                    {SUBSYSTEMS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    className={inputCls}
+                    type={NUMERIC_FIELDS.has(f.key) ? "number" : "text"}
+                    value={form[f.key] ?? ""}
+                    onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                  />
+                )}
+                {f.hint && <span className="text-[10px] text-muted-foreground leading-snug">{f.hint}</span>}
+              </div>
+            ))}
+          </div>
         </div>
       ))}
-      <div className="sm:col-span-4 flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <Button size="sm" onClick={submit} disabled={saving || !form.component_name?.trim() || !form.subsystem}>
           {saving ? "Saving..." : "Save"}
         </Button>
@@ -284,7 +314,7 @@ export default function LmsDesignLibrary() {
                     type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
                     onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImage(row.id, f); e.target.value = ""; }}
                   />
-                  <Button size="sm" variant="outline" onClick={() => imageRefs.current[row.id]?.click()}>Image</Button>
+                  <Button size="sm" variant="outline" onClick={() => imageRefs.current[row.id]?.click()}>Upload image</Button>
                   <Button size="sm" variant="outline"
                     onClick={() => { setEditingId(editingId === row.id ? null : row.id); setCreating(false); }}>
                     {editingId === row.id ? "Close" : "Edit"}
