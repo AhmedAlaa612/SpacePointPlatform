@@ -378,13 +378,19 @@ def briefing(variant: MissionVariant, *, mission_title: str, mission_summary: st
         },
         "objectives": [
             {"key": "science_takes", "label": "Collect science",
-             "detail": f"Capture {spec['science_takes']} science takes with the instrument."},
+             "detail": f"Capture {spec['science_takes']} science takes. Each one is "
+                       f"{params.science_take_mb:.0f} MB and needs the instrument powered: "
+                       f"PAYLOAD_ON, then COLLECT_SAMPLE once per take."},
             {"key": "downlink", "label": "Get it to the ground",
-             "detail": f"Downlink at least {spec['downlink_mb']:.0f} MB during your ground station passes."},
+             "detail": f"Downlink at least {spec['downlink_mb']:.0f} MB. The transmitter only "
+                       f"works while the ground station is in view: wait for AOS, then "
+                       f"DOWNLINK_SCIENCE."},
             {"key": "soc_floor", "label": "Keep the battery healthy",
-             "detail": f"Never let state of charge fall below {spec['soc_floor'] * 100:.0f}%."},
+             "detail": f"Never let charge fall below {spec['soc_floor'] * 100:.0f}%. The instrument "
+                       f"is your biggest load — PAYLOAD_OFF before you enter eclipse."},
             {"key": "no_safe_mode", "label": "Never lose the spacecraft",
-             "detail": "Do not let it drop into autonomous safe mode."},
+             "detail": "Below 25% charge it safes itself and stops accepting most commands. "
+                       "Recovering takes about an orbit and a half of charging.",},
         ],
         "flight_rules": flight_rules(),
         "commands": command_reference(),

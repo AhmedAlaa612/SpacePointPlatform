@@ -104,6 +104,68 @@ const LOG_TONE: Record<string, string> = {
   ERROR: "text-red-400",
 };
 
+/** Where you stand right now, in a sentence.
+ *
+ * The running score is honest but easy to misread while a flight is young:
+ * protective objectives are scaled by how much of the session has actually
+ * been flown, so a passing score at T+2 min means almost nothing. What a
+ * student needs is not another number but the consequence — am I going to
+ * pass if I keep doing this, and if not, which objective is the reason.
+ *
+ * Doing nothing is the case worth naming explicitly. A flight where no
+ * command has been issued looks identical to a careful one from the outside
+ * (nothing is on fire, telemetry is nominal) right up until the debrief
+ * says zero science was collected.
+ */
+function MissionStanding({ state }: { state: OperateState }) {
+  const remaining = Math.max(0, state.session_seconds - state.sim_t);
+  const elapsedFrac = state.session_seconds ? state.sim_t / state.session_seconds : 0;
+  const passing = state.score >= state.pass_threshold;
+  const short = state.pass_threshold - state.score;
+
+  // The unmet objective furthest from done — the one costing the most.
+  const worst = state.objectives
+    .filter((o) => !o.met)
+    .sort((a, b) => a.fraction - b.fraction)[0];
+
+  const idle = state.events.length === 0 && elapsedFrac > 0.08;
+
+  let tone: string;
+  let headline: string;
+  let body: string;
+
+  if (idle) {
+    tone = "ring-destructive/40 bg-destructive/5 text-destructive";
+    headline = "You haven't issued a command yet";
+    body = `The satellite will keep flying whether you act or not, and none of the `
+      + `objectives complete on their own. ${countdown(remaining)} left. Open the ops `
+      + `handbook if you're not sure where to start — the first move is usually PAYLOAD_ON.`;
+  } else if (passing) {
+    tone = "ring-emerald-500/40 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400";
+    headline = `On course to pass — ${state.score.toFixed(0)}% against a ${state.pass_threshold}% bar`;
+    body = worst
+      ? `${countdown(remaining)} left. ${worst.label} is still the weakest at `
+        + `${Math.round(worst.fraction * 100)}%, so that's where the remaining margin is.`
+      : `${countdown(remaining)} left, and every objective is met. Keep the spacecraft healthy — `
+        + `the protective objectives are scored over the whole session, not just this moment.`;
+  } else {
+    tone = "ring-amber-500/40 bg-amber-500/5 text-amber-600 dark:text-amber-500";
+    headline = `Currently failing — ${short.toFixed(0)} points short of the ${state.pass_threshold}% bar`;
+    body = worst
+      ? `${countdown(remaining)} left. The biggest gap is "${worst.label}" at `
+        + `${Math.round(worst.fraction * 100)}% — ${worst.detail}.`
+      : `${countdown(remaining)} left. Penalties are what's holding the score down; `
+        + `clear the open anomalies before they cost more.`;
+  }
+
+  return (
+    <div className={`rounded-xl ring-1 px-4 py-2.5 flex flex-col gap-1 ${tone}`}>
+      <p className="text-xs font-semibold">{headline}</p>
+      <p className="text-[11px] leading-relaxed text-muted-foreground">{body}</p>
+    </div>
+  );
+}
+
 export default function OperateMissionPage() {
   const { attemptId } = useParams({ strict: false }) as { attemptId: string };
   const { currentUser } = useAuth();
@@ -360,6 +422,13 @@ export default function OperateMissionPage() {
             <span className="text-muted-foreground"> / need {state.pass_threshold}%</span>
           </p>
         </div>
+        {/* Say out loud what the bars only imply. A student who takes no
+            action for ten minutes should not have to infer from five
+            part-filled bars that they are on course to fail — the console
+            has every number needed to tell them, and telling them is the
+            difference between a simulator and a teaching tool. */}
+        <MissionStanding state={state} />
+
         <div className="grid sm:grid-cols-2 gap-x-6 gap-y-2">
           {state.objectives.map((obj) => (
             <div key={obj.key} className="flex flex-col gap-1">
@@ -414,24 +483,27 @@ export default function OperateMissionPage() {
       )}
 
       {/* --- attitude + subsystems ---------------------------------------- */}
-      <div className="grid lg:grid-cols-2 gap-4">
-        <div className="flex flex-col gap-3">
-          <AttitudeView
-            pitch={Number(t.pitch ?? 0)}
-            roll={Number(t.roll ?? 0)}
-            yaw={Number(t.yaw ?? 0)}
-            attitudeError={Number(t.attitude_error_deg ?? 0)}
-            pointingLimit={POINTING_LIMIT}
-            sunlit={phase.sunlit}
-            inPass={phase.in_pass}
-            safeMode={t.mode === "SAFE"}
-          />
-          <div className="grid grid-cols-2 gap-2">
-            {state.subsystems.slice(0, 2).map((card) => <SubsystemPanel key={card.subsystem} card={card} />)}
-          </div>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3 gap-2 content-start">
-          {state.subsystems.slice(2).map((card) => <SubsystemPanel key={card.subsystem} card={card} />)}
+      {/* The viewport spans the full width and the five subsystem cards sit
+          in one even row beneath it. The previous two-column split put two
+          cards under the viewport and three beside it, which left the cards
+          different widths and a block of dead space at the bottom of the
+          right column — and it squeezed the viewport into half the page,
+          which the orbital travel needs. */}
+      <div className="flex flex-col gap-3">
+        <AttitudeView
+          pitch={Number(t.pitch ?? 0)}
+          roll={Number(t.roll ?? 0)}
+          yaw={Number(t.yaw ?? 0)}
+          attitudeError={Number(t.attitude_error_deg ?? 0)}
+          pointingLimit={POINTING_LIMIT}
+          sunlit={phase.sunlit}
+          inPass={phase.in_pass}
+          safeMode={t.mode === "SAFE"}
+          orbitFraction={Number(phase.orbit_fraction ?? 0)}
+          orbitNumber={Number(phase.orbit_number ?? 1)}
+        />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+          {state.subsystems.map((card) => <SubsystemPanel key={card.subsystem} card={card} />)}
         </div>
       </div>
 
