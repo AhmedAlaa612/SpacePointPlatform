@@ -29,6 +29,14 @@ real components legitimately share a name ("L9110S Motor Driver", codes
 `ADCS-L9110S` / `ADCS-L9110S-001`), which name-matching would have
 silently collapsed into one.
 
+**2026-08-14, same day:** this script used to also seed a second mission,
+"CubeSat Design Report" (`cubesat-design-report`), a written-report
+follow-on gated behind the design one. That was invented during a prior
+session's "Design v2" work, not part of what Madar actually shipped —
+removed from production (zero attempts existed on it, so a clean delete,
+not an archive) and from here, so it can't silently reappear on the next
+`--update` run.
+
 Idempotent: re-running skips anything already present (mission by slug,
 variants by (mission, position), components by code, images only fetched
 for a component that doesn't already have one). Deliberately not a
@@ -46,14 +54,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fastapi import HTTPException  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
 from app.models.missions.design import DesignComponentLibrary  # noqa: E402
 from app.models.missions.mission import Mission, MissionVariant  # noqa: E402
-from app.services import curriculum  # noqa: E402
 from app.services import storage  # noqa: E402
 from app.models.user import User  # noqa: E402
 
@@ -110,7 +116,6 @@ async def _attach_image(row: DesignComponentLibrary, madar_image_url: str | None
     return True
 
 MISSION_SLUG = "cubesat-design"
-REPORT_SLUG = "cubesat-design-report"
 
 # Engineer matches Madar's own default MissionConstraint values exactly —
 # this becomes the "standard" difficulty. Cadet is easier (looser margins,
@@ -195,87 +200,6 @@ COMPONENTS = [
 
 
 
-# ── The written design report (Design v2, D6) ────────────────────────────
-#
-# A separate `submission`-kind mission chained behind the design one through
-# the 7B-2 prerequisite DAG. Keeping it separate is the point: designing a
-# spacecraft and *explaining* a spacecraft are two different skills, and
-# collapsing them would mean one score for both. The design mission grades
-# whether the budgets close; this one grades whether you can defend the
-# trades you made.
-#
-# It is deliberately gated on *passing* the design — a report about a design
-# that doesn't close has nothing to defend.
-
-REPORT_SUMMARY = (
-    "Write up the CubeSat you designed: what it does, the trades you made, and where your "
-    "margins are thin. Real engineering ends in a document somebody else has to be able to act on."
-)
-
-REPORT_DESCRIPTION = (
-    "You have a design where every budget closes. That is the easy half.\n\n"
-    "The hard half is explaining it — to a reviewer who wasn't in the room, doesn't know what you "
-    "tried first, and has to decide whether to build it. A design review board does not read your "
-    "spreadsheet; it reads your report, and every question it asks is a question your report should "
-    "have answered.\n\n"
-    "Export your design from the report screen and use those numbers. Do not re-derive them by hand: "
-    "quoting a figure that disagrees with your own design is the fastest way to lose a reviewer."
-)
-
-REPORT_VARIANT = dict(
-    label="Design Review", position=1, points=150,
-    config=dict(
-        brief=(
-            "Write a design report for the CubeSat you built, aimed at an engineer who has never "
-            "seen it. Somewhere between 800 and 1,500 words, or the equivalent in slides. Lead with "
-            "what the spacecraft is for — a reviewer who doesn't understand the mission cannot judge "
-            "the design."
-        ),
-        deliverables=[
-            dict(title="Mission and orbit",
-                 detail="What the satellite does, which orbit it flies, and why that orbit suits the "
-                        "mission. One paragraph."),
-            dict(title="Concept of operations",
-                 detail="Your mode breakdown and what is powered in each. Say why — 'the payload is "
-                        "off in eclipse' is a decision, not a setting."),
-            dict(title="The six budgets",
-                 detail="Data, power, energy, link, mass and cost. Quote the actual numbers and the "
-                        "margin left on each. Copy them from your exported JSON."),
-            dict(title="Your tightest margin",
-                 detail="Name the budget with the least headroom and say what you would do if it got "
-                        "5% worse. Every real design has one; the ones that fail are the ones nobody "
-                        "identified."),
-            dict(title="A trade you made",
-                 detail="One decision where fixing one budget cost you another — a bigger battery "
-                        "against mass, a faster radio against power. Say what you gave up and why "
-                        "that was the right call."),
-            dict(title="What you would change",
-                 detail="With more mass, budget, or time. This is not a weakness section; knowing "
-                        "the next improvement is what separates a design from a guess."),
-        ],
-        rubric=[
-            dict(criterion="The numbers are yours and they agree",
-                 detail="Figures in the report match the design you submitted. Contradictions here "
-                        "cost more than a thin margin does."),
-            dict(criterion="Decisions are justified, not just listed",
-                 detail="'Payload off in eclipse' is a setting. 'Payload off in eclipse because "
-                        "otherwise depth of discharge hits 45% against a 30% limit' is engineering."),
-            dict(criterion="The tightest margin is identified honestly",
-                 detail="Reviewers trust a report that volunteers its weakest point far more than one "
-                        "that claims everything is comfortable."),
-            dict(criterion="A reader who wasn't there could act on it",
-                 detail="No unexplained jargon, no missing units, no figure without a source."),
-            dict(criterion="It reads like it was written for someone",
-                 detail="Structure, clarity, and enough context to be useful without you in the room."),
-        ],
-        accepted_formats=(
-            "A link to a Google Doc, a PDF, or a slide deck. Make sure link sharing is on — a "
-            "reviewer who can't open it can't pass it."
-        ),
-    ),
-)
-
-
 async def seed(
     db: AsyncSession, *, dry_run: bool, update: bool = False, images_dir: Path | None = None,
 ) -> None:
@@ -348,55 +272,6 @@ async def seed(
             images_attached += 1
     await db.flush()
 
-    # ── the written report, chained behind the design (D6) ──────────────
-    report = (await db.execute(select(Mission).where(Mission.slug == REPORT_SLUG))).scalars().first()
-    if report is None:
-        report = Mission(
-            id=uuid.uuid4(), title="CubeSat Design Report", slug=REPORT_SLUG,
-            summary=REPORT_SUMMARY, description=REPORT_DESCRIPTION,
-            kind="submission", team_policy="either", status="published", access_mode="open",
-            authored_by=author.id, track="Spacecraft systems",
-        )
-        db.add(report)
-        created["report"] = created.get("report", 0) + 1
-        await db.flush()
-    elif update:
-        report.title = "CubeSat Design Report"
-        report.summary = REPORT_SUMMARY
-        report.description = REPORT_DESCRIPTION
-        updated["report"] = updated.get("report", 0) + 1
-    else:
-        skipped["report"] = skipped.get("report", 0) + 1
-
-    report_variant = (await db.execute(select(MissionVariant).where(
-        MissionVariant.mission_id == report.id, MissionVariant.position == REPORT_VARIANT["position"],
-    ))).scalars().first()
-    if report_variant is None:
-        db.add(MissionVariant(id=uuid.uuid4(), mission_id=report.id, **REPORT_VARIANT))
-        created["variants"] += 1
-    elif update:
-        report_variant.label = REPORT_VARIANT["label"]
-        report_variant.points = REPORT_VARIANT["points"]
-        report_variant.config = REPORT_VARIANT["config"]
-        updated["variants"] += 1
-    else:
-        skipped["variants"] += 1
-    await db.flush()
-
-    # The DAG edge. `add_prerequisite` 409s when the edge already exists, so
-    # re-running stays idempotent without a second existence query.
-    try:
-        await curriculum.add_prerequisite(
-            db, item_type="mission", item_id=report.id,
-            requires_type="mission", requires_id=mission.id,
-        )
-        created["prerequisite"] = 1
-    except HTTPException as exc:
-        if exc.status_code != 409:
-            raise
-        skipped["prerequisite"] = 1
-    await db.flush()
-
     for label in sorted(set(created) | set(updated) | set(skipped)):
         print(f"{label:14} created {created.get(label, 0):3}   "
               f"updated {updated.get(label, 0):3}   unchanged {skipped.get(label, 0):3}")
@@ -406,7 +281,7 @@ async def seed(
         print("\n--dry-run: rolling back, nothing written.")
     else:
         await db.commit()
-        print(f"\nCommitted. Missions: {MISSION_SLUG}, {REPORT_SLUG} (gated behind it)")
+        print(f"\nCommitted. Mission: {MISSION_SLUG}")
 
 
 async def main() -> None:
