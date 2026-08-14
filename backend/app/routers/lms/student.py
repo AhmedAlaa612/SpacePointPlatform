@@ -181,7 +181,14 @@ async def catalog(
 ):
     """P1-7: `invite` courses list *with a lock* (access_mode + enrolled),
     never hidden — the catalog stays the full picture; access_mode is what
-    the client renders "Enrol" / "Buy" / a lock icon from."""
+    the client renders "Enrol" / "Buy" / a lock icon from.
+
+    That's for students, who can self-enrol into an `open` course and
+    browse the rest to see what's coming. Staff can't self-enrol at all —
+    `POST /lms/enroll` is student-only, so any course they don't already
+    hold an ops-granted `Enrollment` in just 403s on click. For everyone
+    but admin/operations (who need the full catalog for oversight), the
+    catalog scopes down to what they're actually enrolled in."""
     stmt = select(Course).where(Course.is_published.is_(True))
     if q and q.strip():
         pattern = f"%{q.strip()}%"
@@ -195,6 +202,9 @@ async def catalog(
             *enrollment_is_active(),
         )
     )).scalars().all())
+
+    if not ({"student", "admin", "operations"} & set(current.roles)):
+        rows = [c for c in rows if c.id in enrolled_course_ids]
 
     return [
         CourseCatalogOut(
