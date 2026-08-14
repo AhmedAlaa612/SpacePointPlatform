@@ -4,6 +4,7 @@ import { ArrowRight, PlayCircle, Route as RouteIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchCatalog, fetchLearningPaths, fetchMyCourses, fetchUpcomingPrograms } from "@/api/lms";
+import { SatkitAssembly } from "@/components/satkit/SatkitAssembly";
 import { CourseProgress } from "./CourseProgress";
 import { UpcomingProgramRow } from "./UpcomingProgramRow";
 import { Rail, RailCard } from "./Rail";
@@ -45,18 +46,9 @@ export default function LearnLanding() {
               Continue learning <ArrowRight className="size-4" />
             </Button>
           </div>
-          {catalog && (
-            <div className="flex gap-8 pt-2">
-              <div>
-                <div className="font-display text-2xl font-bold">{catalog.length}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">courses live</div>
-              </div>
-            </div>
-          )}
         </div>
-        <div className={`h-64 sm:h-96 rounded-2xl ring-1 ring-border ${ART} flex flex-col items-center justify-center gap-2 text-muted-foreground`}>
-          <PlayCircle className="size-8" />
-          <span className="text-xs font-mono">students with SatKit</span>
+        <div className="h-80 sm:h-[32rem]">
+          <SatkitAssembly height="100%" />
         </div>
       </div>
 
