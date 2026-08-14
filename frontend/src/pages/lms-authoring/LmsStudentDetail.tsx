@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { isAxiosError } from "axios"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { ArrowLeft, Plus, X } from "lucide-react"
@@ -7,6 +8,8 @@ import {
   getStudentProfileApi, listUserEnrollmentsApi, grantCourseEnrollmentApi, revokeCourseEnrollmentApi,
 } from "@/api/lms_admin"
 import { ItemPicker } from "@/pages/lms-authoring/components/ItemPicker"
+import { AVATAR_PRESETS } from "@/components/games/avatarPresets"
+import { updateUserApi } from "@/api/admin/users"
 
 /** Student profile (2026-08-12) — nickname, programs attended, and the
  * courses they're currently on, with assign/remove in one place. This is
@@ -19,6 +22,8 @@ export default function LmsStudentDetail() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [courseId, setCourseId] = useState("")
+  const [nickname, setNickname] = useState<string | null>(null)
+  const [identityError, setIdentityError] = useState("")
 
   const { data: profile, isLoading: profileLoading } = useQuery({
     queryKey: ["lms-admin-student-profile", userId],
@@ -38,6 +43,26 @@ export default function LmsStudentDetail() {
   const revokeMutation = useMutation({
     mutationFn: (enrollmentId: string) => revokeCourseEnrollmentApi(enrollmentId),
     onSuccess: invalidateEnrollments,
+  })
+
+  // Nickname and avatar are what a student is called in front of a class,
+  // and until now only the student could change either — from inside a game
+  // lobby. A generated callsign occasionally lands somewhere unusable, and
+  // "ask them to open a lobby and fix it themselves" is not a moderation
+  // tool.
+  const saveIdentity = useMutation({
+    mutationFn: (patch: { nickname?: string; avatar?: string }) => updateUserApi(userId, patch),
+    onSuccess: () => {
+      setIdentityError("")
+      setNickname(null)
+      void queryClient.invalidateQueries({ queryKey: ["lms-admin-student-profile", userId] })
+      void queryClient.invalidateQueries({ queryKey: ["lms-admin-students"] })
+    },
+    onError: (err) => setIdentityError(
+      (isAxiosError(err) && typeof err.response?.data?.detail === "string")
+        ? err.response.data.detail
+        : "Couldn't save that.",
+    ),
   })
 
   if (profileLoading || !profile) return <Spinner />
@@ -63,6 +88,58 @@ export default function LmsStudentDetail() {
           <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-primary/10 text-primary">{profile.nickname}</span>
         ) : undefined}
       />
+
+      <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl">
+        <div>
+          <h3 className="text-sm font-medium text-foreground">Game identity</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            What this student is called on a leaderboard. Their real name stays a staff-only
+            reveal either way.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Nickname</label>
+            <input
+              value={nickname ?? profile.nickname ?? ""}
+              onChange={(e) => setNickname(e.target.value)}
+              placeholder="SpaceOtter77"
+              className="h-9 px-3 w-56 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+          </div>
+          <button
+            onClick={() => saveIdentity.mutate({ nickname: (nickname ?? "").trim() })}
+            disabled={saveIdentity.isPending || nickname === null || !nickname.trim()}
+            className="h-9 px-4 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-40"
+          >
+            Save nickname
+          </button>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Avatar</label>
+          <div className="flex flex-wrap gap-1.5">
+            {AVATAR_PRESETS.map((preset) => {
+              const Icon = preset.icon
+              const active = profile.avatar === preset.key
+              return (
+                <button
+                  key={preset.key}
+                  onClick={() => saveIdentity.mutate({ avatar: preset.key })}
+                  disabled={saveIdentity.isPending}
+                  title={preset.label}
+                  className={`size-10 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-50 ${
+                    active
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "border-border text-muted-foreground hover:bg-muted"}`}
+                >
+                  <Icon size={16} />
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        {identityError && <p className="text-xs text-destructive">{identityError}</p>}
+      </div>
 
       <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl">
         <h3 className="text-sm font-medium text-foreground">Programs attended</h3>

@@ -74,8 +74,13 @@ class InviteCodeUpdate(BaseModel):
 # ── student management (2026-08-12) ─────────────────────────────────────────
 
 class StudentSummaryOut(BaseModel):
-    """One row for the student search/list — deliberately minimal, the
-    profile page (`StudentProfileOut`) carries the rest."""
+    """One row for the student search/list.
+
+    Was "deliberately minimal" on the theory that the profile page carries
+    the rest — but a list you have to click through row by row to identify
+    anyone isn't a roster. School, grade, join date and status are what let
+    an operator scan a camp's intake, so they belong on the row.
+    """
     id: UUID
     full_name: str
     nickname: str | None = None
@@ -84,6 +89,11 @@ class StudentSummaryOut(BaseModel):
     # ops-issued one (2026-08-13). None for students who predate the gate.
     invite_code: str | None = None
     invite_label: str | None = None
+    # From the linked spine Contact — absent for accounts without one.
+    school_name: str | None = None
+    grade: str | None = None
+    status: str | None = None
+    created_at: datetime | None = None
 
 
 class StudentProgramOut(BaseModel):
@@ -104,6 +114,10 @@ class StudentProfileOut(BaseModel):
     id: UUID
     full_name: str
     nickname: str | None = None
+    # The account's default game avatar (an AVATAR_PRESETS key) — editable
+    # here because a student could previously only change it from inside a
+    # game lobby, which left staff no way to correct one.
+    avatar: str | None = None
     email: str
     programs: list[StudentProgramOut]
 

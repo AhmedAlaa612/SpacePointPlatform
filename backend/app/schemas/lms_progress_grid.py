@@ -74,9 +74,48 @@ class MissionProgressRowOut(BaseModel):
     status: str
     score: float | None = None
     attempt_no: int
+    # Who this student is, not just their id — school/grade/code are what
+    # make the table usable at a camp, where the actionable finding is
+    # usually about a cohort rather than an individual.
+    school_name: str | None = None
+    grade: str | None = None
+    invitation_code_used: str | None = None
+    started_at: str | None = None
+    # Per-step entry state; None for mission kinds with no step model.
+    steps: dict[str, bool] | None = None
+
+
+class MissionStepLabelOut(BaseModel):
+    key: str
+    label: str
 
 
 class MissionProgressAllOut(BaseModel):
     mission_id: UUID
     mission_title: str
+    # The step columns to render, in order. Empty for kinds without steps —
+    # sent by the server so the table's columns can never drift from the
+    # booleans the rows actually carry.
+    step_labels: list[MissionStepLabelOut] = []
+    has_steps: bool = False
     rows: list[MissionProgressRowOut]
+
+
+# ── overview lists (2026-08-14) — the landing view for each progress tab,
+# so picking an item to drill into doesn't start from a blind dropdown.
+
+class CourseOverviewRowOut(BaseModel):
+    course_id: UUID
+    title: str
+    enrolled_count: int
+    completed_count: int
+    completion_pct: int
+
+
+class MissionOverviewRowOut(BaseModel):
+    mission_id: UUID
+    title: str
+    kind: str
+    attempted_count: int
+    passed_count: int
+    completion_pct: int

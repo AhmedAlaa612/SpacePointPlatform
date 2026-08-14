@@ -31,6 +31,8 @@ from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptM
 from app.models.missions.team import MissionTeam
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
+from app.models.spine.contact import Contact
+from app.models.spine.organization import Organization
 from app.models.user import User
 from app.services.lms.curriculum import resolve_cohort_curriculum
 from app.services.lms.enrollment import enrollment_is_active
@@ -271,41 +273,197 @@ async def mission_progress_all(db: AsyncSession, *, mission_id: uuid.UUID) -> di
         )
     }
 
+    # Who these students are, not just their ids. Madar's equivalent table
+    # carried school, grade and the invitation code beside every row, and
+    # that context is most of what makes the table usable at a camp: "the
+    # ALDAR2 cohort stalls at the link budget" is a finding, "seven of
+    # nineteen names stalled" is not.
+    contact_ids = [u.contact_id for u in users_by_id.values() if u.contact_id]
+    contacts_by_id = {
+        c.id: c for c in (
+            (await db.execute(select(Contact).where(Contact.id.in_(contact_ids)))).scalars().all()
+            if contact_ids else []
+        )
+    }
+    org_ids = {c.organization_id for c in contacts_by_id.values() if c.organization_id}
+    orgs_by_id = {
+        o.id: o for o in (
+            (await db.execute(select(Organization).where(Organization.id.in_(org_ids)))).scalars().all()
+            if org_ids else []
+        )
+    }
+
+    # Per-step completion for every attempt on this mission, so the row can
+    # show where each student actually is rather than only that they haven't
+    # finished. Empty for mission kinds with no step model.
+    steps_by_attempt = await design_steps_for_attempts(db, [a.id for a in attempts])
+
     rows = []
     for uid, group in by_user.items():
         user = users_by_id.get(uid)
         if user is None:
             continue
         attempt = best_attempt(group)
+        contact = contacts_by_id.get(user.contact_id) if user.contact_id else None
+        org = orgs_by_id.get(contact.organization_id) if contact and contact.organization_id else None
+        # The furthest-along attempt's steps, which is not always the
+        # best-scoring one — for a student still working, "how far did they
+        # ever get" is the question the table is being asked.
+        step_sets = [steps_by_attempt[a.id] for a in group if a.id in steps_by_attempt]
+        steps = max(
+            step_sets,
+            key=lambda st: sum(1 for key, _ in DESIGN_STEP_LABELS if st.get(key)),
+            default=None,
+        )
         rows.append({
             "user_id": uid, "full_name": user.full_name,
             "status": attempt.status,
             "score": float(attempt.score) if attempt.score is not None else None,
             "attempt_no": attempt.attempt_no,
+            "school_name": org.name_latin if org else None,
+            "grade": contact.grade if contact else None,
+            "invitation_code_used": user.invitation_code_used,
+            "started_at": attempt.started_at.isoformat() if attempt.started_at else None,
+            "steps": steps,
         })
     rows.sort(key=lambda r: r["full_name"])
 
-    return {"mission_id": mission_id, "mission_title": mission.title, "rows": rows}
+    return {
+        "mission_id": mission_id,
+        "mission_title": mission.title,
+        "step_labels": [{"key": key, "label": label} for key, label in DESIGN_STEP_LABELS],
+        "has_steps": any(r["steps"] for r in rows),
+        "rows": rows,
+    }
+
+
+async def courses_overview(db: AsyncSession) -> list[dict]:
+    """Every course with how many students are enrolled and how many have
+    finished it — the landing list for the progress page's Courses tab, so
+    picking a course to look at doesn't require already knowing its name."""
+    courses = (await db.execute(select(Course).order_by(Course.title))).scalars().all()
+    if not courses:
+        return []
+
+    enrolled_by_course: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for user_id, course_id in (await db.execute(
+        select(Enrollment.user_id, Enrollment.course_id).where(
+            Enrollment.course_id.in_([c.id for c in courses]), *enrollment_is_active(),
+        )
+    )).all():
+        enrolled_by_course.setdefault(course_id, []).append(user_id)
+
+    rows = []
+    for course in courses:
+        user_ids = enrolled_by_course.get(course.id, [])
+        completion = (
+            await batch_course_completion(db, user_ids=user_ids, course_id=course.id) if user_ids else {}
+        )
+        completed = sum(1 for c in completion.values() if c["pct"] >= 100)
+        rows.append({
+            "course_id": course.id,
+            "title": course.title,
+            "enrolled_count": len(user_ids),
+            "completed_count": completed,
+            "completion_pct": round(completed / len(user_ids) * 100) if user_ids else 0,
+        })
+    return rows
+
+
+async def missions_overview(db: AsyncSession) -> list[dict]:
+    """Every mission with how many students have attempted it and how many
+    passed — the landing list for the progress page's Missions tab. Attempted
+    counts a student once regardless of retries, same as `mission_progress_all`."""
+    missions = (await db.execute(select(Mission).order_by(Mission.title))).scalars().all()
+    if not missions:
+        return []
+    mission_ids = [m.id for m in missions]
+
+    attempts = (
+        await db.execute(select(MissionAttempt).where(MissionAttempt.mission_id.in_(mission_ids)))
+    ).scalars().all()
+
+    team_attempt_ids = [a.id for a in attempts if a.mission_team_id is not None]
+    members_by_attempt: dict[uuid.UUID, list[uuid.UUID]] = {}
+    if team_attempt_ids:
+        for attempt_id, user_id in (await db.execute(
+            select(MissionAttemptMember.attempt_id, MissionAttemptMember.user_id)
+            .where(MissionAttemptMember.attempt_id.in_(team_attempt_ids))
+        )).all():
+            members_by_attempt.setdefault(attempt_id, []).append(user_id)
+
+    # mission_id -> user_id -> every attempt they have on it (solo or via a
+    # team roster), so passed/attempted counts a student once per mission.
+    per_mission: dict[uuid.UUID, dict[uuid.UUID, list[MissionAttempt]]] = {}
+    for a in attempts:
+        user_ids = [a.user_id] if a.user_id is not None else members_by_attempt.get(a.id, [])
+        bucket = per_mission.setdefault(a.mission_id, {})
+        for uid in user_ids:
+            bucket.setdefault(uid, []).append(a)
+
+    rows = []
+    for mission in missions:
+        by_student = per_mission.get(mission.id, {})
+        attempted = len(by_student)
+        passed = sum(1 for group in by_student.values() if best_attempt(group).status == "passed")
+        rows.append({
+            "mission_id": mission.id,
+            "title": mission.title,
+            "kind": mission.kind,
+            "attempted_count": attempted,
+            "passed_count": passed,
+            "completion_pct": round(passed / attempted * 100) if attempted else 0,
+        })
+    return rows
+
+
+# The design mission's nine steps, in the order a student walks them —
+# matching `CompletionMap`'s own list in DesignMissionPage.tsx exactly (2026-08-14:
+# they'd drifted — this used to be 8 keys with no "downlink" at all, so a
+# design that the workbench itself called 9/9 closed could show 7/8 here).
+# Named here rather than in each caller so the profile, the cohort grid and
+# the per-mission table can never disagree about what the phases are or what
+# they're called.
+DESIGN_STEP_LABELS: list[tuple[str, str]] = [
+    ("components", "Components"),
+    ("conops", "CONOPS"),
+    ("data_budget", "Data"),
+    ("power_budget", "Power"),
+    ("energy_budget", "Energy"),
+    ("link_budget", "Link"),
+    ("downlink", "Downlink"),
+    ("mass_budget", "Mass"),
+    ("cost_budget", "Cost"),
+]
 
 
 async def _design_steps_by_attempt(
     db: AsyncSession, mission_status: dict,
 ) -> dict[uuid.UUID, dict]:
-    """Per-design-attempt step completion, for the grid's mission cells.
-
-    Deliberately cheap and approximate: it reports which steps a student has
-    *entered data for*, not whether each one passes. Running the full
-    dashboard for every student x every design attempt would mean a
-    six-calculator rollup per cell, and the grid is a scanning tool — "no
-    link budget yet" is the actionable fact, and the exact margin is one
-    click away on the design itself.
-    """
-    from app.models.missions.design import (
-        Design, DesignComponent, DesignCostBudgetEntry, DesignDataBudgetEntry,
-        DesignLinkBudgetEntry, DesignMassBudgetEntry, DesignPowerBudgetEntry,
-    )
-
+    """Per-design-attempt step completion, for the grid's mission cells."""
     attempt_ids = [a.id for per_user in mission_status.values() for a in per_user.values()]
+    return await design_steps_for_attempts(db, attempt_ids)
+
+
+async def design_steps_for_attempts(
+    db: AsyncSession, attempt_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, dict]:
+    """Per-step completion, keyed by attempt id, for the profile card, the
+    cohort grid and the per-mission table.
+
+    Runs the actual `compute_dashboard()` per attempt — the same calculators
+    the design workbench itself uses — rather than a "does a row exist"
+    presence check. The two used to disagree in both directions: a step with
+    a saved-but-out-of-range value (e.g. a power budget with negative margin)
+    counted as done under the old heuristic despite the workbench calling it
+    open, and conversely nothing here distinguished "entered" from "passes",
+    so every admin view under-reported a design's real progress relative to
+    what the student actually sees on their own screen (2026-08-14).
+    """
+    from app.models.missions.design import Design
+    from app.models.missions.mission import MissionVariant
+    from app.services.missions.design.service import compute_dashboard
+
     if not attempt_ids:
         return {}
 
@@ -315,44 +473,26 @@ async def _design_steps_by_attempt(
     if not designs:
         return {}
 
-    design_ids = [d.id for d in designs]
-    components = (await db.execute(
-        select(DesignComponent.id, DesignComponent.design_id)
-        .where(DesignComponent.design_id.in_(design_ids))
-    )).all()
-    design_of_component = {cid: did for cid, did in components}
-    component_ids = list(design_of_component)
-
-    async def designs_with_rows(model) -> set:
-        if not component_ids:
-            return set()
-        rows = (await db.execute(
-            select(model.design_component_id).where(model.design_component_id.in_(component_ids))
-        )).scalars().all()
-        return {design_of_component[cid] for cid in rows if cid in design_of_component}
-
-    has_data = await designs_with_rows(DesignDataBudgetEntry)
-    has_power = await designs_with_rows(DesignPowerBudgetEntry)
-    has_mass = await designs_with_rows(DesignMassBudgetEntry)
-    has_cost = await designs_with_rows(DesignCostBudgetEntry)
-    has_link = {
-        d for d in (await db.execute(
-            select(DesignLinkBudgetEntry.design_id)
-            .where(DesignLinkBudgetEntry.design_id.in_(design_ids), DesignLinkBudgetEntry.is_saved.is_(True))
+    attempts_by_id = {
+        a.id: a for a in (await db.execute(
+            select(MissionAttempt).where(MissionAttempt.id.in_([d.attempt_id for d in designs]))
         )).scalars().all()
     }
-    with_components = {design_of_component[cid] for cid in component_ids}
+    variant_ids = {a.variant_id for a in attempts_by_id.values()}
+    configs_by_variant = {
+        v.id: (v.config or {}) for v in (
+            (await db.execute(
+                select(MissionVariant).where(MissionVariant.id.in_(variant_ids))
+            )).scalars().all() if variant_ids else []
+        )
+    }
 
     out: dict[uuid.UUID, dict] = {}
-    for d in designs:
-        out[d.attempt_id] = {
-            "components": d.id in with_components,
-            "conops": bool(d.orbit_duration_min),
-            "data_budget": d.id in has_data,
-            "power_budget": d.id in has_power,
-            "energy_budget": bool(d.battery_capacity_wh),
-            "link_budget": d.id in has_link,
-            "mass_budget": d.id in has_mass,
-            "cost_budget": d.id in has_cost,
-        }
+    for design in designs:
+        attempt = attempts_by_id.get(design.attempt_id)
+        if attempt is None:
+            continue
+        variant_config = configs_by_variant.get(attempt.variant_id, {})
+        dashboard = await compute_dashboard(db, design=design, variant_config=variant_config)
+        out[design.attempt_id] = {key: bool(step["is_valid"]) for key, step in dashboard["steps"].items()}
     return out

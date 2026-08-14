@@ -29,6 +29,8 @@ from app.models.instructors.invitation_code import InvitationCode
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
+from app.models.spine.contact import Contact
+from app.models.spine.organization import Organization
 from app.models.user import User
 from app.schemas.lms_admin import (
     AdminCheckpointNoteContent,
@@ -76,11 +78,15 @@ from app.schemas.lms_admin import (
     VideoCheckpointUpdate,
 )
 from app.schemas.curriculum import PrerequisiteEdgeIn, PrerequisiteEdgeOut
-from app.schemas.lms_progress_grid import CourseProgressAllOut, MissionProgressAllOut, ProgressGridOut
+from app.schemas.lms_progress_grid import (
+    CourseOverviewRowOut, CourseProgressAllOut, MissionOverviewRowOut, MissionProgressAllOut, ProgressGridOut,
+)
 from app.services import curriculum as curriculum_service
 from app.services import storage
 from app.services.lms import enroll, enrollment_is_active
-from app.services.lms.admin_progress import cohort_progress_grid, course_progress_all, mission_progress_all
+from app.services.lms.admin_progress import (
+    cohort_progress_grid, course_progress_all, courses_overview, mission_progress_all, missions_overview,
+)
 from app.services.lms.curriculum import reconcile_cohort_enrollments, reconcile_cohorts_inheriting_program
 from app.services.lms.my_programs import my_programs
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
@@ -235,14 +241,38 @@ async def search_students(
     labels = dict((await db.execute(
         select(InvitationCode.code, InvitationCode.label).where(InvitationCode.kind == "student")
     )).all())
-    return [
-        StudentSummaryOut(
+
+    # School and grade live on the linked spine Contact, not on `users` —
+    # resolved in two batched queries rather than one pair per row.
+    contact_ids = [u.contact_id for u in rows if u.contact_id]
+    contacts = {
+        c.id: c for c in (
+            (await db.execute(select(Contact).where(Contact.id.in_(contact_ids)))).scalars().all()
+            if contact_ids else []
+        )
+    }
+    org_ids = {c.organization_id for c in contacts.values() if c.organization_id}
+    orgs = {
+        o.id: o for o in (
+            (await db.execute(select(Organization).where(Organization.id.in_(org_ids)))).scalars().all()
+            if org_ids else []
+        )
+    }
+
+    out = []
+    for u in rows:
+        contact = contacts.get(u.contact_id) if u.contact_id else None
+        org = orgs.get(contact.organization_id) if contact and contact.organization_id else None
+        out.append(StudentSummaryOut(
             id=u.id, full_name=u.full_name, nickname=u.nickname, email=u.email,
             invite_code=u.invitation_code_used,
             invite_label=labels.get(u.invitation_code_used) if u.invitation_code_used else None,
-        )
-        for u in rows
-    ]
+            school_name=org.name_latin if org else None,
+            grade=contact.grade if contact else None,
+            status=u.status,
+            created_at=u.created_at,
+        ))
+    return out
 
 
 # ── student invite codes (2026-08-13) ───────────────────────────────────────
@@ -381,8 +411,8 @@ async def student_profile(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
     programs = await my_programs(db, user=user)
     return StudentProfileOut(
-        id=user.id, full_name=user.full_name, nickname=user.nickname, email=user.email,
-        programs=[StudentProgramOut(**p) for p in programs],
+        id=user.id, full_name=user.full_name, nickname=user.nickname, avatar=user.avatar,
+        email=user.email, programs=[StudentProgramOut(**p) for p in programs],
     )
 
 
@@ -437,6 +467,27 @@ async def mission_progress(
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
     return result
+
+
+@router.get("/progress/courses-overview", response_model=list[CourseOverviewRowOut])
+async def courses_progress_overview(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Every course with enrolled/completed counts (2026-08-14) — the landing
+    list for the progress page's Courses tab, so picking a course doesn't
+    start from a blind dropdown."""
+    return await courses_overview(db)
+
+
+@router.get("/progress/missions-overview", response_model=list[MissionOverviewRowOut])
+async def missions_progress_overview(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Every mission with attempted/passed counts (2026-08-14) — the landing
+    list for the progress page's Missions tab."""
+    return await missions_overview(db)
 
 
 # ── unified prerequisites (7B-2) ────────────────────────────────────────────

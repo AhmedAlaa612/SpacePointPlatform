@@ -64,11 +64,26 @@ export interface MissionProgressRow {
   status: MissionStatus;
   score: number | null;
   attempt_no: number;
+  school_name: string | null;
+  grade: string | null;
+  invitation_code_used: string | null;
+  started_at: string | null;
+  /** Per-step entry state; null for mission kinds with no step model. */
+  steps: Record<string, boolean> | null;
+}
+
+export interface MissionStepLabel {
+  key: string;
+  label: string;
 }
 
 export interface MissionProgressAll {
   mission_id: string;
   mission_title: string;
+  /** The step columns to render, in order — sent by the server so the
+   * header can never drift from the booleans the rows carry. */
+  step_labels: MissionStepLabel[];
+  has_steps: boolean;
   rows: MissionProgressRow[];
 }
 
@@ -79,3 +94,28 @@ export const getCourseProgressApi = (courseId: string, cohortId?: string) =>
 
 export const getMissionProgressApi = (missionId: string) =>
   api.get<MissionProgressAll>(`/lms/admin/progress/missions/${missionId}`).then((r) => r.data);
+
+// ── overview lists (2026-08-14) — the landing view for each tab ────────────
+
+export interface CourseOverviewRow {
+  course_id: string;
+  title: string;
+  enrolled_count: number;
+  completed_count: number;
+  completion_pct: number;
+}
+
+export interface MissionOverviewRow {
+  mission_id: string;
+  title: string;
+  kind: string;
+  attempted_count: number;
+  passed_count: number;
+  completion_pct: number;
+}
+
+export const getCoursesOverviewApi = () =>
+  api.get<CourseOverviewRow[]>("/lms/admin/progress/courses-overview").then((r) => r.data);
+
+export const getMissionsOverviewApi = () =>
+  api.get<MissionOverviewRow[]>("/lms/admin/progress/missions-overview").then((r) => r.data);

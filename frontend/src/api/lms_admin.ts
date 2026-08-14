@@ -63,6 +63,10 @@ export interface StudentSummary {
   email: string;
   invite_code: string | null;
   invite_label: string | null;
+  school_name: string | null;
+  grade: string | null;
+  status: string | null;
+  created_at: string | null;
 }
 
 export interface InviteCode {
@@ -92,6 +96,7 @@ export interface StudentProfile {
   id: string;
   full_name: string;
   nickname: string | null;
+  avatar: string | null;
   email: string;
   programs: StudentProgram[];
 }
