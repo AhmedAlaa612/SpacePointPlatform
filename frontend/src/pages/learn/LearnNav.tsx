@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Home, GraduationCap, Bell, LogOut, Rocket, Search, Trophy, User, Gamepad2,
+  Home, GraduationCap, Bell, LogOut, Rocket, Search, Trophy, User, Gamepad2, ArrowLeftRight,
 } from "lucide-react";
 import { DomainIcon } from "@/components/ui/DomainIcon";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
@@ -12,6 +12,7 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { getNotificationsApi, markAllReadApi } from "@/api/notifications";
 import { cn } from "@/lib/utils";
+import { roleHomePath } from "@/lib/roleHome";
 
 /** `catalog`, `paths` and `profile` are still reachable pages — they just
  * aren't nav entries any more (2026-08-12): discovery moved onto the landing
@@ -62,6 +63,7 @@ export function LearnNav({ active }: { active: LearnNavActive }) {
           </nav>
 
           <div className="ml-auto flex items-center gap-1.5">
+            <BackToPortalButton />
             <LearnNavSearch />
             <ThemeToggle />
             <LearnNotificationsBell />
@@ -72,6 +74,23 @@ export function LearnNav({ active }: { active: LearnNavActive }) {
 
       <LearnMobileTabBar active={active} />
     </>
+  );
+}
+
+/** Staff browsing /learn had no way back except hand-editing the URL —
+ * students have no portal home to return to (roleHomePath maps them right
+ * back to /learn), so this only renders for everyone else. */
+function BackToPortalButton() {
+  const { currentUser } = useAuth();
+  if (!currentUser?.role || currentUser.role === "student") return null;
+  return (
+    <Link
+      to={roleHomePath(currentUser.role)}
+      className="flex items-center gap-1.5 rounded-xl px-3 h-9 text-sm text-muted-foreground border border-transparent transition-colors hover:bg-foreground/5 hover:text-foreground"
+    >
+      <ArrowLeftRight className="h-4 w-4 shrink-0" />
+      <span className="hidden lg:inline">Back to portal</span>
+    </Link>
   );
 }
 

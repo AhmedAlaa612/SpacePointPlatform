@@ -9,6 +9,8 @@ import {
 import { AppShell, ApplicantShell } from "@/components/layout/Sidebar";
 import { Login } from "@/pages/auth/Login";
 import { tokens } from "@/api/client";
+import { roleHomePath } from "@/lib/roleHome";
+import type { Role } from "@/types/shared";
 
 // Shared pages
 import SharedProfile from "@/pages/shared/Profile";
@@ -237,37 +239,10 @@ const indexRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/",
   beforeLoad: () => {
-    const role = localStorage.getItem("active_role");
-    if (role === "admin") {
-      throw redirect({ to: "/admin" });
-    } else if (role === "ambassador") {
-      throw redirect({ to: "/ambassadors" });
-    } else if (role === "teacher") {
-      throw redirect({ to: "/ambassadors/teacher-portal" });
-    } else if (role === "applicant") {
-      throw redirect({ to: "/instructors/status" });
-    } else if (role === "instructor") {
-      throw redirect({ to: "/instructors/dashboard" });
-    } else if (role === "facilitator") {
-      throw redirect({ to: "/instructors/facilitator/training" });
-    } else if (role === "operations") {
-      // V2 S6-2: dedicated operations domain with own dashboard + sidebar.
-      throw redirect({ to: "/operations/dashboard" });
-    } else if (role === "coo") {
-      // I1-4: the COO's job is approving inventory movement, so the fleet is
-      // the landing page. The ops dashboard would 403 — it's require_operations.
-      throw redirect({ to: "/operations/inventory" });
-    } else if (role === "storekeeper") {
-      // I1-4: they restock and receive, nothing else. Stock is their whole day.
-      throw redirect({ to: "/operations/inventory/stock" });
-    } else if (role === "student") {
-      // LMS LM0-2: students are a learner surface with their own shell at
-      // /learn, mounted outside the portal auth layout. They have no portal home
-      // and are not meant to — this redirect is the only bridge across.
-      throw redirect({ to: "/learn" });
-    } else {
-      throw redirect({ to: "/interns" });
-    }
+    // roleHomePath is the single source of truth for "what is this role's
+    // portal home" — LearnNav's "Back to portal" link reuses it too, so the
+    // two can't drift apart.
+    throw redirect({ to: roleHomePath(localStorage.getItem("active_role") as Role | null) });
   },
 });
 
