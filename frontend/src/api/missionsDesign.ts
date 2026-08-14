@@ -136,7 +136,11 @@ export interface Dashboard {
     volume_margin_cm3: number; max_allowed_mass_kg: number; available_internal_volume_cm3: number;
   };
   cost: { total_cost_aed: number; cost_margin_aed: number; maximum_budget_aed: number };
-  link: { margin_db: number; status: string };
+  link: {
+    margin_db: number; status: string;
+    good_threshold_db: number; weak_threshold_db: number;
+    assumed_distance_km: number; transmit_power_dbm: number;
+  };
   /** Design v2 (7D-2, F8/D4) — energy over a whole orbit, and the battery. */
   energy: {
     sunlit_minutes: number; eclipse_minutes: number;

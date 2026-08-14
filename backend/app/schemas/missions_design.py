@@ -229,6 +229,13 @@ class CostBudgetSummaryOut(BaseModel):
 class LinkBudgetSummaryOut(BaseModel):
     margin_db: float
     status: str
+    # The bar, not just the score. Showing "Margin: 0.61 dB - Failed Link"
+    # without saying 3 dB is required leaves a student guessing which way to
+    # move, which is the opposite of a teaching tool.
+    good_threshold_db: float
+    weak_threshold_db: float
+    assumed_distance_km: float
+    transmit_power_dbm: float
 
 
 class EnergyBudgetSummaryOut(BaseModel):

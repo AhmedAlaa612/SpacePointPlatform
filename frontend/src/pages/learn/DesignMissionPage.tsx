@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
 import { CheckCircle2, ChevronRight, Rocket, Trash2, XCircle } from "lucide-react";
@@ -264,8 +264,11 @@ function ComponentsTab({ state, attemptId, onChanged }: { state: DesignState; at
         {state.components.length === 0 && <p className="text-xs text-muted-foreground">Add components from the library below.</p>}
         <div className="flex flex-col gap-2">
           {state.components.map((c) => (
-            <div key={c.id} className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl ring-1 ring-border">
-              <div className="min-w-0">
+            <div key={c.id} className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl ring-1 ring-border">
+              {c.image_url
+                ? <img src={c.image_url} alt="" className="size-10 rounded-lg object-cover shrink-0 ring-1 ring-border" />
+                : <div className="size-10 rounded-lg shrink-0 ring-1 ring-border bg-muted" />}
+              <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium truncate">{c.component_name}</p>
                 <p className="text-xs text-muted-foreground">{c.subsystem} &middot; {c.mass_per_unit_g ?? 0}g &middot; {c.voltage_v ?? 0}V/{c.current_ma ?? 0}mA</p>
               </div>
@@ -706,31 +709,82 @@ function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignState; atte
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const link = state.dashboard.link;
+
+  // Recalculate as you type. The old form only recomputed on an explicit
+  // Save, so finding a link that closes meant guess → click → read → guess
+  // again, with no sense of which direction was helping. The budget is a
+  // trade you feel by moving one number at a time; a 500 ms debounce keeps
+  // the server the single source of truth without a request per keystroke.
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const push = useCallback((nextBand: string, next: typeof fields) => {
+    if (pending.current) clearTimeout(pending.current);
+    pending.current = setTimeout(async () => {
+      setSaving(true);
+      setSaveError("");
+      try {
+        onSaved(await saveLinkBudget(attemptId, { band_profile: nextBand, notes: null, ...next }));
+      } catch (err) {
+        setSaveError(errorDetail(err, "Couldn't save the link budget."));
+      } finally {
+        setSaving(false);
+      }
+    }, 500);
+  }, [attemptId, onSaved]);
+
+  useEffect(() => () => { if (pending.current) clearTimeout(pending.current); }, []);
+
+  const setField = (key: keyof typeof fields, value: number) => {
+    const next = { ...fields, [key]: value };
+    setFields(next);
+    push(band, next);
+  };
 
   const applyPreset = (b: string) => {
     setBand(b);
     const p = state.band_presets[b];
+    const next = p ?? fields;
     if (p) setFields(p);
+    push(b, next);
   };
 
-  const save = async () => {
-    setSaving(true);
-    setSaveError("");
-    try {
-      onSaved(await saveLinkBudget(attemptId, { band_profile: band, notes: null, ...fields }));
-    } catch (err) {
-      setSaveError(errorDetail(err, "Couldn't save the link budget."));
-    } finally {
-      setSaving(false);
-    }
+  const closes = link.status === "Good Link";
+  const shortBy = link.good_threshold_db - link.margin_db;
+
+  const FIELD_HINTS: Record<keyof typeof fields, string> = {
+    downlink_frequency_mhz: "Higher frequency spreads more over distance — costs margin.",
+    uplink_frequency_mhz: "Not used in the downlink margin; recorded for completeness.",
+    satellite_antenna_gain_dbi: "More gain, more margin. The cheapest dB you can buy.",
+    data_rate_kbps: "Doubling the rate costs about 3 dB. The trade students miss.",
+    required_signal_quality_db: "What your modulation needs to decode cleanly.",
   };
 
   return (
     <Card className="p-5 flex flex-col gap-4 max-w-xl">
-      <div className="text-sm">
-        Status: <b className={state.dashboard.link.status === "Good Link" ? "text-emerald-500" : "text-destructive"}>{state.dashboard.link.status}</b>
-        {" "}&middot; Margin: <b>{state.dashboard.link.margin_db.toFixed(2)} dB</b>
+      {/* The bar, not just the score. "Margin 0.61 dB / Failed Link" with no
+          stated threshold is unanswerable — you cannot tell which way to move. */}
+      <div className={`rounded-xl ring-1 px-4 py-3 flex flex-col gap-1 ${
+        closes ? "ring-emerald-500/30 bg-emerald-500/5" : "ring-destructive/30 bg-destructive/5"}`}>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className={`text-sm font-semibold ${closes ? "text-emerald-500" : "text-destructive"}`}>
+            {link.status}
+          </span>
+          <span className="font-mono text-sm">
+            {link.margin_db.toFixed(2)} dB
+            <span className="text-muted-foreground"> / need {link.good_threshold_db.toFixed(1)} dB</span>
+          </span>
+        </div>
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          {closes
+            ? `${(link.margin_db - link.good_threshold_db).toFixed(1)} dB of headroom above the requirement.`
+            : `Short by ${shortBy.toFixed(1)} dB. Raise the antenna gain, lower the data rate, or move to a lower frequency — each is worth a few dB.`}
+        </p>
+        <p className="text-[10px] text-muted-foreground">
+          Computed at {link.assumed_distance_km.toLocaleString()} km with a {link.transmit_power_dbm.toFixed(0)} dBm
+          transmitter. {saving ? "Recalculating..." : "Updates as you type."}
+        </p>
       </div>
+
       <div className="flex flex-col gap-1.5">
         <label className={labelCls}>Band</label>
         <select className={inputCls} value={band} onChange={(e) => applyPreset(e.target.value)}>
@@ -741,12 +795,12 @@ function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignState; atte
         {(Object.keys(fields) as (keyof typeof fields)[]).map((key) => (
           <div key={key} className="flex flex-col gap-1.5">
             <label className={labelCls}>{key.replace(/_/g, " ")}</label>
-            <input type="number" className={inputCls} value={fields[key]}
-              onChange={(e) => setFields((p) => ({ ...p, [key]: Number(e.target.value) }))} />
+            <input type="number" step="any" className={inputCls} value={fields[key]}
+              onChange={(e) => setField(key, Number(e.target.value))} />
+            <span className="text-[10px] text-muted-foreground leading-snug">{FIELD_HINTS[key]}</span>
           </div>
         ))}
       </div>
-      <Button className="w-fit" onClick={() => void save()} disabled={saving}>{saving ? "Saving..." : "Save link budget"}</Button>
       {saveError && <p className="text-xs text-destructive">{saveError}</p>}
     </Card>
   );

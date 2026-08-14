@@ -209,7 +209,13 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
             total_cost_aed=dash["cost"].total_cost_aed, cost_margin_aed=dash["cost"].cost_margin_aed,
             maximum_budget_aed=thresholds["maximum_budget_aed"],
         ),
-        link=LinkBudgetSummaryOut(margin_db=dash["link"].margin_db, status=dash["link"].status),
+        link=LinkBudgetSummaryOut(
+            margin_db=dash["link"].margin_db, status=dash["link"].status,
+            good_threshold_db=thresholds["good_link_margin_threshold_db"],
+            weak_threshold_db=thresholds["weak_link_margin_threshold_db"],
+            assumed_distance_km=thresholds["assumed_distance_km"],
+            transmit_power_dbm=thresholds["transmit_power_dbm"],
+        ),
         energy=EnergyBudgetSummaryOut(
             sunlit_minutes=dash["energy"].sunlit_minutes, eclipse_minutes=dash["energy"].eclipse_minutes,
             generated_per_orbit_mwh=dash["energy"].generated_per_orbit_mwh,
