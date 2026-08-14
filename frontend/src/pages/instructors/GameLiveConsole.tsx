@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate, useParams } from "@tanstack/react-router"
+import { useParams } from "@tanstack/react-router"
 import { CheckCircle2, ChevronLeft, Download, Eye, EyeOff, RotateCcw, Square, Timer, Trophy, Users } from "lucide-react"
 import {
   endRunApi, getCurrentQuestionApi, getLeaderboardApi, getRosterApi, getRunApi, nextQuestionApi,
@@ -140,10 +140,28 @@ function FinalPodium({ runId }: { runId: string }) {
     },
   })
 
-  const exportResults = () => {
+  /** The exported file is a staff record, not the projector.
+   *
+   * This used to write the real-name column only if "Reveal names" happened
+   * to be toggled on, and blank it again the moment it was toggled off — so
+   * whether the export was usable depended on the state of an unrelated
+   * display control. The reveal toggle exists to protect nicknames *on the
+   * screen the class is looking at*; the file an instructor downloads to
+   * their own machine has no audience to protect it from, and a results
+   * export that can't tell you who scored what is not a results export.
+   */
+  const exportResults = async () => {
+    let resolved = names
+    if (Object.keys(resolved).length === 0) {
+      const rows = await revealAllNamesApi(runId)
+      resolved = Object.fromEntries(rows.map((r) => [r.participant_id, r.real_name]))
+      setNames(resolved)
+    }
     downloadCsv(`live-quiz-results-${runId}.csv`, [
       ["Rank", "Nickname", "Real name", "Score"],
-      ...board.map((row, i) => [String(i + 1), row.nickname, namesRevealed ? (names[row.participant_id] ?? "") : "", String(row.score)]),
+      ...board.map((row, i) => [
+        String(i + 1), row.nickname, resolved[row.participant_id] ?? "", String(row.score),
+      ]),
     ])
   }
 
@@ -160,7 +178,7 @@ function FinalPodium({ runId }: { runId: string }) {
             {namesRevealed ? <EyeOff size={12} /> : <Eye size={12} />} {namesRevealed ? "Hide names" : "Reveal names"}
           </button>
           <button
-            onClick={exportResults}
+            onClick={() => void exportResults()}
             className="h-8 px-3 border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors flex items-center gap-1.5"
           >
             <Download size={12} /> Export results
@@ -174,7 +192,6 @@ function FinalPodium({ runId }: { runId: string }) {
 
 export default function GameLiveConsole() {
   const { runId } = useParams({ strict: false }) as { runId: string }
-  const navigate = useNavigate()
   const qc = useQueryClient()
   const toast = useToast()
   const [revealed, setRevealed] = useState(false)
@@ -223,7 +240,10 @@ export default function GameLiveConsole() {
       qc.invalidateQueries({ queryKey: ["game-run-leaderboard", runId] })
     } else if (msg.type === "game_restarted") {
       toast.success("Game restarted")
-      void navigate({ to: "/instructors/game-runs/$runId", params: { runId: msg.payload.new_run_id } })
+      setRevealed(false)
+      setResults(null)
+      setLeadIn(true)
+      qc.invalidateQueries({ queryKey: runKey })
     } else if (msg.type === "game_ended") {
       qc.invalidateQueries({ queryKey: runKey })
     } else if (msg.type === "participant_joined") {
@@ -271,10 +291,16 @@ export default function GameLiveConsole() {
   })
   const restart = useMutation({
     mutationFn: () => restartRunApi(runId),
-    onSuccess: (newRun) => {
+    // A restart resets this same run — same id, same code, same players —
+    // so there is nowhere to navigate to. Clearing the reveal/results state
+    // is what actually puts the console back in the lobby.
+    onSuccess: () => {
       setRestartConfirm(false)
-      toast.success("Restarted — past points from this run are reversed")
-      void navigate({ to: "/instructors/game-runs/$runId", params: { runId: newRun.id } })
+      setRevealed(false)
+      setResults(null)
+      setLeadIn(true)
+      toast.success("Restarted — points from this run are reversed, everyone is back in the lobby")
+      qc.invalidateQueries({ queryKey: runKey })
     },
   })
   const end = useMutation({
@@ -477,7 +503,7 @@ export default function GameLiveConsole() {
       {restartConfirm && (
         <ConfirmDialog
           title="Restart this game"
-          description="Every point awarded so far in this run is reversed for every student — the game starts fresh with the same question set. This can't be undone."
+          description="Everyone stays in the game with the same code — they go back to the lobby and play the same questions again from the start. Points already awarded in this run are reversed, so nobody keeps a score from the attempt you're replacing."
           confirmLabel="Restart"
           destructive
           pending={restart.isPending}

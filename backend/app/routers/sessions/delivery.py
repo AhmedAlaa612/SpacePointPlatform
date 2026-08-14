@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 
+import redis.asyncio as redis
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,6 +27,8 @@ from app.schemas.sessions.delivery import (
     UpdateSessionNotesRequest,
 )
 from app.schemas.sessions.reports import SessionReportOut
+from app.services.games.realtime import get_realtime_redis_dep, safe_publish_to_run
+from app.services.games.runs import close_open_runs_for_session
 from app.services.sessions import delivery
 from app.services.sessions import reports as reports_service
 from app.services.sessions import staffing as staffing_svc
@@ -111,9 +114,17 @@ async def mark_session_done(
     session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_session_delivery),
+    rt: redis.Redis | None = Depends(get_realtime_redis_dep),
 ):
     await delivery.mark_done(db, session_id, current_user)
+    # Any quiz still in a lobby or mid-question belongs to a class that has
+    # just gone home. Left open they stay in students' joinable lists
+    # indefinitely, because nobody goes back to press End on an activity
+    # they moved on from an hour ago.
+    closed = await close_open_runs_for_session(db, session_id=session_id)
     await db.commit()
+    for run_id in closed:
+        await safe_publish_to_run(rt, str(run_id), "game_ended", {})
     return await _session_delivery_out(db, session_id, current_user)
 
 

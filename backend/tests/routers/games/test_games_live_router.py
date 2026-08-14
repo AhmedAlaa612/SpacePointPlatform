@@ -268,7 +268,7 @@ async def test_deleting_an_answered_question_mid_game_reverses_its_points(db, cl
 
 
 @pytest.mark.asyncio
-async def test_restart_reverses_all_points_and_starts_a_fresh_run(db, client):
+async def test_restart_reverses_points_and_resets_the_same_run(db, client):
     instructor = await _user(db)
     student = await _user(db, roles=["student"])
     assignment = await _assignment_with_questions(db, count=1)
@@ -284,13 +284,34 @@ async def test_restart_reverses_all_points_and_starts_a_fresh_run(db, client):
 
     restarted = await client.post(f"/games/live/runs/{run.id}/restart", headers=_headers(instructor))
     assert restarted.status_code == 200, restarted.text
-    new_run_id = restarted.json()["id"]
-    assert new_run_id != str(run.id)
-    assert restarted.json()["run_no"] == 2
+
+    # Same run, back in its lobby — the join code and everyone in the room
+    # survive a restart. It used to create a successor run, which changed the
+    # code and ejected every student to the join screen.
+    assert restarted.json()["id"] == str(run.id)
+    assert restarted.json()["run_no"] == 1
     assert restarted.json()["status"] == "lobby"
 
     events = (await db.execute(select(PointEvent).where(PointEvent.user_id == student.id))).scalars().all()
     assert sum(e.points for e in events) == 0  # fully reversed
+
+    # The participant is still in the run and can play the same question
+    # again — the previous answer stays as reversed history beside the new
+    # one, and the replayed award is not swallowed as a duplicate.
+    await db.refresh(run)
+    assert run.restart_no == 1
+    await start_run(db, run=run)
+    question = await get_current_question(db, run)
+    replay = await submit_answer(
+        db, run=run, participant=participant, question=question,
+        selected_option_index=0, elapsed_seconds=0,
+    )
+    await db.commit()
+    assert replay.reversed_at is None
+    assert replay.points_awarded > 0
+
+    events = (await db.execute(select(PointEvent).where(PointEvent.user_id == student.id))).scalars().all()
+    assert sum(e.points for e in events) == replay.points_awarded
 
 
 @pytest.mark.asyncio

@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
 from app.models.games.game import Game, GameQuestion
+from app.models.games.session_assignment import GameSessionAssignment
 from app.models.user import User
 from app.schemas.games_admin import (
     GameCreate,
@@ -97,7 +98,28 @@ async def update_game(game_id: uuid.UUID, body: GameUpdate, db: AsyncSession = D
 
 @router.delete("/{game_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_game(game_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Delete a question-set template.
+
+    `game_session_assignments.game_id` is RESTRICT, so a game that has been
+    assigned to a session cannot be deleted. That is the intended rule — an
+    assignment records which template a session ran — but relying on the
+    foreign key alone surfaced it as a 500 with a Postgres error string. The
+    count is checked first so the caller gets a sentence they can act on.
+    """
     game = await _game_or_404(db, game_id)
+    assigned = await db.scalar(
+        select(func.count()).select_from(GameSessionAssignment)
+        .where(GameSessionAssignment.game_id == game_id)
+    )
+    if assigned:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"This game is assigned to {assigned} session"
+                f"{'' if assigned == 1 else 's'}, so it can't be deleted. Remove those "
+                f"assignments first, or leave it — an unassigned game costs nothing."
+            ),
+        )
     await db.delete(game)
     await db.commit()
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate, useParams } from "@tanstack/react-router"
+import { useParams } from "@tanstack/react-router"
 import { CheckCircle2, Clock, EyeOff, Flame, Trophy, Users, XCircle } from "lucide-react"
 import {
   getMyScoreApi, getPlayQuestionApi, getPlayRosterApi, getPlayRunApi, getStudentLeaderboardApi,
@@ -81,7 +81,6 @@ function FinalStandings({ runId }: { runId: string }) {
 
 export default function GamePlay() {
   const { runId } = useParams({ strict: false }) as { runId: string }
-  const navigate = useNavigate()
   const qc = useQueryClient()
   const { currentUser } = useAuth()
 
@@ -139,7 +138,14 @@ export default function GamePlay() {
       qc.invalidateQueries({ queryKey: ["play-leaderboard", runId] })
       qc.invalidateQueries({ queryKey: ["play-my-score", runId] })
     } else if (msg.type === "game_restarted") {
-      void navigate({ to: "/learn/games/$runId", params: { runId: msg.payload.new_run_id } })
+      // Same run, reset to its lobby — the student stays put rather than
+      // being bounced back to the join-code screen, which is what made the
+      // old new-run restart feel like being kicked out.
+      setRevealed(false)
+      setRevealResults(null)
+      qc.invalidateQueries({ queryKey: runKey })
+      qc.invalidateQueries({ queryKey: ["play-my-score", runId] })
+      qc.invalidateQueries({ queryKey: ["play-leaderboard", runId] })
     } else if (msg.type === "game_ended") {
       qc.invalidateQueries({ queryKey: runKey })
     } else if (msg.type === "participant_joined") {

@@ -214,10 +214,17 @@ async def restart(
     rt: redis.Redis | None = Depends(get_realtime_redis_dep),
 ):
     run = await _run_or_404(db, run_id)
-    new_run = await restart_run(db, run=run, actor_id=current.id)
+    await restart_run(db, run=run, actor_id=current.id)
     await db.commit()
-    await safe_publish_to_run(rt, str(run_id), "game_restarted", {"new_run_id": str(new_run.id)})
-    return await _run_out(db, new_run)
+    # `new_run_id` is still the same run — a restart resets this row in place
+    # rather than creating a successor, so connected students stay where they
+    # are and simply find themselves back in the lobby. The field keeps its
+    # name so an older client that reconnects to it still lands correctly.
+    await safe_publish_to_run(
+        rt, str(run_id), "game_restarted",
+        {"new_run_id": str(run.id), "run_id": str(run.id), "restart_no": run.restart_no},
+    )
+    return await _run_out(db, run)
 
 
 @router.post("/runs/{run_id}/end", response_model=GameRunOut)

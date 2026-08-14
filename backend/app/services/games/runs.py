@@ -9,11 +9,12 @@ stops at "the database is correct and the ledger is correct."
 Points integration goes through `services.lms.points.award_points` —
 the same single choke point missions/quizzes already use (`source="game"`,
 reserved for this exact purpose since the points-ledger model was
-built). `idempotency_key` is `f"{run.id}:{question.id}"`, not just the
-question id — a restart is a **new** `GameRun` row (D15), so the same
-question answered again in the new run must be able to earn points
-again; scoping the key by run is what makes that safe rather than
-silently no-op'ing against the old run's already-used key.
+built). `idempotency_key` is `f"{run.id}:{run.restart_no}:{question.id}"`,
+not just the question id — a restart replays the same questions in the
+same run (D15, revised), so the replay must be able to earn points again
+after the first attempt's were reversed. Scoping the key by run *and*
+restart count is what makes that safe rather than silently no-op'ing
+against the already-used key from before the restart.
 """
 
 import uuid
@@ -74,7 +75,9 @@ async def join_run(db: AsyncSession, *, run: GameRun, user: User, avatar: str | 
         return existing
     participant = GameParticipant(
         id=uuid.uuid4(), run_id=run.id, user_id=user.id,
-        nickname_snapshot=user.nickname or user.full_name, avatar=avatar,
+        # Falls back to the account's own avatar so a student who set one
+        # (or had one set for them) doesn't start every game faceless.
+        nickname_snapshot=user.nickname or user.full_name, avatar=avatar or user.avatar,
     )
     db.add(participant)
     await db.flush()
@@ -157,7 +160,15 @@ async def submit_answer(
     retried request, a double-click) returns the first recorded answer
     rather than re-grading or re-awarding."""
     existing = await db.scalar(
-        select(GameAnswer).where(GameAnswer.participant_id == participant.id, GameAnswer.question_id == question.id)
+        select(GameAnswer).where(
+            GameAnswer.participant_id == participant.id,
+            GameAnswer.question_id == question.id,
+            # Only a *live* answer counts as already-answered. After a
+            # restart the previous attempt's row is still there with
+            # `reversed_at` set, and treating that as "already answered"
+            # would leave every returning student unable to play.
+            GameAnswer.reversed_at.is_(None),
+        )
     )
     if existing is not None:
         return existing
@@ -185,7 +196,7 @@ async def submit_answer(
     if points > 0:
         await award_points(
             db, user_id=participant.user_id, source=GAME_POINTS_SOURCE, points=points,
-            idempotency_key=f"{run.id}:{question.id}",
+            idempotency_key=f"{run.id}:{run.restart_no}:{question.id}",
             ref={"run_id": str(run.id), "question_id": str(question.id), "points_mode": question.points_mode},
         )
     return answer
@@ -201,13 +212,51 @@ async def end_run(db: AsyncSession, *, run: GameRun) -> GameRun:
     return run
 
 
-async def _reverse_answers(db: AsyncSession, *, run_id: uuid.UUID, answers: list[GameAnswer]) -> None:
+async def close_open_runs_for_session(db: AsyncSession, *, session_id: uuid.UUID) -> list[uuid.UUID]:
+    """End any game still sitting in a lobby or mid-question when its session
+    is marked done.
+
+    An instructor who finishes a class rarely goes back to press End on a
+    quiz they abandoned two activities ago, so those runs stayed `live`
+    forever — showing up in students' joinable lists, and keeping a lobby
+    alive for a class that has gone home. Completing the session is the
+    unambiguous signal that none of them are still being played.
+
+    Points are deliberately *not* reversed. Whatever students scored before
+    the game was abandoned they genuinely earned; this only closes the door.
+
+    Returns the ids of the runs that were closed, so the caller can tell the
+    rooms still connected to them.
+    """
+    runs = (
+        await db.execute(
+            select(GameRun)
+            .join(GameSessionAssignment, GameRun.assignment_id == GameSessionAssignment.id)
+            .where(
+                GameSessionAssignment.session_id == session_id,
+                GameRun.status.in_(["lobby", "live"]),
+            )
+        )
+    ).scalars().all()
+    now = datetime.now(timezone.utc)
+    for run in runs:
+        run.status = "ended"
+        run.current_question_position = None
+        run.ended_at = now
+    if runs:
+        await db.flush()
+    return [run.id for run in runs]
+
+
+async def _reverse_answers(
+    db: AsyncSession, *, run_id: uuid.UUID, restart_no: int, answers: list[GameAnswer],
+) -> None:
     now = datetime.now(timezone.utc)
     for answer in answers:
         participant = await db.get(GameParticipant, answer.participant_id)
         await reverse_points(
             db, user_id=participant.user_id, source=GAME_POINTS_SOURCE, points=answer.points_awarded,
-            idempotency_key=f"{run_id}:{answer.question_id}:reversal",
+            idempotency_key=f"{run_id}:{restart_no}:{answer.question_id}:reversal",
             ref={"run_id": str(run_id), "question_id": str(answer.question_id) if answer.question_id else None},
         )
         answer.reversed_at = now
@@ -230,7 +279,7 @@ async def reverse_run_points(db: AsyncSession, *, run: GameRun) -> int:
             )
         )
     ).scalars().all()
-    await _reverse_answers(db, run_id=run.id, answers=answers)
+    await _reverse_answers(db, run_id=run.id, restart_no=int(run.restart_no or 0), answers=answers)
     return len(answers)
 
 
@@ -252,25 +301,38 @@ async def reverse_question_points(db: AsyncSession, *, run: GameRun, question_id
             )
         )
     ).scalars().all()
-    await _reverse_answers(db, run_id=run.id, answers=answers)
+    await _reverse_answers(db, run_id=run.id, restart_no=int(run.restart_no or 0), answers=answers)
     return len(answers)
 
 
 async def restart_run(db: AsyncSession, *, run: GameRun, actor_id: uuid.UUID) -> GameRun:
-    """The single Restart action (D15) — always reverses every point this
-    run has awarded so far, then starts a brand-new run (fresh run_no)
-    against the assignment's current (possibly just-edited) question set.
-    The old run's rows are never touched beyond `reversed_at`/`ended_at` —
-    a full history of what was actually played survives, same "never
-    destroy history" posture as everywhere else in this codebase."""
+    """The single Restart action (D15) — reverses every point this run has
+    awarded so far and takes the **same run** back to its lobby.
+
+    D15 originally made a restart a brand-new `GameRun`, which was wrong in
+    practice: the join code changed, every student was ejected to the code
+    screen, and what the instructor experienced as "run that again" became a
+    room evacuation. A restart is a do-over of the same game with the same
+    people, so it is the same row — same id, same code, same participants,
+    `run_no` unchanged.
+
+    The points reversal stays. Replaying a question a student already scored
+    on and letting both totals stand would make the leaderboard a function of
+    how many times the instructor pressed the button.
+
+    Nothing is deleted. The previous attempt's answers keep their rows with
+    `reversed_at` set — history of what was actually played survives, same
+    posture as everywhere else in this codebase — and `restart_no` advances
+    so the replay's ledger keys don't collide with the reversed ones.
+    """
     await reverse_run_points(db, run=run)
-    if run.status != "ended":
-        run.status = "ended"
-        run.current_question_position = None
-        run.ended_at = datetime.now(timezone.utc)
-        await db.flush()
-    assignment = await db.get(GameSessionAssignment, run.assignment_id)
-    return await create_run(db, assignment=assignment, actor_id=actor_id)
+    run.restart_no = int(run.restart_no or 0) + 1
+    run.status = "lobby"
+    run.current_question_position = None
+    run.started_at = None
+    run.ended_at = None
+    await db.flush()
+    return run
 
 
 async def run_leaderboard(db: AsyncSession, run_id: uuid.UUID) -> list[dict]:

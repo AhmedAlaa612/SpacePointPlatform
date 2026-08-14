@@ -38,10 +38,12 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -58,6 +60,11 @@ class GameRun(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     assignment_id = Column(UUID(as_uuid=True), ForeignKey("game_session_assignments.id", ondelete="CASCADE"), nullable=False, index=True)
     run_no = Column(Integer, nullable=False)
+    # How many times this run has been restarted. A restart resets the run
+    # in place (same row, same join code, same participants) rather than
+    # creating a new one, so this is what keeps a replayed question's points
+    # ledger key distinct from the reversed one before it.
+    restart_no = Column(Integer, nullable=False, default=0, server_default="0")
     status = Column(String(16), nullable=False, default="lobby", server_default="lobby")
     # NULL while lobby/ended; 1..N (a GameSessionQuestion.position) while live.
     current_question_position = Column(Integer, nullable=True)
@@ -84,8 +91,16 @@ class GameParticipant(Base):
 
 class GameAnswer(Base):
     __tablename__ = "game_answers"
+    # A participant may answer a question only once *that still counts*. The
+    # constraint is partial rather than absolute because a restart resets the
+    # run in place: the previous attempt's rows stay as history with
+    # `reversed_at` set, and the replay writes a fresh row alongside them.
     __table_args__ = (
-        UniqueConstraint("participant_id", "question_id", name="uq_game_answers_participant_question"),
+        Index(
+            "uq_game_answers_participant_question",
+            "participant_id", "question_id",
+            unique=True, postgresql_where=text("reversed_at IS NULL"),
+        ),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
