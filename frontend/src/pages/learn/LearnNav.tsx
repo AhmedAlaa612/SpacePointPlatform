@@ -253,32 +253,36 @@ function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
   const isStaff = !!currentUser?.role && currentUser.role !== "student";
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 flex md:hidden items-stretch border-t border-border bg-background/95 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
-      {NAV_ITEMS.map((item) => {
-        const Icon = item.icon;
-        const isActive = item.key === active;
-        return (
-          <Link
-            key={item.key}
-            to={item.to}
-            className={cn(
-              "flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors",
-              isActive ? "text-primary" : "text-muted-foreground",
-            )}
-          >
-            <Icon className="h-5 w-5" />
-            {item.label}
-          </Link>
-        );
-      })}
+    <nav className="fixed inset-x-0 bottom-0 z-30 flex flex-col md:hidden border-t border-border bg-background/95 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+      <div className="flex items-stretch">
+        {NAV_ITEMS.map((item) => {
+          const Icon = item.icon;
+          const isActive = item.key === active;
+          return (
+            <Link
+              key={item.key}
+              to={item.to}
+              className={cn(
+                "flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors",
+                isActive ? "text-primary" : "text-muted-foreground",
+              )}
+            >
+              <Icon className="h-5 w-5" />
+              {item.label}
+            </Link>
+          );
+        })}
+      </div>
       {isStaff && (
-        <Link
-          to={roleHomePath(currentUser!.role)}
-          className="flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium text-muted-foreground transition-colors"
-        >
-          <ArrowLeftRight className="h-5 w-5" />
-          Portal
-        </Link>
+        <div className="flex justify-center border-t border-border/50 py-1.5">
+          <Link
+            to={roleHomePath(currentUser!.role)}
+            className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium text-muted-foreground transition-colors"
+          >
+            <ArrowLeftRight className="h-3.5 w-3.5" />
+            Back to portal
+          </Link>
+        </div>
       )}
     </nav>
   );

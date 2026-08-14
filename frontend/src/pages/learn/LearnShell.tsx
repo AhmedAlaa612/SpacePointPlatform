@@ -32,7 +32,10 @@ export function LearnShell() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <LearnNav active={active} />
-      <main className="flex-1 pb-20 md:pb-0">
+      {/* pb-28 not pb-20: staff get a second row (Back to portal) under the
+          tab icons, and the fixed bar's real height varies by role — sized
+          for that taller case so nothing sits behind it either way. */}
+      <main className="flex-1 pb-28 md:pb-0">
         <Outlet />
       </main>
     </div>
