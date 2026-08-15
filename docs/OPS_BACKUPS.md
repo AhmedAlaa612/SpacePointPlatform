@@ -1,4 +1,4 @@
-# `ops/` — recurring backups (P0-7)
+# `ops/` — recurring backups
 
 *(Relocated from `ops/README.md` — this repo's `.gitignore` excludes stray `README.md` files
 except the root one and anything under `docs/`.)*
@@ -14,8 +14,8 @@ last-known status.
 - **`backup_db.sh`** — `pg_dump -Fc`, timestamped, prunes anything older than
   `SPACEPOINT_BACKUP_RETENTION_DAYS` (default 14 days).
 - **`restore_db.sh`** — restores a dump into a **new** database (never in place), for a DR
-  drill or a pre-deploy migration rehearsal (same pattern `V2_DEPLOY_RUNBOOK.md` Phase 1
-  already uses manually).
+  drill or a pre-deploy migration rehearsal — restore into a scratch database, verify, then
+  `dropdb` it, never restore in place.
 
 ## Verified locally (2026-08-10)
 
@@ -26,7 +26,7 @@ prove anything about production, which has its own schema drift and scale.
 ## What the operator still needs to do on the VPS
 
 1. **Run the scripts once, by hand, against the real `spacepoint_unified` DB** — the actual
-   rehearsal, mirroring `V2_DEPLOY_RUNBOOK.md` Phase 1:
+   rehearsal:
    ```bash
    sudo -u postgres SPACEPOINT_BACKUP_DIR=/var/backups/spacepoint ./backup_db.sh
    sudo -u postgres ./restore_db.sh /var/backups/spacepoint/spacepoint_unified_*.dump
@@ -37,11 +37,12 @@ prove anything about production, which has its own schema drift and scale.
    0 3 * * * /path/to/ops/backup_db.sh >> /var/log/spacepoint-backup.log 2>&1
    ```
 3. **Decide where backups go besides this box.** Local retention (14 days, pruned
-   automatically) is not a real backup on its own — "a backup that only exists on the box
-   you're protecting against is not a backup" (`V2_DEPLOY_RUNBOOK.md`'s own words, about a
-   one-off dump; equally true for a recurring one). An `rclone`/`rsync` line added to the same
-   cron job, once a destination exists, is the natural next step — not built here since it
-   needs a decision (where) and credentials this session doesn't have.
+   automatically) is not a real backup on its own — a backup that only exists on the box you're
+   protecting against is not a backup. An `rclone`/`rsync` line added to the same cron job, once
+   a destination exists, is the natural next step — not built here since it needs a decision
+   (where) and credentials this session doesn't have.
 
-Non-negotiable before Phase 2 Stage 2 (points become disputable) and absolutely before Stage S
-(entitlement lives only in this Postgres) — see `PHASE2_EXECUTION_PLAN.md` P0-7.
+**Why this matters more than a routine ops task:** once points/scores are stored (Live Quiz,
+missions) they become disputable — a parent or student can ask "why did this change" — and once
+any paid entitlement is tracked, this Postgres is the only record of who owns what. There is no
+reconstructing either from an external system if this database is lost.

@@ -47,8 +47,13 @@ Tables: `courses`, `course_modules`, `module_items`, `module_videos`, `video_che
   showed a wall of courses that 403 on click except the handful they'd been enrolled into.
   `admin`/`operations` keep the unscoped full catalog (they need it for oversight).
 - Video: encrypted-at-rest sources, HLS transcode pipeline, per-video watch checkpoints
-  (`video_checkpoints`). See `HANDOFF_VPS_DEPLOYMENT.md` §6 for where the buckets live on disk
-  and the TCP-congestion-control lesson from getting first-segment latency down.
+  (`video_checkpoints`). Buckets (`lms-video-sources`, `lms-hls`) live under
+  `/var/lib/spacepoint/storage` on the VPS host disk — see `HANDOFF_VPS_DEPLOYMENT.md` §6 for
+  the general storage layout.
+- **First-segment video latency was the VPS's default TCP congestion control (Cubic), not the
+  app.** Switching to BBR took first-segment load from 11.2s to 1.7s. If HLS playback feels slow
+  again, check `sysctl net.ipv4.tcp_congestion_control` on the VPS before assuming the pipeline
+  regressed — this exact symptom looks identical to a transcode/CDN problem from the app side.
 - `program_curriculum` / `cohort_curriculum` are how a course attaches to the Sessions domain's
   Programs/Cohorts (see `HANDOFF_SESSIONS.md`) — a different attachment path than a student's
   own enrollment.

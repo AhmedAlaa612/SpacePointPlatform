@@ -171,8 +171,8 @@ trusting this section specifically (everything above it is architecture/mechanis
 slower than this list):
 
 - `lms.spacepoint.ae` is live, per §4's pattern.
-- LMS Phase 1 (see `LMS_EXECUTION_PLAN.md`) is functionally complete and deployed — course
-  content, video pipeline, quizzes, PDF attachments, all live.
+- LMS Phase 1 is functionally complete and deployed — course content, video pipeline, quizzes,
+  PDF attachments, all live. See `HANDOFF_LMS.md` for the current architecture.
 - Introduction course: imported, transcoded, published.
 - 8 more courses (~110 videos, ~20.7GB) imported via a combined Drive folder from the boss;
   transcoding/publish status not tracked here — check `/lms-authoring/courses` directly.
@@ -186,11 +186,9 @@ slower than this list):
 
 ## 8. Related docs
 
-- **`LMS_EXECUTION_PLAN.md`** (this repo) — LMS-specific plan, status board, and a detailed
-  append-only discoveries log, including several real production bugs found getting video
-  playback and content import working for real (HLS playlist URL bug, video-token TTL, transcode
-  job timeout, TCP congestion control).
 - **`docs/HANDOFF.md`** (this repo) — general repo orientation; §11 points here for deploy detail.
+- **`docs/HANDOFF_LMS.md`** (this repo) — LMS/Missions/Games architecture, including the
+  TCP-congestion-control video-latency lesson (§2).
 - **`HANDOFF_PRODUCTION_LIVE.md`, `vps_envs.md`, `secrets.md`** — real credentials and
   point-in-time infra snapshots. **Not in this repo, by design** (§0). If you're an agent without
   access to those files, the architecture in this doc is enough to reason about the system; you

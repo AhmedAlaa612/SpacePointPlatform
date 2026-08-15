@@ -16,19 +16,17 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | **Branch** | `main` = production. `v2-dev` tracks it |
 | **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan), plus the pre-existing interns / ambassadors / instructors domains — **and the LMS/Missions/Games domain**: student accounts, courses + encrypted-HLS video, learning paths, the CubeSat design + Flight Operations missions with a real 36-part component library, Live Quiz games. See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) |
 | **Tests** | ~567 collected, `pytest` from `backend/`. Five need a live Redis and error without one — everything else is broker-free |
-| **In flight** | Check `MASTER_EXECUTION_PLAN_V2.md` §D status board in the planning repo (§2 below) for the current sprint — this file tracks architecture, not week-to-week status |
 
 ## 2. Read next
 
-**Planning docs live in the `spaceCRM` repo the operator maintains — one directory above
-this repo (`C:\Users\ahmed\Downloads\spaceCRM`), not in this codebase.**
+This file plus the per-domain docs below are the complete, self-contained map — everything you
+need to navigate this codebase lives in this repo's `docs/` folder. (The operator separately
+keeps week-to-week sprint planning/status boards outside this repo; those are working documents
+for active development, not architecture references, and get deleted once a phase wraps — don't
+expect them to exist, and nothing here depends on them.)
 
 | Read | For |
 |---|---|
-| `HANDOFF_V2_LIVE.md` *(planning repo)* | **What is actually running in production and its known gaps.** Read this before touching anything deployed. The "as of 2026-07-26" production notes are historical; the platform has shipped inventory + the instructor journey since |
-| `MASTER_EXECUTION_PLAN_V2.md` *(planning repo)* | Roadmap, §C decision register, §D status board, §DISCOVERIES (the expensive lessons) |
-| `INVENTORY_EXECUTION_PLAN.md` *(planning repo)* | The inventory phase, superseding V2's I7-1…I9-1. See its §R2 for everything that landed after its status board stopped being updated (2026-08-01…03) |
-| `LMS_EXECUTION_PLAN.md` *(planning repo)* | Week-to-week status/roadmap for the LMS/Missions/Games sprint. For the **architecture** — tables, domains, gotchas — read [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) (this repo) instead; that's the map, this is the status board |
 | [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) | Student accounts, courses, learning paths, the CubeSat design + Flight Operations missions, the component library, Live Quiz games — the whole `/learn` + `/lms-authoring` surface |
 | [`HANDOFF_SPINE.md`](./HANDOFF_SPINE.md) | Contacts / identity matching / merge review |
 | [`HANDOFF_SESSIONS.md`](./HANDOFF_SESSIONS.md) | Programs, cohorts, sessions, registration, staffing, delivery |
@@ -170,8 +168,7 @@ Alembic is the source of truth for the exact schema — this is orientation, not
 
 ## 8. Conventions that will bite you
 
-Every one of these has already caused a real bug. Fuller accounts in
-`MASTER_EXECUTION_PLAN_V2.md` §DISCOVERIES and `INVENTORY_EXECUTION_PLAN.md` §DISCOVERIES.
+Every one of these has already caused a real bug.
 
 1. **No `/api` prefix anywhere.** Spec text that writes `/api/...` is wrong about this codebase.
 2. **`admin` passes every role guard.** Never add a per-route admin bypass.
@@ -299,7 +296,7 @@ a second environment needs its own build. Full production detail, including the 
 actual observed behavior, the recurring "deploy wipes the worker container's own filesystem"
 gotcha, and the nginx pattern for adding a new vanity subdomain, is in
 **`docs/HANDOFF_VPS_DEPLOYMENT.md`** (this repo, no secrets) — real credentials are still only in
-`HANDOFF_V2_LIVE.md` / `vps_envs.md` / `secrets.md`, outside this repo, never committed.
+`vps_envs.md` / `secrets.md`, outside this repo, never committed.
 
 ## 12. Running it locally
 
