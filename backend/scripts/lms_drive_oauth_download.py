@@ -14,8 +14,7 @@ WHY THIS EXISTS
     Questions.xlsx` sheet, whatever else is in there. This script only gets
     the bytes onto disk; turning them into courses is `lms_import_drive_dump.py`.
 
-SETUP (one-time, see docs/LOCATION_CITY_COUNTRY_CLEANUP.md or the operator's
-own notes for the full Cloud Console walkthrough)
+SETUP (one-time — see the operator's own notes for the full Cloud Console walkthrough)
     1. Google Cloud Console: enable the Drive API, create an OAuth 2.0
        "Desktop app" client, download its JSON as `credentials.json`.
     2. First run of this script opens a browser for a one-time consent

@@ -3,8 +3,11 @@
 *(Relocated from `ops/README.md` — this repo's `.gitignore` excludes stray `README.md` files
 except the root one and anything under `docs/`.)*
 
-Built and tested locally 2026-08-10 — mechanism proven, **not yet applied to production**
-(this session has no SSH/prod DB access; see `HANDOFF_PHASE2_AGENT.md`).
+Built and tested locally 2026-08-10 — mechanism proven. **Whether it's actually been rehearsed
+against production and the cron job installed (the two "operator still needs to do" items
+below) is not verified as of 2026-08-15** — check `crontab -u postgres -l` on the VPS and
+`ls /var/backups/spacepoint` before assuming either happened, rather than trusting this file's
+last-known status.
 
 ## What's here
 

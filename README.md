@@ -1,6 +1,6 @@
 # SpacePoint Unified Platform
 
-A role-based platform for managing SpacePoint's interns, ambassadors/teachers, and instructor/facilitator scholarship pipeline, plus admin — one login, one FastAPI backend, one PostgreSQL database. Users can hold multiple roles at once and switch between them from the navbar.
+A role-based platform for managing SpacePoint's interns, ambassadors/teachers, and instructor/facilitator scholarship pipeline; running programs/cohorts/sessions and inventory end to end; and an LMS with courses, missions (CubeSat design, Flight Operations) and Live Quiz games for the `student` role — one login, one FastAPI backend, one PostgreSQL database. Users can hold multiple roles at once and switch between them from the navbar.
 
 Full platform documentation (stack, repo structure, roles, database, storage, deployment architecture) lives in [`docs/HANDOFF.md`](./docs/HANDOFF.md) and its per-domain deep-dives. This file covers running the project.
 
