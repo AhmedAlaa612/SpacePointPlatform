@@ -78,9 +78,10 @@ makes seed scripts idempotent without a second existence query.
 
 Tables: `missions`, `mission_variants`, `mission_attempts`, `mission_attempt_members`,
 `mission_teams`, `mission_team_members`, `mission_managers`, `mission_assignments`,
-`mission_proposals`, plus the design-mission-specific `design_component_library`, `designs`,
-`design_modes`, `design_components`, `design_component_mode_states`, and one table per budget
-(`design_data_budget_entries`, `_power_`, `_mass_`, `_cost_`, `_link_budget_entries`).
+`mission_proposals`, `mission_step_gates`, plus the design-mission-specific
+`design_component_library`, `designs`, `design_modes`, `design_components`,
+`design_component_mode_states`, and one table per budget (`design_data_budget_entries`,
+`_power_`, `_mass_`, `_cost_`, `_link_budget_entries`).
 
 - **`Mission.kind`** ∈ `design | submission | quiz | checklist | operate | external`
   (`VERIFIER_KINDS`, `services/missions/verifiers/__init__.py`) — one verifier module per kind
@@ -93,6 +94,35 @@ Tables: `missions`, `mission_variants`, `mission_attempts`, `mission_attempt_mem
   — see §6), balance six budgets (data/power/mass/cost/link/energy), CONOPS modes. Frozen
   snapshot per design (F2): a finished design keeps the specs it was built with even if the
   library changes under it later; a design still in progress picks up the change.
+- **Concurrent named design runs** (2026-08-16) — a student can have several `in_progress`
+  Design attempts at once, each its own named/objective'd run (`Design.design_name` etc.,
+  collected by a setup step in `DesignBriefingPage.tsx`). `start_attempt()`'s single-flight
+  resume is opt-out via `force_new=True`; every other caller (every other kind, and Design's own
+  "continue an existing run" path) keeps the original single-flight behavior. `MissionPage.tsx`
+  shows a "My Missions" list for `kind === "design"` instead of auto-redirecting into one attempt.
+- **`MissionAttempt.cohort_id`** (2026-08-17) — every attempt now carries a real cohort
+  attribution, resolved eagerly at `start_attempt()` time (solo: the student's active
+  `Registration`; team: `MissionTeam.cohort_id`), for every mission kind. Supersedes the older
+  `Design.cohort_id`, which resolved lazily and solo-only, and now just mirrors this column.
+- **Per-cohort step gating — reintroduced, on purpose** (2026-08-17). An identical feature
+  (`design_step_gates`) existed once, shipped with no UI to ever use it, and was removed in
+  Design v2 (7D-0) with the stated reason "instructors stay out of the mission entirely." The
+  operator has since explicitly reversed that call. `MissionStepGate(cohort_id, mission_id,
+  step_key, is_unlocked)` — missing row means unlocked (gating is opt-in per cohort). Enforced
+  server-side in all 7 design write endpoints (`services/missions/gating.py::
+  require_step_unlocked`) and mirrored client-side via `DesignStateOut.step_gates` for the
+  wizard's tab-blocking (`DesignMissionPage.tsx`). Design-mission only — the only kind with a
+  real multi-step wizard to gate.
+- **`/missions/instructor/*`** (2026-08-17) — a brand-new access path for the plain `instructor`
+  role (it has zero access to `/missions/admin`/`/lms/admin`, which stay
+  operations/facilitator/admin-only). Cohort-scoped progress, gates, and a review queue,
+  reusing the `SessionInstructor` derivation (`services/missions/cohort_access.py`) exactly as
+  `services/sessions/delivery.py` already does — not a new grant table (a `CohortInstructor`
+  existed for that purpose once, removed 2026-08-01 as dead weight). Staff bypass the per-cohort
+  check entirely, same "layered on top of, not instead of" posture as `mission_managers`.
+  Frontend: `pages/lms-authoring/CohortMissions.tsx`, reachable by instructor too (the
+  `/lms-authoring` layout guard was widened for this one page — every other page there still
+  403s a plain instructor server-side).
 - **Operate mission** — a real orbital simulation (not a quiz about one), rebuilt 2026-08-13.
   Objectives are graded live against state, not just a final score.
 - **`mission_managers`** (7B-7) — staff can assign an intern/other staff as a mission's manager:
@@ -175,12 +205,13 @@ frontend/src/pages/learn/          # student surface
   OperateMissionPage.tsx, OperateBriefingPage.tsx, OperateDebriefPanel.tsx
   LearnGames.tsx, GamePlay.tsx, LearnLeaderboard.tsx
 
-frontend/src/pages/lms-authoring/  # staff surface
+frontend/src/pages/lms-authoring/  # staff surface (+ instructor, cohort-missions only — see §4)
   LmsCourses.tsx, LmsCourseDetail.tsx, LmsCurriculum.tsx, LmsLearningPaths.tsx
   LmsMissions.tsx, LmsMissionDetail.tsx, LmsDesignLibrary.tsx   # the component library editor
   LmsGames.tsx, LmsGameDetail.tsx
   LmsProgressGrid.tsx, LmsStudents.tsx, LmsStudentDetail.tsx
   LmsInviteCodes.tsx
+  CohortMissions.tsx    # instructor/facilitator/operations: progress, gates, review (§4)
 ```
 
 Ops-role sidebar nav says **"LMS"**, not "LMS Courses" — it covers all of the above now, not
