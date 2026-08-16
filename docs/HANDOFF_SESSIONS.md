@@ -2,7 +2,7 @@
 
 Back to [`HANDOFF.md`](./HANDOFF.md).
 
-**Status: LIVE in production, and since 2026-08-01 the staffing and session model underneath it has evolved further — see `HANDOFF.md` §7 for the current tables.** Schema head (as of 2026-08-04) is `d1e4c73f0038`, not `b3e8a41d0014`. Registration, bulk import, check-in, the staffing marketplace, instructor delivery + payment letters, certificates, calendar and the ops dashboard are all shipped. The status paragraphs below (weeks 2 and the 07-26 cutover) are kept for their history — read them for the *design decisions and gotchas*, not as a current inventory. Current test count is ~567 collected (not ~320/120).
+**Status: LIVE in production, and since 2026-08-01 the staffing and session model underneath it has evolved further — see `HANDOFF.md` §7 for the current tables.** Schema head (as of 2026-08-04) is `d1e4c73f0038`, not `b3e8a41d0014`. Registration, bulk import, check-in, the staffing marketplace, instructor delivery + payment letters, certificates, calendar and the ops dashboard are all shipped. The status paragraphs below (weeks 2 and the 07-26 cutover) are kept for their history — read them for the *design decisions and gotchas*, not as a current inventory. Current test count: see `HANDOFF.md` §1 rather than duplicating a number here that will drift again.
 
 **2026-07-26 changes (operator decisions during and after the cutover):**
 - **Attendance is `present|absent`.** `late` and `excused` are gone (migration `a1d7f36c0013` remaps existing rows). They were also inconsistent: the registrations list counted `late` as attended while the completion rule counted only `present`.

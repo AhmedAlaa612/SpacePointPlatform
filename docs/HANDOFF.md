@@ -3,7 +3,7 @@
 **Entry point for anyone (human or agent) picking up this codebase.** This file is a *map*:
 where everything is and what it does. Depth lives in the per-domain files linked below.
 
-**Last verified against the code: 2026-08-15.**
+**Last verified against the code: 2026-08-17.**
 
 ---
 
@@ -12,10 +12,10 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `e2f7a93d0040` — single Alembic head (the merge revision `b88f272265ef` joins two branches of the same chain, not a second head). Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
+| **Schema head** | `d92f7a5c1e34` — single Alembic head (the merge revision `b88f272265ef` joins two branches of the same chain, not a second head). Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
 | **Branch** | `main` = production. `v2-dev` tracks it |
-| **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan), plus the pre-existing interns / ambassadors / instructors domains — **and the LMS/Missions/Games domain**: student accounts, courses + encrypted-HLS video, learning paths, the CubeSat design + Flight Operations missions with a real 36-part component library, Live Quiz games. See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) |
-| **Tests** | ~567 collected, `pytest` from `backend/`. Five need a live Redis and error without one — everything else is broker-free |
+| **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan), plus the pre-existing interns / ambassadors / instructors domains — **and the LMS/Missions/Games domain**: student accounts, courses + encrypted-HLS video, learning paths, the CubeSat design + Flight Operations missions with a real 36-part component library, Live Quiz games, and cohort-scoped instructor progress/gating/review. See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) |
+| **Tests** | 1350 collected, `pytest` from `backend/`. Seven need a live Redis and error without one — everything else is broker-free |
 
 ## 2. Read next
 
@@ -104,7 +104,7 @@ app sees the request.
 | `/spine/*` | contacts, merge reviews |
 | `/inventory/*` | locations, warehouses, item catalogue (+ categories, variant grouping), kit templates, kits, stock, movements, `/my-kits`, the session loop (`/sessions/{id}/kits`, checks, receipt/return reporting), equipment pickup (`/sessions/{id}/equipment`) and the storekeeper queue (`/fulfilment`) |
 | `/lms/*` | student catalog + enrollment, course outline/player, video, curriculum, learning paths, points/leaderboard, admin course/module CRUD, progress grid. See `HANDOFF_LMS.md` |
-| `/missions/*` | design mission (state, budgets, component library), operate mission, proposals, teams, manager dashboards, admin CRUD. See `HANDOFF_LMS.md` |
+| `/missions/*` | design mission (state, budgets, component library), operate mission, proposals, teams, manager dashboards, cohort-scoped instructor dashboards (progress/gating/review), admin CRUD. See `HANDOFF_LMS.md` |
 | `/games/*` | Live Quiz authoring, live run control + realtime, student play. See `HANDOFF_LMS.md` |
 | `/public/*` | registration form, catalog, ticket — **no auth** |
 | `/apply/*` · `/files/*` · `/documents/*` · `/notifications/*` | shared |
@@ -155,7 +155,7 @@ Alembic is the source of truth for the exact schema — this is orientation, not
 | **Spine** | `contacts`, `contact_relationships`, `organizations`, `identity_aliases`, `merge_reviews`, `touchpoints`, `contact_role_events`, `consent_records` *(schema only — nothing writes to it)* |
 | **Sessions** | `programs`, `cohorts`, `sessions`, `session_instructors` (`role_id` → `delivery_roles`, not a `lead\|co` string since I5-3), `delivery_roles`, `session_openings`, `session_addons`, `session_materials`, `session_call_targets`, `session_calls` (multiple concurrent calls per session — `c4e7a39f0028`), `cohort_openings` (cohort-level opening defaults — `b3d6f28e0027`), `cohort_calls` (grouped cohort-wide staffing campaigns — `e7c4a92d0036`), `registrations`, `registration_sessions`, `attendance_records`, `instructor_interests`, `session_reports`, `import_batches`, `activities` / `activity_versions` / `activity_assignments` *(quiz — schema only until the LMS games phase)*. Cohorts and sessions now have `location_id` → `locations` (`a2c5e17d0026`; `locations.address`/`maps_url` live on the entity); `locations.city_id` → `cities` (8 seeded UAE cities) is the anchor — `locations.country` is legacy/derived-only and nullable, never entered directly (see §8) |
 | **Inventory** | `locations`, `items`, `kit_templates`, `kit_template_items`, `kits`, `kit_items`, `stock_levels`, `movements`, plus `session_kits` / `kit_checks` (I2-1/I2-2) — and, since 2026-08-01: `item_categories` (`d2e6f81a0029`), `warehouses` (`f8d9e21a0033`, `c4f1a83b0034` — **stock and kits now key on `warehouse_id`; a location is the union of its warehouses**), `cohort_kits` (cohort-level kit defaults, `a3c7f95e0037`), and `items.variant_group`/`variant_label` (T-shirt-style size grouping, `d1e4c73f0038`). **`items.is_consumable` is gone** (`a7c9e15f0032` — everything now counts toward kit completeness). **Kit custody legs were replaced** (`e3f8b04c0030`): there is no issue/collected/return movement flow; `session_kits` carries `received_at` / `return_status` / `returned_at` / `ops_confirmed_at` instead, and moving a kit to a shelf is an ordinary `movements` row. Equipment pickup (I2-7) adds no tables — it is a form over `items` + `stock_levels` + `movements` with a persisted "returning later" flag (`f4a1c65d0031`). `movements` is the single ledger every physical thing passes through — issue, return, transfer, refill, receive, write-off, adjust — and either side of it can be a location, a person or a kit. Custody keys on `users`, so nothing here touches `MERGE_FK_REGISTRY`. `POST /inventory/stock/adjust-bulk` writes one item across every warehouse in one transaction (`StockCountModal.tsx`); `POST /inventory/kits/{kit_id}/count` (`require_storekeeper`, a deliberate narrow exception to this router's usual `require_operations`) lets a storekeeper count a kit's contents directly instead of going through individual stock rows |
-| **LMS / Missions / Games** | `courses`, `course_modules`, `module_items`, `module_videos`, `video_checkpoints`, `enrollments`, `item_progress`, `learning_paths`, `learning_path_steps`, `point_events`, `program_curriculum`, `cohort_curriculum`; `missions`, `mission_variants`, `mission_attempts`, `mission_attempt_members`, `mission_teams`, `mission_team_members`, `mission_managers`, `mission_assignments`, `mission_proposals`, `design_component_library` + the design-mission budget tables; `games`, `game_questions`, `game_runs`, `game_participants`, `game_answers`, `game_session_assignments`, `game_session_questions`; plus the shared `curriculum.prerequisites` DAG (courses and missions as interchangeable items). Full detail in `HANDOFF_LMS.md` |
+| **LMS / Missions / Games** | `courses`, `course_modules`, `module_items`, `module_videos`, `video_checkpoints`, `enrollments`, `item_progress`, `learning_paths`, `learning_path_steps`, `point_events`, `program_curriculum`, `cohort_curriculum`; `missions`, `mission_variants`, `mission_attempts` (now with `cohort_id`, resolved eagerly at attempt-start for every kind), `mission_attempt_members`, `mission_teams`, `mission_team_members`, `mission_managers`, `mission_assignments`, `mission_proposals`, `mission_step_gates` (per-cohort Design-mission step gating), `design_component_library` + the design-mission budget tables; `games`, `game_questions`, `game_runs`, `game_participants`, `game_answers`, `game_session_assignments`, `game_session_questions`; plus the shared `curriculum.prerequisites` DAG (courses and missions as interchangeable items). Full detail in `HANDOFF_LMS.md` |
 | **Instructors** | `applicant_profiles`, `application_reviews`, `video_submissions`, `checklist_*`, `module_submissions`, `presentation_submissions`, `assessment_submissions`, `invitation_codes`, `instructor_profiles`, `instructor_documents`, `training_*`, `library_*`, `payment_batches`, `payment_letters`, `payment_sessions`, `payment_addons`, `instructor_bank_details` |
 | **Interns** | `projects`, `teams`, `epics`, `modules`, `tasks`, `task_submissions`, `proposals`, `mind_map_layouts` + join tables |
 | **Ambassadors** | `leads`, `lead_comments`, `points_transactions`, `titles`, `badge_definitions`, `achievements`, `teacher_sessions`, `ambassador_tasks`, `materials`, `system_settings` |
@@ -190,7 +190,7 @@ Every one of these has already caused a real bug.
    (default — `get_arq_redis` pinned to `None`, exactly as the app behaves when Redis is
    unreachable) and **`arq_client`** (real ARQ pool, needs a running broker). Use `client`.
    Only take `arq_client` + `arq_redis` if you are asserting a job actually landed on
-   `arq:queue` — five tests do. The whole suite runs with no broker except those five.
+   `arq:queue` — seven tests do. The whole suite runs with no broker except those seven.
    **Do not write a local `client` fixture**; five files used to and it bound every role-guard
    and 404 test in them to a live Redis.
 10. **Never `alembic downgrade`.** Two revisions fail exactly when the system has been used, and
@@ -254,7 +254,7 @@ Every one of these has already caused a real bug.
 
 Alembic is the single source of truth. Revisions in `backend/alembic/versions/`; the API
 container runs `alembic upgrade head` **before binding a port**, so anything health-checking it
-after a deploy must poll, not sleep. Current head: **`e2f7a93d0040`**.
+after a deploy must poll, not sleep. Current head: **`d92f7a5c1e34`**.
 
 Edit the model → `alembic revision --autogenerate -m "…"` → **review the generated file**
 (enum columns use `create_type=False` and produce spurious diffs) → commit → deploy. Never
