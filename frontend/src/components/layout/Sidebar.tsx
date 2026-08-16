@@ -150,9 +150,12 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Component library", "/lms-authoring/design-library"),
       mk("Students", "/lms-authoring/students"),
       mk("Invite Codes", "/lms-authoring/invite-codes"),
+      mk("Cohort Missions", "/lms-authoring/cohort-missions"),
       mk(
         "Back",
-        activeRole === "facilitator" ? "/instructors/facilitator/training" : "/operations/dashboard",
+        activeRole === "facilitator" ? "/instructors/facilitator/training"
+          : activeRole === "instructor" ? "/instructors/dashboard"
+          : "/operations/dashboard",
       ),
     ];
   }
@@ -275,6 +278,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("My Kits & Items", "/instructors/my-holdings"),
       mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
+      mk("Cohort Missions", "/lms-authoring/cohort-missions"),
       mk("Learn", "/learn"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Instructor ID Card", "/instructors/id-card"),
@@ -340,6 +344,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("My Kits & Items", "/instructors/my-holdings"),
       mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
+      mk("Cohort Missions", "/lms-authoring/cohort-missions"),
       mk("Learn", "/learn"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Instructor ID Card", "/instructors/id-card"),

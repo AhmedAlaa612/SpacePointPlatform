@@ -230,6 +230,9 @@ export interface DesignState {
   dashboard: Dashboard;
   /** F9 — what this teaching model simplifies, stated rather than hidden. */
   assumptions: string[];
+  /** 2026-08-17 — step_key -> is_unlocked, all 9 steps. An attempt outside
+   * any cohort (or a cohort with no gates set) reads all true. */
+  step_gates: Record<string, boolean>;
 }
 
 export async function fetchDesignState(attemptId: string): Promise<DesignState> {

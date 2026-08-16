@@ -137,14 +137,19 @@ export default function DesignMissionPage() {
         <TabsList className="flex-wrap">
           {DESIGN_TABS.map((t) => {
             const step = t.step ? state.dashboard.steps[t.step] : undefined;
-            const blocked = t.needs?.some((k) => !state.dashboard.steps[k]?.has_data);
+            // 2026-08-17 — two independent reasons a tab can be blocked:
+            // a data dependency (D2: explain the order, don't enforce it —
+            // still openable) or an instructor's explicit gate (a hard
+            // block, backed by a 403 on the write endpoint, not just a
+            // hint).
+            const needsBlocked = t.needs?.some((k) => !state.dashboard.steps[k]?.has_data);
+            const gateLocked = t.step ? state.step_gates?.[t.step] === false : false;
+            const blocked = needsBlocked || gateLocked;
+            const hint = gateLocked ? "Your instructor hasn't unlocked this step yet." : t.blockedHint;
             return (
-              <TabsTrigger key={t.value} value={t.value} title={blocked ? t.blockedHint : undefined}>
+              <TabsTrigger key={t.value} value={t.value} title={blocked ? hint : undefined}>
                 <span className="flex items-center gap-1.5">
                   {t.label}
-                  {/* D2: explain the order, don't enforce it. A step whose
-                      inputs are missing is flagged with a reason — but you
-                      can still open it and look around. */}
                   {blocked && <span className="text-[9px] text-amber-500">!</span>}
                   {step?.is_valid && <CheckCircle2 className="size-3 text-emerald-500" />}
                 </span>

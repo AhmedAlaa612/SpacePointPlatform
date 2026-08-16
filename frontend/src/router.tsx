@@ -158,6 +158,7 @@ import LmsStudentDetail from "@/pages/lms-authoring/LmsStudentDetail";
 import LmsInviteCodes from "@/pages/lms-authoring/LmsInviteCodes";
 import LmsGames from "@/pages/lms-authoring/LmsGames";
 import LmsGameDetail from "@/pages/lms-authoring/LmsGameDetail";
+import CohortMissions from "@/pages/lms-authoring/CohortMissions";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -686,12 +687,18 @@ const operationsRoutes = [
 // or /instructors, since backend's require_lms_content allows both operations
 // AND facilitator (plus admin) and those two roles land in different portal
 // domains. One URL space, gated on activeRole directly.
+//
+// "instructor" was added 2026-08-17 for /lms-authoring/cohort-missions only
+// (the backend's own `require_instructor_missions` is a separate, narrower
+// dependency than `require_lms_content` — plain instructors still 403 on
+// every other /lms-authoring page's API calls; they just aren't
+// client-side redirected away from the URL space itself).
 const lmsAuthoringLayoutRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/lms-authoring",
   beforeLoad: () => {
     const role = localStorage.getItem("active_role");
-    if (!role || !["operations", "facilitator", "admin"].includes(role)) {
+    if (!role || !["operations", "facilitator", "instructor", "admin"].includes(role)) {
       throw redirect({ to: "/" });
     }
   },
@@ -722,6 +729,7 @@ const lmsAuthoringRoutes = [
   createRoute({ getParentRoute: pla, path: "/invite-codes", component: LmsInviteCodes }),
   createRoute({ getParentRoute: pla, path: "/games", component: LmsGames }),
   createRoute({ getParentRoute: pla, path: "/games/$gameId", component: LmsGameDetail }),
+  createRoute({ getParentRoute: pla, path: "/cohort-missions", component: CohortMissions }),
 ];
 
 // Apply routes — all use shared ApplyFlow (instructor uses InstructorApply for its own pipeline)
