@@ -9,8 +9,13 @@ from fastapi import status as http_status
 
 from app.core.security import create_access_token
 from app.models.missions.design import DesignComponentLibrary
+from app.models.missions.gate import MissionStepGate
 from app.models.missions.mission import Mission, MissionVariant
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
+from app.models.spine.contact import Contact
 from app.models.user import User
+from app.services.sessions.registration import register
 
 
 async def _user(db, *, roles=None) -> User:
@@ -184,3 +189,136 @@ async def test_cannot_act_on_another_students_design_attempt(db, client):
 
     resp = await client.get(f"/missions/design/attempts/{attempt_id}", headers=_headers(bob))
     assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+# ── per-cohort step gating (2026-08-17) ──────────────────────────────────
+
+async def _cohort(db) -> Cohort:
+    program = Program(
+        id=uuid.uuid4(), code=f"DGP-{uuid.uuid4().hex[:8]}", name="Design Gating Program",
+        program_type="workshop", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Design Gating Cohort", status="running")
+    db.add(cohort)
+    await db.flush()
+    return cohort
+
+
+async def _registered_student(db, *, cohort: Cohort) -> User:
+    contact = Contact(
+        id=uuid.uuid4(), full_name="Gated Student", contact_roles=["student"],
+        secondary_phones=[], preferred_language="en", lifecycle_stage="lead",
+    )
+    db.add(contact)
+    await db.flush()
+    await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="form")
+    user = User(
+        id=uuid.uuid4(), full_name="Gated Student", email=f"gated-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash="x", roles=["student"], status="active", contact_id=contact.id,
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
+@pytest.mark.asyncio
+async def test_locked_step_blocks_the_write_endpoint(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    cohort = await _cohort(db)
+    student = await _registered_student(db, cohort=cohort)
+    db.add(MissionStepGate(cohort_id=cohort.id, mission_id=mission.id, step_key="components", is_unlocked=False))
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+    assert start.json()["id"]  # sanity: attempt started fine, cohort_id resolved server-side
+
+    # The gate's own step_key is explicitly locked.
+    add = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components", headers=_headers(student),
+        json={"library_component_id": str(library.id), "quantity": 1},
+    )
+    assert add.status_code == http_status.HTTP_403_FORBIDDEN, add.text
+
+    # A different step, with no gate row at all, is unaffected — missing
+    # row means unlocked, not locked.
+    conops = await client.post(
+        f"/missions/design/attempts/{attempt_id}/conops", headers=_headers(student),
+        json={"mode_durations": {}, "cell_states": {}},
+    )
+    assert conops.status_code == 200, conops.text
+
+
+@pytest.mark.asyncio
+async def test_unlocking_the_gate_allows_the_write(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    cohort = await _cohort(db)
+    student = await _registered_student(db, cohort=cohort)
+    db.add(MissionStepGate(cohort_id=cohort.id, mission_id=mission.id, step_key="components", is_unlocked=True))
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    add = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components", headers=_headers(student),
+        json={"library_component_id": str(library.id), "quantity": 1},
+    )
+    assert add.status_code == 201, add.text
+
+
+@pytest.mark.asyncio
+async def test_an_ungated_attempt_is_unaffected_by_gating_at_all(db, client):
+    """Regression check: a student with no cohort (self-service, outside
+    any workshop) never gets gated, even if the mission has gates set for
+    other cohorts."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    other_cohort = await _cohort(db)
+    db.add(MissionStepGate(cohort_id=other_cohort.id, mission_id=mission.id, step_key="components", is_unlocked=False))
+    await db.commit()
+    student = await _user(db)  # no Contact/Registration — no cohort at all
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    add = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components", headers=_headers(student),
+        json={"library_component_id": str(library.id), "quantity": 1},
+    )
+    assert add.status_code == 201, add.text
+
+
+@pytest.mark.asyncio
+async def test_design_state_reports_step_gates(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    cohort = await _cohort(db)
+    student = await _registered_student(db, cohort=cohort)
+    db.add(MissionStepGate(cohort_id=cohort.id, mission_id=mission.id, step_key="power_budget", is_unlocked=False))
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    state = await client.get(f"/missions/design/attempts/{attempt_id}", headers=_headers(student))
+    gates = state.json()["step_gates"]
+    assert gates["power_budget"] is False
+    assert gates["components"] is True  # no row for this step -> unlocked
+    assert gates["energy_budget"] is True  # ungated computed step, always shown

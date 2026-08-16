@@ -21,6 +21,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     PrimaryKeyConstraint,
@@ -123,6 +124,16 @@ class MissionAttempt(Base):
     team's roster into `MissionAttemptMember` at start time — who's on the
     hook for this specific attempt's grade is frozen there, since the team
     itself (`MissionTeamMember`) can change membership afterward.
+
+    `cohort_id` (2026-08-17) is resolved eagerly at `start_attempt()` time —
+    from the student's active `Registration` for a solo attempt, or from
+    `MissionTeam.cohort_id` for a team attempt — and is the source of truth
+    for "which cohort was this run started in," across every mission kind.
+    It's a frozen snapshot, not a live join: if the student's registration
+    changes later, this doesn't follow. `SET NULL` on cohort delete — losing
+    the attribution is fine, blocking a cohort delete over old attempts is
+    not. `Design.cohort_id` used to resolve this independently and lazily;
+    it now just mirrors this column (`services/missions/verifiers/design.py`).
     """
 
     __tablename__ = "mission_attempts"
@@ -133,6 +144,7 @@ class MissionAttempt(Base):
             "(user_id IS NOT NULL AND mission_team_id IS NULL) OR (user_id IS NULL AND mission_team_id IS NOT NULL)",
             name="ck_mission_attempts_user_xor_team",
         ),
+        Index("ix_mission_attempts_cohort_id", "cohort_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -147,6 +159,7 @@ class MissionAttempt(Base):
     # one. Same "can't delete out from under grading history" reasoning as
     # mission_id/variant_id above — a team with attempts isn't deletable.
     mission_team_id = Column(UUID(as_uuid=True), ForeignKey("mission_teams.id", ondelete="RESTRICT"), nullable=True)
+    cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="SET NULL"), nullable=True)
     # in_progress|submitted|passed|failed|abandoned
     status = Column(String(12), nullable=False, default="in_progress", server_default="in_progress")
     score = Column(Numeric(5, 2), nullable=True)

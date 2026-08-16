@@ -34,8 +34,6 @@ from app.models.missions.design import (
     DesignMode,
     DesignPowerBudgetEntry,
 )
-from app.models.sessions.registration import Registration
-from app.models.user import User
 from app.services import storage
 from app.services.missions.design import rf_calc
 from app.services.missions.design.calculators import (
@@ -63,28 +61,6 @@ DEFAULT_MODES = [
 
 
 # ── Design + variant config ─────────────────────────────────────────────
-
-async def resolve_student_cohort(db: AsyncSession, *, user_id: uuid.UUID) -> uuid.UUID | None:
-    """Which cohort a design belongs to — the student's most recent active
-    registration, or NULL for a standalone attempt outside any workshop.
-
-    This used to be the scope for per-cohort step gating (P7-7). That
-    feature is gone (Design v2 D1: instructors stay out of the mission, the
-    same call already made for operate), but the attribution is still worth
-    keeping: it is what lets the admin progress grid report designs by
-    cohort. It records where a design came from; it no longer gates
-    anything.
-    """
-    user = await db.get(User, user_id)
-    if user is None or user.contact_id is None:
-        return None
-    reg = (await db.execute(
-        select(Registration)
-        .where(Registration.contact_id == user.contact_id, Registration.status.in_(["registered", "attended"]))
-        .order_by(Registration.created_at.desc())
-    )).scalars().first()
-    return reg.cohort_id if reg else None
-
 
 async def get_or_404(db: AsyncSession, design_id: uuid.UUID) -> Design:
     design = await db.get(Design, design_id)

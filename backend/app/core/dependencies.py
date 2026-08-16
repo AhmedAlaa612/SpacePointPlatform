@@ -148,3 +148,11 @@ require_lms_student = RequireRole(["student"])
 # instructors don't, so a course can't be edited by whoever happens to be
 # teaching it that day). admin passes, as everywhere.
 require_lms_content = RequireRole(["operations", "facilitator"])
+
+# 2026-08-17 — cohort-scoped instructor access to the Design mission
+# (progress/gating/review). Deliberately separate from `require_lms_content`:
+# this does NOT grant `instructor` any access to `/missions/admin` or
+# `/lms/admin` — only to the new `/missions/instructor/*` surface, scoped
+# per-cohort inside each route via `cohort_access.py::require_cohort_access`.
+# Same role split `require_session_delivery` already uses.
+require_instructor_missions = RequireRole(["instructor", "facilitator", "operations"])

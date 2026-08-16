@@ -365,6 +365,12 @@ class DesignStateOut(BaseModel):
     dashboard: DashboardOut
     # F9 — what the model simplifies, said out loud rather than hidden.
     assumptions: list[str] = []
+    # 2026-08-17 — step_key -> is_unlocked, all 9 DESIGN_STEP_LABELS keys.
+    # An attempt outside any cohort (or a cohort with no gates set) reads
+    # all True — gating is opt-in per cohort, not a default-locked system.
+    # Drives DesignMissionPage.tsx's tab-blocking alongside the existing
+    # data-dependency check.
+    step_gates: dict[str, bool] = {}
 
 
 # ── Teaching surfaces (Design v2, 7D-4 / 7D-5) ──────────────────────────

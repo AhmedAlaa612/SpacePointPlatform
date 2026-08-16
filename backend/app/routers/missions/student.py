@@ -57,6 +57,7 @@ from app.services import storage
 from app.services.curriculum import is_unlocked, prerequisite_status
 from app.services.missions import (
     create_team,
+    resolve_student_cohort,
     start_attempt,
     team_member_ids,
     teams_for_user,
@@ -254,14 +255,15 @@ async def start_mission_attempt(
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You are not a member of this team")
         attempt = await start_attempt(
             db, mission_id=mission.id, variant_id=body.variant_id, team_id=body.team_id,
-            force_new=body.force_new,
+            force_new=body.force_new, cohort_id=team.cohort_id,
         )
     else:
         if mission.team_policy == "team":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This mission requires a team")
+        cohort_id = await resolve_student_cohort(db, user_id=current.id)
         attempt = await start_attempt(
             db, mission_id=mission.id, variant_id=body.variant_id, user_id=current.id,
-            force_new=body.force_new,
+            force_new=body.force_new, cohort_id=cohort_id,
         )
 
     await db.commit()

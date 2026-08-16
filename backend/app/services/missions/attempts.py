@@ -25,6 +25,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.missions.mission import MissionAttempt, MissionAttemptMember, MissionVariant
+from app.models.sessions.registration import Registration
+from app.models.user import User
 from app.services.lms.points import award_points
 from app.services.missions.embedding import complete_embedded_items
 from app.services.missions.teams import team_member_ids
@@ -32,10 +34,29 @@ from app.services.missions.teams import team_member_ids
 MISSION_POINTS_SOURCE = "mission"
 
 
+async def resolve_student_cohort(db: AsyncSession, *, user_id: uuid.UUID) -> uuid.UUID | None:
+    """Which cohort a solo attempt belongs to — the student's most recent
+    active registration, or NULL for a standalone attempt outside any
+    workshop. Moved here from `services/missions/design/service.py`
+    (2026-08-17) — it was never actually design-specific (only reads
+    `Registration`), and every mission kind now resolves `MissionAttempt.
+    cohort_id` eagerly at start time, not just Design's lazily-resolved
+    version from before."""
+    user = await db.get(User, user_id)
+    if user is None or user.contact_id is None:
+        return None
+    reg = (await db.execute(
+        select(Registration)
+        .where(Registration.contact_id == user.contact_id, Registration.status.in_(["registered", "attended"]))
+        .order_by(Registration.created_at.desc())
+    )).scalars().first()
+    return reg.cohort_id if reg else None
+
+
 async def start_attempt(
     db: AsyncSession, *, mission_id: uuid.UUID, variant_id: uuid.UUID,
     user_id: uuid.UUID | None = None, team_id: uuid.UUID | None = None,
-    force_new: bool = False,
+    force_new: bool = False, cohort_id: uuid.UUID | None = None,
 ) -> MissionAttempt:
     """Resumes the owner's (a user or a team — exactly one) in-progress
     attempt on `mission_id` if one exists (ignoring the requested
@@ -48,6 +69,13 @@ async def start_attempt(
     named CubeSat designs at once" flow (2026-08-15) opts into this; every
     other caller leaves it `False` and keeps the original single-flight
     behavior unchanged.
+
+    `cohort_id` (2026-08-17) is resolved by the caller — `resolve_student_
+    cohort()` above for a solo attempt, `MissionTeam.cohort_id` for a team
+    one — and frozen onto the new attempt at creation. Not re-resolved on a
+    resume: an attempt already in progress keeps whatever cohort it started
+    with, same reasoning `variant_id` already gets on resume (finish what
+    you started, don't silently reattribute it).
     """
     if (user_id is None) == (team_id is None):
         raise HTTPException(400, detail="Exactly one of user_id or team_id is required")
@@ -81,6 +109,7 @@ async def start_attempt(
         mission_team_id=team_id,
         attempt_no=(max_no or 0) + 1,
         status="in_progress",
+        cohort_id=cohort_id,
     )
     db.add(attempt)
     await db.flush()

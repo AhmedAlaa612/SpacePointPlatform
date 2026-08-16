@@ -9,18 +9,55 @@ from sqlalchemy import select
 
 from app.models.lms import PointEvent
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
+from app.models.missions.team import MissionTeam
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
+from app.models.spine.contact import Contact
 from app.models.user import User
-from app.services.missions import decide_attempt, start_attempt
+from app.services.missions import decide_attempt, resolve_student_cohort, start_attempt
 from app.services.missions.verifiers.submission import (
     review_submission_attempt,
     submit_submission_attempt,
 )
+from app.services.sessions.registration import register
 
 
 async def _user(db, *, roles=None) -> User:
     user = User(
         id=uuid.uuid4(), full_name="Mission User", email=f"mission-{uuid.uuid4().hex[:8]}@example.com",
         password_hash="x", roles=roles or ["student"], status="active",
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
+async def _cohort(db) -> Cohort:
+    program = Program(
+        id=uuid.uuid4(), code=f"MAP-{uuid.uuid4().hex[:8]}", name="Mission Attempts Program",
+        program_type="workshop", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Mission Attempts Cohort", status="running")
+    db.add(cohort)
+    await db.flush()
+    return cohort
+
+
+async def _registered_student(db, *, cohort: Cohort) -> User:
+    """A student with an active registration in `cohort` — the case
+    `resolve_student_cohort()` should find."""
+    contact = Contact(
+        id=uuid.uuid4(), full_name="Registered Student", contact_roles=["student"],
+        secondary_phones=[], preferred_language="en", lifecycle_stage="lead",
+    )
+    db.add(contact)
+    await db.flush()
+    await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="form")
+    user = User(
+        id=uuid.uuid4(), full_name="Registered Student", email=f"reg-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash="x", roles=["student"], status="active", contact_id=contact.id,
     )
     db.add(user)
     await db.flush()
@@ -91,6 +128,74 @@ async def test_start_attempt_force_new_bypasses_single_flight(db):
     assert second.variant_id == variants[1].id
     assert first.status == "in_progress"
     assert second.status == "in_progress"  # both concurrently in progress
+
+
+@pytest.mark.asyncio
+async def test_start_attempt_sets_cohort_id_for_a_registered_solo_student(db):
+    author = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author)
+    cohort = await _cohort(db)
+    student = await _registered_student(db, cohort=cohort)
+
+    resolved = await resolve_student_cohort(db, user_id=student.id)
+    assert resolved == cohort.id
+
+    attempt = await start_attempt(
+        db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id, cohort_id=resolved,
+    )
+    assert attempt.cohort_id == cohort.id
+
+
+@pytest.mark.asyncio
+async def test_start_attempt_leaves_cohort_id_none_for_an_unregistered_student(db):
+    author = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author)
+    student = await _user(db)  # no Contact/Registration at all
+
+    resolved = await resolve_student_cohort(db, user_id=student.id)
+    assert resolved is None
+
+    attempt = await start_attempt(
+        db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id, cohort_id=resolved,
+    )
+    assert attempt.cohort_id is None
+
+
+@pytest.mark.asyncio
+async def test_start_attempt_sets_cohort_id_for_a_team_attempt(db):
+    author = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author)
+    cohort = await _cohort(db)
+    team = MissionTeam(id=uuid.uuid4(), name=f"Team-{uuid.uuid4().hex[:6]}", cohort_id=cohort.id)
+    db.add(team)
+    await db.flush()
+
+    attempt = await start_attempt(
+        db, team_id=team.id, mission_id=mission.id, variant_id=variants[0].id, cohort_id=team.cohort_id,
+    )
+    assert attempt.cohort_id == cohort.id
+
+
+@pytest.mark.asyncio
+async def test_start_attempt_resume_keeps_original_cohort_id(db):
+    """A resumed in-progress attempt keeps whatever cohort_id it started
+    with — not re-resolved on resume, same as variant_id."""
+    author = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author)
+    cohort = await _cohort(db)
+    student = await _registered_student(db, cohort=cohort)
+
+    first = await start_attempt(
+        db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id, cohort_id=cohort.id,
+    )
+    # Second call passes cohort_id=None (as if resolution ran again and
+    # found nothing) — the resume path should ignore it, same as it already
+    # ignores a different variant_id.
+    resumed = await start_attempt(
+        db, user_id=student.id, mission_id=mission.id, variant_id=variants[1].id, cohort_id=None,
+    )
+    assert resumed.id == first.id
+    assert resumed.cohort_id == cohort.id
 
 
 @pytest.mark.asyncio

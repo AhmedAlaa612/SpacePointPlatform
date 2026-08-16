@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.course import Course
@@ -59,9 +59,14 @@ async def _mission_status_by_user(
     db: AsyncSession, *, cohort_id: uuid.UUID, user_ids: list[uuid.UUID],
 ) -> dict[uuid.UUID, dict[uuid.UUID, MissionAttempt]]:
     """user_id -> mission_id -> the one attempt to show. Solo attempts come
-    straight from `MissionAttempt.user_id`; team attempts come via the
-    frozen `MissionAttemptMember` roster for teams assigned to this cohort
-    (the live `MissionTeamMember` roster can drift after the fact — the
+    straight from `MissionAttempt.user_id`, scoped to this cohort's own
+    `cohort_id` (2026-08-17) — before that column existed this queried
+    every attempt by anyone currently on the roster, which was wrong for a
+    student who'd since changed cohorts; a `NULL` cohort_id (self-service,
+    or a pre-migration row) still counts, since it was never attributed to
+    a *different* cohort either. Team attempts come via the frozen
+    `MissionAttemptMember` roster for teams assigned to this cohort (the
+    live `MissionTeamMember` roster can drift after the fact — the
     per-attempt freeze is what actually earned the grade, same reasoning
     the team-scoring code already uses)."""
     if not user_ids:
@@ -70,7 +75,10 @@ async def _mission_status_by_user(
     attempts_by_user: dict[uuid.UUID, list[MissionAttempt]] = {}
 
     solo_attempts = (await db.execute(
-        select(MissionAttempt).where(MissionAttempt.user_id.in_(user_ids))
+        select(MissionAttempt).where(
+            MissionAttempt.user_id.in_(user_ids),
+            or_(MissionAttempt.cohort_id == cohort_id, MissionAttempt.cohort_id.is_(None)),
+        )
     )).scalars().all()
     for a in solo_attempts:
         attempts_by_user.setdefault(a.user_id, []).append(a)

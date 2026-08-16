@@ -83,6 +83,7 @@ from app.services.missions.design import service as design_service
 from app.services.missions.design.calculators import CUBESAT_PRESETS
 from app.services.missions.design.rf_calc import BAND_PRESETS
 from app.services.missions.verifiers.design import ensure_design, mark_design_complete
+from app.services.missions.gating import gate_map_for_attempt, require_step_unlocked
 from app.routers.missions.student import _own_attempt
 
 router = APIRouter(prefix="/missions/design", tags=["missions-design"])
@@ -245,6 +246,8 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
         recommendations=[RecommendationOut(**r) for r in recommendations],
     )
 
+    step_gates = await gate_map_for_attempt(db, attempt=attempt)
+
     return DesignStateOut(
         id=design.id, attempt_id=attempt.id, mission_id=mission.id, variant_id=variant.id,
         variant_label=variant.label, attempt_status=attempt.status,
@@ -258,6 +261,7 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
         band_presets=BAND_PRESETS,
         dashboard=dashboard_out,
         assumptions=design_content.ASSUMPTIONS,
+        step_gates=step_gates,
     )
 
 
@@ -371,6 +375,7 @@ async def add_design_component(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await require_step_unlocked(db, attempt=attempt, step_key="components")
     design = await ensure_design(db, attempt=attempt)
     await design_service.add_component(db, design_id=design.id, library_component_id=body.library_component_id, quantity=body.quantity)
     result = await _design_state_out(db, attempt=attempt, design=design)
@@ -397,6 +402,7 @@ async def save_conops(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await require_step_unlocked(db, attempt=attempt, step_key="conops")
     design = await ensure_design(db, attempt=attempt)
     for mode_id, duration in body.mode_durations.items():
         await design_service.save_mode_duration(db, design_mode_id=mode_id, duration_min=duration)
@@ -414,6 +420,7 @@ async def save_data_budget(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await require_step_unlocked(db, attempt=attempt, step_key="data_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_data_entry(db, design_component_id=design_component_id, **body.model_dump())
     result = await _design_state_out(db, attempt=attempt, design=design)
@@ -427,6 +434,7 @@ async def save_power_budget(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await require_step_unlocked(db, attempt=attempt, step_key="power_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_power_entry(db, design_component_id=design_component_id, **body.model_dump())
     result = await _design_state_out(db, attempt=attempt, design=design)
@@ -440,6 +448,7 @@ async def save_mass_budget(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await require_step_unlocked(db, attempt=attempt, step_key="mass_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_mass_entry(db, design_component_id=design_component_id, **body.model_dump())
     result = await _design_state_out(db, attempt=attempt, design=design)
@@ -453,6 +462,7 @@ async def save_cost_budget(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await require_step_unlocked(db, attempt=attempt, step_key="cost_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_cost_entry(db, design_component_id=design_component_id, **body.model_dump())
     result = await _design_state_out(db, attempt=attempt, design=design)
@@ -466,6 +476,7 @@ async def save_link_budget(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
+    await require_step_unlocked(db, attempt=attempt, step_key="link_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_link_entry(db, design_id=design.id, **body.model_dump())
     result = await _design_state_out(db, attempt=attempt, design=design)
