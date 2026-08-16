@@ -101,6 +101,27 @@ class MissionProgressAllOut(BaseModel):
     rows: list[MissionProgressRowOut]
 
 
+# ── one student's design runs (2026-08-15) — plural, since a student can run
+# the CubeSat design mission multiple times concurrently. One row per run,
+# not one row per student — the student-detail page's counterpart to
+# MissionProgressAllOut above, which is one row per student across everyone.
+
+class StudentDesignRunOut(BaseModel):
+    attempt_id: UUID
+    design_name: str
+    design_objective: str | None = None
+    variant_label: str
+    status: str
+    attempt_no: int
+    started_at: str | None = None
+    steps: dict[str, bool] | None = None
+
+
+class StudentDesignRunsOut(BaseModel):
+    step_labels: list[MissionStepLabelOut] = []
+    runs: list[StudentDesignRunOut]
+
+
 # ── overview lists (2026-08-14) — the landing view for each progress tab,
 # so picking an item to drill into doesn't start from a blind dropdown.
 

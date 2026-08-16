@@ -104,6 +104,10 @@ class MissionAttemptOut(BaseModel):
     # P6-4 — set only for a team attempt (mutually exclusive with a solo one).
     team_id: UUID | None = None
     team_name: str | None = None
+    # Design-kind attempts only (2026-08-15) — a student's own name for this
+    # run, so a "my missions" list can show it without a per-attempt
+    # DesignState fetch. None for every other mission kind.
+    design_name: str | None = None
 
 
 class MissionTeamOut(BaseModel):
@@ -139,6 +143,10 @@ class MissionDetailOut(BaseModel):
 class MissionAttemptStartIn(BaseModel):
     variant_id: UUID
     team_id: UUID | None = None
+    # Design mission's "run several named CubeSat designs at once" — every
+    # other caller leaves this False and keeps the original single-flight
+    # resume-in-progress-attempt behavior (services/missions/attempts.py).
+    force_new: bool = False
 
 
 class MissionAttemptSubmitIn(BaseModel):

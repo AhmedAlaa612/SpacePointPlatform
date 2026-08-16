@@ -80,12 +80,14 @@ from app.schemas.lms_admin import (
 from app.schemas.curriculum import PrerequisiteEdgeIn, PrerequisiteEdgeOut
 from app.schemas.lms_progress_grid import (
     CourseOverviewRowOut, CourseProgressAllOut, MissionOverviewRowOut, MissionProgressAllOut, ProgressGridOut,
+    StudentDesignRunsOut,
 )
 from app.services import curriculum as curriculum_service
 from app.services import storage
 from app.services.lms import enroll, enrollment_is_active
 from app.services.lms.admin_progress import (
     cohort_progress_grid, course_progress_all, courses_overview, mission_progress_all, missions_overview,
+    student_design_runs,
 )
 from app.services.lms.curriculum import reconcile_cohort_enrollments, reconcile_cohorts_inheriting_program
 from app.services.lms.my_programs import my_programs
@@ -414,6 +416,22 @@ async def student_profile(
         id=user.id, full_name=user.full_name, nickname=user.nickname, avatar=user.avatar,
         email=user.email, programs=[StudentProgramOut(**p) for p in programs],
     )
+
+
+@router.get("/students/{user_id}/design-runs", response_model=StudentDesignRunsOut)
+async def student_design_runs_route(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Every CubeSat design run this student has, most recent first — plural
+    since 2026-08-15, a student can run several concurrently. Same dots data
+    as the progress grid's mission table, `design_steps_for_attempts`, just
+    one row per run instead of one row per student."""
+    user = await db.get(User, user_id)
+    if user is None or "student" not in user.role_values:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    return await student_design_runs(db, user_id=user_id)
 
 
 # ── progress grid (7B-1, Missions Phase 2B) ─────────────────────────────────

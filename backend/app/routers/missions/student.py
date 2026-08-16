@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_active_user
 from app.db.session import get_db
 from app.models.curriculum import Prerequisite
+from app.models.missions.design import Design
 from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember, MissionVariant
 from app.models.missions.team import MissionTeam
 from app.models.user import User
@@ -83,7 +84,9 @@ async def _team_out(db: AsyncSession, team: MissionTeam) -> MissionTeamOut:
     )
 
 
-async def _attempt_out(db: AsyncSession, attempt: MissionAttempt, *, variant_label: str) -> MissionAttemptOut:
+async def _attempt_out(
+    db: AsyncSession, attempt: MissionAttempt, *, variant_label: str, design_name: str | None = None,
+) -> MissionAttemptOut:
     team_name = None
     if attempt.mission_team_id is not None:
         team = await db.get(MissionTeam, attempt.mission_team_id)
@@ -93,7 +96,7 @@ async def _attempt_out(db: AsyncSession, attempt: MissionAttempt, *, variant_lab
         variant_label=variant_label, attempt_no=attempt.attempt_no, status=attempt.status,
         score=float(attempt.score) if attempt.score is not None else None, payload=attempt.payload or {},
         started_at=attempt.started_at, submitted_at=attempt.submitted_at, decided_at=attempt.decided_at,
-        team_id=attempt.mission_team_id, team_name=team_name,
+        team_id=attempt.mission_team_id, team_name=team_name, design_name=design_name,
     )
 
 
@@ -200,13 +203,26 @@ async def mission_detail(
     )).scalars().all()
     prereqs = await prerequisite_status(db, item_type="mission", item_id=mission.id, user_id=current.id)
     my_team_rows = await teams_for_user(db, user_id=current.id) if mission.team_policy != "solo" else []
+    # Design-kind only: one query for every attempt's design name rather than
+    # N — mission.kind is fixed per mission, so this is empty/skipped for
+    # every other kind.
+    design_name_by_attempt: dict[uuid.UUID, str] = {}
+    if mission.kind == "design" and attempts:
+        design_name_by_attempt = dict((await db.execute(
+            select(Design.attempt_id, Design.design_name).where(
+                Design.attempt_id.in_([a.id for a in attempts])
+            )
+        )).all())
     return MissionDetailOut(
         id=mission.id, title=mission.title, slug=mission.slug, summary=mission.summary,
         description=mission.description, kind=mission.kind, track=mission.track,
         image_url=await storage.resolve_url(mission.image_bucket, mission.image_path),
         variants=[MissionVariantOut(**variant_student_view(v, kind=mission.kind)) for v in variants],
         attempts=[
-            await _attempt_out(db, a, variant_label=variant_by_id[a.variant_id].label if a.variant_id in variant_by_id else "")
+            await _attempt_out(
+                db, a, variant_label=variant_by_id[a.variant_id].label if a.variant_id in variant_by_id else "",
+                design_name=design_name_by_attempt.get(a.id),
+            )
             for a in attempts
         ],
         prerequisites=[PrerequisiteItemOut(**p) for p in prereqs],
@@ -236,11 +252,17 @@ async def start_mission_attempt(
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
         if current.id not in await team_member_ids(db, team_id=team.id):
             raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You are not a member of this team")
-        attempt = await start_attempt(db, mission_id=mission.id, variant_id=body.variant_id, team_id=body.team_id)
+        attempt = await start_attempt(
+            db, mission_id=mission.id, variant_id=body.variant_id, team_id=body.team_id,
+            force_new=body.force_new,
+        )
     else:
         if mission.team_policy == "team":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This mission requires a team")
-        attempt = await start_attempt(db, mission_id=mission.id, variant_id=body.variant_id, user_id=current.id)
+        attempt = await start_attempt(
+            db, mission_id=mission.id, variant_id=body.variant_id, user_id=current.id,
+            force_new=body.force_new,
+        )
 
     await db.commit()
     await db.refresh(attempt)

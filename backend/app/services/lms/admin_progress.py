@@ -496,3 +496,57 @@ async def design_steps_for_attempts(
         dashboard = await compute_dashboard(db, design=design, variant_config=variant_config)
         out[design.attempt_id] = {key: bool(step["is_valid"]) for key, step in dashboard["steps"].items()}
     return out
+
+
+async def student_design_runs(db: AsyncSession, *, user_id: uuid.UUID) -> dict:
+    """Every CubeSat design run this student has — plural, since 2026-08-15 a
+    student can run the design mission multiple times concurrently, each a
+    separately-named `Design`. For the student-detail page: unlike
+    `mission_progress_all` (one row per student, furthest attempt only, for
+    scanning a whole cohort), this is one row per *run*, for looking at one
+    student closely.
+    """
+    from app.models.missions.design import Design
+    from app.models.missions.mission import MissionVariant
+
+    attempts = (await db.execute(
+        select(MissionAttempt)
+        .join(Mission, Mission.id == MissionAttempt.mission_id)
+        .where(Mission.kind == "design", MissionAttempt.user_id == user_id)
+        .order_by(MissionAttempt.started_at.desc())
+    )).scalars().all()
+
+    if not attempts:
+        return {"step_labels": [{"key": key, "label": label} for key, label in DESIGN_STEP_LABELS], "runs": []}
+
+    variant_by_id = {
+        v.id: v for v in (await db.execute(
+            select(MissionVariant).where(MissionVariant.id.in_({a.variant_id for a in attempts}))
+        )).scalars().all()
+    }
+    design_by_attempt = {
+        d.attempt_id: d for d in (await db.execute(
+            select(Design).where(Design.attempt_id.in_([a.id for a in attempts]))
+        )).scalars().all()
+    }
+    steps_by_attempt = await design_steps_for_attempts(db, [a.id for a in attempts])
+
+    runs = []
+    for a in attempts:
+        design = design_by_attempt.get(a.id)
+        variant = variant_by_id.get(a.variant_id)
+        runs.append({
+            "attempt_id": a.id,
+            "design_name": design.design_name if design else "My CubeSat",
+            "design_objective": design.design_objective if design else None,
+            "variant_label": variant.label if variant else "",
+            "status": a.status,
+            "attempt_no": a.attempt_no,
+            "started_at": a.started_at.isoformat() if a.started_at else None,
+            "steps": steps_by_attempt.get(a.id),
+        })
+
+    return {
+        "step_labels": [{"key": key, "label": label} for key, label in DESIGN_STEP_LABELS],
+        "runs": runs,
+    }

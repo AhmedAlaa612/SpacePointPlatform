@@ -77,6 +77,23 @@ async def test_start_attempt_resumes_an_in_progress_attempt_ignoring_variant(db)
 
 
 @pytest.mark.asyncio
+async def test_start_attempt_force_new_bypasses_single_flight(db):
+    author = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author)
+    student = await _user(db)
+
+    first = await start_attempt(db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id)
+    second = await start_attempt(
+        db, user_id=student.id, mission_id=mission.id, variant_id=variants[1].id, force_new=True,
+    )
+    assert second.id != first.id
+    assert second.attempt_no == 2
+    assert second.variant_id == variants[1].id
+    assert first.status == "in_progress"
+    assert second.status == "in_progress"  # both concurrently in progress
+
+
+@pytest.mark.asyncio
 async def test_start_attempt_increments_attempt_no_after_a_decision(db):
     author = await _user(db, roles=["operations"])
     mission, variants = await _mission_with_variants(db, author=author)

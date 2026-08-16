@@ -1,11 +1,12 @@
 """Mission attempt lifecycle (P5-2, Phase 2 Stage 5/6, 2026-08-11).
 
 Two functions every verifier kind shares: `start_attempt` (template →
-instance, single-flight — an owner can't be "in progress" on two attempts
-of the same mission at once) and `decide_attempt` (the one place a verifier
-lands a final passed/failed and, on pass, mints the points award). Kind-
-specific grading lives in `services/missions/verifiers/*`; this module has
-no opinion on what "passed" means for any given kind.
+instance — single-flight by default, resuming the owner's in-progress
+attempt rather than starting a second one, unless the caller explicitly
+asks for `force_new`; see its own docstring) and `decide_attempt` (the one
+place a verifier lands a final passed/failed and, on pass, mints the
+points award). Kind-specific grading lives in `services/missions/verifiers/*`;
+this module has no opinion on what "passed" means for any given kind.
 
 P6-2: `start_attempt` takes `user_id` XOR `team_id` — exactly one, matching
 `mission_attempts`' own CHECK constraint. A team attempt snapshots the
@@ -34,29 +35,37 @@ MISSION_POINTS_SOURCE = "mission"
 async def start_attempt(
     db: AsyncSession, *, mission_id: uuid.UUID, variant_id: uuid.UUID,
     user_id: uuid.UUID | None = None, team_id: uuid.UUID | None = None,
+    force_new: bool = False,
 ) -> MissionAttempt:
     """Resumes the owner's (a user or a team — exactly one) in-progress
     attempt on `mission_id` if one exists (ignoring the requested
     `variant_id` in that case — finish what you started before beginning
     something new), otherwise starts a new one at
     `attempt_no = max(existing) + 1`, scoped to the same owner.
+
+    `force_new=True` skips the resume and always mints a new attempt, even
+    with another already `in_progress` — the design mission's "run several
+    named CubeSat designs at once" flow (2026-08-15) opts into this; every
+    other caller leaves it `False` and keeps the original single-flight
+    behavior unchanged.
     """
     if (user_id is None) == (team_id is None):
         raise HTTPException(400, detail="Exactly one of user_id or team_id is required")
     owner_column = MissionAttempt.user_id if user_id is not None else MissionAttempt.mission_team_id
     owner_value = user_id if user_id is not None else team_id
 
-    existing = await db.scalar(
-        select(MissionAttempt)
-        .where(
-            MissionAttempt.mission_id == mission_id,
-            owner_column == owner_value,
-            MissionAttempt.status == "in_progress",
+    if not force_new:
+        existing = await db.scalar(
+            select(MissionAttempt)
+            .where(
+                MissionAttempt.mission_id == mission_id,
+                owner_column == owner_value,
+                MissionAttempt.status == "in_progress",
+            )
+            .order_by(MissionAttempt.started_at.desc())
         )
-        .order_by(MissionAttempt.started_at.desc())
-    )
-    if existing is not None:
-        return existing
+        if existing is not None:
+            return existing
 
     max_no = await db.scalar(
         select(func.max(MissionAttempt.attempt_no)).where(
