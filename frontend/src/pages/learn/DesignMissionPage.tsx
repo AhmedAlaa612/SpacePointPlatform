@@ -227,11 +227,27 @@ function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: DesignS
 
 // ── Components ───────────────────────────────────────────────────────────
 
+const SUBSYSTEMS = ["All", "ADCS", "CDHS", "EPS", "COMMS", "Payload", "Structure", "Thermal"];
+
 function ComponentsTab({ state, attemptId, onChanged }: { state: DesignState; attemptId: string; onChanged: (s: DesignState) => void }) {
   const [library, setLibrary] = useState<DesignLibraryComponent[]>([]);
   const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [subsystemFilter, setSubsystemFilter] = useState("All");
+  const [tagFilter, setTagFilter] = useState("All Tags");
 
   useEffect(() => { fetchDesignLibrary().then(setLibrary).catch(() => {}); }, []);
+
+  // Dynamic, not legacy's hardcoded 2-option list — the real catalog carries
+  // more tag values (SatKit, MPKit) than legacy's own picker ever knew about.
+  const tags = ["All Tags", ...Array.from(new Set(library.map((c) => c.tag).filter((t): t is string => !!t)))];
+
+  const filteredLibrary = library.filter((c) => {
+    if (search.trim() && !c.component_name.toLowerCase().includes(search.trim().toLowerCase())) return false;
+    if (subsystemFilter !== "All" && c.subsystem !== subsystemFilter) return false;
+    if (tagFilter !== "All Tags" && c.tag !== tagFilter) return false;
+    return true;
+  });
 
   const add = async (libraryComponentId: string) => {
     setError("");
@@ -251,7 +267,7 @@ function ComponentsTab({ state, attemptId, onChanged }: { state: DesignState; at
     }
   };
 
-  const bySubsystem = library.reduce<Record<string, DesignLibraryComponent[]>>((acc, c) => {
+  const bySubsystem = filteredLibrary.reduce<Record<string, DesignLibraryComponent[]>>((acc, c) => {
     (acc[c.subsystem] ??= []).push(c);
     return acc;
   }, {});
@@ -285,6 +301,41 @@ function ComponentsTab({ state, attemptId, onChanged }: { state: DesignState; at
             every budget that follows.
           </p>
         </div>
+
+        <div className="flex flex-col gap-2.5">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search components by name…"
+            className={inputCls}
+          />
+          <div className="flex flex-wrap gap-1.5">
+            {SUBSYSTEMS.map((s) => (
+              <button
+                key={s}
+                onClick={() => setSubsystemFilter(s)}
+                className={`px-3 py-1.5 rounded-xl text-xs ring-1 transition-colors ${
+                  subsystemFilter === s ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          {tags.length > 1 && (
+            <select
+              value={tagFilter}
+              onChange={(e) => setTagFilter(e.target.value)}
+              className={`${inputCls} w-auto`}
+            >
+              {tags.map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+        </div>
+
+        {filteredLibrary.length === 0 && (
+          <p className="text-xs text-muted-foreground">No components match this filter.</p>
+        )}
         {Object.entries(bySubsystem).map(([subsystem, comps]) => (
           <div key={subsystem} className="flex flex-col gap-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{subsystem}</p>

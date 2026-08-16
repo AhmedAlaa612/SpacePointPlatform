@@ -2,10 +2,11 @@ import { useState } from "react"
 import { isAxiosError } from "axios"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { ArrowLeft, Plus, X } from "lucide-react"
+import { ArrowLeft, ChevronDown, Plus, X } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import {
   getStudentProfileApi, listUserEnrollmentsApi, grantCourseEnrollmentApi, revokeCourseEnrollmentApi,
+  getStudentDesignRunsApi, type StudentDesignRun,
 } from "@/api/lms_admin"
 import { ItemPicker } from "@/pages/lms-authoring/components/ItemPicker"
 import { AVATAR_PRESETS } from "@/components/games/avatarPresets"
@@ -17,6 +18,19 @@ import { updateUserApi } from "@/api/admin/users"
  * picked) — here the student is fixed and the course is picked, so it's a
  * small dedicated section rather than forcing `AssignPanel` to be
  * bidirectional. */
+const RUN_STATUS_STYLE: Record<StudentDesignRun["status"], string> = {
+  passed: "bg-emerald-500/10 text-emerald-500",
+  failed: "bg-red-500/10 text-red-500",
+  submitted: "bg-amber-500/10 text-amber-600",
+  in_progress: "bg-primary/10 text-primary",
+  abandoned: "bg-muted text-muted-foreground",
+}
+
+const RUN_STATUS_LABEL: Record<StudentDesignRun["status"], string> = {
+  passed: "Passed", failed: "Failed", submitted: "Submitted",
+  in_progress: "In progress", abandoned: "Abandoned",
+}
+
 export default function LmsStudentDetail() {
   const { userId } = useParams({ strict: false }) as { userId: string }
   const navigate = useNavigate()
@@ -24,6 +38,7 @@ export default function LmsStudentDetail() {
   const [courseId, setCourseId] = useState("")
   const [nickname, setNickname] = useState<string | null>(null)
   const [identityError, setIdentityError] = useState("")
+  const [expandedRuns, setExpandedRuns] = useState<Record<string, boolean>>({})
 
   const { data: profile, isLoading: profileLoading } = useQuery({
     queryKey: ["lms-admin-student-profile", userId],
@@ -32,6 +47,10 @@ export default function LmsStudentDetail() {
   const { data: enrollments = [], isLoading: enrollmentsLoading } = useQuery({
     queryKey: ["lms-admin-user-enrollments", userId],
     queryFn: () => listUserEnrollmentsApi(userId),
+  })
+  const { data: designRuns, isLoading: designRunsLoading } = useQuery({
+    queryKey: ["lms-admin-student-design-runs", userId],
+    queryFn: () => getStudentDesignRunsApi(userId),
   })
 
   const invalidateEnrollments = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-user-enrollments", userId] })
@@ -202,6 +221,65 @@ export default function LmsStudentDetail() {
             <Plus size={14} /> Assign
           </button>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl">
+        <h3 className="text-sm font-medium text-foreground">Mission runs</h3>
+
+        {designRunsLoading ? (
+          <Spinner />
+        ) : !designRuns || designRuns.runs.length === 0 ? (
+          <EmptyState title="No design mission runs yet" hint="This student hasn't started a design mission." />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {designRuns.runs.map((run) => {
+              const expanded = !!expandedRuns[run.attempt_id]
+              return (
+                <div key={run.attempt_id} className="bg-background border border-border rounded-xl overflow-hidden">
+                  <button
+                    onClick={() => setExpandedRuns((prev) => ({ ...prev, [run.attempt_id]: !prev[run.attempt_id] }))}
+                    className="w-full flex items-center justify-between p-3 text-left"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm text-foreground truncate">{run.design_name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {run.variant_label}
+                        {run.started_at && <> · {new Date(run.started_at).toLocaleDateString()}</>}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${RUN_STATUS_STYLE[run.status]}`}>
+                        {RUN_STATUS_LABEL[run.status]}
+                      </span>
+                      <ChevronDown size={14} className={`text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />
+                    </div>
+                  </button>
+                  {expanded && (
+                    <div className="px-3 pb-3 border-t border-border pt-3 flex flex-col gap-3">
+                      {run.design_objective && (
+                        <p className="text-xs text-muted-foreground whitespace-pre-line">{run.design_objective}</p>
+                      )}
+                      {designRuns.step_labels.length > 0 && (
+                        <div className="flex flex-wrap gap-3">
+                          {designRuns.step_labels.map((step) => (
+                            <div key={step.key} className="flex items-center gap-1.5">
+                              <span
+                                title={`${step.label}: ${run.steps?.[step.key] ? "done" : "not started"}`}
+                                className={`inline-block size-2.5 rounded-full ${
+                                  run.steps?.[step.key] ? "bg-emerald-500" : "bg-muted-foreground/25"}`}
+                              />
+                              <span className="text-xs text-muted-foreground">{step.label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

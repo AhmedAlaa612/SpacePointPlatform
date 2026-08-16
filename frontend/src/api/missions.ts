@@ -94,6 +94,9 @@ export interface MissionAttempt {
   decided_at: string | null;
   team_id: string | null;
   team_name: string | null;
+  // Design-kind attempts only — the student's own name for this run. Null
+  // for every other mission kind.
+  design_name: string | null;
 }
 
 export interface MissionDetail {
@@ -148,10 +151,10 @@ export async function fetchMission(missionId: string): Promise<MissionDetail> {
 }
 
 export async function startMissionAttempt(
-  missionId: string, variantId: string, teamId?: string,
+  missionId: string, variantId: string, teamId?: string, forceNew?: boolean,
 ): Promise<MissionAttempt> {
   const { data } = await api.post<MissionAttempt>(`/missions/${missionId}/attempts`, {
-    variant_id: variantId, team_id: teamId || null,
+    variant_id: variantId, team_id: teamId || null, force_new: !!forceNew,
   });
   return data;
 }

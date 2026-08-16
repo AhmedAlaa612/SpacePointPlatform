@@ -16,12 +16,28 @@ import { Boxes, ChevronRight, Gauge, Rocket, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { startMissionAttempt } from "@/api/missions";
-import { fetchDesignBriefing, type DesignBriefing } from "@/api/missionsDesign";
+import { fetchDesignBriefing, updateDesign, type DesignBriefing } from "@/api/missionsDesign";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
   return fallback;
 }
+
+const ORBIT_PRESETS: Record<string, { orbit_type: string; orbit_duration_min: string; orbits_per_day: string }> = {
+  LEO: { orbit_type: "LEO", orbit_duration_min: "90", orbits_per_day: "16" },
+  SSO: { orbit_type: "SSO", orbit_duration_min: "100", orbits_per_day: "14" },
+  GEO: { orbit_type: "GEO", orbit_duration_min: "1436", orbits_per_day: "1" },
+};
+
+/** The 4-prompt guided objective, concatenated into one `design_objective`
+ * string — matching legacy Madar's "Requirement Form" (mission.html), which
+ * consistently got better answers than a single blank textarea. */
+const OBJECTIVE_PROMPTS: { key: string; label: string; placeholder: string }[] = [
+  { key: "primary", label: "The satellite shall achieve the primary mission objective of:", placeholder: "e.g. capturing daily imagery of the UAE coastline" },
+  { key: "success", label: "The mission is successful if the satellite is able to:", placeholder: "e.g. downlink at least one usable image per day for 30 days" },
+  { key: "lifetime", label: "The satellite shall operate for a minimum duration of:", placeholder: "e.g. 6 months" },
+  { key: "conops", label: "The satellite shall perform its mission tasks by:", placeholder: "e.g. imaging in sunlight, downlinking over the ground station pass" },
+];
 
 export default function DesignBriefingPage() {
   const { missionId } = useParams({ strict: false }) as { missionId: string };
@@ -33,6 +49,13 @@ export default function DesignBriefingPage() {
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState("");
 
+  const [showSetup, setShowSetup] = useState(false);
+  const [missionName, setMissionName] = useState("");
+  const [objectives, setObjectives] = useState<Record<string, string>>({});
+  const [orbitType, setOrbitType] = useState("LEO");
+  const [orbitDuration, setOrbitDuration] = useState("90");
+  const [orbitsPerDay, setOrbitsPerDay] = useState("16");
+
   const load = useCallback(() => {
     fetchDesignBriefing(missionId, search.variant)
       .then(setBriefing)
@@ -41,12 +64,29 @@ export default function DesignBriefingPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const setupValid = missionName.trim().length > 0
+    && OBJECTIVE_PROMPTS.every((p) => (objectives[p.key] ?? "").trim().length > 0)
+    && orbitType.trim().length > 0 && orbitDuration.trim().length > 0 && orbitsPerDay.trim().length > 0;
+
   const handleBegin = async () => {
-    if (!briefing) return;
+    if (!briefing || !setupValid) return;
     setStarting(true);
     setStartError("");
     try {
-      const attempt = await startMissionAttempt(briefing.mission_id, briefing.variant_id, search.team);
+      // Every entry into this page starts a fresh named run — a student can
+      // have several CubeSat designs going at once (2026-08-15), so there's
+      // no "the" in-progress attempt to resume here.
+      const attempt = await startMissionAttempt(briefing.mission_id, briefing.variant_id, search.team, true);
+      const design_objective = OBJECTIVE_PROMPTS
+        .map((p) => `${p.label} ${(objectives[p.key] ?? "").trim()}`)
+        .join("\n\n");
+      await updateDesign(attempt.id, {
+        design_name: missionName.trim(),
+        design_objective,
+        orbit_type: orbitType,
+        orbit_duration_min: Number(orbitDuration),
+        orbits_per_day: Number(orbitsPerDay),
+      });
       navigate({ to: "/learn/missions/design/$attemptId", params: { attemptId: attempt.id } });
     } catch (err) {
       setStartError(errorDetail(err, "Couldn't start this design right now."));
@@ -190,6 +230,96 @@ export default function DesignBriefingPage() {
         </ul>
       </Card>
 
+      {/* --- name this mission, before it exists --------------------------
+          Matches legacy Madar's own setup form (mission.html): a name, a
+          guided objective (four short prompts beat one blank textarea),
+          and the orbit this satellite flies. */}
+      {showSetup && (
+        <Card className="p-5 flex flex-col gap-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name this mission</p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              You can run this mission more than once — this name is how you'll tell your runs apart.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mission Name</label>
+            <input
+              value={missionName}
+              onChange={(e) => setMissionName(e.target.value)}
+              placeholder="e.g. EduSat-1"
+              className="h-10 px-3.5 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mission objective</p>
+            {OBJECTIVE_PROMPTS.map((p) => (
+              <div key={p.key} className="flex flex-col gap-1.5">
+                <label className="text-xs text-muted-foreground">{p.label}</label>
+                <input
+                  value={objectives[p.key] ?? ""}
+                  onChange={(e) => setObjectives((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                  placeholder={p.placeholder}
+                  className="h-10 px-3.5 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Orbit</p>
+            <div className="flex flex-wrap gap-2">
+              {(["LEO", "SSO", "GEO"] as const).map((preset) => (
+                <button
+                  key={preset}
+                  onClick={() => {
+                    const p = ORBIT_PRESETS[preset];
+                    setOrbitType(p.orbit_type);
+                    setOrbitDuration(p.orbit_duration_min);
+                    setOrbitsPerDay(p.orbits_per_day);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-sm ring-1 transition-colors ${
+                    orbitType === preset ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
+                  }`}
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+            <div className="grid sm:grid-cols-3 gap-3 mt-1">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-muted-foreground">Orbit Type</label>
+                <select
+                  value={orbitType}
+                  onChange={(e) => setOrbitType(e.target.value)}
+                  className="h-10 px-3.5 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                >
+                  {["LEO", "MEO", "GEO", "SSO", "Custom"].map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-muted-foreground">Orbit Duration (min)</label>
+                <input
+                  type="number" min="0" value={orbitDuration}
+                  onChange={(e) => setOrbitDuration(e.target.value)}
+                  className="h-10 px-3.5 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs text-muted-foreground">Orbits per Day</label>
+                <input
+                  type="number" min="0" value={orbitsPerDay}
+                  onChange={(e) => setOrbitsPerDay(e.target.value)}
+                  className="h-10 px-3.5 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+                />
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* --- go --------------------------------------------------------- */}
       <div className="sticky bottom-4 flex flex-col gap-2">
         <Card className="p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
@@ -197,9 +327,15 @@ export default function DesignBriefingPage() {
             There is no clock on this one — take as long as you need, and the Design Handbook stays
             open while you work.
           </div>
-          <Button onClick={() => void handleBegin()} disabled={starting} size="lg">
-            {starting ? "Starting..." : "Begin design"}
-          </Button>
+          {showSetup ? (
+            <Button onClick={() => void handleBegin()} disabled={starting || !setupValid} size="lg">
+              {starting ? "Starting..." : "Begin design"}
+            </Button>
+          ) : (
+            <Button onClick={() => setShowSetup(true)} size="lg">
+              Name this mission
+            </Button>
+          )}
         </Card>
         {startError && <p className="text-xs text-destructive">{startError}</p>}
       </div>

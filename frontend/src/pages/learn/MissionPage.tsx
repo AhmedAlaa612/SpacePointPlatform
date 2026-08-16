@@ -75,21 +75,22 @@ export default function MissionPage() {
 
   const decided = activeAttempt?.status === "passed" || activeAttempt?.status === "failed";
 
-  // A design mission is a whole nine-step wizard and an operate mission is
-  // a live console — neither is a single attempt form, each lives at its
-  // own route, keyed on the attempt (P7-5 / Stage 7B-4). An in-progress
-  // attempt sends the student straight there: design attempts never
-  // become "failed" (stay in_progress until ready), operate attempts can.
-  // A *decided* operate attempt stays on this page instead — its own
-  // console has no way back to the variant picker, so redirecting there
-  // unconditionally trapped a passed/failed student with no way to ever
-  // retry at a different difficulty (this page's own decided-state panel,
-  // below, already has the "Try again" + variant picker for exactly this).
+  // An operate mission is a live console, not a single-attempt form — it
+  // lives at its own route, keyed on the attempt (Stage 7B-4). An
+  // in-progress attempt sends the student straight there. A *decided*
+  // attempt stays on this page instead — its own console has no way back
+  // to the variant picker, so redirecting there unconditionally trapped a
+  // passed/failed student with no way to ever retry at a different
+  // difficulty (this page's own decided-state panel, below, already has
+  // the "Try again" + variant picker for exactly this).
+  //
+  // Design used to auto-redirect the same way, into its own nine-step
+  // wizard — but a student can now run several CubeSat designs at once
+  // (2026-08-15), so there's no longer a single "the" attempt to jump into.
+  // See the "Your missions" list below instead.
   useEffect(() => {
     if (!mission || !activeAttempt) return;
-    if (mission.kind === "design") {
-      navigate({ to: "/learn/missions/design/$attemptId", params: { attemptId: activeAttempt.id }, replace: true });
-    } else if (mission.kind === "operate" && !decided) {
+    if (mission.kind === "operate" && !decided) {
       navigate({ to: "/learn/missions/operate/$attemptId", params: { attemptId: activeAttempt.id }, replace: true });
     }
   }, [mission, activeAttempt, decided, navigate]);
@@ -195,13 +196,17 @@ export default function MissionPage() {
         <MissionSubmissionForm attemptId={activeAttempt.id} onSubmitted={load} />
       )}
 
-      {activeAttempt?.team_name && (inProgress || activeAttempt.status === "submitted" || decided) && (
+      {/* Design's own multi-run list (below) is the authoritative "where do
+          my attempts stand" view once a student can have several at once —
+          these single-attempt panels would either duplicate or conflict
+          with it, so they're for every other mission kind only. */}
+      {mission.kind !== "design" && activeAttempt?.team_name && (inProgress || activeAttempt.status === "submitted" || decided) && (
         <div className="w-fit flex items-center gap-1.5 text-xs text-muted-foreground px-2.5 py-1 rounded-lg ring-1 ring-border">
           <Users className="size-3.5" /> Team: {activeAttempt.team_name}
         </div>
       )}
 
-      {activeAttempt?.status === "submitted" && (
+      {mission.kind !== "design" && activeAttempt?.status === "submitted" && (
         <Card className="p-5 flex flex-col gap-1.5">
           <p className="text-sm font-medium">Awaiting review</p>
           <p className="text-xs text-muted-foreground">
@@ -210,7 +215,37 @@ export default function MissionPage() {
         </Card>
       )}
 
-      {decided && (
+      {mission.kind === "design" && mission.attempts.length > 0 && (
+        <Card className="p-5 flex flex-col gap-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Your missions</p>
+          <div className="flex flex-col gap-2">
+            {mission.attempts.slice().reverse().map((a) => (
+              <div key={a.id} className="flex items-center justify-between gap-3 p-3 rounded-xl ring-1 ring-border">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{a.design_name || "My CubeSat"}</p>
+                  <p className="text-xs text-muted-foreground">{a.variant_label}</p>
+                </div>
+                {a.status === "in_progress" ? (
+                  <Link to="/learn/missions/design/$attemptId" params={{ attemptId: a.id }} className="shrink-0">
+                    <Button size="sm">Continue</Button>
+                  </Link>
+                ) : a.status === "passed" ? (
+                  <Link
+                    to="/learn/missions/design/$attemptId" params={{ attemptId: a.id }}
+                    className="shrink-0 flex items-center gap-1.5 text-xs text-emerald-500 hover:opacity-80"
+                  >
+                    <CheckCircle2 className="size-3.5" /> Passed
+                  </Link>
+                ) : (
+                  <span className="shrink-0 text-xs text-muted-foreground capitalize">{a.status}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {mission.kind !== "design" && decided && (
         <Card className="p-5 flex items-center gap-4">
           {activeAttempt.status === "passed" ? (
             <CheckCircle2 className="size-8 text-emerald-500 shrink-0" />
@@ -260,8 +295,11 @@ export default function MissionPage() {
         </Card>
       )}
 
-      {(!activeAttempt || decided) && (
+      {(!activeAttempt || decided || mission.kind === "design") && (
         <Card className="p-5 flex flex-col gap-4">
+          {mission.kind === "design" && mission.attempts.length > 0 && (
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start a new mission</p>
+          )}
           {mission.variants.length > 1 && (
             <div className="flex flex-col gap-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Difficulty</p>
@@ -307,7 +345,7 @@ export default function MissionPage() {
               : starting
                 ? "Starting..."
                 : mission.kind === "design"
-                  ? (decided ? "Design again — read the briefing" : "Read the design briefing")
+                  ? (mission.attempts.length > 0 ? "Start a new mission" : "Read the design briefing")
                   : mission.kind === "operate"
                   // The briefing is the next step, not the flight — say so,
                   // or a student clicks expecting the clock to start.

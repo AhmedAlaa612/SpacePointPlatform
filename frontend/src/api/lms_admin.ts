@@ -362,6 +362,27 @@ export const getStudentProfileApi = (userId: string) =>
 export const listUserEnrollmentsApi = (userId: string) =>
   api.get<AdminEnrollment[]>(`/lms/admin/users/${userId}/enrollments`).then((r) => r.data);
 
+// ── student design-mission run history (2026-08-16) ─────────────────────────
+
+export interface StudentDesignRun {
+  attempt_id: string;
+  design_name: string;
+  design_objective: string | null;
+  variant_label: string;
+  status: "in_progress" | "submitted" | "passed" | "failed" | "abandoned";
+  attempt_no: number;
+  started_at: string | null;
+  steps: Record<string, boolean> | null;
+}
+
+export interface StudentDesignRunsOut {
+  step_labels: { key: string; label: string }[];
+  runs: StudentDesignRun[];
+}
+
+export const getStudentDesignRunsApi = (userId: string) =>
+  api.get<StudentDesignRunsOut>(`/lms/admin/students/${userId}/design-runs`).then((r) => r.data);
+
 export const listLearningPathsApi = () =>
   api.get<AdminLearningPath[]>("/lms/admin/learning-paths").then((r) => r.data);
 export const getLearningPathApi = (id: string) =>
