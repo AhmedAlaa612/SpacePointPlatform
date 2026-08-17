@@ -120,6 +120,10 @@ export interface StepStatus {
 export interface Dashboard {
   all_valid: boolean;
   steps: Record<string, StepStatus>;
+  /** 2026-08-17 — whether the hidden Downlink cross-check currently counts
+   * toward all_valid (true when data_budget/link_budget/conops are all
+   * in the cohort's selected subset). */
+  downlink_included: boolean;
   conops: { total_mode_duration_min: number; duration_difference_min: number };
   data: {
     total_per_orbit_kb: number; total_per_day_kb: number; total_stored_per_day_kb: number;
@@ -233,6 +237,12 @@ export interface DesignState {
   /** 2026-08-17 — step_key -> is_unlocked, all 9 steps. An attempt outside
    * any cohort (or a cohort with no gates set) reads all true. */
   step_gates: Record<string, boolean>;
+  /** 2026-08-17 — step_key -> included, the 8 selectable steps (never
+   * "downlink"). Compositional scope, distinct from step_gates' temporal
+   * pacing — an attempt outside any cohort (or an unconfigured cohort)
+   * reads all true. Drives which tabs even appear, not just whether
+   * they're blocked. */
+  included_steps: Record<string, boolean>;
 }
 
 export async function fetchDesignState(attemptId: string): Promise<DesignState> {

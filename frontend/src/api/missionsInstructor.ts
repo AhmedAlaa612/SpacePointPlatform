@@ -37,6 +37,32 @@ export const setInstructorStepGateApi = (cohortId: string, missionId: string, st
     { is_unlocked: isUnlocked },
   ).then((r) => r.data);
 
+export interface DesignStepSelection {
+  step_key: string;
+  label: string;
+  included: boolean;
+  prereqs: string[];
+}
+
+export interface DesignStepSelections {
+  is_default: boolean;
+  steps: DesignStepSelection[];
+  downlink_deps: string[];
+  downlink_included: boolean;
+}
+
+export const instructorStepSelectionApi = (cohortId: string, missionId: string) =>
+  api.get<DesignStepSelections>(`/missions/instructor/cohorts/${cohortId}/missions/${missionId}/steps`).then((r) => r.data);
+
+export const setInstructorStepSelectionApi = (cohortId: string, missionId: string, stepKeys: string[]) =>
+  api.put<DesignStepSelections>(
+    `/missions/instructor/cohorts/${cohortId}/missions/${missionId}/steps`,
+    { step_keys: stepKeys },
+  ).then((r) => r.data);
+
+export const clearInstructorStepSelectionApi = (cohortId: string, missionId: string) =>
+  api.delete<DesignStepSelections>(`/missions/instructor/cohorts/${cohortId}/missions/${missionId}/steps`).then((r) => r.data);
+
 export const instructorReviewQueueApi = (cohortId: string, missionId: string) =>
   api.get<ManagedAttempt[]>(`/missions/instructor/cohorts/${cohortId}/missions/${missionId}/queue`).then((r) => r.data);
 

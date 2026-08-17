@@ -3,8 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { isAxiosError } from "axios"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/pages/admin/components/common"
 import {
   myInstructorCohortsApi, instructorCohortProgressApi, instructorStepGatesApi, setInstructorStepGateApi,
+  instructorStepSelectionApi, setInstructorStepSelectionApi, clearInstructorStepSelectionApi,
   instructorReviewQueueApi, instructorReviewAttemptApi,
 } from "@/api/missionsInstructor"
 import { fetchMissionCatalog } from "@/api/missions"
@@ -26,9 +28,9 @@ const MISSION_STATUS_LABEL: Record<string, string> = {
   passed: "Passed", failed: "Failed", submitted: "Submitted", in_progress: "In progress", abandoned: "Abandoned",
 }
 
-const TABS = ["progress", "gates", "review"] as const
+const TABS = ["progress", "steps", "gates", "review"] as const
 type Tab = (typeof TABS)[number]
-const TAB_LABEL: Record<Tab, string> = { progress: "Progress", gates: "Gates", review: "Review" }
+const TAB_LABEL: Record<Tab, string> = { progress: "Progress", steps: "Steps", gates: "Gates", review: "Review" }
 
 /** Cohort-scoped instructor Missions surface (2026-08-17) — the boss's own
  * ask: an instructor tracks/gates/reviews their own cohort's Design runs,
@@ -110,6 +112,7 @@ export default function CohortMissions() {
             {effectiveMissionId && (
               <>
                 {tab === "progress" && <ProgressTab cohortId={effectiveCohortId} />}
+                {tab === "steps" && <StepsTab cohortId={effectiveCohortId} missionId={effectiveMissionId} />}
                 {tab === "gates" && <GatesTab cohortId={effectiveCohortId} missionId={effectiveMissionId} />}
                 {tab === "review" && <ReviewTab cohortId={effectiveCohortId} missionId={effectiveMissionId} />}
               </>
@@ -179,6 +182,137 @@ function ProgressTab({ cohortId }: { cohortId: string }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// ── Steps ────────────────────────────────────────────────────────────────
+
+/** Compositional step selection (2026-08-17) — which of the 9 Design build
+ * steps even apply to this cohort's run, distinct from `GatesTab`'s
+ * temporal lock/unlock below. The dependency graph is never hardcoded
+ * here — it's built purely from each step's `prereqs`, as served by the
+ * backend, so this can never drift from the real math the way
+ * `DesignMissionPage.tsx`'s old `needs` hints once did. */
+function StepsTab({ cohortId, missionId }: { cohortId: string; missionId: string }) {
+  const queryClient = useQueryClient()
+  const queryKey = ["instructor-step-selection", cohortId, missionId]
+  const { data, isLoading } = useQuery({
+    queryKey, queryFn: () => instructorStepSelectionApi(cohortId, missionId),
+  })
+  const [pendingRemoval, setPendingRemoval] = useState<{ stepKey: string; dependents: string[] } | null>(null)
+  const [error, setError] = useState("")
+
+  const putMutation = useMutation({
+    mutationFn: (stepKeys: string[]) => setInstructorStepSelectionApi(cohortId, missionId, stepKeys),
+    onSuccess: (next) => {
+      queryClient.setQueryData(queryKey, next)
+      setPendingRemoval(null)
+      setError("")
+    },
+    onError: (err) => setError(errorDetail(err, "Couldn't update the step selection.")),
+  })
+  const resetMutation = useMutation({
+    mutationFn: () => clearInstructorStepSelectionApi(cohortId, missionId),
+    onSuccess: (next) => queryClient.setQueryData(queryKey, next),
+  })
+
+  if (isLoading) return <Spinner />
+  if (!data) return null
+
+  const labelFor = (key: string) => data.steps.find((s) => s.step_key === key)?.label ?? key
+  const prereqsByKey = Object.fromEntries(data.steps.map((s) => [s.step_key, s.prereqs]))
+  const includedKeys = data.steps.filter((s) => s.included).map((s) => s.step_key)
+
+  // Forward closure over `prereqs`, starting from `start`.
+  const closure = (start: string[]): Set<string> => {
+    const result = new Set<string>()
+    const stack = [...start]
+    while (stack.length) {
+      const key = stack.pop() as string
+      if (result.has(key)) continue
+      result.add(key)
+      stack.push(...(prereqsByKey[key] ?? []))
+    }
+    return result
+  }
+
+  const handleSelect = (stepKey: string) => {
+    putMutation.mutate([...closure([...includedKeys, stepKey])])
+  }
+
+  const handleDeselect = (stepKey: string) => {
+    const remaining = includedKeys.filter((k) => k !== stepKey)
+    // Any still-selected step whose closure needs `stepKey` gets cascaded too.
+    const dependents = remaining.filter((k) => closure([k]).has(stepKey))
+    if (dependents.length > 0) {
+      setPendingRemoval({ stepKey, dependents })
+      return
+    }
+    putMutation.mutate(remaining)
+  }
+
+  const confirmRemoval = () => {
+    if (!pendingRemoval) return
+    const drop = new Set([pendingRemoval.stepKey, ...pendingRemoval.dependents])
+    putMutation.mutate(includedKeys.filter((k) => !drop.has(k)))
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">
+        Choose which build steps apply to this cohort's Design mission run. Excluded steps disappear entirely from
+        the student's wizard, and "complete" only requires the selected steps to be valid. Selecting a step pulls in
+        its prerequisites automatically; removing a step other selected steps depend on asks first.
+      </p>
+      {!data.is_default && (
+        <button
+          onClick={() => resetMutation.mutate()}
+          disabled={resetMutation.isPending}
+          className="self-start h-8 px-3 rounded-lg text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/70 transition-colors disabled:opacity-50"
+        >
+          Reset to default (all steps)
+        </button>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {data.steps.map((s) => (
+        <div key={s.step_key} className="flex items-center justify-between p-3 bg-background border border-border rounded-xl">
+          <div>
+            <p className="text-sm text-foreground">{s.label}</p>
+            {s.step_key === "components" && (
+              <p className="text-[11px] text-muted-foreground">Required by everything except Link Budget</p>
+            )}
+          </div>
+          <button
+            onClick={() => (s.included ? handleDeselect(s.step_key) : handleSelect(s.step_key))}
+            disabled={putMutation.isPending}
+            className={`h-8 px-3 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+              s.included ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"}`}
+          >
+            {s.included ? "Included" : "Excluded"}
+          </button>
+        </div>
+      ))}
+      <p className="text-[11px] text-muted-foreground">
+        Downlink (the Data/Link/CONOPS cross-check) counts toward completion only when Data, Link and CONOPS are all
+        included — {data.downlink_included ? "currently included." : "currently excluded."}
+      </p>
+
+      {pendingRemoval && (
+        <ConfirmDialog
+          title="Remove dependent steps too?"
+          description={
+            `${labelFor(pendingRemoval.stepKey)} is required by ` +
+            `${pendingRemoval.dependents.map(labelFor).join(", ")}. Removing it will also remove ` +
+            `${pendingRemoval.dependents.length === 1 ? "that step" : "those steps"}.`
+          }
+          confirmLabel="Remove"
+          destructive
+          pending={putMutation.isPending}
+          onCancel={() => setPendingRemoval(null)}
+          onConfirm={confirmRemoval}
+        />
+      )}
     </div>
   )
 }

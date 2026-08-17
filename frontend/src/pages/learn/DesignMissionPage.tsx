@@ -105,6 +105,10 @@ export default function DesignMissionPage() {
   if (!state) return <div className="mx-auto max-w-[1100px] px-5 py-10"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
   const passed = state.attempt_status === "passed";
+  // 2026-08-17 — compositional step scope: excluded steps are removed from
+  // the wizard entirely, not just blocked (contrast with gate/needs
+  // blocking below, which keeps a tab visible but disabled).
+  const visibleTabs = DESIGN_TABS.filter((t) => !t.step || state.included_steps[t.step] !== false);
 
   return (
     <div className="mx-auto max-w-[1100px] px-5 sm:px-8 py-6 sm:py-8 flex flex-col gap-6">
@@ -131,11 +135,11 @@ export default function DesignMissionPage() {
       </div>
       {completeError && <p className="text-xs text-destructive">{completeError}</p>}
 
-      <CompletionMap state={state} onGoToTab={setTab} />
+      <CompletionMap state={state} visibleTabs={visibleTabs} onGoToTab={setTab} />
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap">
-          {DESIGN_TABS.map((t) => {
+          {visibleTabs.map((t) => {
             const step = t.step ? state.dashboard.steps[t.step] : undefined;
             // 2026-08-17 — two independent reasons a tab can be blocked:
             // a data dependency (D2: explain the order, don't enforce it —
@@ -872,8 +876,9 @@ function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignState; atte
  * saving a *failing* power budget (F11). Here a stamp is earned on the
  * step being **valid**, which is the fix that audit asked for — effort is
  * visible, but only correctness fills it in. */
-function CompletionMap({ state, onGoToTab }: { state: DesignState; onGoToTab: (tab: string) => void }) {
-  const steps = [
+function CompletionMap({ state, visibleTabs, onGoToTab }: { state: DesignState; visibleTabs: typeof DESIGN_TABS; onGoToTab: (tab: string) => void }) {
+  const visibleStepKeys = new Set(visibleTabs.map((t) => t.step).filter((k): k is string => !!k));
+  const allSteps = [
     { key: "components", label: "Components", tab: "components" },
     { key: "conops", label: "CONOPS", tab: "conops" },
     { key: "data_budget", label: "Data", tab: "data" },
@@ -884,6 +889,9 @@ function CompletionMap({ state, onGoToTab }: { state: DesignState; onGoToTab: (t
     { key: "mass_budget", label: "Mass", tab: "mass" },
     { key: "cost_budget", label: "Cost", tab: "cost" },
   ];
+  // Downlink is never in visibleTabs (it's not a tab at all) — show it iff
+  // it currently counts toward all_valid for this cohort's scope.
+  const steps = allSteps.filter((s) => s.key === "downlink" ? state.dashboard.downlink_included : visibleStepKeys.has(s.key));
   const earned = steps.filter((s) => state.dashboard.steps[s.key]?.is_valid).length;
 
   return (
