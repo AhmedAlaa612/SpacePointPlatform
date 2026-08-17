@@ -264,17 +264,23 @@ async def _reverse_answers(
 
 
 async def reverse_run_points(db: AsyncSession, *, run: GameRun) -> int:
-    """D15/D17: reverses every not-yet-reversed positive-points answer in
-    this run, for every participant, all-or-nothing (never split by which
-    students are replaying) — new offsetting `point_events` rows, the
-    original award rows untouched. Returns the count of answers reversed."""
+    """D15/D17: closes out every not-yet-reversed answer in this run, for
+    every participant, all-or-nothing (never split by which students are
+    replaying) — new offsetting `point_events` rows for the ones that
+    actually scored, the original award rows untouched. Returns the count
+    of answers reversed.
+
+    Zero-point (wrong/timed-out) answers are included too, not just
+    positive-scoring ones: `submit_answer`'s idempotency check treats any
+    row with `reversed_at IS NULL` as "already answered", so a wrong
+    answer left unreversed would silently block that student from ever
+    re-answering the question after a restart."""
     answers = (
         await db.execute(
             select(GameAnswer)
             .join(GameParticipant, GameAnswer.participant_id == GameParticipant.id)
             .where(
                 GameParticipant.run_id == run.id,
-                GameAnswer.points_awarded > 0,
                 GameAnswer.reversed_at.is_(None),
             )
         )
@@ -374,7 +380,10 @@ async def participant_streak(db: AsyncSession, *, participant_id: uuid.UUID) -> 
         await db.execute(
             select(GameAnswer.is_correct)
             .join(GameSessionQuestion, GameAnswer.question_id == GameSessionQuestion.id)
-            .where(GameAnswer.participant_id == participant_id)
+            .where(
+                GameAnswer.participant_id == participant_id,
+                GameAnswer.reversed_at.is_(None),
+            )
             .order_by(GameSessionQuestion.position.desc())
         )
     ).scalars().all()
