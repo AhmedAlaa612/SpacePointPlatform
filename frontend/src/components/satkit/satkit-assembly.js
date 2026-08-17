@@ -92,7 +92,7 @@
         for (const [a, b] of CUT) for (let k = a; k <= b; k++) if (iso[k - 1]) this.frames.push(iso[k - 1]);
         this.fit();
         let n = 0;
-        this.frames.forEach((f, idx) => {
+        const loadFrame = (f, idx, attempt) => {
           const img = new Image();
           img.decoding = 'async';
           img.onload = () => {
@@ -100,9 +100,16 @@
             if (idx === 0) this.draw();
             if (++n >= Math.min(4, this.frames.length) && !this.raf) this.start();
           };
-          img.onerror = () => { n++; };
-          img.src = this.base + '/' + f.src;
-        });
+          img.onerror = () => {
+            if (attempt < 3) {
+              setTimeout(() => loadFrame(f, idx, attempt + 1), 300 * (attempt + 1));
+            } else {
+              n++;
+            }
+          };
+          img.src = this.base + '/' + f.src + (attempt ? (f.src.includes('?') ? '&' : '?') + 'retry=' + attempt : '');
+        };
+        this.frames.forEach((f, idx) => loadFrame(f, idx, 0));
       });
     }
 
