@@ -36,6 +36,7 @@ from app.models.document_template import DocumentTemplate
 from app.models.sessions.delivery_role import DeliveryRole
 from app.services.documents.certificate import generate_completion_certificate_pdf, merge_certificate_pdfs
 from app.services.sessions.openings import fully_staffed, lead_role_id
+from app.services.sessions.staffing import resolve_session_location_display
 from app.models.inventory.location import Location
 from app.models.inventory.warehouse import Warehouse
 from app.models.sessions.attendance import AttendanceRecord
@@ -1132,10 +1133,12 @@ async def download_cohort_certificates(
     template = (await db.execute(
         select(DocumentTemplate).where(DocumentTemplate.key == "student_completion")
     )).scalars().first()
+    location = await resolve_session_location_display(db, None, cohort)
     template_body = template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}"
     body_text = template_body \
         .replace("{program_name}", escape(program.name if program else "")) \
-        .replace("{dates}", escape(format_cohort_dates(cohort)))
+        .replace("{dates}", escape(format_cohort_dates(cohort))) \
+        .replace("{location}", escape(location["name"] or ""))
 
     def _render(name: str, body: str) -> bytes:
         return generate_completion_certificate_pdf(name, body, theme=theme)
