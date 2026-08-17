@@ -273,17 +273,24 @@ function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
           );
         })}
       </div>
-      {isStaff && (
-        <div className="flex justify-center border-t border-border/50 py-1.5">
+      <div className="flex items-center justify-between border-t border-border/50 px-2 py-1.5">
+        {isStaff ? (
           <Link
             to={roleHomePath(currentUser!.role)}
-            className="flex items-center gap-1.5 rounded-lg px-3 py-1 text-xs font-medium text-muted-foreground transition-colors"
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium text-muted-foreground transition-colors"
           >
             <ArrowLeftRight className="h-3.5 w-3.5" />
             Back to portal
           </Link>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-0.5">
+          <ThemeToggle />
+          <LearnNotificationsBell />
+          <LearnProfileMenu />
         </div>
-      )}
+      </div>
     </nav>
   );
 }
