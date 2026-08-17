@@ -1,6 +1,6 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import Column, Date, DateTime, ForeignKey, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -20,6 +20,12 @@ class InstructorProfile(Base):
     signed_contract_path = Column(String, nullable=True)
     contract_signature_data = Column(Text, nullable=True)
     contract_signed_at = Column(DateTime(timezone=True), nullable=True)
+    # The date this person actually became an instructor — applicant-approval
+    # timestamp, the moment an admin granted the role directly, or a bulk
+    # import's supplied join date. Frozen once set; this is what the unsigned
+    # contract's date prints from instead of date.today() (see
+    # routers/instructors/instructor.py::_ensure_contract).
+    instructor_since = Column(Date, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(
         DateTime(timezone=True),

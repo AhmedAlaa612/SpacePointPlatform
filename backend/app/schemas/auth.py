@@ -71,6 +71,12 @@ class UserOut(BaseModel):
     avatar: str | None = None  # the account's default game avatar (AVATAR_PRESETS key)
     invitation_code_used: str | None = None  # the code this person typed at signup
     created_at: datetime | None = None
+    # SP-0000 identity number (services/documents/id_card.py) — shared across
+    # every role this person holds. Null until ensure_card_number() has run
+    # for this account (every creation path now calls it; pre-existing
+    # accounts get one from the one-time reset script).
+    card_number: int | None = None
+    card_id: str | None = None
     # Resolved from the user's linked Contact (2026-08-08) — None for staff
     # users without a contact_id, or students who never provided them.
     date_of_birth: date | None = None

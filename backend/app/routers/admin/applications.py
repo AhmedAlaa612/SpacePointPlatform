@@ -18,6 +18,7 @@ from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
 from app.models.user import User
 from app.services import storage
+from app.services.documents.id_card import ensure_card_number
 from app.services.email import send_application_approved_email, send_moved_to_onboarding_email
 from app.services.notification import create_notification as notify
 from app.services.points import award_points, get_setting_int
@@ -116,6 +117,7 @@ async def approve_application(
     )
     db.add(new_user)
     await db.flush()
+    await ensure_card_number(db, new_user)
 
     # Ambassador teacher-referral points — admin approval is now the single
     # canonical award point (was previously the ambassador-side approval).
@@ -196,6 +198,7 @@ async def onboard_application(
         )
         db.add(new_user)
         await db.flush()
+        await ensure_card_number(db, new_user)
     else:
         # Reassign rather than append — SQLAlchemy doesn't track in-place
         # mutation of an ARRAY column.

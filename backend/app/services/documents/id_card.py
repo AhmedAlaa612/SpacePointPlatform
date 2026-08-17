@@ -287,11 +287,15 @@ def render_card_png(
 
 # ── DB helper: ensure stable card_id ─────────────────────────────────────────
 
-async def _ensure_person_number(db: AsyncSession, user: User) -> int:
+async def ensure_card_number(db: AsyncSession, user: User) -> int:
     """Allocate (once) or return the shared per-person card number.
 
     One number per person, reused by every role's card — not a per-role
-    sequence. Allocated lazily on first-ever card generation for that person.
+    sequence. No-ops if the user already has one, so it's safe to call from
+    every account-creation path unconditionally (public signup, admin
+    create, bulk import, ...) rather than waiting for first-ever card view —
+    "every account should have an ID the moment it exists" (operator ask,
+    2026-08-17), not just accounts someone happened to view a card for.
     """
     if user.card_number is not None:
         return user.card_number
@@ -300,6 +304,10 @@ async def _ensure_person_number(db: AsyncSession, user: User) -> int:
     number = (await db.execute(text("SELECT nextval('card_seq_person')"))).scalar_one()
     user.card_number = number
     return number
+
+
+# Old name, kept as an alias — internal callers within this module only.
+_ensure_person_number = ensure_card_number
 
 
 async def ensure_card_id(

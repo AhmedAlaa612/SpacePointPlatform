@@ -31,6 +31,7 @@ from app.models.instructors.assessment_submission import AssessmentSubmission
 from app.models.instructors.presentation_submission import PresentationSubmission
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.user import User
+from app.services.documents.id_card import ensure_card_number
 from app.schemas.instructors.admin import (
     AdminOverviewOut,
     AdminReviewUpdate,
@@ -44,7 +45,7 @@ from app.models.enums import CertificateType, PaymentLetterStatus
 from app.routers.instructors.instructor import _resolve_living_area
 from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
-from app.services.documents.contract import generate_contract_pdf
+from app.services.documents.contract import format_contract_date, generate_contract_pdf
 from app.services.documents.dossier import build_applicant_dossier_pdf
 from app.services.email import send_approval_credentials_email, send_phase1_approval_email
 from app.services.notification import create_notification as notify
@@ -336,7 +337,14 @@ async def review_applicant(
         # text already appends ", United Arab Emirates" right after it.
         living_area = await _resolve_living_area(db, user)
 
-        contract_bytes = await asyncio.to_thread(generate_contract_pdf, user.full_name, living_area)
+        # Frozen the moment approval grants the role — this, not date.today(),
+        # is what the contract's date prints from from here on (bug fix,
+        # 2026-08-17; see instructor.py::_ensure_contract).
+        instructor_since = datetime.now(timezone.utc).date()
+        contract_date = format_contract_date(instructor_since)
+        contract_bytes = await asyncio.to_thread(
+            generate_contract_pdf, user.full_name, living_area, contract_date=contract_date
+        )
         contract_bucket, contract_path = "contracts", f"{user_id}/agreement.pdf"
         contract_url = await storage.upload_file(contract_bucket, contract_path, contract_bytes, "application/pdf")
 
@@ -346,8 +354,13 @@ async def review_applicant(
         if inst_profile:
             inst_profile.contract_url = contract_url
             inst_profile.contract_path = contract_path
+            if inst_profile.instructor_since is None:
+                inst_profile.instructor_since = instructor_since
         else:
-            db.add(InstructorProfile(user_id=user_id, contract_url=contract_url, contract_path=contract_path))
+            db.add(InstructorProfile(
+                user_id=user_id, contract_url=contract_url, contract_path=contract_path,
+                instructor_since=instructor_since,
+            ))
 
         # Completion certificate auto-fires here — this approval is the one clean,
         # already-existing event for it (PLAN §8.2). Role-generic generator, same
@@ -549,6 +562,8 @@ async def create_facilitator(
         roles=[UserRole.facilitator], status="active", must_change_password=False,
     )
     db.add(user)
+    await db.flush()
+    await ensure_card_number(db, user)
     await db.commit()
     await db.refresh(user)
     return {"id": str(user.id), "full_name": user.full_name, "email": user.email}

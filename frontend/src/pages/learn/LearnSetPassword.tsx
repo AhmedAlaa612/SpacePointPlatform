@@ -6,14 +6,19 @@ import { Card } from "@/components/ui/card";
 import { DomainIcon } from "@/components/ui/DomainIcon";
 
 /**
- * The "invite sent" link an ops-created LMS account follows (LM1-7 / §8 Q5).
+ * The "invite sent" link an ops-created account follows (LM1-7 / §8 Q5,
+ * generalized 2026-08-17 for the bulk-instructor-import welcome email).
  * Token-authenticated (`?token=...` in the query string) — no login needed,
  * since the whole point is the account doesn't have a working password yet.
- * On success, sends them to /learn/login rather than auto-logging in: the
- * token proved the email link was theirs, not that they know a password.
+ * On success, sends them to login rather than auto-logging in: the token
+ * proved the email link was theirs, not that they know a password. Mounted
+ * at both /learn/set-password (LMS students) and /set-password (every other
+ * role) — same component, the login redirect just follows whichever path
+ * got it here rather than being hardcoded to the LMS one.
  */
 export default function LearnSetPassword() {
   const navigate = useNavigate();
+  const loginPath = window.location.pathname.startsWith("/learn") ? "/learn/login" : "/login";
   const token = useMemo(() => new URLSearchParams(window.location.search).get("token") ?? "", []);
   const [password, setPasswordValue] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -60,7 +65,7 @@ export default function LearnSetPassword() {
               <p className="text-sm text-muted-foreground mb-6">
                 You're all set. Log in with your new password to continue.
               </p>
-              <Button size="xl" className="w-full" onClick={() => void navigate({ to: "/learn/login" })}>
+              <Button size="xl" className="w-full" onClick={() => void navigate({ to: loginPath })}>
                 Go to login
               </Button>
             </div>
@@ -99,7 +104,7 @@ export default function LearnSetPassword() {
 
         {!done && (
           <p className="mt-5 text-center text-sm text-muted-foreground">
-            <Link to="/learn/login" className="text-primary font-medium">
+            <Link to={loginPath} className="text-primary font-medium">
               Back to login
             </Link>
           </p>

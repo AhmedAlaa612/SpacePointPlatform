@@ -168,6 +168,15 @@ const loginRoute = createRoute({
   component: Login,
 });
 
+// Role-agnostic counterpart to /learn/set-password (LM1-7) — same
+// token-authenticated component, used by the bulk-instructor-import welcome
+// email and any other non-LMS "an account was created for you" flow.
+const setPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/set-password",
+  component: LearnSetPassword,
+});
+
 /** Public ticket page. Sits at the root (not under the auth shell) because a
  * student holding a QR code has no account — the token in the path is the
  * credential, exactly as it is when staff scan the same code at the door. */
@@ -977,6 +986,7 @@ const routeTree = rootRoute.addChildren([
   ticketRoute,
   kitScanRoute,
   loginRoute,
+  setPasswordRoute,
   learnLoginRoute,
   learnSignupRoute,
   learnSetPasswordRoute,

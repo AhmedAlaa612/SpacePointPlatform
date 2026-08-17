@@ -64,6 +64,11 @@ class UserOut(UserBase):
     # batched query rather than per row.
     grade: str | None = None
     school_name: str | None = None
+    # SP-0000 identity number (services/documents/id_card.py). card_id is
+    # computed, not a real column — set explicitly by the admin list route,
+    # same pattern as grade/school_name above.
+    card_number: int | None = None
+    card_id: str | None = None
 
     class Config:
         from_attributes = True

@@ -58,7 +58,13 @@ export default function Users() {
   const filteredUsers = useMemo(() => {
     const q = search.trim().toLowerCase()
     return users.filter((u) => {
-      if (q && !u.full_name.toLowerCase().includes(q)) return false
+      if (q) {
+        const matchesName = u.full_name.toLowerCase().includes(q)
+        const matchesEmail = u.email.toLowerCase().includes(q)
+        // Matches "SP-0005", "sp-0005-uae", or a bare "0005" against card_id.
+        const matchesId = !!u.card_id && u.card_id.toLowerCase().includes(q)
+        if (!matchesName && !matchesEmail && !matchesId) return false
+      }
       if (studentsOnly) return u.roles.includes("student")
       if (u.roles.includes("student")) return false
       if (roleFilter !== "all" && !u.roles.includes(roleFilter)) return false
@@ -99,7 +105,7 @@ export default function Users() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name…"
+            placeholder="Search by name, email, or ID…"
             className="h-9 px-3 w-full sm:w-64 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
           <select
@@ -150,7 +156,14 @@ export default function Users() {
                   )}
                 </div>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{u.full_name}</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm font-medium text-foreground truncate">{u.full_name}</p>
+                    {u.card_id && (
+                      <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0">
+                        {u.card_id}
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                 </div>
               </button>

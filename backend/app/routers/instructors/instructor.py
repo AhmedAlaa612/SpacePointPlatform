@@ -29,7 +29,7 @@ from app.schemas.instructors.instructor import (
     SignContractRequest,
 )
 from app.services import storage
-from app.services.documents.contract import generate_contract_pdf
+from app.services.documents.contract import format_contract_date, generate_contract_pdf
 from app.services.documents.id_card import ensure_card_id, render_card_png, render_card_back_png
 from app.services.email import send_contract_signed_notification_email, send_signed_contract_email
 from app.services.notification import create_notification as notify
@@ -93,15 +93,22 @@ async def _ensure_contract(db: AsyncSession, profile: InstructorProfile, user: U
        ask, 2026-08-09: pre-signing, this should behave like a live preview).
 
     So every unsigned-contract profile load re-renders from current
-    name/city/today's date and overwrites the same storage path (not a new
-    one — nothing else should be pointing at contract_path mid-flight, and
-    this avoids piling up orphaned draft PDFs). Skips entirely once
-    `contract_signed_at` is set — the signed PDF is the final, immutable
-    record and this function must never touch it."""
+    name/city and overwrites the same storage path (not a new one —
+    nothing else should be pointing at contract_path mid-flight, and this
+    avoids piling up orphaned draft PDFs). The DATE printed is
+    `instructor_since` — frozen at whatever event actually granted the
+    instructor role — not `date.today()` (bug fix, 2026-08-17: the date
+    used to silently drift forward every day the profile page was opened,
+    which read as "it updates till it's signed"; the real intent is the
+    date they became an instructor). Falls back to today only for the
+    edge case of a pre-migration row that somehow has no instructor_since.
+    Skips entirely once `contract_signed_at` is set — the signed PDF is the
+    final, immutable record and this function must never touch it."""
     if profile.contract_signed_at or "instructor" not in user.role_values:
         return
     living_area = await _resolve_living_area(db, user)
-    pdf_bytes = await asyncio.to_thread(generate_contract_pdf, user.full_name, living_area)
+    contract_date = format_contract_date(profile.instructor_since or datetime.now(timezone.utc).date())
+    pdf_bytes = await asyncio.to_thread(generate_contract_pdf, user.full_name, living_area, contract_date=contract_date)
     contract_path = profile.contract_path or f"{user.id}/agreement.pdf"
     contract_url = await storage.upload_file("contracts", contract_path, pdf_bytes, "application/pdf")
     profile.contract_url = contract_url
@@ -164,7 +171,7 @@ async def sign_contract(
             generate_contract_pdf,
             current_user.full_name,
             living_area,
-            signed_date=now.strftime("%d %B %Y"),
+            contract_date=now.strftime("%d %B %Y"),
             instructor_signature_b64=body.signature,
         )
         signed_path = f"{current_user.id}/signed.pdf"

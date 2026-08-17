@@ -187,6 +187,25 @@ async def send_approval_credentials_email(
     )
 
 
+async def send_instructor_welcome_email(to_email: str, name: str, set_password_link: str) -> bool:
+    """Bulk-instructor-import welcome email (2026-08-17) — the account was
+    created directly by an admin, not through public signup, so there's no
+    password for `send_approval_credentials_email`'s "use your existing
+    password" branch to point at. Uses the same stateless set-password-link
+    mechanism as `ops_integration.send_set_password_email` (24h token)
+    rather than emailing a temp password in plaintext."""
+    body = (
+        f"Hi {name},\n\n"
+        "An instructor account has been created for you on the SpacePoint portal.\n\n"
+        f"Set your password here: {set_password_link}\n"
+        "(This link is valid for 24 hours.)\n\n"
+        "Once you're in, please go to your Profile and fill in your city and the "
+        "cities you're able to deliver workshops in.\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, "Welcome to SpacePoint — set your password", body)
+
+
 async def send_payment_letter_ready_email(to_email: str, instructor_name: str) -> bool:
     body = (
         f"Hi {instructor_name},\n\n"

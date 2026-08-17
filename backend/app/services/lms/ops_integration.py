@@ -26,6 +26,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.user import User
+from app.services.documents.id_card import ensure_card_number
 from app.services.email import try_send_email
 from app.services.lms.curriculum import enroll_in_cohort_curriculum
 from app.services.nicknames import assign_nickname
@@ -79,6 +80,7 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
     db.add(user)
     await db.flush()
     await assign_nickname(db, user)
+    await ensure_card_number(db, user)
     return user, True
 
 

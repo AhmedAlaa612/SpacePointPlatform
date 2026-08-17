@@ -72,6 +72,10 @@ export interface User {
   must_change_password?: boolean;
   created_at?: string;
   last_login_at?: string | null;
+  // SP-0000 identity number (services/documents/id_card.py), shared across
+  // every role this person holds. Null until assigned.
+  card_number?: number | null;
+  card_id?: string | null;
   // Resolved from the user's linked Contact — null/absent for staff users
   // without one, or students who never provided them.
   date_of_birth?: string | null;

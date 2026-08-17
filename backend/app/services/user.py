@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import text
@@ -6,6 +8,7 @@ from uuid import UUID
 from app.models.user import User
 from app.schemas.user import UserCreate, UserSelfUpdate, UserUpdate
 from app.core.security import get_password_hash
+from app.services.documents.id_card import ensure_card_number
 from app.services.spine.identity import contact_roles_for_user, ensure_user_contact
 from app.services.spine.role_history import record_role_diff
 
@@ -30,6 +33,9 @@ async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
     # "applicant" — has a role-history entry from day one, not a gap until
     # the next backfill run or role edit.
     await ensure_user_contact(db, db_user, source="user_created")
+    # Every account gets its SP-0000 number the moment it exists, not on
+    # first card view (operator ask, 2026-08-17).
+    await ensure_card_number(db, db_user)
 
     await db.commit()
     await db.refresh(db_user)
@@ -97,6 +103,21 @@ async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | Use
                 db, contact.id, roles_before, roles_after,
                 source="user_role_edit", changed_by_user_id=actor_user_id,
             )
+            # "instructor" newly granted directly by an admin (not through
+            # applicant approval) — freeze instructor_since here too, or the
+            # contract this person eventually views would print date.today()
+            # forever (there's no InstructorProfile row yet to hold a date
+            # at all). Never overwrites an existing date — this only fills
+            # the gap for someone who never went through approval.
+            if "instructor" in roles_after and "instructor" not in roles_before:
+                from app.models.instructors.instructor_profile import InstructorProfile
+                inst_profile = await db.get(InstructorProfile, user.id)
+                if inst_profile is None:
+                    db.add(InstructorProfile(
+                        user_id=user.id, instructor_since=datetime.now(timezone.utc).date(),
+                    ))
+                elif inst_profile.instructor_since is None:
+                    inst_profile.instructor_since = datetime.now(timezone.utc).date()
             # Additive-only sync onto contact_roles (the coarser bucket used
             # for Contacts search/filter) — same safety policy as the
             # backfill script's re-sync: never removes a role the contact

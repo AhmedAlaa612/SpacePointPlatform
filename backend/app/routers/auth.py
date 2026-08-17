@@ -37,6 +37,7 @@ from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.application_review import ApplicationReview
 from app.schemas.user import InstructorApply
+from app.services.documents.id_card import ensure_card_number
 from app.services.invitations import resolve_invite_code
 from app.services.nicknames import assign_nickname, reroll_nickname
 from app.services.notification import create_notification as notify
@@ -97,6 +98,12 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         "avatar": user.avatar,
         "invitation_code_used": user.invitation_code_used,
         "created_at": user.created_at,
+        # SP-0000 identity number, shared across every role this person holds
+        # (services/documents/id_card.py). Was entirely missing from this
+        # response — public/admin profile views had no way to show or search
+        # by it (bug fix, 2026-08-17).
+        "card_number": user.card_number,
+        "card_id": f"SP-{user.card_number:04d}-UAE" if user.card_number is not None else None,
         "date_of_birth": contact.date_of_birth if contact else None,
         "grade": contact.grade if contact else None,
         "city_id": user.city_id,
@@ -258,6 +265,7 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
     db.add(user)
     await db.flush()  # assign user.id
     await assign_nickname(db, user)
+    await ensure_card_number(db, user)
 
     if invitation:
         invitation.used_count += 1
@@ -770,6 +778,7 @@ async def instructor_apply(
     )
     db.add(user)
     await db.flush()  # assign user.id
+    await ensure_card_number(db, user)
 
     # CV upload — same "cvs" bucket layout as the unified /apply flow
     cv_path = None

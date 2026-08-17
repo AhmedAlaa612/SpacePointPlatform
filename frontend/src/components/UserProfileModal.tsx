@@ -197,7 +197,14 @@ export function UserProfileModal({ userId, onClose }: Props) {
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-lg font-bold text-foreground truncate">{user.full_name}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-lg font-bold text-foreground truncate">{user.full_name}</p>
+                        {user.card_id && (
+                          <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
+                            {user.card_id}
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-muted-foreground truncate">{user.email}</p>
                       {user.country && (
                         <p className="text-xs text-muted-foreground mt-0.5">

@@ -83,6 +83,7 @@ async def read_users(db: AsyncSession = Depends(get_db), current_user: User = De
         row = UserOut.model_validate(user)
         row.grade = contact.grade if contact else None
         row.school_name = org.name_latin if org else None
+        row.card_id = f"SP-{user.card_number:04d}-UAE" if user.card_number is not None else None
         out.append(row)
     return out
 

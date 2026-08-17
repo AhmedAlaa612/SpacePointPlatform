@@ -61,6 +61,14 @@ _SOFFICE = (
 _SIGNATURE_PARA_IDX = 44
 
 
+def format_contract_date(d: date) -> str:
+    """"26 June 2026" (cross-platform — no %-d/%#d strftime flag needed).
+    Shared by every caller that builds a `contract_date` for
+    generate_contract_pdf, so the unsigned-preview and signed dates are
+    never formatted two different ways again."""
+    return f"{d.day} {d.strftime('%B %Y')}"
+
+
 def _libreoffice_to_pdf(docx_bytes: bytes) -> bytes:
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / "doc.docx"
@@ -155,12 +163,16 @@ def generate_contract_pdf(
     instructor_name: str,
     living_area: str,
     *,
-    signed_date: str | None = None,
+    contract_date: str | None = None,
     instructor_signature_b64: str | None = None,
 ) -> bytes:
+    """`contract_date` is whatever date should print on the PDF — the frozen
+    `instructor_since` date for an unsigned preview, or the real signing
+    timestamp when `instructor_signature_b64` is given. Falls back to
+    today only if the caller has no date on file at all (shouldn't happen
+    once instructor_since is always set — see instructor_profile.py)."""
     is_signing = bool(instructor_signature_b64)
-    d = date.today()
-    today = signed_date or f"{d.day} {d.strftime('%B %Y')}"  # "26 June 2026" (cross-platform)
+    today = contract_date or format_contract_date(date.today())
 
     tpl = DocxTemplate(str(_TEMPLATE))
     tpl.render({
