@@ -220,7 +220,8 @@ async def _issue_student_certificate(
     )).scalars().first()
     body_text = (template.body_text if template else "For successfully completing<br/>{program_name}<br/>{dates}") \
         .replace("{program_name}", escape(program.name)) \
-        .replace("{dates}", escape(dates))
+        .replace("{dates}", escape(dates)) \
+        .replace("{location}", escape(location["name"] or ""))
     cert_bytes = await asyncio.to_thread(generate_completion_certificate_pdf, contact.full_name, body_text)
 
     certificate = Certificate(

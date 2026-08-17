@@ -366,7 +366,7 @@ _ROLE_PROGRAM_MAP = {
 # free-text test value.
 def _placeholder_set(key: str | None, doc_type: str) -> dict[str, str | None]:
     if key == "student_completion":
-        return {"program_name": "SatKit Program", "dates": "3 – 5 August 2026"}
+        return {"program_name": "SatKit Program", "dates": "3 – 5 August 2026", "location": "Dubai"}
     if key == "workshop_delivery":
         return {
             "name": "Jane Doe", "workshop_name": "Intro to Orbits",
