@@ -444,6 +444,35 @@ DESIGN_STEP_LABELS: list[tuple[str, str]] = [
     ("cost_budget", "Cost"),
 ]
 
+# The real math prerequisite graph for cohort-scoped step *selection*
+# (2026-08-17) — deliberately narrower than `DesignMissionPage.tsx`'s
+# `DESIGN_TABS.needs` UI hints, which explain *order* without being a real
+# dependency check (D2). Verified directly against `calculators.py`:
+# `calc_power_budget`/`calc_data_budget`'s `is_valid` never reads CONOPS at
+# all (power ignores `modes` for validity entirely; data's validity is a
+# storage-capacity check that a defaulted/empty CONOPS trivially satisfies)
+# — confirmed by the real-world TDRA Summer Camp cohort, which selects
+# Power + Mass with no CONOPS. `downlink` is excluded here since it isn't a
+# directly-selectable step; see `DOWNLINK_STEP_DEPS` below instead.
+DESIGN_STEP_PREREQS: dict[str, tuple[str, ...]] = {
+    "components": (),
+    "conops": (),
+    "data_budget": ("components",),
+    "power_budget": ("components",),
+    "energy_budget": ("power_budget",),
+    "mass_budget": ("components",),
+    "cost_budget": ("components",),
+    "link_budget": (),
+}
+
+SELECTABLE_STEP_KEYS: frozenset[str] = frozenset(DESIGN_STEP_PREREQS)
+
+# The one place CONOPS is a genuine hard dependency: downlink's ground-
+# station contact minutes come from real (non-default) mode durations, so
+# it only counts toward a cohort's completion check when all three of its
+# real inputs are in the selected subset.
+DOWNLINK_STEP_DEPS: frozenset[str] = frozenset({"data_budget", "link_budget", "conops"})
+
 
 async def _design_steps_by_attempt(
     db: AsyncSession, mission_status: dict,
@@ -501,7 +530,7 @@ async def design_steps_for_attempts(
         if attempt is None:
             continue
         variant_config = configs_by_variant.get(attempt.variant_id, {})
-        dashboard = await compute_dashboard(db, design=design, variant_config=variant_config)
+        dashboard = await compute_dashboard(db, design=design, variant_config=variant_config, attempt=attempt)
         out[design.attempt_id] = {key: bool(step["is_valid"]) for key, step in dashboard["steps"].items()}
     return out
 

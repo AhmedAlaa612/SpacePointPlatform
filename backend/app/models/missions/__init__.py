@@ -32,6 +32,7 @@ from app.models.missions.design import (
 )
 from app.models.missions.assignment import MissionAssignment
 from app.models.missions.gate import MissionStepGate
+from app.models.missions.step_selection import MissionStepSelection
 from app.models.missions.manager import MissionManager
 from app.models.missions.mission import (
     Mission,
@@ -51,6 +52,7 @@ __all__ = [
     "MissionManager",
     "MissionAssignment",
     "MissionStepGate",
+    "MissionStepSelection",
     "MissionTeam",
     "MissionTeamMember",
     "Design",

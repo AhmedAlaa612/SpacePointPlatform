@@ -57,7 +57,7 @@ async def mark_design_complete(db: AsyncSession, *, attempt: MissionAttempt) -> 
         raise HTTPException(400, detail="No design started yet")
 
     variant = await db.get(MissionVariant, attempt.variant_id)
-    dashboard = await compute_dashboard(db, design=design, variant_config=variant.config or {})
+    dashboard = await compute_dashboard(db, design=design, variant_config=variant.config or {}, attempt=attempt)
 
     if not dashboard["all_valid"]:
         raise HTTPException(400, detail={"message": "Design is not ready yet", "steps": {

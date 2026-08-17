@@ -83,7 +83,9 @@ from app.services.missions.design import service as design_service
 from app.services.missions.design.calculators import CUBESAT_PRESETS
 from app.services.missions.design.rf_calc import BAND_PRESETS
 from app.services.missions.verifiers.design import ensure_design, mark_design_complete
+from app.services.lms.admin_progress import DESIGN_STEP_LABELS
 from app.services.missions.gating import gate_map_for_attempt, require_step_unlocked
+from app.services.missions.step_selection import selected_steps_for_attempt
 from app.routers.missions.student import _own_attempt
 
 router = APIRouter(prefix="/missions/design", tags=["missions-design"])
@@ -177,7 +179,7 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
         )
 
 
-    dash = await design_service.compute_dashboard(db, design=design, variant_config=variant.config or {})
+    dash = await design_service.compute_dashboard(db, design=design, variant_config=variant.config or {}, attempt=attempt)
     thresholds = dash["thresholds"]
     limits = dash["cubesat_limits"]
     margins = design_report.build_margins(dash, thresholds, limits)
@@ -185,6 +187,7 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
     dashboard_out = DashboardOut(
         all_valid=dash["all_valid"],
         steps={k: StepStatusOut(**v) for k, v in dash["steps"].items()},
+        downlink_included=dash["downlink_included"],
         conops=ConopsSummaryOut(
             total_mode_duration_min=dash["conops"].total_mode_duration_min,
             duration_difference_min=dash["conops"].duration_difference_min,
@@ -247,6 +250,8 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
     )
 
     step_gates = await gate_map_for_attempt(db, attempt=attempt)
+    included_step_set = await selected_steps_for_attempt(db, attempt=attempt)
+    included_steps = {key: (key in included_step_set) for key, _ in DESIGN_STEP_LABELS if key != "downlink"}
 
     return DesignStateOut(
         id=design.id, attempt_id=attempt.id, mission_id=mission.id, variant_id=variant.id,
@@ -262,6 +267,7 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
         dashboard=dashboard_out,
         assumptions=design_content.ASSUMPTIONS,
         step_gates=step_gates,
+        included_steps=included_steps,
     )
 
 

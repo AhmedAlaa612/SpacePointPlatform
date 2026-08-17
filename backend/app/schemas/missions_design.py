@@ -309,6 +309,10 @@ class OverallStatusOut(BaseModel):
 class DashboardOut(BaseModel):
     all_valid: bool
     steps: dict[str, StepStatusOut]
+    # 2026-08-17 — whether "downlink" (a derived, non-selectable check)
+    # currently counts toward all_valid for this attempt's cohort scope —
+    # true whenever data_budget/link_budget/conops are all included.
+    downlink_included: bool = True
     conops: ConopsSummaryOut
     data: DataBudgetSummaryOut
     power: PowerBudgetSummaryOut
@@ -371,6 +375,13 @@ class DesignStateOut(BaseModel):
     # Drives DesignMissionPage.tsx's tab-blocking alongside the existing
     # data-dependency check.
     step_gates: dict[str, bool] = {}
+    # 2026-08-17 — step_key -> included, the 8 selectable DESIGN_STEP_LABELS
+    # keys (never "downlink" — it's a derived check, not a tab). An attempt
+    # outside any cohort (or a cohort with no selection configured) reads
+    # all True — compositional scope, distinct from step_gates' temporal
+    # pacing. Drives DesignMissionPage.tsx's tab list (steps are removed
+    # entirely, not just blocked).
+    included_steps: dict[str, bool] = {}
 
 
 # ── Teaching surfaces (Design v2, 7D-4 / 7D-5) ──────────────────────────

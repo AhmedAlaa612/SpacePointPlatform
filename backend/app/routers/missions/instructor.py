@@ -30,16 +30,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_active_user, require_instructor_missions
 from app.db.session import get_db
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
+from app.models.missions.step_selection import MissionStepSelection
 from app.models.missions.team import MissionTeam
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.schemas.lms_progress_grid import ProgressGridOut
 from app.schemas.missions_admin import MissionAttemptAdminOut, MissionAttemptReviewIn
-from app.schemas.missions_instructor import InstructorCohortOut, MissionStepGateOut, MissionStepGateUpdateIn
-from app.services.lms.admin_progress import DESIGN_STEP_LABELS, cohort_progress_grid
+from app.schemas.missions_instructor import (
+    DesignStepSelectionOut, DesignStepSelectionsOut, DesignStepSelectionUpdateIn,
+    InstructorCohortOut, MissionStepGateOut, MissionStepGateUpdateIn,
+)
+from app.services.lms.admin_progress import DESIGN_STEP_LABELS, DESIGN_STEP_PREREQS, DOWNLINK_STEP_DEPS, cohort_progress_grid
 from app.services.missions.cohort_access import instructor_cohort_ids, require_cohort_access
 from app.services.missions.gating import set_step_gate, step_gates_for_mission
+from app.services.missions.step_selection import clear_selected_steps, selected_steps_for_cohort_mission, set_selected_steps
 from app.services.missions.verifiers.submission import review_submission_attempt
 
 router = APIRouter(
@@ -120,6 +125,66 @@ async def put_step_gate(
         step_key=step_key, label=label, is_unlocked=gate.is_unlocked,
         updated_at=gate.updated_at, updated_by_name=current.full_name,
     )
+
+
+def _step_selections_out(included: set[str], *, is_default: bool) -> DesignStepSelectionsOut:
+    steps = [
+        DesignStepSelectionOut(
+            step_key=key, label=label, included=(key in included),
+            prereqs=list(DESIGN_STEP_PREREQS.get(key, ())),
+        )
+        for key, label in DESIGN_STEP_LABELS if key != "downlink"
+    ]
+    return DesignStepSelectionsOut(
+        is_default=is_default, steps=steps,
+        downlink_deps=sorted(DOWNLINK_STEP_DEPS), downlink_included=DOWNLINK_STEP_DEPS <= included,
+    )
+
+
+@router.get("/cohorts/{cohort_id}/missions/{mission_id}/steps", response_model=DesignStepSelectionsOut)
+async def get_step_selection(
+    cohort_id: uuid.UUID, mission_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    if await db.get(Mission, mission_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    has_rows = (await db.execute(
+        select(MissionStepSelection.step_key).where(
+            MissionStepSelection.cohort_id == cohort_id, MissionStepSelection.mission_id == mission_id,
+        ).limit(1)
+    )).scalar_one_or_none() is not None
+    included = await selected_steps_for_cohort_mission(db, cohort_id=cohort_id, mission_id=mission_id)
+    return _step_selections_out(included, is_default=not has_rows)
+
+
+@router.put("/cohorts/{cohort_id}/missions/{mission_id}/steps", response_model=DesignStepSelectionsOut)
+async def put_step_selection(
+    cohort_id: uuid.UUID, mission_id: uuid.UUID, body: DesignStepSelectionUpdateIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    if await db.get(Mission, mission_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    included = await set_selected_steps(
+        db, cohort_id=cohort_id, mission_id=mission_id, step_keys=body.step_keys, created_by=current.id,
+    )
+    await db.commit()
+    return _step_selections_out(included, is_default=False)
+
+
+@router.delete("/cohorts/{cohort_id}/missions/{mission_id}/steps", response_model=DesignStepSelectionsOut)
+async def delete_step_selection(
+    cohort_id: uuid.UUID, mission_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    if await db.get(Mission, mission_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    await clear_selected_steps(db, cohort_id=cohort_id, mission_id=mission_id)
+    await db.commit()
+    included = await selected_steps_for_cohort_mission(db, cohort_id=cohort_id, mission_id=mission_id)
+    return _step_selections_out(included, is_default=True)
 
 
 async def _attempt_admin_out(db: AsyncSession, attempt: MissionAttempt) -> MissionAttemptAdminOut:

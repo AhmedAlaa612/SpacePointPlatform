@@ -166,6 +166,142 @@ async def test_instructor_cannot_set_a_gate_on_a_cohort_they_dont_teach(db, clie
     assert put.status_code == http_status.HTTP_404_NOT_FOUND
 
 
+# ── steps ─────────────────────────────────────────────────────────────────
+
+async def test_unassigned_instructor_gets_404_on_step_selection(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, _ = await _mission(db, author=author)
+    cohort, _ = await _cohort_with_session(db)
+    instructor = await _user(db, roles=["instructor"])
+    await db.commit()
+
+    resp = await client.get(
+        f"/missions/instructor/cohorts/{cohort.id}/missions/{mission.id}/steps", headers=_headers(instructor),
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+async def test_assigned_instructor_gets_default_all_steps_when_unconfigured(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, _ = await _mission(db, author=author)
+    cohort, session = await _cohort_with_session(db)
+    instructor = await _user(db, roles=["instructor"])
+    await _assign_instructor(db, session=session, user=instructor)
+    await db.commit()
+
+    resp = await client.get(
+        f"/missions/instructor/cohorts/{cohort.id}/missions/{mission.id}/steps", headers=_headers(instructor),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["is_default"] is True
+    assert {s["step_key"] for s in body["steps"]} == {
+        "components", "conops", "data_budget", "power_budget", "energy_budget",
+        "mass_budget", "cost_budget", "link_budget",
+    }
+    assert all(s["included"] for s in body["steps"])
+    assert body["downlink_included"] is True
+
+
+async def test_put_step_selection_server_expands_prereqs_not_just_trusting_client(db, client):
+    """The TDRA Summer Camp case: Power (+ its real prereq, Components) with
+    no CONOPS submitted and none pulled in — proves the corrected, narrower
+    dependency graph (power_budget's only hard prereq is components)."""
+    author = await _user(db, roles=["operations"])
+    mission, _ = await _mission(db, author=author)
+    cohort, session = await _cohort_with_session(db)
+    instructor = await _user(db, roles=["instructor"])
+    await _assign_instructor(db, session=session, user=instructor)
+    await db.commit()
+
+    put = await client.put(
+        f"/missions/instructor/cohorts/{cohort.id}/missions/{mission.id}/steps",
+        headers=_headers(instructor), json={"step_keys": ["power_budget", "mass_budget"]},
+    )
+    assert put.status_code == 200, put.text
+    body = put.json()
+    assert body["is_default"] is False
+    included = {s["step_key"] for s in body["steps"] if s["included"]}
+    assert included == {"power_budget", "mass_budget", "components"}
+    assert "conops" not in included  # the correction that matters most
+
+    get_after = await client.get(
+        f"/missions/instructor/cohorts/{cohort.id}/missions/{mission.id}/steps", headers=_headers(instructor),
+    )
+    assert {s["step_key"] for s in get_after.json()["steps"] if s["included"]} == included
+
+
+async def test_put_step_selection_energy_pulls_in_power_and_components(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, _ = await _mission(db, author=author)
+    cohort, session = await _cohort_with_session(db)
+    instructor = await _user(db, roles=["instructor"])
+    await _assign_instructor(db, session=session, user=instructor)
+    await db.commit()
+
+    put = await client.put(
+        f"/missions/instructor/cohorts/{cohort.id}/missions/{mission.id}/steps",
+        headers=_headers(instructor), json={"step_keys": ["energy_budget"]},
+    )
+    assert put.status_code == 200, put.text
+    included = {s["step_key"] for s in put.json()["steps"] if s["included"]}
+    assert included == {"energy_budget", "power_budget", "components"}
+
+
+async def test_put_step_selection_rejects_downlink_and_empty_set(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, _ = await _mission(db, author=author)
+    cohort, session = await _cohort_with_session(db)
+    instructor = await _user(db, roles=["instructor"])
+    await _assign_instructor(db, session=session, user=instructor)
+    await db.commit()
+
+    downlink = await client.put(
+        f"/missions/instructor/cohorts/{cohort.id}/missions/{mission.id}/steps",
+        headers=_headers(instructor), json={"step_keys": ["downlink"]},
+    )
+    assert downlink.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    empty = await client.put(
+        f"/missions/instructor/cohorts/{cohort.id}/missions/{mission.id}/steps",
+        headers=_headers(instructor), json={"step_keys": []},
+    )
+    assert empty.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+async def test_delete_step_selection_resets_to_default(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, _ = await _mission(db, author=author)
+    cohort, session = await _cohort_with_session(db)
+    instructor = await _user(db, roles=["instructor"])
+    await _assign_instructor(db, session=session, user=instructor)
+    await db.commit()
+
+    await client.put(
+        f"/missions/instructor/cohorts/{cohort.id}/missions/{mission.id}/steps",
+        headers=_headers(instructor), json={"step_keys": ["mass_budget"]},
+    )
+    reset = await client.delete(
+        f"/missions/instructor/cohorts/{cohort.id}/missions/{mission.id}/steps", headers=_headers(instructor),
+    )
+    assert reset.status_code == 200, reset.text
+    assert reset.json()["is_default"] is True
+    assert all(s["included"] for s in reset.json()["steps"])
+
+
+async def test_staff_bypass_reaches_any_cohorts_step_selection(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, _ = await _mission(db, author=author)
+    cohort, _ = await _cohort_with_session(db)
+    ops = await _user(db, roles=["operations"])
+    await db.commit()
+
+    resp = await client.get(
+        f"/missions/instructor/cohorts/{cohort.id}/missions/{mission.id}/steps", headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+
+
 # ── review ────────────────────────────────────────────────────────────────
 
 async def test_assigned_instructor_sees_queue_and_can_review(db, client):

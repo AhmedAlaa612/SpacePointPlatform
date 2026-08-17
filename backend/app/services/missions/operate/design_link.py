@@ -105,7 +105,7 @@ async def spacecraft_from_design(
     config = (variant.config or {}) if variant else {}
 
     try:
-        dash = await compute_dashboard(db, design=design, variant_config=config)
+        dash = await compute_dashboard(db, design=design, variant_config=config, attempt=design_attempt)
     except Exception:  # a design we can't roll up is not worth failing a flight over
         return base, {}
 

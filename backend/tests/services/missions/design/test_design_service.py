@@ -48,6 +48,22 @@ async def _design_mission(db, *, author) -> tuple[Mission, MissionVariant]:
     return mission, variant
 
 
+async def _cohort(db):
+    from app.models.sessions.cohort import Cohort
+    from app.models.sessions.program import Program
+
+    program = Program(
+        id=uuid.uuid4(), code=f"DSN-{uuid.uuid4().hex[:8]}", name="Design Step Selection Program",
+        program_type="workshop", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Design Step Selection Cohort", status="running")
+    db.add(cohort)
+    await db.flush()
+    return cohort
+
+
 async def _library_component(db, **overrides) -> DesignComponentLibrary:
     defaults = dict(
         id=uuid.uuid4(), component_name="Test Battery", subsystem="EPS",
@@ -202,6 +218,110 @@ async def test_mark_design_complete_passes_and_awards_points_when_valid(db):
     from app.models.lms import PointEvent
     events = (await db.execute(select(PointEvent).where(PointEvent.user_id == student.id))).scalars().all()
     assert sum(e.points for e in events) == 200  # the Engineer variant's points
+
+
+# ── Cohort-scoped step selection (2026-08-17) ───────────────────────────
+
+@pytest.mark.asyncio
+async def test_compute_dashboard_attempt_none_matches_legacy_flat_and_over_nine(db):
+    """Backward-compat regression: an attempt with no cohort behaves
+    identically to the pre-subset flat-AND-over-9 all_valid logic, whether
+    or not `attempt` is even passed."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)
+    library = await _library_component(db)
+    attempt = await start_attempt(db, user_id=student.id, mission_id=mission.id, variant_id=variant.id)
+    design = await ensure_design(db, attempt=attempt)
+    await _build_passing_design(db, design.id, library.id)
+
+    without_attempt = await design_service.compute_dashboard(db, design=design, variant_config=variant.config)
+    with_attempt = await design_service.compute_dashboard(db, design=design, variant_config=variant.config, attempt=attempt)
+    assert without_attempt["all_valid"] is True
+    assert with_attempt["all_valid"] is True
+    assert with_attempt["included_steps"] == without_attempt["included_steps"]
+    assert with_attempt["downlink_included"] is True
+
+
+@pytest.mark.asyncio
+async def test_tdra_case_power_and_mass_only_no_conops_required(db):
+    """The real TDRA Summer Camp example: a cohort scoped to Power + Mass
+    (which pulls in Components, their real shared prereq) reports
+    all_valid once those are satisfied, with CONOPS left completely
+    untouched — proving power_budget's only hard prerequisite is
+    components, not conops."""
+    from app.services.missions.step_selection import set_selected_steps
+
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)
+    library = await _library_component(db)
+    cohort = await _cohort(db)
+
+    attempt = await start_attempt(db, user_id=student.id, mission_id=mission.id, variant_id=variant.id)
+    attempt.cohort_id = cohort.id
+    await db.flush()
+    design = await ensure_design(db, attempt=attempt)
+    design.selected_solar_cells = 5  # default is 0 -> power margin would always be negative
+    await db.flush()
+
+    await set_selected_steps(
+        db, cohort_id=cohort.id, mission_id=mission.id,
+        step_keys=["power_budget", "mass_budget"], created_by=author.id,
+    )
+    await db.commit()
+
+    # Only components + power + mass filled in; CONOPS/data/cost/link left empty.
+    dc = await design_service.add_component(db, design_id=design.id, library_component_id=library.id, quantity=1)
+    await design_service.save_power_entry(db, design_component_id=dc.id, voltage_v=5.0, current_ma=100.0)
+    await design_service.save_mass_entry(db, design_component_id=dc.id)
+
+    dashboard = await design_service.compute_dashboard(db, design=design, variant_config=variant.config, attempt=attempt)
+    assert dashboard["included_steps"] == {"components", "power_budget", "mass_budget"}
+    # CONOPS was never touched — orbit_duration_min is still the Design
+    # row's default (0), so it's genuinely *invalid*, not just unfilled.
+    # all_valid must still be True: CONOPS is excluded from this cohort's
+    # selection, so its own validity is irrelevant to completion.
+    assert dashboard["steps"]["conops"]["is_valid"] is False
+    assert dashboard["steps"]["power_budget"]["is_valid"] is True
+    assert dashboard["steps"]["mass_budget"]["is_valid"] is True
+    assert dashboard["all_valid"] is True, dashboard["steps"]
+
+
+@pytest.mark.asyncio
+async def test_downlink_only_counts_when_data_link_and_conops_are_all_selected(db):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)
+    library = await _library_component(db)
+    cohort = await _cohort(db)
+
+    attempt = await start_attempt(db, user_id=student.id, mission_id=mission.id, variant_id=variant.id)
+    attempt.cohort_id = cohort.id
+    await db.flush()
+    design = await ensure_design(db, attempt=attempt)
+    await _build_passing_design(db, design.id, library.id)  # every step genuinely valid
+
+    from app.services.missions.step_selection import set_selected_steps
+
+    await set_selected_steps(
+        db, cohort_id=cohort.id, mission_id=mission.id,
+        step_keys=["data_budget", "link_budget", "conops"], created_by=author.id,
+    )
+    await db.commit()
+    dashboard = await design_service.compute_dashboard(db, design=design, variant_config=variant.config, attempt=attempt)
+    assert dashboard["downlink_included"] is True
+    assert dashboard["all_valid"] is True  # downlink itself is genuinely valid here too
+
+    # Drop CONOPS -> downlink no longer counts, even with data+link still selected.
+    await set_selected_steps(
+        db, cohort_id=cohort.id, mission_id=mission.id,
+        step_keys=["data_budget", "link_budget"], created_by=author.id,
+    )
+    await db.commit()
+    dashboard2 = await design_service.compute_dashboard(db, design=design, variant_config=variant.config, attempt=attempt)
+    assert dashboard2["downlink_included"] is False
+    assert dashboard2["all_valid"] is True  # data+link+components alone are valid; downlink silently dropped
 
 
 @pytest.mark.asyncio

@@ -17,10 +17,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from app.models.missions.mission import MissionAttempt
 
 from app.models.missions.design import (
     Design,
@@ -313,7 +317,10 @@ async def _mode_inputs(db: AsyncSession, *, design_id: uuid.UUID) -> list[ModeIn
 
 # ── The dashboard: composes all six calculators + step status ──────────
 
-async def compute_dashboard(db: AsyncSession, *, design: Design, variant_config: dict) -> dict:
+async def compute_dashboard(
+    db: AsyncSession, *, design: Design, variant_config: dict,
+    attempt: MissionAttempt | None = None,
+) -> dict:
     thresholds = variant_thresholds(variant_config)
     limits = cubesat_limits(design.selected_cubesat_size)
 
@@ -389,11 +396,31 @@ async def compute_dashboard(db: AsyncSession, *, design: Design, variant_config:
         "mass_budget": {"has_data": mass.has_data, "is_valid": mass.is_valid},
         "cost_budget": {"has_data": cost.has_data, "is_valid": cost.is_valid},
     }
-    all_valid = all(s["has_data"] and s["is_valid"] for s in steps.values())
+
+    # Cohort-scoped step selection (2026-08-17) — compositional, distinct
+    # from step *gating*. `steps` above always reports every step's real
+    # math validity regardless of scope (admin/diagnostic views rely on
+    # that); only which keys count toward `all_valid` changes here.
+    if attempt is not None and attempt.cohort_id is not None:
+        from app.services.lms.admin_progress import DOWNLINK_STEP_DEPS
+        from app.services.missions.step_selection import selected_steps_for_cohort_mission
+
+        included = await selected_steps_for_cohort_mission(
+            db, cohort_id=attempt.cohort_id, mission_id=attempt.mission_id,
+        )
+    else:
+        from app.services.lms.admin_progress import DOWNLINK_STEP_DEPS, SELECTABLE_STEP_KEYS
+
+        included = set(SELECTABLE_STEP_KEYS)
+
+    downlink_included = DOWNLINK_STEP_DEPS <= included
+    effective_keys = included | ({"downlink"} if downlink_included else set())
+    all_valid = all(steps[k]["has_data"] and steps[k]["is_valid"] for k in effective_keys)
 
     return {
         "conops": conops, "data": data, "power": power, "link": link, "mass": mass, "cost": cost,
         "downlink": downlink, "energy": energy,
         "steps": steps, "all_valid": all_valid,
+        "included_steps": included, "downlink_included": downlink_included,
         "cubesat_limits": limits, "thresholds": thresholds,
     }
