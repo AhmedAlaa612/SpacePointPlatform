@@ -43,7 +43,7 @@ export default function LmsCourses() {
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
-        title="LMS Courses"
+        title="LMS"
         subtitle="Author course content — modules, lessons, quizzes, flashcards, video."
         action={
           <button
