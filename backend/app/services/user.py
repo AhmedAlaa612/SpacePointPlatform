@@ -14,13 +14,18 @@ from app.services.spine.role_history import record_role_diff
 
 
 async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
-    result = await db.execute(select(User).where(User.email == user_in.email))
+    # Lowercase at the write boundary — same normalization /auth/login and
+    # /auth/signup use, so an admin-created account with a capitalized email
+    # doesn't lock its owner out (see normalize_email in
+    # services/spine/identity.py for the canonical form).
+    email = user_in.email.strip().lower()
+    result = await db.execute(select(User).where(User.email == email))
     if result.scalars().first():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
     db_user = User(
         full_name=user_in.full_name,
-        email=user_in.email,
+        email=email,
         password_hash=get_password_hash(user_in.password),
         roles=user_in.roles,
         phone=user_in.phone,
@@ -58,6 +63,9 @@ async def get_user_by_id(db: AsyncSession, user_id: UUID) -> User:
 async def update_user(db: AsyncSession, user_id: UUID, user_in: UserUpdate | UserSelfUpdate, actor_user_id: UUID | None = None) -> User:
     user = await get_user_by_id(db, user_id)
     update_data = user_in.dict(exclude_unset=True)
+
+    if update_data.get("email"):
+        update_data["email"] = update_data["email"].strip().lower()
 
     if "password" in update_data:
         update_data["password_hash"] = get_password_hash(update_data.pop("password"))

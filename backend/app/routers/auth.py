@@ -127,7 +127,13 @@ async def _load_applicant_profile(db: AsyncSession, user_id) -> ApplicantProfile
 
 @router.post("/login", response_model=LoginResponse)
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
-    user = (await db.execute(select(User).where(User.email == data.email))).scalars().first()
+    # Emails are stored lowercased (_lower_email), but rows written before
+    # that normalization existed — or through a path that missed it — can
+    # still hold mixed case. Lowercase the login input too, or a user whose
+    # stored email has a capital letter can never log in with any casing.
+    user = (
+        await db.execute(select(User).where(User.email == _lower_email(data.email)))
+    ).scalars().first()
 
     # Checked before the password compare, on purpose — a locked account
     # gets the same 429 regardless of whether this guess would've been
@@ -746,7 +752,8 @@ async def instructor_apply(
     except Exception:
         raise HTTPException(status_code=422, detail="Invalid application payload")
 
-    if await _email_taken(db, payload.email):
+    email = _lower_email(payload.email)
+    if await _email_taken(db, email):
         raise HTTPException(status_code=400, detail="Email already registered")
 
     code = payload.invite_code.strip().upper() if payload.invite_code else None
@@ -759,7 +766,7 @@ async def instructor_apply(
 
     user = User(
         full_name=payload.full_name,
-        email=payload.email,
+        email=email,
         password_hash=get_password_hash(payload.password),
         roles=[UserRole.applicant],
         country=payload.country,

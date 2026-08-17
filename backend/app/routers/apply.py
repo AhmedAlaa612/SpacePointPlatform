@@ -61,6 +61,11 @@ async def submit_application(
     if role in ROLES_REQUIRING_CODE and not invite_code:
         raise HTTPException(status_code=400, detail="Invite code required for this role")
 
+    # Lowercase at the write boundary, same as /auth/login and /auth/signup
+    # (services/spine/identity.py::normalize_email is the canonical form) —
+    # otherwise a mixed-case email stored here can never log in later.
+    email = email.strip().lower()
+
     # Unique email check across both users and pending applications
     existing_user = (await db.execute(select(User.id).where(User.email == email))).first()
     if existing_user:
