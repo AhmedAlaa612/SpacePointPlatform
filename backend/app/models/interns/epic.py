@@ -7,6 +7,7 @@ from sqlalchemy.orm import relationship
 
 from app.db.base import Base
 from app.models.enums import WorkStatus
+from app.models.interns.team import Team
 
 
 class Epic(Base):
@@ -26,6 +27,9 @@ class Epic(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     project = relationship("Project")
-    team = relationship("Team")
+    # 2026-08-17 — class object, not a bare "Team" string: see the matching
+    # comment in interns/project.py for why (a second, unrelated Team now
+    # exists at app/models/team.py, making the bare string ambiguous).
+    team = relationship(Team)
     creator = relationship("User", foreign_keys=[created_by])
     modules = relationship("Module", back_populates="epic", cascade="all, delete-orphan")

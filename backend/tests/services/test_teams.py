@@ -1,5 +1,7 @@
-"""P6-1 (LMS Phase 2 Stage 6, 2026-08-11) — mission_teams schema + the
-create_team/add_member/remove_member primitives. Redis-free, HTTP-free.
+"""Team primitives (2026-08-17) — relocated from
+`tests/services/missions/test_missions_teams.py` now that `Team` is a
+domain-agnostic entity (`app/services/teams.py`), not missions-only.
+Redis-free, HTTP-free.
 """
 
 import uuid
@@ -10,7 +12,7 @@ from fastapi import HTTPException
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
-from app.services.missions import add_member, create_team, remove_member, team_member_ids, teams_for_user
+from app.services.teams import create_team, join_team, leave_team, team_member_ids, teams_for_user
 
 
 async def _user(db, *, roles=None) -> User:
@@ -81,23 +83,32 @@ async def test_self_formed_teams_are_never_deduplicated_by_name(db):
 
 
 @pytest.mark.asyncio
-async def test_add_and_remove_member(db):
+async def test_join_and_leave_team(db):
     creator = await _user(db)
     other = await _user(db)
     team = await create_team(db, name="Team Charlie", created_by=creator.id)
 
-    await add_member(db, team_id=team.id, user_id=other.id)
+    await join_team(db, team_id=team.id, user_id=other.id)
     assert set(await team_member_ids(db, team_id=team.id)) == {creator.id, other.id}
 
-    await remove_member(db, team_id=team.id, user_id=other.id)
+    await leave_team(db, team_id=team.id, user_id=other.id)
     assert await team_member_ids(db, team_id=team.id) == [creator.id]
 
 
 @pytest.mark.asyncio
-async def test_adding_an_existing_member_twice_is_a_noop(db):
+async def test_joining_an_existing_member_twice_is_a_noop(db):
     creator = await _user(db)
     team = await create_team(db, name="Team Delta", created_by=creator.id)
-    await add_member(db, team_id=team.id, user_id=creator.id)  # already a member
+    await join_team(db, team_id=team.id, user_id=creator.id)  # already a member
+    assert await team_member_ids(db, team_id=team.id) == [creator.id]
+
+
+@pytest.mark.asyncio
+async def test_leaving_a_team_you_are_not_on_is_a_noop(db):
+    creator = await _user(db)
+    other = await _user(db)
+    team = await create_team(db, name="Team Golf", created_by=creator.id)
+    await leave_team(db, team_id=team.id, user_id=other.id)  # never joined
     assert await team_member_ids(db, team_id=team.id) == [creator.id]
 
 

@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.lms.course import Course
 from app.models.lms.enrollment import Enrollment
 from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember
-from app.models.missions.team import MissionTeam
+from app.models.team import Team
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
@@ -66,7 +66,7 @@ async def _mission_status_by_user(
     or a pre-migration row) still counts, since it was never attributed to
     a *different* cohort either. Team attempts come via the frozen
     `MissionAttemptMember` roster for teams assigned to this cohort (the
-    live `MissionTeamMember` roster can drift after the fact — the
+    live `TeamMember` roster can drift after the fact — the
     per-attempt freeze is what actually earned the grade, same reasoning
     the team-scoring code already uses)."""
     if not user_ids:
@@ -84,11 +84,11 @@ async def _mission_status_by_user(
         attempts_by_user.setdefault(a.user_id, []).append(a)
 
     team_ids = (await db.execute(
-        select(MissionTeam.id).where(MissionTeam.cohort_id == cohort_id)
+        select(Team.id).where(Team.cohort_id == cohort_id)
     )).scalars().all()
     if team_ids:
         team_attempts = (await db.execute(
-            select(MissionAttempt).where(MissionAttempt.mission_team_id.in_(team_ids))
+            select(MissionAttempt).where(MissionAttempt.team_id.in_(team_ids))
         )).scalars().all()
         if team_attempts:
             attempts_by_id = {a.id: a for a in team_attempts}
@@ -265,7 +265,7 @@ async def mission_progress_all(db: AsyncSession, *, mission_id: uuid.UUID) -> di
         if a.user_id is not None:
             by_user.setdefault(a.user_id, []).append(a)
 
-    team_attempt_ids = [a.id for a in attempts if a.mission_team_id is not None]
+    team_attempt_ids = [a.id for a in attempts if a.team_id is not None]
     if team_attempt_ids:
         attempts_by_id = {a.id: a for a in attempts}
         members = (await db.execute(
@@ -391,7 +391,7 @@ async def missions_overview(db: AsyncSession) -> list[dict]:
         await db.execute(select(MissionAttempt).where(MissionAttempt.mission_id.in_(mission_ids)))
     ).scalars().all()
 
-    team_attempt_ids = [a.id for a in attempts if a.mission_team_id is not None]
+    team_attempt_ids = [a.id for a in attempts if a.team_id is not None]
     members_by_attempt: dict[uuid.UUID, list[uuid.UUID]] = {}
     if team_attempt_ids:
         for attempt_id, user_id in (await db.execute(

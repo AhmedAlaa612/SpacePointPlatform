@@ -61,7 +61,7 @@ async def _passed_mission(db: AsyncSession, *, mission_id: uuid.UUID, user_id: u
         return True
     # a passing team attempt counts for every member on its frozen roster,
     # not just whoever's user_id happens to be on the attempt row itself
-    # (there isn't one — team attempts key on mission_team_id instead).
+    # (there isn't one — team attempts key on team_id instead).
     team = (await db.execute(
         select(MissionAttempt.id)
         .join(MissionAttemptMember, MissionAttemptMember.attempt_id == MissionAttempt.id)

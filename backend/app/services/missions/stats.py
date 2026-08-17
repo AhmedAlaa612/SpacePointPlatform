@@ -29,7 +29,7 @@ async def mission_stats(db: AsyncSession, *, mission_id: uuid.UUID) -> dict:
         if a.user_id is not None:
             by_user.setdefault(a.user_id, []).append(a)
 
-    team_attempt_ids = [a.id for a in attempts if a.mission_team_id is not None]
+    team_attempt_ids = [a.id for a in attempts if a.team_id is not None]
     if team_attempt_ids:
         members = (await db.execute(
             select(MissionAttemptMember).where(MissionAttemptMember.attempt_id.in_(team_attempt_ids))

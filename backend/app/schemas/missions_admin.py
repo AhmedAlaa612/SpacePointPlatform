@@ -108,8 +108,8 @@ class MissionAttemptAdminOut(BaseModel):
 
 
 class MissionTeamCreateAdminIn(BaseModel):
-    """Ops-assign (P6-4): cohort_id required — self-form (schemas/missions.py
-    ::MissionTeamCreateIn) is the same primitive without one."""
+    """Ops-assign (P6-4): cohort_id required — self-form (schemas/teams.py
+    ::TeamCreateIn) is the same primitive without one."""
     name: str
     cohort_id: UUID
     member_ids: list[UUID] = []

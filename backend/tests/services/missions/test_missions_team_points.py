@@ -10,7 +10,8 @@ from sqlalchemy import select
 from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, PointEvent
 from app.models.missions.mission import Mission, MissionVariant
 from app.models.user import User
-from app.services.missions import create_team, decide_attempt, start_attempt
+from app.services.missions import decide_attempt, start_attempt
+from app.services.teams import create_team
 
 
 async def _user(db, *, roles=None) -> User:

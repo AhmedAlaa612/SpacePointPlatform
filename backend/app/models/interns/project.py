@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
+from app.models.interns.team import Team
 
 project_teams = Table(
     "project_teams",
@@ -26,4 +27,8 @@ class Project(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     creator = relationship("User", foreign_keys=[created_by])
-    teams = relationship("Team", secondary=project_teams)
+    # 2026-08-17 — class object, not a bare "Team" string: a second,
+    # unrelated Team now exists (app/models/team.py, domain-agnostic learner
+    # teams), and SQLAlchemy's string relationship resolution is registry-
+    # wide, not per-module — a bare "Team" string is now ambiguous.
+    teams = relationship(Team, secondary=project_teams)

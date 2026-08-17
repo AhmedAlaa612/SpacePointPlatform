@@ -36,7 +36,7 @@ from app.db.session import get_db
 from app.models.curriculum import Prerequisite
 from app.models.missions.design import Design
 from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember, MissionVariant
-from app.models.missions.team import MissionTeam
+from app.models.team import Team
 from app.models.user import User
 from app.schemas.curriculum import PrerequisiteItemOut
 from app.schemas.missions import (
@@ -48,21 +48,15 @@ from app.schemas.missions import (
     MissionDetailOut,
     MissionGraphNodeOut,
     MissionQuizReviewOut,
-    MissionTeamCreateIn,
-    MissionTeamOut,
     MissionVariantOut,
     MissionVariantSummaryOut,
 )
+from app.schemas.teams import TeamCreateIn, TeamOut
 from app.services import storage
 from app.services.curriculum import is_unlocked, prerequisite_status
-from app.services.missions import (
-    create_team,
-    resolve_student_cohort,
-    start_attempt,
-    team_member_ids,
-    teams_for_user,
-)
+from app.services.missions import resolve_student_cohort, start_attempt
 from app.services.missions.serialize import variant_student_view
+from app.services.teams import create_team, team_member_ids, teams_for_user
 from app.services.missions.verifiers.quiz import submit_quiz_attempt
 from app.services.missions.verifiers.submission import submit_submission_attempt
 
@@ -76,10 +70,10 @@ async def _open_mission(db: AsyncSession, mission_id: uuid.UUID) -> Mission:
     return mission
 
 
-async def _team_out(db: AsyncSession, team: MissionTeam) -> MissionTeamOut:
+async def _team_out(db: AsyncSession, team: Team) -> TeamOut:
     member_ids = await team_member_ids(db, team_id=team.id)
     members = [await db.get(User, uid) for uid in member_ids]
-    return MissionTeamOut(
+    return TeamOut(
         id=team.id, name=team.name, cohort_id=team.cohort_id, member_ids=member_ids,
         member_names=[m.full_name for m in members if m is not None],
     )
@@ -89,15 +83,15 @@ async def _attempt_out(
     db: AsyncSession, attempt: MissionAttempt, *, variant_label: str, design_name: str | None = None,
 ) -> MissionAttemptOut:
     team_name = None
-    if attempt.mission_team_id is not None:
-        team = await db.get(MissionTeam, attempt.mission_team_id)
+    if attempt.team_id is not None:
+        team = await db.get(Team, attempt.team_id)
         team_name = team.name if team else None
     return MissionAttemptOut(
         id=attempt.id, mission_id=attempt.mission_id, variant_id=attempt.variant_id,
         variant_label=variant_label, attempt_no=attempt.attempt_no, status=attempt.status,
         score=float(attempt.score) if attempt.score is not None else None, payload=attempt.payload or {},
         started_at=attempt.started_at, submitted_at=attempt.submitted_at, decided_at=attempt.decided_at,
-        team_id=attempt.mission_team_id, team_name=team_name, design_name=design_name,
+        team_id=attempt.team_id, team_name=team_name, design_name=design_name,
     )
 
 
@@ -164,9 +158,9 @@ async def mission_graph(db: AsyncSession = Depends(get_db), current: User = Depe
 
 # ── team formation: self-form (P6-4) ─────────────────────────────────────
 
-@router.post("/teams", response_model=MissionTeamOut, status_code=status.HTTP_201_CREATED)
+@router.post("/teams", response_model=TeamOut, status_code=status.HTTP_201_CREATED)
 async def form_team(
-    body: MissionTeamCreateIn, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+    body: TeamCreateIn, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     """Self-form from the public catalog — no `cohort_id` (MISSIONS_REPORT.md
     §Q5). Same `create_team` primitive ops-assign calls."""
@@ -176,7 +170,7 @@ async def form_team(
     return await _team_out(db, team)
 
 
-@router.get("/teams/mine", response_model=list[MissionTeamOut])
+@router.get("/teams/mine", response_model=list[TeamOut])
 async def my_teams(db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user)):
     teams = await teams_for_user(db, user_id=current.id)
     return [await _team_out(db, t) for t in teams]
@@ -248,7 +242,7 @@ async def start_mission_attempt(
     if body.team_id is not None:
         if mission.team_policy == "solo":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This mission is solo only")
-        team = await db.get(MissionTeam, body.team_id)
+        team = await db.get(Team, body.team_id)
         if team is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
         if current.id not in await team_member_ids(db, team_id=team.id):
@@ -281,7 +275,7 @@ async def _own_attempt(db: AsyncSession, attempt_id: uuid.UUID, user: User) -> M
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
     if attempt.user_id == user.id:
         return attempt
-    if attempt.mission_team_id is not None:
+    if attempt.team_id is not None:
         member = await db.get(MissionAttemptMember, (attempt.id, user.id))
         if member is not None:
             return attempt
