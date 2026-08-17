@@ -23,7 +23,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push
+      - name: Build and push (attempt 1)
+        id: build_push_attempt_1
+        continue-on-error: true
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ghcr.io/ahmedalaa612/spacepoint-api:latest
+
+      - name: Build and push (retry once on registry failure)
+        if: steps.build_push_attempt_1.outcome == 'failure'
         uses: docker/build-push-action@v5
         with:
           context: ./backend
