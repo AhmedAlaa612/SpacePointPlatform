@@ -19,6 +19,14 @@ unusual by accident.
 --dry-run   : parses, matches against the DB, and prints the full report —
               rolls back at the end instead of committing. Always run this
               first.
+--csv-out   : on a REAL run only, writes name/email/set-password-link for
+              every account created to this CSV path (default:
+              set_password_links.csv in the current directory) — a backup
+              distribution channel in case a welcome email bounces or lands
+              in spam. Chmod'd 600 on write (best-effort; a no-op on
+              Windows). This file is as sensitive as a password list —
+              anyone holding a link can set that account's password within
+              24h — delete it once you've confirmed everyone's in.
 
 ────────────────────────────────────────────────────────────────────────────
 WHAT THIS DOES, PER ROW
@@ -60,6 +68,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
+import os
 import secrets
 import sys
 import uuid
@@ -112,6 +122,7 @@ class Report:
     created: list[str] = field(default_factory=list)
     emails_sent: int = 0
     emails_failed: list[str] = field(default_factory=list)
+    csv_path: str | None = None
 
     def print_summary(self, *, dry_run: bool) -> None:
         print("\n" + "=" * 78)
@@ -139,6 +150,10 @@ class Report:
                 print(f"Welcome emails FAILED to send ({len(self.emails_failed)}) — account was still created:")
                 for s in self.emails_failed:
                     print(f"  x {s}")
+            if self.csv_path:
+                print(f"\nSet-password links written to: {self.csv_path}")
+                print("This file is as sensitive as a password list (anyone holding a link can set")
+                print("that account's password within 24h) — delete it once everyone's confirmed in.")
         print("\nDropped fields not captured anywhere in the schema: Major, School/Uni")
         print("instructor type, Personal Picture. Not saved, not invented a column for.")
         print("=" * 78 + "\n")
@@ -231,6 +246,8 @@ async def run(args) -> Report:
         seen_emails[key] = row
         usable.append(row)
 
+    set_password_links: list[tuple[str, str, str]] = []  # (name, email, link) — real run only
+
     async with AsyncSessionLocal() as db:
         for row in usable:
             existing = (await db.execute(
@@ -273,6 +290,7 @@ async def run(args) -> Report:
             if not args.dry_run:
                 token = create_password_set_token(user.id)
                 link = f"{settings.FRONTEND_URL}/set-password?token={token}"
+                set_password_links.append((row.name, row.email, link))
                 sent = await send_instructor_welcome_email(user.email, user.full_name, link)
                 if sent:
                     report.emails_sent += 1
@@ -284,6 +302,18 @@ async def run(args) -> Report:
         else:
             await db.commit()
 
+    if set_password_links:
+        csv_path = Path(args.csv_out)
+        with open(csv_path, "w", newline="", encoding="utf-8") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(["full_name", "email", "set_password_link"])
+            writer.writerows(set_password_links)
+        try:
+            os.chmod(csv_path, 0o600)  # best-effort — no-op on Windows
+        except OSError:
+            pass
+        report.csv_path = str(csv_path)
+
     return report
 
 
@@ -292,6 +322,7 @@ def main() -> None:
     p.add_argument("--file", default=DEFAULT_FILE)
     p.add_argument("--sheet", default=DEFAULT_SHEET)
     p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--csv-out", default="set_password_links.csv")
     args = p.parse_args()
 
     report = asyncio.run(run(args))
