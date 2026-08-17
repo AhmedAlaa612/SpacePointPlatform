@@ -1,5 +1,8 @@
 /** Missions admin API (P5-4) — thin wrapper over `/missions/admin`. */
 import { api } from "@/api/client";
+import type { MissionTeamPolicy } from "@/api/missions";
+
+export type { MissionTeamPolicy };
 
 export interface MissionAdminOption {
   id: string;
@@ -10,7 +13,6 @@ export const listMissionsAdminApi = () =>
   api.get<MissionAdminOption[]>("/missions/admin").then((r) => r.data);
 
 export type MissionKind = "design" | "submission" | "quiz" | "checklist" | "operate" | "external";
-export type MissionTeamPolicy = "solo" | "team" | "either";
 export type MissionStatus = "draft" | "in_review" | "published" | "archived";
 export type MissionAccessMode = "open" | "invite";
 

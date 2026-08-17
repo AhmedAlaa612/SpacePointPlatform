@@ -8,8 +8,8 @@ import {
   createTeam, fetchMission, startMissionAttempt, submissionBrief, submitQuizAttempt,
   submitSubmissionAttempt,
   type MissionAttempt, type MissionDetail, type MissionQuizReview, type MissionSubmissionBrief,
-  type MissionTeam,
 } from "@/api/missions";
+import { joinTeam, leaveTeam, type Team } from "@/api/teams";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
@@ -37,6 +37,9 @@ export default function MissionPage() {
   const [newTeamName, setNewTeamName] = useState("");
   const [creatingTeam, setCreatingTeam] = useState(false);
   const [teamError, setTeamError] = useState("");
+  const [joinTeamId, setJoinTeamId] = useState("");
+  const [joiningTeam, setJoiningTeam] = useState(false);
+  const [leavingTeamId, setLeavingTeamId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     fetchMission(missionId)
@@ -145,6 +148,36 @@ export default function MissionPage() {
       setTeamError(errorDetail(err, "Couldn't create this team right now."));
     } finally {
       setCreatingTeam(false);
+    }
+  };
+
+  const handleJoinTeam = async () => {
+    if (!joinTeamId.trim()) return;
+    setJoiningTeam(true);
+    setTeamError("");
+    try {
+      const team = await joinTeam(joinTeamId.trim());
+      setJoinTeamId("");
+      setSelectedTeamId(team.id);
+      load();
+    } catch (err) {
+      setTeamError(errorDetail(err, "Couldn't join that team right now."));
+    } finally {
+      setJoiningTeam(false);
+    }
+  };
+
+  const handleLeaveTeam = async (teamId: string) => {
+    setLeavingTeamId(teamId);
+    setTeamError("");
+    try {
+      await leaveTeam(teamId);
+      if (selectedTeamId === teamId) setSelectedTeamId(null);
+      load();
+    } catch (err) {
+      setTeamError(errorDetail(err, "Couldn't leave this team right now."));
+    } finally {
+      setLeavingTeamId(null);
     }
   };
 
@@ -332,6 +365,12 @@ export default function MissionPage() {
               onNewTeamNameChange={setNewTeamName}
               onCreateTeam={() => void handleCreateTeam()}
               creatingTeam={creatingTeam}
+              joinTeamId={joinTeamId}
+              onJoinTeamIdChange={setJoinTeamId}
+              onJoinTeam={() => void handleJoinTeam()}
+              joiningTeam={joiningTeam}
+              onLeaveTeam={(teamId) => void handleLeaveTeam(teamId)}
+              leavingTeamId={leavingTeamId}
               teamError={teamError}
             />
           )}
@@ -361,10 +400,12 @@ export default function MissionPage() {
 
 function TeamPicker({
   teamPolicy, myTeams, asTeam, onModeChange, selectedTeamId, onSelectTeam,
-  newTeamName, onNewTeamNameChange, onCreateTeam, creatingTeam, teamError,
+  newTeamName, onNewTeamNameChange, onCreateTeam, creatingTeam,
+  joinTeamId, onJoinTeamIdChange, onJoinTeam, joiningTeam, onLeaveTeam, leavingTeamId,
+  teamError,
 }: {
   teamPolicy: MissionDetail["team_policy"];
-  myTeams: MissionTeam[];
+  myTeams: Team[];
   asTeam: boolean;
   onModeChange: (asTeam: boolean) => void;
   selectedTeamId: string | null;
@@ -373,6 +414,12 @@ function TeamPicker({
   onNewTeamNameChange: (name: string) => void;
   onCreateTeam: () => void;
   creatingTeam: boolean;
+  joinTeamId: string;
+  onJoinTeamIdChange: (id: string) => void;
+  onJoinTeam: () => void;
+  joiningTeam: boolean;
+  onLeaveTeam: (teamId: string) => void;
+  leavingTeamId: string | null;
   teamError: string;
 }) {
   return (
@@ -399,15 +446,24 @@ function TeamPicker({
           {myTeams.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {myTeams.map((t) => (
-                <button
+                <div
                   key={t.id}
-                  onClick={() => onSelectTeam(t.id)}
-                  className={`px-3 py-1.5 rounded-xl text-sm ring-1 transition-colors ${
+                  className={`flex items-center gap-1.5 pl-3 pr-1.5 py-1 rounded-xl text-sm ring-1 transition-colors ${
                     t.id === selectedTeamId ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
                   }`}
                 >
-                  {t.name} <span className="text-xs text-muted-foreground">({t.member_names.length})</span>
-                </button>
+                  <button onClick={() => onSelectTeam(t.id)}>
+                    {t.name} <span className="text-xs text-muted-foreground">({t.member_names.length})</span>
+                  </button>
+                  <button
+                    onClick={() => onLeaveTeam(t.id)}
+                    disabled={leavingTeamId === t.id}
+                    title="Leave team"
+                    className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50 px-1"
+                  >
+                    {leavingTeamId === t.id ? "…" : "×"}
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -420,6 +476,17 @@ function TeamPicker({
             />
             <Button size="sm" onClick={onCreateTeam} disabled={!newTeamName.trim() || creatingTeam}>
               {creatingTeam ? "Creating..." : "Create"}
+            </Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              value={joinTeamId}
+              onChange={(e) => onJoinTeamIdChange(e.target.value)}
+              placeholder="Join team (team ID)..."
+              className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors flex-1 min-w-0"
+            />
+            <Button size="sm" variant="outline" onClick={onJoinTeam} disabled={!joinTeamId.trim() || joiningTeam}>
+              {joiningTeam ? "Joining..." : "Join"}
             </Button>
           </div>
           {teamError && <p className="text-xs text-destructive">{teamError}</p>}

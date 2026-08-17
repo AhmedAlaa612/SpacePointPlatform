@@ -2,6 +2,7 @@
  * mirror `schemas/missions.py` field for field.
  */
 import { api } from "./client";
+import type { Team } from "./teams";
 
 export interface MissionVariantSummary {
   id: string;
@@ -23,14 +24,6 @@ export interface MissionCatalogItem {
   variants: MissionVariantSummary[];
   locked: boolean;
   team_policy: MissionTeamPolicy;
-}
-
-export interface MissionTeam {
-  id: string;
-  name: string;
-  cohort_id: string | null;
-  member_ids: string[];
-  member_names: string[];
 }
 
 export interface MissionPrerequisite {
@@ -113,7 +106,7 @@ export interface MissionDetail {
   prerequisites: MissionPrerequisite[];
   locked: boolean;
   team_policy: MissionTeamPolicy;
-  my_teams: MissionTeam[];
+  my_teams: Team[];
 }
 
 export interface MissionQuizReviewQuestion {
@@ -159,13 +152,13 @@ export async function startMissionAttempt(
   return data;
 }
 
-export async function fetchMyTeams(): Promise<MissionTeam[]> {
-  const { data } = await api.get<MissionTeam[]>("/missions/teams/mine");
+export async function fetchMyTeams(): Promise<Team[]> {
+  const { data } = await api.get<Team[]>("/missions/teams/mine");
   return data;
 }
 
-export async function createTeam(name: string, memberIds: string[] = []): Promise<MissionTeam> {
-  const { data } = await api.post<MissionTeam>("/missions/teams", { name, member_ids: memberIds });
+export async function createTeam(name: string, memberIds: string[] = []): Promise<Team> {
+  const { data } = await api.post<Team>("/missions/teams", { name, member_ids: memberIds });
   return data;
 }
 
