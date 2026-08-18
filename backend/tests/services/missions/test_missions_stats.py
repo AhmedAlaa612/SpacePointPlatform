@@ -8,7 +8,7 @@ import uuid
 import pytest
 
 from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember, MissionVariant
-from app.models.missions.team import MissionTeam
+from app.models.team import Team
 from app.models.user import User
 from app.services.missions.stats import mission_stats
 
@@ -63,11 +63,11 @@ async def test_mission_stats_rolls_up_solo_and_team_attempts_with_pass_rate(db):
     ))
 
     team_member = await _user(db)
-    team = MissionTeam(id=uuid.uuid4(), name="Stats Team")
+    team = Team(id=uuid.uuid4(), name="Stats Team")
     db.add(team)
     await db.flush()
     team_attempt = MissionAttempt(
-        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, mission_team_id=team.id,
+        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, team_id=team.id,
         attempt_no=1, status="submitted", payload={},
     )
     db.add(team_attempt)

@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from app.models.lms import PointEvent
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
-from app.models.missions.team import MissionTeam
+from app.models.team import Team
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.spine.contact import Contact
@@ -166,7 +166,7 @@ async def test_start_attempt_sets_cohort_id_for_a_team_attempt(db):
     author = await _user(db, roles=["operations"])
     mission, variants = await _mission_with_variants(db, author=author)
     cohort = await _cohort(db)
-    team = MissionTeam(id=uuid.uuid4(), name=f"Team-{uuid.uuid4().hex[:6]}", cohort_id=cohort.id)
+    team = Team(id=uuid.uuid4(), name=f"Team-{uuid.uuid4().hex[:6]}", cohort_id=cohort.id)
     db.add(team)
     await db.flush()
 

@@ -8,11 +8,14 @@ from `lms.courses` but embeddable inside one via `module_items.kind='mission'`
 - prerequisites live in `models/curriculum.py::Prerequisite` since 7B-2 —
   unified with courses, no longer a mission-only table here
 - `mission_attempts` — one run (template → instance), verifier-graded,
-  `user_id` XOR `mission_team_id` (P6-2)
-- `mission_teams` / `mission_team_members` — the current roster of a team
-  attempting team-policy missions together (P6-1)
+  `user_id` XOR `team_id` (P6-2)
 - `mission_attempt_members` — the frozen snapshot of who was on the team
   for one specific attempt (P6-2)
+
+Team identity/roster (`learner_teams`/`learner_team_members`) moved out to
+`app/models/team.py` (2026-08-17) — a top-level, domain-agnostic entity no
+longer missions-only, generalized as the opening move of the Competition
+domain. Import `Team`/`TeamMember` from there, not from here.
 
 Everything keys on `users`, same as the rest of `lms` — `MERGE_FK_REGISTRY`
 is untouched.
@@ -41,7 +44,6 @@ from app.models.missions.mission import (
     MissionVariant,
 )
 from app.models.missions.proposal import MissionProposal
-from app.models.missions.team import MissionTeam, MissionTeamMember
 
 __all__ = [
     "Mission",
@@ -53,8 +55,6 @@ __all__ = [
     "MissionAssignment",
     "MissionStepGate",
     "MissionStepSelection",
-    "MissionTeam",
-    "MissionTeamMember",
     "Design",
     "DesignComponent",
     "DesignComponentLibrary",

@@ -29,7 +29,7 @@ from app.models.sessions.registration import Registration
 from app.models.user import User
 from app.services.lms.points import award_points
 from app.services.missions.embedding import complete_embedded_items
-from app.services.missions.teams import team_member_ids
+from app.services.teams import team_member_ids
 
 MISSION_POINTS_SOURCE = "mission"
 
@@ -71,7 +71,7 @@ async def start_attempt(
     behavior unchanged.
 
     `cohort_id` (2026-08-17) is resolved by the caller — `resolve_student_
-    cohort()` above for a solo attempt, `MissionTeam.cohort_id` for a team
+    cohort()` above for a solo attempt, `Team.cohort_id` for a team
     one — and frozen onto the new attempt at creation. Not re-resolved on a
     resume: an attempt already in progress keeps whatever cohort it started
     with, same reasoning `variant_id` already gets on resume (finish what
@@ -79,7 +79,7 @@ async def start_attempt(
     """
     if (user_id is None) == (team_id is None):
         raise HTTPException(400, detail="Exactly one of user_id or team_id is required")
-    owner_column = MissionAttempt.user_id if user_id is not None else MissionAttempt.mission_team_id
+    owner_column = MissionAttempt.user_id if user_id is not None else MissionAttempt.team_id
     owner_value = user_id if user_id is not None else team_id
 
     if not force_new:
@@ -106,7 +106,7 @@ async def start_attempt(
         mission_id=mission_id,
         variant_id=variant_id,
         user_id=user_id,
-        mission_team_id=team_id,
+        team_id=team_id,
         attempt_no=(max_no or 0) + 1,
         status="in_progress",
         cohort_id=cohort_id,
@@ -125,7 +125,7 @@ async def start_attempt(
 async def _attempt_recipients(db: AsyncSession, attempt: MissionAttempt) -> list[uuid.UUID]:
     """Who a passing attempt owes points/completion to: the solo student,
     or (P6-3) every member of the `mission_attempt_members` snapshot frozen
-    at `start_attempt` time — never live `MissionTeamMember` roster, which
+    at `start_attempt` time — never the live `TeamMember` roster, which
     may have changed since."""
     if attempt.user_id is not None:
         return [attempt.user_id]
@@ -169,8 +169,8 @@ async def decide_attempt(
             "mission_id": str(attempt.mission_id),
             "variant_id": str(attempt.variant_id),
         }
-        if attempt.mission_team_id is not None:
-            ref["team_id"] = str(attempt.mission_team_id)
+        if attempt.team_id is not None:
+            ref["team_id"] = str(attempt.team_id)
         for user_id in recipients:
             await award_points(
                 db,

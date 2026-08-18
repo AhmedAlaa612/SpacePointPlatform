@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.schemas.curriculum import PrerequisiteItemOut
 from app.schemas.lms import QuizQuestionOut, QuizReviewItemOut
+from app.schemas.teams import TeamOut
 
 
 class MissionQuizConfigOut(BaseModel):
@@ -110,19 +111,6 @@ class MissionAttemptOut(BaseModel):
     design_name: str | None = None
 
 
-class MissionTeamOut(BaseModel):
-    id: UUID
-    name: str
-    cohort_id: UUID | None = None
-    member_ids: list[UUID] = []
-    member_names: list[str] = []
-
-
-class MissionTeamCreateIn(BaseModel):
-    name: str
-    member_ids: list[UUID] = []
-
-
 class MissionDetailOut(BaseModel):
     id: UUID
     title: str
@@ -137,7 +125,7 @@ class MissionDetailOut(BaseModel):
     prerequisites: list[PrerequisiteItemOut] = []
     locked: bool = False
     team_policy: str = "solo"
-    my_teams: list[MissionTeamOut] = []
+    my_teams: list[TeamOut] = []
 
 
 class MissionAttemptStartIn(BaseModel):

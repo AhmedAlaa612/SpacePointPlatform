@@ -63,7 +63,7 @@ async def find_passed_design(
     db: AsyncSession, *, user_id: uuid.UUID | None, team_id: uuid.UUID | None,
 ) -> MissionAttempt | None:
     """The most recent passed `design` attempt belonging to this owner."""
-    owner_col = MissionAttempt.user_id if user_id is not None else MissionAttempt.mission_team_id
+    owner_col = MissionAttempt.user_id if user_id is not None else MissionAttempt.team_id
     owner_val = user_id if user_id is not None else team_id
     if owner_val is None:
         return None

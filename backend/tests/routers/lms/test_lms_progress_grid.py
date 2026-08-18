@@ -12,7 +12,7 @@ from fastapi import status as http_status
 from app.core.security import create_access_token
 from app.models.lms import CohortCurriculum, Course, CourseModule, ModuleItem
 from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember, MissionVariant
-from app.models.missions.team import MissionTeam
+from app.models.team import Team
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
@@ -173,11 +173,11 @@ async def test_progress_grid_resolves_team_attempts_via_frozen_roster(db, client
     variant = MissionVariant(id=uuid.uuid4(), mission_id=mission.id, label="Standard", position=1, points=25)
     db.add(variant)
     await db.flush()
-    team = MissionTeam(id=uuid.uuid4(), name="Team Alpha", cohort_id=cohort.id)
+    team = Team(id=uuid.uuid4(), name="Team Alpha", cohort_id=cohort.id)
     db.add(team)
     await db.flush()
     attempt = MissionAttempt(
-        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, mission_team_id=team.id,
+        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, team_id=team.id,
         attempt_no=1, status="submitted", payload={},
     )
     db.add(attempt)

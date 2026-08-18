@@ -22,6 +22,7 @@ from app.routers.lms import router as lms_router
 from app.routers.missions import router as missions_router
 from app.routers.sessions import router as sessions_router
 from app.routers.spine import router as spine_router
+from app.routers.teams import router as teams_router
 from app.workers.heartbeat import HEARTBEAT_KEY
 from app.workers.settings import redis_settings
 
@@ -120,6 +121,9 @@ app.include_router(lms_router)
 
 # Missions domain (Phase 2 Stage 5): /missions/*
 app.include_router(missions_router)
+
+# Team membership (2026-08-17, generalized out of missions): /teams/*
+app.include_router(teams_router)
 
 # Live games domain (Live Games Phase 2C): /games/*
 app.include_router(games_router)

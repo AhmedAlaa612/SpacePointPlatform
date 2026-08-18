@@ -9,7 +9,7 @@ at all") and prerequisites (a computed rule, "have you earned the right to
 attempt it") are two different mechanisms and both are correct; do not
 collapse them (PHASE2_EXECUTION_PLAN.md §Stage 5 note ②).
 
-`mission_attempts.user_id` XOR `mission_team_id` (P6-2, Stage 6) — a solo
+`mission_attempts.user_id` XOR `team_id` (P6-2, Stage 6) — a solo
 attempt sets the former, a team attempt the latter, CHECK-enforced.
 """
 
@@ -119,15 +119,15 @@ class MissionAttempt(Base):
     deleted out from under grading history (there is no mission-delete
     endpoint this stage; archiving is `missions.status`, not a row delete).
 
-    `user_id` XOR `mission_team_id` (P6-2, CHECK-enforced): a solo attempt
-    sets `user_id`; a team attempt sets `mission_team_id` and snapshots the
+    `user_id` XOR `team_id` (P6-2, CHECK-enforced): a solo attempt
+    sets `user_id`; a team attempt sets `team_id` and snapshots the
     team's roster into `MissionAttemptMember` at start time — who's on the
     hook for this specific attempt's grade is frozen there, since the team
-    itself (`MissionTeamMember`) can change membership afterward.
+    itself (`TeamMember`, `models/team.py`) can change membership afterward.
 
     `cohort_id` (2026-08-17) is resolved eagerly at `start_attempt()` time —
     from the student's active `Registration` for a solo attempt, or from
-    `MissionTeam.cohort_id` for a team attempt — and is the source of truth
+    `Team.cohort_id` for a team attempt — and is the source of truth
     for "which cohort was this run started in," across every mission kind.
     It's a frozen snapshot, not a live join: if the student's registration
     changes later, this doesn't follow. `SET NULL` on cohort delete — losing
@@ -139,9 +139,9 @@ class MissionAttempt(Base):
     __tablename__ = "mission_attempts"
     __table_args__ = (
         UniqueConstraint("mission_id", "user_id", "attempt_no", name="uq_mission_attempts_mission_user_no"),
-        UniqueConstraint("mission_id", "mission_team_id", "attempt_no", name="uq_mission_attempts_mission_team_no"),
+        UniqueConstraint("mission_id", "team_id", "attempt_no", name="uq_mission_attempts_mission_team_no"),
         CheckConstraint(
-            "(user_id IS NOT NULL AND mission_team_id IS NULL) OR (user_id IS NULL AND mission_team_id IS NOT NULL)",
+            "(user_id IS NOT NULL AND team_id IS NULL) OR (user_id IS NULL AND team_id IS NOT NULL)",
             name="ck_mission_attempts_user_xor_team",
         ),
         Index("ix_mission_attempts_cohort_id", "cohort_id"),
@@ -153,12 +153,12 @@ class MissionAttempt(Base):
     attempt_no = Column(Integer, nullable=False, default=1)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     # P6-2 — RESTRICT, not SET NULL: the XOR CHECK above means a team
-    # attempt's mission_team_id can never actually go NULL (there's no
+    # attempt's team_id can never actually go NULL (there's no
     # user_id to fall back on), so SET NULL would just turn "delete this
     # team" into a constraint-violation error instead of a clean RESTRICT
     # one. Same "can't delete out from under grading history" reasoning as
     # mission_id/variant_id above — a team with attempts isn't deletable.
-    mission_team_id = Column(UUID(as_uuid=True), ForeignKey("mission_teams.id", ondelete="RESTRICT"), nullable=True)
+    team_id = Column(UUID(as_uuid=True), ForeignKey("learner_teams.id", ondelete="RESTRICT"), nullable=True)
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="SET NULL"), nullable=True)
     # in_progress|submitted|passed|failed|abandoned
     status = Column(String(12), nullable=False, default="in_progress", server_default="in_progress")

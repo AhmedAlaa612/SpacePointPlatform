@@ -13,7 +13,7 @@ from fastapi import HTTPException
 
 from app.models.lms.course import Course, CourseModule, ModuleItem
 from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember, MissionVariant
-from app.models.missions.team import MissionTeam
+from app.models.team import Team
 from app.models.user import User
 from app.services.curriculum import add_prerequisite, is_unlocked, prerequisite_status, remove_prerequisite
 from app.services.lms import item_progress
@@ -152,11 +152,11 @@ async def test_a_passing_team_attempt_satisfies_the_prerequisite_for_every_membe
     await add_prerequisite(db, item_type="mission", item_id=advanced.id, requires_type="mission", requires_id=basic.id)
     await db.flush()
     member = await _user(db)
-    team = MissionTeam(id=uuid.uuid4(), name="Team Prereq")
+    team = Team(id=uuid.uuid4(), name="Team Prereq")
     db.add(team)
     await db.flush()
     team_attempt = MissionAttempt(
-        id=uuid.uuid4(), mission_id=basic.id, variant_id=basic_variant.id, mission_team_id=team.id,
+        id=uuid.uuid4(), mission_id=basic.id, variant_id=basic_variant.id, team_id=team.id,
         attempt_no=1, status="passed", score=90, payload={},
     )
     db.add(team_attempt)

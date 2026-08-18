@@ -84,7 +84,7 @@ async def _state_out(db: AsyncSession, attempt: MissionAttempt, ctx: FlightConte
 
     crew = attempt_crew(attempt)
     roster: list[CrewMemberOut] = []
-    is_team = attempt.mission_team_id is not None
+    is_team = attempt.team_id is not None
     if is_team:
         member_ids = (await db.execute(
             select(MissionAttemptMember.user_id).where(MissionAttemptMember.attempt_id == attempt.id)
@@ -219,7 +219,7 @@ async def set_crew_role(
     low-ceremony self-service as the rest of this platform's team
     formation. Solo attempts have nothing to assign."""
     attempt = await _own_operate_attempt(db, attempt_id, current)
-    if attempt.mission_team_id is None:
+    if attempt.team_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Crew roles only apply to team attempts")
     ctx = await flight_context(db, attempt)
     await assign_crew_role(db, attempt=attempt, role=body.role, user_id=current.id)

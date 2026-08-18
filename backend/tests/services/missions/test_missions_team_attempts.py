@@ -11,7 +11,8 @@ from sqlalchemy.exc import IntegrityError
 
 from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember, MissionVariant
 from app.models.user import User
-from app.services.missions import add_member, create_team, remove_member, start_attempt
+from app.services.missions import start_attempt
+from app.services.teams import create_team, join_team, leave_team
 
 
 async def _user(db, *, roles=None) -> User:
@@ -63,7 +64,7 @@ async def test_team_attempt_snapshots_current_roster(db):
 
     attempt = await start_attempt(db, mission_id=mission.id, variant_id=variant.id, team_id=team.id)
     assert attempt.user_id is None
-    assert attempt.mission_team_id == team.id
+    assert attempt.team_id == team.id
 
     from sqlalchemy import select
     snapshot = (await db.execute(
@@ -84,8 +85,8 @@ async def test_changing_the_team_after_starting_does_not_change_the_snapshot(db)
     attempt = await start_attempt(db, mission_id=mission.id, variant_id=variant.id, team_id=team.id)
 
     # Roster changes after the attempt started.
-    await remove_member(db, team_id=team.id, user_id=bob.id)
-    await add_member(db, team_id=team.id, user_id=carol.id)
+    await leave_team(db, team_id=team.id, user_id=bob.id)
+    await join_team(db, team_id=team.id, user_id=carol.id)
 
     from sqlalchemy import select
     snapshot = (await db.execute(
@@ -132,6 +133,6 @@ async def test_db_check_constraint_rejects_neither_and_both(db):
         async with db.begin_nested():
             db.add(MissionAttempt(
                 id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, attempt_no=99,
-                user_id=None, mission_team_id=None,
+                user_id=None, team_id=None,
             ))
             await db.flush()

@@ -3,7 +3,7 @@
 **Entry point for anyone (human or agent) picking up this codebase.** This file is a *map*:
 where everything is and what it does. Depth lives in the per-domain files linked below.
 
-**Last verified against the code: 2026-08-17.**
+**Last verified against the code: 2026-08-18.**
 
 ---
 
@@ -12,10 +12,10 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `d92f7a5c1e34` — single Alembic head (the merge revision `b88f272265ef` joins two branches of the same chain, not a second head). Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
+| **Schema head** | `a1f0c9b2d4e7` — single Alembic head (the merge revision `b88f272265ef` joins two branches of the same chain, not a second head). Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
 | **Branch** | `main` = production. `v2-dev` tracks it |
 | **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan), plus the pre-existing interns / ambassadors / instructors domains — **and the LMS/Missions/Games domain**: student accounts, courses + encrypted-HLS video, learning paths, the CubeSat design + Flight Operations missions with a real 36-part component library, Live Quiz games, and cohort-scoped instructor progress/gating/review. See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) |
-| **Tests** | 1350 collected, `pytest` from `backend/`. Seven need a live Redis and error without one — everything else is broker-free |
+| **Tests** | 1379 collected, `pytest` from `backend/`. Seven need a live Redis and error without one — everything else is broker-free |
 
 ## 2. Read next
 
@@ -254,7 +254,7 @@ Every one of these has already caused a real bug.
 
 Alembic is the single source of truth. Revisions in `backend/alembic/versions/`; the API
 container runs `alembic upgrade head` **before binding a port**, so anything health-checking it
-after a deploy must poll, not sleep. Current head: **`d92f7a5c1e34`**.
+after a deploy must poll, not sleep. Current head: **`a1f0c9b2d4e7`**.
 
 Edit the model → `alembic revision --autogenerate -m "…"` → **review the generated file**
 (enum columns use `create_type=False` and produce spurious diffs) → commit → deploy. Never

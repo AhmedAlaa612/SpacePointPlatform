@@ -126,7 +126,7 @@ class FlightContext:
             # (D-f) rather than four people watching one person work. The
             # variant only says whether that's allowed; whether it applies
             # depends on this attempt actually being a team attempt.
-            concurrent=attempt.mission_team_id is not None
+            concurrent=attempt.team_id is not None
             and bool(self.config.get("crew_concurrency", True)),
         )
         self.pass_threshold = float(self.config.get("pass_threshold", DEFAULT_PASS_THRESHOLD))
@@ -162,7 +162,7 @@ class FlightContext:
             return  # never mint a snapshot for a flight that's already graded
 
         design_attempt = await design_link.find_passed_design(
-            db, user_id=self.attempt.user_id, team_id=self.attempt.mission_team_id,
+            db, user_id=self.attempt.user_id, team_id=self.attempt.team_id,
         )
         if design_attempt is None:
             self.attempt.payload = {**(self.attempt.payload or {}), "spacecraft_source": {"params": {}, "notes": []}}
@@ -275,7 +275,7 @@ async def issue_command(
     if ctx.expired:
         raise HTTPException(409, detail="The flight window has closed — end the session to see your debrief")
 
-    if attempt.mission_team_id is not None:
+    if attempt.team_id is not None:
         if not is_command_allowed(command=raw_command, issuer_id=str(issued_by), crew=attempt_crew(attempt)):
             raise HTTPException(403, detail="That subsystem's officer holds this command — ask them, or take a free seat")
 

@@ -77,11 +77,12 @@ makes seed scripts idempotent without a second existence query.
 ## 4. Missions (`backend/app/models/missions/`, `routers/missions/`, `services/missions/`)
 
 Tables: `missions`, `mission_variants`, `mission_attempts`, `mission_attempt_members`,
-`mission_teams`, `mission_team_members`, `mission_managers`, `mission_assignments`,
-`mission_proposals`, `mission_step_gates`, plus the design-mission-specific
-`design_component_library`, `designs`, `design_modes`, `design_components`,
-`design_component_mode_states`, and one table per budget (`design_data_budget_entries`,
-`_power_`, `_mass_`, `_cost_`, `_link_budget_entries`).
+`mission_managers`, `mission_assignments`, `mission_proposals`, `mission_step_gates`,
+`mission_step_selections`, plus the design-mission-specific `design_component_library`,
+`designs`, `design_modes`, `design_components`, `design_component_mode_states`, and one table per
+budget (`design_data_budget_entries`, `_power_`, `_mass_`, `_cost_`, `_link_budget_entries`).
+Team identity (`learner_teams`, `learner_team_members`) is **not** listed here — it moved out to
+a top-level, domain-agnostic model since 2026-08-17 (see the Team generalization bullet below).
 
 - **`Mission.kind`** ∈ `design | submission | quiz | checklist | operate | external`
   (`VERIFIER_KINDS`, `services/missions/verifiers/__init__.py`) — one verifier module per kind
@@ -102,7 +103,7 @@ Tables: `missions`, `mission_variants`, `mission_attempts`, `mission_attempt_mem
   shows a "My Missions" list for `kind === "design"` instead of auto-redirecting into one attempt.
 - **`MissionAttempt.cohort_id`** (2026-08-17) — every attempt now carries a real cohort
   attribution, resolved eagerly at `start_attempt()` time (solo: the student's active
-  `Registration`; team: `MissionTeam.cohort_id`), for every mission kind. Supersedes the older
+  `Registration`; team: `Team.cohort_id`), for every mission kind. Supersedes the older
   `Design.cohort_id`, which resolved lazily and solo-only, and now just mirrors this column.
 - **Per-cohort step gating — reintroduced, on purpose** (2026-08-17). An identical feature
   (`design_step_gates`) existed once, shipped with no UI to ever use it, and was removed in
@@ -113,6 +114,23 @@ Tables: `missions`, `mission_variants`, `mission_attempts`, `mission_attempt_mem
   require_step_unlocked`) and mirrored client-side via `DesignStateOut.step_gates` for the
   wizard's tab-blocking (`DesignMissionPage.tsx`). Design-mission only — the only kind with a
   real multi-step wizard to gate.
+- **Per-cohort step *selection* — compositional, not temporal, don't confuse with gating above**
+  (2026-08-17). Real driver: the TDRA Summer Camp cohort only needs Components/Power/Mass,
+  skipping Data Budget and Communication (Link + Downlink) entirely. `MissionStepSelection
+  (cohort_id, mission_id, step_key)` — presence of a row means *included*; no rows for a
+  cohort/mission pair means every step is included (permissive default, so a cohort that never
+  configures this behaves exactly as before the feature existed). `DESIGN_STEP_PREREQS`
+  (`services/lms/admin_progress.py`) is the verified real math dependency graph — narrower than
+  `DesignMissionPage.tsx`'s old `DESIGN_TABS.needs` UI hints, which only explain step *order*
+  and were never a real dependency check. The one correction that mattered: `calc_power_budget`/
+  `calc_data_budget`'s validity never actually reads CONOPS (`modes` default to valid
+  zero-duration values regardless), so their only real hard prerequisite is `components`, not
+  `conops` — confirmed by the TDRA case, which selects Power without CONOPS. `downlink` is the
+  one exception: hidden, not directly selectable, and only counts toward completion when
+  `data_budget`+`link_budget`+`conops` are all in the selected subset. Server-side re-expansion
+  (`services/missions/step_selection.py::set_selected_steps`) is the real enforcement — the
+  frontend picker (`StepsTab` in `CohortMissions.tsx`) pre-expands for UX only. New
+  `/missions/instructor/.../steps` GET/PUT/DELETE endpoints, alongside the existing gates ones.
 - **`/missions/instructor/*`** (2026-08-17) — a brand-new access path for the plain `instructor`
   role (it has zero access to `/missions/admin`/`/lms/admin`, which stay
   operations/facilitator/admin-only). Cohort-scoped progress, gates, and a review queue,
@@ -142,6 +160,28 @@ Tables: `missions`, `mission_variants`, `mission_attempts`, `mission_attempt_mem
   first. UI for this (`MissionAuthorsSection.tsx` on `LmsMissionDetail.tsx`) existed in the
   backend since 7B-7 but had no screen until 2026-08-14 — check the actual git log before
   assuming a backend capability is reachable from the UI.
+- **Team generalization** (2026-08-17) — `MissionTeam` lifted into a top-level, domain-agnostic
+  `Team`/`TeamMember` (`backend/app/models/team.py`, tables `learner_teams`/
+  `learner_team_members` — **not** `teams`, which `models/interns/team.py` already owns as a
+  fully separate, unrelated internship-program concept). This is the opening move of the
+  Competition domain per the August Build Brief: Competition needs teams too, and building its
+  logic against a missions-only table would have meant redoing it later. Zero rows in
+  `mission_teams` in production made this a rare safe window for a real breaking rename
+  (table/column/constraint, migration `a1f0c9b2d4e7`) with no backfill burden — don't expect
+  that same freedom for a future rename. `MissionAttempt.mission_team_id` is now `team_id`.
+  CRUD/membership primitives moved to `app/services/teams.py`; mission-specific attempt logic
+  (XOR handling, per-member point awards) stayed in `services/missions/attempts.py` since that's
+  inherently mission-attempt lifecycle, not team identity. New real membership endpoints —
+  `POST /teams/{id}/join`, `DELETE /teams/{id}/leave` — wiring up what were previously dead
+  `add_member`/`remove_member` primitives (409 on already-a-member, 404 on not-a-member, no
+  silent no-ops). **Gotcha if this ever needs touching again**: two unrelated interns-domain
+  files (`models/interns/project.py`, `models/interns/epic.py`) use `relationship(Team, ...)` —
+  they used to pass a bare `"Team"` string, which broke the moment a second class named `Team`
+  existed, since SQLAlchemy resolves string relationship targets registry-wide, not per-module.
+  Frontend: `api/teams.ts` (new, generalized out of `missions.ts`'s old `MissionTeam` type),
+  join/leave UI in `MissionPage.tsx`'s `TeamPicker`, a new "Teams" card on `LearnProfile.tsx`
+  (`/missions/teams/mine` — only shows mission teams for now, labeled generically since
+  Competition will add a second domain of teams to the same list later).
 - **Proposing a new mission** (intern-submitted prototype → staff port): full process in
   [`MISSIONS_INTERN_SPEC.md`](./MISSIONS_INTERN_SPEC.md). Short version: keep the domain logic
   (calculations, state machine, vocabulary), always rewrite auth/stack/DB against this

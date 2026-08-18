@@ -2,10 +2,11 @@ import { useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { Award, CheckCircle2, Download, LogOut, Pencil, RefreshCw, Upload } from "lucide-react";
+import { Award, CheckCircle2, Download, LogOut, Pencil, RefreshCw, Upload, Users } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { changePassword, fetchMe, rerollNicknameApi, updateMeApi, updatePhotoApi } from "@/api/auth";
 import { fetchMyActivity, fetchMyCertificates, fetchMyCourses } from "@/api/lms";
+import { fetchMyTeams } from "@/api/missions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CountrySelect } from "@/components/ui/CountrySelect";
@@ -41,6 +42,7 @@ export default function LearnProfile() {
   const { data: dashboard } = useQuery({ queryKey: ["lms-my-courses"], queryFn: fetchMyCourses });
   const { data: activity } = useQuery({ queryKey: ["lms-my-activity"], queryFn: fetchMyActivity });
   const { data: certificates } = useQuery({ queryKey: ["lms-my-certificates"], queryFn: fetchMyCertificates });
+  const { data: teams } = useQuery({ queryKey: ["my-teams"], queryFn: fetchMyTeams });
 
   const reroll = useMutation({
     mutationFn: rerollNicknameApi,
@@ -203,6 +205,33 @@ export default function LearnProfile() {
                             <Download className="size-3.5" /> PDF
                           </a>
                         )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+
+              <Card className="p-5 gap-4">
+                <h2 className="font-display text-base font-bold tracking-tight">Teams</h2>
+                {!teams || teams.length === 0 ? (
+                  <EmptyState title="No teams yet" hint="Join or create a team from a team-policy mission to see it here." />
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {teams.map((t) => (
+                      <div
+                        key={t.id}
+                        className="flex items-center gap-3 rounded-xl border border-border p-3"
+                      >
+                        <div className="flex size-10 shrink-0 items-center justify-center rounded-full ring-1 ring-primary/35 text-primary">
+                          <Users className="size-5" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium text-foreground truncate">{t.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {t.cohort_id ? "Cohort team" : "Self-formed"}
+                            {t.member_names.length > 0 && ` · ${t.member_names.join(", ")}`}
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>
