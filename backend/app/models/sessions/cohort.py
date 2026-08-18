@@ -48,6 +48,9 @@ class Cohort(Base):
 
     madar_invitation_batch = Column(String(64), nullable=True)
     notes = Column(Text, nullable=True)
+    # Ops-set once per cohort — the master poster template link a team's
+    # working copy is duplicated from (August Build Brief, Branch 3).
+    poster_template_url = Column(String(512), nullable=True)
 
     # B2B private cohort (V2 R1-2 delta)
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)

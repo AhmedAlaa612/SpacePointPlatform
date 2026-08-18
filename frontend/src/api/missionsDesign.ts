@@ -243,6 +243,10 @@ export interface DesignState {
    * reads all true. Drives which tabs even appear, not just whether
    * they're blocked. */
   included_steps: Record<string, boolean>;
+  /** Ops-set once per cohort — null outside any cohort (or when unset). */
+  poster_template_url: string | null;
+  /** The team's own working-copy link — editable until the cohort ends. */
+  poster_url: string | null;
 }
 
 export async function fetchDesignState(attemptId: string): Promise<DesignState> {
@@ -259,7 +263,7 @@ export async function updateDesign(attemptId: string, body: Partial<{
   design_name: string; design_objective: string; orbit_type: string;
   orbit_duration_min: number; orbits_per_day: number;
   selected_cubesat_size: string; selected_solar_cells: number;
-  battery_capacity_wh: number;
+  battery_capacity_wh: number; poster_url: string;
 }>): Promise<DesignState> {
   const { data } = await api.patch<DesignState>(`/missions/design/attempts/${attemptId}`, body);
   return data;

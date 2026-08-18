@@ -63,6 +63,9 @@ export interface Cohort {
   organization_id?: string | null;
   visibility: CohortVisibility;
   created_at: string;
+  /** Ops-set once per cohort — the master poster template link a team's
+   *  working copy is duplicated from. */
+  poster_template_url?: string | null;
   // Convenience join, populated only by the list endpoint.
   program_name?: string | null;
   program_code?: string | null;

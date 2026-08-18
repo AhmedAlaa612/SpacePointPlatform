@@ -35,6 +35,9 @@ class CohortBase(BaseModel):
     notes: str | None = None
     organization_id: UUID | None = None
     visibility: Visibility = "public"
+    # Ops-set once per cohort — the master poster template link a team's
+    # working copy is duplicated from.
+    poster_template_url: str | None = None
 
 
 class CohortCreate(CohortBase):
@@ -56,6 +59,7 @@ class CohortUpdate(BaseModel):
     notes: str | None = None
     organization_id: UUID | None = None
     visibility: Visibility | None = None
+    poster_template_url: str | None = None
 
 
 class CohortOut(CohortBase):

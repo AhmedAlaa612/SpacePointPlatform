@@ -141,6 +141,17 @@ a top-level, domain-agnostic model since 2026-08-17 (see the Team generalization
   Frontend: `pages/lms-authoring/CohortMissions.tsx`, reachable by instructor too (the
   `/lms-authoring` layout guard was widened for this one page — every other page there still
   403s a plain instructor server-side).
+- **Poster/Canva link fields** (2026-08-18, August Build Brief Branch 3) — deliberately scoped to
+  two plain nullable columns, no new table: `cohorts.poster_template_url` (ops sets once per
+  cohort, in the `CohortModal`) and `designs.poster_url` (the team's own working-copy link).
+  `DesignStateOut.poster_template_url` is resolved from `attempt.cohort_id` (`None` outside any
+  cohort — self-service attempts never see a template). The poster stays editable until the
+  cohort's `ends_on` passes; `update_design` 400s a `poster_url` PATCH past that date, checked
+  before the generic `setattr` loop, same pattern as everywhere else in this router. Frontend:
+  `PosterTab.tsx` reuses `DesignHandbookDrawer`'s slide-over mechanic but anchored to the left
+  edge — the handbook already owns the bottom-right corner — mounted alongside it in
+  `DesignMissionPage.tsx`. No native poster renderer, no Canva API integration — a real
+  drag-and-drop editor was explicitly deferred unless the link-only version proves insufficient.
 - **Operate mission** — a real orbital simulation (not a quiz about one), rebuilt 2026-08-13.
   Objectives are graded live against state, not just a final score.
 - **`mission_managers`** (7B-7) — staff can assign an intern/other staff as a mission's manager:
