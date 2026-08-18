@@ -198,3 +198,58 @@ async def test_course_detail_instructor_fields_null_when_unset(db, client):
     body = resp.json()
     assert body["instructor_name"] is None
     assert body["outcomes"] == []
+
+
+# ── Stripe Checkout pricing (Stage S, August Build Brief Branch 4) ──────────
+
+@pytest.mark.asyncio
+async def test_admin_can_set_a_course_to_paid_with_a_price(db, client):
+    ops = await _user(db)
+    course = Course(id=uuid.uuid4(), title="Paid Course", created_by=ops.id)
+    db.add(course)
+    await db.commit()
+
+    resp = await client.patch(
+        f"/lms/admin/courses/{course.id}", headers=_headers(ops),
+        json={"access_mode": "paid", "price_cents": 4900, "currency": "usd"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["access_mode"] == "paid"
+    assert body["price_cents"] == 4900
+    assert body["currency"] == "usd"
+
+    get_resp = await client.get(f"/lms/admin/courses/{course.id}", headers=_headers(ops))
+    assert get_resp.json()["price_cents"] == 4900
+
+
+@pytest.mark.asyncio
+async def test_course_create_defaults_price_cents_to_none(db, client):
+    ops = await _user(db)
+    await db.commit()
+
+    resp = await client.post("/lms/admin/courses", headers=_headers(ops), json={"title": "Free Course"})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["price_cents"] is None
+    assert resp.json()["currency"] == "usd"
+
+
+@pytest.mark.asyncio
+async def test_student_course_detail_exposes_price(db, client):
+    ops = await _user(db)
+    course = Course(
+        id=uuid.uuid4(), title="Priced Course", created_by=ops.id, is_published=True,
+        access_mode="paid", price_cents=2500, currency="usd",
+    )
+    db.add(course)
+    await db.commit()
+
+    student = await _user(db, roles=["student"])
+    await db.commit()
+
+    resp = await client.get(f"/lms/courses/{course.id}", headers=_headers(student))
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["access_mode"] == "paid"
+    assert body["price_cents"] == 2500
+    assert body["currency"] == "usd"

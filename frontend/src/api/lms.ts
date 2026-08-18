@@ -55,6 +55,10 @@ export interface CourseDetail {
   access_mode: "open" | "invite" | "paid"; // P1-7
   locked: boolean; // 7B-2 — unmet prerequisites; independent of access_mode
   prerequisites: CoursePrerequisite[];
+  // Stage S (Stripe Checkout) — integer minor units, matching Stripe's
+  // unit_amount. Null unless access_mode === "paid".
+  price_cents: number | null;
+  currency: string;
 }
 
 export interface QuizOption {
@@ -375,6 +379,23 @@ export async function fetchCourse(courseId: string): Promise<CourseDetail> {
 
 export async function enrollInCourse(courseId: string): Promise<void> {
   await api.post("/lms/enroll", { course_id: courseId });
+}
+
+// Stage S (Stripe Checkout, August Build Brief Branch 4).
+
+export async function startCourseCheckout(courseId: string): Promise<{ checkout_url: string }> {
+  const { data } = await api.post<{ checkout_url: string }>(`/lms/courses/${courseId}/checkout`, {});
+  return data;
+}
+
+export interface CheckoutFulfillResult {
+  status: "pending" | "paid" | "refunded" | "disputed" | "failed";
+  course_id: string;
+}
+
+export async function fulfillCheckoutSession(sessionId: string): Promise<CheckoutFulfillResult> {
+  const { data } = await api.post<CheckoutFulfillResult>(`/lms/checkout/session/${sessionId}/fulfill`, {});
+  return data;
 }
 
 export async function fetchModule(moduleId: string): Promise<ModuleDetail> {

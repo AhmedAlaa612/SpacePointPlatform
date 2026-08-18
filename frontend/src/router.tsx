@@ -125,6 +125,7 @@ import LearnLanding from "@/pages/learn/LearnLanding";
 import LearnCatalog from "@/pages/learn/LearnCatalog";
 import LearnMyCourses from "@/pages/learn/LearnMyCourses";
 import LearnCourse from "@/pages/learn/LearnCourse";
+import LearnCheckoutSuccess from "@/pages/learn/LearnCheckoutSuccess";
 import LearnPlayer from "@/pages/learn/LearnPlayer";
 import LearnPaths from "@/pages/learn/LearnPaths";
 import LearnPath from "@/pages/learn/LearnPath";
@@ -872,6 +873,18 @@ const learnPlayerRoute = createRoute({
   component: LearnPlayer,
 });
 
+// Stage S (Stripe Checkout, August Build Brief Branch 4) — the redirect
+// target success_url points at. Never trusts the redirect alone; the page
+// itself calls the server-side fulfil confirmation.
+const learnCheckoutSuccessRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/checkout/success",
+  validateSearch: (search: Record<string, unknown>): { session_id?: string } => ({
+    session_id: typeof search.session_id === "string" ? search.session_id : undefined,
+  }),
+  component: LearnCheckoutSuccess,
+});
+
 // Learning paths (self-paced ordered course sequences, 2026-08-08, design 4a).
 const learnPathsRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
@@ -992,6 +1005,7 @@ const routeTree = rootRoute.addChildren([
   learnSetPasswordRoute,
   learnLayoutRoute.addChildren([
     learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
+    learnCheckoutSuccessRoute,
     learnPathsRoute, learnPathRoute, learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
     learnGamesRoute, learnGamePlayRoute,
     learnMissionsRoute, learnDesignBriefingRoute, learnDesignMissionRoute, learnOperateBriefingRoute,

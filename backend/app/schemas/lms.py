@@ -205,6 +205,10 @@ class CourseDetailOut(BaseModel):
     access_mode: str = "open"  # P1-7 — open|invite|paid, drives the CTA
     locked: bool = False  # 7B-2 — unmet prerequisites; independent of access_mode
     prerequisites: list[PrerequisiteItemOut] = []
+    # Stage S — integer minor units, matching Stripe's unit_amount. NULL
+    # unless access_mode == "paid".
+    price_cents: int | None = None
+    currency: str = "usd"
 
 
 # ── enrollment ──────────────────────────────────────────────────────────────
@@ -220,6 +224,17 @@ class EnrollmentOut(BaseModel):
     status: str
     created_at: datetime | None = None
     expires_at: datetime | None = None  # P1-3 — NULL means perpetual
+
+
+# ── checkout (Stage S, Stripe) ───────────────────────────────────────────────
+
+class CheckoutSessionOut(BaseModel):
+    checkout_url: str
+
+
+class CheckoutFulfillOut(BaseModel):
+    status: str  # pending | paid | refunded | disputed | failed
+    course_id: UUID
 
 
 # ── module read (enrolled student only) ─────────────────────────────────────

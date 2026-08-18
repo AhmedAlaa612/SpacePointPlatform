@@ -69,3 +69,9 @@ gdown
 # access they already have — no re-sharing, no service account.
 google-auth-oauthlib
 google-api-python-client
+
+# Stripe Checkout — LMS course purchases (Stage S, August Build Brief
+# Branch 4). The [async] extra pulls httpx so every call can use the
+# _async suffix (create_async/retrieve_async) instead of blocking the
+# event loop.
+stripe[async]

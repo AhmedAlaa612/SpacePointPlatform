@@ -4,12 +4,16 @@ import { isAxiosError } from "axios";
 import { CheckCircle2, ChevronRight, Lock, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { enrollInCourse, fetchCourse, type CourseDetail } from "@/api/lms";
+import { enrollInCourse, fetchCourse, startCourseCheckout, type CourseDetail } from "@/api/lms";
 import { CourseProgress } from "./CourseProgress";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
   return fallback;
+}
+
+function formatPrice(cents: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
 }
 
 /** Course landing (design 1g) — orient & enrol only; in-progress state lives
@@ -44,14 +48,19 @@ export default function LearnCourse() {
     setEnrolling(true);
     setEnrollError("");
     try {
+      if (course?.access_mode === "paid") {
+        const { checkout_url } = await startCourseCheckout(courseId);
+        window.location.href = checkout_url;
+        return; // leaving the page — don't clear `enrolling` on the way out
+      }
       await enrollInCourse(courseId);
       load();
     } catch (err) {
       // Surfaces the backend's own message — it already distinguishes
       // invite-only (403) and not-yet-available payment (402) from a
-      // genuine failure (P1-7).
+      // genuine failure (P1-7). A 409 means another checkout attempt is
+      // already in flight for this course — worth a plain retry.
       setEnrollError(errorDetail(err, "Couldn't enroll right now. Please try again."));
-    } finally {
       setEnrolling(false);
     }
   };
@@ -195,7 +204,11 @@ export default function LearnCourse() {
                 </>
               ) : (
                 <Button size="xl" className="w-full" onClick={() => void handleEnroll()} disabled={enrolling}>
-                  {enrolling ? "Enrolling..." : course.access_mode === "paid" ? "Buy" : "Enroll"}
+                  {enrolling
+                    ? (course.access_mode === "paid" ? "Redirecting to checkout..." : "Enrolling...")
+                    : course.access_mode === "paid"
+                      ? `Buy${course.price_cents != null ? ` — ${formatPrice(course.price_cents, course.currency)}` : ""}`
+                      : "Enroll"}
                 </Button>
               )}
               {enrollError && <p className="text-xs text-destructive text-center">{enrollError}</p>}

@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_KEY: str = ""
 
+    # Stripe Checkout — LMS course purchases (Stage S, August Build Brief
+    # Branch 4). Webhook secret is a separate value from the CLI's own
+    # `stripe listen` secret when testing locally.
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+
     # Storage backend (Phase 7 / GO_LIVE §3.A3)
     # - "supabase": Supabase Storage buckets (dev default, pre-cutover)
     # - "local":    files under STORAGE_ROOT/{bucket}/{path}, Fernet-encrypted at

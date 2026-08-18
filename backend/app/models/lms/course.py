@@ -74,6 +74,12 @@ class Course(Base):
     # in the same stage so there's no window where expiry looks implemented
     # and silently isn't.
     access_days = Column(Integer, nullable=True)
+    # Stripe Checkout (Stage S, August Build Brief Branch 4). Integer minor
+    # units, matching Stripe's unit_amount/amount_total. NULL when not paid —
+    # "a paid course must have a positive price" is an application check in
+    # the checkout endpoint, not a DB constraint, same posture as access_mode.
+    price_cents = Column(Integer, nullable=True)
+    currency = Column(String(3), nullable=False, default="usd", server_default="usd")
 
 
 class CourseModule(Base):

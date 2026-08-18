@@ -35,12 +35,35 @@ component catalog, student accounts) with no map of its own until now. If you're
 
 Tables: `courses`, `course_modules`, `module_items`, `module_videos`, `video_checkpoints`,
 `enrollments`, `item_progress`, `learning_paths`, `learning_path_steps`, `point_events`,
-`program_curriculum`, `cohort_curriculum`.
+`program_curriculum`, `cohort_curriculum`, `purchases`.
 
 - `Course.access_mode` is `open | invite | paid` — governs **self-enrol eligibility only**, and
   self-enrol (`POST /lms/enroll`) is `require_lms_student`: **staff can never self-enrol in
   anything**, regardless of a course's mode. Staff access is always an ops-granted `Enrollment`
   row (`source="ops"`).
+- **Stripe Checkout for paid courses** (2026-08-18, August Build Brief Branch 4) — the `paid`
+  stage referenced above, now built. One-time payments only, hosted Checkout (not Elements —
+  lower PCI surface), webhook-driven fulfilment via `services/lms/checkout.py::fulfill`, which
+  both `POST /lms/webhooks/stripe` and the success-page trigger (`POST /lms/checkout/session/
+  {id}/fulfill`) call — the redirect is only ever a hint to check, never itself proof of payment.
+  New `Purchase` model (`models/lms/purchase.py`) carries a `product_type` discriminator
+  (`"lms_course"` today) so a Phase 2 Programs/registration purchase can reuse the table without
+  a rebuild — never rename `course_id` for that, add a sibling nullable FK instead.
+  Double-payment protection is two-layered: a resume-in-progress check (covers two tabs/back
+  button/refresh) plus a partial unique index on `(user_id, course_id)` scoped to
+  `status='pending'` (covers the millisecond race) — cheap specifically because the `Purchase`
+  row is always inserted *before* the Stripe session is created, so a losing insert fails before
+  Stripe is ever contacted and there's no orphaned session to clean up. Webhook handles
+  `checkout.session.completed`/`async_payment_succeeded` (fulfil), `expired`/
+  `async_payment_failed` (mark failed), `charge.refunded` (revoke on a full refund only — a
+  partial refund is a goodwill adjustment, not "give the course back"), and
+  `charge.dispute.created`/`closed` (revoke only on a real dispute — `warning_*` states are bank
+  inquiries with no funds withdrawn yet, and are deliberately left alone; dispute resolution never
+  auto-restores a revoked enrollment, that's a manual ops re-grant). Refunds themselves are fully
+  manual via the Stripe Dashboard for v1. `Course.price_cents`/`currency` are integer minor units
+  (Stripe's own convention); `EnrollmentSource` gained `"purchase"`. Admin editing lives in
+  `LmsCourseDetail.tsx`'s `EditCourseModal` (**not** `LmsMissionDetail.tsx` — that page edits a
+  *mission's* access_mode, a different entity a naive grep can confuse this with).
 - `GET /lms/catalog` (`routers/lms/student.py`) returns every published course to a student
   (self-enrol into `open`, browse the rest as a locked preview) — but for anyone else, it's
   scoped to courses they actually hold an active `Enrollment` in. Otherwise a staff browse
