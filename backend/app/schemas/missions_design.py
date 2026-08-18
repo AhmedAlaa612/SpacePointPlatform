@@ -181,6 +181,7 @@ class DesignUpdateIn(BaseModel):
     selected_cubesat_size: Literal["1U", "2U", "3U", "6U"] | None = None
     selected_solar_cells: int | None = None
     battery_capacity_wh: float | None = None
+    poster_url: str | None = None
 
 
 # ── the dashboard (composed summary) ────────────────────────────────────
@@ -358,6 +359,12 @@ class DesignStateOut(BaseModel):
     selected_solar_cells: int
     battery_capacity_wh: float | None = None
     created_at: datetime | None = None
+    # Poster/Canva (August Build Brief, Branch 3). poster_template_url is
+    # resolved from the attempt's cohort (None outside any cohort);
+    # poster_url is the team's own working-copy link, editable until the
+    # cohort's ends_on passes.
+    poster_template_url: str | None = None
+    poster_url: str | None = None
 
     components: list[DesignComponentOut] = []
     modes: list[DesignModeOut] = []

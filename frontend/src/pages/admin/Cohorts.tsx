@@ -325,6 +325,7 @@ const { data: warehouses = [] } = useQuery({
   const [visibility, setVisibility] = useState<CohortVisibility>(cohort?.visibility ?? "public")
   const [status, setStatus] = useState<CohortStatus>(cohort?.status ?? "planned")
   const [notes, setNotes] = useState(cohort?.notes ?? "")
+  const [posterTemplateUrl, setPosterTemplateUrl] = useState(cohort?.poster_template_url ?? "")
   const [error, setError] = useState("")
 
   // Inline "+ New location" — so ops doesn't have to leave the cohort form
@@ -373,6 +374,7 @@ const { data: warehouses = [] } = useQuery({
           visibility,
           status,
           notes: notes.trim() || null,
+          poster_template_url: posterTemplateUrl.trim() || null,
         })
       }
       return createCohortApi({
@@ -385,6 +387,7 @@ const { data: warehouses = [] } = useQuery({
         capacity: capacity.trim() ? Number(capacity) : undefined,
         visibility,
         notes: notes.trim() || undefined,
+        poster_template_url: posterTemplateUrl.trim() || undefined,
       })
     },
     onSuccess: () => { toast.success(isEdit ? "Cohort updated" : "Cohort created"); onSuccess() },
@@ -542,6 +545,16 @@ const { data: warehouses = [] } = useQuery({
             value={notes} onChange={(e) => setNotes(e.target.value)} rows={2}
             className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors resize-none"
           />
+        </Field>
+        <Field label="Poster template link (optional)">
+          <input
+            value={posterTemplateUrl} onChange={(e) => setPosterTemplateUrl(e.target.value)}
+            placeholder="https://canva.com/design/..." type="url"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Shown to teams inside their Design Mission — duplicate the master template once per team first.
+          </p>
         </Field>
         {error && <p className="text-xs text-red-500">{error}</p>}
         <ModalActions

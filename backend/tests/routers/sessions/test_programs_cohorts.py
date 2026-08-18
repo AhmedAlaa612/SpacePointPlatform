@@ -496,3 +496,23 @@ async def test_unassign_instructor_from_session(db, client, operations_headers):
     list_resp = await client.get(f"/sessions/cohorts/{cohort.id}/sessions", headers=operations_headers)
     session_out = next(s for s in list_resp.json() if s["id"] == str(session.id))
     assert session_out["instructors"] == []
+
+
+# ── Poster/Canva template link (August Build Brief, Branch 3) ────────────────
+
+@pytest.mark.asyncio
+async def test_poster_template_url_round_trips_through_cohort_patch(db, client, operations_headers):
+    program = await _make_program(db)
+    cohort = await _make_cohort(db, program)
+
+    resp = await client.patch(
+        f"/sessions/cohorts/{cohort.id}",
+        json={"poster_template_url": "https://canva.com/design/template-copy"},
+        headers=operations_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["poster_template_url"] == "https://canva.com/design/template-copy"
+
+    get_resp = await client.get(f"/sessions/cohorts/{cohort.id}", headers=operations_headers)
+    assert get_resp.status_code == 200
+    assert get_resp.json()["poster_template_url"] == "https://canva.com/design/template-copy"

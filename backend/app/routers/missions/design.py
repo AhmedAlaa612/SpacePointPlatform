@@ -19,6 +19,7 @@ design-specific about who may act on it.
 """
 
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -26,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user
 from app.db.session import get_db
+from app.models.sessions.cohort import Cohort
 from app.models.missions.design import (
     Design,
     DesignComponent,
@@ -253,6 +255,12 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
     included_step_set = await selected_steps_for_attempt(db, attempt=attempt)
     included_steps = {key: (key in included_step_set) for key, _ in DESIGN_STEP_LABELS if key != "downlink"}
 
+    poster_template_url = None
+    if attempt.cohort_id is not None:
+        cohort = await db.get(Cohort, attempt.cohort_id)
+        if cohort is not None:
+            poster_template_url = cohort.poster_template_url
+
     return DesignStateOut(
         id=design.id, attempt_id=attempt.id, mission_id=mission.id, variant_id=variant.id,
         variant_label=variant.label, attempt_status=attempt.status,
@@ -261,6 +269,7 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
         selected_cubesat_size=design.selected_cubesat_size, selected_solar_cells=design.selected_solar_cells,
         battery_capacity_wh=design.battery_capacity_wh,
         created_at=design.created_at,
+        poster_template_url=poster_template_url, poster_url=design.poster_url,
         components=component_out, modes=mode_out, link_entry=link_out,
         cubesat_presets=[CubeSatPresetOut(size=k, **v) for k, v in CUBESAT_PRESETS.items()],
         band_presets=BAND_PRESETS,
@@ -368,7 +377,15 @@ async def update_design(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    if "poster_url" in changes and attempt.cohort_id is not None:
+        cohort = await db.get(Cohort, attempt.cohort_id)
+        if cohort is not None and cohort.ends_on is not None and cohort.ends_on < date.today():
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="This program has ended — the poster can no longer be edited",
+            )
+    for field, value in changes.items():
         setattr(design, field, value)
     result = await _design_state_out(db, attempt=attempt, design=design)
     await db.commit()

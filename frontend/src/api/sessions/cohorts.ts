@@ -29,6 +29,7 @@ export const createCohortApi = (data: {
   status?: CohortStatus
   visibility?: CohortVisibility
   notes?: string
+  poster_template_url?: string
 }) => api.post<Cohort>("/sessions/cohorts", data).then((r) => r.data)
 
 export const updateCohortApi = (
@@ -44,6 +45,7 @@ export const updateCohortApi = (
     status: CohortStatus
     visibility: CohortVisibility
     notes: string | null
+    poster_template_url: string | null
   }>
 ) => api.patch<Cohort>(`/sessions/cohorts/${id}`, data).then((r) => r.data)
 

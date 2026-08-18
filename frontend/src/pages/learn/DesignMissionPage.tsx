@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DesignHandbookDrawer from "@/components/missions/DesignHandbook";
+import PosterTab from "@/components/missions/PosterTab";
 import {
   addDesignComponent, completeDesign, fetchDesignHandbook, fetchDesignLibrary, fetchDesignState,
   removeDesignComponent, saveConops, saveCostBudget, saveDataBudget, saveLinkBudget, saveMassBudget,
@@ -175,6 +176,7 @@ export default function DesignMissionPage() {
       </Tabs>
 
       <DesignHandbookDrawer handbook={handbook} />
+      <PosterTab state={state} attemptId={attemptId} onSaved={setState} />
     </div>
   );
 }

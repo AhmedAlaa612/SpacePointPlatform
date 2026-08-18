@@ -118,6 +118,9 @@ class Design(Base):
     battery_capacity_wh = Column(Float, nullable=True)
     selected_solar_cells = Column(Integer, nullable=False, default=0, server_default="0")
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="SET NULL"), nullable=True)
+    # The team's own working-copy link, pasted back in (August Build Brief,
+    # Branch 3) — editable until the cohort's `ends_on` passes.
+    poster_url = Column(String(512), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

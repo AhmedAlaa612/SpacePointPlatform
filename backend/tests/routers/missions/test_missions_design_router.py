@@ -3,6 +3,7 @@ Redis-free (uses the `client` fixture).
 """
 
 import uuid
+from datetime import date, timedelta
 
 import pytest
 from fastapi import status as http_status
@@ -193,14 +194,16 @@ async def test_cannot_act_on_another_students_design_attempt(db, client):
 
 # ── per-cohort step gating (2026-08-17) ──────────────────────────────────
 
-async def _cohort(db) -> Cohort:
+async def _cohort(db, **overrides) -> Cohort:
     program = Program(
         id=uuid.uuid4(), code=f"DGP-{uuid.uuid4().hex[:8]}", name="Design Gating Program",
         program_type="workshop", pricing_model="free", active=True,
     )
     db.add(program)
     await db.flush()
-    cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Design Gating Cohort", status="running")
+    defaults = dict(id=uuid.uuid4(), program_id=program.id, name="Design Gating Cohort", status="running")
+    defaults.update(overrides)
+    cohort = Cohort(**defaults)
     db.add(cohort)
     await db.flush()
     return cohort
@@ -322,3 +325,109 @@ async def test_design_state_reports_step_gates(db, client):
     assert gates["power_budget"] is False
     assert gates["components"] is True  # no row for this step -> unlocked
     assert gates["energy_budget"] is True  # ungated computed step, always shown
+
+
+# ── Poster/Canva link fields (August Build Brief, Branch 3) ─────────────────
+
+@pytest.mark.asyncio
+async def test_design_state_resolves_poster_template_url_from_cohort(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    cohort = await _cohort(db, poster_template_url="https://canva.com/design/master-template")
+    student = await _registered_student(db, cohort=cohort)
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    state = await client.get(f"/missions/design/attempts/{attempt_id}", headers=_headers(student))
+    assert state.json()["poster_template_url"] == "https://canva.com/design/master-template"
+    assert state.json()["poster_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_design_state_has_no_poster_template_url_outside_any_cohort(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)  # no Contact/Registration — no cohort at all
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    state = await client.get(f"/missions/design/attempts/{attempt_id}", headers=_headers(student))
+    assert state.json()["poster_template_url"] is None
+
+
+@pytest.mark.asyncio
+async def test_update_design_accepts_poster_url_with_no_deadline(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)  # no cohort, so never a deadline to violate
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    resp = await client.patch(
+        f"/missions/design/attempts/{attempt_id}",
+        headers=_headers(student), json={"poster_url": "https://canva.com/design/my-copy"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["poster_url"] == "https://canva.com/design/my-copy"
+
+
+@pytest.mark.asyncio
+async def test_update_design_accepts_poster_url_when_cohort_ends_in_the_future(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    cohort = await _cohort(db, ends_on=date.today() + timedelta(days=7))
+    student = await _registered_student(db, cohort=cohort)
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    resp = await client.patch(
+        f"/missions/design/attempts/{attempt_id}",
+        headers=_headers(student), json={"poster_url": "https://canva.com/design/my-copy"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["poster_url"] == "https://canva.com/design/my-copy"
+
+
+@pytest.mark.asyncio
+async def test_update_design_rejects_poster_url_after_cohort_ends(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    cohort = await _cohort(db, ends_on=date.today() - timedelta(days=1))
+    student = await _registered_student(db, cohort=cohort)
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    resp = await client.patch(
+        f"/missions/design/attempts/{attempt_id}",
+        headers=_headers(student), json={"poster_url": "https://canva.com/design/my-copy"},
+    )
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST, resp.text
+    assert "ended" in resp.json()["detail"].lower()
+
+    # A field-only PATCH untouched by the deadline (e.g. design_name) still
+    # goes through fine on the same past-deadline cohort.
+    other = await client.patch(
+        f"/missions/design/attempts/{attempt_id}",
+        headers=_headers(student), json={"design_name": "Renamed"},
+    )
+    assert other.status_code == 200, other.text
