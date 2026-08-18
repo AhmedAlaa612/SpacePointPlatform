@@ -8,14 +8,14 @@ every existing row (no template set, no poster pasted yet), which is the
 correct default state — no backfill needed.
 
 Revision ID: 6dea285545b7
-Revises: f4c8b1e6a923
+Revises: a1f0c9b2d4e7
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "6dea285545b7"
-down_revision = "f4c8b1e6a923"
+down_revision = "a1f0c9b2d4e7"
 branch_labels = None
 depends_on = None
 
