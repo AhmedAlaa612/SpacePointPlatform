@@ -159,8 +159,9 @@ deployed."
 **host disk**, bind-mounted into both `spacepoint-api` and `spacepoint-worker` at `/data/storage`,
 Fernet-encrypted at rest and decrypted on every read. This is real, persistent storage — **not**
 the ephemeral per-container filesystem from the §3 gotcha; a deploy does not touch it. Buckets in
-active use include `lms-video-sources`, `lms-hls`, `lms-attachments`, plus the pre-existing
-document/certificate buckets.
+active use include `lms-video-sources`, `lms-hls`, `lms-attachments`, `internship-letters`
+(2026-08-20 — the internship request/letter domain, `HANDOFF_INTERNSHIP.md`), plus the
+pre-existing document/certificate buckets.
 
 ---
 
