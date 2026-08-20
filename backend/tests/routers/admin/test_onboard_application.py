@@ -28,6 +28,14 @@ from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.application_review import ApplicationReview
 from app.models.user import User
 
+_INTERNSHIP_BODY = {
+    "internship": {
+        "salutation": "Mr.", "activity_description": "engineering",
+        "supervisor_title": "Mr.", "supervisor_name": "Test Supervisor",
+        "supervisor_email": "sup@example.com", "supervisor_phone": "+971500000000",
+    }
+}
+
 
 @pytest_asyncio.fixture
 async def admin_user(db) -> User:
@@ -79,7 +87,7 @@ async def test_onboards_an_applicant_who_has_no_account_yet(db, client, admin_he
     await db.commit()
 
     resp = await client.post(
-        f"/admin/applications/{application.id}/onboard", json={}, headers=admin_headers,
+        f"/admin/applications/{application.id}/onboard", json=_INTERNSHIP_BODY, headers=admin_headers,
     )
     assert resp.status_code == 200, resp.text
 
@@ -104,7 +112,7 @@ async def test_onboards_an_applicant_who_already_has_an_account(db, client, admi
     await db.commit()
 
     resp = await client.post(
-        f"/admin/applications/{application.id}/onboard", json={}, headers=admin_headers,
+        f"/admin/applications/{application.id}/onboard", json=_INTERNSHIP_BODY, headers=admin_headers,
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["user_id"] == str(existing.id), "must reuse the account, not create a second"
@@ -134,7 +142,7 @@ async def test_onboarding_someone_already_in_the_instructor_pipeline_is_not_a_du
     await db.commit()
 
     resp = await client.post(
-        f"/admin/applications/{application.id}/onboard", json={}, headers=admin_headers,
+        f"/admin/applications/{application.id}/onboard", json=_INTERNSHIP_BODY, headers=admin_headers,
     )
     assert resp.status_code == 200, resp.text
 

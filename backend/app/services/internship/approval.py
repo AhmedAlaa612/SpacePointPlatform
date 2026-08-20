@@ -1,12 +1,17 @@
-"""Shared "approve an internship request" core — used by both the
-authenticated self-apply path (routers/internship.py, RoleRequest
-target_role="intern") and, in future, the public /apply/intern path once
-its approval branch is wired up. One place generates the ref number, the
-letter, uploads it, and emails the intern — so both entry points stay in
-sync instead of duplicating this logic.
+"""Shared "approve an internship request" core — used by all three entry
+points that end in an internship letter: the authenticated self-apply path
+(routers/internship.py, RoleRequest target_role="intern"), a direct
+admin approval of a public intern Application (routers/admin/applications.py
+::approve_application), and an intern Application routed into instructor
+onboarding, replayed automatically once that pipeline is approved
+(routers/instructors/admin.py::review_applicant). One place generates the
+ref number, the letter, uploads it, and emails the intern — so all three
+entry points stay in sync instead of duplicating this logic. See
+HANDOFF_INTERNSHIP.md.
 """
 
 import asyncio
+import uuid
 from datetime import date, datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +30,24 @@ def _format_letter_date(d: date) -> str:
     """"8 July 2026" — cross-platform, no %-d/%#d strftime flag needed.
     Matches contract.py's format_contract_date convention."""
     return f"{d.day} {d.strftime('%B %Y')}"
+
+
+def resolve_internship_request_fields(approve: InternshipApprove, details: dict) -> tuple[str | None, date | None]:
+    """Fills `approve.city_id`/`duration_weeks` from the applicant's own
+    submitted `details` (a RoleRequest.details or an Application.answers
+    dict — same key names, see routers/apply.py and routers/internship.py)
+    when the admin didn't override them, and extracts
+    `university_id_number`/`start_date` — always applicant-submitted, never
+    admin-typed, so there's nothing on `InternshipApprove` for them. Mutates
+    `approve` in place; returns the two extracted values for
+    `approve_internship()`'s other two positional args."""
+    if approve.city_id is None and details.get("preferred_city_id"):
+        approve.city_id = uuid.UUID(str(details["preferred_city_id"]))
+    if approve.duration_weeks is None and details.get("requested_duration_weeks"):
+        approve.duration_weeks = int(details["requested_duration_weeks"])
+    university_id_number = details.get("university_id_number")
+    start_date = date.fromisoformat(details["requested_start_date"]) if details.get("requested_start_date") else None
+    return university_id_number, start_date
 
 
 async def approve_internship(

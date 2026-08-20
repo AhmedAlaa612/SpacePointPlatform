@@ -1,5 +1,5 @@
 from sqlalchemy import Boolean, Column, ForeignKey, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 
 from app.db.base import Base
 
@@ -29,3 +29,14 @@ class ApplicantProfile(Base):
     # signing up organically. On final approval, review_applicant() unions this role
     # into the instructor role instead of overwriting — see routers/instructors/admin.py.
     also_grant_role = Column(String(50), nullable=True)
+
+    # Set alongside also_grant_role="intern" by onboard_application() —
+    # the internship-letter fields admin fills in AT SEND-TO-ONBOARDING TIME
+    # (salutation, activity description, supervisor, city/duration/hours
+    # overrides), replayed automatically by review_applicant() the moment
+    # instructor onboarding is approved (HANDOFF_INTERNSHIP.md). Shape:
+    # {"university_id_number": str|None, "start_date": "YYYY-MM-DD"|None,
+    #  "approve": {...InternshipApprove fields...}}. `letter_date`/
+    # `ref_number` are deliberately NOT pre-set here — those resolve fresh
+    # at whatever moment review_applicant() actually calls approve_internship().
+    pending_intern_details = Column(JSONB, nullable=True)

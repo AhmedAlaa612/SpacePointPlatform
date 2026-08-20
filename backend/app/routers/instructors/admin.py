@@ -1,7 +1,7 @@
 import asyncio
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from xml.sax.saxutils import escape
 
 import httpx
@@ -47,7 +47,9 @@ from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.contract import format_contract_date, generate_contract_pdf
 from app.services.documents.dossier import build_applicant_dossier_pdf
+from app.schemas.internship import InternshipApprove
 from app.services.email import send_approval_credentials_email, send_phase1_approval_email
+from app.services.internship.approval import approve_internship
 from app.services.notification import create_notification as notify
 from app.services.points import award_points
 
@@ -330,6 +332,22 @@ async def review_applicant(
             except ValueError:
                 pass
         user.roles = sorted(kept)
+
+        # Path 2 of the internship-letter flow (HANDOFF_INTERNSHIP.md):
+        # onboard_application() stashed the letter details admin filled in
+        # when routing this application to onboarding — replay them now,
+        # automatically, in this same request. letter_date/ref_number
+        # resolve fresh at this exact moment (approve_internship()'s own
+        # behavior), not whatever they were at send-to-onboarding time.
+        if profile and profile.also_grant_role == "intern" and profile.pending_intern_details:
+            pending = profile.pending_intern_details
+            approve_body = InternshipApprove(**pending["approve"])
+            pending_start_date = date.fromisoformat(pending["start_date"]) if pending.get("start_date") else None
+            await approve_internship(
+                db, user=user,
+                university_id_number=pending.get("university_id_number"),
+                start_date=pending_start_date, department=None, approve=approve_body,
+            )
 
         # Shared with the lazy/signing paths (routers/instructors/instructor.py)
         # so a missing city is handled the same way everywhere: this must never

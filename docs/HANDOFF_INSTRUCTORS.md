@@ -25,7 +25,7 @@ Applicant-triggered transitions:
 
 Admin-triggered: `PUT /admin/applicants/{id}/review` moves an applicant out of `under_review`; blocked once already `approved`/`rejected`. Per-module review is separate (`PUT /admin/applicants/{id}/modules/{module_id}/review`).
 
-On final `approved`: promotes the user's role from `applicant` to `instructor` — or to **both** `instructor` and `intern` if this applicant was routed in from an intern application (`applicant_profiles.also_grant_role`, set by `onboard_application` in `routers/admin/applications.py`) — generates and stores the employment contract PDF, creates an `InstructorProfile`, auto-issues an `instructor_completion` certificate, emails credentials + contract, and — if the applicant came through a referral — awards 1000 points to the referring ambassador.
+On final `approved`: promotes the user's role from `applicant` to `instructor` — or to **both** `instructor` and `intern` if this applicant was routed in from an intern application (`applicant_profiles.also_grant_role`, set by `onboard_application` in `routers/admin/applications.py`) — generates and stores the employment contract PDF, creates an `InstructorProfile`, auto-issues an `instructor_completion` certificate, emails credentials + contract, and — if the applicant came through a referral — awards 1000 points to the referring ambassador. Since 2026-08-20, if `also_grant_role == "intern"` and `applicant_profiles.pending_intern_details` was stashed at onboard time, this same approval also auto-generates the internship letter (`HANDOFF_INTERNSHIP.md` — Path 2).
 
 ### In-app contract signing
 

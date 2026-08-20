@@ -68,13 +68,42 @@ message.
 
 ### Public application path
 
-Not yet wired up. `POST /apply/intern` (the anonymous new-signup path, `routers/apply.py`) doesn't
-collect the internship-specific fields or trigger `approve_internship` on admin approval yet —
-`approve_application` (`routers/admin/applications.py`) still only creates a plain
-`intern`-role `User`, no letter. The `RoleRequest`/`approve_internship` core is shared and ready
-for this; only the entry point (an `Application`-side equivalent of `/me/role-requests`, since
-`Application` assumes a brand-new account is being created and a public applicant has no existing
-user to attach a `RoleRequest` to) still needs building.
+`POST /apply/intern` (`routers/apply.py`) collects the same internship fields (university ID,
+preferred city, requested start date/duration) alongside the rest of the application, under fixed
+keys in `Application.answers` — same key names `RoleRequest.details` uses, so
+`services/internship/approval.py::resolve_internship_request_fields` (the "admin's override wins,
+otherwise fall back to what was requested" logic) is shared verbatim across all three entry
+points, not reimplemented per path.
+
+Two paths from there, both admin-driven, both converging on the same `approve_internship()` call
+— just triggered at different moments:
+
+**Path 1 — direct approve** (`POST /admin/applications/{id}/approve`,
+`routers/admin/applications.py::approve_application`). When `app.role == "intern"`, the request
+body must also carry the internship-letter fields (400 if missing) — admin fills them in the same
+click that approves the account, and the letter generates immediately, in that same request.
+
+**Path 2 — send to instructor onboarding** (`POST /admin/applications/{id}/onboard`
+-> `PUT /instructors/admin/applicants/{id}/review`, status `approved`). An intern application can
+be routed into the instructor pipeline instead (pre-existing mechanism, `also_grant_role` on
+`ApplicantProfile`). Since 2026-08-20, `onboard_application` also requires the internship-letter
+fields at that point (admin fills them in when sending to onboarding, not later) and stashes them
+— merged with the applicant's own submitted university ID/city/start-date/duration — on
+`ApplicantProfile.pending_intern_details`. **Deliberately not resolved yet**: `ref_number` and
+`letter_date`. When the instructor pipeline later finishes
+(`routers/instructors/admin.py::review_applicant`, the `also_grant_role == "intern"` branch),
+those pending details are replayed straight into `approve_internship()` automatically, in the same
+request that grants the role — no second admin click, and the ref number/date resolve fresh at
+that actual approval moment, not whatever they would have been at send-to-onboarding time. If
+`also_grant_role == "intern"` but `pending_intern_details` is empty (an `ApplicantProfile` built
+some other way, e.g. seeded directly), the role is still granted exactly as it always was — no
+letter, no crash; this only activates the flow it was built for.
+
+Frontend: `pages/admin/Applications.tsx`'s `ApplicationDetailDialog` shows the same
+`InternshipLetterFields` component (shared with `RoleRequests.tsx` — `components/
+InternshipLetterFields.tsx`) whenever `app.role === "intern"`, required before either the Approve
+or Send-to-Onboarding button enables, with a note explaining the ref-number/date timing
+difference between the two paths.
 
 ## Main DB tables
 
@@ -83,11 +112,13 @@ user to attach a `RoleRequest` to) still needs building.
 | `role_requests` | Generic "existing user requests an additional role" — `target_role`, `details`/`resolution` JSONB, status, admin review fields |
 | `intern_profiles` | 1:1 intern record: ref number, university ID, department (doubles as the letter's activity description), start date, duration/hours, work city, supervisor, letter paths + signature + frozen `letter_date` |
 | `internship_ref_counters` | One row per year, backs the auto-incrementing ref number |
+| `applicant_profiles.pending_intern_details` | Path 2 only — the internship-letter fields admin filled in at send-to-onboarding time, replayed automatically once instructor onboarding is approved |
 
 ## Key files
 
 | Area | Backend | Frontend |
 |---|---|---|
 | Request/review/sign | `routers/internship.py`, `services/internship/{approval,ref_number,allowed_role_requests}.py`, `schemas/internship.py`, model `models/internship.py` | `pages/shared/PersonalDocuments.tsx` (apply + sign), `pages/admin/RoleRequests.tsx` (review), `api/internship.ts` |
+| Public application (Paths 1 & 2) | `routers/apply.py` (collect), `routers/admin/applications.py::approve_application`/`onboard_application`, `routers/instructors/admin.py::review_applicant` (Path 2's deferred replay) | `pages/admin/Applications.tsx`, `components/InternshipLetterFields.tsx` (shared with `RoleRequests.tsx`) |
 | Letter generation | `services/documents/internship_letter.py`, template `static/templates/docx/internship_letter.docx` | — |
 | Bulk import (historical) | `scripts/bulk_import_interns.py` | — |

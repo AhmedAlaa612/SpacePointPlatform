@@ -1,4 +1,5 @@
 import { api } from "./client"
+import type { InternshipApproveBody } from "./internship"
 
 export interface ApplyQuestion {
   id: string
@@ -40,14 +41,17 @@ export const listApplicationsApi = (params?: { role?: string; status?: string })
 export const getApplicationApi = (id: string) =>
   api.get<ApplicationOut>(`/admin/applications/${id}`).then((r) => r.data)
 
-export const approveApplicationApi = (id: string, admin_notes?: string) =>
-  api.post(`/admin/applications/${id}/approve`, { admin_notes }).then((r) => r.data)
+// `internship` is required by the backend when the application's role is
+// "intern" — see AdminApplications.tsx's InternshipLetterFields and
+// HANDOFF_INTERNSHIP.md.
+export const approveApplicationApi = (id: string, admin_notes?: string, internship?: InternshipApproveBody) =>
+  api.post(`/admin/applications/${id}/approve`, { admin_notes, internship }).then((r) => r.data)
 
 export const rejectApplicationApi = (id: string, admin_notes?: string) =>
   api.post(`/admin/applications/${id}/reject`, { admin_notes }).then((r) => r.data)
 
-export const sendToOnboardingApi = (id: string, admin_notes?: string) =>
-  api.post(`/admin/applications/${id}/onboard`, { admin_notes }).then((r) => r.data)
+export const sendToOnboardingApi = (id: string, admin_notes?: string, internship?: InternshipApproveBody) =>
+  api.post(`/admin/applications/${id}/onboard`, { admin_notes, internship }).then((r) => r.data)
 
 export const getApplicationCountsApi = () =>
   api.get<Record<string, Record<string, number>>>("/admin/applications/counts").then((r) => r.data)

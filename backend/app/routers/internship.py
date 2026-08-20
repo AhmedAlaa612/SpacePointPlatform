@@ -45,7 +45,7 @@ from app.services.email import (
     send_signed_internship_letter_email,
 )
 from app.services.internship.allowed_role_requests import can_request_role
-from app.services.internship.approval import approve_internship
+from app.services.internship.approval import approve_internship, resolve_internship_request_fields
 from app.services.notification import create_notification as notify
 
 router = APIRouter(tags=["internship"])
@@ -177,16 +177,11 @@ async def approve_role_request(
         raise HTTPException(status_code=404, detail="Requester account not found")
 
     details = req.details or {}
-    # Admin's override wins; otherwise fall back to what the requester asked for.
-    if body.city_id is None and details.get("preferred_city_id"):
-        body.city_id = uuid.UUID(str(details["preferred_city_id"]))
-    start_date = date.fromisoformat(details["requested_start_date"]) if details.get("requested_start_date") else None
-    if body.duration_weeks is None and details.get("requested_duration_weeks"):
-        body.duration_weeks = int(details["requested_duration_weeks"])
+    university_id_number, start_date = resolve_internship_request_fields(body, details)
 
     profile = await approve_internship(
         db, user=user,
-        university_id_number=details.get("university_id_number"),
+        university_id_number=university_id_number,
         start_date=start_date, department=None, approve=body,
     )
 

@@ -5,12 +5,11 @@ import {
   listRoleRequestsAdminApi,
   approveRoleRequestApi,
   rejectRoleRequestApi,
-  type InternshipApproveBody,
 } from "@/api/internship"
 import type { RoleRequest } from "@/types/internship"
-import { fetchPublicCities } from "@/api/lms"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { InternshipLetterFields, emptyInternshipApprove, isInternshipApproveComplete } from "@/components/InternshipLetterFields"
 
 const STATUS_COLOR: Record<string, string> = {
   pending: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
@@ -101,15 +100,8 @@ export default function AdminRoleRequests() {
 function RoleRequestDetailDialog({
   req, onClose, onChanged,
 }: { req: RoleRequest; onClose: () => void; onChanged: () => void }) {
-  const { data: cities = [] } = useQuery({ queryKey: ["public-cities"], queryFn: fetchPublicCities })
-
   const [notes, setNotes] = useState("")
-  const [form, setForm] = useState<InternshipApproveBody>({
-    salutation: "", activity_description: "", supervisor_title: "",
-    supervisor_name: "", supervisor_email: "", supervisor_phone: "",
-    city_id: undefined, duration_weeks: undefined, hours_per_week: undefined,
-    ref_number_override: undefined,
-  })
+  const [form, setForm] = useState(emptyInternshipApprove)
 
   const approve = useMutation({
     mutationFn: () => approveRoleRequestApi(req.id, { ...form, admin_notes: notes || undefined }),
@@ -122,9 +114,7 @@ function RoleRequestDetailDialog({
     onError: (err: any) => alert(err?.response?.data?.detail || "Failed to reject request."),
   })
 
-  const canSubmit =
-    form.salutation.trim() && form.activity_description.trim() && form.supervisor_title.trim() &&
-    form.supervisor_name.trim() && form.supervisor_email.trim() && form.supervisor_phone.trim()
+  const canSubmit = isInternshipApproveComplete(form)
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/50 backdrop-blur-sm"
@@ -165,79 +155,12 @@ function RoleRequestDetailDialog({
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                     Internship Letter Details
                   </p>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Salutation">
-                      <select className="input" value={form.salutation}
-                        onChange={(e) => setForm({ ...form, salutation: e.target.value })}>
-                        <option value="">Select…</option>
-                        <option value="Mr.">Mr.</option>
-                        <option value="Ms.">Ms.</option>
-                        <option value="Mx.">Mx.</option>
-                      </select>
-                    </Field>
-                    <Field label="City">
-                      <select className="input" value={form.city_id ?? ""}
-                        onChange={(e) => setForm({ ...form, city_id: e.target.value || undefined })}>
-                        <option value="">
-                          {req.details.preferred_city_id ? "Use requester's choice" : "Select…"}
-                        </option>
-                        {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                    </Field>
-                  </div>
-
-                  <Field label="Activity Description (prints in the letter)">
-                    <input className="input" value={form.activity_description}
-                      placeholder="e.g. research and development"
-                      onChange={(e) => setForm({ ...form, activity_description: e.target.value })} />
-                  </Field>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Duration (weeks)">
-                      <input className="input" type="number" min={1}
-                        value={form.duration_weeks ?? (req.details.requested_duration_weeks as number | undefined) ?? ""}
-                        onChange={(e) => setForm({ ...form, duration_weeks: e.target.value ? Number(e.target.value) : undefined })} />
-                    </Field>
-                    <Field label="Hours / week">
-                      <input className="input" type="number" min={1}
-                        value={form.hours_per_week ?? ""}
-                        onChange={(e) => setForm({ ...form, hours_per_week: e.target.value ? Number(e.target.value) : undefined })} />
-                    </Field>
-                  </div>
-
-                  <Field label="Ref number override (optional — auto-assigned if left blank)">
-                    <input className="input" type="number" min={1}
-                      value={form.ref_number_override ?? ""}
-                      onChange={(e) => setForm({ ...form, ref_number_override: e.target.value ? Number(e.target.value) : undefined })} />
-                  </Field>
-
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-2">Supervisor</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Title">
-                      <select className="input" value={form.supervisor_title}
-                        onChange={(e) => setForm({ ...form, supervisor_title: e.target.value })}>
-                        <option value="">Select…</option>
-                        <option value="Mr.">Mr.</option>
-                        <option value="Ms.">Ms.</option>
-                        <option value="Dr.">Dr.</option>
-                      </select>
-                    </Field>
-                    <Field label="Name">
-                      <input className="input" value={form.supervisor_name}
-                        onChange={(e) => setForm({ ...form, supervisor_name: e.target.value })} />
-                    </Field>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Email">
-                      <input className="input" type="email" value={form.supervisor_email}
-                        onChange={(e) => setForm({ ...form, supervisor_email: e.target.value })} />
-                    </Field>
-                    <Field label="Phone">
-                      <input className="input" value={form.supervisor_phone}
-                        onChange={(e) => setForm({ ...form, supervisor_phone: e.target.value })} />
-                    </Field>
-                  </div>
+                  <InternshipLetterFields
+                    value={form}
+                    onChange={setForm}
+                    requestedCityId={req.details.preferred_city_id as string | undefined}
+                    requestedDurationWeeks={req.details.requested_duration_weeks as number | undefined}
+                  />
                 </CardContent>
               </Card>
             )}
@@ -292,17 +215,6 @@ function RoleRequestDetailDialog({
           </div>
         </div>
       </div>
-    </div>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider block mb-1.5">
-        {label}
-      </label>
-      {children}
     </div>
   )
 }
