@@ -57,7 +57,6 @@ import InstructorLibrary from "@/pages/instructors/Library";
 import UserDocuments from "@/pages/shared/UserDocuments";
 import PersonalDocuments from "@/pages/shared/PersonalDocuments";
 import ProfileCard from "@/pages/shared/ProfileCard";
-import InstructorPersonalDocuments from "@/pages/instructors/PersonalDocuments";
 import InstructorIdCard from "@/pages/instructors/ProfileCard";
 import InstructorPayments from "@/pages/instructors/Payments";
 import InstructorsAdminOverview from "@/pages/instructors/admin/Overview";
@@ -82,6 +81,7 @@ import AdminHub from "@/pages/admin/Dashboard";
 import AdminUsers from "@/pages/admin/Users";
 import AdminDocuments from "@/pages/admin/Documents";
 import AdminApplications from "@/pages/admin/Applications";
+import AdminRoleRequests from "@/pages/admin/RoleRequests";
 import Settings from "@/pages/admin/Settings";
 
 // Sessions/spine domain pages (V2 R2-3/R2-4/R2-5)
@@ -509,7 +509,7 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/training/player/$videoId", component: InstructorTrainingPlayer }),
   createRoute({ getParentRoute: pi, path: "/library", component: InstructorLibrary }),
   createRoute({ getParentRoute: pi, path: "/documents", component: UserDocuments }),
-  createRoute({ getParentRoute: pi, path: "/personal-documents", component: InstructorPersonalDocuments }),
+  createRoute({ getParentRoute: pi, path: "/personal-documents", component: PersonalDocuments }),
   createRoute({ getParentRoute: pi, path: "/id-card", component: InstructorIdCard }),
   createRoute({ getParentRoute: pi, path: "/profile", component: SharedProfile }),
   createRoute({ getParentRoute: pi, path: "/payments", component: InstructorPayments }),
@@ -592,6 +592,13 @@ const adminApplicationsRoute = createRoute({
   path: "/admin/applications",
   beforeLoad: requireAdminRole,
   component: AdminApplications,
+});
+
+const adminRoleRequestsRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/admin/role-requests",
+  beforeLoad: requireAdminRole,
+  component: AdminRoleRequests,
 });
 
 /**
@@ -1027,6 +1034,7 @@ const routeTree = rootRoute.addChildren([
     adminUsersRoute,
     adminDocumentsRoute,
     adminApplicationsRoute,
+    adminRoleRequestsRoute,
     adminSettingsRoute,
     adminProgramsRoute,
     adminCohortsRoute,

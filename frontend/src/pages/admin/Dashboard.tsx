@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { Briefcase, GraduationCap, Network, CheckCircle2, ClipboardList, Warehouse } from "lucide-react"
+import { Briefcase, GraduationCap, Network, CheckCircle2, ClipboardList, Warehouse, UserPlus } from "lucide-react"
 import { getNotificationsApi } from "@/api/notifications"
 import { getApplicationCountsApi } from "@/api/apply"
+import { listRoleRequestsAdminApi } from "@/api/internship"
 import { type Notification } from "@/types/shared"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader } from "@/pages/instructors/components/common"
@@ -89,6 +90,12 @@ export default function AdminHub() {
   const pendingApps = Object.values(appCounts ?? {}).reduce(
     (sum, statusMap) => sum + (statusMap["pending"] ?? 0), 0
   )
+
+  const { data: pendingRoleRequests = [] } = useQuery({
+    queryKey: ["admin-role-requests", "pending"],
+    queryFn: () => listRoleRequestsAdminApi({ status: "pending" }),
+    staleTime: 60_000,
+  })
 
   const unread = notifications.filter((n) => !n.is_read)
 
@@ -189,6 +196,28 @@ export default function AdminHub() {
               {pendingApps > 0 && (
                 <span className="flex h-6 px-2.5 items-center justify-center rounded-full bg-amber-500/10 text-xs font-bold text-amber-600 dark:text-amber-400 shrink-0">
                   {pendingApps} pending
+                </span>
+              )}
+            </CardContent>
+          </Card>
+        </Link>
+      </div>
+
+      {/* Role Requests quick-link */}
+      <div className="mt-4">
+        <Link to="/admin/role-requests">
+          <Card className="hover:border-primary/50 transition-all shadow-sm border-border">
+            <CardContent className="p-5 flex items-center gap-4">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <UserPlus size={20} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-foreground">Role Requests</p>
+                <p className="text-xs text-muted-foreground">Existing accounts requesting an additional role (e.g. instructor → intern)</p>
+              </div>
+              {pendingRoleRequests.length > 0 && (
+                <span className="flex h-6 px-2.5 items-center justify-center rounded-full bg-amber-500/10 text-xs font-bold text-amber-600 dark:text-amber-400 shrink-0">
+                  {pendingRoleRequests.length} pending
                 </span>
               )}
             </CardContent>
