@@ -1,5 +1,6 @@
 """Public application endpoints — no auth required."""
 import uuid
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -53,6 +54,16 @@ async def submit_application(
     invite_code: Optional[str] = Form(None),
     answers: Optional[str] = Form(None),   # JSON string
     cv: Optional[UploadFile] = File(None),
+    # Internship request fields (2026-08-20, role="intern" only) — collected
+    # alongside the rest of the application, not a separate step. Stored
+    # under fixed keys in `answers` (distinct from the freeform
+    # ApplicationQuestion-driven answers, which are keyed by question id) so
+    # routers/admin/applications.py can read them reliably by name — see
+    # HANDOFF_INTERNSHIP.md.
+    university_id_number: Optional[str] = Form(None),
+    preferred_city_id: Optional[str] = Form(None),
+    requested_start_date: Optional[str] = Form(None),
+    requested_duration_weeks: Optional[int] = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
     import json
@@ -105,6 +116,26 @@ async def submit_application(
             parsed_answers = json.loads(answers)
         except Exception:
             pass
+
+    if role == "intern":
+        if preferred_city_id:
+            try:
+                uuid.UUID(preferred_city_id)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Unknown preferred city")
+        if requested_start_date:
+            try:
+                date.fromisoformat(requested_start_date)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="requested_start_date must be YYYY-MM-DD")
+        parsed_answers.update({
+            k: v for k, v in {
+                "university_id_number": university_id_number,
+                "preferred_city_id": preferred_city_id,
+                "requested_start_date": requested_start_date,
+                "requested_duration_weeks": requested_duration_weeks,
+            }.items() if v is not None
+        })
 
     # City (2026-08-08) — optional and validated like auth signup does: the
     # apply form only offers cities in the chosen (mobile) country, so an

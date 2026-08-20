@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { getCountries } from "@/lib/countries"
+import { InternshipLetterFields, emptyInternshipApprove, isInternshipApproveComplete } from "@/components/InternshipLetterFields"
 
 // `application.country` is stored as an ISO code (2026-08-08 country-code
 // migration) — resolve to a display name, same as `Catalog.tsx` does for
@@ -36,6 +37,14 @@ const ROLE_COLOR: Record<string, string> = {
   teacher:    "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
   facilitator:"bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300",
 }
+
+// Fixed keys the intern apply form writes into `answers` (routers/apply.py) —
+// shown with real labels in the "Internship Letter Details" card below
+// instead of the generic per-question Q&A list, so they don't appear twice
+// (once unlabeled there, once labeled here).
+const INTERNSHIP_ANSWER_KEYS = new Set([
+  "university_id_number", "preferred_city_id", "requested_start_date", "requested_duration_weeks",
+])
 
 type Tab = "applications" | "questions"
 
@@ -148,6 +157,7 @@ function ApplicationsTab() {
 function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const qc = useQueryClient()
   const [notes, setNotes] = useState("")
+  const [internship, setInternship] = useState(emptyInternshipApprove)
 
   const { data: app, isLoading } = useQuery({
     queryKey: ["admin-application", id],
@@ -161,17 +171,24 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
   })
   const qLabel = (qid: string) => questions.find((q) => q.id === qid)?.question_text ?? qid
 
+  // Required by the backend when app.role === "intern" — see
+  // InternshipLetterFields and HANDOFF_INTERNSHIP.md's two paths.
+  const isIntern = app?.role === "intern"
+  const internshipReady = !isIntern || isInternshipApproveComplete(internship)
+
   const approve = useMutation({
-    mutationFn: () => approveApplicationApi(id, notes || undefined),
+    mutationFn: () => approveApplicationApi(id, notes || undefined, isIntern ? internship : undefined),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-applications"] }); onClose() },
+    onError: (err: any) => alert(err?.response?.data?.detail || "Failed to approve application."),
   })
   const reject = useMutation({
     mutationFn: () => rejectApplicationApi(id, notes || undefined),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-applications"] }); onClose() },
   })
   const onboard = useMutation({
-    mutationFn: () => sendToOnboardingApi(id, notes || undefined),
+    mutationFn: () => sendToOnboardingApi(id, notes || undefined, isIntern ? internship : undefined),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["admin-applications"] }); onClose() },
+    onError: (err: any) => alert(err?.response?.data?.detail || "Failed to send to onboarding."),
   })
 
   return (
@@ -221,16 +238,56 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                   </a>
                 )}
 
-                {Object.keys(app.answers ?? {}).length > 0 && (
+                {Object.entries(app.answers ?? {}).filter(([qId]) => !INTERNSHIP_ANSWER_KEYS.has(qId)).length > 0 && (
                   <Card>
                     <CardContent className="p-4 flex flex-col gap-3">
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Answers</p>
-                      {Object.entries(app.answers).map(([qId, ans]) => (
-                        <div key={qId}>
-                          <p className="text-xs text-muted-foreground mb-0.5">{qLabel(qId)}</p>
-                          <p className="text-sm text-foreground">{String(ans)}</p>
+                      {Object.entries(app.answers)
+                        .filter(([qId]) => !INTERNSHIP_ANSWER_KEYS.has(qId))
+                        .map(([qId, ans]) => (
+                          <div key={qId}>
+                            <p className="text-xs text-muted-foreground mb-0.5">{qLabel(qId)}</p>
+                            <p className="text-sm text-foreground">{String(ans)}</p>
+                          </div>
+                        ))}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {app.status === "pending" && isIntern && (
+                  <Card>
+                    <CardContent className="p-4 flex flex-col gap-3">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                        Internship Letter Details
+                      </p>
+                      {(app.answers?.university_id_number != null ||
+                        app.answers?.requested_start_date != null ||
+                        app.answers?.requested_duration_weeks != null) && (
+                        <div className="flex flex-col gap-1 text-xs bg-muted/20 border border-border/50 rounded-lg p-2.5">
+                          {app.answers.university_id_number != null && (
+                            <p><span className="text-muted-foreground">University ID: </span>{String(app.answers.university_id_number)}</p>
+                          )}
+                          {app.answers.requested_start_date != null && (
+                            <p><span className="text-muted-foreground">Requested start: </span>{String(app.answers.requested_start_date)}</p>
+                          )}
+                          {app.answers.requested_duration_weeks != null && (
+                            <p><span className="text-muted-foreground">Requested duration: </span>{String(app.answers.requested_duration_weeks)} weeks</p>
+                          )}
                         </div>
-                      ))}
+                      )}
+                      <InternshipLetterFields
+                        value={internship}
+                        onChange={setInternship}
+                        requestedCityId={app.answers?.preferred_city_id as string | undefined}
+                        requestedDurationWeeks={app.answers?.requested_duration_weeks as number | undefined}
+                        showRefNumberOverride={false}
+                      />
+                      <p className="text-[11px] text-muted-foreground border-t border-border/50 pt-2 mt-1">
+                        Approving directly generates the letter now, with these details. Sending to
+                        instructor onboarding instead stores these details and generates the letter
+                        automatically — with the reference number and date set to the actual
+                        approval date — once instructor onboarding is approved.
+                      </p>
                     </CardContent>
                   </Card>
                 )}
@@ -252,15 +309,20 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                           {reject.isPending ? "Rejecting…" : "Reject"}
                         </Button>
                         <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700"
-                          onClick={() => approve.mutate()} disabled={approve.isPending || reject.isPending || onboard.isPending}>
+                          onClick={() => approve.mutate()} disabled={approve.isPending || reject.isPending || onboard.isPending || !internshipReady}>
                           {approve.isPending ? "Approving…" : "Approve"}
                         </Button>
                       </div>
                       {app.role === "intern" && (
                         <Button variant="outline" className="w-full border-indigo-300 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
-                          onClick={() => onboard.mutate()} disabled={approve.isPending || reject.isPending || onboard.isPending}>
+                          onClick={() => onboard.mutate()} disabled={approve.isPending || reject.isPending || onboard.isPending || !internshipReady}>
                           {onboard.isPending ? "Sending…" : "Send to Instructor Onboarding"}
                         </Button>
+                      )}
+                      {isIntern && !internshipReady && (
+                        <p className="text-[11px] text-muted-foreground">
+                          Fill in the internship letter details above before approving or sending to onboarding.
+                        </p>
                       )}
                     </CardContent>
                   </Card>

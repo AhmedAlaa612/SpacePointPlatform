@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.routers import admin, auth, documents, notifications
 from app.routers.apply import router as apply_router
+from app.routers.internship import router as internship_router
 from app.routers.files import router as files_router
 from app.routers.interns import admin as interns_admin
 from app.routers.interns import intern as interns_intern
@@ -92,6 +93,11 @@ app.include_router(apply_router)          # public: /apply/*
 app.include_router(notifications.router)  # shared: /notifications/*
 app.include_router(documents.router)  # shared: /documents/*  (Phase 4)
 app.include_router(admin.router, prefix="/admin")  # shared: /admin/users/*  (generic user management)
+
+# Internship request/letter (2026-08-20) — /me/role-requests, /admin/role-requests/*,
+# /intern/internship-letter/*. Not nested under /interns (kanban domain) or
+# /instructors — see routers/internship.py's module docstring.
+app.include_router(internship_router)
 
 # Interns domain (Phase 1) — /interns/*
 app.include_router(interns_admin.router, prefix="/interns")

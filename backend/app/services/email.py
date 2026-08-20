@@ -206,6 +206,22 @@ async def send_instructor_welcome_email(to_email: str, name: str, set_password_l
     return await try_send_email(to_email, "Welcome to SpacePoint — set your password", body)
 
 
+async def send_intern_welcome_email(to_email: str, name: str, set_password_link: str) -> bool:
+    """Bulk-intern-import welcome email (2026-08-20) — same shape as
+    send_instructor_welcome_email (admin-created account, no password to
+    point at, stateless set-password link), but a 3-day validity — the
+    operator's call, longer than the instructor script's 24h since interns
+    are often less immediately reachable than a newly-onboarded instructor."""
+    body = (
+        f"Hi {name},\n\n"
+        "An intern account has been created for you on the SpacePoint portal.\n\n"
+        f"Set your password here: {set_password_link}\n"
+        "(This link is valid for 3 days.)\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, "Welcome to SpacePoint — set your password", body)
+
+
 async def send_payment_letter_ready_email(to_email: str, instructor_name: str) -> bool:
     body = (
         f"Hi {instructor_name},\n\n"
@@ -219,6 +235,39 @@ async def send_payment_letter_ready_email(to_email: str, instructor_name: str) -
 async def send_payment_signed_notification_email(admin_email: str, instructor_name: str) -> bool:
     body = f"{instructor_name} has signed their payment letter. Review it in the admin Payments tab.\n\n— SpacePoint"
     return await try_send_email(admin_email, "Payment Letter Signed", body)
+
+
+async def send_internship_letter_ready_email(to_email: str, intern_name: str) -> bool:
+    """Sent when admin approves an internship request (public application or
+    the authenticated self-apply flow) — same shape as
+    send_payment_letter_ready_email, pointing at the shared My Documents page
+    (services/internship/approval.py::approve_internship)."""
+    body = (
+        f"Hi {intern_name},\n\n"
+        "Your internship request has been approved! Your internship letter is ready "
+        "for your signature.\n\n"
+        f"View and sign it here: {settings.FRONTEND_URL}/documents\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, "SpacePoint Internship Letter Ready for Signature", body)
+
+
+async def send_signed_internship_letter_email(to_email: str, intern_name: str, signed_pdf: bytes) -> bool:
+    """Sent once the intern signs in-app — welcome-aboard message + the
+    signed copy attached, same attachment shape as send_signed_contract_email."""
+    body = (
+        f"Hi {intern_name},\n\n"
+        "Welcome aboard! Your internship letter has been signed by both parties — "
+        "the signed copy is attached for your records.\n\n"
+        "— SpacePoint"
+    )
+    attachments = [("SpacePoint_Internship_Letter.pdf", signed_pdf, "pdf")]
+    return await try_send_email(to_email, "Welcome to SpacePoint — Signed Internship Letter", body, attachments=attachments)
+
+
+async def send_internship_letter_signed_notification_email(admin_email: str, intern_name: str) -> bool:
+    body = f"{intern_name} has signed their internship letter. Review it in the admin panel.\n\n— SpacePoint"
+    return await try_send_email(admin_email, "Internship Letter Signed", body)
 
 
 async def send_certificates_email(to_email: str, name: str, pdfs: list[tuple[str, bytes]]) -> bool:

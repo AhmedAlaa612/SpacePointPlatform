@@ -3,7 +3,7 @@
 **Entry point for anyone (human or agent) picking up this codebase.** This file is a *map*:
 where everything is and what it does. Depth lives in the per-domain files linked below.
 
-**Last verified against the code: 2026-08-18 (Stripe Checkout for LMS courses).**
+**Last verified against the code: 2026-08-20 (internship request/letter domain, both public-application paths + self-apply, + intern bulk import).**
 
 ---
 
@@ -12,10 +12,10 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `9a46ca83d607` — single Alembic head. Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
+| **Schema head** | `8b3f21a0e6c1` — single Alembic head. Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
 | **Branch** | `main` = production. `v2-dev` tracks it |
-| **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan), plus the pre-existing interns / ambassadors / instructors domains — **and the LMS/Missions/Games domain**: student accounts, courses + encrypted-HLS video (now with Stripe Checkout for paid courses), learning paths, the CubeSat design + Flight Operations missions with a real 36-part component library, Live Quiz games, and cohort-scoped instructor progress/gating/review. See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) |
-| **Tests** | 1416 collected, `pytest` from `backend/`. Seven need a live Redis and error without one — everything else is broker-free |
+| **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan), plus the pre-existing interns / ambassadors / instructors domains, **the internship request/letter domain** (an existing account requests the intern role, admin approves, an in-app-signed internship letter is generated — see `HANDOFF_INTERNSHIP.md`) — **and the LMS/Missions/Games domain**: student accounts, courses + encrypted-HLS video (now with Stripe Checkout for paid courses), learning paths, the CubeSat design + Flight Operations missions with a real 36-part component library, Live Quiz games, and cohort-scoped instructor progress/gating/review. See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) |
+| **Tests** | 1433 collected, `pytest` from `backend/`. Seven need a live Redis and error without one — everything else is broker-free |
 
 ## 2. Read next
 
@@ -32,6 +32,7 @@ expect them to exist, and nothing here depends on them.)
 | [`HANDOFF_SESSIONS.md`](./HANDOFF_SESSIONS.md) | Programs, cohorts, sessions, registration, staffing, delivery |
 | [`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md) | Applicant pipeline, contracts, payments, certificates |
 | [`HANDOFF_INTERNS.md`](./HANDOFF_INTERNS.md) | Projects, epics, tasks, kanban, teams |
+| [`HANDOFF_INTERNSHIP.md`](./HANDOFF_INTERNSHIP.md) | The HR-side intern pipeline: role request -> admin approval -> in-app-signed internship letter (not the kanban domain above, despite the name) |
 | [`MISSIONS_INTERN_SPEC.md`](./MISSIONS_INTERN_SPEC.md) | Intern-facing: how to propose a mission, what gets ported vs. rebuilt, lessons from the first real port (SatKit → Operate Your Satellite, Phase 2B) |
 | [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions |
 | [`HANDOFF_VPS_DEPLOYMENT.md`](./HANDOFF_VPS_DEPLOYMENT.md) | What's actually running on the VPS, the deploy scripts' real behavior, storage layout |

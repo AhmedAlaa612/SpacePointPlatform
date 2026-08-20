@@ -19,7 +19,9 @@ from app.models.instructors.application_review import ApplicationReview
 from app.models.user import User
 from app.services import storage
 from app.services.documents.id_card import ensure_card_number
+from app.schemas.internship import InternshipApprove
 from app.services.email import send_application_approved_email, send_moved_to_onboarding_email
+from app.services.internship.approval import approve_internship, resolve_internship_request_fields
 from app.services.notification import create_notification as notify
 from app.services.points import award_points, get_setting_int
 
@@ -30,6 +32,20 @@ router = APIRouter()
 
 class ReviewBody(BaseModel):
     admin_notes: Optional[str] = None
+
+
+class ApproveApplicationBody(ReviewBody):
+    # Required exactly when the application's role is "intern" — the
+    # internship-letter fields, same shape admin fills for the self-apply
+    # RoleRequest path (routers/internship.py). See HANDOFF_INTERNSHIP.md.
+    internship: Optional[InternshipApprove] = None
+
+
+class OnboardApplicationBody(ReviewBody):
+    # Required exactly when routing an intern application to instructor
+    # onboarding — the internship-letter fields admin fills in NOW, replayed
+    # automatically by review_applicant() once onboarding is approved.
+    internship: Optional[InternshipApprove] = None
 
 
 # ── Applications ──────────────────────────────────────────────────────────────
@@ -83,7 +99,7 @@ async def get_application(
 @router.post("/applications/{app_id}/approve")
 async def approve_application(
     app_id: uuid.UUID,
-    body: ReviewBody,
+    body: ApproveApplicationBody,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
@@ -100,6 +116,12 @@ async def approve_application(
     user_role = role_map.get(app.role)
     if not user_role:
         raise HTTPException(status_code=400, detail="Unsupported role")
+
+    # Internship letter fields required exactly for a direct intern approval
+    # (Path 1, HANDOFF_INTERNSHIP.md) — checked before creating the account so
+    # a missing field 400s cleanly instead of leaving a User with no letter.
+    if app.role == "intern" and body.internship is None:
+        raise HTTPException(status_code=400, detail="internship letter details are required to approve an intern application")
 
     import secrets
     new_user = User(
@@ -124,6 +146,13 @@ async def approve_application(
     if app.role == "teacher" and app.invited_by_id:
         reward = await get_setting_int(db, "teacher_points_reward", 500)
         await award_points(db, app.invited_by_id, reward, f"Referred teacher {app.full_name} approved")
+
+    if app.role == "intern":
+        university_id_number, start_date = resolve_internship_request_fields(body.internship, app.answers or {})
+        await approve_internship(
+            db, user=new_user, university_id_number=university_id_number,
+            start_date=start_date, department=None, approve=body.internship,
+        )
 
     # Mark application done
     app.status = "approved"
@@ -160,17 +189,31 @@ async def reject_application(
 @router.post("/applications/{app_id}/onboard")
 async def onboard_application(
     app_id: uuid.UUID,
-    body: ReviewBody,
+    body: OnboardApplicationBody,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
     """Route a pending intern application into the instructor onboarding
     pipeline instead of accepting it directly. Completing that pipeline
-    grants both the instructor and intern roles (see review_applicant() in
-    routers/instructors/admin.py)."""
+    grants both the instructor and intern roles and, since 2026-08-20,
+    auto-generates the internship letter from `body.internship` (Path 2,
+    HANDOFF_INTERNSHIP.md — see review_applicant() in
+    routers/instructors/admin.py, which replays it once onboarding is
+    approved). `letter_date`/`ref_number` are deliberately NOT resolved
+    here — those freeze at whatever moment onboarding actually completes,
+    not now."""
     app = await _get_pending(db, app_id)
     if app.role != "intern":
         raise HTTPException(status_code=400, detail="Only intern applications can be sent to onboarding")
+    if body.internship is None:
+        raise HTTPException(status_code=400, detail="internship letter details are required to send an intern application to onboarding")
+
+    university_id_number, start_date = resolve_internship_request_fields(body.internship, app.answers or {})
+    pending_intern_details = {
+        "university_id_number": university_id_number,
+        "start_date": start_date.isoformat() if start_date else None,
+        "approve": body.internship.model_dump(mode="json"),
+    }
 
     import secrets
 
@@ -216,11 +259,13 @@ async def onboard_application(
             cv_path=app.cv_path,
             country=app.country or "AE",
             also_grant_role="intern",
+            pending_intern_details=pending_intern_details,
         ))
     else:
         # The point of routing them here: completing instructor onboarding
         # must also grant intern (see review_applicant in instructors/admin.py).
         profile.also_grant_role = "intern"
+        profile.pending_intern_details = pending_intern_details
         if not profile.cv_path and app.cv_path:
             profile.cv_path = app.cv_path
 
