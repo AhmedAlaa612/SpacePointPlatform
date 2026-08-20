@@ -24,14 +24,25 @@ class InternProfile(Base):
     # than fail the import.
     ref_number = Column(String(50), nullable=True, index=True)
     university_id_number = Column(String(100), nullable=True)
-    department = Column(String(100), nullable=True)  # free text — no controlled list on the source sheet
+    department = Column(String(100), nullable=True)  # free text — no controlled list on the source sheet; also doubles as the letter's `activity_description`
     start_date = Column(Date, nullable=True)  # first day of work
     duration_weeks = Column(Integer, nullable=True)  # null for historical bulk-imported rows
     hours_per_week = Column(Integer, nullable=True)  # null for historical bulk-imported rows
     work_city_id = Column(UUID(as_uuid=True), ForeignKey("cities.id", ondelete="SET NULL"), nullable=True)
+    # No gender/title field exists anywhere in the schema (checked before
+    # adding these) — admin types both at approval time, and they're stored
+    # here (not just used transiently) so re-rendering the letter at sign
+    # time reproduces identical text instead of going blank.
+    salutation = Column(String(20), nullable=True)  # e.g. "Ms.", "Mr."
+    supervisor_title = Column(String(20), nullable=True)  # e.g. "Mr.", "Dr."
     supervisor_name = Column(String(255), nullable=True)
     supervisor_email = Column(String(255), nullable=True)
     supervisor_phone = Column(String(50), nullable=True)
+    # Frozen at whatever date the letter was first generated (approval time)
+    # — same "instructor_since" convention as InstructorProfile/contract.py:
+    # the printed `Date:` field must NOT drift to today() every time the
+    # letter is re-rendered (e.g. at signing, to add the signature image).
+    letter_date = Column(Date, nullable=True)
     # Fixed bucket "internship-letters" (not stored per-row — same convention
     # as InstructorProfile.contract_path's fixed "contracts" bucket).
     letter_path = Column(String, nullable=True)
