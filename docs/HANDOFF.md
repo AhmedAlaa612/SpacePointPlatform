@@ -36,6 +36,7 @@ expect them to exist, and nothing here depends on them.)
 | [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions |
 | [`HANDOFF_VPS_DEPLOYMENT.md`](./HANDOFF_VPS_DEPLOYMENT.md) | What's actually running on the VPS, the deploy scripts' real behavior, storage layout |
 | [`OPS_BACKUPS.md`](./OPS_BACKUPS.md) | Database backup script — usage, cron, restore |
+| [`HANDOFF_AGENT_COLLAB.md`](./HANDOFF_AGENT_COLLAB.md) | Not architecture — process: how the operator works, git/verification discipline for multiple agents touching this repo concurrently, current domain-ownership split |
 
 Credentials are in `secrets.md` / `vps_envs.md`, kept out of version control (one directory
 above this repo). Production env file: `/etc/spacepoint/env`.
