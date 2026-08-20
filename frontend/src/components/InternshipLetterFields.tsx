@@ -28,6 +28,7 @@ export function InternshipLetterFields({
   showRefNumberOverride?: boolean
 }) {
   const { data: cities = [] } = useQuery({ queryKey: ["public-cities"], queryFn: fetchPublicCities })
+  const requestedCityName = cities.find((c) => c.id === requestedCityId)?.name
 
   return (
     <div className="flex flex-col gap-3">
@@ -44,7 +45,9 @@ export function InternshipLetterFields({
         <Field label="City">
           <select className="input" value={value.city_id ?? ""}
             onChange={(e) => onChange({ ...value, city_id: e.target.value || undefined })}>
-            <option value="">{requestedCityId ? "Use requester's choice" : "Select…"}</option>
+            <option value="">
+              {requestedCityId ? `Use requester's choice (${requestedCityName ?? "unknown city"})` : "Select…"}
+            </option>
             {cities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </Field>

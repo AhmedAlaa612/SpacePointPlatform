@@ -38,6 +38,14 @@ const ROLE_COLOR: Record<string, string> = {
   facilitator:"bg-teal-100 text-teal-700 dark:bg-teal-500/20 dark:text-teal-300",
 }
 
+// Fixed keys the intern apply form writes into `answers` (routers/apply.py) —
+// shown with real labels in the "Internship Letter Details" card below
+// instead of the generic per-question Q&A list, so they don't appear twice
+// (once unlabeled there, once labeled here).
+const INTERNSHIP_ANSWER_KEYS = new Set([
+  "university_id_number", "preferred_city_id", "requested_start_date", "requested_duration_weeks",
+])
+
 type Tab = "applications" | "questions"
 
 export default function AdminApplications() {
@@ -230,16 +238,18 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                   </a>
                 )}
 
-                {Object.keys(app.answers ?? {}).length > 0 && (
+                {Object.entries(app.answers ?? {}).filter(([qId]) => !INTERNSHIP_ANSWER_KEYS.has(qId)).length > 0 && (
                   <Card>
                     <CardContent className="p-4 flex flex-col gap-3">
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Answers</p>
-                      {Object.entries(app.answers).map(([qId, ans]) => (
-                        <div key={qId}>
-                          <p className="text-xs text-muted-foreground mb-0.5">{qLabel(qId)}</p>
-                          <p className="text-sm text-foreground">{String(ans)}</p>
-                        </div>
-                      ))}
+                      {Object.entries(app.answers)
+                        .filter(([qId]) => !INTERNSHIP_ANSWER_KEYS.has(qId))
+                        .map(([qId, ans]) => (
+                          <div key={qId}>
+                            <p className="text-xs text-muted-foreground mb-0.5">{qLabel(qId)}</p>
+                            <p className="text-sm text-foreground">{String(ans)}</p>
+                          </div>
+                        ))}
                     </CardContent>
                   </Card>
                 )}
@@ -250,6 +260,21 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                         Internship Letter Details
                       </p>
+                      {(app.answers?.university_id_number != null ||
+                        app.answers?.requested_start_date != null ||
+                        app.answers?.requested_duration_weeks != null) && (
+                        <div className="flex flex-col gap-1 text-xs bg-muted/20 border border-border/50 rounded-lg p-2.5">
+                          {app.answers.university_id_number != null && (
+                            <p><span className="text-muted-foreground">University ID: </span>{String(app.answers.university_id_number)}</p>
+                          )}
+                          {app.answers.requested_start_date != null && (
+                            <p><span className="text-muted-foreground">Requested start: </span>{String(app.answers.requested_start_date)}</p>
+                          )}
+                          {app.answers.requested_duration_weeks != null && (
+                            <p><span className="text-muted-foreground">Requested duration: </span>{String(app.answers.requested_duration_weeks)} weeks</p>
+                          )}
+                        </div>
+                      )}
                       <InternshipLetterFields
                         value={internship}
                         onChange={setInternship}
