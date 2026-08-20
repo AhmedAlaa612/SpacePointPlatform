@@ -144,6 +144,8 @@ function CreateCourseModal({ onClose, onSuccess }: { onClose: () => void; onSucc
   const [outcomes, setOutcomes] = useState<string[]>([""])
   const [instructorId, setInstructorId] = useState("")
   const [instructorTitle, setInstructorTitle] = useState("")
+  const [accessMode, setAccessMode] = useState<"open" | "invite" | "paid">("open")
+  const [priceDollars, setPriceDollars] = useState("")
   const [error, setError] = useState("")
 
   const { data: instructors = [] } = useQuery({ queryKey: ["lms-admin-instructors"], queryFn: listInstructorOptionsApi })
@@ -154,6 +156,8 @@ function CreateCourseModal({ onClose, onSuccess }: { onClose: () => void; onSucc
       level: level || undefined, track: track.trim() || undefined,
       outcomes: outcomes.map((o) => o.trim()).filter(Boolean),
       instructor_id: instructorId || undefined, instructor_title: instructorTitle.trim() || undefined,
+      access_mode: accessMode,
+      price_cents: accessMode === "paid" && priceDollars.trim() ? Math.round(Number(priceDollars) * 100) : undefined,
     }),
     onSuccess,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to create course"),
@@ -245,8 +249,33 @@ function CreateCourseModal({ onClose, onSuccess }: { onClose: () => void; onSucc
             />
           </Field>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Access">
+            <select
+              value={accessMode} onChange={(e) => setAccessMode(e.target.value as "open" | "invite" | "paid")}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            >
+              <option value="open">Open — anyone self-enrols</option>
+              <option value="invite">Invite-only — admin grant only</option>
+              <option value="paid">Paid — Stripe Checkout</option>
+            </select>
+          </Field>
+          {accessMode === "paid" && (
+            <Field label="Price (USD)">
+              <input
+                value={priceDollars} onChange={(e) => setPriceDollars(e.target.value)}
+                type="number" min="0" step="0.01" placeholder="49.00"
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+          )}
+        </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
-        <ModalActions onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} disabled={!title.trim()} label="Create course" />
+        <ModalActions
+          onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending}
+          disabled={!title.trim() || (accessMode === "paid" && !(Number(priceDollars) > 0))}
+          label="Create course"
+        />
       </div>
     </Modal>
   )
