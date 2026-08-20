@@ -14,6 +14,7 @@ from app.models.document_request import DocumentRequest  # noqa: F401  (shared, 
 from app.models.document_template import DocumentTemplate  # noqa: F401  (shared, PLAN §4.5)
 from app.models.application import Application  # noqa: F401  (shared, unified apply pipeline)
 from app.models.application_question import ApplicationQuestion  # noqa: F401  (shared, admin-managed apply form)
+from app.models.internship import InternProfile, RoleRequest, InternshipRefCounter  # noqa: F401  (2026-08-20 — intern onboarding + generic extra-role requests)
 
 from app.models import spine  # noqa: F401  (V2 R1-2 — contacts/organizations/consent/touchpoints/identity)
 from app.models import sessions  # noqa: F401  (V2 R1-2 — programs/cohorts/registrations/tickets/activities)

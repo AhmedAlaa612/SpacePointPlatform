@@ -206,6 +206,22 @@ async def send_instructor_welcome_email(to_email: str, name: str, set_password_l
     return await try_send_email(to_email, "Welcome to SpacePoint — set your password", body)
 
 
+async def send_intern_welcome_email(to_email: str, name: str, set_password_link: str) -> bool:
+    """Bulk-intern-import welcome email (2026-08-20) — same shape as
+    send_instructor_welcome_email (admin-created account, no password to
+    point at, stateless set-password link), but a 3-day validity — the
+    operator's call, longer than the instructor script's 24h since interns
+    are often less immediately reachable than a newly-onboarded instructor."""
+    body = (
+        f"Hi {name},\n\n"
+        "An intern account has been created for you on the SpacePoint portal.\n\n"
+        f"Set your password here: {set_password_link}\n"
+        "(This link is valid for 3 days.)\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, "Welcome to SpacePoint — set your password", body)
+
+
 async def send_payment_letter_ready_email(to_email: str, instructor_name: str) -> bool:
     body = (
         f"Hi {instructor_name},\n\n"
