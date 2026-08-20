@@ -119,6 +119,7 @@ async def _course_admin_out(db: AsyncSession, course: Course) -> CourseAdminOut:
         instructor_id=course.instructor_id, instructor_name=instructor_name,
         instructor_title=course.instructor_title,
         access_mode=course.access_mode, access_days=course.access_days,
+        price_cents=course.price_cents, currency=course.currency,
     )
 
 _CONTENT_MODEL = {

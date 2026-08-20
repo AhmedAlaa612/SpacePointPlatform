@@ -266,6 +266,8 @@ async def course_detail(
         instructor_title=course.instructor_title,
         instructor_photo_url=instructor_photo_url,
         access_mode=course.access_mode,
+        price_cents=course.price_cents,
+        currency=course.currency,
         locked=not all(p["satisfied"] for p in prereqs),
         prerequisites=[PrerequisiteItemOut(**p) for p in prereqs],
         modules=[

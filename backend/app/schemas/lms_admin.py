@@ -283,6 +283,11 @@ class CourseCreate(BaseModel):
     instructor_title: str | None = None
     access_mode: CourseAccessMode = "open"
     access_days: int | None = Field(default=None, ge=1)  # NULL = perpetual
+    # Stage S (Stripe Checkout) — integer minor units, matching Stripe's
+    # unit_amount. Only meaningful when access_mode == "paid"; the checkout
+    # endpoint is what actually enforces "paid must have a positive price".
+    price_cents: int | None = Field(default=None, ge=1)
+    currency: str = "usd"
 
 
 class CourseUpdate(BaseModel):
@@ -296,6 +301,8 @@ class CourseUpdate(BaseModel):
     instructor_title: str | None = None
     access_mode: CourseAccessMode | None = None
     access_days: int | None = Field(default=None, ge=1)
+    price_cents: int | None = Field(default=None, ge=1)
+    currency: str | None = None
 
 
 class CourseAdminOut(BaseModel):
@@ -316,6 +323,8 @@ class CourseAdminOut(BaseModel):
     instructor_title: str | None = None
     access_mode: str = "open"
     access_days: int | None = None
+    price_cents: int | None = None
+    currency: str = "usd"
 
 
 # ── modules ──────────────────────────────────────────────────────────────────

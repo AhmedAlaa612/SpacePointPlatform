@@ -21,6 +21,12 @@ export interface AdminCourse {
   instructor_id: string | null;
   instructor_name: string | null;
   instructor_title: string | null;
+  access_mode: "open" | "invite" | "paid";
+  access_days: number | null;
+  // Stage S (Stripe Checkout) — integer minor units, matching Stripe's
+  // unit_amount. Only meaningful when access_mode === "paid".
+  price_cents: number | null;
+  currency: string;
 }
 
 export interface InstructorOption {
@@ -107,6 +113,9 @@ export interface CourseMetadataInput {
   track?: string | null;
   instructor_id?: string | null;
   instructor_title?: string | null;
+  access_mode?: "open" | "invite" | "paid";
+  price_cents?: number | null;
+  currency?: string;
 }
 
 export interface AdminModule {

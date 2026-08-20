@@ -284,6 +284,10 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
   const [outcomes, setOutcomes] = useState<string[]>(course.outcomes.length ? course.outcomes : [""])
   const [instructorId, setInstructorId] = useState(course.instructor_id ?? "")
   const [instructorTitle, setInstructorTitle] = useState(course.instructor_title ?? "")
+  const [accessMode, setAccessMode] = useState<"open" | "invite" | "paid">(course.access_mode)
+  const [priceDollars, setPriceDollars] = useState(
+    course.price_cents != null ? String(course.price_cents / 100) : ""
+  )
   const [error, setError] = useState("")
 
   const { data: instructors = [] } = useQuery({ queryKey: ["lms-admin-instructors"], queryFn: listInstructorOptionsApi })
@@ -294,6 +298,8 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
       level: level || null, track: track.trim() || null,
       outcomes: outcomes.map((o) => o.trim()).filter(Boolean),
       instructor_id: instructorId || null, instructor_title: instructorTitle.trim() || null,
+      access_mode: accessMode,
+      price_cents: accessMode === "paid" && priceDollars.trim() ? Math.round(Number(priceDollars) * 100) : null,
     }),
     onSuccess,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to save course"),
@@ -376,8 +382,33 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
             />
           </Field>
         </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Access">
+            <select
+              value={accessMode} onChange={(e) => setAccessMode(e.target.value as "open" | "invite" | "paid")}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            >
+              <option value="open">Open — anyone self-enrols</option>
+              <option value="invite">Invite-only — admin grant only</option>
+              <option value="paid">Paid — Stripe Checkout</option>
+            </select>
+          </Field>
+          {accessMode === "paid" && (
+            <Field label="Price (USD)">
+              <input
+                value={priceDollars} onChange={(e) => setPriceDollars(e.target.value)}
+                type="number" min="0" step="0.01" placeholder="49.00"
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+          )}
+        </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
-        <ModalActions onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} disabled={!title.trim()} label="Save changes" />
+        <ModalActions
+          onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending}
+          disabled={!title.trim() || (accessMode === "paid" && !(Number(priceDollars) > 0))}
+          label="Save changes"
+        />
       </div>
     </Modal>
   )
