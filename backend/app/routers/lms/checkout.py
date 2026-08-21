@@ -117,6 +117,11 @@ async def start_course_checkout(
 
     session = await stripe.checkout.Session.create_async(
         mode="payment",
+        # Stripe promo codes (2026-08-21) — a code field appears on Stripe's
+        # own hosted page; Stripe applies the discount math itself. Ops
+        # creates/manages codes directly in the Stripe Dashboard — nothing
+        # stored on our side.
+        allow_promotion_codes=True,
         line_items=[{
             "price_data": {
                 "currency": course.currency,
@@ -193,6 +198,11 @@ async def start_path_checkout(
 
     session = await stripe.checkout.Session.create_async(
         mode="payment",
+        # Stripe promo codes (2026-08-21) — a code field appears on Stripe's
+        # own hosted page; Stripe applies the discount math itself. Ops
+        # creates/manages codes directly in the Stripe Dashboard — nothing
+        # stored on our side.
+        allow_promotion_codes=True,
         line_items=[{
             "price_data": {
                 "currency": path.currency,

@@ -71,6 +71,34 @@ class InviteCodeUpdate(BaseModel):
     expires_at: datetime | None = None
 
 
+# ── invite-code course/path grants (2026-08-21) ─────────────────────────────
+
+class InviteCodeGrantCreate(BaseModel):
+    course_id: UUID | None = None
+    learning_path_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> "InviteCodeGrantCreate":
+        if (self.course_id is None) == (self.learning_path_id is None):
+            raise ValueError("Provide exactly one of course_id or learning_path_id")
+        return self
+
+
+class InviteCodeGrantOut(BaseModel):
+    id: UUID
+    product_type: Literal["course", "learning_path"]
+    course_id: UUID | None = None
+    course_title: str | None = None
+    learning_path_id: UUID | None = None
+    learning_path_title: str | None = None
+    created_at: datetime | None = None
+
+
+class InviteCodeGrantCreateOut(BaseModel):
+    grant: InviteCodeGrantOut
+    accounts_enrolled: int
+
+
 # ── student management (2026-08-12) ─────────────────────────────────────────
 
 class StudentSummaryOut(BaseModel):

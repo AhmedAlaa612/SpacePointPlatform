@@ -445,3 +445,44 @@ machinery almost directly, per that model's own docstring anticipating this exac
   (`LmsLearningPathDetail.tsx`) — not the creation form, matching how publish/image already work.
 - **Not built**: region/IP-based pricing and invite-code/promo discounts — both still just
   scoped in conversation, not planned or built. See the operator if picking either up next.
+
+## 13. Invite-code course/path grants, learning-path bulk grant, Stripe promo codes (2026-08-21)
+
+The invite-code discount idea, once interviewed properly, turned out to want three separate
+things — none of them a Stripe percentage-off discount:
+
+- **Invite-code grants** (`InvitationCodeGrant`, `models/lms/invite_grant.py`) — ops attaches a
+  course or learning path to an `InvitationCode` (kind='student') and every account that's ever
+  typed that code — old or new — gets it free, no checkout. The code *is* the batch, same
+  `users.invitation_code_used` string-match the invite-codes admin screen already filters students
+  by; this is deliberately not a new generic groups/audiences table (`BulkGrantIn`'s own docstring
+  rules that out at §3) — it only exists because `InvitationCode` already serves as the batch
+  primitive here. `services/lms/invite_grants.py::grant_invite_code_access()` applies retroactively
+  the instant ops attaches it; `apply_invite_code_grants_to_new_user()` is called from
+  `routers/auth.py::student_signup` right where `invitation.used_count` increments, so a fresh
+  signup gets it on the spot too. New `Enrollment.source` value `"invite_code"`. Endpoints:
+  `GET/POST /lms/admin/invite-codes/{id}/grants`, `DELETE .../grants/{grant_id}` — deleting a grant
+  only stops it applying going forward, it never revokes access already given (same posture as
+  deleting a `LearningPath` leaving its enrollments alone). UI: a "Grants" expandable section per
+  code card on `LmsInviteCodes.tsx`.
+- **Learning-path bulk grant** — the existing one-shot cohort/role course grant
+  (`POST /lms/admin/courses/{id}/enrollments/bulk`, §3 "not a live membership rule") now has a path
+  sibling: `POST /lms/admin/learning-paths/{id}/enrollments/bulk`, same `BulkGrantIn`/`BulkGrantOut`
+  shape, enrols every current step's course per resolved user. `already_enrolled` only counts a
+  user once they hold *every* step, matching the bundle purchase's own "block only when fully
+  owned" read of ownership. UI: a standalone "Grant every course to a role" panel on
+  `LmsLearningPathDetail.tsx` (`BulkGrantPanel`) — deliberately not the full `AssignPanel`
+  roster/individual-assign component courses/missions use, since a path bundle has no single roster
+  of its own (access lives per-course, one row per step); building that aggregation view wasn't
+  asked for here.
+- **Stripe promo codes** — `allow_promotion_codes=True` on both Checkout Session calls
+  (`routers/lms/checkout.py`, course and path). A code field just appears on Stripe's hosted page;
+  Stripe does the discount math. Ops creates/manages codes directly in the Stripe Dashboard —
+  nothing stored or tracked on our side (operator decision: no new ops page for this, no
+  per-purchase discount tracking).
+
+**Noted for future work, not built now** (operator: "do the minimal, note the redesign so it
+doesn't get lost") — the ops course/learning-path pages could use a unified "Access" view per
+item showing every channel together (open/invite/paid self-serve, Stripe promo codes in play,
+one-shot bulk grants issued, invite-code grants attached) instead of each living in its own corner
+of the admin UI. Nobody has scoped what that actually looks like yet.

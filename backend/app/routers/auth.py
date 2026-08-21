@@ -39,6 +39,7 @@ from app.models.instructors.application_review import ApplicationReview
 from app.schemas.user import InstructorApply
 from app.services.documents.id_card import ensure_card_number
 from app.services.invitations import resolve_invite_code
+from app.services.lms.invite_grants import apply_invite_code_grants_to_new_user
 from app.services.nicknames import assign_nickname, reroll_nickname
 from app.services.notification import create_notification as notify
 from app.services.spine.identity import ensure_guardian_relationship, resolve_or_create_contact
@@ -275,6 +276,11 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
 
     if invitation:
         invitation.used_count += 1
+        # Invite-code course/path grants (2026-08-21) — a school/cohort batch
+        # code can carry a standing "free access" list; a brand-new signup
+        # gets it immediately, same as an existing holder does the moment
+        # ops attaches the grant (services/lms/invite_grants.py).
+        await apply_invite_code_grants_to_new_user(db, user_id=user.id, invitation_code_id=invitation.id)
     if referred_by_ambassador_id:
         await notify(db, referred_by_ambassador_id, "New Student Signup",
                      f"{data.full_name} signed up as a student with your invite code.", type="student")

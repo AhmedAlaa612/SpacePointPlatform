@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, VideoCheckpoint
+from app.models.lms.invite_grant import InvitationCodeGrant
 from app.models.lms.program import LmsProgram, LmsProgramCohortOverride, LmsProgramItem
 from app.models.missions.mission import Mission
 from app.models.lms.learning_path import LearningPath, LearningPathStep
@@ -50,6 +51,9 @@ from app.schemas.lms_admin import (
     EnrollmentGrantIn,
     InstructorOptionOut,
     InviteCodeCreate,
+    InviteCodeGrantCreate,
+    InviteCodeGrantCreateOut,
+    InviteCodeGrantOut,
     InviteCodeOut,
     InviteCodeUpdate,
     ItemAdminOut,
@@ -91,6 +95,7 @@ from app.services.lms.admin_progress import (
     cohort_progress_grid, course_progress_all, courses_overview, mission_progress_all, missions_overview,
     student_design_runs,
 )
+from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
 from app.services.lms.program import resolve_cohort_program
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
@@ -398,6 +403,105 @@ async def delete_invite_code(
             detail=f"{signups} student(s) signed up with this code. Deactivate it instead of deleting it.",
         )
     await db.delete(row)
+    await db.commit()
+
+
+# ── invite-code course/path grants (2026-08-21) ─────────────────────────────
+# "This code batch gets these courses/paths free" — the code IS the batch,
+# same users.invitation_code_used string-match the page above already uses.
+
+async def _invite_code_grant_out(db: AsyncSession, grant: InvitationCodeGrant) -> InviteCodeGrantOut:
+    course_title = None
+    learning_path_title = None
+    if grant.course_id is not None:
+        course = await db.get(Course, grant.course_id)
+        course_title = course.title if course else None
+    if grant.learning_path_id is not None:
+        path = await db.get(LearningPath, grant.learning_path_id)
+        learning_path_title = path.title if path else None
+    return InviteCodeGrantOut(
+        id=grant.id, product_type=grant.product_type,
+        course_id=grant.course_id, course_title=course_title,
+        learning_path_id=grant.learning_path_id, learning_path_title=learning_path_title,
+        created_at=grant.created_at,
+    )
+
+
+@router.get("/invite-codes/{code_id}/grants", response_model=list[InviteCodeGrantOut])
+async def list_invite_code_grants(
+    code_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    code = await db.get(InvitationCode, code_id)
+    if code is None or code.kind != "student":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
+    rows = (await db.execute(
+        select(InvitationCodeGrant).where(InvitationCodeGrant.invitation_code_id == code_id)
+        .order_by(InvitationCodeGrant.created_at)
+    )).scalars().all()
+    return [await _invite_code_grant_out(db, r) for r in rows]
+
+
+@router.post(
+    "/invite-codes/{code_id}/grants", response_model=InviteCodeGrantCreateOut, status_code=status.HTTP_201_CREATED,
+)
+async def create_invite_code_grant(
+    code_id: uuid.UUID,
+    body: InviteCodeGrantCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Applies immediately (§ model docstring) — every account that's ever
+    used this code gets enrolled the moment this returns, not just future
+    signups."""
+    code = await db.get(InvitationCode, code_id)
+    if code is None or code.kind != "student":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Invite code not found")
+
+    if body.course_id is not None:
+        if await db.get(Course, body.course_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+        clash = (await db.execute(
+            select(InvitationCodeGrant.id).where(
+                InvitationCodeGrant.invitation_code_id == code_id, InvitationCodeGrant.course_id == body.course_id,
+            )
+        )).first()
+    else:
+        if await db.get(LearningPath, body.learning_path_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+        clash = (await db.execute(
+            select(InvitationCodeGrant.id).where(
+                InvitationCodeGrant.invitation_code_id == code_id,
+                InvitationCodeGrant.learning_path_id == body.learning_path_id,
+            )
+        )).first()
+    if clash is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Already granted to this code")
+
+    grant, accounts_enrolled = await grant_invite_code_access(
+        db, invitation_code=code, course_id=body.course_id, learning_path_id=body.learning_path_id,
+    )
+    await db.commit()
+    return InviteCodeGrantCreateOut(
+        grant=await _invite_code_grant_out(db, grant), accounts_enrolled=accounts_enrolled,
+    )
+
+
+@router.delete("/invite-codes/{code_id}/grants/{grant_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_invite_code_grant(
+    code_id: uuid.UUID,
+    grant_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Stops the rule applying going forward only — never revokes access
+    already granted, same posture as deleting a `LearningPath` leaving its
+    students' enrollments untouched."""
+    grant = await db.get(InvitationCodeGrant, grant_id)
+    if grant is None or grant.invitation_code_id != code_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Grant not found")
+    await db.delete(grant)
     await db.commit()
 
 
@@ -1748,6 +1852,32 @@ async def student_enrollments(
     return out
 
 
+async def _resolve_bulk_grant_user_ids(db: AsyncSession, body: BulkGrantIn) -> tuple[list[uuid.UUID], int]:
+    """Shared roster/role resolution for the course and learning-path bulk
+    grants — one-shot iteration (§3), not a live membership rule. cohort_id:
+    every contact with an active registration in that cohort who already has
+    a linked LMS account (bulk-grant doesn't create accounts — see
+    BulkGrantOut.skipped_no_account's docstring). role: every user holding
+    that role, D2's "staff can take LMS courses too" made concrete. Returns
+    (user_ids, skipped_no_account)."""
+    if body.role is not None:
+        user_ids = list((await db.execute(
+            select(User.id).where(User.roles.any(body.role))
+        )).scalars().all())
+        return user_ids, 0
+
+    contact_ids = list((await db.execute(
+        select(Registration.contact_id).where(
+            Registration.cohort_id == body.cohort_id,
+            Registration.status.in_(ACTIVE_REGISTRATION_STATUSES),
+        )
+    )).scalars().all())
+    user_ids = list((await db.execute(
+        select(User.id).where(User.contact_id.in_(contact_ids))
+    )).scalars().all())
+    return user_ids, len(set(contact_ids)) - len(set(user_ids))
+
+
 @router.post("/courses/{course_id}/enrollments/bulk", response_model=BulkGrantOut)
 async def bulk_grant_enrollment(
     course_id: uuid.UUID,
@@ -1755,32 +1885,11 @@ async def bulk_grant_enrollment(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(require_lms_content),
 ):
-    """One-shot iteration over a roster or a role (§3) — not a live
-    membership rule. cohort_id: every contact with an active registration in
-    that cohort who already has a linked LMS account (bulk-grant doesn't
-    create accounts — see BulkGrantOut.skipped_no_account's docstring).
-    role: every user holding that role, D2's "staff can take LMS courses
-    too" made concrete."""
     course = await db.get(Course, course_id)
     if course is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
 
-    skipped_no_account = 0
-    if body.role is not None:
-        user_ids = list((await db.execute(
-            select(User.id).where(User.roles.any(body.role))
-        )).scalars().all())
-    else:
-        contact_ids = list((await db.execute(
-            select(Registration.contact_id).where(
-                Registration.cohort_id == body.cohort_id,
-                Registration.status.in_(ACTIVE_REGISTRATION_STATUSES),
-            )
-        )).scalars().all())
-        user_ids = list((await db.execute(
-            select(User.id).where(User.contact_id.in_(contact_ids))
-        )).scalars().all())
-        skipped_no_account = len(set(contact_ids)) - len(set(user_ids))
+    user_ids, skipped_no_account = await _resolve_bulk_grant_user_ids(db, body)
 
     granted = already_enrolled = 0
     for user_id in user_ids:
@@ -1793,6 +1902,48 @@ async def bulk_grant_enrollment(
             already_enrolled += 1
             continue
         await enroll(db, user_id=user_id, course_id=course_id, source="ops", granted_by=current.id)
+        granted += 1
+
+    await db.commit()
+    return BulkGrantOut(granted=granted, already_enrolled=already_enrolled, skipped_no_account=skipped_no_account)
+
+
+@router.post("/learning-paths/{path_id}/enrollments/bulk", response_model=BulkGrantOut)
+async def bulk_grant_path_enrollment(
+    path_id: uuid.UUID,
+    body: BulkGrantIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    """Same one-shot cohort/role grant as the course version, but enrols
+    every one of the path's current steps at once — mirrors what buying the
+    bundle itself grants (`services/lms/checkout.py::fulfill`), just without
+    Stripe. `already_enrolled` counts a user only once even if they already
+    held some (not all) of the steps, matching how the bundle purchase's own
+    "block only when fully owned" rule reads ownership."""
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    step_course_ids = list((await db.execute(
+        select(LearningPathStep.course_id).where(LearningPathStep.learning_path_id == path_id)
+    )).scalars().all())
+    if not step_course_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This path has no courses yet")
+
+    user_ids, skipped_no_account = await _resolve_bulk_grant_user_ids(db, body)
+
+    granted = already_enrolled = 0
+    for user_id in user_ids:
+        owned = (await db.execute(
+            select(Enrollment.course_id).where(
+                Enrollment.user_id == user_id, Enrollment.course_id.in_(step_course_ids), *enrollment_is_active(),
+            )
+        )).scalars().all()
+        if set(owned) >= set(step_course_ids):
+            already_enrolled += 1
+            continue
+        for course_id in step_course_ids:
+            await enroll(db, user_id=user_id, course_id=course_id, source="ops", granted_by=current.id)
         granted += 1
 
     await db.commit()

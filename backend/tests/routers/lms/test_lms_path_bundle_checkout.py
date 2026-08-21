@@ -93,6 +93,7 @@ async def test_path_checkout_creates_session_for_unowned_bundle(db, client, monk
     assert resp.status_code == 200, resp.text
     assert resp.json()["checkout_url"] == "https://checkout.stripe.com/pay/cs_bundle_new"
     create_mock.assert_awaited_once()
+    assert create_mock.call_args.kwargs["allow_promotion_codes"] is True
 
     purchase = (await db.execute(
         select(Purchase).where(Purchase.user_id == student.id, Purchase.learning_path_id == path.id)

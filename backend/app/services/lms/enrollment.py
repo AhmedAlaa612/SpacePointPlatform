@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.lms.course import Course
 from app.models.lms.enrollment import Enrollment
 
-EnrollmentSource = Literal["self", "ops", "registration", "purchase"]
+EnrollmentSource = Literal["self", "ops", "registration", "purchase", "invite_code"]
 
 
 def enrollment_is_active() -> tuple:

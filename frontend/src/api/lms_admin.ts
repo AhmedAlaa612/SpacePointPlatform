@@ -434,6 +434,11 @@ export const grantCourseEnrollmentApi = (courseId: string, userId: string) =>
 export const bulkGrantCourseEnrollmentApi = (courseId: string, body: { role?: string; cohort_id?: string }) =>
   api.post<BulkGrantResult>(`/lms/admin/courses/${courseId}/enrollments/bulk`, body).then((r) => r.data);
 
+// Same one-shot cohort/role grant, but for a learning-path bundle — enrols
+// every step's course at once (2026-08-21).
+export const bulkGrantLearningPathEnrollmentApi = (pathId: string, body: { role?: string; cohort_id?: string }) =>
+  api.post<BulkGrantResult>(`/lms/admin/learning-paths/${pathId}/enrollments/bulk`, body).then((r) => r.data);
+
 export const revokeCourseEnrollmentApi = (enrollmentId: string) =>
   api.post<AdminEnrollment>(`/lms/admin/enrollments/${enrollmentId}/revoke`).then((r) => r.data);
 
@@ -457,6 +462,32 @@ export const updateInviteCodeApi = (id: string, data: Partial<{
 
 export const deleteInviteCodeApi = (id: string) =>
   api.delete<void>(`/lms/admin/invite-codes/${id}`).then((r) => r.data);
+
+// ── invite-code course/path grants (2026-08-21) ─────────────────────────────
+// "This code batch gets these courses/paths free" — applies immediately to
+// everyone who's ever used the code, and to every future signup on it.
+
+export interface InviteCodeGrant {
+  id: string;
+  product_type: "course" | "learning_path";
+  course_id: string | null;
+  course_title: string | null;
+  learning_path_id: string | null;
+  learning_path_title: string | null;
+  created_at: string | null;
+}
+
+export const listInviteCodeGrantsApi = (codeId: string) =>
+  api.get<InviteCodeGrant[]>(`/lms/admin/invite-codes/${codeId}/grants`).then((r) => r.data);
+
+export const createInviteCodeGrantApi = (
+  codeId: string, data: { course_id?: string; learning_path_id?: string },
+) => api.post<{ grant: InviteCodeGrant; accounts_enrolled: number }>(
+  `/lms/admin/invite-codes/${codeId}/grants`, data,
+).then((r) => r.data);
+
+export const deleteInviteCodeGrantApi = (codeId: string, grantId: string) =>
+  api.delete<void>(`/lms/admin/invite-codes/${codeId}/grants/${grantId}`).then((r) => r.data);
 
 export const getStudentProfileApi = (userId: string) =>
   api.get<StudentProfile>(`/lms/admin/students/${userId}`).then((r) => r.data);
