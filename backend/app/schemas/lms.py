@@ -398,3 +398,59 @@ class MyProgramOut(BaseModel):
     total_sessions: int
     courses: list[MyProgramCourseOut] = []
     missions: list = []  # Stage 5 fills this in; empty, not omitted, until then
+
+
+# ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
+
+LmsProgramItemStatus = Literal["pending", "done", "awaiting_confirmation"]
+
+
+class LmsProgramChecklistItemOut(BaseModel):
+    id: UUID
+    position: int
+    item_type: str
+    title: str
+    description: str | None = None
+    optional: bool
+    requires_confirmation: bool
+    status: LmsProgramItemStatus
+    # Resolved link, whatever the item type: a course id, a mission
+    # attempt id (the ops-assigned run itself, never the mission catalog
+    # entry), or the stored external_url — the frontend picks which by
+    # `item_type`, same shape the Poster tab already established.
+    course_id: UUID | None = None
+    mission_attempt_id: UUID | None = None
+    external_url: str | None = None
+    submission_prompt: str | None = None
+    # What the student themself submitted back, for a `submission` item.
+    submitted_url: str | None = None
+
+
+class LmsProgramAssignmentSummaryOut(BaseModel):
+    assignment_id: UUID
+    lms_program_id: UUID
+    name: str
+    cohort_id: UUID | None = None
+    cohort_name: str | None = None
+    items_total: int
+    items_done: int
+    pct: int
+    next_item_title: str | None = None
+    certificate_required: bool
+    certificate_earned: bool
+
+
+class LmsProgramChecklistOut(BaseModel):
+    assignment_id: UUID
+    lms_program_id: UUID
+    name: str
+    description: str | None = None
+    cohort_id: UUID | None = None
+    cohort_name: str | None = None
+    certificate_required: bool
+    certificate_earned: bool
+    items: list[LmsProgramChecklistItemOut]
+
+
+class LmsProgramItemSubmitIn(BaseModel):
+    url: str

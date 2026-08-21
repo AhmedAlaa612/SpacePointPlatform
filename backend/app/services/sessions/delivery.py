@@ -32,6 +32,7 @@ from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.email import try_send_email
+from app.services.lms.program import certificate_gate_satisfied
 from app.services.sessions.registration import check_in, format_cohort_dates
 from app.services.sessions.staffing import resolve_session_location_display
 
@@ -251,10 +252,13 @@ async def complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id: UUID
     """Ops/admin only (enforced by the router dependency, not here — unlike
     the instructor actions above, there's no per-user assignment concept for
     a whole cohort). Per registration: meets the program's completion rule
-    -> status=completed + certificate issued; else status=attended (an ops
-    can still manually issue one later — see issue_certificate_override).
-    Then the cohort itself flips to completed. S5-2's zero-reports warning
-    is layered on top of this by the router, not here."""
+    AND (2026-08-21) its LMS Program checklist, if any, is done ->
+    status=completed + certificate issued; else status=attended (an ops
+    can still manually issue one later — see issue_certificate_override,
+    which deliberately bypasses the checklist gate too, same as it already
+    bypasses the completion rule). Then the cohort itself flips to
+    completed. S5-2's zero-reports warning is layered on top of this by
+    the router, not here."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
@@ -266,7 +270,11 @@ async def complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id: UUID
     for registration in registrations:
         total = await _sessions_covered(db, cohort_id, registration.id)
         present = await _present_count(db, registration.id)
-        if _meets_completion_rule(program, present, total):
+        user_id = await db.scalar(
+            select(User.id).where(User.contact_id == registration.contact_id).order_by(User.created_at)
+        )
+        gate_ok = await certificate_gate_satisfied(db, cohort_id=cohort_id, user_id=user_id)
+        if _meets_completion_rule(program, present, total) and gate_ok:
             registration.status = "completed"
             contact = await db.get(Contact, registration.contact_id)
             await _issue_student_certificate(db, registration, contact, cohort, program, actor_user_id)

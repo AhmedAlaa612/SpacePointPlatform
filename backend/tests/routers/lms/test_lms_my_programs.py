@@ -8,7 +8,8 @@ from datetime import date
 import pytest
 
 from app.core.security import create_access_token
-from app.models.lms import Course, CourseModule, CohortCurriculum, ModuleItem, ProgramCurriculum
+from app.models.lms import Course, CourseModule, ModuleItem
+from app.models.lms.program import LmsProgram, LmsProgramCohortOverride, LmsProgramItem
 from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
@@ -80,7 +81,13 @@ async def test_my_programs_composes_dates_location_instructor_attendance_courses
     await db.flush()
     item = ModuleItem(id=uuid.uuid4(), module_id=module.id, position=1, kind="text", content={"body": "x"})
     db.add(item)
-    db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=course.id, position=1))
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="My Programs Checklist")
+    db.add(lms_program)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="course", title="Orbital Mechanics", course_id=course.id,
+    ))
     await db.flush()
 
     contact = Contact(id=uuid.uuid4(), full_name="My Programs Student", contact_roles=["student"])
@@ -150,8 +157,20 @@ async def test_my_programs_respects_cohort_curriculum_override(db, client):
     cohort_course = Course(id=uuid.uuid4(), title="Cohort Course", created_by=author.id, is_published=True)
     db.add_all([program_course, cohort_course])
     await db.flush()
-    db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=program_course.id, position=1))
-    db.add(CohortCurriculum(id=uuid.uuid4(), cohort_id=cohort.id, course_id=cohort_course.id, position=1))
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Override Checklist")
+    db.add(lms_program)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="course", title="Program Course", course_id=program_course.id,
+    ))
+    override = LmsProgramCohortOverride(id=uuid.uuid4(), cohort_id=cohort.id, lms_program_id=lms_program.id)
+    db.add(override)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="cohort_override", owner_id=override.id, position=1,
+        item_type="course", title="Cohort Course", course_id=cohort_course.id,
+    ))
     await db.flush()
 
     contact = Contact(id=uuid.uuid4(), full_name="Override Student", contact_roles=["student"])

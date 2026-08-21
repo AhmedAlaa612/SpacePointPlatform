@@ -45,3 +45,18 @@ class SessionLmsProgressOut(BaseModel):
     cohort_id: UUID
     program_name: str
     students: list[StudentLmsProgressOut]
+
+
+class LmsProgramRosterRowOut(BaseModel):
+    """One student's LMS Program checklist progress, instructor/ops view
+    (2026-08-21) — `GET /lms/instructor/cohorts/{cohort_id}/program-progress`."""
+    assignment_id: UUID
+    user_id: UUID
+    student_name: str
+    name: str
+    items_total: int
+    items_done: int
+    pct: int
+    next_item_title: str | None = None
+    certificate_required: bool
+    certificate_earned: bool

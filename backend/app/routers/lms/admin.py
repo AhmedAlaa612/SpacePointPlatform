@@ -21,9 +21,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
-from app.models.lms import (
-    CohortCurriculum, Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, ProgramCurriculum, VideoCheckpoint,
-)
+from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, VideoCheckpoint
+from app.models.lms.program import LmsProgram, LmsProgramCohortOverride, LmsProgramItem
+from app.models.missions.mission import Mission
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.instructors.invitation_code import InvitationCode
 from app.models.sessions.cohort import Cohort
@@ -43,12 +43,9 @@ from app.schemas.lms_admin import (
     AdminContentVideo,
     BulkGrantIn,
     BulkGrantOut,
-    CohortCurriculumEntryOut,
     CourseAdminOut,
     CourseCreate,
     CourseUpdate,
-    CurriculumEntryIn,
-    CurriculumEntryOut,
     EnrollmentAdminOut,
     EnrollmentGrantIn,
     InstructorOptionOut,
@@ -64,11 +61,16 @@ from app.schemas.lms_admin import (
     LearningPathStepIn,
     LearningPathStepOut,
     LearningPathUpdate,
+    LmsProgramCohortOverrideOut,
+    LmsProgramCreate,
+    LmsProgramItemIn,
+    LmsProgramItemOut,
+    LmsProgramOut,
+    LmsProgramUpdate,
     ModuleAdminOut,
     ModuleCreate,
     ModuleReorderIn,
     ModuleUpdate,
-    ReconcileEnrollmentsOut,
     StaffOptionOut,
     StudentProfileOut,
     StudentProgramOut,
@@ -89,8 +91,8 @@ from app.services.lms.admin_progress import (
     cohort_progress_grid, course_progress_all, courses_overview, mission_progress_all, missions_overview,
     student_design_runs,
 )
-from app.services.lms.curriculum import reconcile_cohort_enrollments, reconcile_cohorts_inheriting_program
 from app.services.lms.my_programs import my_programs
+from app.services.lms.program import resolve_cohort_program
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
 router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
@@ -1145,200 +1147,308 @@ async def delete_checkpoint(
     await db.commit()
 
 
-# ── program curriculum (program → ordered courses, D5) ──────────────────────
+# ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
+# Replaces the old flat program_curriculum/cohort_curriculum course list —
+# see models/lms/program.py's module docstring for the full shape. A cohort
+# override (below) with ANY item rows overrides its program's checklist
+# outright, same nearest-wins idiom the old tables used.
 
-@router.get("/programs/{program_id}/curriculum", response_model=list[CurriculumEntryOut])
-async def list_curriculum(
-    program_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
-):
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
-    rows = (await db.execute(
-        select(ProgramCurriculum)
-        .where(ProgramCurriculum.program_id == program_id)
-        .order_by(ProgramCurriculum.position)
-    )).scalars().all()
-    return rows
+def _validate_item_payload(body: LmsProgramItemIn) -> None:
+    required = {
+        "course": body.course_id is not None,
+        "mission_run": body.mission_id is not None,
+        "external_link": bool(body.external_url),
+        "submission": bool(body.external_url) or bool(body.submission_prompt),
+        "article": bool(body.external_url),
+        "manual": True,
+    }
+    if not required[body.item_type]:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"A '{body.item_type}' item is missing its required field",
+        )
 
 
-@router.post(
-    "/programs/{program_id}/curriculum",
-    response_model=CurriculumEntryOut,
-    status_code=status.HTTP_201_CREATED,
-)
-async def add_curriculum_entry(
-    program_id: uuid.UUID,
-    body: CurriculumEntryIn,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
-):
-    program = await db.get(Program, program_id)
-    if program is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
-    course = await db.get(Course, body.course_id)
-    if course is None:
+async def _validate_item_refs(db: AsyncSession, body: LmsProgramItemIn) -> None:
+    if body.course_id is not None and await db.get(Course, body.course_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    if body.mission_id is not None and await db.get(Mission, body.mission_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
 
-    dup = (await db.execute(
-        select(ProgramCurriculum.id).where(
-            ProgramCurriculum.program_id == program_id, ProgramCurriculum.course_id == body.course_id
+
+async def _check_item_conflicts(
+    db: AsyncSession, *, owner_type: str, owner_id: uuid.UUID, body: LmsProgramItemIn,
+    exclude_item_id: uuid.UUID | None = None,
+) -> None:
+    """Clean 409s for the two DB-level unique constraints
+    (`uq_lms_program_items_owner_position`/`_owner_course`) rather than
+    letting them surface as a raw IntegrityError."""
+    if body.position is not None:
+        q = select(LmsProgramItem.id).where(
+            LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id,
+            LmsProgramItem.position == body.position,
         )
-    )).first()
-    if dup:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="This course is already in the program's curriculum")
-
-    position = body.position
-    if position is None:
-        max_pos = await db.scalar(
-            select(func.max(ProgramCurriculum.position)).where(ProgramCurriculum.program_id == program_id)
+        if exclude_item_id is not None:
+            q = q.where(LmsProgramItem.id != exclude_item_id)
+        if await db.scalar(q):
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Position {body.position} is already taken")
+    if body.course_id is not None:
+        q = select(LmsProgramItem.id).where(
+            LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id,
+            LmsProgramItem.course_id == body.course_id,
         )
-        position = (max_pos or 0) + 1
-    else:
-        taken = (await db.execute(
-            select(ProgramCurriculum.id).where(
-                ProgramCurriculum.program_id == program_id, ProgramCurriculum.position == position
-            )
-        )).first()
-        if taken:
-            raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Position {position} is already taken in this curriculum")
+        if exclude_item_id is not None:
+            q = q.where(LmsProgramItem.id != exclude_item_id)
+        if await db.scalar(q):
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="This course is already on the checklist")
 
-    entry = ProgramCurriculum(id=uuid.uuid4(), program_id=program_id, course_id=body.course_id, position=position)
+
+async def _next_position(db: AsyncSession, *, owner_type: str, owner_id: uuid.UUID) -> int:
+    max_pos = await db.scalar(
+        select(func.max(LmsProgramItem.position)).where(
+            LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id,
+        )
+    )
+    return (max_pos or 0) + 1
+
+
+async def _items_for_owner(db: AsyncSession, *, owner_type: str, owner_id: uuid.UUID) -> list[LmsProgramItem]:
+    return list((await db.execute(
+        select(LmsProgramItem)
+        .where(LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id)
+        .order_by(LmsProgramItem.position)
+    )).scalars().all())
+
+
+async def _program_out(db: AsyncSession, program: LmsProgram) -> LmsProgramOut:
+    items = await _items_for_owner(db, owner_type="program", owner_id=program.id)
+    return LmsProgramOut(
+        id=program.id, program_id=program.program_id, name=program.name,
+        description=program.description, certificate_required=program.certificate_required,
+        items=[LmsProgramItemOut.model_validate(i) for i in items],
+    )
+
+
+async def _override_out(db: AsyncSession, override: LmsProgramCohortOverride) -> LmsProgramCohortOverrideOut:
+    items = await _items_for_owner(db, owner_type="cohort_override", owner_id=override.id)
+    return LmsProgramCohortOverrideOut(
+        id=override.id, cohort_id=override.cohort_id, lms_program_id=override.lms_program_id,
+        items=[LmsProgramItemOut.model_validate(i) for i in items],
+    )
+
+
+@router.post("/programs", response_model=LmsProgramOut, status_code=status.HTTP_201_CREATED)
+async def create_lms_program(
+    body: LmsProgramCreate, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    if body.program_id is not None:
+        program = await db.get(Program, body.program_id)
+        if program is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program not found")
+        dup = await db.scalar(select(LmsProgram.id).where(LmsProgram.program_id == body.program_id))
+        if dup:
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="This program already has an LMS checklist")
+    entry = LmsProgram(
+        id=uuid.uuid4(), program_id=body.program_id, name=body.name,
+        description=body.description, certificate_required=body.certificate_required,
+    )
     db.add(entry)
-    await db.flush()
-    # P4-2, trigger 1: reaches every cohort that inherits this program's
-    # curriculum (no cohort_curriculum override of its own) — otherwise a
-    # course added here reaches nobody already registered, silently.
-    await reconcile_cohorts_inheriting_program(db, program_id)
     await db.commit()
     await db.refresh(entry)
-    return entry
+    return await _program_out(db, entry)
 
 
-@router.delete("/programs/{program_id}/curriculum/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_curriculum_entry(
-    program_id: uuid.UUID,
-    course_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+@router.get("/programs/{lms_program_id}", response_model=LmsProgramOut)
+async def get_lms_program(
+    lms_program_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
-    entry = (await db.execute(
-        select(ProgramCurriculum).where(
-            ProgramCurriculum.program_id == program_id, ProgramCurriculum.course_id == course_id
-        )
-    )).scalars().first()
+    entry = await db.get(LmsProgram, lms_program_id)
     if entry is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Curriculum entry not found")
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    return await _program_out(db, entry)
+
+
+@router.patch("/programs/{lms_program_id}", response_model=LmsProgramOut)
+async def update_lms_program(
+    lms_program_id: uuid.UUID, body: LmsProgramUpdate,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    entry = await db.get(LmsProgram, lms_program_id)
+    if entry is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(entry, field, value)
+    await db.commit()
+    await db.refresh(entry)
+    return await _program_out(db, entry)
+
+
+@router.delete("/programs/{lms_program_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_lms_program(
+    lms_program_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    entry = await db.get(LmsProgram, lms_program_id)
+    if entry is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
     await db.delete(entry)
     await db.commit()
 
 
-# ── cohort curriculum (P4-1, Phase 2 Stage 4, 2026-08-10) ───────────────────
-# A cohort with ANY rows here overrides its program's curriculum outright —
-# see models/lms/curriculum.py::CohortCurriculum's docstring.
-
-@router.get("/cohorts/{cohort_id}/curriculum", response_model=list[CohortCurriculumEntryOut])
-async def list_cohort_curriculum(
-    cohort_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+@router.post("/programs/{lms_program_id}/items", response_model=LmsProgramItemOut, status_code=status.HTTP_201_CREATED)
+async def add_lms_program_item(
+    lms_program_id: uuid.UUID, body: LmsProgramItemIn,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-    rows = (await db.execute(
-        select(CohortCurriculum).where(CohortCurriculum.cohort_id == cohort_id).order_by(CohortCurriculum.position)
-    )).scalars().all()
-    return rows
+    program = await db.get(LmsProgram, lms_program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    _validate_item_payload(body)
+    await _validate_item_refs(db, body)
+    await _check_item_conflicts(db, owner_type="program", owner_id=program.id, body=body)
+    position = body.position or await _next_position(db, owner_type="program", owner_id=program.id)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=program.id, position=position,
+        **body.model_dump(exclude={"position"}),
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.patch("/programs/{lms_program_id}/items/{item_id}", response_model=LmsProgramItemOut)
+async def update_lms_program_item(
+    lms_program_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramItemIn,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    item = (await db.execute(
+        select(LmsProgramItem).where(
+            LmsProgramItem.id == item_id, LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == lms_program_id,
+        )
+    )).scalars().first()
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    _validate_item_payload(body)
+    await _validate_item_refs(db, body)
+    await _check_item_conflicts(db, owner_type="program", owner_id=lms_program_id, body=body, exclude_item_id=item.id)
+    for field, value in body.model_dump(exclude={"position"}).items():
+        setattr(item, field, value)
+    if body.position is not None:
+        item.position = body.position
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.delete("/programs/{lms_program_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_lms_program_item(
+    lms_program_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    item = (await db.execute(
+        select(LmsProgramItem).where(
+            LmsProgramItem.id == item_id, LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == lms_program_id,
+        )
+    )).scalars().first()
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    await db.delete(item)
+    await db.commit()
+
+
+@router.get("/cohorts/{cohort_id}/program-override", response_model=LmsProgramCohortOverrideOut)
+async def get_cohort_program_override(
+    cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    override = await db.scalar(select(LmsProgramCohortOverride).where(LmsProgramCohortOverride.cohort_id == cohort_id))
+    if override is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist override")
+    return await _override_out(db, override)
 
 
 @router.post(
-    "/cohorts/{cohort_id}/curriculum", response_model=CohortCurriculumEntryOut, status_code=status.HTTP_201_CREATED,
+    "/cohorts/{cohort_id}/program-override/items", response_model=LmsProgramItemOut, status_code=status.HTTP_201_CREATED,
 )
-async def add_cohort_curriculum_entry(
-    cohort_id: uuid.UUID,
-    body: CurriculumEntryIn,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+async def add_cohort_override_item(
+    cohort_id: uuid.UUID, body: LmsProgramItemIn,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
+    """Creates the cohort's override row on its first item — from that
+    point on this cohort's checklist is entirely its own, replacing
+    whatever its program's checklist says (never merged)."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-    course = await db.get(Course, body.course_id)
-    if course is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-
-    dup = (await db.execute(
-        select(CohortCurriculum.id).where(
-            CohortCurriculum.cohort_id == cohort_id, CohortCurriculum.course_id == body.course_id
-        )
-    )).first()
-    if dup:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail="This course is already in the cohort's curriculum")
-
-    position = body.position
-    if position is None:
-        max_pos = await db.scalar(
-            select(func.max(CohortCurriculum.position)).where(CohortCurriculum.cohort_id == cohort_id)
-        )
-        position = (max_pos or 0) + 1
-    else:
-        taken = (await db.execute(
-            select(CohortCurriculum.id).where(
-                CohortCurriculum.cohort_id == cohort_id, CohortCurriculum.position == position
+    override = await db.scalar(select(LmsProgramCohortOverride).where(LmsProgramCohortOverride.cohort_id == cohort_id))
+    if override is None:
+        program = await db.scalar(select(LmsProgram).where(LmsProgram.program_id == cohort.program_id))
+        if program is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="This cohort's program has no LMS checklist to override yet — create one first",
             )
-        )).first()
-        if taken:
-            raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Position {position} is already taken in this curriculum")
+        override = LmsProgramCohortOverride(id=uuid.uuid4(), cohort_id=cohort_id, lms_program_id=program.id)
+        db.add(override)
+        await db.flush()
 
-    entry = CohortCurriculum(id=uuid.uuid4(), cohort_id=cohort_id, course_id=body.course_id, position=position)
-    db.add(entry)
-    await db.flush()
-    # P4-2, trigger 1: this cohort's curriculum just changed (or just
-    # started overriding its program's) — reach everyone already
-    # registered, not just future registrations.
-    await reconcile_cohort_enrollments(db, cohort_id)
+    _validate_item_payload(body)
+    await _validate_item_refs(db, body)
+    await _check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body)
+    position = body.position or await _next_position(db, owner_type="cohort_override", owner_id=override.id)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="cohort_override", owner_id=override.id, position=position,
+        **body.model_dump(exclude={"position"}),
+    )
+    db.add(item)
     await db.commit()
-    await db.refresh(entry)
-    return entry
+    await db.refresh(item)
+    return item
 
 
-@router.delete("/cohorts/{cohort_id}/curriculum/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_cohort_curriculum_entry(
-    cohort_id: uuid.UUID,
-    course_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+@router.patch("/cohorts/{cohort_id}/program-override/items/{item_id}", response_model=LmsProgramItemOut)
+async def update_cohort_override_item(
+    cohort_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramItemIn,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
-    entry = (await db.execute(
-        select(CohortCurriculum).where(
-            CohortCurriculum.cohort_id == cohort_id, CohortCurriculum.course_id == course_id
+    override = await db.scalar(select(LmsProgramCohortOverride).where(LmsProgramCohortOverride.cohort_id == cohort_id))
+    if override is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist override")
+    item = (await db.execute(
+        select(LmsProgramItem).where(
+            LmsProgramItem.id == item_id, LmsProgramItem.owner_type == "cohort_override", LmsProgramItem.owner_id == override.id,
         )
     )).scalars().first()
-    if entry is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Curriculum entry not found")
-    await db.delete(entry)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    _validate_item_payload(body)
+    await _validate_item_refs(db, body)
+    await _check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body, exclude_item_id=item.id)
+    for field, value in body.model_dump(exclude={"position"}).items():
+        setattr(item, field, value)
+    if body.position is not None:
+        item.position = body.position
     await db.commit()
+    await db.refresh(item)
+    return item
 
 
-@router.post("/cohorts/{cohort_id}/reconcile-enrollments", response_model=ReconcileEnrollmentsOut)
-async def reconcile_cohort_enrollments_now(
-    cohort_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_lms_content),
+@router.delete("/cohorts/{cohort_id}/program-override/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_cohort_override_item(
+    cohort_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
-    """P4-2, trigger 3: a manual "re-sync now" action — for whenever staff
-    suspect drift (e.g. after a bulk data fix) rather than a curriculum
-    edit specifically. Same idempotent function the other two triggers
-    call; safe to press as often as wanted."""
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-    created = await reconcile_cohort_enrollments(db, cohort_id)
+    override = await db.scalar(select(LmsProgramCohortOverride).where(LmsProgramCohortOverride.cohort_id == cohort_id))
+    if override is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist override")
+    item = (await db.execute(
+        select(LmsProgramItem).where(
+            LmsProgramItem.id == item_id, LmsProgramItem.owner_type == "cohort_override", LmsProgramItem.owner_id == override.id,
+        )
+    )).scalars().first()
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    await db.delete(item)
     await db.commit()
-    return ReconcileEnrollmentsOut(created=created)
 
 
 # ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────

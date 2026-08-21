@@ -387,31 +387,70 @@ class ItemReorderIn(BaseModel):
     item_ids: list[UUID]
 
 
-# ── program curriculum ──────────────────────────────────────────────────────
+# ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
 
-class CurriculumEntryIn(BaseModel):
-    course_id: UUID
+LmsProgramItemType = Literal["course", "mission_run", "external_link", "submission", "article", "manual"]
+
+
+class LmsProgramItemIn(BaseModel):
+    item_type: LmsProgramItemType
+    title: str
+    description: str | None = None
+    optional: bool = False
+    requires_confirmation: bool = False
+    course_id: UUID | None = None
+    mission_id: UUID | None = None
+    variant_id: UUID | None = None
+    external_url: str | None = None
+    submission_prompt: str | None = None
     position: int | None = None
 
 
-class CurriculumEntryOut(BaseModel):
+class LmsProgramItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
-    program_id: UUID
-    course_id: UUID
     position: int
+    item_type: LmsProgramItemType
+    title: str
+    description: str | None
+    optional: bool
+    requires_confirmation: bool
+    course_id: UUID | None
+    mission_id: UUID | None
+    variant_id: UUID | None
+    external_url: str | None
+    submission_prompt: str | None
 
 
-class CohortCurriculumEntryOut(BaseModel):
+class LmsProgramCreate(BaseModel):
+    program_id: UUID | None = None
+    name: str
+    description: str | None = None
+    certificate_required: bool = True
+
+
+class LmsProgramUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    certificate_required: bool | None = None
+
+
+class LmsProgramOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    program_id: UUID | None
+    name: str
+    description: str | None
+    certificate_required: bool
+    items: list[LmsProgramItemOut] = []
+
+
+class LmsProgramCohortOverrideOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     cohort_id: UUID
-    course_id: UUID
-    position: int
-
-
-class ReconcileEnrollmentsOut(BaseModel):
-    created: int
+    lms_program_id: UUID
+    items: list[LmsProgramItemOut] = []
 
 
 # ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────

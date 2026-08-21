@@ -18,9 +18,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.lms import Course, CourseModule, ItemProgress, ModuleItem, ProgramCurriculum
+from app.models.lms import Course, CourseModule, ItemProgress, ModuleItem
 from app.models.sessions.program import Program
 from app.models.user import User
+from app.services.lms.program import resolve_cohort_program_course_ids
 from app.services.lms.progress import course_completion, unlock_state
 from app.services.sessions import delivery
 
@@ -59,18 +60,15 @@ async def student_course_progress(db: AsyncSession, *, user_id: UUID, course_id:
 
 async def session_lms_progress(db: AsyncSession, *, session_id: UUID, user: User) -> dict:
     """The roster for this session (already scoped to the requesting
-    instructor by `get_roster`), each row's LMS progress across every course
-    in the cohort's program curriculum. A student with no linked LMS account
-    (never enrolled, or the registration predates LM1-7) reports
-    `has_lms_account=False` and an empty course list — not an error."""
+    instructor by `get_roster`), each row's LMS progress across every
+    course item in the cohort's LMS Program checklist (override-aware,
+    2026-08-21). A student with no linked LMS account (never enrolled, or
+    the registration predates LM1-7) reports `has_lms_account=False` and
+    an empty course list — not an error."""
     session, cohort, roster = await delivery.get_roster(db, session_id, user)
     program = await db.get(Program, cohort.program_id)
 
-    course_ids = (await db.execute(
-        select(ProgramCurriculum.course_id)
-        .where(ProgramCurriculum.program_id == program.id)
-        .order_by(ProgramCurriculum.position)
-    )).scalars().all()
+    course_ids = await resolve_cohort_program_course_ids(db, cohort.id)
     courses = {
         c.id: c for c in (await db.execute(
             select(Course).where(Course.id.in_(course_ids))

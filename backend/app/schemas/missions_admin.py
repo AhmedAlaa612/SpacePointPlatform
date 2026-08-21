@@ -86,6 +86,19 @@ class MissionAttemptReviewIn(BaseModel):
     review_comment: str | None = None
 
 
+class MissionAttemptAssignIn(BaseModel):
+    """The general ops-assign shape (2026-08-21, LMS Program redesign) —
+    the only way a solo attempt gets a `cohort_id` now that self-started
+    attempts are always independent. `variant_id=None` resolves to the
+    mission's easiest variant. `force_new=True` only for re-assigning a
+    student who already passed a prior run."""
+    user_id: UUID
+    mission_id: UUID
+    cohort_id: UUID
+    variant_id: UUID | None = None
+    force_new: bool = False
+
+
 class MissionAttemptAdminOut(BaseModel):
     id: UUID
     mission_id: UUID

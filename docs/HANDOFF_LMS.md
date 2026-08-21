@@ -35,7 +35,9 @@ component catalog, student accounts) with no map of its own until now. If you're
 
 Tables: `courses`, `course_modules`, `module_items`, `module_videos`, `video_checkpoints`,
 `enrollments`, `item_progress`, `learning_paths`, `learning_path_steps`, `point_events`,
-`program_curriculum`, `cohort_curriculum`, `purchases`.
+`purchases`, `lms_programs`, `lms_program_cohort_overrides`, `lms_program_items`,
+`lms_program_assignments`, `lms_program_item_progress` (§11 — the checklist-driven Program
+redesign, 2026-08-21, which replaced `program_curriculum`/`cohort_curriculum` outright).
 
 - `Course.access_mode` is `open | invite | paid` — governs **self-enrol eligibility only**, and
   self-enrol (`POST /lms/enroll`) is `require_lms_student`: **staff can never self-enrol in
@@ -77,9 +79,9 @@ Tables: `courses`, `course_modules`, `module_items`, `module_videos`, `video_che
   app.** Switching to BBR took first-segment load from 11.2s to 1.7s. If HLS playback feels slow
   again, check `sysctl net.ipv4.tcp_congestion_control` on the VPS before assuming the pipeline
   regressed — this exact symptom looks identical to a transcode/CDN problem from the app side.
-- `program_curriculum` / `cohort_curriculum` are how a course attaches to the Sessions domain's
-  Programs/Cohorts (see `HANDOFF_SESSIONS.md`) — a different attachment path than a student's
-  own enrollment.
+- A course attaches to the Sessions domain's Programs/Cohorts (see `HANDOFF_SESSIONS.md`) as one
+  `course`-type item inside an **LMS Program checklist** now — §11 below — a different attachment
+  path than a student's own enrollment.
 
 ## 3. The unified prerequisite DAG (`backend/app/models/curriculum.py`, `services/curriculum.py`)
 
@@ -124,10 +126,22 @@ a top-level, domain-agnostic model since 2026-08-17 (see the Team generalization
   resume is opt-out via `force_new=True`; every other caller (every other kind, and Design's own
   "continue an existing run" path) keeps the original single-flight behavior. `MissionPage.tsx`
   shows a "My Missions" list for `kind === "design"` instead of auto-redirecting into one attempt.
-- **`MissionAttempt.cohort_id`** (2026-08-17) — every attempt now carries a real cohort
-  attribution, resolved eagerly at `start_attempt()` time (solo: the student's active
-  `Registration`; team: `Team.cohort_id`), for every mission kind. Supersedes the older
-  `Design.cohort_id`, which resolved lazily and solo-only, and now just mirrors this column.
+- **`MissionAttempt.cohort_id`** (2026-08-17; auto-resolution removed 2026-08-21, see the LMS
+  Program redesign entry below) — every attempt carries a real cohort attribution, resolved at
+  `start_attempt()` time, for every mission kind. Supersedes the older `Design.cohort_id`, which
+  resolved lazily and solo-only, and now just mirrors this column. **A solo, student-started
+  attempt (`POST /missions/{id}/attempts`) is now unconditionally `cohort_id=None`** — the old
+  `resolve_student_cohort()` auto-resolution from the student's active `Registration` is gone
+  entirely (removed, not deprecated — no function to call). The only ways an attempt gets a real
+  `cohort_id` now: the team path (`Team.cohort_id`, unchanged) or an explicit ops action —
+  `POST /missions/admin/attempts/assign` (`{user_id, mission_id, cohort_id, variant_id?,
+  force_new?}`, `services/missions/attempts.py::assign_mission_run`). This is a real, deliberate
+  behavior change (operator call, 2026-08-21): a new run a student starts themselves is always
+  independent, never silently scoped to whatever cohort they happen to be registered in.
+  **Consequence for anything reading gates/step-selection/poster fields below**: those all key
+  off `MissionAttempt.cohort_id`, so they now only apply to ops-assigned attempts — any
+  currently-configured cohort (TDRA included) needs its students' attempts (re-)created via the
+  assign endpoint, they don't pick this up automatically from registration anymore.
 - **Per-cohort step gating — reintroduced, on purpose** (2026-08-17). An identical feature
   (`design_step_gates`) existed once, shipped with no UI to ever use it, and was removed in
   Design v2 (7D-0) with the stated reason "instructors stay out of the mission entirely." The
@@ -324,3 +338,61 @@ least once — `gh auth status` and `curl` to `github.com` both fine, plain
 again: Ctrl+C, download with plain `curl` to the exact path the script expects
 (`/tmp/frontend-dist.tar.gz`), then run the script's extract/verify/swap steps by hand (they're
 short — read `/usr/local/bin/deploy-frontend.sh`, it's four commands after the download line).
+
+## 11. LMS Program checklist (backend only, 2026-08-21 — frontend not yet built)
+
+Replaces `program_curriculum`/`cohort_curriculum` (a flat, course-only list, dropped outright —
+confirmed empty in production, no migration needed) with a real checklist. Backend is complete
+and tested (`backend/app/models/lms/program.py`, `services/lms/program.py`,
+`routers/lms/{admin,student,instructor}.py`); the student/admin/instructor **screens are not
+built yet** — that's the next PR.
+
+- **Shape**: `LmsProgram` (a checklist template, attached to a Sessions `Program` via
+  `program_id`, nullable+unique — one checklist per program) → `LmsProgramItem` (the steps;
+  polymorphic `owner_type`/`owner_id` pointing at either the `LmsProgram` itself or a
+  `LmsProgramCohortOverride` — service-layer-enforced, not a DB FK, same discriminator idiom
+  `Purchase.product_type` uses) → `LmsProgramAssignment` (one student's instance, created once at
+  registration time) → `LmsProgramItemProgress` (per-student per-item status).
+- **Cohort override** (`LmsProgramCohortOverride`) replaces its program's checklist outright when
+  it has any items of its own — never merged, the exact `CohortCurriculum` idiom carried forward.
+  `resolve_cohort_program()` is the one function that applies it; nothing else should read
+  `lms_program_items` directly.
+- **Item types**: `course` (enrolls immediately on assignment — sequence position governs
+  checklist display/certificate-gating only, never actual access), `mission_run` (ops-assigned via
+  the endpoint below, never student-started), `external_link`, `submission` (paste-a-link-back,
+  same shape as the Poster tab), `article`, `manual`. `optional` items don't block the
+  certificate; `requires_confirmation` items need an instructor/ops confirm click instead of the
+  student's own self-check (self-check is the default everywhere else — operator call: "not
+  everything can be trackable").
+- **Assignment is automatic, at registration time** — `sync_registration_lms` calls
+  `assign_lms_program()` exactly where it used to call `enroll_in_cohort_curriculum()`. A cohort
+  with no attached checklist is a no-op, same as before. Items are materialized once, at
+  assignment time; a later checklist edit does not retroactively change an existing assignment
+  (no reconciliation fan-out yet — `enroll_in_cohort_curriculum` had one, `P4-2`; add one the same
+  way if a real need for it shows up, there's no production data to migrate yet so it wasn't
+  built speculatively).
+- **Mission-run items and the new general assign endpoint**: `POST /missions/admin/attempts/
+  assign` (`services/missions/attempts.py::assign_mission_run`) is the one way a `MissionAttempt`
+  gets a `cohort_id` now that solo/student-started attempts never auto-resolve one (see §4's
+  `MissionAttempt.cohort_id` entry above for the full detail and its consequence for gates/
+  step-selection/poster fields on any *existing* cohort). Not program-exclusive — TDRA-style
+  cohort-scoped-missions-with-no-full-checklist use this same endpoint directly.
+- **Certificate**: no new certificate type. `LmsProgram.certificate_required` (default true) gates
+  the cohort's existing `student_completion` certificate — `services/sessions/delivery.py::
+  complete_cohort`'s automatic per-registration issuance now also checks
+  `certificate_gate_satisfied()`; `issue_certificate_override` (the existing manual-override
+  escape hatch) deliberately still bypasses it, same as it already bypasses the attendance
+  completion rule.
+- **Endpoints**: ops authoring at `/lms/admin/programs/*` and `/lms/admin/cohorts/{id}/
+  program-override/*` (mirrors the course-admin CRUD shape); student read/self-check/submit at
+  `/lms/programs*` (distinct from the older, still-live `/lms/my-programs` courses-only cohort
+  view); instructor roster + confirm at `/lms/instructor/cohorts/{id}/program-progress*`,
+  cohort-scoped via `services/missions/cohort_access.py::require_cohort_access` (reused as-is —
+  same instructor/facilitator/operations population an LMS-side view needs).
+- **Operational note for whoever deploys this**: any cohort *currently* configured with a
+  `MissionStepGate` row, a `poster_template_url`, or relying on `MissionStepSelection` needs its
+  students' mission attempts re-created via `POST /missions/admin/attempts/assign` after this
+  ships — those features all key off `MissionAttempt.cohort_id`, which a solo attempt no longer
+  gets automatically. This is a real, one-time manual step, not automated (no reconciliation
+  script) — check with the operator for which cohorts (TDRA at minimum) need it before/soon after
+  this deploys.

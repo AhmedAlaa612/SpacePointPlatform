@@ -17,7 +17,8 @@ from sqlalchemy import select
 from app.core.security import create_access_token
 from app.db.session import get_db
 from app.main import app
-from app.models.lms import Course, ProgramCurriculum
+from app.models.lms import Course
+from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.program import Program
@@ -102,7 +103,14 @@ async def test_ops_sees_progress_without_an_assignment(db, client):
     author = await _user(db, roles=["operations"])
     course = Course(id=uuid.uuid4(), title="Curriculum Course", created_by=author.id, is_published=True)
     db.add(course)
-    db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=course.id, position=1))
+    await db.flush()
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Progress Checklist")
+    db.add(lms_program)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="course", title=course.title, course_id=course.id,
+    ))
 
     contact = Contact(
         id=uuid.uuid4(), full_name="Progress Student", contact_roles=["student"],

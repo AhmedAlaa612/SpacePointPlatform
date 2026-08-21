@@ -25,32 +25,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.missions.mission import MissionAttempt, MissionAttemptMember, MissionVariant
-from app.models.sessions.registration import Registration
-from app.models.user import User
 from app.services.lms.points import award_points
 from app.services.missions.embedding import complete_embedded_items
 from app.services.teams import team_member_ids
 
 MISSION_POINTS_SOURCE = "mission"
-
-
-async def resolve_student_cohort(db: AsyncSession, *, user_id: uuid.UUID) -> uuid.UUID | None:
-    """Which cohort a solo attempt belongs to — the student's most recent
-    active registration, or NULL for a standalone attempt outside any
-    workshop. Moved here from `services/missions/design/service.py`
-    (2026-08-17) — it was never actually design-specific (only reads
-    `Registration`), and every mission kind now resolves `MissionAttempt.
-    cohort_id` eagerly at start time, not just Design's lazily-resolved
-    version from before."""
-    user = await db.get(User, user_id)
-    if user is None or user.contact_id is None:
-        return None
-    reg = (await db.execute(
-        select(Registration)
-        .where(Registration.contact_id == user.contact_id, Registration.status.in_(["registered", "attended"]))
-        .order_by(Registration.created_at.desc())
-    )).scalars().first()
-    return reg.cohort_id if reg else None
 
 
 async def start_attempt(
@@ -120,6 +99,38 @@ async def start_attempt(
         await db.flush()
 
     return attempt
+
+
+async def assign_mission_run(
+    db: AsyncSession, *, mission_id: uuid.UUID, user_id: uuid.UUID, cohort_id: uuid.UUID,
+    variant_id: uuid.UUID | None = None, force_new: bool = False,
+) -> MissionAttempt:
+    """Ops-only cohort-scoped run (2026-08-21, LMS Program redesign) — the
+    ONLY way a solo attempt gets a `cohort_id` now that
+    `start_mission_attempt` (routers/missions/student.py) no longer
+    auto-resolves one from the student's registration. Used both by the
+    admin `POST /missions/admin/attempts/assign` endpoint directly and by
+    `services/lms/program.py::assign_lms_program` for a checklist's
+    `mission_run` items — deliberately not program-exclusive, so a cohort
+    that just needs scoped missions (no full program checklist, e.g. TDRA)
+    can use this the same way.
+
+    `variant_id=None` resolves to the mission's easiest variant (lowest
+    `position`) — most missions only need one; callers that care pass one
+    explicitly."""
+    if variant_id is None:
+        variant_id = await db.scalar(
+            select(MissionVariant.id)
+            .where(MissionVariant.mission_id == mission_id)
+            .order_by(MissionVariant.position)
+            .limit(1)
+        )
+        if variant_id is None:
+            raise HTTPException(status_code=404, detail="Mission has no variants")
+    return await start_attempt(
+        db, mission_id=mission_id, variant_id=variant_id, user_id=user_id,
+        cohort_id=cohort_id, force_new=force_new,
+    )
 
 
 async def _attempt_recipients(db: AsyncSession, attempt: MissionAttempt) -> list[uuid.UUID]:

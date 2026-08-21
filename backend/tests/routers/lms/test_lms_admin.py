@@ -2,9 +2,10 @@
 
 Covers: role guard (operations/facilitator pass, student/instructor don't),
 courses/modules/items CRUD with position auto-append and conflict handling,
-the delete-course-with-enrollments guard, per-kind content validation
-(including the mid-video-quiz-needs-exactly-one-video rule), and
-program_curriculum binding. Redis-free (uses the `client` fixture).
+the delete-course-with-enrollments guard, and per-kind content validation
+(including the mid-video-quiz-needs-exactly-one-video rule). LMS Program
+checklist authoring (2026-08-21) is in test_lms_program_admin.py. Redis-free
+(uses the `client` fixture).
 """
 
 import uuid
@@ -14,7 +15,7 @@ from fastapi import status as http_status
 from sqlalchemy import select
 
 from app.core.security import create_access_token
-from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, ProgramCurriculum
+from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ModuleVideo
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.services.lms import enroll
@@ -528,43 +529,5 @@ async def test_reorder_items_rewrites_positions_in_new_order(db, client):
     assert [row["id"] for row in resp.json()] == [ids[2], ids[0], ids[1]]
     assert [row["position"] for row in resp.json()] == [1, 2, 3]
 
-
-# ── program curriculum ───────────────────────────────────────────────────────
-
-@pytest.mark.asyncio
-async def test_curriculum_binding_add_list_remove(db, client):
-    ops = await _user(db)
-    program = await _program(db)
-    course_a = await _course(db, author=ops, title="A")
-    course_b = await _course(db, author=ops, title="B")
-    await db.commit()
-
-    add_a = await client.post(
-        f"/lms/admin/programs/{program.id}/curriculum", headers=_headers(ops),
-        json={"course_id": str(course_a.id)},
-    )
-    assert add_a.status_code == 201 and add_a.json()["position"] == 1
-
-    add_b = await client.post(
-        f"/lms/admin/programs/{program.id}/curriculum", headers=_headers(ops),
-        json={"course_id": str(course_b.id)},
-    )
-    assert add_b.status_code == 201 and add_b.json()["position"] == 2
-
-    dup = await client.post(
-        f"/lms/admin/programs/{program.id}/curriculum", headers=_headers(ops),
-        json={"course_id": str(course_a.id)},
-    )
-    assert dup.status_code == http_status.HTTP_409_CONFLICT
-
-    listed = await client.get(f"/lms/admin/programs/{program.id}/curriculum", headers=_headers(ops))
-    assert [c["course_id"] for c in listed.json()] == [str(course_a.id), str(course_b.id)]
-
-    removed = await client.delete(
-        f"/lms/admin/programs/{program.id}/curriculum/{course_a.id}", headers=_headers(ops)
-    )
-    assert removed.status_code == 204
-    remaining = (await db.execute(
-        select(ProgramCurriculum).where(ProgramCurriculum.program_id == program.id)
-    )).scalars().all()
-    assert len(remaining) == 1 and remaining[0].course_id == course_b.id
+# Program curriculum (course-list CRUD) was replaced 2026-08-21 by the LMS
+# Program checklist — see tests/routers/lms/test_lms_program_admin.py.
