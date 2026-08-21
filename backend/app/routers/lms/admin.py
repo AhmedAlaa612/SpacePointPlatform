@@ -1237,6 +1237,22 @@ async def _override_out(db: AsyncSession, override: LmsProgramCohortOverride) ->
     )
 
 
+@router.get("/programs", response_model=list[LmsProgramOut])
+async def list_lms_programs(
+    program_id: uuid.UUID | None = None,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    """`?program_id=` is how the authoring UI finds "does this Sessions
+    Program already have a checklist" without a dedicated lookup endpoint —
+    there's no `UNIQUE(program_id)` violation to catch client-side since a
+    fresh page load has no id to retry with."""
+    query = select(LmsProgram)
+    if program_id is not None:
+        query = query.where(LmsProgram.program_id == program_id)
+    programs = (await db.execute(query.order_by(LmsProgram.name))).scalars().all()
+    return [await _program_out(db, p) for p in programs]
+
+
 @router.post("/programs", response_model=LmsProgramOut, status_code=status.HTTP_201_CREATED)
 async def create_lms_program(
     body: LmsProgramCreate, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),

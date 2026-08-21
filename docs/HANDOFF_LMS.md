@@ -339,13 +339,18 @@ again: Ctrl+C, download with plain `curl` to the exact path the script expects
 (`/tmp/frontend-dist.tar.gz`), then run the script's extract/verify/swap steps by hand (they're
 short — read `/usr/local/bin/deploy-frontend.sh`, it's four commands after the download line).
 
-## 11. LMS Program checklist (backend only, 2026-08-21 — frontend not yet built)
+## 11. LMS Program checklist (2026-08-21)
 
 Replaces `program_curriculum`/`cohort_curriculum` (a flat, course-only list, dropped outright —
-confirmed empty in production, no migration needed) with a real checklist. Backend is complete
-and tested (`backend/app/models/lms/program.py`, `services/lms/program.py`,
-`routers/lms/{admin,student,instructor}.py`); the student/admin/instructor **screens are not
-built yet** — that's the next PR.
+confirmed empty in production, no migration needed) with a real checklist. Both backend and
+frontend are complete and tested/built: `backend/app/models/lms/program.py`,
+`services/lms/program.py`, `routers/lms/{admin,student,instructor}.py`; frontend at
+`frontend/src/pages/learn/LearnChecklists.tsx`/`LearnChecklist.tsx` (student, `/learn/checklists`,
+nav-labeled "Programs"), `frontend/src/pages/lms-authoring/LmsProgramAdmin.tsx` (ops authoring,
+same `/lms-authoring/curriculum` route + Sidebar slot the old curriculum page used, relabeled
+"Programs" — replaces `LmsCurriculum.tsx` outright), and a new "Program" tab in
+`frontend/src/pages/lms-authoring/CohortMissions.tsx` (instructor roster + confirm, cohort-scoped
+like its Steps/Gates/Review siblings but not mission-scoped).
 
 - **Shape**: `LmsProgram` (a checklist template, attached to a Sessions `Program` via
   `program_id`, nullable+unique — one checklist per program) → `LmsProgramItem` (the steps;

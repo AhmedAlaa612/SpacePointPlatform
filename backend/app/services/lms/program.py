@@ -29,7 +29,7 @@ from app.models.lms.course import Course
 from app.models.lms.program import (
     LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem, LmsProgramItemProgress,
 )
-from app.models.missions.mission import MissionAttempt
+from app.models.missions.mission import Mission, MissionAttempt
 from app.models.sessions.cohort import Cohort
 from app.models.user import User
 from app.services.lms.enrollment import enroll
@@ -287,8 +287,14 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         return None
     cohort = await db.get(Cohort, assignment.cohort_id) if assignment.cohort_id else None
 
+    pairs = await _assignment_items_and_progress(db, assignment_id)
+    mission_ids = {item.mission_id for item, _ in pairs if item.mission_id}
+    mission_kinds = dict((await db.execute(
+        select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids))
+    )).all()) if mission_ids else {}
+
     items_out = []
-    for item, progress in await _assignment_items_and_progress(db, assignment_id):
+    for item, progress in pairs:
         status = await refresh_item_progress(db, progress=progress, item=item, user_id=user_id)
         items_out.append({
             "id": item.id, "position": item.position, "item_type": item.item_type,
@@ -296,6 +302,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "optional": item.optional, "requires_confirmation": item.requires_confirmation,
             "status": status, "course_id": item.course_id,
             "mission_attempt_id": progress.mission_attempt_id,
+            "mission_id": item.mission_id, "mission_kind": mission_kinds.get(item.mission_id),
             "external_url": item.external_url, "submission_prompt": item.submission_prompt,
             "submitted_url": progress.submitted_url,
         })
@@ -367,7 +374,15 @@ async def cohort_program_roster(db: AsyncSession, *, cohort_id: uuid.UUID) -> li
         if summary is None:
             continue
         user = await db.get(User, assignment.user_id)
-        out.append({**summary, "user_id": assignment.user_id, "student_name": user.full_name if user else "?"})
+        pending = [
+            {"item_id": item.id, "title": item.title}
+            for item, progress in await _assignment_items_and_progress(db, assignment.id)
+            if progress.status == "awaiting_confirmation"
+        ]
+        out.append({
+            **summary, "user_id": assignment.user_id, "student_name": user.full_name if user else "?",
+            "pending_confirmations": pending,
+        })
     return out
 
 

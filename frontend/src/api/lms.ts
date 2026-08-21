@@ -472,3 +472,78 @@ export async function submitCheckpointAnswer(
   );
   return data;
 }
+
+// ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
+// Distinct from the older /lms/my-programs (courses-only cohort view, still
+// live — LearnMyCourses/etc.) and from LearnProgram.tsx's /learn/programs/
+// $cohortId (the *public catalog's* program detail/registration page, an
+// unrelated concept that happens to share the word "program") — this is the
+// new checklist entity, `lms_program_assignments`. Mounted at
+// /learn/checklists to keep well clear of that existing route.
+
+export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "article" | "manual";
+export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
+
+export interface LmsProgramChecklistItem {
+  id: string;
+  position: number;
+  item_type: LmsProgramItemType;
+  title: string;
+  description: string | null;
+  optional: boolean;
+  requires_confirmation: boolean;
+  status: LmsProgramItemStatus;
+  course_id: string | null;
+  mission_attempt_id: string | null;
+  mission_id: string | null;
+  mission_kind: string | null;
+  external_url: string | null;
+  submission_prompt: string | null;
+  submitted_url: string | null;
+}
+
+export interface LmsProgramAssignmentSummary {
+  assignment_id: string;
+  lms_program_id: string;
+  name: string;
+  cohort_id: string | null;
+  cohort_name: string | null;
+  items_total: number;
+  items_done: number;
+  pct: number;
+  next_item_title: string | null;
+  certificate_required: boolean;
+  certificate_earned: boolean;
+}
+
+export interface LmsProgramChecklist {
+  assignment_id: string;
+  lms_program_id: string;
+  name: string;
+  description: string | null;
+  cohort_id: string | null;
+  cohort_name: string | null;
+  certificate_required: boolean;
+  certificate_earned: boolean;
+  items: LmsProgramChecklistItem[];
+}
+
+export async function fetchMyChecklists(): Promise<LmsProgramAssignmentSummary[]> {
+  const { data } = await api.get<LmsProgramAssignmentSummary[]>("/lms/programs");
+  return data;
+}
+
+export async function fetchChecklist(assignmentId: string): Promise<LmsProgramChecklist> {
+  const { data } = await api.get<LmsProgramChecklist>(`/lms/programs/${assignmentId}`);
+  return data;
+}
+
+export async function completeChecklistItem(assignmentId: string, itemId: string): Promise<LmsProgramChecklistItem> {
+  const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/complete`, {});
+  return data;
+}
+
+export async function submitChecklistItem(assignmentId: string, itemId: string, url: string): Promise<LmsProgramChecklistItem> {
+  const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/submit`, { url });
+  return data;
+}

@@ -134,6 +134,8 @@ import LearnLeaderboard from "@/pages/learn/LearnLeaderboard";
 import LearnGames from "@/pages/learn/LearnGames";
 import GamePlay from "@/pages/learn/GamePlay";
 import LearnProgram from "@/pages/learn/LearnProgram";
+import LearnChecklists from "@/pages/learn/LearnChecklists";
+import LearnChecklist from "@/pages/learn/LearnChecklist";
 import MissionCatalog from "@/pages/learn/MissionCatalog";
 import MissionPage from "@/pages/learn/MissionPage";
 import DesignMissionPage from "@/pages/learn/DesignMissionPage";
@@ -147,7 +149,7 @@ import DesignBriefingPage from "@/pages/learn/DesignBriefingPage";
 import LmsCourses from "@/pages/lms-authoring/LmsCourses";
 import LmsCourseDetail from "@/pages/lms-authoring/LmsCourseDetail";
 import LmsModuleDetail from "@/pages/lms-authoring/LmsModuleDetail";
-import LmsCurriculum from "@/pages/lms-authoring/LmsCurriculum";
+import LmsProgramAdmin from "@/pages/lms-authoring/LmsProgramAdmin";
 import LmsLearningPaths from "@/pages/lms-authoring/LmsLearningPaths";
 import LmsLearningPathDetail from "@/pages/lms-authoring/LmsLearningPathDetail";
 import LmsProgressGrid from "@/pages/lms-authoring/LmsProgressGrid";
@@ -726,7 +728,7 @@ const lmsAuthoringRoutes = [
   createRoute({ getParentRoute: pla, path: "/courses", component: LmsCourses }),
   createRoute({ getParentRoute: pla, path: "/courses/$courseId", component: LmsCourseDetail }),
   createRoute({ getParentRoute: pla, path: "/modules/$moduleId", component: LmsModuleDetail }),
-  createRoute({ getParentRoute: pla, path: "/curriculum", component: LmsCurriculum }),
+  createRoute({ getParentRoute: pla, path: "/curriculum", component: LmsProgramAdmin }),
   createRoute({ getParentRoute: pla, path: "/learning-paths", component: LmsLearningPaths }),
   createRoute({ getParentRoute: pla, path: "/learning-paths/$pathId", component: LmsLearningPathDetail }),
   createRoute({ getParentRoute: pla, path: "/progress", component: LmsProgressGrid }),
@@ -905,6 +907,21 @@ const learnPathRoute = createRoute({
   component: LearnPath,
 });
 
+// LMS Program checklist (2026-08-21 redesign) — /learn/checklists, kept well
+// clear of /learn/programs/$cohortId (LearnProgram.tsx, the public catalog's
+// unrelated program detail/registration page).
+const learnChecklistsRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/checklists",
+  component: LearnChecklists,
+});
+
+const learnChecklistRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/checklists/$assignmentId",
+  component: LearnChecklist,
+});
+
 // Student profile (design 2a/2b, 2026-08-08).
 const learnProfileRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
@@ -1013,7 +1030,8 @@ const routeTree = rootRoute.addChildren([
   learnLayoutRoute.addChildren([
     learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
     learnCheckoutSuccessRoute,
-    learnPathsRoute, learnPathRoute, learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
+    learnPathsRoute, learnPathRoute, learnChecklistsRoute, learnChecklistRoute,
+    learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
     learnGamesRoute, learnGamePlayRoute,
     learnMissionsRoute, learnDesignBriefingRoute, learnDesignMissionRoute, learnOperateBriefingRoute,
     learnOperateMissionRoute, learnMissionRoute,

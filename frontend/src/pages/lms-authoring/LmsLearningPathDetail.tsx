@@ -18,8 +18,8 @@ function errorDetail(err: unknown, fallback: string): string {
 
 /** LMS learning-path authoring detail (LMS redesign, 2026-08-08) — edit
  * title/description/cover, publish/unpublish, delete, and the ordered step
- * list. Step add/remove mirrors LmsCurriculum.tsx's program-curriculum UI,
- * scoped directly to this one path instead of a program picker. */
+ * list. Step add/remove mirrors LmsProgramAdmin.tsx's item-list UI, scoped
+ * directly to this one path instead of a program picker. */
 export default function LmsLearningPathDetail() {
   const { pathId } = useParams({ strict: false }) as { pathId: string }
   const navigate = useNavigate()

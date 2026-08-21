@@ -420,6 +420,11 @@ class LmsProgramChecklistItemOut(BaseModel):
     # `item_type`, same shape the Poster tab already established.
     course_id: UUID | None = None
     mission_attempt_id: UUID | None = None
+    # mission_id/mission_kind: which route a mission_run item's "Continue"
+    # link needs — design/operate attempts have their own attempt-keyed
+    # page, every other kind is viewed inline on the mission's own page.
+    mission_id: UUID | None = None
+    mission_kind: str | None = None
     external_url: str | None = None
     submission_prompt: str | None = None
     # What the student themself submitted back, for a `submission` item.

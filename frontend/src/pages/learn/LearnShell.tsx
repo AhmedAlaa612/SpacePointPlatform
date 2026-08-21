@@ -23,6 +23,7 @@ export function LearnShell() {
     pathname.startsWith("/learn/catalog") ? "catalog"
     : pathname.startsWith("/learn/missions") ? "missions"
     : pathname.startsWith("/learn/paths") ? "paths"
+    : pathname.startsWith("/learn/checklists") ? "checklists"
     : pathname.startsWith("/learn/my-courses") ? "my-courses"
     : pathname.startsWith("/learn/games") ? "games"
     : pathname.startsWith("/learn/leaderboard") ? "leaderboard"

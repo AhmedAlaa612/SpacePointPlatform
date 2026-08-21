@@ -47,9 +47,17 @@ class SessionLmsProgressOut(BaseModel):
     students: list[StudentLmsProgressOut]
 
 
+class PendingConfirmationOut(BaseModel):
+    item_id: UUID
+    title: str
+
+
 class LmsProgramRosterRowOut(BaseModel):
     """One student's LMS Program checklist progress, instructor/ops view
-    (2026-08-21) — `GET /lms/instructor/cohorts/{cohort_id}/program-progress`."""
+    (2026-08-21) — `GET /lms/instructor/cohorts/{cohort_id}/program-progress`.
+    `pending_confirmations` is what the confirm action's item picker on the
+    roster row needs — the aggregate items_done/items_total alone can't
+    tell you *which* item to confirm."""
     assignment_id: UUID
     user_id: UUID
     student_name: str
@@ -60,3 +68,4 @@ class LmsProgramRosterRowOut(BaseModel):
     next_item_title: str | None = None
     certificate_required: bool
     certificate_earned: bool
+    pending_confirmations: list[PendingConfirmationOut] = []
