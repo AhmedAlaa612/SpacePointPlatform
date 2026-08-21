@@ -308,6 +308,19 @@ async def _path_steps(db: AsyncSession, path_id: uuid.UUID) -> list[LearningPath
     )).scalars().all())
 
 
+async def _path_fully_owned(db: AsyncSession, *, user_id: uuid.UUID, course_ids: list[uuid.UUID]) -> bool:
+    """True iff the caller already has an active enrollment in every one of
+    these courses — i.e. a bundle purchase would have nothing left to grant."""
+    if not course_ids:
+        return False
+    owned = (await db.execute(
+        select(Enrollment.course_id).where(
+            Enrollment.user_id == user_id, Enrollment.course_id.in_(course_ids), *enrollment_is_active(),
+        )
+    )).scalars().all()
+    return set(owned) >= set(course_ids)
+
+
 @router.get("/learning-paths", response_model=list[LearningPathCatalogOut])
 async def learning_paths_catalog(
     db: AsyncSession = Depends(get_db),
@@ -337,6 +350,8 @@ async def learning_paths_catalog(
             image_url=await storage.resolve_url(path.image_bucket, path.image_path),
             course_count=progress["course_count"], mission_count=progress["mission_count"],
             total_duration_seconds=duration, pct=progress["pct"], enrolled=enrolled,
+            price_cents=path.price_cents, currency=path.currency,
+            fully_owned=await _path_fully_owned(db, user_id=current.id, course_ids=step_course_ids),
         ))
     return out
 
@@ -351,12 +366,14 @@ async def learning_path_detail(
     steps = await _path_steps(db, path.id)
     progress = await path_progress(db, user_id=current.id, steps=steps)
     duration = await path_total_duration_seconds(db, [s.course_id for s in steps])
+    fully_owned = await _path_fully_owned(db, user_id=current.id, course_ids=[s.course_id for s in steps])
     return LearningPathDetailOut(
         id=path.id, title=path.title, description=path.description,
         image_url=await storage.resolve_url(path.image_bucket, path.image_path),
         pct=progress["pct"], course_count=progress["course_count"],
         mission_count=progress["mission_count"], total_duration_seconds=duration,
         steps=[LearningPathStepOut(**row) for row in progress["steps"]],
+        price_cents=path.price_cents, currency=path.currency, fully_owned=fully_owned,
     )
 
 
@@ -387,12 +404,14 @@ async def start_learning_path(
 
     progress = await path_progress(db, user_id=current.id, steps=steps)
     duration = await path_total_duration_seconds(db, [s.course_id for s in steps])
+    fully_owned = await _path_fully_owned(db, user_id=current.id, course_ids=[s.course_id for s in steps])
     return LearningPathDetailOut(
         id=path.id, title=path.title, description=path.description,
         image_url=await storage.resolve_url(path.image_bucket, path.image_path),
         pct=progress["pct"], course_count=progress["course_count"],
         mission_count=progress["mission_count"], total_duration_seconds=duration,
         steps=[LearningPathStepOut(**row) for row in progress["steps"]],
+        price_cents=path.price_cents, currency=path.currency, fully_owned=fully_owned,
     )
 
 

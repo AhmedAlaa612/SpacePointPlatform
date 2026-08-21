@@ -3,7 +3,8 @@
 **Entry point for anyone (human or agent) picking up this codebase.** This file is a *map*:
 where everything is and what it does. Depth lives in the per-domain files linked below.
 
-**Last verified against the code: 2026-08-21 (LMS Program redesign — checklist-driven programs replacing the old flat course-list curriculum).**
+**Last verified against the code: 2026-08-21 (learning path bundle pricing — buy every course in a
+learning path at one Stripe Checkout price).**
 
 ---
 
@@ -12,10 +13,10 @@ where everything is and what it does. Depth lives in the per-domain files linked
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `c3e5a19d7f42` — single Alembic head. Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
+| **Schema head** | `b11f25397036` — single Alembic head. Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
 | **Branch** | `main` = production. `v2-dev` tracks it |
-| **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan), plus the pre-existing interns / ambassadors / instructors domains, **the internship request/letter domain** (an existing account requests the intern role, admin approves, an in-app-signed internship letter is generated — see `HANDOFF_INTERNSHIP.md`) — **and the LMS/Missions/Games domain**: student accounts, courses + encrypted-HLS video (now with Stripe Checkout for paid courses), learning paths, the CubeSat design + Flight Operations missions with a real 36-part component library, Live Quiz games, cohort-scoped instructor progress/gating/review, and (2026-08-21) the **LMS Program checklist** — mixed-item-type program tracks (courses, ops-assigned mission runs, external links, submissions, articles, manual check-offs) replacing the old flat course-list curriculum. See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) |
-| **Tests** | 1456 collected, `pytest` from `backend/`. A handful need a live Redis and error without one — everything else is broker-free. Nine (`test_applicant_role_promotion.py`, `test_intern_application_letter.py`, `test_internship.py`) need a working LibreOffice headless PDF conversion — unrelated to LMS, pre-existing in any environment where `soffice --headless --convert-to pdf` doesn't produce output |
+| **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan), plus the pre-existing interns / ambassadors / instructors domains, **the internship request/letter domain** (an existing account requests the intern role, admin approves, an in-app-signed internship letter is generated — see `HANDOFF_INTERNSHIP.md`) — **and the LMS/Missions/Games domain**: student accounts, courses + encrypted-HLS video (Stripe Checkout for paid courses **and now learning-path bundles**), learning paths, the CubeSat design + Flight Operations missions with a real 36-part component library, Live Quiz games, cohort-scoped instructor progress/gating/review, and the **LMS Program checklist** — mixed-item-type program tracks (courses, ops-assigned mission runs, external links, submissions, articles, manual check-offs) replacing the old flat course-list curriculum. See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) |
+| **Tests** | 1466 collected, `pytest` from `backend/`. A handful need a live Redis and error without one — everything else is broker-free. Nine (`test_applicant_role_promotion.py`, `test_intern_application_letter.py`, `test_internship.py`) need a working LibreOffice headless PDF conversion — unrelated to LMS, pre-existing in any environment where `soffice --headless --convert-to pdf` doesn't produce output |
 
 ## 2. Read next
 

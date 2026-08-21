@@ -458,12 +458,18 @@ class LmsProgramCohortOverrideOut(BaseModel):
 class LearningPathCreate(BaseModel):
     title: str
     description: str | None = None
+    # Bundle pricing (2026-08-21) — mirrors Course; null = not purchasable as
+    # a bundle, existing free `/start` self-enrol is unaffected either way.
+    price_cents: int | None = Field(default=None, ge=1)
+    currency: str = "usd"
 
 
 class LearningPathUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     is_published: bool | None = None
+    price_cents: int | None = Field(default=None, ge=1)
+    currency: str | None = None
 
 
 class LearningPathAdminOut(BaseModel):
@@ -475,6 +481,8 @@ class LearningPathAdminOut(BaseModel):
     created_by: UUID
     created_at: datetime | None
     image_url: str | None = None
+    price_cents: int | None = None
+    currency: str = "usd"
 
 
 class LearningPathStepIn(BaseModel):

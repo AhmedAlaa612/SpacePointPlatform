@@ -1474,6 +1474,7 @@ async def _learning_path_admin_out(db: AsyncSession, path: LearningPath) -> Lear
         id=path.id, title=path.title, description=path.description,
         is_published=path.is_published, created_by=path.created_by, created_at=path.created_at,
         image_url=await storage.resolve_url(path.image_bucket, path.image_path),
+        price_cents=path.price_cents, currency=path.currency,
     )
 
 

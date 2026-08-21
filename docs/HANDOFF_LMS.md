@@ -401,3 +401,47 @@ like its Steps/Gates/Review siblings but not mission-scoped).
   gets automatically. This is a real, one-time manual step, not automated (no reconciliation
   script) — check with the operator for which cohorts (TDRA at minimum) need it before/soon after
   this deploys.
+
+## 12. Learning path bundle pricing (2026-08-21)
+
+Buy every course in a `LearningPath` at one Stripe Checkout price instead of course-by-course —
+the second of the operator's boss's three pricing requests (region/IP pricing and invite-code
+discounts are still unscoped, this is the one picked to build). Reuses the Stage S `Purchase`
+machinery almost directly, per that model's own docstring anticipating this exact reuse.
+
+- **Pricing**: `LearningPath.price_cents`/`currency` mirror `Course`'s columns — NULL means "not
+  sold as a bundle," and the existing free `POST /learning-paths/{id}/start` (self-enrols only
+  `open`-access steps) is unchanged either way. Free-form price — no enforced relationship to the
+  sum of the individual steps' prices (operator decision: ops is trusted to price it sensibly,
+  same posture as course pricing).
+- **Checkout**: `POST /lms/learning-paths/{id}/checkout` mirrors `start_course_checkout` almost
+  line for line — pending-purchase resume, the partial-unique-index double-payment backstop
+  (`uq_purchases_pending_per_path` on `(user_id, learning_path_id)` where `status='pending'`).
+  Blocked (200, no Stripe call, no `Purchase` row) only when the caller already has an active
+  enrollment in *every* step's course — nothing left to grant. Owning some but not all still buys
+  the full bundle at full price; there is no partial/proration logic anywhere in this codebase
+  (operator decision).
+- **Fulfilment**: `services/lms/checkout.py::fulfill()` now branches on `Purchase.product_type`.
+  A `"learning_path"` purchase enrols every current step's course via `enroll(..., source=
+  "purchase", purchase_id=purchase.id)` — regardless of each course's own `access_mode`, since the
+  whole point of buying the bundle is to unlock steps a free `/start` would have skipped.
+  `Purchase.enrollment_id` stays null for a bundle (there's no single row to point at); it's still
+  set for a plain `lms_course` purchase, unchanged.
+- **Refund/dispute revocation, generalized**: new `Enrollment.purchase_id` (nullable FK) is the
+  real join for "which enrollments did this purchase grant" — `enroll()` stamps it on a newly
+  created row (and on reactivating an inactive one, mirroring how `granted_by` already behaves),
+  but never on its existing-active early return. That's what makes bundle refunds safe: a course
+  the student already owned independently before buying the bundle was never stamped with this
+  purchase's id, so `routers/lms/checkout.py::_revoke_purchase_enrollments()` (now what both the
+  `charge.refunded` and `charge.dispute.created` webhook branches call, replacing the old direct
+  `purchase.enrollment_id` lookup) only deactivates enrollments this purchase actually created —
+  works identically for the single-course case (exactly one row) and the bundle case (however many
+  steps were newly granted).
+- **Frontend**: `LearnPath.tsx` shows a "Buy path — $X" button (via `startPathCheckout`) whenever
+  `price_cents` is set and `fully_owned` is false, alongside the existing free Start/Continue
+  action once the student has already started for free. `LearnCheckoutSuccess.tsx` branches on
+  `CheckoutFulfillResult.learning_path_id` vs `course_id` to route back to the right landing page.
+  Ops sets the bundle price from the learning-path detail page's Edit modal
+  (`LmsLearningPathDetail.tsx`) — not the creation form, matching how publish/image already work.
+- **Not built**: region/IP-based pricing and invite-code/promo discounts — both still just
+  scoped in conversation, not planned or built. See the operator if picking either up next.

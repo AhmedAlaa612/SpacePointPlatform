@@ -222,6 +222,12 @@ export interface LearningPathCatalogItem {
   /** True iff you have an active enrollment in at least one of the path's
    * courses — `pct` can't answer this (a just-started path is still 0%). */
   enrolled: boolean;
+  // Bundle pricing (2026-08-21) — null price_cents means not purchasable.
+  price_cents: number | null;
+  currency: string;
+  /** True iff you already have an active enrollment in every step's course —
+   * a bundle purchase would have nothing left to grant. */
+  fully_owned: boolean;
 }
 
 export interface LearningPathStep {
@@ -245,6 +251,9 @@ export interface LearningPathDetail {
   mission_count: number;
   total_duration_seconds: number;
   steps: LearningPathStep[];
+  price_cents: number | null;
+  currency: string;
+  fully_owned: boolean;
 }
 
 // ── completion certificates (2026-08-13) ──────────────────────────────────
@@ -388,9 +397,16 @@ export async function startCourseCheckout(courseId: string): Promise<{ checkout_
   return data;
 }
 
+// Learning path bundle pricing (2026-08-21).
+export async function startPathCheckout(pathId: string): Promise<{ checkout_url: string }> {
+  const { data } = await api.post<{ checkout_url: string }>(`/lms/learning-paths/${pathId}/checkout`, {});
+  return data;
+}
+
 export interface CheckoutFulfillResult {
   status: "pending" | "paid" | "refunded" | "disputed" | "failed";
-  course_id: string;
+  course_id: string | null;
+  learning_path_id: string | null;
 }
 
 export async function fulfillCheckoutSession(sessionId: string): Promise<CheckoutFulfillResult> {

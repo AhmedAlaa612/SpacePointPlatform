@@ -137,13 +137,20 @@ export default function LmsLearningPathDetail() {
               </div>
             }
           />
-          <span
-            className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-              path.is_published ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
-            }`}
-          >
-            {path.is_published ? "Published" : "Draft"}
-          </span>
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                path.is_published ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {path.is_published ? "Published" : "Draft"}
+            </span>
+            {path.price_cents != null && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                Bundle · {(path.price_cents / 100).toLocaleString(undefined, { style: "currency", currency: path.currency.toUpperCase() })}
+              </span>
+            )}
+          </div>
           {imageError && <p className="text-xs text-red-500 mt-2">{imageError}</p>}
         </div>
       </div>
@@ -223,10 +230,16 @@ function EditPathModal({
 }: { path: AdminLearningPath; onClose: () => void; onSuccess: () => void }) {
   const [title, setTitle] = useState(path.title)
   const [description, setDescription] = useState(path.description ?? "")
+  const [priceDollars, setPriceDollars] = useState(
+    path.price_cents != null ? String(path.price_cents / 100) : ""
+  )
   const [error, setError] = useState("")
 
   const mutation = useMutation({
-    mutationFn: () => updateLearningPathApi(path.id, { title: title.trim(), description: description.trim() || undefined }),
+    mutationFn: () => updateLearningPathApi(path.id, {
+      title: title.trim(), description: description.trim() || undefined,
+      price_cents: priceDollars.trim() ? Math.round(Number(priceDollars) * 100) : null,
+    }),
     onSuccess,
     onError: (e: unknown) => setError(errorDetail(e, "Failed to update learning path")),
   })
@@ -246,8 +259,23 @@ function EditPathModal({
             className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors resize-none"
           />
         </Field>
+        <Field label="Bundle price, USD (optional)">
+          <input
+            value={priceDollars} onChange={(e) => setPriceDollars(e.target.value)}
+            type="number" min="0" step="0.01" placeholder="Leave blank — not sold as a bundle"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+          <p className="text-[11px] text-muted-foreground mt-1">
+            When set, students can buy every course in this path at once via Stripe Checkout — regardless of
+            each course's own access mode. Leave blank to keep the free self-enrol "Start" behavior only.
+          </p>
+        </Field>
         {error && <p className="text-xs text-red-500">{error}</p>}
-        <ModalActions onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} disabled={!title.trim()} label="Save changes" />
+        <ModalActions
+          onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending}
+          disabled={!title.trim() || (priceDollars.trim() !== "" && !(Number(priceDollars) > 0))}
+          label="Save changes"
+        />
       </div>
     </Modal>
   )

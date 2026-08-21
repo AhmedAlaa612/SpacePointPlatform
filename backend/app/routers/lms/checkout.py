@@ -21,11 +21,14 @@ from app.core.dependencies import require_lms_student
 from app.db.session import get_db
 from app.models.lms.course import Course
 from app.models.lms.enrollment import Enrollment
+from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.lms.purchase import Purchase
 from app.models.user import User
 from app.schemas.lms import CheckoutFulfillOut, CheckoutSessionOut
 from app.services.lms import enrollment_is_active
-from app.services.lms.checkout import find_purchase_for_dispute, fulfill, get_pending_purchase
+from app.services.lms.checkout import (
+    find_purchase_for_dispute, fulfill, get_pending_path_purchase, get_pending_purchase,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,21 @@ HANDLED_EVENT_TYPES = {
     "charge.dispute.created",
     "charge.dispute.closed",
 }
+
+
+async def _revoke_purchase_enrollments(db: AsyncSession, purchase: Purchase) -> None:
+    """Deactivate every enrollment this purchase actually granted — works for
+    both a single-course purchase and a bundle, since `Enrollment.purchase_id`
+    is the real join either way (not `purchase.enrollment_id`, which is only
+    ever set for a single-course purchase). An enrollment the student already
+    had independently before buying a bundle was never stamped with this
+    purchase's id (`enroll()`'s existing-active branch doesn't touch it), so
+    it's correctly left alone here."""
+    rows = (await db.execute(
+        select(Enrollment).where(Enrollment.purchase_id == purchase.id)
+    )).scalars().all()
+    for enrollment in rows:
+        enrollment.status = "inactive"
 
 
 @router.post("/courses/{course_id}/checkout", response_model=CheckoutSessionOut)
@@ -119,6 +137,82 @@ async def start_course_checkout(
     return CheckoutSessionOut(checkout_url=session.url)
 
 
+@router.post("/learning-paths/{path_id}/checkout", response_model=CheckoutSessionOut)
+async def start_path_checkout(
+    path_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_student),
+):
+    path = await db.get(LearningPath, path_id)
+    if path is None or not path.is_published:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    if not path.price_cents or path.price_cents <= 0:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This path isn't set up for purchase")
+
+    step_course_ids = (await db.execute(
+        select(LearningPathStep.course_id).where(LearningPathStep.learning_path_id == path.id)
+    )).scalars().all()
+    if not step_course_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This path has no courses yet")
+
+    # Blocked only if every step is already actively owned — nothing left to
+    # buy. Owning some but not all still buys the full bundle at full price
+    # (no partial/proration logic, matching how course purchases work today).
+    owned_count = (await db.execute(
+        select(Enrollment.id).where(
+            Enrollment.user_id == current.id, Enrollment.course_id.in_(step_course_ids), *enrollment_is_active(),
+        )
+    )).scalars().all()
+    if len(set(owned_count)) >= len(set(step_course_ids)):
+        return CheckoutSessionOut(checkout_url=f"{settings.FRONTEND_URL}/learn/paths/{path.id}")
+
+    existing = await get_pending_path_purchase(db, user_id=current.id, learning_path_id=path.id)
+    if existing is not None:
+        if existing.stripe_session_id:
+            session = await stripe.checkout.Session.retrieve_async(existing.stripe_session_id)
+            if session.status == "open":
+                return CheckoutSessionOut(checkout_url=session.url)
+        existing.status = "failed"
+        await db.flush()
+
+    try:
+        purchase = Purchase(
+            id=uuid.uuid4(), user_id=current.id, product_type="learning_path", learning_path_id=path.id,
+            amount_cents=path.price_cents, currency=path.currency,
+        )
+        db.add(purchase)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        winner = await get_pending_path_purchase(db, user_id=current.id, learning_path_id=path.id)
+        if winner is not None and winner.stripe_session_id:
+            session = await stripe.checkout.Session.retrieve_async(winner.stripe_session_id)
+            if session.status == "open":
+                return CheckoutSessionOut(checkout_url=session.url)
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="Checkout already starting — try again in a moment")
+
+    session = await stripe.checkout.Session.create_async(
+        mode="payment",
+        line_items=[{
+            "price_data": {
+                "currency": path.currency,
+                "unit_amount": path.price_cents,
+                "product_data": {"name": path.title},
+            },
+            "quantity": 1,
+        }],
+        success_url=f"{settings.FRONTEND_URL}/learn/checkout/success?session_id={{CHECKOUT_SESSION_ID}}",
+        cancel_url=f"{settings.FRONTEND_URL}/learn/paths/{path.id}",
+        customer_email=current.email,
+        client_reference_id=str(current.id),
+        metadata={"purchase_id": str(purchase.id)},
+        idempotency_key=str(purchase.id),
+    )
+    purchase.stripe_session_id = session.id
+    await db.commit()
+    return CheckoutSessionOut(checkout_url=session.url)
+
+
 @router.post("/webhooks/stripe", include_in_schema=False)
 async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     payload = await request.body()
@@ -156,10 +250,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             if purchase is not None and purchase.status != "refunded":
                 purchase.status = "refunded"
                 purchase.refunded_at = datetime.now(timezone.utc)
-                if purchase.enrollment_id:
-                    enrollment = await db.get(Enrollment, purchase.enrollment_id)
-                    if enrollment is not None:
-                        enrollment.status = "inactive"
+                await _revoke_purchase_enrollments(db, purchase)
         else:
             logger.info("Partial refund on charge %s — no access change", getattr(obj, "id", "?"))
 
@@ -168,10 +259,7 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
             purchase = await find_purchase_for_dispute(db, obj)
             if purchase is not None and purchase.status != "disputed":
                 purchase.status = "disputed"
-                if purchase.enrollment_id:
-                    enrollment = await db.get(Enrollment, purchase.enrollment_id)
-                    if enrollment is not None:
-                        enrollment.status = "inactive"
+                await _revoke_purchase_enrollments(db, purchase)
         else:
             # warning_needs_response | warning_under_review | warning_closed |
             # prevented — inquiries/retrievals where funds have not been
@@ -208,4 +296,6 @@ async def fulfill_checkout_session(
     if purchase.user_id != current.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN)
     await db.commit()
-    return CheckoutFulfillOut(status=purchase.status, course_id=purchase.course_id)
+    return CheckoutFulfillOut(
+        status=purchase.status, course_id=purchase.course_id, learning_path_id=purchase.learning_path_id,
+    )
