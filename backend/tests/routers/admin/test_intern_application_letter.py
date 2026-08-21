@@ -162,6 +162,33 @@ async def test_onboarding_then_instructor_approval_auto_generates_the_letter(db,
     assert intern_profile.letter_path
 
 
+async def test_onboarding_completed_after_the_requested_date_starts_the_day_after_approval(db, client, admin_headers):
+    """Boss spec (2026-08-20): if instructor onboarding finishes *after* the
+    date they originally requested, the start date isn't backdated to that
+    already-passed request — it becomes the day after the actual approval."""
+    from datetime import date, timedelta
+
+    application = await _make_intern_application(db, requested_start_date="2020-01-01")
+    await db.commit()
+
+    onboard = await client.post(
+        f"/admin/applications/{application.id}/onboard",
+        json={"internship": {**_LETTER_FIELDS, "duration_weeks": 8, "hours_per_week": 40}},
+        headers=admin_headers,
+    )
+    assert onboard.status_code == 200, onboard.text
+    user_id = uuid.UUID(onboard.json()["user_id"])
+
+    review = await client.put(
+        f"/instructors/admin/applicants/{user_id}/review",
+        json={"status": "approved"}, headers=admin_headers,
+    )
+    assert review.status_code == 200, review.text
+
+    intern_profile = await db.get(InternProfile, user_id)
+    assert intern_profile.start_date == date.today() + timedelta(days=1)
+
+
 async def test_also_grant_role_without_pending_details_still_just_grants_the_role(db, client, admin_headers):
     """Pre-existing behavior (ApplicantProfile built without going through
     onboard_application, e.g. seeded directly) must be unaffected — no
