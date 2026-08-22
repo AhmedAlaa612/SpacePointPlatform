@@ -159,10 +159,18 @@ function ProgramTemplateEditor({ program, onChanged }: { program: LmsProgram; on
           <div className="text-xs text-muted-foreground mt-0.5">Cohort certificate needs every required step done</div>
         </div>
         <button
+          type="button"
           onClick={() => toggleCert.mutate(!program.certificate_required)}
-          className={`w-10 h-6 rounded-full relative transition-colors cursor-pointer ${program.certificate_required ? "bg-primary" : "bg-muted"}`}
+          className={`w-10 h-6 rounded-full relative transition-colors cursor-pointer shrink-0 ${
+            program.certificate_required ? "bg-primary" : "bg-muted"
+          }`}
+          aria-pressed={program.certificate_required}
         >
-          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${program.certificate_required ? "translate-x-5" : "translate-x-1"}`} />
+          <span
+            className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
+              program.certificate_required ? "translate-x-4" : "translate-x-0"
+            }`}
+          />
         </button>
       </div>
 

@@ -191,18 +191,25 @@ function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: DesignS
   const [orbitsPerDay, setOrbitsPerDay] = useState(state.orbits_per_day ?? 15);
   const [cubesatSize, setCubesatSize] = useState(state.selected_cubesat_size);
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState("");
 
   const save = async () => {
     setSaving(true);
     setSaveError("");
+    setSaveSuccess(false);
     try {
       const next = await updateDesign(state.attempt_id, {
-        design_name: name, design_objective: objective, orbit_type: orbitType,
-        orbit_duration_min: Number(orbitDuration), orbits_per_day: Number(orbitsPerDay),
+        design_name: name,
+        design_objective: objective,
+        orbit_type: orbitType,
+        orbit_duration_min: Number(orbitDuration),
+        orbits_per_day: Number(orbitsPerDay),
         selected_cubesat_size: cubesatSize,
       });
       onSaved(next);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       setSaveError(errorDetail(err, "Couldn't save mission setup."));
     } finally {
@@ -211,27 +218,92 @@ function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: DesignS
   };
 
   return (
-    <Card className="p-5 flex flex-col gap-4 max-w-xl">
-      <div className="flex flex-col gap-1.5"><label className={labelCls}>Mission name</label><input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} /></div>
-      <div className="flex flex-col gap-1.5"><label className={labelCls}>Objective</label><textarea className={inputCls} rows={3} value={objective} onChange={(e) => setObjective(e.target.value)} /></div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="flex flex-col gap-1.5">
-          <label className={labelCls}>Orbit type</label>
-          <select className={inputCls} value={orbitType} onChange={(e) => setOrbitType(e.target.value)}>
-            {["LEO", "MEO", "GEO", "SSO", "Custom"].map((o) => <option key={o} value={o}>{o}</option>)}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className={labelCls}>CubeSat size</label>
-          <select className={inputCls} value={cubesatSize} onChange={(e) => setCubesatSize(e.target.value)}>
-            {state.cubesat_presets.map((p) => <option key={p.size} value={p.size}>{p.size} ({p.max_mass_kg}kg, {p.available_volume_cm3}cm&sup3;)</option>)}
-          </select>
-        </div>
-        <div className="flex flex-col gap-1.5"><label className={labelCls}>Orbit duration (min)</label><input type="number" className={inputCls} value={orbitDuration} onChange={(e) => setOrbitDuration(Number(e.target.value))} /></div>
-        <div className="flex flex-col gap-1.5"><label className={labelCls}>Orbits per day</label><input type="number" className={inputCls} value={orbitsPerDay} onChange={(e) => setOrbitsPerDay(Number(e.target.value))} /></div>
+    <Card className="p-6 sm:p-7 flex flex-col gap-6 max-w-2xl mx-auto border border-border/80 shadow-sm">
+      <div className="flex flex-col gap-1 border-b border-border/60 pb-3">
+        <h2 className="font-display text-lg font-bold tracking-tight text-foreground">Mission Setup</h2>
+        <p className="text-xs text-muted-foreground">
+          Define your satellite's core identity, mission objective, and orbital specifications.
+        </p>
       </div>
-      <Button className="w-fit" onClick={() => void save()} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
-      {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-2">
+          <label className={labelCls}>Mission Name</label>
+          <input
+            className={`${inputCls} h-10 px-3.5`}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. EduSat-1"
+          />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className={labelCls}>Objective</label>
+          <textarea
+            className={`${inputCls} h-auto min-h-[140px] p-3.5 leading-relaxed resize-y`}
+            rows={5}
+            value={objective}
+            onChange={(e) => setObjective(e.target.value)}
+            placeholder="Describe your mission objective, success criteria, lifetime, and operational goals..."
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-4 border-t border-border/60 pt-5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-primary">Orbital & Satellite Specifications</p>
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div className="flex flex-col gap-2">
+            <label className={labelCls}>Orbit Type</label>
+            <select className={`${inputCls} h-10 px-3.5 cursor-pointer`} value={orbitType} onChange={(e) => setOrbitType(e.target.value)}>
+              {["LEO", "MEO", "GEO", "SSO", "Custom"].map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className={labelCls}>CubeSat Size</label>
+            <select className={`${inputCls} h-10 px-3.5 cursor-pointer`} value={cubesatSize} onChange={(e) => setCubesatSize(e.target.value)}>
+              {state.cubesat_presets.map((p) => (
+                <option key={p.size} value={p.size}>
+                  {p.size} ({p.max_mass_kg}kg, {p.available_volume_cm3}cm³)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className={labelCls}>Orbit Duration (min)</label>
+            <input
+              type="number"
+              className={`${inputCls} h-10 px-3.5`}
+              value={orbitDuration}
+              onChange={(e) => setOrbitDuration(Number(e.target.value))}
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className={labelCls}>Orbits Per Day</label>
+            <input
+              type="number"
+              className={`${inputCls} h-10 px-3.5`}
+              value={orbitsPerDay}
+              onChange={(e) => setOrbitsPerDay(Number(e.target.value))}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 pt-2">
+        <Button className="h-10 px-6 font-semibold cursor-pointer" onClick={() => void save()} disabled={saving}>
+          {saving ? "Saving..." : "Save Setup"}
+        </Button>
+        {saveSuccess && (
+          <span className="text-xs font-semibold text-emerald-500 animate-in fade-in-0 duration-200">
+            ✓ Mission setup saved!
+          </span>
+        )}
+        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+      </div>
     </Card>
   );
 }
