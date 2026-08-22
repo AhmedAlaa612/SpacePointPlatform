@@ -14,17 +14,19 @@ export const isInternshipApproveComplete = (v: InternshipApproveBody) =>
 /** Shared internship-letter admin form — used on both the Role Requests
  * review page and the Applications approve/send-to-onboarding actions
  * (HANDOFF_INTERNSHIP.md, all three paths converge on the same
- * InternshipApprove shape). `requestedCityId`/`requestedDurationWeeks` show
- * as placeholders when the applicant/requester already supplied one and
- * admin hasn't overridden it. Pass `showRefNumberOverride={false}` for the
- * onboarding flow, where the ref number is deliberately never pre-set. */
+ * InternshipApprove shape). `requestedCityId`/`requestedDurationWeeks`/
+ * `requestedStartDate` show as placeholders/context when the applicant
+ * already supplied one and admin hasn't overridden it. Pass
+ * `showRefNumberOverride={false}` for the onboarding flow, where the ref
+ * number is deliberately never pre-set. */
 export function InternshipLetterFields({
-  value, onChange, requestedCityId, requestedDurationWeeks, showRefNumberOverride = true,
+  value, onChange, requestedCityId, requestedDurationWeeks, requestedStartDate, showRefNumberOverride = true,
 }: {
   value: InternshipApproveBody
   onChange: (next: InternshipApproveBody) => void
   requestedCityId?: string
   requestedDurationWeeks?: number
+  requestedStartDate?: string
   showRefNumberOverride?: boolean
 }) {
   const { data: cities = [] } = useQuery({ queryKey: ["public-cities"], queryFn: fetchPublicCities })
@@ -79,6 +81,17 @@ export function InternshipLetterFields({
             onChange={(e) => onChange({ ...value, ref_number_override: e.target.value ? Number(e.target.value) : undefined })} />
         </Field>
       )}
+
+      <Field label="Start date override (optional)">
+        <input className="input" type="date"
+          value={value.start_date_override ?? ""}
+          onChange={(e) => onChange({ ...value, start_date_override: e.target.value || undefined })} />
+        <p className="text-[11px] text-muted-foreground mt-1">
+          {requestedStartDate
+            ? `Left blank: if approved on or before ${requestedStartDate}, that's the start date; if approved after, the start date becomes the day after approval.`
+            : "Left blank and nothing was requested: defaults to the approval date."}
+        </p>
+      </Field>
 
       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mt-1">Supervisor</p>
       <div className="grid grid-cols-2 gap-3">

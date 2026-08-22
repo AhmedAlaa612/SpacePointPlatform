@@ -36,6 +36,7 @@ export interface InternshipApproveBody {
   duration_weeks?: number
   hours_per_week?: number
   ref_number_override?: number
+  start_date_override?: string  // YYYY-MM-DD
   admin_notes?: string
 }
 

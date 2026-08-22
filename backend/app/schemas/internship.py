@@ -56,6 +56,11 @@ class InternshipApprove(BaseModel):
     duration_weeks: Optional[int] = None
     hours_per_week: Optional[int] = None
     ref_number_override: Optional[int] = None
+    # Boss ask (2026-08-20): admin can always override the start date; when
+    # left unset it auto-resolves against the requester's own
+    # requested_start_date and the actual approval date — see
+    # services/internship/approval.py::resolve_start_date.
+    start_date_override: Optional[date] = None
     admin_notes: Optional[str] = None
 
 
