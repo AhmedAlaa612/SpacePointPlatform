@@ -221,11 +221,18 @@ def _dash(**over):
 THRESHOLDS = {"max_storage_kb": 1_000_000, "maximum_budget_aed": 2000.0}
 LIMITS = {"max_mass_kg": 1.33, "available_volume_cm3": 1000.0}
 
+# The unfiltered case — every step in scope, matching a cohort/solo run with
+# no MissionStepSelection configured (report.py's own "all included" default).
+ALL_STEPS = frozenset({
+    "components", "conops", "data_budget", "power_budget", "energy_budget",
+    "link_budget", "downlink", "mass_budget", "cost_budget",
+})
+
 
 def test_every_margin_carries_an_interpretation():
     """The half of Madar's dashboard the port dropped: the numbers were
     always there, the judgement was not."""
-    margins = report.build_margins(_dash(), THRESHOLDS, LIMITS)
+    margins = report.build_margins(_dash(), THRESHOLDS, LIMITS, ALL_STEPS)
     assert len(margins) >= 9
     for row in margins:
         assert row["interpretation"], row["key"]
@@ -234,8 +241,8 @@ def test_every_margin_carries_an_interpretation():
 
 def test_a_failing_margin_produces_an_alert_and_a_recommendation():
     dash = _dash(components=[component(on={SUN, NADIR, GS, ECLIPSE}, v=12.0, ma=900.0)])
-    margins = report.build_margins(dash, THRESHOLDS, LIMITS)
-    alerts, recs = report.build_advice(dash, margins)
+    margins = report.build_margins(dash, THRESHOLDS, LIMITS, ALL_STEPS)
+    alerts, recs = report.build_advice(dash, margins, ALL_STEPS)
     assert any(a["severity"] == "error" for a in alerts)
     assert recs, "a failing design should be told what to change"
     assert all(r["message"] and r["why"] for r in recs)
@@ -244,15 +251,15 @@ def test_a_failing_margin_produces_an_alert_and_a_recommendation():
 def test_recommendations_come_from_the_shared_mistake_library():
     """So the dashboard's advice and the handbook can never disagree."""
     dash = _dash(components=[component(on={SUN, NADIR, GS, ECLIPSE}, v=12.0, ma=900.0)])
-    margins = report.build_margins(dash, THRESHOLDS, LIMITS)
-    _, recs = report.build_advice(dash, margins)
+    margins = report.build_margins(dash, THRESHOLDS, LIMITS, ALL_STEPS)
+    _, recs = report.build_advice(dash, margins, ALL_STEPS)
     known = {m["key"] for m in content.MISTAKES} | {"tight_margins"}
     assert {r["key"] for r in recs} <= known
 
 
 def test_overall_status_counts_what_is_wrong():
     dash = _dash()
-    margins = report.build_margins(dash, THRESHOLDS, LIMITS)
+    margins = report.build_margins(dash, THRESHOLDS, LIMITS, ALL_STEPS)
     overall = report.overall_status(dash, margins)
     assert overall["label"] in {"Ready", "Ready — margins tight", "Invalid design", "Incomplete"}
     assert overall["errors"] + overall["warnings"] + overall["incomplete"] >= 0
@@ -263,9 +270,38 @@ def test_module_cards_point_at_a_tab_to_fix_it():
     dash["steps"] = {k: {"has_data": True, "is_valid": True} for k in
                      ("components", "conops", "data_budget", "power_budget", "energy_budget",
                       "link_budget", "downlink", "mass_budget", "cost_budget")}
-    cards = report.build_module_cards(dash, THRESHOLDS, 1)
+    cards = report.build_module_cards(dash, THRESHOLDS, 1, ALL_STEPS)
     assert len(cards) == 9
     assert all(c["tab"] for c in cards)
+
+
+def test_module_cards_and_margins_are_filtered_to_the_cohorts_selected_steps():
+    """A cohort run that only selected components/conops/link_budget should
+    not see power/mass/cost/data rows at all — this is the actual fix for
+    the live bug (2026-08-22): a 3-step student run was showing all 9
+    categories, including a "Power budget: FAIL" card for a step the
+    student never had access to."""
+    dash = _dash(components=[component(on={SUN, NADIR, GS, ECLIPSE}, v=12.0, ma=900.0)])
+    dash["steps"] = {k: {"has_data": True, "is_valid": True} for k in
+                     ("components", "conops", "data_budget", "power_budget", "energy_budget",
+                      "link_budget", "downlink", "mass_budget", "cost_budget")}
+    scoped = frozenset({"components", "conops", "link_budget"})
+
+    margins = report.build_margins(dash, THRESHOLDS, LIMITS, scoped)
+    assert {m["key"] for m in margins} == {"link"}
+
+    cards = report.build_module_cards(dash, THRESHOLDS, 1, scoped)
+    assert {c["key"] for c in cards} == {"components", "conops", "link_budget"}
+
+    # Unscoped, this overloaded design fails power — with the cards/margins
+    # above proving that step isn't in scope, the alerts and recommendations
+    # built from the *scoped* margins must not mention it either.
+    full_margins = report.build_margins(dash, THRESHOLDS, LIMITS, ALL_STEPS)
+    assert "power" in {m["key"] for m in full_margins if m["status"] == "fail"}
+
+    alerts, recs = report.build_advice(dash, margins, scoped)
+    assert not any(a["step"] == "power" for a in alerts)
+    assert "array_sized_for_peak" not in {r["key"] for r in recs}
 
 
 def test_charts_aggregate_by_subsystem():

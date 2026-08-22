@@ -26,6 +26,16 @@ from app.services.missions.design import content
 # room for the thing that always goes wrong later.
 TIGHT_MARGIN_FRACTION = 0.10
 
+# A margin row's key isn't always the step key it belongs to (energy budget
+# produces two rows, mass produces two) — this is the one mapping everything
+# scope-aware in this module reads, so it can't drift between build_margins'
+# own filtering and build_advice's mistake-matching.
+MARGIN_ROW_STEP: dict[str, str] = {
+    "storage": "data_budget", "power": "power_budget", "energy": "energy_budget",
+    "depth_of_discharge": "energy_budget", "link": "link_budget", "downlink": "downlink",
+    "mass": "mass_budget", "volume": "mass_budget", "cost": "cost_budget",
+}
+
 
 def _status(is_valid: bool, has_data: bool, *, tight: bool = False) -> str:
     if not has_data:
@@ -43,10 +53,18 @@ def _fmt(value: float, unit: str) -> str:
     return f"{value:.2f} {unit}"
 
 
-def build_margins(dash: dict, thresholds: dict, limits: dict) -> list[dict]:
+def build_margins(dash: dict, thresholds: dict, limits: dict, effective_keys: set[str]) -> list[dict]:
     """One row per constrained resource: what you have, what you used, what
     is left, and — the part Madar had and the port dropped — what that
-    actually means."""
+    actually means.
+
+    `effective_keys` (2026-08-22) is `compute_dashboard()`'s own
+    `included_steps` ∪ downlink-if-applicable — the exact set that already
+    decides `all_valid`. A row whose step isn't in scope for this cohort's
+    run is dropped entirely rather than shown as pass/fail/incomplete: a
+    student on a Components/CONOPS/Data-only run never had the ability to
+    add a solar array, so a "your power budget fails" card is not useful
+    feedback, it's noise about a step they were never given."""
     data, power, energy = dash["data"], dash["power"], dash["energy"]
     mass, cost, link, downlink = dash["mass"], dash["cost"], dash["link"], dash["downlink"]
 
@@ -185,7 +203,7 @@ def build_margins(dash: dict, thresholds: dict, limits: dict) -> list[dict]:
         ),
     })
 
-    return rows
+    return [r for r in rows if MARGIN_ROW_STEP[r["key"]] in effective_keys]
 
 
 def build_kpis(dash: dict, component_count: int, mode_count: int) -> dict:
@@ -208,11 +226,15 @@ _MODULE_TABS = {
 }
 
 
-def build_module_cards(dash: dict, thresholds: dict, component_count: int) -> list[dict]:
+def build_module_cards(
+    dash: dict, thresholds: dict, component_count: int, effective_keys: set[str],
+) -> list[dict]:
     """One card per step: status, two numbers that matter, and where to go
     to fix it. `downlink` deliberately points at the dashboard rather than a
     tab, because it is a constraint across three steps and the alert says
-    which one to change."""
+    which one to change. `effective_keys` drops a card for any step this
+    cohort's run never included (2026-08-22) — same reasoning as
+    `build_margins`."""
     d = dash
     spec = [
         ("components", "Components", "Selected", str(component_count), "", ""),
@@ -234,6 +256,8 @@ def build_module_cards(dash: dict, thresholds: dict, component_count: int) -> li
     ]
     cards = []
     for key, title, k1, v1, k2, v2 in spec:
+        if key not in effective_keys:
+            continue
         step = dash["steps"].get(key, {"has_data": False, "is_valid": False})
         cards.append({
             "key": key, "title": title,
@@ -266,7 +290,7 @@ def build_charts(components: list, modes: list) -> dict:
     }
 
 
-def build_advice(dash: dict, margins: list[dict]) -> tuple[list[dict], list[dict]]:
+def build_advice(dash: dict, margins: list[dict], effective_keys: set[str]) -> tuple[list[dict], list[dict]]:
     """Alerts say what is wrong; recommendations say what to do about it.
 
     This is where the mission teaches on failure rather than just reporting
@@ -274,6 +298,10 @@ def build_advice(dash: dict, margins: list[dict]) -> tuple[list[dict], list[dict
     numbers were always there, the judgement was not. Recommendations are
     drawn from `content.MISTAKES` wherever a known pattern matches, so the
     advice a student gets here is the same advice the handbook gives.
+
+    `margins` is already scope-filtered by `build_margins`, so the fail/tight
+    loop below never needs its own `effective_keys` check — only the CONOPS
+    special-case (below, not itself a margin row) does.
     """
     alerts: list[dict] = []
     recs: list[dict] = []
@@ -287,7 +315,7 @@ def build_advice(dash: dict, margins: list[dict]) -> tuple[list[dict], list[dict
             alerts.append({"severity": "warning", "step": row["key"], "message": row["interpretation"]})
 
     conops = dash["conops"]
-    if conops.has_data and not conops.is_valid:
+    if "conops" in effective_keys and conops.has_data and not conops.is_valid:
         alerts.insert(0, {
             "severity": "error", "step": "conops",
             "message": f"Your mode durations total {conops.total_mode_duration_min:.0f} minutes, "
@@ -297,13 +325,8 @@ def build_advice(dash: dict, margins: list[dict]) -> tuple[list[dict], list[dict
         })
 
     # Known-mistake matching: a mistake fires when any of its steps failed.
-    step_of_margin = {
-        "storage": "data_budget", "power": "power_budget", "energy": "energy_budget",
-        "depth_of_discharge": "energy_budget", "link": "link_budget", "downlink": "downlink",
-        "mass": "mass_budget", "volume": "mass_budget", "cost": "cost_budget",
-    }
-    failing_steps = {step_of_margin.get(k, k) for k in failing}
-    if conops.has_data and not conops.is_valid:
+    failing_steps = {MARGIN_ROW_STEP.get(k, k) for k in failing}
+    if "conops" in effective_keys and conops.has_data and not conops.is_valid:
         failing_steps.add("conops")
 
     for mistake in content.MISTAKES:
