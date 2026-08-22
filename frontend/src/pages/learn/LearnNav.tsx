@@ -17,7 +17,9 @@ import { roleHomePath } from "@/lib/roleHome";
 /** `catalog`, `paths` and `profile` are still reachable pages — they just
  * aren't nav entries any more (2026-08-12): discovery moved onto the landing
  * page's rails, and Profile was a duplicate of the avatar menu top-right.
- * They keep their keys so those pages can still mark themselves active. */
+ * They keep their keys so those pages can still mark themselves active.
+ * `home` joined them on the *desktop* bar only (2026-08-22) — see the
+ * filter in `LearnNav` below; the mobile tab bar still shows it. */
 export type LearnNavActive = "home" | "catalog" | "missions" | "paths" | "checklists" | "my-courses" | "games" | "leaderboard" | "profile";
 
 const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: typeof Home }[] = [
@@ -42,7 +44,12 @@ export function LearnNav({ active }: { active: LearnNavActive }) {
           </Link>
 
           <nav className="flex items-center gap-1.5">
-            {NAV_ITEMS.map((item) => {
+            {/* "Home" is dropped from the desktop bar (2026-08-22, operator:
+             * "navbar is now crowded") — the logo link just above already
+             * goes to /learn, so it's one click away without its own tab.
+             * Still shown on the mobile tab bar below, which has no logo to
+             * tap instead. */}
+            {NAV_ITEMS.filter((item) => item.key !== "home").map((item) => {
               const Icon = item.icon;
               const isActive = item.key === active;
               return (
