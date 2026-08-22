@@ -32,6 +32,7 @@ from app.models.user import User
 from app.schemas.documents import DossierItem, UserDossierOut
 from app.schemas.instructors.instructor import IdCardOut
 from app.schemas.user import UserCreate, UserOut, UserUpdate
+from app.services.documents.id_card import format_card_id
 from app.services import storage, user as user_service
 from app.services.countries import COUNTRY_NAMES
 from app.services.documents.id_card import ensure_card_id, render_card_back_png, render_card_png
@@ -83,7 +84,7 @@ async def read_users(db: AsyncSession = Depends(get_db), current_user: User = De
         row = UserOut.model_validate(user)
         row.grade = contact.grade if contact else None
         row.school_name = org.name_latin if org else None
-        row.card_id = f"SP-{user.card_number:04d}-UAE" if user.card_number is not None else None
+        row.card_id = format_card_id(user.card_number, user.roles) if user.card_number is not None else None
         out.append(row)
     return out
 

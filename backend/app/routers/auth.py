@@ -37,7 +37,7 @@ from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.application_review import ApplicationReview
 from app.schemas.user import InstructorApply
-from app.services.documents.id_card import ensure_card_number
+from app.services.documents.id_card import ensure_card_number, format_card_id
 from app.services.invitations import resolve_invite_code
 from app.services.lms.invite_grants import apply_invite_code_grants_to_new_user
 from app.services.nicknames import assign_nickname, reroll_nickname
@@ -104,7 +104,7 @@ async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | No
         # response — public/admin profile views had no way to show or search
         # by it (bug fix, 2026-08-17).
         "card_number": user.card_number,
-        "card_id": f"SP-{user.card_number:04d}-UAE" if user.card_number is not None else None,
+        "card_id": format_card_id(user.card_number, user.roles) if user.card_number is not None else None,
         "date_of_birth": contact.date_of_birth if contact else None,
         "grade": contact.grade if contact else None,
         "city_id": user.city_id,

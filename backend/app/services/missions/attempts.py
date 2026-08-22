@@ -38,10 +38,15 @@ async def start_attempt(
     force_new: bool = False, cohort_id: uuid.UUID | None = None,
 ) -> MissionAttempt:
     """Resumes the owner's (a user or a team — exactly one) in-progress
-    attempt on `mission_id` if one exists (ignoring the requested
-    `variant_id` in that case — finish what you started before beginning
-    something new), otherwise starts a new one at
-    `attempt_no = max(existing) + 1`, scoped to the same owner.
+    attempt on `mission_id` if one exists *in the same cohort scope as this
+    call* (ignoring the requested `variant_id` in that case — finish what
+    you started before beginning something new), otherwise starts a new one
+    at `attempt_no = max(existing) + 1`, scoped to the same owner. An
+    in-progress attempt in a *different* scope (e.g. the student's own solo
+    attempt when this call is an ops cohort-assign, or vice versa) is never
+    resumed — it's left alone and a fresh attempt is minted in the
+    requested scope instead (2026-08-22 fix; see the inline comment on the
+    resume query for the bug this closes).
 
     `force_new=True` skips the resume and always mints a new attempt, even
     with another already `in_progress` — the design mission's "run several
@@ -62,12 +67,26 @@ async def start_attempt(
     owner_value = user_id if user_id is not None else team_id
 
     if not force_new:
+        # Cross-scope resume bug (found 2026-08-22, live-tested): without
+        # this cohort_id match, a student's own independent in-progress
+        # attempt (cohort_id=None) got silently handed back to an
+        # ops-assign call requesting a cohort-scoped run — and the reverse,
+        # a student's own "start attempt" resuming a cohort-controlled run
+        # that happened to still be in progress. Resuming must only ever
+        # find an attempt already in the exact scope being asked for; a
+        # scope mismatch means mint a fresh one instead (below), leaving
+        # the mismatched attempt untouched and independently resumable.
+        cohort_match = (
+            MissionAttempt.cohort_id == cohort_id if cohort_id is not None
+            else MissionAttempt.cohort_id.is_(None)
+        )
         existing = await db.scalar(
             select(MissionAttempt)
             .where(
                 MissionAttempt.mission_id == mission_id,
                 owner_column == owner_value,
                 MissionAttempt.status == "in_progress",
+                cohort_match,
             )
             .order_by(MissionAttempt.started_at.desc())
         )
