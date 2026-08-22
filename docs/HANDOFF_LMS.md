@@ -382,6 +382,22 @@ like its Steps/Gates/Review siblings but not mission-scoped).
   `MissionAttempt.cohort_id` entry above for the full detail and its consequence for gates/
   step-selection/poster fields on any *existing* cohort). Not program-exclusive — TDRA-style
   cohort-scoped-missions-with-no-full-checklist use this same endpoint directly.
+  - **Bug, found live 2026-08-22, fixed same day**: `start_attempt()`'s "resume the owner's
+    in-progress attempt" lookup didn't check `cohort_id` at all, so a student's own independent
+    attempt (`cohort_id=None`) got silently handed back to `assign_mission_run()` unchanged — a
+    checklist's `mission_run` item ended up pointing at the student's unrelated solo run instead
+    of a fresh cohort-scoped one, with no gating applied. Fixed by making the resume lookup match
+    on `cohort_id` too (`None` only resumes `None`, a specific cohort only resumes that same
+    cohort) — a scope mismatch now mints a fresh attempt in the requested scope and leaves the
+    mismatched one untouched, independently resumable. Covered in
+    `tests/services/missions/test_missions_attempts.py::
+    test_start_attempt_never_resumes_across_a_cohort_scope_mismatch`.
+  - **Consequence for anyone who tested this before the fix landed**: `assign_lms_program()` only
+    ever runs once per `(user_id, cohort_id)` (idempotent), so an `LmsProgramAssignment` created
+    while this bug was live has a `mission_attempt_id` permanently pointing at the wrong attempt —
+    the fix doesn't retroactively repair already-created assignments. Delete the affected
+    `lms_program_assignments`/`lms_program_item_progress` rows (or just re-test with a fresh
+    student account) rather than reusing one that was assigned before this fix.
 - **Certificate**: no new certificate type. `LmsProgram.certificate_required` (default true) gates
   the cohort's existing `student_completion` certificate — `services/sessions/delivery.py::
   complete_cohort`'s automatic per-registration issuance now also checks
