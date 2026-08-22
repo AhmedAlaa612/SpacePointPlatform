@@ -168,6 +168,23 @@ a top-level, domain-agnostic model since 2026-08-17 (see the Team generalization
   (`services/missions/step_selection.py::set_selected_steps`) is the real enforcement — the
   frontend picker (`StepsTab` in `CohortMissions.tsx`) pre-expands for UX only. New
   `/missions/instructor/.../steps` GET/PUT/DELETE endpoints, alongside the existing gates ones.
+  - **Bug, found live 2026-08-22, fixed same day**: step selection scoped `all_valid`/"Ready"
+    correctly (`compute_dashboard()`'s `effective_keys` already existed for that), but the report
+    layer (`services/missions/design/report.py`) never consulted it — `build_margins`/
+    `build_module_cards`/`build_advice` always built all 9 categories regardless of what the
+    cohort selected. A student on a Components/CONOPS/Data-only run (3 steps) saw all 9 module
+    cards on the Report tab, including a "Power budget: FAIL" card for a step they never had
+    access to. Fixed by threading `effective_keys` (= `dash["included_steps"] |
+    ({"downlink"} if dash["downlink_included"] else set())`) through all three `report.py`
+    builder functions, each now dropping any row/card/alert whose step isn't in that set; a new
+    `report.py::MARGIN_ROW_STEP` constant is the one place that maps a margin row's key back to
+    its step (energy and mass each produce two rows). Applied at both read sites: the live
+    dashboard endpoint (`routers/missions/design.py`) and the frozen-at-completion review
+    (`services/missions/verifiers/design.py::mark_design_complete`) — the latter matters because
+    that snapshot is the permanent post-grading record, not just the in-progress view. Covered in
+    `tests/services/missions/design/test_design_v2_calculators.py::
+    test_module_cards_and_margins_are_filtered_to_the_cohorts_selected_steps`. A run with no
+    `MissionStepSelection` configured is unaffected (`included_steps` defaults to "everything").
 - **`/missions/instructor/*`** (2026-08-17) — a brand-new access path for the plain `instructor`
   role (it has zero access to `/missions/admin`/`/lms/admin`, which stay
   operations/facilitator/admin-only). Cohort-scoped progress, gates, and a review queue,

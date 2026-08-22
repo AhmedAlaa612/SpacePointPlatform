@@ -87,7 +87,6 @@ from app.services.missions.design.rf_calc import BAND_PRESETS
 from app.services.missions.verifiers.design import ensure_design, mark_design_complete
 from app.services.lms.admin_progress import DESIGN_STEP_LABELS
 from app.services.missions.gating import gate_map_for_attempt, require_step_unlocked
-from app.services.missions.step_selection import selected_steps_for_attempt
 from app.routers.missions.student import _own_attempt
 
 router = APIRouter(prefix="/missions/design", tags=["missions-design"])
@@ -184,8 +183,12 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
     dash = await design_service.compute_dashboard(db, design=design, variant_config=variant.config or {}, attempt=attempt)
     thresholds = dash["thresholds"]
     limits = dash["cubesat_limits"]
-    margins = design_report.build_margins(dash, thresholds, limits)
-    alerts, recommendations = design_report.build_advice(dash, margins)
+    # The exact key set that already decides `dash["all_valid"]` — a step
+    # this cohort's run never selected gets no margin row, no module card,
+    # and no alert either, not just an ignored pass/fail (2026-08-22).
+    effective_keys = dash["included_steps"] | ({"downlink"} if dash["downlink_included"] else set())
+    margins = design_report.build_margins(dash, thresholds, limits, effective_keys)
+    alerts, recommendations = design_report.build_advice(dash, margins, effective_keys)
     dashboard_out = DashboardOut(
         all_valid=dash["all_valid"],
         steps={k: StepStatusOut(**v) for k, v in dash["steps"].items()},
@@ -245,14 +248,14 @@ async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design
         kpis=design_report.build_kpis(dash, len(component_out), len(mode_out)),
         margins=[MarginRowOut(**m) for m in margins],
         module_cards=[ModuleCardOut(**c) for c in design_report.build_module_cards(
-            dash, thresholds, len(component_out))],
+            dash, thresholds, len(component_out), effective_keys)],
         charts=design_report.build_charts(component_out, mode_out),
         alerts=[AlertOut(**a) for a in alerts],
         recommendations=[RecommendationOut(**r) for r in recommendations],
     )
 
     step_gates = await gate_map_for_attempt(db, attempt=attempt)
-    included_step_set = await selected_steps_for_attempt(db, attempt=attempt)
+    included_step_set = dash["included_steps"]  # same resolved set compute_dashboard already fetched
     included_steps = {key: (key in included_step_set) for key, _ in DESIGN_STEP_LABELS if key != "downlink"}
 
     poster_template_url = None
