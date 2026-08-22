@@ -22,7 +22,7 @@ docstring).
   `pages/shared/PersonalDocuments.tsx`, shown only when the allowlist covers the active role.
 - **`admin`** — reviews the queue (`GET /admin/role-requests`), approves (sets the internship
   letter's salutation, activity description, supervisor name/email/phone, and can override the
-  requester's city/duration/hours/ref-number) or rejects. Frontend:
+  requester's city/duration/hours/ref-number/start-date) or rejects. Frontend:
   `pages/admin/RoleRequests.tsx`, linked from the admin dashboard with a pending-count badge.
 - **`intern`** (role granted on approval, added to whatever roles the user already held — never
   replaces them) — views and signs their own internship letter. `GET /intern/internship-letter`,
@@ -41,9 +41,10 @@ dispatches on `target_role` — today only `"intern"` has a handler
 1. Grants the `intern` role if not already held (reassigns the array, doesn't append in place —
    same SQLAlchemy gotcha as `onboard_application` in the instructors domain).
 2. Creates/updates `InternProfile` from the admin's approval-time input — city/duration/hours/
-   supervisor/ref-number all admin-set (fully editable per request, not just applicant-supplied),
-   falling back to the requester's own `details` for city/duration when the admin doesn't
-   override.
+   supervisor/ref-number/start-date all admin-overridable (fully editable per request, not just
+   applicant-supplied), falling back to the requester's own `details` for city/duration when the
+   admin doesn't override, and to the auto-resolve rule below for start date (see "Start date
+   resolution").
 3. Allocates a reference number (`services/internship/ref_number.py`) — format `N/YYYY`,
    auto-incrementing per calendar year, row-locked, admin-overridable (override to `Y` and the
    next auto-number in that year becomes `Y + 1`; rolls over to `1` on the first approval of a new
@@ -104,6 +105,26 @@ Frontend: `pages/admin/Applications.tsx`'s `ApplicationDetailDialog` shows the s
 InternshipLetterFields.tsx`) whenever `app.role === "intern"`, required before either the Approve
 or Send-to-Onboarding button enables, with a note explaining the ref-number/date timing
 difference between the two paths.
+
+### Start date resolution
+
+Boss spec (2026-08-20): admin can always override the start date (`InternshipApprove.
+start_date_override`, all three entry points) — when left unset it auto-resolves
+(`services/internship/approval.py::resolve_start_date`, a pure function, unit tested in
+`tests/services/test_internship_start_date.py`) against what was actually requested and the real
+approval moment:
+
+- Approval happens **on or before** the requested date -> the requested date, exactly as asked.
+- Approval happens **after** the requested date -> the day *after* approval (not the approval date
+  itself, and not the stale requested date — the person can't start retroactively).
+- Nothing was ever requested and no override -> whatever the profile already had (unaffected by a
+  re-approval), or the approval date itself for a genuinely first-time resolution.
+
+This is what makes Path 2's deferred-until-instructor-onboarding-completes design (above) actually
+correct: the requested date travels through `pending_intern_details` untouched, and gets compared
+against **whenever `review_applicant` actually runs** — which could be weeks after send-to-
+onboarding — not against the date the request was originally made. Covered end-to-end (both
+branches) in `tests/routers/admin/test_intern_application_letter.py`.
 
 ## Main DB tables
 

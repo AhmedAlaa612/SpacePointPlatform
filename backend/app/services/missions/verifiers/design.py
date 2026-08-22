@@ -71,8 +71,9 @@ async def mark_design_complete(db: AsyncSession, *, attempt: MissionAttempt) -> 
     # the same F2 lesson this port already learned once for component specs.
     thresholds = dashboard["thresholds"]
     limits = dashboard["cubesat_limits"]
-    margins = design_report.build_margins(dashboard, thresholds, limits)
-    alerts, recommendations = design_report.build_advice(dashboard, margins)
+    effective_keys = dashboard["included_steps"] | ({"downlink"} if dashboard["downlink_included"] else set())
+    margins = design_report.build_margins(dashboard, thresholds, limits, effective_keys)
+    alerts, recommendations = design_report.build_advice(dashboard, margins, effective_keys)
     attempt.payload = {
         **(attempt.payload or {}),
         "review": {

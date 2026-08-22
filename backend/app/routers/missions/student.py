@@ -54,7 +54,7 @@ from app.schemas.missions import (
 from app.schemas.teams import TeamCreateIn, TeamOut
 from app.services import storage
 from app.services.curriculum import is_unlocked, prerequisite_status
-from app.services.missions import resolve_student_cohort, start_attempt
+from app.services.missions import start_attempt
 from app.services.missions.serialize import variant_student_view
 from app.services.teams import create_team, team_member_ids, teams_for_user
 from app.services.missions.verifiers.quiz import submit_quiz_attempt
@@ -254,10 +254,14 @@ async def start_mission_attempt(
     else:
         if mission.team_policy == "team":
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This mission requires a team")
-        cohort_id = await resolve_student_cohort(db, user_id=current.id)
+        # 2026-08-21 (LMS Program redesign): solo, student-started attempts
+        # are always independent — no auto-resolved cohort_id. The only way
+        # a solo attempt gets scoped to a cohort now is ops assigning it
+        # directly via POST /missions/admin/attempts/assign (or the LMS
+        # Program checklist doing that on the student's behalf).
         attempt = await start_attempt(
             db, mission_id=mission.id, variant_id=body.variant_id, user_id=current.id,
-            force_new=body.force_new, cohort_id=cohort_id,
+            force_new=body.force_new, cohort_id=None,
         )
 
     await db.commit()

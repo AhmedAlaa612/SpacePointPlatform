@@ -14,7 +14,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.spine.contact import Contact
 from app.models.user import User
-from app.services.missions import decide_attempt, resolve_student_cohort, start_attempt
+from app.services.missions import assign_mission_run, decide_attempt, start_attempt
 from app.services.missions.verifiers.submission import (
     review_submission_attempt,
     submit_submission_attempt,
@@ -46,8 +46,10 @@ async def _cohort(db) -> Cohort:
 
 
 async def _registered_student(db, *, cohort: Cohort) -> User:
-    """A student with an active registration in `cohort` — the case
-    `resolve_student_cohort()` should find."""
+    """A student with an active registration in `cohort` — used to prove
+    that having one no longer implicitly scopes a solo attempt (2026-08-21:
+    that auto-resolution was removed; only an explicit ops assignment or
+    the team path can set cohort_id now)."""
     contact = Contact(
         id=uuid.uuid4(), full_name="Registered Student", contact_roles=["student"],
         secondary_phones=[], preferred_language="en", lifecycle_stage="lead",
@@ -131,34 +133,65 @@ async def test_start_attempt_force_new_bypasses_single_flight(db):
 
 
 @pytest.mark.asyncio
-async def test_start_attempt_sets_cohort_id_for_a_registered_solo_student(db):
+async def test_solo_start_attempt_never_gets_a_cohort_id_even_when_registered(db):
+    """2026-08-21 (LMS Program redesign): the auto-resolution that used to
+    scope a solo attempt to the student's registration is gone. A student
+    with an active registration who starts a mission the ordinary way
+    (cohort_id=None, exactly what the router now always passes) still
+    gets an independent, unscoped attempt."""
     author = await _user(db, roles=["operations"])
     mission, variants = await _mission_with_variants(db, author=author)
     cohort = await _cohort(db)
     student = await _registered_student(db, cohort=cohort)
 
-    resolved = await resolve_student_cohort(db, user_id=student.id)
-    assert resolved == cohort.id
-
     attempt = await start_attempt(
-        db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id, cohort_id=resolved,
+        db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id, cohort_id=None,
     )
-    assert attempt.cohort_id == cohort.id
+    assert attempt.cohort_id is None
 
 
 @pytest.mark.asyncio
-async def test_start_attempt_leaves_cohort_id_none_for_an_unregistered_student(db):
+async def test_assign_mission_run_sets_the_explicit_cohort_id(db):
+    """The one remaining way a solo attempt gets scoped — an explicit
+    ops assignment, never resolved from the student's own registration."""
     author = await _user(db, roles=["operations"])
     mission, variants = await _mission_with_variants(db, author=author)
-    student = await _user(db)  # no Contact/Registration at all
+    cohort = await _cohort(db)
+    student = await _registered_student(db, cohort=cohort)
 
-    resolved = await resolve_student_cohort(db, user_id=student.id)
-    assert resolved is None
-
-    attempt = await start_attempt(
-        db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id, cohort_id=resolved,
+    attempt = await assign_mission_run(
+        db, mission_id=mission.id, user_id=student.id, cohort_id=cohort.id, variant_id=variants[0].id,
     )
-    assert attempt.cohort_id is None
+    assert attempt.cohort_id == cohort.id
+    assert attempt.variant_id == variants[0].id
+
+
+@pytest.mark.asyncio
+async def test_assign_mission_run_defaults_to_the_easiest_variant(db):
+    author = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author)
+    cohort = await _cohort(db)
+    student = await _user(db)
+
+    attempt = await assign_mission_run(db, mission_id=mission.id, user_id=student.id, cohort_id=cohort.id)
+    assert attempt.variant_id == variants[0].id  # position=1, lowest
+
+
+@pytest.mark.asyncio
+async def test_assign_mission_run_resumes_by_default(db):
+    author = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author)
+    cohort = await _cohort(db)
+    student = await _user(db)
+
+    first = await assign_mission_run(db, mission_id=mission.id, user_id=student.id, cohort_id=cohort.id)
+    again = await assign_mission_run(db, mission_id=mission.id, user_id=student.id, cohort_id=cohort.id)
+    assert again.id == first.id
+
+    forced = await assign_mission_run(
+        db, mission_id=mission.id, user_id=student.id, cohort_id=cohort.id, force_new=True,
+    )
+    assert forced.id != first.id
 
 
 @pytest.mark.asyncio
@@ -177,9 +210,11 @@ async def test_start_attempt_sets_cohort_id_for_a_team_attempt(db):
 
 
 @pytest.mark.asyncio
-async def test_start_attempt_resume_keeps_original_cohort_id(db):
+async def test_start_attempt_resume_keeps_original_cohort_id_when_scope_matches(db):
     """A resumed in-progress attempt keeps whatever cohort_id it started
-    with — not re-resolved on resume, same as variant_id."""
+    with — not re-resolved on resume, same as variant_id — but only when
+    the resuming call asks for that *same* scope. See the next test for the
+    mismatch case."""
     author = await _user(db, roles=["operations"])
     mission, variants = await _mission_with_variants(db, author=author)
     cohort = await _cohort(db)
@@ -188,14 +223,47 @@ async def test_start_attempt_resume_keeps_original_cohort_id(db):
     first = await start_attempt(
         db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id, cohort_id=cohort.id,
     )
-    # Second call passes cohort_id=None (as if resolution ran again and
-    # found nothing) — the resume path should ignore it, same as it already
-    # ignores a different variant_id.
+    # Same cohort_id again, different variant_id — the resume path should
+    # still ignore the variant change and hand back the same attempt.
     resumed = await start_attempt(
-        db, user_id=student.id, mission_id=mission.id, variant_id=variants[1].id, cohort_id=None,
+        db, user_id=student.id, mission_id=mission.id, variant_id=variants[1].id, cohort_id=cohort.id,
     )
     assert resumed.id == first.id
     assert resumed.cohort_id == cohort.id
+
+
+@pytest.mark.asyncio
+async def test_start_attempt_never_resumes_across_a_cohort_scope_mismatch(db):
+    """Found live (2026-08-22): a student's own independent attempt
+    (cohort_id=None) was getting silently handed back to an ops cohort-
+    assign call, and vice versa, because the old resume lookup ignored
+    cohort_id entirely — a checklist's mission_run item ended up pointing at
+    the student's unrelated solo run instead of a fresh cohort-scoped one.
+    An in-progress attempt in a different scope must never be resumed; a
+    new attempt is minted in the newly-requested scope instead, and the
+    original is left exactly as it was."""
+    author = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author)
+    cohort = await _cohort(db)
+    student = await _registered_student(db, cohort=cohort)
+
+    solo = await start_attempt(
+        db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id, cohort_id=None,
+    )
+    cohort_run = await start_attempt(
+        db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id, cohort_id=cohort.id,
+    )
+    assert cohort_run.id != solo.id
+    assert cohort_run.cohort_id == cohort.id
+    assert solo.cohort_id is None  # untouched, still resumable independently
+
+    # And the reverse: with the cohort-scoped run still in_progress, asking
+    # for cohort_id=None again must not resume it either — it goes back to
+    # resuming the original solo attempt.
+    solo_again = await start_attempt(
+        db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id, cohort_id=None,
+    )
+    assert solo_again.id == solo.id
 
 
 @pytest.mark.asyncio

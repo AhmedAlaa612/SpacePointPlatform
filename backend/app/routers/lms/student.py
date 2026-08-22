@@ -23,6 +23,7 @@ leak guarantee a second time at the response boundary.
 
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -35,6 +36,7 @@ from app.core.dependencies import get_current_active_user, require_lms_student
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, ModuleVideo, VideoCheckpoint
 from app.models.lms.learning_path import LearningPath, LearningPathStep
+from app.models.lms.program import LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.user import User
 from app.schemas.curriculum import PrerequisiteItemOut
@@ -51,6 +53,10 @@ from app.schemas.lms import (
     LearningPathCatalogOut,
     LearningPathDetailOut,
     LearningPathStepOut,
+    LmsProgramAssignmentSummaryOut,
+    LmsProgramChecklistItemOut,
+    LmsProgramChecklistOut,
+    LmsProgramItemSubmitIn,
     ModuleItemOut,
     ModuleLockOut,
     ModuleOut,
@@ -84,6 +90,7 @@ from app.services.lms.certificates import award_for_course_completion
 from app.services.lms.dashboard import my_courses_dashboard, recent_activity
 from app.services.lms.leaderboard import leaderboard
 from app.services.lms.my_programs import my_programs
+from app.services.lms.program import get_student_checklist, list_student_assignments
 from app.services import storage
 from app.models.certificate import Certificate
 from app.models.enums import CertificateType
@@ -301,6 +308,19 @@ async def _path_steps(db: AsyncSession, path_id: uuid.UUID) -> list[LearningPath
     )).scalars().all())
 
 
+async def _path_fully_owned(db: AsyncSession, *, user_id: uuid.UUID, course_ids: list[uuid.UUID]) -> bool:
+    """True iff the caller already has an active enrollment in every one of
+    these courses — i.e. a bundle purchase would have nothing left to grant."""
+    if not course_ids:
+        return False
+    owned = (await db.execute(
+        select(Enrollment.course_id).where(
+            Enrollment.user_id == user_id, Enrollment.course_id.in_(course_ids), *enrollment_is_active(),
+        )
+    )).scalars().all()
+    return set(owned) >= set(course_ids)
+
+
 @router.get("/learning-paths", response_model=list[LearningPathCatalogOut])
 async def learning_paths_catalog(
     db: AsyncSession = Depends(get_db),
@@ -330,6 +350,8 @@ async def learning_paths_catalog(
             image_url=await storage.resolve_url(path.image_bucket, path.image_path),
             course_count=progress["course_count"], mission_count=progress["mission_count"],
             total_duration_seconds=duration, pct=progress["pct"], enrolled=enrolled,
+            price_cents=path.price_cents, currency=path.currency,
+            fully_owned=await _path_fully_owned(db, user_id=current.id, course_ids=step_course_ids),
         ))
     return out
 
@@ -344,12 +366,14 @@ async def learning_path_detail(
     steps = await _path_steps(db, path.id)
     progress = await path_progress(db, user_id=current.id, steps=steps)
     duration = await path_total_duration_seconds(db, [s.course_id for s in steps])
+    fully_owned = await _path_fully_owned(db, user_id=current.id, course_ids=[s.course_id for s in steps])
     return LearningPathDetailOut(
         id=path.id, title=path.title, description=path.description,
         image_url=await storage.resolve_url(path.image_bucket, path.image_path),
         pct=progress["pct"], course_count=progress["course_count"],
         mission_count=progress["mission_count"], total_duration_seconds=duration,
         steps=[LearningPathStepOut(**row) for row in progress["steps"]],
+        price_cents=path.price_cents, currency=path.currency, fully_owned=fully_owned,
     )
 
 
@@ -380,12 +404,14 @@ async def start_learning_path(
 
     progress = await path_progress(db, user_id=current.id, steps=steps)
     duration = await path_total_duration_seconds(db, [s.course_id for s in steps])
+    fully_owned = await _path_fully_owned(db, user_id=current.id, course_ids=[s.course_id for s in steps])
     return LearningPathDetailOut(
         id=path.id, title=path.title, description=path.description,
         image_url=await storage.resolve_url(path.image_bucket, path.image_path),
         pct=progress["pct"], course_count=progress["course_count"],
         mission_count=progress["mission_count"], total_duration_seconds=duration,
         steps=[LearningPathStepOut(**row) for row in progress["steps"]],
+        price_cents=path.price_cents, currency=path.currency, fully_owned=fully_owned,
     )
 
 
@@ -421,6 +447,100 @@ async def my_programs_route(
     Opened to any authenticated account (2026-08-12), same reasoning as
     `/my-courses` above — staff with no cohort just get an empty list."""
     return await my_programs(db, user=current)
+
+
+# ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
+# Distinct from /my-programs above (the older, courses-only cohort view) —
+# these serve the new checklist entity: lms_program_assignments.
+
+@router.get("/programs", response_model=list[LmsProgramAssignmentSummaryOut])
+async def my_program_assignments(
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    return await list_student_assignments(db, user_id=current.id)
+
+
+@router.get("/programs/{assignment_id}", response_model=LmsProgramChecklistOut)
+async def program_checklist(
+    assignment_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    checklist = await get_student_checklist(db, assignment_id=assignment_id, user_id=current.id)
+    if checklist is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
+    return checklist
+
+
+async def _own_progress_row(
+    db: AsyncSession, *, assignment_id: uuid.UUID, item_id: uuid.UUID, user: User,
+) -> tuple[LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress]:
+    assignment = await db.get(LmsProgramAssignment, assignment_id)
+    if assignment is None or assignment.user_id != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Program assignment not found")
+    progress = await db.scalar(
+        select(LmsProgramItemProgress).where(
+            LmsProgramItemProgress.assignment_id == assignment_id, LmsProgramItemProgress.item_id == item_id,
+        )
+    )
+    item = await db.get(LmsProgramItem, item_id) if progress else None
+    if progress is None or item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Checklist item not found")
+    return assignment, item, progress
+
+
+@router.post("/programs/{assignment_id}/items/{item_id}/complete", response_model=LmsProgramChecklistItemOut)
+async def complete_program_item(
+    assignment_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+):
+    """Self-check — for external_link/article/manual items with no
+    `requires_confirmation`, and for `submission` items only after a link
+    has already been submitted. `course`/`mission_run` are auto-tracked
+    and rejected here; use the course player / mission attempt directly."""
+    _, item, progress = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    if item.item_type in ("course", "mission_run"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is tracked automatically")
+    if item.item_type == "submission" and not progress.submitted_url:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit a link first")
+    if item.requires_confirmation:
+        progress.status = "awaiting_confirmation"
+    else:
+        progress.status = "done"
+        progress.completed_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(progress)
+    return LmsProgramChecklistItemOut(
+        id=item.id, position=item.position, item_type=item.item_type, title=item.title,
+        description=item.description, optional=item.optional, requires_confirmation=item.requires_confirmation,
+        status=progress.status, course_id=item.course_id, mission_attempt_id=progress.mission_attempt_id,
+        external_url=item.external_url, submission_prompt=item.submission_prompt,
+        submitted_url=progress.submitted_url,
+    )
+
+
+@router.post("/programs/{assignment_id}/items/{item_id}/submit", response_model=LmsProgramChecklistItemOut)
+async def submit_program_item(
+    assignment_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramItemSubmitIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+):
+    """Paste-back for a `submission` item — same shape as the Poster tab.
+    Recorded, not auto-completed: still needs the student's own
+    `.../complete` call (or ops confirmation, if `requires_confirmation`)
+    to actually mark the step done, same two-step flow the Poster tab
+    established (paste link, then it counts once the deadline/step logic
+    is happy)."""
+    _, item, progress = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    if item.item_type != "submission":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item does not take a submission")
+    progress.submitted_url = body.url
+    await db.commit()
+    await db.refresh(progress)
+    return LmsProgramChecklistItemOut(
+        id=item.id, position=item.position, item_type=item.item_type, title=item.title,
+        description=item.description, optional=item.optional, requires_confirmation=item.requires_confirmation,
+        status=progress.status, course_id=item.course_id, mission_attempt_id=progress.mission_attempt_id,
+        external_url=item.external_url, submission_prompt=item.submission_prompt,
+        submitted_url=progress.submitted_url,
+    )
 
 
 @router.get("/my-activity", response_model=list[ActivityItemOut])

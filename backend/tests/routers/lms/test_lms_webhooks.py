@@ -58,6 +58,22 @@ async def _purchase(db, *, user, course, **kw) -> Purchase:
     return purchase
 
 
+async def _paid_purchase_with_enrollment(db, *, user, course, **kw) -> tuple[Purchase, Enrollment]:
+    """A settled purchase plus the active enrollment it granted — the shape
+    `fulfill()` actually produces (`Enrollment.purchase_id` set, mirrored on
+    `Purchase.enrollment_id` for the single-course case), so refund/dispute
+    revocation (keyed off `Enrollment.purchase_id`) has something to find."""
+    purchase = await _purchase(db, user=user, course=course, status="paid", **kw)
+    enrollment = Enrollment(
+        id=uuid.uuid4(), user_id=user.id, course_id=course.id, source="purchase", status="active",
+        purchase_id=purchase.id,
+    )
+    db.add(enrollment)
+    await db.flush()
+    purchase.enrollment_id = enrollment.id
+    return purchase, enrollment
+
+
 def _event(event_type: str, obj):
     return types.SimpleNamespace(type=event_type, data=types.SimpleNamespace(object=obj))
 
@@ -142,13 +158,9 @@ async def test_full_refund_revokes_enrollment(db, client, monkeypatch):
     author = await _user(db)
     student = await _user(db)
     course = await _course(db, author=author)
-    enrollment = Enrollment(
-        id=uuid.uuid4(), user_id=student.id, course_id=course.id, source="purchase", status="active",
+    purchase, enrollment = await _paid_purchase_with_enrollment(
+        db, user=student, course=course, stripe_payment_intent_id="pi_refund_1",
     )
-    db.add(enrollment)
-    await db.flush()
-    purchase = await _purchase(db, user=student, course=course, status="paid", enrollment_id=enrollment.id,
-                                stripe_payment_intent_id="pi_refund_1")
     await db.commit()
 
     charge = types.SimpleNamespace(id="ch_1", refunded=True, payment_intent="pi_refund_1", amount_refunded=course.price_cents)
@@ -169,13 +181,9 @@ async def test_redelivered_refund_event_does_not_move_the_timestamp(db, client, 
     author = await _user(db)
     student = await _user(db)
     course = await _course(db, author=author)
-    enrollment = Enrollment(
-        id=uuid.uuid4(), user_id=student.id, course_id=course.id, source="purchase", status="active",
+    purchase, enrollment = await _paid_purchase_with_enrollment(
+        db, user=student, course=course, stripe_payment_intent_id="pi_refund_2",
     )
-    db.add(enrollment)
-    await db.flush()
-    purchase = await _purchase(db, user=student, course=course, status="paid", enrollment_id=enrollment.id,
-                                stripe_payment_intent_id="pi_refund_2")
     await db.commit()
 
     charge = types.SimpleNamespace(id="ch_2", refunded=True, payment_intent="pi_refund_2", amount_refunded=course.price_cents)
@@ -196,13 +204,9 @@ async def test_partial_refund_changes_nothing(db, client, monkeypatch):
     author = await _user(db)
     student = await _user(db)
     course = await _course(db, author=author)
-    enrollment = Enrollment(
-        id=uuid.uuid4(), user_id=student.id, course_id=course.id, source="purchase", status="active",
+    purchase, enrollment = await _paid_purchase_with_enrollment(
+        db, user=student, course=course, stripe_payment_intent_id="pi_refund_3",
     )
-    db.add(enrollment)
-    await db.flush()
-    purchase = await _purchase(db, user=student, course=course, status="paid", enrollment_id=enrollment.id,
-                                stripe_payment_intent_id="pi_refund_3")
     await db.commit()
 
     charge = types.SimpleNamespace(id="ch_3", refunded=False, payment_intent="pi_refund_3", amount_refunded=500)
@@ -222,13 +226,9 @@ async def test_dispute_created_needs_response_revokes_access(db, client, monkeyp
     author = await _user(db)
     student = await _user(db)
     course = await _course(db, author=author)
-    enrollment = Enrollment(
-        id=uuid.uuid4(), user_id=student.id, course_id=course.id, source="purchase", status="active",
+    purchase, enrollment = await _paid_purchase_with_enrollment(
+        db, user=student, course=course, stripe_payment_intent_id="pi_dispute_1",
     )
-    db.add(enrollment)
-    await db.flush()
-    purchase = await _purchase(db, user=student, course=course, status="paid", enrollment_id=enrollment.id,
-                                stripe_payment_intent_id="pi_dispute_1")
     await db.commit()
 
     dispute = types.SimpleNamespace(status="needs_response", payment_intent="pi_dispute_1", charge="ch_dispute_1")
@@ -248,13 +248,9 @@ async def test_dispute_created_warning_inquiry_leaves_access_untouched(db, clien
     author = await _user(db)
     student = await _user(db)
     course = await _course(db, author=author)
-    enrollment = Enrollment(
-        id=uuid.uuid4(), user_id=student.id, course_id=course.id, source="purchase", status="active",
+    purchase, enrollment = await _paid_purchase_with_enrollment(
+        db, user=student, course=course, stripe_payment_intent_id="pi_dispute_2",
     )
-    db.add(enrollment)
-    await db.flush()
-    purchase = await _purchase(db, user=student, course=course, status="paid", enrollment_id=enrollment.id,
-                                stripe_payment_intent_id="pi_dispute_2")
     await db.commit()
 
     dispute = types.SimpleNamespace(status="warning_needs_response", payment_intent="pi_dispute_2", charge="ch_dispute_2")
@@ -274,13 +270,9 @@ async def test_dispute_created_with_null_payment_intent_falls_back_to_charge_loo
     author = await _user(db)
     student = await _user(db)
     course = await _course(db, author=author)
-    enrollment = Enrollment(
-        id=uuid.uuid4(), user_id=student.id, course_id=course.id, source="purchase", status="active",
+    purchase, enrollment = await _paid_purchase_with_enrollment(
+        db, user=student, course=course, stripe_payment_intent_id="pi_dispute_3",
     )
-    db.add(enrollment)
-    await db.flush()
-    purchase = await _purchase(db, user=student, course=course, status="paid", enrollment_id=enrollment.id,
-                                stripe_payment_intent_id="pi_dispute_3")
     await db.commit()
 
     from unittest.mock import AsyncMock
@@ -305,13 +297,11 @@ async def test_dispute_closed_won_restores_paid_status_but_not_enrollment(db, cl
     author = await _user(db)
     student = await _user(db)
     course = await _course(db, author=author)
-    enrollment = Enrollment(
-        id=uuid.uuid4(), user_id=student.id, course_id=course.id, source="purchase", status="inactive",
+    purchase, enrollment = await _paid_purchase_with_enrollment(
+        db, user=student, course=course, stripe_payment_intent_id="pi_dispute_4",
     )
-    db.add(enrollment)
-    await db.flush()
-    purchase = await _purchase(db, user=student, course=course, status="disputed", enrollment_id=enrollment.id,
-                                stripe_payment_intent_id="pi_dispute_4")
+    purchase.status = "disputed"
+    enrollment.status = "inactive"
     await db.commit()
 
     dispute = types.SimpleNamespace(status="won", payment_intent="pi_dispute_4", charge="ch_dispute_4")

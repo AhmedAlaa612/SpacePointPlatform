@@ -93,6 +93,36 @@ async def test_admin_learning_path_crud_and_publish(db, client):
 
 
 @pytest.mark.asyncio
+async def test_admin_learning_path_bundle_pricing(db, client):
+    """Bundle pricing (2026-08-21) — price_cents null by default (not
+    purchasable), settable and clearable via PATCH, free-form (no enforced
+    relationship to the sum of step prices, operator decision)."""
+    ops = await _user(db)
+    await db.commit()
+
+    create = await client.post(
+        "/lms/admin/learning-paths", headers=_headers(ops),
+        json={"title": "Bundle Path"},
+    )
+    assert create.status_code == 201
+    assert create.json()["price_cents"] is None
+    assert create.json()["currency"] == "usd"
+    path_id = create.json()["id"]
+
+    priced = await client.patch(
+        f"/lms/admin/learning-paths/{path_id}", headers=_headers(ops), json={"price_cents": 9900},
+    )
+    assert priced.status_code == 200
+    assert priced.json()["price_cents"] == 9900
+
+    cleared = await client.patch(
+        f"/lms/admin/learning-paths/{path_id}", headers=_headers(ops), json={"price_cents": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["price_cents"] is None
+
+
+@pytest.mark.asyncio
 async def test_admin_learning_path_step_binding_add_list_remove(db, client):
     ops = await _user(db)
     path = await _path(db, author=ops)
@@ -183,6 +213,40 @@ async def test_start_path_bulk_enrolls_every_step_course(db, client):
         select(Enrollment).where(Enrollment.user_id == student.id)
     )).scalars().all()
     assert len(enrollments_again) == 2
+
+
+@pytest.mark.asyncio
+async def test_path_detail_and_catalog_expose_price_and_ownership(db, client):
+    """Bundle pricing (2026-08-21) — `fully_owned` flips true only once every
+    step's course has an active enrollment; a partial owner still sees it
+    false (nothing blocks the buy button until *everything* is owned)."""
+    ops = await _user(db)
+    student = await _user(db, roles=["student"])
+    path = await _path(db, author=ops)
+    path.price_cents = 4900
+    course_a, _ = await _course_with_one_module_one_item(db, author=ops)
+    course_b, _ = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course_a.id, position=1))
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course_b.id, position=2))
+    await db.commit()
+
+    detail = await client.get(f"/lms/learning-paths/{path.id}", headers=_headers(student))
+    assert detail.json()["price_cents"] == 4900
+    assert detail.json()["fully_owned"] is False
+
+    db.add(Enrollment(id=uuid.uuid4(), user_id=student.id, course_id=course_a.id, source="ops", status="active"))
+    await db.commit()
+    partial = await client.get(f"/lms/learning-paths/{path.id}", headers=_headers(student))
+    assert partial.json()["fully_owned"] is False
+
+    db.add(Enrollment(id=uuid.uuid4(), user_id=student.id, course_id=course_b.id, source="ops", status="active"))
+    await db.commit()
+    full = await client.get(f"/lms/learning-paths/{path.id}", headers=_headers(student))
+    assert full.json()["fully_owned"] is True
+
+    catalog = await client.get("/lms/learning-paths", headers=_headers(student))
+    row = next(p for p in catalog.json() if p["id"] == str(path.id))
+    assert row["price_cents"] == 4900 and row["fully_owned"] is True
 
 
 @pytest.mark.asyncio

@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.models.lms.learning_path import LearningPathStep
 from app.models.lms.purchase import Purchase
 from app.services.lms.enrollment import enroll
 
@@ -29,6 +30,15 @@ async def get_pending_purchase(db: AsyncSession, *, user_id: UUID, course_id: UU
     return (await db.execute(
         select(Purchase).where(
             Purchase.user_id == user_id, Purchase.course_id == course_id, Purchase.status == "pending",
+        )
+    )).scalars().first()
+
+
+async def get_pending_path_purchase(db: AsyncSession, *, user_id: UUID, learning_path_id: UUID) -> Purchase | None:
+    return (await db.execute(
+        select(Purchase).where(
+            Purchase.user_id == user_id, Purchase.learning_path_id == learning_path_id,
+            Purchase.status == "pending",
         )
     )).scalars().first()
 
@@ -66,8 +76,21 @@ async def fulfill(db: AsyncSession, session) -> Purchase:
     purchase.paid_at = datetime.now(timezone.utc)
     purchase.stripe_payment_intent_id = session.payment_intent
 
-    enrollment = await enroll(db, user_id=purchase.user_id, course_id=purchase.course_id, source="purchase")
-    purchase.enrollment_id = enrollment.id
+    if purchase.product_type == "learning_path":
+        steps = (await db.execute(
+            select(LearningPathStep.course_id).where(LearningPathStep.learning_path_id == purchase.learning_path_id)
+        )).scalars().all()
+        for course_id in steps:
+            await enroll(
+                db, user_id=purchase.user_id, course_id=course_id, source="purchase", purchase_id=purchase.id,
+            )
+        # No single enrollment to point at for a bundle — enrollment_id stays
+        # null; Enrollment.purchase_id is the real join for this purchase.
+    else:
+        enrollment = await enroll(
+            db, user_id=purchase.user_id, course_id=purchase.course_id, source="purchase", purchase_id=purchase.id,
+        )
+        purchase.enrollment_id = enrollment.id
     return purchase
 
 

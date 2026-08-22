@@ -20,7 +20,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.user import User
-from app.services.lms.curriculum import resolve_cohort_curriculum
+from app.services.lms.program import resolve_cohort_program_course_ids
 from app.services.lms.progress import course_completion
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 from app.services.sessions.staffing import resolve_session_location_display
@@ -59,7 +59,7 @@ async def my_programs(db: AsyncSession, *, user: User) -> list[dict]:
             .group_by(AttendanceRecord.att_status)
         )).all())
 
-        course_ids = await resolve_cohort_curriculum(db, cohort.id)
+        course_ids = await resolve_cohort_program_course_ids(db, cohort.id)
         courses = []
         if course_ids:
             course_rows = (await db.execute(select(Course).where(Course.id.in_(course_ids)))).scalars().all()

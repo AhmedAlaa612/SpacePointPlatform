@@ -280,6 +280,7 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                         onChange={setInternship}
                         requestedCityId={app.answers?.preferred_city_id as string | undefined}
                         requestedDurationWeeks={app.answers?.requested_duration_weeks as number | undefined}
+                        requestedStartDate={app.answers?.requested_start_date as string | undefined}
                         showRefNumberOverride={false}
                       />
                       <p className="text-[11px] text-muted-foreground border-t border-border/50 pt-2 mt-1">

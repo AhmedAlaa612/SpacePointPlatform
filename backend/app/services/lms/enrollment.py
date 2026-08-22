@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.lms.course import Course
 from app.models.lms.enrollment import Enrollment
 
-EnrollmentSource = Literal["self", "ops", "registration", "purchase"]
+EnrollmentSource = Literal["self", "ops", "registration", "purchase", "invite_code"]
 
 
 def enrollment_is_active() -> tuple:
@@ -63,6 +63,7 @@ async def enroll(
     program_id: UUID | None = None,
     registration_id: UUID | None = None,
     granted_by: UUID | None = None,
+    purchase_id: UUID | None = None,
 ) -> Enrollment:
     """Grant (or re-grant) a student access to a course.
 
@@ -92,6 +93,8 @@ async def enroll(
             existing.expires_at = _resolve_expires_at(course)
             if granted_by is not None:
                 existing.granted_by = granted_by
+            if purchase_id is not None:
+                existing.purchase_id = purchase_id
             await db.flush()
         return existing
 
@@ -103,6 +106,7 @@ async def enroll(
         program_id=program_id,
         registration_id=registration_id,
         granted_by=granted_by,
+        purchase_id=purchase_id,
         expires_at=_resolve_expires_at(course),
         status="active",
     )

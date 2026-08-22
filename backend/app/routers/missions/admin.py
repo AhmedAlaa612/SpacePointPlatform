@@ -22,6 +22,7 @@ from app.db.session import get_db
 from app.models.missions.assignment import MissionAssignment
 from app.models.missions.manager import MissionManager
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
+from app.models.sessions.cohort import Cohort
 from app.models.team import Team
 from app.models.user import User
 from app.schemas.lms_admin import AdminContentQuiz
@@ -30,6 +31,7 @@ from app.schemas.missions_admin import (
     MissionAssignmentGrantIn,
     MissionAssignmentOut,
     MissionAttemptAdminOut,
+    MissionAttemptAssignIn,
     MissionAttemptReviewIn,
     MissionBulkAssignIn,
     MissionBulkAssignOut,
@@ -44,6 +46,7 @@ from app.schemas.missions_admin import (
 from app.schemas.missions_manager import MissionManagerAssignIn, MissionManagerOut
 from app.services import storage
 from app.services.teams import create_team, team_member_ids
+from app.services.missions import assign_mission_run
 from app.services.missions.assignment import assign as assign_mission
 from app.services.missions.verifiers.submission import review_submission_attempt
 
@@ -413,3 +416,31 @@ async def review_attempt(
     await db.commit()
     await db.refresh(reviewed)
     return await _attempt_admin_out(db, reviewed)
+
+
+# ── cohort-scoped run assignment (2026-08-21, LMS Program redesign) ─────────
+
+@router.post("/attempts/assign", response_model=MissionAttemptAdminOut, status_code=status.HTTP_201_CREATED)
+async def assign_mission_attempt(
+    body: MissionAttemptAssignIn, db: AsyncSession = Depends(get_db),
+):
+    """The one way a solo attempt gets a `cohort_id` now — student-started
+    attempts (`POST /missions/{id}/attempts`) are always independent.
+    Used directly for cohort-scoped missions with no full LMS Program
+    (e.g. TDRA's reduced step selection), and internally by
+    `services/lms/program.py::assign_lms_program` for a checklist's
+    `mission_run` items. Idempotent: re-assigning the same student just
+    resumes their existing in-progress run unless `force_new=True`."""
+    if await db.get(User, body.user_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+    if await db.get(Mission, body.mission_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    if await db.get(Cohort, body.cohort_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    attempt = await assign_mission_run(
+        db, mission_id=body.mission_id, user_id=body.user_id, cohort_id=body.cohort_id,
+        variant_id=body.variant_id, force_new=body.force_new,
+    )
+    await db.commit()
+    await db.refresh(attempt)
+    return await _attempt_admin_out(db, attempt)

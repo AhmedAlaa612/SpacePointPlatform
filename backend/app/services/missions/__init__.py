@@ -1,5 +1,5 @@
-from app.services.missions.attempts import decide_attempt, resolve_student_cohort, start_attempt
+from app.services.missions.attempts import assign_mission_run, decide_attempt, start_attempt
 
 __all__ = [
-    "decide_attempt", "resolve_student_cohort", "start_attempt",
+    "assign_mission_run", "decide_attempt", "start_attempt",
 ]

@@ -142,7 +142,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   if (pathname.startsWith("/lms-authoring")) {
     return [
       mk("Courses", "/lms-authoring/courses"),
-      mk("Curriculum", "/lms-authoring/curriculum"),
+      mk("Programs", "/lms-authoring/curriculum"),
       mk("Learning Paths", "/lms-authoring/learning-paths"),
       mk("Live Quiz", "/lms-authoring/games"),
       mk("Progress", "/lms-authoring/progress"),

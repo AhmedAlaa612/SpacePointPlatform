@@ -9,6 +9,7 @@ import {
   instructorStepSelectionApi, setInstructorStepSelectionApi, clearInstructorStepSelectionApi,
   instructorReviewQueueApi, instructorReviewAttemptApi,
 } from "@/api/missionsInstructor"
+import { getCohortProgramProgressApi, confirmChecklistItemApi } from "@/api/lms_admin"
 import { fetchMissionCatalog } from "@/api/missions"
 import type { ManagedAttempt } from "@/api/missions_manager"
 
@@ -28,9 +29,12 @@ const MISSION_STATUS_LABEL: Record<string, string> = {
   passed: "Passed", failed: "Failed", submitted: "Submitted", in_progress: "In progress", abandoned: "Abandoned",
 }
 
-const TABS = ["progress", "steps", "gates", "review"] as const
+const TABS = ["progress", "steps", "gates", "review", "program"] as const
 type Tab = (typeof TABS)[number]
-const TAB_LABEL: Record<Tab, string> = { progress: "Progress", steps: "Steps", gates: "Gates", review: "Review" }
+const TAB_LABEL: Record<Tab, string> = {
+  progress: "Progress", steps: "Steps", gates: "Gates", review: "Review",
+  program: "Program", // LMS Program checklist (2026-08-21) — cohort-scoped, not mission-scoped
+}
 
 /** Cohort-scoped instructor Missions surface (2026-08-17) — the boss's own
  * ask: an instructor tracks/gates/reviews their own cohort's Design runs,
@@ -84,41 +88,45 @@ export default function CohortMissions() {
       )}
 
       {effectiveCohortId && (
-        missions.length === 0 ? (
-          <EmptyState title="No design missions published yet" />
-        ) : (
-          <>
-            <select
-              value={effectiveMissionId ?? ""}
-              onChange={(e) => setMissionId(e.target.value)}
-              className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-fit focus:outline-none focus:border-primary"
-            >
-              {missions.map((m) => <option key={m.id} value={m.id}>{m.title}</option>)}
-            </select>
+        <>
+          <div className="flex gap-1 border-b border-border">
+            {TABS.map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+              >
+                {TAB_LABEL[t]}
+              </button>
+            ))}
+          </div>
 
-            <div className="flex gap-1 border-b border-border">
-              {TABS.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                    tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-                >
-                  {TAB_LABEL[t]}
-                </button>
-              ))}
-            </div>
+          {tab === "program" ? (
+            <ProgramTab cohortId={effectiveCohortId} />
+          ) : missions.length === 0 ? (
+            <EmptyState title="No design missions published yet" />
+          ) : (
+            <>
+              <select
+                value={effectiveMissionId ?? ""}
+                onChange={(e) => setMissionId(e.target.value)}
+                className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-fit focus:outline-none focus:border-primary"
+              >
+                {missions.map((m) => <option key={m.id} value={m.id}>{m.title}</option>)}
+              </select>
 
-            {effectiveMissionId && (
-              <>
-                {tab === "progress" && <ProgressTab cohortId={effectiveCohortId} />}
-                {tab === "steps" && <StepsTab cohortId={effectiveCohortId} missionId={effectiveMissionId} />}
-                {tab === "gates" && <GatesTab cohortId={effectiveCohortId} missionId={effectiveMissionId} />}
-                {tab === "review" && <ReviewTab cohortId={effectiveCohortId} missionId={effectiveMissionId} />}
-              </>
-            )}
-          </>
-        )
+              {effectiveMissionId && (
+                <>
+                  {tab === "progress" && <ProgressTab cohortId={effectiveCohortId} />}
+                  {tab === "steps" && <StepsTab cohortId={effectiveCohortId} missionId={effectiveMissionId} />}
+                  {tab === "gates" && <GatesTab cohortId={effectiveCohortId} missionId={effectiveMissionId} />}
+                  {tab === "review" && <ReviewTab cohortId={effectiveCohortId} missionId={effectiveMissionId} />}
+                </>
+              )}
+            </>
+          )}
+        </>
       )}
     </div>
   )
@@ -182,6 +190,70 @@ function ProgressTab({ cohortId }: { cohortId: string }) {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// ── Program checklist (2026-08-21 redesign) ─────────────────────────────
+
+function ProgramTab({ cohortId }: { cohortId: string }) {
+  const queryClient = useQueryClient()
+  const queryKey = ["instructor-program-progress", cohortId]
+  const { data: rows, isLoading } = useQuery({
+    queryKey, queryFn: () => getCohortProgramProgressApi(cohortId),
+  })
+
+  const confirmMutation = useMutation({
+    mutationFn: (vars: { assignmentId: string; itemId: string }) =>
+      confirmChecklistItemApi(cohortId, vars.assignmentId, vars.itemId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey }),
+  })
+
+  if (isLoading) return <Spinner />
+  if (!rows || rows.length === 0) {
+    return <EmptyState title="No students assigned this cohort's checklist yet" hint="A checklist only appears here once its program is attached and students are registered." />
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {rows.map((row) => (
+        <div key={row.assignment_id} className="flex items-center gap-4 p-3 bg-card border border-border rounded-xl">
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium text-foreground truncate">{row.student_name}</div>
+            <div className="text-xs text-muted-foreground truncate">{row.name}</div>
+          </div>
+          <div className="flex flex-col gap-1 w-40 shrink-0">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{row.items_done}/{row.items_total}</span>
+              <span>{row.pct}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-muted relative overflow-hidden">
+              <div className={`absolute inset-y-0 left-0 rounded-full ${row.pct === 100 ? "bg-emerald-500" : "bg-primary"}`} style={{ width: `${row.pct}%` }} />
+            </div>
+          </div>
+          {row.certificate_required && (
+            <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide rounded-md px-2 py-1 ${
+              row.certificate_earned ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"}`}
+            >
+              {row.certificate_earned ? "Certified" : "Not certified"}
+            </span>
+          )}
+          {row.pending_confirmations.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 shrink-0 max-w-[220px] justify-end">
+              {row.pending_confirmations.map((p) => (
+                <Button
+                  key={p.item_id} size="sm" variant="outline"
+                  disabled={confirmMutation.isPending}
+                  onClick={() => confirmMutation.mutate({ assignmentId: row.assignment_id, itemId: p.item_id })}
+                  title={p.title}
+                >
+                  Confirm: {p.title.length > 18 ? `${p.title.slice(0, 18)}…` : p.title}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   )
 }

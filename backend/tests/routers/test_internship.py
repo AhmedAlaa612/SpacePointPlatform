@@ -186,3 +186,67 @@ async def test_admin_can_reject_request(db, client):
         "/me/role-requests", json={"target_role": "intern", "details": {}}, headers=_auth(instructor),
     )
     assert resubmit.status_code == 201
+
+
+async def test_approval_before_requested_date_uses_the_requested_date(db, client):
+    """Boss spec (2026-08-20): approving on/before what was requested honors
+    that date exactly. resolve_start_date's exhaustive branch logic is unit
+    tested in tests/services/test_internship_start_date.py — this just
+    proves the wiring through the real approve endpoint."""
+    from datetime import date, timedelta
+
+    admin = await _make_user(db, roles=[UserRole.admin])
+    instructor = await _make_user(db, roles=[UserRole.instructor], email="future-start@example.com")
+    requested = (date.today() + timedelta(days=30)).isoformat()
+
+    submit = await client.post(
+        "/me/role-requests",
+        json={"target_role": "intern", "details": {"requested_start_date": requested}},
+        headers=_auth(instructor),
+    )
+    req_id = submit.json()["id"]
+
+    approve = await client.post(
+        f"/admin/role-requests/{req_id}/approve",
+        json={
+            "salutation": "Mr.", "activity_description": "engineering",
+            "supervisor_title": "Mr.", "supervisor_name": "Test Supervisor",
+            "supervisor_email": "sup@example.com", "supervisor_phone": "+971500000000",
+        },
+        headers=_auth(admin),
+    )
+    assert approve.status_code == 200, approve.text
+
+    profile = await db.get(InternProfile, instructor.id)
+    assert profile.start_date.isoformat() == requested
+
+
+async def test_admin_start_date_override_wins_over_requested_date(db, client):
+    from datetime import date, timedelta
+
+    admin = await _make_user(db, roles=[UserRole.admin])
+    instructor = await _make_user(db, roles=[UserRole.instructor], email="override-start@example.com")
+    requested = (date.today() + timedelta(days=30)).isoformat()
+    override = (date.today() + timedelta(days=90)).isoformat()
+
+    submit = await client.post(
+        "/me/role-requests",
+        json={"target_role": "intern", "details": {"requested_start_date": requested}},
+        headers=_auth(instructor),
+    )
+    req_id = submit.json()["id"]
+
+    approve = await client.post(
+        f"/admin/role-requests/{req_id}/approve",
+        json={
+            "salutation": "Mr.", "activity_description": "engineering",
+            "supervisor_title": "Mr.", "supervisor_name": "Test Supervisor",
+            "supervisor_email": "sup@example.com", "supervisor_phone": "+971500000000",
+            "start_date_override": override,
+        },
+        headers=_auth(admin),
+    )
+    assert approve.status_code == 200, approve.text
+
+    profile = await db.get(InternProfile, instructor.id)
+    assert profile.start_date.isoformat() == override

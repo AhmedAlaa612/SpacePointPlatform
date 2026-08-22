@@ -68,6 +68,17 @@ class Enrollment(Base):
     # does, in _assert_enrolled and every other enrollment lookup (audit
     # §9.3(c)); no cron flips status, expiry is read at request time.
     expires_at = Column(DateTime(timezone=True), nullable=True)
+    # Stage S bundle pricing (2026-08-21) — which Purchase actually granted
+    # this row, so a refund/dispute can revoke every enrollment a bundle
+    # purchase created without touching a course the student already had
+    # independently. Only set when `enroll()` is called with a purchase_id
+    # (course or bundle); NULL for self/ops/registration-sourced rows, and
+    # left alone (not rewritten) if `enroll()` hits its existing-active
+    # early-return — same provenance-is-never-rewritten posture as
+    # program_id/registration_id above.
+    purchase_id = Column(
+        UUID(as_uuid=True), ForeignKey("purchases.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
 
 class ItemProgress(Base):

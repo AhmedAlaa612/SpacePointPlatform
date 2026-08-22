@@ -9,13 +9,14 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from app.models.lms import Course, Enrollment, ProgramCurriculum
+from app.models.lms import Course, Enrollment
+from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.user import User
-from app.services.lms.curriculum import enroll_in_cohort_curriculum
+from app.services.lms.program import assign_lms_program
 from app.services.lms.ops_integration import (
     deactivate_registration_enrollments,
     get_or_create_student_account,
@@ -167,16 +168,27 @@ async def test_email_collision_with_a_different_account_skips_without_raising(db
     assert user is None and created is False
 
 
-# ── enroll_in_cohort_curriculum ─────────────────────────────────────────────
+async def _attach_checklist(db, *, program, courses: list[Course]) -> LmsProgram:
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Ops Integration Checklist")
+    db.add(lms_program)
+    await db.flush()
+    for i, course in enumerate(courses, start=1):
+        db.add(LmsProgramItem(
+            id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=i,
+            item_type="course", title=course.title, course_id=course.id,
+        ))
+    return lms_program
+
+
+# ── assign_lms_program (formerly enroll_in_cohort_curriculum) ───────────────
 
 @pytest.mark.asyncio
-async def test_enrolls_in_every_curriculum_course(db):
+async def test_enrolls_in_every_checklist_course(db):
     author = await _author(db)
     program, cohort = await _program_cohort(db)
     course_a = await _course(db, author=author)
     course_b = await _course(db, author=author)
-    db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=course_a.id, position=1))
-    db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=course_b.id, position=2))
+    await _attach_checklist(db, program=program, courses=[course_a, course_b])
     contact = await _contact(db)
     student = User(
         id=uuid.uuid4(), full_name="S", email="s@example.com", password_hash="x",
@@ -186,9 +198,11 @@ async def test_enrolls_in_every_curriculum_course(db):
     registration = await _registration(db, contact=contact, cohort=cohort)
     await db.commit()
 
-    enrollments = await enroll_in_cohort_curriculum(
+    assignment = await assign_lms_program(
         db, user_id=student.id, cohort_id=cohort.id, registration_id=registration.id,
     )
+    assert assignment is not None
+    enrollments = (await db.execute(select(Enrollment).where(Enrollment.user_id == student.id))).scalars().all()
     assert {e.course_id for e in enrollments} == {course_a.id, course_b.id}
     assert all(e.source == "registration" and e.registration_id == registration.id for e in enrollments)
 
@@ -200,7 +214,7 @@ async def test_sync_registration_lms_creates_account_and_enrolls(db):
     author = await _author(db)
     program, cohort = await _program_cohort(db)
     course = await _course(db, author=author)
-    db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=course.id, position=1))
+    await _attach_checklist(db, program=program, courses=[course])
     contact = await _contact(db)
     registration = await _registration(db, contact=contact, cohort=cohort)
     await db.commit()
