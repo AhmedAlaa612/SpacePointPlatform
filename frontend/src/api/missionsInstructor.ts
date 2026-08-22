@@ -5,11 +5,13 @@
  * queue (`api/missions_manager.ts`). */
 import { api } from "@/api/client";
 import type { ProgressGrid } from "@/api/lms_progress_grid";
+import type { DesignState } from "@/api/missionsDesign";
 import type { ManagedAttempt } from "@/api/missions_manager";
 
 export interface InstructorCohort {
   id: string;
   name: string;
+  program_id: string;
   program_name: string | null;
   status: string;
 }
@@ -69,3 +71,13 @@ export const instructorReviewQueueApi = (cohortId: string, missionId: string) =>
 export const instructorReviewAttemptApi = (
   attemptId: string, data: { passed: boolean; score?: number | null; review_comment?: string | null },
 ) => api.post<ManagedAttempt>(`/missions/instructor/attempts/${attemptId}/review`, data).then((r) => r.data);
+
+// ── manual override + design detail (2026-08-22, Programs/Cohort Missions
+// merge) — the "let them pass and continue" ask: unlike /review above,
+// this works on any attempt kind/status, not just a submitted one.
+
+export const instructorOverrideAttemptApi = (attemptId: string, data: { passed: boolean; reason: string }) =>
+  api.post<ManagedAttempt>(`/missions/instructor/attempts/${attemptId}/override`, data).then((r) => r.data);
+
+export const attemptDesignDetailApi = (attemptId: string) =>
+  api.get<DesignState>(`/missions/instructor/attempts/${attemptId}/design-detail`).then((r) => r.data);

@@ -75,6 +75,105 @@ async def resolve_cohort_program(
     return program, list(items)
 
 
+async def effective_cohort_program_items(
+    db: AsyncSession, cohort_id: uuid.UUID,
+) -> tuple[LmsProgram, list[LmsProgramItem], bool] | None:
+    """`resolve_cohort_program`, plus whether what's being shown is the
+    program's own template rather than a real per-cohort override yet
+    (`is_inherited`) — the authoring UI's "don't start me from scratch"
+    ask (operator, 2026-08-22): a cohort with no override, or an override
+    with zero items, should still show and let you edit the program's
+    current checklist, exactly as `resolve_cohort_program` already
+    resolves it for a real student. The actual fork only happens on a
+    write — see `fork_cohort_override` below."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        return None
+    override = await db.scalar(
+        select(LmsProgramCohortOverride).where(LmsProgramCohortOverride.cohort_id == cohort_id)
+    )
+    if override is not None:
+        items = (await db.execute(
+            select(LmsProgramItem)
+            .where(LmsProgramItem.owner_type == "cohort_override", LmsProgramItem.owner_id == override.id)
+            .order_by(LmsProgramItem.position)
+        )).scalars().all()
+        if items:
+            program = await db.get(LmsProgram, override.lms_program_id)
+            return (program, list(items), False) if program else None
+
+    program = await db.scalar(select(LmsProgram).where(LmsProgram.program_id == cohort.program_id))
+    if program is None:
+        return None
+    items = (await db.execute(
+        select(LmsProgramItem)
+        .where(LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == program.id)
+        .order_by(LmsProgramItem.position)
+    )).scalars().all()
+    return program, list(items), True
+
+
+async def fork_cohort_override(
+    db: AsyncSession, *, cohort_id: uuid.UUID,
+) -> tuple[LmsProgramCohortOverride, dict[uuid.UUID, uuid.UUID]] | None:
+    """Get-or-create the cohort's override row, copying every one of the
+    program's current items into it the first time (i.e. whenever the
+    override doesn't exist yet, or exists with zero items) so editing an
+    "inherited" item never means starting from an empty checklist. Returns
+    `None` when the cohort's program has no checklist to fork from at all
+    (the existing 400 case `add_cohort_override_item` already raised).
+
+    The returned dict maps each ORIGINAL program item's id to its new
+    cohort_override copy's id — empty when no fork happened this call
+    (the override already had its own items). A caller translating an
+    incoming `item_id` that came from a not-yet-forked "inherited" list
+    only needs this mapping on the one call that actually triggers the
+    fork; every subsequent edit is against the override's own real item
+    ids once the frontend refetches."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        return None
+    override = await db.scalar(
+        select(LmsProgramCohortOverride).where(LmsProgramCohortOverride.cohort_id == cohort_id)
+    )
+    if override is not None:
+        existing_count = await db.scalar(
+            select(LmsProgramItem.id)
+            .where(LmsProgramItem.owner_type == "cohort_override", LmsProgramItem.owner_id == override.id)
+            .limit(1)
+        )
+        if existing_count is not None:
+            return override, {}
+        program = await db.get(LmsProgram, override.lms_program_id)
+    else:
+        program = await db.scalar(select(LmsProgram).where(LmsProgram.program_id == cohort.program_id))
+        if program is None:
+            return None
+        override = LmsProgramCohortOverride(id=uuid.uuid4(), cohort_id=cohort_id, lms_program_id=program.id)
+        db.add(override)
+        await db.flush()
+
+    program_items = (await db.execute(
+        select(LmsProgramItem)
+        .where(LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == program.id)
+        .order_by(LmsProgramItem.position)
+    )).scalars().all()
+
+    id_map: dict[uuid.UUID, uuid.UUID] = {}
+    for item in program_items:
+        copy = LmsProgramItem(
+            id=uuid.uuid4(), owner_type="cohort_override", owner_id=override.id, position=item.position,
+            item_type=item.item_type, title=item.title, description=item.description,
+            optional=item.optional, requires_confirmation=item.requires_confirmation,
+            course_id=item.course_id, mission_id=item.mission_id, variant_id=item.variant_id,
+            external_url=item.external_url, submission_prompt=item.submission_prompt,
+        )
+        db.add(copy)
+        id_map[item.id] = copy.id
+    await db.flush()
+    return override, id_map
+
+
 async def resolve_cohort_program_course_ids(db: AsyncSession, cohort_id: uuid.UUID) -> list[uuid.UUID]:
     """Drop-in replacement for the old `resolve_cohort_curriculum` — just
     the `course`-type items' course ids, in position order. Callers that
@@ -361,10 +460,17 @@ async def list_student_assignments(db: AsyncSession, *, user_id: uuid.UUID) -> l
     return out
 
 
-async def cohort_program_roster(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
+async def cohort_program_roster(
+    db: AsyncSession, *, cohort_id: uuid.UUID, restrict_to_cohort_ids: set[uuid.UUID] | None = None,
+) -> list[dict]:
     """Instructor/ops view — every student assigned this cohort's LMS
     Program checklist, each with the same progress summary shape as the
-    student's own `/lms/programs` list."""
+    student's own `/lms/programs` list. `restrict_to_cohort_ids` is an
+    instructor's own scope (see `program_roster` below) — `None` (the
+    default) is unrestricted, matching every other caller of this
+    function today (the cohort_id is already the scope)."""
+    if restrict_to_cohort_ids is not None and cohort_id not in restrict_to_cohort_ids:
+        return []
     assignments = (await db.execute(
         select(LmsProgramAssignment).where(LmsProgramAssignment.cohort_id == cohort_id)
     )).scalars().all()
@@ -375,13 +481,71 @@ async def cohort_program_roster(db: AsyncSession, *, cohort_id: uuid.UUID) -> li
             continue
         user = await db.get(User, assignment.user_id)
         pending = [
-            {"item_id": item.id, "title": item.title}
+            {"item_id": item.id, "title": item.title, "submitted_url": progress.submitted_url}
             for item, progress in await _assignment_items_and_progress(db, assignment.id)
             if progress.status == "awaiting_confirmation"
         ]
         out.append({
             **summary, "user_id": assignment.user_id, "student_name": user.full_name if user else "?",
             "pending_confirmations": pending,
+        })
+    return out
+
+
+async def program_roster(
+    db: AsyncSession, *, lms_program_id: uuid.UUID, restrict_to_cohort_ids: set[uuid.UUID] | None = None,
+) -> list[dict]:
+    """Program-wide sibling of `cohort_program_roster` — every student
+    assigned this program's checklist, across every cohort using it (an
+    override-scoped assignment still points `lms_program_id` at the
+    parent program — see `assign_lms_program` — so this single filter
+    already covers both). `restrict_to_cohort_ids`, when given, is an
+    instructor's own reachable-cohort set (`instructor_cohort_ids()`) —
+    the router computes it, this function just applies it, same split of
+    responsibility `require_cohort_access` already uses elsewhere."""
+    assignments = (await db.execute(
+        select(LmsProgramAssignment).where(LmsProgramAssignment.lms_program_id == lms_program_id)
+    )).scalars().all()
+    out = []
+    for assignment in assignments:
+        if restrict_to_cohort_ids is not None and assignment.cohort_id not in restrict_to_cohort_ids:
+            continue
+        summary = await _assignment_summary(db, assignment)
+        if summary is None:
+            continue
+        user = await db.get(User, assignment.user_id)
+        pending = [
+            {"item_id": item.id, "title": item.title, "submitted_url": progress.submitted_url}
+            for item, progress in await _assignment_items_and_progress(db, assignment.id)
+            if progress.status == "awaiting_confirmation"
+        ]
+        out.append({
+            **summary, "user_id": assignment.user_id, "student_name": user.full_name if user else "?",
+            "pending_confirmations": pending,
+        })
+    return out
+
+
+async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) -> list[dict] | None:
+    """Every item on one student's assignment, not just the ones awaiting
+    confirmation — the roster's `pending_confirmations` only ever shows a
+    fraction of the checklist; this is the "detailed submissions" drill-in
+    (operator ask, 2026-08-22): what a `submission`-item actually links to,
+    which `mission_run` item's attempt to open, everything in one call.
+    `None` means the assignment doesn't exist — the router turns that into
+    a 404 the same way `get_student_checklist` does."""
+    assignment = await db.get(LmsProgramAssignment, assignment_id)
+    if assignment is None:
+        return None
+    pairs = await _assignment_items_and_progress(db, assignment_id)
+    out = []
+    for item, progress in pairs:
+        status = await refresh_item_progress(db, progress=progress, item=item, user_id=assignment.user_id)
+        out.append({
+            "item_id": item.id, "title": item.title, "item_type": item.item_type,
+            "status": status, "submitted_url": progress.submitted_url,
+            "completed_at": progress.completed_at, "mission_attempt_id": progress.mission_attempt_id,
+            "confirmed_by_user_id": progress.confirmed_by_user_id,
         })
     return out
 

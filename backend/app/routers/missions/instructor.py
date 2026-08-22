@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_instructor_missions
 from app.db.session import get_db
+from app.models.missions.design import Design
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.missions.step_selection import MissionStepSelection
 from app.models.team import Team
@@ -36,7 +37,8 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.schemas.lms_progress_grid import ProgressGridOut
-from app.schemas.missions_admin import MissionAttemptAdminOut, MissionAttemptReviewIn
+from app.schemas.missions_admin import MissionAttemptAdminOut, MissionAttemptOverrideIn, MissionAttemptReviewIn
+from app.schemas.missions_design import DesignStateOut
 from app.schemas.missions_instructor import (
     DesignStepSelectionOut, DesignStepSelectionsOut, DesignStepSelectionUpdateIn,
     InstructorCohortOut, MissionStepGateOut, MissionStepGateUpdateIn,
@@ -45,6 +47,8 @@ from app.services.lms.admin_progress import DESIGN_STEP_LABELS, DESIGN_STEP_PRER
 from app.services.missions.cohort_access import instructor_cohort_ids, require_cohort_access
 from app.services.missions.gating import set_step_gate, step_gates_for_mission
 from app.services.missions.step_selection import clear_selected_steps, selected_steps_for_cohort_mission, set_selected_steps
+from app.routers.missions.design import design_state_out
+from app.services.missions.attempts import override_attempt_outcome
 from app.services.missions.verifiers.submission import review_submission_attempt
 
 router = APIRouter(
@@ -64,7 +68,10 @@ async def my_cohorts(db: AsyncSession = Depends(get_db), current: User = Depends
         query = query.where(Cohort.id.in_(allowed))
     rows = (await db.execute(query.add_columns(Program.name))).all()
     return [
-        InstructorCohortOut(id=cohort.id, name=cohort.name, program_name=program_name, status=cohort.status)
+        InstructorCohortOut(
+            id=cohort.id, name=cohort.name, program_id=cohort.program_id,
+            program_name=program_name, status=cohort.status,
+        )
         for cohort, program_name in rows
     ]
 
@@ -220,6 +227,19 @@ async def cohort_review_queue(
     return [await _attempt_admin_out(db, a) for a in attempts]
 
 
+async def _require_attempt_access(db: AsyncSession, *, attempt: MissionAttempt, current: User) -> None:
+    """Shared by review/override below: cohort-scoped for an instructor,
+    unconditional for staff — but an attempt with no `cohort_id` at all
+    (a solo/self-service run) has no cohort to scope against, so it's
+    staff-only, checked directly rather than via `require_cohort_access`."""
+    if attempt.cohort_id is None:
+        roles = current.role_values
+        if "admin" not in roles and not ({"operations", "facilitator"} & set(roles)):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+    else:
+        await require_cohort_access(db, cohort_id=attempt.cohort_id, user=current)
+
+
 @router.post("/attempts/{attempt_id}/review", response_model=MissionAttemptAdminOut)
 async def instructor_review_attempt(
     attempt_id: uuid.UUID, body: MissionAttemptReviewIn,
@@ -228,16 +248,7 @@ async def instructor_review_attempt(
     attempt = await db.get(MissionAttempt, attempt_id)
     if attempt is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
-    if attempt.cohort_id is None:
-        # No instructor can act on an unattributed attempt — only staff,
-        # which require_cohort_access already lets through unconditionally
-        # below via its own staff bypass... except there's no cohort_id to
-        # pass. Resolve that directly: staff always may, nobody else can.
-        roles = current.role_values
-        if "admin" not in roles and not ({"operations", "facilitator"} & set(roles)):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
-    else:
-        await require_cohort_access(db, cohort_id=attempt.cohort_id, user=current)
+    await _require_attempt_access(db, attempt=attempt, current=current)
     reviewed = await review_submission_attempt(
         db, attempt=attempt, reviewer_id=current.id, passed=body.passed,
         score=body.score, review_comment=body.review_comment,
@@ -245,3 +256,45 @@ async def instructor_review_attempt(
     await db.commit()
     await db.refresh(reviewed)
     return await _attempt_admin_out(db, reviewed)
+
+
+@router.post("/attempts/{attempt_id}/override", response_model=MissionAttemptAdminOut)
+async def instructor_override_attempt(
+    attempt_id: uuid.UUID, body: MissionAttemptOverrideIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Force any attempt — any kind, any current status — to passed/failed.
+    See `override_attempt_outcome`'s docstring for why this exists
+    alongside `/review` above rather than replacing it."""
+    if not body.reason.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="A reason is required for a manual override")
+    attempt = await db.get(MissionAttempt, attempt_id)
+    if attempt is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+    await _require_attempt_access(db, attempt=attempt, current=current)
+    decided = await override_attempt_outcome(
+        db, attempt=attempt, passed=body.passed, reason=body.reason.strip(), decided_by=current.id,
+    )
+    await db.commit()
+    await db.refresh(decided)
+    return await _attempt_admin_out(db, decided)
+
+
+@router.get("/attempts/{attempt_id}/design-detail", response_model=DesignStateOut)
+async def attempt_design_detail(
+    attempt_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """The real "what did they name it and what did they pick" detail
+    (operator ask, 2026-08-22) — the same full wizard state
+    `design_state_out` already builds for the student's own view, just
+    keyed off any attempt instead of the caller's own. Read-only: unlike
+    the student-facing routes, this never creates a `Design` row — a
+    student who hasn't started designing yet just has nothing to show."""
+    attempt = await db.get(MissionAttempt, attempt_id)
+    if attempt is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+    await _require_attempt_access(db, attempt=attempt, current=current)
+    design = (await db.execute(select(Design).where(Design.attempt_id == attempt.id))).scalars().first()
+    if design is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This student hasn't started their design yet")
+    return await design_state_out(db, attempt=attempt, design=design)

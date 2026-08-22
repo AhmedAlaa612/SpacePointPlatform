@@ -381,3 +381,127 @@ async def test_only_staff_can_review_an_attempt_with_no_cohort_attribution(db, c
         json={"passed": True, "score": 91},
     )
     assert staff_attempt.status_code == 200, staff_attempt.text
+
+
+# ── override ──────────────────────────────────────────────────────────────
+
+async def test_assigned_instructor_can_override_an_in_progress_attempt(db, client):
+    """The whole point of the override — unlike /review, this works on an
+    attempt that's never been submitted at all."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _mission(db, author=author)
+    cohort, session = await _cohort_with_session(db)
+    instructor = await _user(db, roles=["instructor"])
+    await _assign_instructor(db, session=session, user=instructor)
+    student = await _user(db)
+    attempt = MissionAttempt(
+        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, user_id=student.id,
+        attempt_no=1, status="in_progress", payload={}, cohort_id=cohort.id,
+    )
+    db.add(attempt)
+    await db.commit()
+
+    override = await client.post(
+        f"/missions/instructor/attempts/{attempt.id}/override", headers=_headers(instructor),
+        json={"passed": True, "reason": "Stuck on a data-entry bug, unblocking manually"},
+    )
+    assert override.status_code == 200, override.text
+    assert override.json()["status"] == "passed"
+    assert override.json()["payload"]["override"]["reason"] == "Stuck on a data-entry bug, unblocking manually"
+
+
+async def test_override_requires_a_non_empty_reason(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _mission(db, author=author)
+    cohort, session = await _cohort_with_session(db)
+    instructor = await _user(db, roles=["instructor"])
+    await _assign_instructor(db, session=session, user=instructor)
+    student = await _user(db)
+    attempt = MissionAttempt(
+        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, user_id=student.id,
+        attempt_no=1, status="in_progress", payload={}, cohort_id=cohort.id,
+    )
+    db.add(attempt)
+    await db.commit()
+
+    override = await client.post(
+        f"/missions/instructor/attempts/{attempt.id}/override", headers=_headers(instructor),
+        json={"passed": True, "reason": "   "},
+    )
+    assert override.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+async def test_instructor_assigned_to_one_cohort_cannot_override_an_attempt_in_another(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _mission(db, author=author)
+    my_cohort, my_session = await _cohort_with_session(db)
+    other_cohort, _ = await _cohort_with_session(db)
+    instructor = await _user(db, roles=["instructor"])
+    await _assign_instructor(db, session=my_session, user=instructor)
+    student = await _user(db)
+    attempt = MissionAttempt(
+        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, user_id=student.id,
+        attempt_no=1, status="in_progress", payload={}, cohort_id=other_cohort.id,
+    )
+    db.add(attempt)
+    await db.commit()
+
+    override = await client.post(
+        f"/missions/instructor/attempts/{attempt.id}/override", headers=_headers(instructor),
+        json={"passed": True, "reason": "Unblock"},
+    )
+    assert override.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+# ── design-detail ─────────────────────────────────────────────────────────
+
+async def test_design_detail_shows_the_students_real_entered_values(db, client):
+    """The actual "what did they name it and what did they pick" ask —
+    real component/mode/design-name detail, not just pass/fail dots."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _mission(db, author=author)
+    cohort, session = await _cohort_with_session(db)
+    instructor = await _user(db, roles=["instructor"])
+    await _assign_instructor(db, session=session, user=instructor)
+    student = await _user(db)
+    attempt = MissionAttempt(
+        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, user_id=student.id,
+        attempt_no=1, status="in_progress", payload={}, cohort_id=cohort.id,
+    )
+    db.add(attempt)
+    await db.commit()
+    attempt_id = str(attempt.id)
+
+    # Auto-creates the Design row on first read, same as the student's own view.
+    student_view = await client.get(f"/missions/design/attempts/{attempt_id}", headers=_headers(student))
+    assert student_view.status_code == 200, student_view.text
+    await client.patch(
+        f"/missions/design/attempts/{attempt_id}", headers=_headers(student), json={"design_name": "Aardvark-1"},
+    )
+
+    detail = await client.get(
+        f"/missions/instructor/attempts/{attempt_id}/design-detail", headers=_headers(instructor),
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["design_name"] == "Aardvark-1"
+    assert detail.json()["attempt_id"] == attempt_id
+
+
+async def test_design_detail_404s_before_the_student_has_started(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _mission(db, author=author)
+    cohort, session = await _cohort_with_session(db)
+    instructor = await _user(db, roles=["instructor"])
+    await _assign_instructor(db, session=session, user=instructor)
+    student = await _user(db)
+    attempt = MissionAttempt(
+        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, user_id=student.id,
+        attempt_no=1, status="in_progress", payload={}, cohort_id=cohort.id,
+    )
+    db.add(attempt)
+    await db.commit()
+
+    detail = await client.get(
+        f"/missions/instructor/attempts/{attempt.id}/design-detail", headers=_headers(instructor),
+    )
+    assert detail.status_code == http_status.HTTP_404_NOT_FOUND

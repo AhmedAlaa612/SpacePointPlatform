@@ -23,7 +23,7 @@ from app.core.dependencies import require_lms_content
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, VideoCheckpoint
 from app.models.lms.invite_grant import InvitationCodeGrant
-from app.models.lms.program import LmsProgram, LmsProgramCohortOverride, LmsProgramItem
+from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.missions.mission import Mission
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.instructors.invitation_code import InvitationCode
@@ -65,7 +65,7 @@ from app.schemas.lms_admin import (
     LearningPathStepIn,
     LearningPathStepOut,
     LearningPathUpdate,
-    LmsProgramCohortOverrideOut,
+    LmsProgramCohortEffectiveOut,
     LmsProgramCreate,
     LmsProgramItemIn,
     LmsProgramItemOut,
@@ -97,7 +97,7 @@ from app.services.lms.admin_progress import (
 )
 from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
-from app.services.lms.program import resolve_cohort_program
+from app.services.lms.program import effective_cohort_program_items, fork_cohort_override, resolve_cohort_program
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
 router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
@@ -1324,19 +1324,11 @@ async def _items_for_owner(db: AsyncSession, *, owner_type: str, owner_id: uuid.
     )).scalars().all())
 
 
-async def _program_out(db: AsyncSession, program: LmsProgram) -> LmsProgramOut:
+async def program_out(db: AsyncSession, program: LmsProgram) -> LmsProgramOut:
     items = await _items_for_owner(db, owner_type="program", owner_id=program.id)
     return LmsProgramOut(
         id=program.id, program_id=program.program_id, name=program.name,
         description=program.description, certificate_required=program.certificate_required,
-        items=[LmsProgramItemOut.model_validate(i) for i in items],
-    )
-
-
-async def _override_out(db: AsyncSession, override: LmsProgramCohortOverride) -> LmsProgramCohortOverrideOut:
-    items = await _items_for_owner(db, owner_type="cohort_override", owner_id=override.id)
-    return LmsProgramCohortOverrideOut(
-        id=override.id, cohort_id=override.cohort_id, lms_program_id=override.lms_program_id,
         items=[LmsProgramItemOut.model_validate(i) for i in items],
     )
 
@@ -1354,7 +1346,7 @@ async def list_lms_programs(
     if program_id is not None:
         query = query.where(LmsProgram.program_id == program_id)
     programs = (await db.execute(query.order_by(LmsProgram.name))).scalars().all()
-    return [await _program_out(db, p) for p in programs]
+    return [await program_out(db, p) for p in programs]
 
 
 @router.post("/programs", response_model=LmsProgramOut, status_code=status.HTTP_201_CREATED)
@@ -1375,7 +1367,7 @@ async def create_lms_program(
     db.add(entry)
     await db.commit()
     await db.refresh(entry)
-    return await _program_out(db, entry)
+    return await program_out(db, entry)
 
 
 @router.get("/programs/{lms_program_id}", response_model=LmsProgramOut)
@@ -1385,7 +1377,7 @@ async def get_lms_program(
     entry = await db.get(LmsProgram, lms_program_id)
     if entry is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
-    return await _program_out(db, entry)
+    return await program_out(db, entry)
 
 
 @router.patch("/programs/{lms_program_id}", response_model=LmsProgramOut)
@@ -1400,7 +1392,7 @@ async def update_lms_program(
         setattr(entry, field, value)
     await db.commit()
     await db.refresh(entry)
-    return await _program_out(db, entry)
+    return await program_out(db, entry)
 
 
 @router.delete("/programs/{lms_program_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1476,14 +1468,22 @@ async def delete_lms_program_item(
     await db.commit()
 
 
-@router.get("/cohorts/{cohort_id}/program-override", response_model=LmsProgramCohortOverrideOut)
+@router.get("/cohorts/{cohort_id}/program-override", response_model=LmsProgramCohortEffectiveOut)
 async def get_cohort_program_override(
     cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
-    override = await db.scalar(select(LmsProgramCohortOverride).where(LmsProgramCohortOverride.cohort_id == cohort_id))
-    if override is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist override")
-    return await _override_out(db, override)
+    """Always 200s with *something* to edit — the cohort's own override
+    once it has real items, else its program's checklist shown as the
+    editable starting point (`is_inherited`). Only 404s when there's
+    nothing at all to fork from (cohort missing, or its program has no
+    checklist)."""
+    resolved = await effective_cohort_program_items(db, cohort_id)
+    if resolved is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort's program has no LMS checklist yet")
+    program, items, is_inherited = resolved
+    return LmsProgramCohortEffectiveOut(
+        cohort_id=cohort_id, lms_program_id=program.id, is_inherited=is_inherited, items=items,
+    )
 
 
 @router.post(
@@ -1493,23 +1493,17 @@ async def add_cohort_override_item(
     cohort_id: uuid.UUID, body: LmsProgramItemIn,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
-    """Creates the cohort's override row on its first item — from that
-    point on this cohort's checklist is entirely its own, replacing
-    whatever its program's checklist says (never merged)."""
-    cohort = await db.get(Cohort, cohort_id)
-    if cohort is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-    override = await db.scalar(select(LmsProgramCohortOverride).where(LmsProgramCohortOverride.cohort_id == cohort_id))
-    if override is None:
-        program = await db.scalar(select(LmsProgram).where(LmsProgram.program_id == cohort.program_id))
-        if program is None:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail="This cohort's program has no LMS checklist to override yet — create one first",
-            )
-        override = LmsProgramCohortOverride(id=uuid.uuid4(), cohort_id=cohort_id, lms_program_id=program.id)
-        db.add(override)
-        await db.flush()
+    """Forks the cohort's override off its program's current checklist on
+    the first write (`fork_cohort_override`) — so adding one new item
+    never means losing the rest of what the program already lists — then
+    adds this item on top of the (now-populated) override."""
+    forked = await fork_cohort_override(db, cohort_id=cohort_id)
+    if forked is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="This cohort's program has no LMS checklist to override yet — create one first",
+        )
+    override, _id_map = forked
 
     _validate_item_payload(body)
     await _validate_item_refs(db, body)
@@ -1530,12 +1524,21 @@ async def update_cohort_override_item(
     cohort_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramItemIn,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
-    override = await db.scalar(select(LmsProgramCohortOverride).where(LmsProgramCohortOverride.cohort_id == cohort_id))
-    if override is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist override")
+    """`item_id` may be a not-yet-forked program item's id (the "inherited"
+    list the GET above serves) — `fork_cohort_override`'s id map translates
+    it to the override's own freshly-copied item on exactly the call that
+    triggers the fork; every edit after that is against a real override
+    item id once the frontend refetches."""
+    forked = await fork_cohort_override(db, cohort_id=cohort_id)
+    if forked is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist to override")
+    override, id_map = forked
+    resolved_item_id = id_map.get(item_id, item_id)
+
     item = (await db.execute(
         select(LmsProgramItem).where(
-            LmsProgramItem.id == item_id, LmsProgramItem.owner_type == "cohort_override", LmsProgramItem.owner_id == override.id,
+            LmsProgramItem.id == resolved_item_id,
+            LmsProgramItem.owner_type == "cohort_override", LmsProgramItem.owner_id == override.id,
         )
     )).scalars().first()
     if item is None:
@@ -1557,12 +1560,20 @@ async def delete_cohort_override_item(
     cohort_id: uuid.UUID, item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
-    override = await db.scalar(select(LmsProgramCohortOverride).where(LmsProgramCohortOverride.cohort_id == cohort_id))
-    if override is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist override")
+    """Same fork-then-translate as the update route above — "removing" an
+    inherited item forks everything else in, then deletes just this one
+    copy, which is exactly what "start from the program's list and edit
+    it down" means for a delete."""
+    forked = await fork_cohort_override(db, cohort_id=cohort_id)
+    if forked is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist to override")
+    override, id_map = forked
+    resolved_item_id = id_map.get(item_id, item_id)
+
     item = (await db.execute(
         select(LmsProgramItem).where(
-            LmsProgramItem.id == item_id, LmsProgramItem.owner_type == "cohort_override", LmsProgramItem.owner_id == override.id,
+            LmsProgramItem.id == resolved_item_id,
+            LmsProgramItem.owner_type == "cohort_override", LmsProgramItem.owner_id == override.id,
         )
     )).scalars().first()
     if item is None:
@@ -1762,7 +1773,7 @@ async def remove_learning_path_step(
 
 # ── enrollment admin (P1-5, Phase 2 Stage 1) ─────────────────────────────────
 
-async def _enrollment_admin_out(db: AsyncSession, enrollment: Enrollment) -> EnrollmentAdminOut:
+async def enrollment_admin_out(db: AsyncSession, enrollment: Enrollment) -> EnrollmentAdminOut:
     student = await db.get(User, enrollment.user_id)
     return EnrollmentAdminOut(
         id=enrollment.id, user_id=enrollment.user_id,
@@ -1785,7 +1796,7 @@ async def course_roster(
     rows = (await db.execute(
         select(Enrollment).where(Enrollment.course_id == course_id).order_by(Enrollment.created_at.desc())
     )).scalars().all()
-    return [await _enrollment_admin_out(db, e) for e in rows]
+    return [await enrollment_admin_out(db, e) for e in rows]
 
 
 @router.post(
@@ -1807,7 +1818,7 @@ async def grant_enrollment(
         db, user_id=body.user_id, course_id=course_id, source="ops", granted_by=current.id,
     )
     await db.commit()
-    return await _enrollment_admin_out(db, enrollment)
+    return await enrollment_admin_out(db, enrollment)
 
 
 @router.post("/enrollments/{enrollment_id}/revoke", response_model=EnrollmentAdminOut)
@@ -1824,7 +1835,7 @@ async def revoke_enrollment(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Enrollment not found")
     enrollment.status = "inactive"
     await db.commit()
-    return await _enrollment_admin_out(db, enrollment)
+    return await enrollment_admin_out(db, enrollment)
 
 
 @router.get("/users/{user_id}/enrollments", response_model=list[EnrollmentAdminOut])
@@ -1845,7 +1856,7 @@ async def student_enrollments(
     )).scalars().all()
     out = []
     for e in rows:
-        row = await _enrollment_admin_out(db, e)
+        row = await enrollment_admin_out(db, e)
         course = await db.get(Course, e.course_id)
         row.course_title = course.title if course else None
         out.append(row)

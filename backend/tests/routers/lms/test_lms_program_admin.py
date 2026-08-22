@@ -257,6 +257,10 @@ async def test_cohort_override_requires_a_program_checklist_to_override(db, clie
 
 @pytest.mark.asyncio
 async def test_cohort_override_created_on_first_item_and_lists_separately(db, client):
+    """Fork-on-write (operator ask, 2026-08-22): a cohort with no override
+    yet shows the program's own checklist as an editable, `is_inherited`
+    starting point — never a 404 — and the first real edit forks a copy of
+    it into the cohort's own override rather than replacing it outright."""
     ops = await _user(db)
     program = await _program(db)
     cohort = await _cohort(db, program)
@@ -273,8 +277,10 @@ async def test_cohort_override_created_on_first_item_and_lists_separately(db, cl
         json={"item_type": "course", "title": program_course.title, "course_id": str(program_course.id)},
     )
 
-    missing = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
-    assert missing.status_code == 404
+    inherited = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
+    assert inherited.status_code == 200
+    assert inherited.json()["is_inherited"] is True
+    assert [i["course_id"] for i in inherited.json()["items"]] == [str(program_course.id)]
 
     added = await client.post(
         f"/lms/admin/cohorts/{cohort.id}/program-override/items", headers=_headers(ops),
@@ -284,8 +290,87 @@ async def test_cohort_override_created_on_first_item_and_lists_separately(db, cl
 
     override = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
     assert override.status_code == 200
-    assert [i["course_id"] for i in override.json()["items"]] == [str(override_course.id)]
+    assert override.json()["is_inherited"] is False
+    # The forked copy of the program's course, plus the newly added one.
+    assert {i["course_id"] for i in override.json()["items"]} == {str(program_course.id), str(override_course.id)}
 
-    # The program-level checklist itself is untouched by the override.
+    # The program-level checklist itself is untouched by the fork.
     program_after = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
     assert [i["course_id"] for i in program_after.json()["items"]] == [str(program_course.id)]
+
+
+async def test_editing_an_inherited_item_by_its_program_item_id_forks_and_translates(db, client):
+    """The GET above hands back the program's own item ids while nothing's
+    forked yet — PATCHing one of those ids directly (before ever fetching a
+    real override id) must still land on the right, newly-forked copy."""
+    ops = await _user(db)
+    program = await _program(db)
+    cohort = await _cohort(db, program)
+    course = await _course(db, author=ops)
+    await db.commit()
+
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Base"},
+    )).json()["id"]
+    add = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "course", "title": course.title, "course_id": str(course.id)},
+    )
+    program_item_id = add.json()["id"]
+
+    inherited = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
+    assert inherited.json()["is_inherited"] is True
+    assert inherited.json()["items"][0]["id"] == program_item_id
+
+    edited = await client.patch(
+        f"/lms/admin/cohorts/{cohort.id}/program-override/items/{program_item_id}", headers=_headers(ops),
+        json={"item_type": "course", "title": "Renamed for this cohort", "course_id": str(course.id)},
+    )
+    assert edited.status_code == 200
+    assert edited.json()["id"] != program_item_id  # a real, distinct override copy
+    assert edited.json()["title"] == "Renamed for this cohort"
+
+    # The program's own item is untouched.
+    program_after = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
+    assert program_after.json()["items"][0]["title"] == course.title
+
+    override = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
+    assert override.json()["is_inherited"] is False
+    assert [i["title"] for i in override.json()["items"]] == ["Renamed for this cohort"]
+
+
+async def test_deleting_an_inherited_item_forks_everything_else_in(db, client):
+    """Deleting one inherited item shouldn't wipe the whole checklist —
+    it should fork every other program item in, then drop just that one."""
+    ops = await _user(db)
+    program = await _program(db)
+    cohort = await _cohort(db, program)
+    keep_course = await _course(db, author=ops)
+    drop_course = await _course(db, author=ops)
+    await db.commit()
+
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Base"},
+    )).json()["id"]
+    await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "course", "title": keep_course.title, "course_id": str(keep_course.id)},
+    )
+    drop_add = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "course", "title": drop_course.title, "course_id": str(drop_course.id)},
+    )
+    drop_item_id = drop_add.json()["id"]
+
+    delete = await client.delete(
+        f"/lms/admin/cohorts/{cohort.id}/program-override/items/{drop_item_id}", headers=_headers(ops),
+    )
+    assert delete.status_code == 204
+
+    override = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
+    assert override.json()["is_inherited"] is False
+    assert [i["course_id"] for i in override.json()["items"]] == [str(keep_course.id)]
+
+    # The program's own checklist still has both.
+    program_after = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
+    assert {i["course_id"] for i in program_after.json()["items"]} == {str(keep_course.id), str(drop_course.id)}

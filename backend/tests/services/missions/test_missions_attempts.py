@@ -15,6 +15,7 @@ from app.models.sessions.program import Program
 from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.missions import assign_mission_run, decide_attempt, start_attempt
+from app.services.missions.attempts import override_attempt_outcome
 from app.services.missions.verifiers.submission import (
     review_submission_attempt,
     submit_submission_attempt,
@@ -410,3 +411,42 @@ async def test_cannot_review_an_attempt_that_is_not_submitted(db):
 
     with pytest.raises(Exception):
         await review_submission_attempt(db, attempt=attempt, reviewer_id=reviewer.id, passed=True)
+
+
+# ── override_attempt_outcome ─────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_override_can_pass_a_still_in_progress_attempt(db):
+    """The point of the override — unblock a stuck run — unlike review,
+    which only ever touches a `submitted` attempt."""
+    author = await _user(db, roles=["operations"])
+    ops = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author, points=(50,))
+    student = await _user(db)
+    attempt = await start_attempt(db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id)
+    assert attempt.status == "in_progress"
+
+    decided = await override_attempt_outcome(
+        db, attempt=attempt, passed=True, reason="Data-entry bug blocked auto-grading", decided_by=ops.id,
+    )
+    assert decided.status == "passed"
+    assert decided.payload["override"]["reason"] == "Data-entry bug blocked auto-grading"
+    assert decided.payload["override"]["previous_status"] == "in_progress"
+    assert await _points_total(db, student.id) == 50
+
+
+@pytest.mark.asyncio
+async def test_override_can_re_decide_an_already_passed_attempt(db):
+    author = await _user(db, roles=["operations"])
+    ops = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author, points=(50,))
+    student = await _user(db)
+    attempt = await start_attempt(db, user_id=student.id, mission_id=mission.id, variant_id=variants[0].id)
+    await decide_attempt(db, attempt=attempt, passed=True, score=100)
+    assert attempt.status == "passed"
+
+    decided = await override_attempt_outcome(
+        db, attempt=attempt, passed=False, reason="Passed by mistake", decided_by=ops.id,
+    )
+    assert decided.status == "failed"
+    assert decided.payload["override"]["previous_status"] == "passed"

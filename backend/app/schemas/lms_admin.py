@@ -473,11 +473,16 @@ class LmsProgramOut(BaseModel):
     items: list[LmsProgramItemOut] = []
 
 
-class LmsProgramCohortOverrideOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: UUID
+class LmsProgramCohortEffectiveOut(BaseModel):
+    """What a cohort's checklist actually resolves to right now — its own
+    override once one has real items, else its program's own checklist
+    shown as the editable starting point (`is_inherited=True`; operator
+    ask, 2026-08-22: don't make ops start from scratch). No `id` when
+    inherited — there's no override row yet, the first edit creates one
+    (`fork_cohort_override`)."""
     cohort_id: UUID
     lms_program_id: UUID
+    is_inherited: bool
     items: list[LmsProgramItemOut] = []
 
 
