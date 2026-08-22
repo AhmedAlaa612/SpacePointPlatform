@@ -4,10 +4,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { ArrowLeft, ChevronDown, Plus, X } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
+import { useAuth } from "@/context/AuthContext"
 import {
   getStudentProfileApi, listUserEnrollmentsApi, grantCourseEnrollmentApi, revokeCourseEnrollmentApi,
   getStudentDesignRunsApi, type StudentDesignRun,
+  getStudentProfileInstructorApi, listUserEnrollmentsInstructorApi, getStudentDesignRunsInstructorApi,
+  getStudentCourseProgressApi,
 } from "@/api/lms_admin"
+import { attemptDesignDetailApi } from "@/api/missionsInstructor"
 import { ItemPicker } from "@/pages/lms-authoring/components/ItemPicker"
 import { AVATAR_PRESETS } from "@/components/games/avatarPresets"
 import { updateUserApi } from "@/api/admin/users"
@@ -17,7 +21,13 @@ import { updateUserApi } from "@/api/admin/users"
  * the reverse direction of `AssignPanel` (course/mission fixed, staff
  * picked) — here the student is fixed and the course is picked, so it's a
  * small dedicated section rather than forcing `AssignPanel` to be
- * bidirectional. */
+ * bidirectional.
+ *
+ * Instructor access (2026-08-22, Programs/Cohort Missions merge) — reads
+ * everything the same as ops, scoped server-side to their own cohorts'
+ * students; identity edits and course assign/revoke stay ops-only (those
+ * hit `/admin/users` and `/lms/admin/courses/{id}/enrollments`, neither
+ * widened for this), so those controls are hidden rather than disabled. */
 const RUN_STATUS_STYLE: Record<StudentDesignRun["status"], string> = {
   passed: "bg-emerald-500/10 text-emerald-500",
   failed: "bg-red-500/10 text-red-500",
@@ -31,10 +41,19 @@ const RUN_STATUS_LABEL: Record<StudentDesignRun["status"], string> = {
   in_progress: "In progress", abandoned: "Abandoned",
 }
 
+const MARGIN_TONE: Record<string, string> = {
+  good: "ring-emerald-500/30 bg-emerald-500/5",
+  tight: "ring-amber-500/30 bg-amber-500/5",
+  fail: "ring-destructive/30 bg-destructive/5",
+  incomplete: "ring-border",
+}
+
 export default function LmsStudentDetail() {
   const { userId } = useParams({ strict: false }) as { userId: string }
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { currentUser } = useAuth()
+  const isStaff = currentUser?.role !== "instructor"
   const [courseId, setCourseId] = useState("")
   const [nickname, setNickname] = useState<string | null>(null)
   const [identityError, setIdentityError] = useState("")
@@ -42,15 +61,15 @@ export default function LmsStudentDetail() {
 
   const { data: profile, isLoading: profileLoading } = useQuery({
     queryKey: ["lms-admin-student-profile", userId],
-    queryFn: () => getStudentProfileApi(userId),
+    queryFn: () => (isStaff ? getStudentProfileApi(userId) : getStudentProfileInstructorApi(userId)),
   })
   const { data: enrollments = [], isLoading: enrollmentsLoading } = useQuery({
     queryKey: ["lms-admin-user-enrollments", userId],
-    queryFn: () => listUserEnrollmentsApi(userId),
+    queryFn: () => (isStaff ? listUserEnrollmentsApi(userId) : listUserEnrollmentsInstructorApi(userId)),
   })
   const { data: designRuns, isLoading: designRunsLoading } = useQuery({
     queryKey: ["lms-admin-student-design-runs", userId],
-    queryFn: () => getStudentDesignRunsApi(userId),
+    queryFn: () => (isStaff ? getStudentDesignRunsApi(userId) : getStudentDesignRunsInstructorApi(userId)),
   })
 
   const invalidateEnrollments = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-user-enrollments", userId] })
@@ -108,57 +127,59 @@ export default function LmsStudentDetail() {
         ) : undefined}
       />
 
-      <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl">
-        <div>
-          <h3 className="text-sm font-medium text-foreground">Game identity</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            What this student is called on a leaderboard. Their real name stays a staff-only
-            reveal either way.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
+      {isStaff && (
+        <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl">
+          <div>
+            <h3 className="text-sm font-medium text-foreground">Game identity</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              What this student is called on a leaderboard. Their real name stays a staff-only
+              reveal either way.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Nickname</label>
+              <input
+                value={nickname ?? profile.nickname ?? ""}
+                onChange={(e) => setNickname(e.target.value)}
+                placeholder="SpaceOtter77"
+                className="h-9 px-3 w-56 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+            <button
+              onClick={() => saveIdentity.mutate({ nickname: (nickname ?? "").trim() })}
+              disabled={saveIdentity.isPending || nickname === null || !nickname.trim()}
+              className="h-9 px-4 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-40"
+            >
+              Save nickname
+            </button>
+          </div>
           <div className="flex flex-col gap-1.5">
-            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Nickname</label>
-            <input
-              value={nickname ?? profile.nickname ?? ""}
-              onChange={(e) => setNickname(e.target.value)}
-              placeholder="SpaceOtter77"
-              className="h-9 px-3 w-56 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
+            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Avatar</label>
+            <div className="flex flex-wrap gap-1.5">
+              {AVATAR_PRESETS.map((preset) => {
+                const Icon = preset.icon
+                const active = profile.avatar === preset.key
+                return (
+                  <button
+                    key={preset.key}
+                    onClick={() => saveIdentity.mutate({ avatar: preset.key })}
+                    disabled={saveIdentity.isPending}
+                    title={preset.label}
+                    className={`size-10 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-50 ${
+                      active
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border text-muted-foreground hover:bg-muted"}`}
+                  >
+                    <Icon size={16} />
+                  </button>
+                )
+              })}
+            </div>
           </div>
-          <button
-            onClick={() => saveIdentity.mutate({ nickname: (nickname ?? "").trim() })}
-            disabled={saveIdentity.isPending || nickname === null || !nickname.trim()}
-            className="h-9 px-4 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-40"
-          >
-            Save nickname
-          </button>
+          {identityError && <p className="text-xs text-destructive">{identityError}</p>}
         </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Avatar</label>
-          <div className="flex flex-wrap gap-1.5">
-            {AVATAR_PRESETS.map((preset) => {
-              const Icon = preset.icon
-              const active = profile.avatar === preset.key
-              return (
-                <button
-                  key={preset.key}
-                  onClick={() => saveIdentity.mutate({ avatar: preset.key })}
-                  disabled={saveIdentity.isPending}
-                  title={preset.label}
-                  className={`size-10 rounded-xl border flex items-center justify-center transition-colors disabled:opacity-50 ${
-                    active
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground hover:bg-muted"}`}
-                >
-                  <Icon size={16} />
-                </button>
-              )
-            })}
-          </div>
-        </div>
-        {identityError && <p className="text-xs text-destructive">{identityError}</p>}
-      </div>
+      )}
 
       <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl">
         <h3 className="text-sm font-medium text-foreground">Programs attended</h3>
@@ -189,38 +210,29 @@ export default function LmsStudentDetail() {
         {enrollmentsLoading ? (
           <Spinner />
         ) : activeEnrollments.length === 0 ? (
-          <EmptyState title="Not enrolled in any course" hint="Assign one below." />
+          <EmptyState title="Not enrolled in any course" hint={isStaff ? "Assign one below." : undefined} />
         ) : (
           <div className="flex flex-col gap-2">
             {activeEnrollments.map((e) => (
-              <div key={e.id} className="flex items-center justify-between p-3 bg-background border border-border rounded-xl">
-                <span className="text-sm text-foreground">
-                  {e.course_title ?? "Untitled course"}
-                  <span className="ml-2 text-xs text-muted-foreground uppercase tracking-wide">{e.source}</span>
-                </span>
-                <button
-                  onClick={() => revokeMutation.mutate(e.id)}
-                  disabled={revokeMutation.isPending}
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                  title="Remove access"
-                >
-                  <X size={14} />
-                </button>
-              </div>
+              <CourseProgressRow key={e.id} userId={userId} courseId={e.course_id} title={e.course_title} source={e.source} isStaff={isStaff}
+                onRevoke={isStaff ? () => revokeMutation.mutate(e.id) : undefined} revokePending={revokeMutation.isPending}
+              />
             ))}
           </div>
         )}
 
-        <div className="flex items-center gap-2 pt-1 border-t border-border">
-          <ItemPicker type="course" value={courseId} onChange={setCourseId} />
-          <button
-            onClick={() => courseId && enrollMutation.mutate(courseId)}
-            disabled={!courseId || enrollMutation.isPending}
-            className="flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors disabled:opacity-50"
-          >
-            <Plus size={14} /> Assign
-          </button>
-        </div>
+        {isStaff && (
+          <div className="flex items-center gap-2 pt-1 border-t border-border">
+            <ItemPicker type="course" value={courseId} onChange={setCourseId} />
+            <button
+              onClick={() => courseId && enrollMutation.mutate(courseId)}
+              disabled={!courseId || enrollMutation.isPending}
+              className="flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors disabled:opacity-50"
+            >
+              <Plus size={14} /> Assign
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl">
@@ -254,33 +266,146 @@ export default function LmsStudentDetail() {
                       <ChevronDown size={14} className={`text-muted-foreground transition-transform ${expanded ? "rotate-180" : ""}`} />
                     </div>
                   </button>
-                  {expanded && (
-                    <div className="px-3 pb-3 border-t border-border pt-3 flex flex-col gap-3">
-                      {run.design_objective && (
-                        <p className="text-xs text-muted-foreground whitespace-pre-line">{run.design_objective}</p>
-                      )}
-                      {designRuns.step_labels.length > 0 && (
-                        <div className="flex flex-wrap gap-3">
-                          {designRuns.step_labels.map((step) => (
-                            <div key={step.key} className="flex items-center gap-1.5">
-                              <span
-                                title={`${step.label}: ${run.steps?.[step.key] ? "done" : "not started"}`}
-                                className={`inline-block size-2.5 rounded-full ${
-                                  run.steps?.[step.key] ? "bg-emerald-500" : "bg-muted-foreground/25"}`}
-                              />
-                              <span className="text-xs text-muted-foreground">{step.label}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {expanded && <DesignRunDetail attemptId={run.attempt_id} />}
                 </div>
               )
             })}
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+/** Real "what did they name it and what did they select" detail (operator
+ * ask, 2026-08-22) — replaces the old step-dots-only expand with the same
+ * component/margin data `attemptDesignDetailApi` already builds for the
+ * student's own view (`/missions/instructor/attempts/{id}/design-detail`,
+ * reachable by ops too — see that endpoint's docstring). */
+function DesignRunDetail({ attemptId }: { attemptId: string }) {
+  const { data: detail, isLoading, error } = useQuery({
+    queryKey: ["lms-admin-design-run-detail", attemptId],
+    queryFn: () => attemptDesignDetailApi(attemptId),
+  })
+
+  if (isLoading) return <div className="px-3 pb-3"><Spinner /></div>
+  if (error || !detail) {
+    return <p className="px-3 pb-3 text-xs text-muted-foreground">Couldn't load this run's detail.</p>
+  }
+
+  return (
+    <div className="px-3 pb-3 border-t border-border pt-3 flex flex-col gap-4">
+      {detail.design_objective && (
+        <p className="text-xs text-muted-foreground whitespace-pre-line">{detail.design_objective}</p>
+      )}
+
+      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+        <span>CubeSat: {detail.selected_cubesat_size}</span>
+        {detail.orbit_type && <span>Orbit: {detail.orbit_type}</span>}
+        {detail.orbit_duration_min != null && <span>{detail.orbit_duration_min} min/orbit</span>}
+        {detail.orbits_per_day != null && <span>{detail.orbits_per_day} orbits/day</span>}
+      </div>
+
+      {detail.components.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-border text-muted-foreground">
+                <th className="text-left font-medium py-1.5 pr-3">Component</th>
+                <th className="text-left font-medium py-1.5 pr-3">Subsystem</th>
+                <th className="text-right font-medium py-1.5 pr-3">Qty</th>
+                <th className="text-right font-medium py-1.5 pr-3">Mass (g)</th>
+                <th className="text-right font-medium py-1.5 pr-3">V / mA</th>
+                <th className="text-right font-medium py-1.5">Cost (AED)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.components.map((c) => (
+                <tr key={c.id} className="border-b border-border/50 last:border-0">
+                  <td className="py-1.5 pr-3 text-foreground">{c.component_name}</td>
+                  <td className="py-1.5 pr-3 text-muted-foreground">{c.subsystem}</td>
+                  <td className="py-1.5 pr-3 text-right text-foreground">{c.quantity}</td>
+                  <td className="py-1.5 pr-3 text-right text-foreground">{c.mass_per_unit_g ?? "—"}</td>
+                  <td className="py-1.5 pr-3 text-right text-foreground">
+                    {c.voltage_v ?? "—"} / {c.current_ma ?? "—"}
+                  </td>
+                  <td className="py-1.5 text-right text-foreground">{c.cost_per_unit_aed ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {detail.dashboard.margins.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {detail.dashboard.margins.map((m) => (
+            <div key={m.key} title={m.interpretation} className={`rounded-lg ring-1 px-2.5 py-1.5 text-xs ${MARGIN_TONE[m.status] ?? "ring-border"}`}>
+              <span className="font-medium text-foreground">{m.label}</span>
+              <span className="text-muted-foreground ml-1.5">{m.value.toFixed(1)} {m.unit}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CourseProgressRow({
+  userId, courseId, title, source, isStaff, onRevoke, revokePending,
+}: {
+  userId: string; courseId: string; title: string | null; source: string; isStaff: boolean
+  onRevoke?: () => void; revokePending: boolean
+}) {
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className="bg-background border border-border rounded-xl overflow-hidden">
+      <div className="flex items-center justify-between p-3">
+        <button onClick={() => setOpen((v) => !v)} className="flex items-center gap-2 min-w-0 flex-1 text-left cursor-pointer">
+          <ChevronDown size={13} className={`shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
+          <span className="text-sm text-foreground truncate">
+            {title ?? "Untitled course"}
+            <span className="ml-2 text-xs text-muted-foreground uppercase tracking-wide">{source}</span>
+          </span>
+        </button>
+        {isStaff && onRevoke && (
+          <button
+            onClick={onRevoke}
+            disabled={revokePending}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors disabled:opacity-50 shrink-0"
+            title="Remove access"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+      {open && <CourseProgressDetail userId={userId} courseId={courseId} isStaff={isStaff} />}
+    </div>
+  )
+}
+
+function CourseProgressDetail({ userId, courseId, isStaff }: { userId: string; courseId: string; isStaff: boolean }) {
+  const { data: progress, isLoading } = useQuery({
+    queryKey: ["lms-admin-student-course-progress", userId, courseId, isStaff],
+    queryFn: () => getStudentCourseProgressApi(userId, courseId, isStaff ? "admin" : "instructor"),
+  })
+
+  if (isLoading) return <div className="px-3 pb-3"><Spinner /></div>
+  if (!progress) return null
+
+  return (
+    <div className="px-3 pb-3 border-t border-border pt-2 flex flex-col gap-1.5">
+      {progress.modules.length === 0 ? (
+        <p className="text-xs text-muted-foreground">No modules on this course.</p>
+      ) : progress.modules.map((m) => (
+        <div key={m.module_id} className="flex items-center gap-2 text-xs">
+          <span className={`w-2 h-2 rounded-full shrink-0 ${m.mandatory_completed >= m.mandatory_total && m.mandatory_total > 0 ? "bg-emerald-500" : "bg-muted-foreground/30"}`} />
+          <span className="flex-1 text-foreground truncate">{m.title ?? "Untitled module"}</span>
+          <span className="text-muted-foreground shrink-0">{m.mandatory_completed}/{m.mandatory_total}</span>
+          {m.locked && <span className="text-muted-foreground shrink-0">locked</span>}
+        </div>
+      ))}
     </div>
   )
 }

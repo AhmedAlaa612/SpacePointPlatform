@@ -86,6 +86,16 @@ class MissionAttemptReviewIn(BaseModel):
     review_comment: str | None = None
 
 
+class MissionAttemptOverrideIn(BaseModel):
+    """Instructor/ops force-pass/fail (operator ask, 2026-08-22) — any
+    attempt kind, any current status, including one already decided.
+    `reason` is required: this overrules the mission's own grading, so it
+    needs one on record (`services/missions/attempts.py::
+    override_attempt_outcome`)."""
+    passed: bool
+    reason: str
+
+
 class MissionAttemptAssignIn(BaseModel):
     """The general ops-assign shape (2026-08-21, LMS Program redesign) —
     the only way a solo attempt gets a `cohort_id` now that self-started
