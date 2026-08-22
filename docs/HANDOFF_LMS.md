@@ -35,7 +35,9 @@ component catalog, student accounts) with no map of its own until now. If you're
 
 Tables: `courses`, `course_modules`, `module_items`, `module_videos`, `video_checkpoints`,
 `enrollments`, `item_progress`, `learning_paths`, `learning_path_steps`, `point_events`,
-`program_curriculum`, `cohort_curriculum`, `purchases`.
+`purchases`, `lms_programs`, `lms_program_cohort_overrides`, `lms_program_items`,
+`lms_program_assignments`, `lms_program_item_progress` (§11 — the checklist-driven Program
+redesign, 2026-08-21, which replaced `program_curriculum`/`cohort_curriculum` outright).
 
 - `Course.access_mode` is `open | invite | paid` — governs **self-enrol eligibility only**, and
   self-enrol (`POST /lms/enroll`) is `require_lms_student`: **staff can never self-enrol in
@@ -77,9 +79,9 @@ Tables: `courses`, `course_modules`, `module_items`, `module_videos`, `video_che
   app.** Switching to BBR took first-segment load from 11.2s to 1.7s. If HLS playback feels slow
   again, check `sysctl net.ipv4.tcp_congestion_control` on the VPS before assuming the pipeline
   regressed — this exact symptom looks identical to a transcode/CDN problem from the app side.
-- `program_curriculum` / `cohort_curriculum` are how a course attaches to the Sessions domain's
-  Programs/Cohorts (see `HANDOFF_SESSIONS.md`) — a different attachment path than a student's
-  own enrollment.
+- A course attaches to the Sessions domain's Programs/Cohorts (see `HANDOFF_SESSIONS.md`) as one
+  `course`-type item inside an **LMS Program checklist** now — §11 below — a different attachment
+  path than a student's own enrollment.
 
 ## 3. The unified prerequisite DAG (`backend/app/models/curriculum.py`, `services/curriculum.py`)
 
@@ -124,10 +126,22 @@ a top-level, domain-agnostic model since 2026-08-17 (see the Team generalization
   resume is opt-out via `force_new=True`; every other caller (every other kind, and Design's own
   "continue an existing run" path) keeps the original single-flight behavior. `MissionPage.tsx`
   shows a "My Missions" list for `kind === "design"` instead of auto-redirecting into one attempt.
-- **`MissionAttempt.cohort_id`** (2026-08-17) — every attempt now carries a real cohort
-  attribution, resolved eagerly at `start_attempt()` time (solo: the student's active
-  `Registration`; team: `Team.cohort_id`), for every mission kind. Supersedes the older
-  `Design.cohort_id`, which resolved lazily and solo-only, and now just mirrors this column.
+- **`MissionAttempt.cohort_id`** (2026-08-17; auto-resolution removed 2026-08-21, see the LMS
+  Program redesign entry below) — every attempt carries a real cohort attribution, resolved at
+  `start_attempt()` time, for every mission kind. Supersedes the older `Design.cohort_id`, which
+  resolved lazily and solo-only, and now just mirrors this column. **A solo, student-started
+  attempt (`POST /missions/{id}/attempts`) is now unconditionally `cohort_id=None`** — the old
+  `resolve_student_cohort()` auto-resolution from the student's active `Registration` is gone
+  entirely (removed, not deprecated — no function to call). The only ways an attempt gets a real
+  `cohort_id` now: the team path (`Team.cohort_id`, unchanged) or an explicit ops action —
+  `POST /missions/admin/attempts/assign` (`{user_id, mission_id, cohort_id, variant_id?,
+  force_new?}`, `services/missions/attempts.py::assign_mission_run`). This is a real, deliberate
+  behavior change (operator call, 2026-08-21): a new run a student starts themselves is always
+  independent, never silently scoped to whatever cohort they happen to be registered in.
+  **Consequence for anything reading gates/step-selection/poster fields below**: those all key
+  off `MissionAttempt.cohort_id`, so they now only apply to ops-assigned attempts — any
+  currently-configured cohort (TDRA included) needs its students' attempts (re-)created via the
+  assign endpoint, they don't pick this up automatically from registration anymore.
 - **Per-cohort step gating — reintroduced, on purpose** (2026-08-17). An identical feature
   (`design_step_gates`) existed once, shipped with no UI to ever use it, and was removed in
   Design v2 (7D-0) with the stated reason "instructors stay out of the mission entirely." The
@@ -154,6 +168,23 @@ a top-level, domain-agnostic model since 2026-08-17 (see the Team generalization
   (`services/missions/step_selection.py::set_selected_steps`) is the real enforcement — the
   frontend picker (`StepsTab` in `CohortMissions.tsx`) pre-expands for UX only. New
   `/missions/instructor/.../steps` GET/PUT/DELETE endpoints, alongside the existing gates ones.
+  - **Bug, found live 2026-08-22, fixed same day**: step selection scoped `all_valid`/"Ready"
+    correctly (`compute_dashboard()`'s `effective_keys` already existed for that), but the report
+    layer (`services/missions/design/report.py`) never consulted it — `build_margins`/
+    `build_module_cards`/`build_advice` always built all 9 categories regardless of what the
+    cohort selected. A student on a Components/CONOPS/Data-only run (3 steps) saw all 9 module
+    cards on the Report tab, including a "Power budget: FAIL" card for a step they never had
+    access to. Fixed by threading `effective_keys` (= `dash["included_steps"] |
+    ({"downlink"} if dash["downlink_included"] else set())`) through all three `report.py`
+    builder functions, each now dropping any row/card/alert whose step isn't in that set; a new
+    `report.py::MARGIN_ROW_STEP` constant is the one place that maps a margin row's key back to
+    its step (energy and mass each produce two rows). Applied at both read sites: the live
+    dashboard endpoint (`routers/missions/design.py`) and the frozen-at-completion review
+    (`services/missions/verifiers/design.py::mark_design_complete`) — the latter matters because
+    that snapshot is the permanent post-grading record, not just the in-progress view. Covered in
+    `tests/services/missions/design/test_design_v2_calculators.py::
+    test_module_cards_and_margins_are_filtered_to_the_cohorts_selected_steps`. A run with no
+    `MissionStepSelection` configured is unaffected (`included_steps` defaults to "everything").
 - **`/missions/instructor/*`** (2026-08-17) — a brand-new access path for the plain `instructor`
   role (it has zero access to `/missions/admin`/`/lms/admin`, which stay
   operations/facilitator/admin-only). Cohort-scoped progress, gates, and a review queue,
@@ -324,3 +355,167 @@ least once — `gh auth status` and `curl` to `github.com` both fine, plain
 again: Ctrl+C, download with plain `curl` to the exact path the script expects
 (`/tmp/frontend-dist.tar.gz`), then run the script's extract/verify/swap steps by hand (they're
 short — read `/usr/local/bin/deploy-frontend.sh`, it's four commands after the download line).
+
+## 11. LMS Program checklist (2026-08-21)
+
+Replaces `program_curriculum`/`cohort_curriculum` (a flat, course-only list, dropped outright —
+confirmed empty in production, no migration needed) with a real checklist. Both backend and
+frontend are complete and tested/built: `backend/app/models/lms/program.py`,
+`services/lms/program.py`, `routers/lms/{admin,student,instructor}.py`; frontend at
+`frontend/src/pages/learn/LearnChecklists.tsx`/`LearnChecklist.tsx` (student, `/learn/checklists`,
+nav-labeled "Programs"), `frontend/src/pages/lms-authoring/LmsProgramAdmin.tsx` (ops authoring,
+same `/lms-authoring/curriculum` route + Sidebar slot the old curriculum page used, relabeled
+"Programs" — replaces `LmsCurriculum.tsx` outright), and a new "Program" tab in
+`frontend/src/pages/lms-authoring/CohortMissions.tsx` (instructor roster + confirm, cohort-scoped
+like its Steps/Gates/Review siblings but not mission-scoped).
+
+- **Shape**: `LmsProgram` (a checklist template, attached to a Sessions `Program` via
+  `program_id`, nullable+unique — one checklist per program) → `LmsProgramItem` (the steps;
+  polymorphic `owner_type`/`owner_id` pointing at either the `LmsProgram` itself or a
+  `LmsProgramCohortOverride` — service-layer-enforced, not a DB FK, same discriminator idiom
+  `Purchase.product_type` uses) → `LmsProgramAssignment` (one student's instance, created once at
+  registration time) → `LmsProgramItemProgress` (per-student per-item status).
+- **Cohort override** (`LmsProgramCohortOverride`) replaces its program's checklist outright when
+  it has any items of its own — never merged, the exact `CohortCurriculum` idiom carried forward.
+  `resolve_cohort_program()` is the one function that applies it; nothing else should read
+  `lms_program_items` directly.
+- **Item types**: `course` (enrolls immediately on assignment — sequence position governs
+  checklist display/certificate-gating only, never actual access), `mission_run` (ops-assigned via
+  the endpoint below, never student-started), `external_link`, `submission` (paste-a-link-back,
+  same shape as the Poster tab), `article`, `manual`. `optional` items don't block the
+  certificate; `requires_confirmation` items need an instructor/ops confirm click instead of the
+  student's own self-check (self-check is the default everywhere else — operator call: "not
+  everything can be trackable").
+- **Assignment is automatic, at registration time** — `sync_registration_lms` calls
+  `assign_lms_program()` exactly where it used to call `enroll_in_cohort_curriculum()`. A cohort
+  with no attached checklist is a no-op, same as before. Items are materialized once, at
+  assignment time; a later checklist edit does not retroactively change an existing assignment
+  (no reconciliation fan-out yet — `enroll_in_cohort_curriculum` had one, `P4-2`; add one the same
+  way if a real need for it shows up, there's no production data to migrate yet so it wasn't
+  built speculatively).
+- **Mission-run items and the new general assign endpoint**: `POST /missions/admin/attempts/
+  assign` (`services/missions/attempts.py::assign_mission_run`) is the one way a `MissionAttempt`
+  gets a `cohort_id` now that solo/student-started attempts never auto-resolve one (see §4's
+  `MissionAttempt.cohort_id` entry above for the full detail and its consequence for gates/
+  step-selection/poster fields on any *existing* cohort). Not program-exclusive — TDRA-style
+  cohort-scoped-missions-with-no-full-checklist use this same endpoint directly.
+  - **Bug, found live 2026-08-22, fixed same day**: `start_attempt()`'s "resume the owner's
+    in-progress attempt" lookup didn't check `cohort_id` at all, so a student's own independent
+    attempt (`cohort_id=None`) got silently handed back to `assign_mission_run()` unchanged — a
+    checklist's `mission_run` item ended up pointing at the student's unrelated solo run instead
+    of a fresh cohort-scoped one, with no gating applied. Fixed by making the resume lookup match
+    on `cohort_id` too (`None` only resumes `None`, a specific cohort only resumes that same
+    cohort) — a scope mismatch now mints a fresh attempt in the requested scope and leaves the
+    mismatched one untouched, independently resumable. Covered in
+    `tests/services/missions/test_missions_attempts.py::
+    test_start_attempt_never_resumes_across_a_cohort_scope_mismatch`.
+  - **Consequence for anyone who tested this before the fix landed**: `assign_lms_program()` only
+    ever runs once per `(user_id, cohort_id)` (idempotent), so an `LmsProgramAssignment` created
+    while this bug was live has a `mission_attempt_id` permanently pointing at the wrong attempt —
+    the fix doesn't retroactively repair already-created assignments. Delete the affected
+    `lms_program_assignments`/`lms_program_item_progress` rows (or just re-test with a fresh
+    student account) rather than reusing one that was assigned before this fix.
+- **Certificate**: no new certificate type. `LmsProgram.certificate_required` (default true) gates
+  the cohort's existing `student_completion` certificate — `services/sessions/delivery.py::
+  complete_cohort`'s automatic per-registration issuance now also checks
+  `certificate_gate_satisfied()`; `issue_certificate_override` (the existing manual-override
+  escape hatch) deliberately still bypasses it, same as it already bypasses the attendance
+  completion rule.
+- **Endpoints**: ops authoring at `/lms/admin/programs/*` and `/lms/admin/cohorts/{id}/
+  program-override/*` (mirrors the course-admin CRUD shape); student read/self-check/submit at
+  `/lms/programs*` (distinct from the older, still-live `/lms/my-programs` courses-only cohort
+  view); instructor roster + confirm at `/lms/instructor/cohorts/{id}/program-progress*`,
+  cohort-scoped via `services/missions/cohort_access.py::require_cohort_access` (reused as-is —
+  same instructor/facilitator/operations population an LMS-side view needs).
+- **Operational note for whoever deploys this**: any cohort *currently* configured with a
+  `MissionStepGate` row, a `poster_template_url`, or relying on `MissionStepSelection` needs its
+  students' mission attempts re-created via `POST /missions/admin/attempts/assign` after this
+  ships — those features all key off `MissionAttempt.cohort_id`, which a solo attempt no longer
+  gets automatically. This is a real, one-time manual step, not automated (no reconciliation
+  script) — check with the operator for which cohorts (TDRA at minimum) need it before/soon after
+  this deploys.
+
+## 12. Learning path bundle pricing (2026-08-21)
+
+Buy every course in a `LearningPath` at one Stripe Checkout price instead of course-by-course —
+the second of the operator's boss's three pricing requests (region/IP pricing and invite-code
+discounts are still unscoped, this is the one picked to build). Reuses the Stage S `Purchase`
+machinery almost directly, per that model's own docstring anticipating this exact reuse.
+
+- **Pricing**: `LearningPath.price_cents`/`currency` mirror `Course`'s columns — NULL means "not
+  sold as a bundle," and the existing free `POST /learning-paths/{id}/start` (self-enrols only
+  `open`-access steps) is unchanged either way. Free-form price — no enforced relationship to the
+  sum of the individual steps' prices (operator decision: ops is trusted to price it sensibly,
+  same posture as course pricing).
+- **Checkout**: `POST /lms/learning-paths/{id}/checkout` mirrors `start_course_checkout` almost
+  line for line — pending-purchase resume, the partial-unique-index double-payment backstop
+  (`uq_purchases_pending_per_path` on `(user_id, learning_path_id)` where `status='pending'`).
+  Blocked (200, no Stripe call, no `Purchase` row) only when the caller already has an active
+  enrollment in *every* step's course — nothing left to grant. Owning some but not all still buys
+  the full bundle at full price; there is no partial/proration logic anywhere in this codebase
+  (operator decision).
+- **Fulfilment**: `services/lms/checkout.py::fulfill()` now branches on `Purchase.product_type`.
+  A `"learning_path"` purchase enrols every current step's course via `enroll(..., source=
+  "purchase", purchase_id=purchase.id)` — regardless of each course's own `access_mode`, since the
+  whole point of buying the bundle is to unlock steps a free `/start` would have skipped.
+  `Purchase.enrollment_id` stays null for a bundle (there's no single row to point at); it's still
+  set for a plain `lms_course` purchase, unchanged.
+- **Refund/dispute revocation, generalized**: new `Enrollment.purchase_id` (nullable FK) is the
+  real join for "which enrollments did this purchase grant" — `enroll()` stamps it on a newly
+  created row (and on reactivating an inactive one, mirroring how `granted_by` already behaves),
+  but never on its existing-active early return. That's what makes bundle refunds safe: a course
+  the student already owned independently before buying the bundle was never stamped with this
+  purchase's id, so `routers/lms/checkout.py::_revoke_purchase_enrollments()` (now what both the
+  `charge.refunded` and `charge.dispute.created` webhook branches call, replacing the old direct
+  `purchase.enrollment_id` lookup) only deactivates enrollments this purchase actually created —
+  works identically for the single-course case (exactly one row) and the bundle case (however many
+  steps were newly granted).
+- **Frontend**: `LearnPath.tsx` shows a "Buy path — $X" button (via `startPathCheckout`) whenever
+  `price_cents` is set and `fully_owned` is false, alongside the existing free Start/Continue
+  action once the student has already started for free. `LearnCheckoutSuccess.tsx` branches on
+  `CheckoutFulfillResult.learning_path_id` vs `course_id` to route back to the right landing page.
+  Ops sets the bundle price from the learning-path detail page's Edit modal
+  (`LmsLearningPathDetail.tsx`) — not the creation form, matching how publish/image already work.
+- **Not built**: region/IP-based pricing and invite-code/promo discounts — both still just
+  scoped in conversation, not planned or built. See the operator if picking either up next.
+
+## 13. Invite-code course/path grants, learning-path bulk grant, Stripe promo codes (2026-08-21)
+
+The invite-code discount idea, once interviewed properly, turned out to want three separate
+things — none of them a Stripe percentage-off discount:
+
+- **Invite-code grants** (`InvitationCodeGrant`, `models/lms/invite_grant.py`) — ops attaches a
+  course or learning path to an `InvitationCode` (kind='student') and every account that's ever
+  typed that code — old or new — gets it free, no checkout. The code *is* the batch, same
+  `users.invitation_code_used` string-match the invite-codes admin screen already filters students
+  by; this is deliberately not a new generic groups/audiences table (`BulkGrantIn`'s own docstring
+  rules that out at §3) — it only exists because `InvitationCode` already serves as the batch
+  primitive here. `services/lms/invite_grants.py::grant_invite_code_access()` applies retroactively
+  the instant ops attaches it; `apply_invite_code_grants_to_new_user()` is called from
+  `routers/auth.py::student_signup` right where `invitation.used_count` increments, so a fresh
+  signup gets it on the spot too. New `Enrollment.source` value `"invite_code"`. Endpoints:
+  `GET/POST /lms/admin/invite-codes/{id}/grants`, `DELETE .../grants/{grant_id}` — deleting a grant
+  only stops it applying going forward, it never revokes access already given (same posture as
+  deleting a `LearningPath` leaving its enrollments alone). UI: a "Grants" expandable section per
+  code card on `LmsInviteCodes.tsx`.
+- **Learning-path bulk grant** — the existing one-shot cohort/role course grant
+  (`POST /lms/admin/courses/{id}/enrollments/bulk`, §3 "not a live membership rule") now has a path
+  sibling: `POST /lms/admin/learning-paths/{id}/enrollments/bulk`, same `BulkGrantIn`/`BulkGrantOut`
+  shape, enrols every current step's course per resolved user. `already_enrolled` only counts a
+  user once they hold *every* step, matching the bundle purchase's own "block only when fully
+  owned" read of ownership. UI: a standalone "Grant every course to a role" panel on
+  `LmsLearningPathDetail.tsx` (`BulkGrantPanel`) — deliberately not the full `AssignPanel`
+  roster/individual-assign component courses/missions use, since a path bundle has no single roster
+  of its own (access lives per-course, one row per step); building that aggregation view wasn't
+  asked for here.
+- **Stripe promo codes** — `allow_promotion_codes=True` on both Checkout Session calls
+  (`routers/lms/checkout.py`, course and path). A code field just appears on Stripe's hosted page;
+  Stripe does the discount math. Ops creates/manages codes directly in the Stripe Dashboard —
+  nothing stored or tracked on our side (operator decision: no new ops page for this, no
+  per-purchase discount tracking).
+
+**Noted for future work, not built now** (operator: "do the minimal, note the redesign so it
+doesn't get lost") — the ops course/learning-path pages could use a unified "Access" view per
+item showing every channel together (open/invite/paid self-serve, Stripe promo codes in play,
+one-shot bulk grants issued, invite-code grants attached) instead of each living in its own corner
+of the admin UI. Nobody has scoped what that actually looks like yet.

@@ -222,6 +222,12 @@ export interface LearningPathCatalogItem {
   /** True iff you have an active enrollment in at least one of the path's
    * courses — `pct` can't answer this (a just-started path is still 0%). */
   enrolled: boolean;
+  // Bundle pricing (2026-08-21) — null price_cents means not purchasable.
+  price_cents: number | null;
+  currency: string;
+  /** True iff you already have an active enrollment in every step's course —
+   * a bundle purchase would have nothing left to grant. */
+  fully_owned: boolean;
 }
 
 export interface LearningPathStep {
@@ -245,6 +251,9 @@ export interface LearningPathDetail {
   mission_count: number;
   total_duration_seconds: number;
   steps: LearningPathStep[];
+  price_cents: number | null;
+  currency: string;
+  fully_owned: boolean;
 }
 
 // ── completion certificates (2026-08-13) ──────────────────────────────────
@@ -388,9 +397,16 @@ export async function startCourseCheckout(courseId: string): Promise<{ checkout_
   return data;
 }
 
+// Learning path bundle pricing (2026-08-21).
+export async function startPathCheckout(pathId: string): Promise<{ checkout_url: string }> {
+  const { data } = await api.post<{ checkout_url: string }>(`/lms/learning-paths/${pathId}/checkout`, {});
+  return data;
+}
+
 export interface CheckoutFulfillResult {
   status: "pending" | "paid" | "refunded" | "disputed" | "failed";
-  course_id: string;
+  course_id: string | null;
+  learning_path_id: string | null;
 }
 
 export async function fulfillCheckoutSession(sessionId: string): Promise<CheckoutFulfillResult> {
@@ -470,5 +486,80 @@ export async function submitCheckpointAnswer(
   const { data } = await api.post<CheckpointAnswerResult>(
     `/lms/items/${videoItemId}/checkpoints/${checkpointId}/answer`, { answer },
   );
+  return data;
+}
+
+// ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
+// Distinct from the older /lms/my-programs (courses-only cohort view, still
+// live — LearnMyCourses/etc.) and from LearnProgram.tsx's /learn/programs/
+// $cohortId (the *public catalog's* program detail/registration page, an
+// unrelated concept that happens to share the word "program") — this is the
+// new checklist entity, `lms_program_assignments`. Mounted at
+// /learn/checklists to keep well clear of that existing route.
+
+export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "article" | "manual";
+export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
+
+export interface LmsProgramChecklistItem {
+  id: string;
+  position: number;
+  item_type: LmsProgramItemType;
+  title: string;
+  description: string | null;
+  optional: boolean;
+  requires_confirmation: boolean;
+  status: LmsProgramItemStatus;
+  course_id: string | null;
+  mission_attempt_id: string | null;
+  mission_id: string | null;
+  mission_kind: string | null;
+  external_url: string | null;
+  submission_prompt: string | null;
+  submitted_url: string | null;
+}
+
+export interface LmsProgramAssignmentSummary {
+  assignment_id: string;
+  lms_program_id: string;
+  name: string;
+  cohort_id: string | null;
+  cohort_name: string | null;
+  items_total: number;
+  items_done: number;
+  pct: number;
+  next_item_title: string | null;
+  certificate_required: boolean;
+  certificate_earned: boolean;
+}
+
+export interface LmsProgramChecklist {
+  assignment_id: string;
+  lms_program_id: string;
+  name: string;
+  description: string | null;
+  cohort_id: string | null;
+  cohort_name: string | null;
+  certificate_required: boolean;
+  certificate_earned: boolean;
+  items: LmsProgramChecklistItem[];
+}
+
+export async function fetchMyChecklists(): Promise<LmsProgramAssignmentSummary[]> {
+  const { data } = await api.get<LmsProgramAssignmentSummary[]>("/lms/programs");
+  return data;
+}
+
+export async function fetchChecklist(assignmentId: string): Promise<LmsProgramChecklist> {
+  const { data } = await api.get<LmsProgramChecklist>(`/lms/programs/${assignmentId}`);
+  return data;
+}
+
+export async function completeChecklistItem(assignmentId: string, itemId: string): Promise<LmsProgramChecklistItem> {
+  const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/complete`, {});
+  return data;
+}
+
+export async function submitChecklistItem(assignmentId: string, itemId: string, url: string): Promise<LmsProgramChecklistItem> {
+  const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/submit`, { url });
   return data;
 }

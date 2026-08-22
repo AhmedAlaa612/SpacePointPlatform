@@ -226,6 +226,20 @@ async def _registered_student(db, *, cohort: Cohort) -> User:
     return user
 
 
+async def _assign_attempt(client, *, ops: User, student: User, mission: Mission, variant: MissionVariant, cohort: Cohort) -> str:
+    """2026-08-21 (LMS Program redesign): a solo student-started attempt no
+    longer auto-scopes to their registration's cohort — this is now the
+    only way an attempt gets a cohort_id (besides the team path), so every
+    gate/poster/deadline test below goes through it instead of the plain
+    `POST /missions/{id}/attempts` a student would use for an independent run."""
+    resp = await client.post(
+        "/missions/admin/attempts/assign", headers=_headers(ops),
+        json={"user_id": str(student.id), "mission_id": str(mission.id), "cohort_id": str(cohort.id), "variant_id": str(variant.id)},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["id"]
+
+
 @pytest.mark.asyncio
 async def test_locked_step_blocks_the_write_endpoint(db, client):
     author = await _user(db, roles=["operations"])
@@ -236,11 +250,7 @@ async def test_locked_step_blocks_the_write_endpoint(db, client):
     db.add(MissionStepGate(cohort_id=cohort.id, mission_id=mission.id, step_key="components", is_unlocked=False))
     await db.commit()
 
-    start = await client.post(
-        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
-    )
-    attempt_id = start.json()["id"]
-    assert start.json()["id"]  # sanity: attempt started fine, cohort_id resolved server-side
+    attempt_id = await _assign_attempt(client, ops=author, student=student, mission=mission, variant=variant, cohort=cohort)
 
     # The gate's own step_key is explicitly locked.
     add = await client.post(
@@ -268,10 +278,7 @@ async def test_unlocking_the_gate_allows_the_write(db, client):
     db.add(MissionStepGate(cohort_id=cohort.id, mission_id=mission.id, step_key="components", is_unlocked=True))
     await db.commit()
 
-    start = await client.post(
-        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
-    )
-    attempt_id = start.json()["id"]
+    attempt_id = await _assign_attempt(client, ops=author, student=student, mission=mission, variant=variant, cohort=cohort)
 
     add = await client.post(
         f"/missions/design/attempts/{attempt_id}/components", headers=_headers(student),
@@ -315,10 +322,7 @@ async def test_design_state_reports_step_gates(db, client):
     db.add(MissionStepGate(cohort_id=cohort.id, mission_id=mission.id, step_key="power_budget", is_unlocked=False))
     await db.commit()
 
-    start = await client.post(
-        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
-    )
-    attempt_id = start.json()["id"]
+    attempt_id = await _assign_attempt(client, ops=author, student=student, mission=mission, variant=variant, cohort=cohort)
 
     state = await client.get(f"/missions/design/attempts/{attempt_id}", headers=_headers(student))
     gates = state.json()["step_gates"]
@@ -337,10 +341,7 @@ async def test_design_state_resolves_poster_template_url_from_cohort(db, client)
     student = await _registered_student(db, cohort=cohort)
     await db.commit()
 
-    start = await client.post(
-        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
-    )
-    attempt_id = start.json()["id"]
+    attempt_id = await _assign_attempt(client, ops=author, student=student, mission=mission, variant=variant, cohort=cohort)
 
     state = await client.get(f"/missions/design/attempts/{attempt_id}", headers=_headers(student))
     assert state.json()["poster_template_url"] == "https://canva.com/design/master-template"
@@ -391,10 +392,7 @@ async def test_update_design_accepts_poster_url_when_cohort_ends_in_the_future(d
     student = await _registered_student(db, cohort=cohort)
     await db.commit()
 
-    start = await client.post(
-        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
-    )
-    attempt_id = start.json()["id"]
+    attempt_id = await _assign_attempt(client, ops=author, student=student, mission=mission, variant=variant, cohort=cohort)
 
     resp = await client.patch(
         f"/missions/design/attempts/{attempt_id}",
@@ -412,10 +410,7 @@ async def test_update_design_rejects_poster_url_after_cohort_ends(db, client):
     student = await _registered_student(db, cohort=cohort)
     await db.commit()
 
-    start = await client.post(
-        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
-    )
-    attempt_id = start.json()["id"]
+    attempt_id = await _assign_attempt(client, ops=author, student=student, mission=mission, variant=variant, cohort=cohort)
 
     resp = await client.patch(
         f"/missions/design/attempts/{attempt_id}",

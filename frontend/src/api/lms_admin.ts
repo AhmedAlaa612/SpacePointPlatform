@@ -158,13 +158,6 @@ export interface AdminItem {
   content: AdminItemContent;
 }
 
-export interface CurriculumEntry {
-  id: string;
-  program_id: string;
-  course_id: string;
-  position: number;
-}
-
 // ── video checkpoints (timeline notes + mid-video quizzes, 2026-08-07) ─────
 
 export type CheckpointKind = "note" | "quiz";
@@ -299,14 +292,111 @@ export const updateCheckpointApi = (
 ) => api.patch<AdminCheckpoint>(`/lms/admin/checkpoints/${id}`, data).then((r) => r.data);
 export const deleteCheckpointApi = (id: string) => api.delete<void>(`/lms/admin/checkpoints/${id}`).then((r) => r.data);
 
-// ── program curriculum ──────────────────────────────────────────────────
+// ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
+// Replaces the old program_curriculum flat course list (above, removed) —
+// see backend/app/models/lms/program.py's module docstring for the full shape.
 
-export const listCurriculumApi = (programId: string) =>
-  api.get<CurriculumEntry[]>(`/lms/admin/programs/${programId}/curriculum`).then((r) => r.data);
-export const addCurriculumEntryApi = (programId: string, data: { course_id: string; position?: number }) =>
-  api.post<CurriculumEntry>(`/lms/admin/programs/${programId}/curriculum`, data).then((r) => r.data);
-export const removeCurriculumEntryApi = (programId: string, courseId: string) =>
-  api.delete<void>(`/lms/admin/programs/${programId}/curriculum/${courseId}`).then((r) => r.data);
+export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "article" | "manual";
+
+export interface LmsProgramItem {
+  id: string;
+  position: number;
+  item_type: LmsProgramItemType;
+  title: string;
+  description: string | null;
+  optional: boolean;
+  requires_confirmation: boolean;
+  course_id: string | null;
+  mission_id: string | null;
+  variant_id: string | null;
+  external_url: string | null;
+  submission_prompt: string | null;
+}
+
+export interface LmsProgramItemInput {
+  item_type: LmsProgramItemType;
+  title: string;
+  description?: string | null;
+  optional?: boolean;
+  requires_confirmation?: boolean;
+  course_id?: string | null;
+  mission_id?: string | null;
+  variant_id?: string | null;
+  external_url?: string | null;
+  submission_prompt?: string | null;
+  position?: number | null;
+}
+
+export interface LmsProgram {
+  id: string;
+  program_id: string | null;
+  name: string;
+  description: string | null;
+  certificate_required: boolean;
+  items: LmsProgramItem[];
+}
+
+export interface LmsProgramCohortOverride {
+  id: string;
+  cohort_id: string;
+  lms_program_id: string;
+  items: LmsProgramItem[];
+}
+
+export const listLmsProgramsApi = (programId?: string) =>
+  api.get<LmsProgram[]>("/lms/admin/programs", { params: programId ? { program_id: programId } : undefined }).then((r) => r.data);
+export const createLmsProgramApi = (data: { program_id?: string | null; name: string; description?: string | null; certificate_required?: boolean }) =>
+  api.post<LmsProgram>("/lms/admin/programs", data).then((r) => r.data);
+export const getLmsProgramApi = (id: string) =>
+  api.get<LmsProgram>(`/lms/admin/programs/${id}`).then((r) => r.data);
+export const updateLmsProgramApi = (id: string, data: Partial<{ name: string; description: string | null; certificate_required: boolean }>) =>
+  api.patch<LmsProgram>(`/lms/admin/programs/${id}`, data).then((r) => r.data);
+export const deleteLmsProgramApi = (id: string) =>
+  api.delete<void>(`/lms/admin/programs/${id}`).then((r) => r.data);
+
+export const addLmsProgramItemApi = (lmsProgramId: string, data: LmsProgramItemInput) =>
+  api.post<LmsProgramItem>(`/lms/admin/programs/${lmsProgramId}/items`, data).then((r) => r.data);
+export const updateLmsProgramItemApi = (lmsProgramId: string, itemId: string, data: LmsProgramItemInput) =>
+  api.patch<LmsProgramItem>(`/lms/admin/programs/${lmsProgramId}/items/${itemId}`, data).then((r) => r.data);
+export const deleteLmsProgramItemApi = (lmsProgramId: string, itemId: string) =>
+  api.delete<void>(`/lms/admin/programs/${lmsProgramId}/items/${itemId}`).then((r) => r.data);
+
+export const getCohortProgramOverrideApi = (cohortId: string) =>
+  api.get<LmsProgramCohortOverride>(`/lms/admin/cohorts/${cohortId}/program-override`).then((r) => r.data);
+export const addCohortOverrideItemApi = (cohortId: string, data: LmsProgramItemInput) =>
+  api.post<LmsProgramItem>(`/lms/admin/cohorts/${cohortId}/program-override/items`, data).then((r) => r.data);
+export const updateCohortOverrideItemApi = (cohortId: string, itemId: string, data: LmsProgramItemInput) =>
+  api.patch<LmsProgramItem>(`/lms/admin/cohorts/${cohortId}/program-override/items/${itemId}`, data).then((r) => r.data);
+export const deleteCohortOverrideItemApi = (cohortId: string, itemId: string) =>
+  api.delete<void>(`/lms/admin/cohorts/${cohortId}/program-override/items/${itemId}`).then((r) => r.data);
+
+// ── instructor progress (cohort-scoped roster + confirm) ────────────────────
+
+export interface PendingConfirmation {
+  item_id: string;
+  title: string;
+}
+
+export interface LmsProgramRosterRow {
+  assignment_id: string;
+  user_id: string;
+  student_name: string;
+  name: string;
+  items_total: number;
+  items_done: number;
+  pct: number;
+  next_item_title: string | null;
+  certificate_required: boolean;
+  certificate_earned: boolean;
+  pending_confirmations: PendingConfirmation[];
+}
+
+export const getCohortProgramProgressApi = (cohortId: string) =>
+  api.get<LmsProgramRosterRow[]>(`/lms/instructor/cohorts/${cohortId}/program-progress`).then((r) => r.data);
+export const confirmChecklistItemApi = (cohortId: string, assignmentId: string, itemId: string) =>
+  api.post<LmsProgramRosterRow>(
+    `/lms/instructor/cohorts/${cohortId}/program-progress/${assignmentId}/items/${itemId}/confirm`, {},
+  ).then((r) => r.data);
 
 // ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────
 
@@ -318,6 +408,9 @@ export interface AdminLearningPath {
   created_by: string;
   created_at: string | null;
   image_url: string | null;
+  // Bundle pricing (2026-08-21) — null price_cents means not purchasable.
+  price_cents: number | null;
+  currency: string;
 }
 
 export interface LearningPathStepEntry {
@@ -340,6 +433,11 @@ export const grantCourseEnrollmentApi = (courseId: string, userId: string) =>
 
 export const bulkGrantCourseEnrollmentApi = (courseId: string, body: { role?: string; cohort_id?: string }) =>
   api.post<BulkGrantResult>(`/lms/admin/courses/${courseId}/enrollments/bulk`, body).then((r) => r.data);
+
+// Same one-shot cohort/role grant, but for a learning-path bundle — enrols
+// every step's course at once (2026-08-21).
+export const bulkGrantLearningPathEnrollmentApi = (pathId: string, body: { role?: string; cohort_id?: string }) =>
+  api.post<BulkGrantResult>(`/lms/admin/learning-paths/${pathId}/enrollments/bulk`, body).then((r) => r.data);
 
 export const revokeCourseEnrollmentApi = (enrollmentId: string) =>
   api.post<AdminEnrollment>(`/lms/admin/enrollments/${enrollmentId}/revoke`).then((r) => r.data);
@@ -364,6 +462,32 @@ export const updateInviteCodeApi = (id: string, data: Partial<{
 
 export const deleteInviteCodeApi = (id: string) =>
   api.delete<void>(`/lms/admin/invite-codes/${id}`).then((r) => r.data);
+
+// ── invite-code course/path grants (2026-08-21) ─────────────────────────────
+// "This code batch gets these courses/paths free" — applies immediately to
+// everyone who's ever used the code, and to every future signup on it.
+
+export interface InviteCodeGrant {
+  id: string;
+  product_type: "course" | "learning_path";
+  course_id: string | null;
+  course_title: string | null;
+  learning_path_id: string | null;
+  learning_path_title: string | null;
+  created_at: string | null;
+}
+
+export const listInviteCodeGrantsApi = (codeId: string) =>
+  api.get<InviteCodeGrant[]>(`/lms/admin/invite-codes/${codeId}/grants`).then((r) => r.data);
+
+export const createInviteCodeGrantApi = (
+  codeId: string, data: { course_id?: string; learning_path_id?: string },
+) => api.post<{ grant: InviteCodeGrant; accounts_enrolled: number }>(
+  `/lms/admin/invite-codes/${codeId}/grants`, data,
+).then((r) => r.data);
+
+export const deleteInviteCodeGrantApi = (codeId: string, grantId: string) =>
+  api.delete<void>(`/lms/admin/invite-codes/${codeId}/grants/${grantId}`).then((r) => r.data);
 
 export const getStudentProfileApi = (userId: string) =>
   api.get<StudentProfile>(`/lms/admin/students/${userId}`).then((r) => r.data);
@@ -396,10 +520,14 @@ export const listLearningPathsApi = () =>
   api.get<AdminLearningPath[]>("/lms/admin/learning-paths").then((r) => r.data);
 export const getLearningPathApi = (id: string) =>
   api.get<AdminLearningPath>(`/lms/admin/learning-paths/${id}`).then((r) => r.data);
-export const createLearningPathApi = (data: { title: string; description?: string }) =>
-  api.post<AdminLearningPath>("/lms/admin/learning-paths", data).then((r) => r.data);
+export const createLearningPathApi = (
+  data: { title: string; description?: string; price_cents?: number | null; currency?: string },
+) => api.post<AdminLearningPath>("/lms/admin/learning-paths", data).then((r) => r.data);
 export const updateLearningPathApi = (
-  id: string, data: Partial<{ title: string; description: string; is_published: boolean }>,
+  id: string,
+  data: Partial<{
+    title: string; description: string; is_published: boolean; price_cents: number | null; currency: string;
+  }>,
 ) => api.patch<AdminLearningPath>(`/lms/admin/learning-paths/${id}`, data).then((r) => r.data);
 export const deleteLearningPathApi = (id: string) =>
   api.delete<void>(`/lms/admin/learning-paths/${id}`).then((r) => r.data);

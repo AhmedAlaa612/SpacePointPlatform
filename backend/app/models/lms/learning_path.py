@@ -38,6 +38,14 @@ class LearningPath(Base):
     )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
+    # Bundle pricing (2026-08-21) — mirrors Course.price_cents/currency. NULL
+    # means "not purchasable as a bundle" — the existing free `/start`
+    # self-enrol (open steps only) is unchanged either way. No enforced
+    # relationship to the sum of the individual steps' prices — ops is
+    # trusted to price it sensibly, same posture as course pricing.
+    price_cents = Column(Integer, nullable=True)
+    currency = Column(String(3), nullable=False, default="usd", server_default="usd")
+
 
 class LearningPathStep(Base):
     """One ordered course inside a learning path. Same double-unique shape as

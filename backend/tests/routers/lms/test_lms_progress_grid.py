@@ -10,7 +10,8 @@ import pytest
 from fastapi import status as http_status
 
 from app.core.security import create_access_token
-from app.models.lms import CohortCurriculum, Course, CourseModule, ModuleItem
+from app.models.lms import Course, CourseModule, ModuleItem
+from app.models.lms.program import LmsProgram, LmsProgramCohortOverride, LmsProgramItem
 from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember, MissionVariant
 from app.models.team import Team
 from app.models.sessions.cohort import Cohort
@@ -99,7 +100,16 @@ async def test_progress_grid_composes_course_and_mission_columns(db, client):
     await db.flush()
     item = ModuleItem(id=uuid.uuid4(), module_id=module.id, position=1, kind="text", content={"body": "x"})
     db.add(item)
-    db.add(CohortCurriculum(id=uuid.uuid4(), cohort_id=cohort.id, course_id=course.id, position=1))
+    lms_program = LmsProgram(id=uuid.uuid4(), name="Grid Checklist")
+    db.add(lms_program)
+    await db.flush()
+    override = LmsProgramCohortOverride(id=uuid.uuid4(), cohort_id=cohort.id, lms_program_id=lms_program.id)
+    db.add(override)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="cohort_override", owner_id=override.id, position=1,
+        item_type="course", title="Grid Course", course_id=course.id,
+    ))
     await db.flush()
 
     finisher = await _student(db, cohort_id=cohort.id, name="Finisher Fran")

@@ -2,14 +2,16 @@ import { useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { isAxiosError } from "axios"
-import { ArrowLeft, ImagePlus, Plus, X } from "lucide-react"
+import { ArrowLeft, ImagePlus, Plus, UserPlus, X } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import {
   getLearningPathApi, updateLearningPathApi, uploadLearningPathImageApi, deleteLearningPathApi,
   listCoursesApi, listLearningPathStepsApi, addLearningPathStepApi, removeLearningPathStepApi,
-  type AdminLearningPath, type LearningPathStepEntry,
+  bulkGrantLearningPathEnrollmentApi,
+  type AdminLearningPath, type LearningPathStepEntry, type BulkGrantResult,
 } from "@/api/lms_admin"
+import { ROLE_LABEL, type Role } from "@/types/shared"
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -18,8 +20,8 @@ function errorDetail(err: unknown, fallback: string): string {
 
 /** LMS learning-path authoring detail (LMS redesign, 2026-08-08) — edit
  * title/description/cover, publish/unpublish, delete, and the ordered step
- * list. Step add/remove mirrors LmsCurriculum.tsx's program-curriculum UI,
- * scoped directly to this one path instead of a program picker. */
+ * list. Step add/remove mirrors LmsProgramAdmin.tsx's item-list UI, scoped
+ * directly to this one path instead of a program picker. */
 export default function LmsLearningPathDetail() {
   const { pathId } = useParams({ strict: false }) as { pathId: string }
   const navigate = useNavigate()
@@ -137,13 +139,20 @@ export default function LmsLearningPathDetail() {
               </div>
             }
           />
-          <span
-            className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-              path.is_published ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
-            }`}
-          >
-            {path.is_published ? "Published" : "Draft"}
-          </span>
+          <div className="flex items-center gap-2">
+            <span
+              className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                path.is_published ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {path.is_published ? "Published" : "Draft"}
+            </span>
+            {path.price_cents != null && (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                Bundle · {(path.price_cents / 100).toLocaleString(undefined, { style: "currency", currency: path.currency.toUpperCase() })}
+              </span>
+            )}
+          </div>
           {imageError && <p className="text-xs text-red-500 mt-2">{imageError}</p>}
         </div>
       </div>
@@ -194,6 +203,8 @@ export default function LmsLearningPathDetail() {
         {addError && <p className="text-xs text-red-500">{addError}</p>}
       </div>
 
+      <BulkGrantPanel pathId={pathId} />
+
       {editOpen && (
         <EditPathModal
           path={path}
@@ -218,15 +229,74 @@ export default function LmsLearningPathDetail() {
   )
 }
 
+const ASSIGNABLE_ROLES = (Object.keys(ROLE_LABEL) as Role[]).filter((r) => r !== "student")
+
+/** One-shot "grant this path's courses to everyone with role X" (2026-08-21)
+ * — mirrors AssignPanel.tsx's bulk-by-role control, but standalone: a path
+ * bundle has no single roster of its own (access lives per-course, one row
+ * per step), so this doesn't try to render an individual-assign/roster view
+ * the way the course/mission detail pages do. */
+function BulkGrantPanel({ pathId }: { pathId: string }) {
+  const [role, setRole] = useState<Role | "">("")
+  const [result, setResult] = useState<BulkGrantResult | null>(null)
+  const [error, setError] = useState("")
+
+  const mutation = useMutation({
+    mutationFn: (r: string) => bulkGrantLearningPathEnrollmentApi(pathId, { role: r }),
+    onSuccess: (r) => { setError(""); setResult(r) },
+    onError: (e: unknown) => setError(errorDetail(e, "Couldn't grant access")),
+  })
+
+  return (
+    <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl max-w-2xl">
+      <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+        <UserPlus size={14} /> Grant every course to a role
+      </h2>
+      <p className="text-xs text-muted-foreground -mt-2">
+        One-shot: enrols everyone currently holding that role in every course above. New people who take on the
+        role later aren't covered automatically — re-run it when needed.
+      </p>
+      <div className="flex gap-2">
+        <select
+          value={role} onChange={(e) => setRole(e.target.value as Role | "")}
+          className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+        >
+          <option value="">Grant to everyone with role...</option>
+          {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
+        </select>
+        <button
+          onClick={() => role && mutation.mutate(role)}
+          disabled={!role || mutation.isPending}
+          className="h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors disabled:opacity-50"
+        >
+          Grant
+        </button>
+      </div>
+      {result && (
+        <p className="text-xs text-muted-foreground">
+          Granted {result.granted}, already had access {result.already_enrolled}.
+        </p>
+      )}
+      {error && <p className="text-xs text-red-500">{error}</p>}
+    </div>
+  )
+}
+
 function EditPathModal({
   path, onClose, onSuccess,
 }: { path: AdminLearningPath; onClose: () => void; onSuccess: () => void }) {
   const [title, setTitle] = useState(path.title)
   const [description, setDescription] = useState(path.description ?? "")
+  const [priceDollars, setPriceDollars] = useState(
+    path.price_cents != null ? String(path.price_cents / 100) : ""
+  )
   const [error, setError] = useState("")
 
   const mutation = useMutation({
-    mutationFn: () => updateLearningPathApi(path.id, { title: title.trim(), description: description.trim() || undefined }),
+    mutationFn: () => updateLearningPathApi(path.id, {
+      title: title.trim(), description: description.trim() || undefined,
+      price_cents: priceDollars.trim() ? Math.round(Number(priceDollars) * 100) : null,
+    }),
     onSuccess,
     onError: (e: unknown) => setError(errorDetail(e, "Failed to update learning path")),
   })
@@ -246,8 +316,23 @@ function EditPathModal({
             className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors resize-none"
           />
         </Field>
+        <Field label="Bundle price, USD (optional)">
+          <input
+            value={priceDollars} onChange={(e) => setPriceDollars(e.target.value)}
+            type="number" min="0" step="0.01" placeholder="Leave blank — not sold as a bundle"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+          <p className="text-[11px] text-muted-foreground mt-1">
+            When set, students can buy every course in this path at once via Stripe Checkout — regardless of
+            each course's own access mode. Leave blank to keep the free self-enrol "Start" behavior only.
+          </p>
+        </Field>
         {error && <p className="text-xs text-red-500">{error}</p>}
-        <ModalActions onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} disabled={!title.trim()} label="Save changes" />
+        <ModalActions
+          onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending}
+          disabled={!title.trim() || (priceDollars.trim() !== "" && !(Number(priceDollars) > 0))}
+          label="Save changes"
+        />
       </div>
     </Modal>
   )

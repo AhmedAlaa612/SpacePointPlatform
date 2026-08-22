@@ -234,7 +234,8 @@ class CheckoutSessionOut(BaseModel):
 
 class CheckoutFulfillOut(BaseModel):
     status: str  # pending | paid | refunded | disputed | failed
-    course_id: UUID
+    course_id: UUID | None = None
+    learning_path_id: UUID | None = None
 
 
 # ── module read (enrolled student only) ─────────────────────────────────────
@@ -328,6 +329,13 @@ class LearningPathCatalogOut(BaseModel):
     # answer it (a freshly-started path is 0% but is still yours), which is
     # the same distinction `CourseCatalogOut.enrolled` already draws.
     enrolled: bool = False
+    # Bundle pricing (2026-08-21) — null price_cents means not purchasable,
+    # same convention as Course. `fully_owned` is true iff the caller already
+    # has an active enrollment in every step's course, i.e. there's nothing
+    # left for a bundle purchase to grant.
+    price_cents: int | None = None
+    currency: str = "usd"
+    fully_owned: bool = False
 
 
 class MyCertificateOut(BaseModel):
@@ -363,6 +371,9 @@ class LearningPathDetailOut(BaseModel):
     mission_count: int
     total_duration_seconds: int
     steps: list[LearningPathStepOut]
+    price_cents: int | None = None
+    currency: str = "usd"
+    fully_owned: bool = False
 
 
 # ── leaderboard (P2-4) — not wired into any student-facing page yet, D6 is
@@ -398,3 +409,64 @@ class MyProgramOut(BaseModel):
     total_sessions: int
     courses: list[MyProgramCourseOut] = []
     missions: list = []  # Stage 5 fills this in; empty, not omitted, until then
+
+
+# ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
+
+LmsProgramItemStatus = Literal["pending", "done", "awaiting_confirmation"]
+
+
+class LmsProgramChecklistItemOut(BaseModel):
+    id: UUID
+    position: int
+    item_type: str
+    title: str
+    description: str | None = None
+    optional: bool
+    requires_confirmation: bool
+    status: LmsProgramItemStatus
+    # Resolved link, whatever the item type: a course id, a mission
+    # attempt id (the ops-assigned run itself, never the mission catalog
+    # entry), or the stored external_url — the frontend picks which by
+    # `item_type`, same shape the Poster tab already established.
+    course_id: UUID | None = None
+    mission_attempt_id: UUID | None = None
+    # mission_id/mission_kind: which route a mission_run item's "Continue"
+    # link needs — design/operate attempts have their own attempt-keyed
+    # page, every other kind is viewed inline on the mission's own page.
+    mission_id: UUID | None = None
+    mission_kind: str | None = None
+    external_url: str | None = None
+    submission_prompt: str | None = None
+    # What the student themself submitted back, for a `submission` item.
+    submitted_url: str | None = None
+
+
+class LmsProgramAssignmentSummaryOut(BaseModel):
+    assignment_id: UUID
+    lms_program_id: UUID
+    name: str
+    cohort_id: UUID | None = None
+    cohort_name: str | None = None
+    items_total: int
+    items_done: int
+    pct: int
+    next_item_title: str | None = None
+    certificate_required: bool
+    certificate_earned: bool
+
+
+class LmsProgramChecklistOut(BaseModel):
+    assignment_id: UUID
+    lms_program_id: UUID
+    name: str
+    description: str | None = None
+    cohort_id: UUID | None = None
+    cohort_name: str | None = None
+    certificate_required: bool
+    certificate_earned: bool
+    items: list[LmsProgramChecklistItemOut]
+
+
+class LmsProgramItemSubmitIn(BaseModel):
+    url: str

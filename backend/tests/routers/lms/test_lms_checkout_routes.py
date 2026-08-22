@@ -80,6 +80,7 @@ async def test_checkout_creates_session_for_paid_priced_course(db, client, monke
     assert resp.json()["checkout_url"] == "https://checkout.stripe.com/pay/cs_test_new"
 
     create_mock.assert_awaited_once()
+    assert create_mock.call_args.kwargs["allow_promotion_codes"] is True
 
     from sqlalchemy import select
     purchase = (await db.execute(

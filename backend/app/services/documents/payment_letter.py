@@ -4,7 +4,6 @@ Template: app/static/templates/docx/payment_letter.docx  (copy of original DOCX)
 No Jinja2/docxtpl — runs and table rows are patched directly.
 """
 
-import base64
 import copy
 import io
 import subprocess
@@ -14,7 +13,14 @@ from pathlib import Path
 
 from docx import Document
 from docx.oxml.ns import qn
-from docx.shared import Emu
+
+from app.services.documents.signature_block import (
+    SignatureParty,
+    column_headings,
+    decode_signature,
+    replace_signature_block,
+    template_signature_image,
+)
 
 _TEMPLATE = (
     Path(__file__).parent.parent.parent
@@ -99,64 +105,50 @@ def _fill_cell(cell, text: str) -> None:
         _ensure_rfonts(run, para)
 
 
-def _inject_signatures(
+def _rebuild_signature_block(
     doc: Document,
+    paras: list,
+    admin_name: str,
+    instructor_name: str,
+    signed_date: str | None,
     admin_sig_bytes: bytes | None,
     instructor_sig_b64: str | None,
 ) -> None:
-    """Embed signature images into P[31] (the "Signature:" row).
+    """Replace P[30]/P[31] — the signature block — with a two-column table.
 
-    P[31] XML structure:
-      run[0]: "Signature: " [7×<w:tab/>] "Signature:"
-      run[1]: <w:drawing> — anchored admin sig (rId6), posH≈0.05" from column, posV≈0.29" below para
-
-    Strategy: use a temp paragraph + add_picture() to register each image in the doc
-    package and get a valid rId, then either update the existing anchor (admin) or
-    clone it at the right-column position (instructor, ~4" from column left = 3,657,600 EMU).
+    The template spreads the block over two paragraphs (P[30] headings + the
+    "Name:"/"Date:" rows, P[31] the "Signature:" row with the admin's signature
+    anchored to it) and holds the columns apart with counted tab stops measured
+    against one pair of names. A longer name wraps the row and pushes the field
+    beside it out of column, so the whole block is rebuilt as a table instead —
+    see signature_block.py. The admin's signature falls back to the one baked
+    into the template when no override is supplied, as it did before.
     """
-    p31 = doc.paragraphs[31]
-    anchor_run = next(
-        (r for r in p31._p.findall(qn("w:r")) if r.find(qn("w:drawing")) is not None),
-        None,
+    template_sig, sig_size = template_signature_image(doc, paras[1])
+    left_heading, right_heading = column_headings(
+        paras[0].text, ("For SpacePoint FZC", "Facilitator")
     )
-    if anchor_run is None:
-        return
-
-    ext = anchor_run.find(".//" + qn("a:ext"))
-    sig_cx, sig_cy = int(ext.get("cx")), int(ext.get("cy"))
-    R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
-
-    def _register_image(img_bytes: bytes) -> str:
-        """Add image bytes to the doc package via a temp paragraph; return the new rId."""
-        tmp = doc.add_paragraph()
-        tmp.add_run().add_picture(io.BytesIO(img_bytes), width=Emu(sig_cx), height=Emu(sig_cy))
-        blip = tmp._p.find(".//" + qn("a:blip"))
-        rId = blip.get(f"{{{R_NS}}}embed")
-        tmp._p.getparent().remove(tmp._p)
-        return rId
-
-    if admin_sig_bytes:
-        new_rId = _register_image(admin_sig_bytes)
-        anchor_run.find(".//" + qn("a:blip")).set(f"{{{R_NS}}}embed", new_rId)
-
-    if instructor_sig_b64:
-        raw = instructor_sig_b64.split(",", 1)[-1] if "," in instructor_sig_b64 else instructor_sig_b64
-        new_rId = _register_image(base64.b64decode(raw))
-
-        instr_run = copy.deepcopy(anchor_run)
-        instr_run.find(".//" + qn("a:blip")).set(f"{{{R_NS}}}embed", new_rId)
-
-        # Shift to right column (~4 inches = 3,657,600 EMU from column left)
-        pos_h = instr_run.find(".//" + qn("wp:positionH"))
-        pos_h.find(qn("wp:posOffset")).text = "3657600"
-
-        # Unique shape IDs — must not collide with existing shapes in doc
-        instr_run.find(".//" + qn("wp:docPr")).set("id", "99")
-        instr_run.find(".//" + qn("wp:docPr")).set("name", "instructor_sig")
-        instr_run.find(".//" + qn("pic:cNvPr")).set("id", "99")
-        instr_run.find(".//" + qn("pic:cNvPr")).set("name", "instructor_sig")
-
-        p31._p.append(instr_run)
+    # Per the client's requirement, neither signature date shows until the
+    # instructor actually signs — `letter_date` (the letter's own issuance
+    # date, a separate concept) is still used in the P[1] header above.
+    date = signed_date or ""
+    replace_signature_block(
+        doc,
+        paras,
+        SignatureParty(
+            heading=left_heading,
+            name=admin_name,
+            date=date,
+            signature=admin_sig_bytes or template_sig,
+        ),
+        SignatureParty(
+            heading=right_heading,
+            name=instructor_name,
+            date=date,
+            signature=decode_signature(instructor_sig_b64),
+        ),
+        signature_size=sig_size,
+    )
 
 
 def generate_payment_letter_pdf(
@@ -212,34 +204,6 @@ def generate_payment_letter_pdf(
     paras[23].runs[1].text = f": {bank.get('iban', '')}"
     paras[24].runs[1].text = f" (if applicable): {bank.get('swift_bic', '')}"
 
-    # P[30]: signature block
-    # run[0]: bold header "For SpacePoint FZC [6×<w:tab/>] Facilitator" — keep as-is
-    # run[1]: 4 <w:t> nodes separated by <w:tab/> XML elements and <w:br/>:
-    #   [br] wt[0]="Name: admin" [5×tab] wt[1]="Name: instr" [5×tab] [br] wt[2]="Date: " [8×tab] wt[3]="Date: "
-    # The original template calibrated 8 tabs for the short "Date: " prefix (~0.45").
-    # "Date: DD Month YYYY" is ~1.05" wide, so 6 tabs reach the same right-column position.
-    #
-    # Per the client's requirement, neither signature date should show until the
-    # instructor actually signs — wt[2] (admin's date) previously showed
-    # `letter_date` (the letter's own issuance date, a separate concept still
-    # used correctly in the P[1] header above) regardless of signing status.
-    # Both dates now derive from `signed_date` only, so they always match.
-    r1 = paras[30].runs[1]._r
-    _wt(r1, 0, f"Name: {admin_signatory_name}")
-    _wt(r1, 1, f"Name: {instructor_name}")
-    _wt(r1, 2, f"Date: {signed_date}" if signed_date else "Date: ")
-    _wt(r1, 3, f"Date: {signed_date or ''}")
-    if signed_date:
-        # Only remove the width-compensating tabs once a full date is actually
-        # present — with "Date: " left short (unsigned), the original 8-tab
-        # spacing is still correct and must stay untouched.
-        wts = r1.findall(qn("w:t"))
-        children = list(r1)
-        idx2, idx3 = children.index(wts[2]), children.index(wts[3])
-        date_tabs = [c for c in children[idx2 + 1:idx3] if c.tag == qn("w:tab")]
-        for t in date_tabs[:2]:
-            r1.remove(t)
-
     # --- Table 0: Sessions ---
     tbl0 = doc.tables[0]
     orig_tr = tbl0.rows[1]._tr
@@ -269,7 +233,17 @@ def generate_payment_letter_pdf(
         _fill_cell(row.cells[1], _currency(a["amount_aed"]))
         _fill_cell(row.cells[2], a.get("notes", ""))
 
-    _inject_signatures(doc, admin_signature_bytes, instructor_signature_b64)
+    # Signature block last — it adds a table of its own, so it runs after the
+    # doc.tables[0]/[1] lookups above rather than renumbering them.
+    _rebuild_signature_block(
+        doc,
+        [paras[30], paras[31]],
+        admin_signatory_name,
+        instructor_name,
+        signed_date,
+        admin_signature_bytes,
+        instructor_signature_b64,
+    )
 
     buf = io.BytesIO()
     doc.save(buf)

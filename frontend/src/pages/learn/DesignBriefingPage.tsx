@@ -9,7 +9,7 @@
  * **No attempt row is created until "Begin design".** Reading the briefing,
  * or re-reading it, never burns a retry.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
 import { Boxes, ChevronRight, Gauge, Rocket, Target } from "lucide-react";
@@ -55,6 +55,19 @@ export default function DesignBriefingPage() {
   const [orbitType, setOrbitType] = useState("LEO");
   const [orbitDuration, setOrbitDuration] = useState("90");
   const [orbitsPerDay, setOrbitsPerDay] = useState("16");
+
+  const setupCardRef = useRef<HTMLDivElement>(null);
+  const missionNameInputRef = useRef<HTMLInputElement>(null);
+
+  const handleOpenSetup = () => {
+    setShowSetup(true);
+    setTimeout(() => {
+      setupCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => {
+        missionNameInputRef.current?.focus();
+      }, 350);
+    }, 100);
+  };
 
   const load = useCallback(() => {
     fetchDesignBriefing(missionId, search.variant)
@@ -235,7 +248,10 @@ export default function DesignBriefingPage() {
           guided objective (four short prompts beat one blank textarea),
           and the orbit this satellite flies. */}
       {showSetup && (
-        <Card className="p-5 flex flex-col gap-5">
+        <Card
+          ref={setupCardRef}
+          className="p-6 flex flex-col gap-5 scroll-mt-8 border border-primary/30 shadow-2xl shadow-primary/5 animate-in fade-in-0 slide-in-from-bottom-8 zoom-in-[0.98] duration-700 ease-out"
+        >
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name this mission</p>
             <p className="text-[11px] text-muted-foreground mt-1">
@@ -246,6 +262,7 @@ export default function DesignBriefingPage() {
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Mission Name</label>
             <input
+              ref={missionNameInputRef}
               value={missionName}
               onChange={(e) => setMissionName(e.target.value)}
               placeholder="e.g. EduSat-1"
@@ -332,7 +349,7 @@ export default function DesignBriefingPage() {
               {starting ? "Starting..." : "Begin design"}
             </Button>
           ) : (
-            <Button onClick={() => setShowSetup(true)} size="lg">
+            <Button onClick={handleOpenSetup} size="lg">
               Name this mission
             </Button>
           )}

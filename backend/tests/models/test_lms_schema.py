@@ -23,8 +23,8 @@ from app.models.lms import (
     ItemProgress,
     ModuleItem,
     ModuleVideo,
-    ProgramCurriculum,
 )
+from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
@@ -100,6 +100,13 @@ async def _program(db, code=None) -> Program:
     return program
 
 
+async def _lms_program(db, program: Program) -> LmsProgram:
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Test Checklist")
+    db.add(lms_program)
+    await db.flush()
+    return lms_program
+
+
 async def _registration(db, cohort=None) -> Registration:
     contact = Contact(id=uuid.uuid4(), full_name="Registrant", contact_roles=["student"])
     db.add(contact)
@@ -163,13 +170,15 @@ async def test_full_course_tree_with_video_state(db):
 
 
 @pytest.mark.asyncio
-async def test_curriculum_binding_and_enrollment_and_progress(db):
-    """The whole student path: program -> curriculum -> enrollment -> progress."""
+async def test_checklist_binding_and_enrollment_and_progress(db):
+    """The whole student path: program -> LMS Program checklist -> enrollment -> progress."""
     author = await _user(db)
     program = await _program(db)
     course = await _course(db, author=author)
-    db.add(ProgramCurriculum(
-        id=uuid.uuid4(), program_id=program.id, course_id=course.id, position=1,
+    lms_program = await _lms_program(db, program)
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="course", title=course.title, course_id=course.id,
     ))
     await db.flush()
 
@@ -313,29 +322,43 @@ async def test_one_progress_row_per_user_and_item(db):
 
 
 @pytest.mark.asyncio
-async def test_curriculum_cannot_list_a_course_twice(db):
+async def test_checklist_cannot_list_a_course_twice(db):
     author = await _user(db)
     program = await _program(db)
     course = await _course(db, author=author)
-    db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=course.id, position=1))
+    lms_program = await _lms_program(db, program)
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="course", title=course.title, course_id=course.id,
+    ))
     await db.flush()
     with pytest.raises(IntegrityError):
         async with db.begin_nested():
-            db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=course.id, position=2))
+            db.add(LmsProgramItem(
+                id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+                item_type="course", title=course.title, course_id=course.id,
+            ))
             await db.flush()
 
 
 @pytest.mark.asyncio
-async def test_curriculum_position_is_unique_per_program(db):
+async def test_checklist_position_is_unique_per_owner(db):
     author = await _user(db)
     program = await _program(db)
     a = await _course(db, author=author)
     b = await _course(db, author=author)
-    db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=a.id, position=1))
+    lms_program = await _lms_program(db, program)
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="course", title=a.title, course_id=a.id,
+    ))
     await db.flush()
     with pytest.raises(IntegrityError):
         async with db.begin_nested():
-            db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=b.id, position=1))
+            db.add(LmsProgramItem(
+                id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+                item_type="course", title=b.title, course_id=b.id,
+            ))
             await db.flush()
 
 

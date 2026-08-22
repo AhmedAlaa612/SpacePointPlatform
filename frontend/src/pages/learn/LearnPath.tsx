@@ -1,9 +1,16 @@
+import { useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ChevronRight, Download, Lock, Rocket, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { fetchLearningPath, fetchMyCertificates, startLearningPath, type LearningPathStep } from "@/api/lms";
+import {
+  fetchLearningPath, fetchMyCertificates, startLearningPath, startPathCheckout, type LearningPathStep,
+} from "@/api/lms";
 import { cn } from "@/lib/utils";
+
+function formatPrice(cents: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: currency.toUpperCase() }).format(cents / 100);
+}
 
 /** /learn/paths/$id — design 4a "The ledger": one full-bleed hero, a single
  * progress+stats row, and a numbered chapter list with hairline dividers
@@ -36,6 +43,13 @@ export default function LearnPath() {
       const target = updated.steps.find((s) => s.state === "current") ?? updated.steps.find((s) => s.state !== "mission" && s.state !== "done");
       if (target) void navigate({ to: `/learn/courses/${target.course_id}` });
     },
+  });
+
+  const [checkoutError, setCheckoutError] = useState("");
+  const checkout = useMutation({
+    mutationFn: () => startPathCheckout(pathId),
+    onSuccess: ({ checkout_url }) => { window.location.href = checkout_url; },
+    onError: () => setCheckoutError("Couldn't start checkout. Please try again."),
   });
 
   if (error) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-destructive">Couldn't load this learning path.</p></div>;
@@ -83,10 +97,29 @@ export default function LearnPath() {
             {path.mission_count > 0 && <Stat value={path.mission_count} label="missions" />}
             {totalHours > 0 && <Stat value={`${totalHours}h`} label="total" />}
           </div>
-          <Button size="xl" onClick={() => void start.mutate()} disabled={start.isPending} className="shrink-0">
-            {ctaLabel}
-            <ChevronRight className="size-4" />
-          </Button>
+          <div className="flex flex-col items-end gap-2 shrink-0">
+            <div className="flex items-center gap-2">
+              {path.price_cents != null && !path.fully_owned && (
+                <Button
+                  size="xl" variant={hasStarted ? "outline" : "default"}
+                  onClick={() => void checkout.mutate()} disabled={checkout.isPending}
+                >
+                  {checkout.isPending ? "Redirecting..." : `Buy path — ${formatPrice(path.price_cents, path.currency)}`}
+                </Button>
+              )}
+              {(path.price_cents == null || path.fully_owned || hasStarted) && (
+                <Button
+                  size="xl"
+                  variant={path.price_cents != null && !path.fully_owned ? "outline" : "default"}
+                  onClick={() => void start.mutate()} disabled={start.isPending}
+                >
+                  {ctaLabel}
+                  <ChevronRight className="size-4" />
+                </Button>
+              )}
+            </div>
+            {checkoutError && <p className="text-xs text-destructive">{checkoutError}</p>}
+          </div>
         </div>
 
         <div className="flex flex-col">

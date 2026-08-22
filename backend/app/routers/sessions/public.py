@@ -22,8 +22,6 @@ from app.models.inventory.location import Location
 from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.cohort_interest import CohortInterest
-from app.models.lms.curriculum import ProgramCurriculum
-from app.models.lms.course import Course
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.sessions.session import Session, SessionInstructor
@@ -33,6 +31,7 @@ from app.schemas.inventory.catalog import CityOut
 from app.schemas.sessions.catalog import CatalogCohortOut, CatalogSessionOut, PublicTicketOut
 from app.schemas.sessions.public_registration import PublicInterestRequest, PublicRegistrationRequest
 from app.services.documents.ticket import generate_ticket_qr_png
+from app.services.lms.program import resolve_course_titles_by_cohort
 from app.services.spine.identity import ensure_guardian_relationship, resolve_or_create_contact
 from app.services.sessions.registration import (
     ACTIVE_REGISTRATION_STATUSES,
@@ -80,13 +79,11 @@ async def public_catalog(db: AsyncSession = Depends(get_db)):
     )).all()
 
     cohort_ids = [cohort.id for cohort, _ in rows]
-    program_ids = {program.id for _, program in rows}
     location_ids = {cohort.location_id for cohort, _ in rows if cohort.location_id}
 
     active_counts: dict[uuid.UUID, int] = {}
     sessions_by_cohort: dict[uuid.UUID, list[Session]] = {}
     instructors_by_cohort: dict[uuid.UUID, set[str]] = {}
-    curriculum_by_program: dict[uuid.UUID, list[str]] = {}
     locations_by_id: dict[uuid.UUID, Location] = {}
 
     if location_ids:
@@ -126,15 +123,7 @@ async def public_catalog(db: AsyncSession = Depends(get_db)):
             for cohort_id, full_name in instructor_rows:
                 instructors_by_cohort.setdefault(cohort_id, set()).add(full_name)
 
-    if program_ids:
-        curriculum_rows = (await db.execute(
-            select(ProgramCurriculum.program_id, Course.title)
-            .join(Course, Course.id == ProgramCurriculum.course_id)
-            .where(ProgramCurriculum.program_id.in_(program_ids))
-            .order_by(ProgramCurriculum.position)
-        )).all()
-        for program_id, title in curriculum_rows:
-            curriculum_by_program.setdefault(program_id, []).append(title)
+    curriculum_by_cohort = await resolve_course_titles_by_cohort(db, cohort_ids) if cohort_ids else {}
 
     items: list[CatalogCohortOut] = []
     for cohort, program in rows:
@@ -179,7 +168,7 @@ async def public_catalog(db: AsyncSession = Depends(get_db)):
                 for s in sessions_by_cohort.get(cohort.id, [])
             ],
             instructors=sorted(instructors_by_cohort.get(cohort.id, set())),
-            curriculum_titles=curriculum_by_program.get(program.id, []),
+            curriculum_titles=curriculum_by_cohort.get(cohort.id, []),
         ))
 
     return items

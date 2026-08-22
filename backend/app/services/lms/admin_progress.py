@@ -5,8 +5,8 @@ every other progress-view precedent in this codebase (`session_lms_progress`
 is per-session, `my_programs` is per-cohort-registration) — there is no
 platform-wide matrix here.
 
-Course columns come from `resolve_cohort_curriculum` (the cohort's actual
-curriculum, override-aware) and completion is computed with
+Course columns come from `resolve_cohort_program_course_ids` (the cohort's
+LMS Program checklist's course items, override-aware) and completion is computed with
 `batch_course_completion` — one batched call per course, not one call per
 student per course (the N+1 shape already fixed once for
 `session_lms_progress`, B11).
@@ -34,7 +34,7 @@ from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.spine.organization import Organization
 from app.models.user import User
-from app.services.lms.curriculum import resolve_cohort_curriculum
+from app.services.lms.program import resolve_cohort_program_course_ids
 from app.services.lms.enrollment import enrollment_is_active
 from app.services.lms.progress import batch_course_completion
 from app.services.missions.best_attempt import best_attempt
@@ -120,7 +120,7 @@ async def cohort_progress_grid(db: AsyncSession, *, cohort_id: uuid.UUID) -> dic
     roster = await _cohort_roster(db, cohort_id)
     user_ids = [u.id for u in roster]
 
-    course_ids = await resolve_cohort_curriculum(db, cohort_id)
+    course_ids = await resolve_cohort_program_course_ids(db, cohort_id)
     courses = (
         (await db.execute(select(Course).where(Course.id.in_(course_ids)))).scalars().all()
         if course_ids else []

@@ -1,7 +1,8 @@
 """LM1-7 — the desk-registration/cancel wiring to the LMS: "Create LMS
-account" defaults on, creates a student account and enrolls in the program's
-curriculum, and cancelling a registration deactivates the enrollments it
-started (D4). Uses the same `_make_cohort` shape as test_registration_desk.py.
+account" defaults on, creates a student account and assigns the program's
+LMS Program checklist (2026-08-21 — enrolls every course item), and
+cancelling a registration deactivates the enrollments it started (D4). Uses
+the same `_make_cohort` shape as test_registration_desk.py.
 """
 
 import uuid
@@ -9,11 +10,22 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from app.models.lms import Course, Enrollment, ProgramCurriculum
+from app.models.lms import Course, Enrollment
+from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.spine.contact import Contact
 from app.models.user import User
+
+
+async def _attach_course_checklist(db, *, program: Program, course: Course) -> None:
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Desk Test Checklist")
+    db.add(lms_program)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="course", title=course.title, course_id=course.id,
+    ))
 
 
 async def _make_cohort(db, **overrides) -> Cohort:
@@ -50,7 +62,7 @@ async def test_desk_register_creates_lms_account_and_enrolls_by_default(db, clie
     program, cohort = await _make_cohort(db)
     course = Course(id=uuid.uuid4(), title="Curriculum Course", created_by=author.id, is_published=True)
     db.add(course)
-    db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=course.id, position=1))
+    await _attach_course_checklist(db, program=program, course=course)
     await db.commit()
 
     resp = await client.post(
@@ -104,7 +116,7 @@ async def test_cancel_registration_deactivates_its_lms_enrollments(db, client, o
     program, cohort = await _make_cohort(db)
     course = Course(id=uuid.uuid4(), title="Curriculum Course", created_by=author.id, is_published=True)
     db.add(course)
-    db.add(ProgramCurriculum(id=uuid.uuid4(), program_id=program.id, course_id=course.id, position=1))
+    await _attach_course_checklist(db, program=program, course=course)
     await db.commit()
 
     created = await client.post(

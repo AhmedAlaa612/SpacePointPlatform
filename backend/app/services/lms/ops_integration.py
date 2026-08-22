@@ -28,7 +28,7 @@ from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.documents.id_card import ensure_card_number
 from app.services.email import try_send_email
-from app.services.lms.curriculum import enroll_in_cohort_curriculum
+from app.services.lms.program import assign_lms_program
 from app.services.nicknames import assign_nickname
 
 logger = logging.getLogger("services.lms.ops_integration")
@@ -116,17 +116,21 @@ async def sync_registration_lms(
     db: AsyncSession, *, registration: Registration, cohort: Cohort, create_account: bool,
 ) -> User | None:
     """The D4 flow for one registration: find-or-create the student account,
-    enroll in every course in the program's curriculum, email the
-    set-password link (only for a genuinely new account — an existing one
-    has nothing to set). Never raises — an LMS-side hiccup must not break
-    registration, mirroring issue_ticket()'s "return False, log it" discipline."""
+    assign the cohort's LMS Program checklist if it has one (2026-08-21 —
+    enrolls every course item and assigns every mission_run item's attempt
+    immediately, same "enroll everything up front" behavior the old
+    curriculum table had; a no-op when the cohort has no checklist at
+    all), email the set-password link (only for a genuinely new account —
+    an existing one has nothing to set). Never raises — an LMS-side
+    hiccup must not break registration, mirroring issue_ticket()'s
+    "return False, log it" discipline."""
     if not create_account:
         return None
     try:
         user, created = await get_or_create_student_account(db, registration.contact_id)
         if user is None:
             return None
-        await enroll_in_cohort_curriculum(
+        await assign_lms_program(
             db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id,
         )
         if created:

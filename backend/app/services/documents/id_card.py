@@ -287,6 +287,19 @@ def render_card_png(
 
 # ── DB helper: ensure stable card_id ─────────────────────────────────────────
 
+def format_card_id(card_number: int, roles: list[str]) -> str:
+    """The one place `SP-####-UAE` (staff) vs `SP-ST-####-UAE` (student) gets
+    formatted — used at read time (routers/auth.py, routers/admin/users.py)
+    and at physical-card generation time (ensure_card_id below), so the
+    prefix logic can't drift between the two. `roles` decides the prefix,
+    never the number itself — student and staff numbers are drawn from
+    separate sequences (2026-08-22, operator: students and staff must not
+    look like they share a numbering pool) but a bare integer can't carry
+    that distinction on its own once printed."""
+    prefix = "SP-ST-" if "student" in roles else "SP-"
+    return f"{prefix}{card_number:04d}-UAE"
+
+
 async def ensure_card_number(db: AsyncSession, user: User) -> int:
     """Allocate (once) or return the shared per-person card number.
 
@@ -296,12 +309,20 @@ async def ensure_card_number(db: AsyncSession, user: User) -> int:
     create, bulk import, ...) rather than waiting for first-ever card view —
     "every account should have an ID the moment it exists" (operator ask,
     2026-08-17), not just accounts someone happened to view a card for.
+
+    Students draw from a separate `card_seq_student` sequence (2026-08-22)
+    — a student and a staff member never end up with the same-looking number
+    from what used to be one shared pool, and `format_card_id` above is what
+    turns that into a visually distinct prefix. Branches once, at
+    allocation time, on whichever roles the account holds right then — same
+    "allocate once, never revisited" posture as the number itself.
     """
     if user.card_number is not None:
         return user.card_number
 
     from sqlalchemy import text
-    number = (await db.execute(text("SELECT nextval('card_seq_person')"))).scalar_one()
+    sequence = "card_seq_student" if "student" in user.roles else "card_seq_person"
+    number = (await db.execute(text(f"SELECT nextval('{sequence}')"))).scalar_one()
     user.card_number = number
     return number
 
@@ -329,7 +350,7 @@ async def ensure_card_id(
 
     user = await db.get(User, user_id)
     number = await _ensure_person_number(db, user)
-    card_id = f"SP-{number:04d}-UAE"
+    card_id = format_card_id(number, user.roles)
 
     if existing:
         existing.card_id = card_id

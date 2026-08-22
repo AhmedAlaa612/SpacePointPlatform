@@ -68,10 +68,18 @@ export default function LearnCheckoutSuccess() {
         ) : result.status === "paid" ? (
           <>
             <CheckCircle2 className="size-10 text-emerald-500" />
-            <p className="text-sm font-medium">You're in! Your course is ready.</p>
-            <Link to="/learn/courses/$courseId" params={{ courseId: result.course_id }}>
-              <Button>Start learning</Button>
-            </Link>
+            <p className="text-sm font-medium">
+              {result.learning_path_id ? "You're in! Every course in the path is ready." : "You're in! Your course is ready."}
+            </p>
+            {result.learning_path_id ? (
+              <Link to="/learn/paths/$pathId" params={{ pathId: result.learning_path_id }}>
+                <Button>Start the path</Button>
+              </Link>
+            ) : (
+              <Link to="/learn/courses/$courseId" params={{ courseId: result.course_id! }}>
+                <Button>Start learning</Button>
+              </Link>
+            )}
           </>
         ) : (
           <>
@@ -81,9 +89,15 @@ export default function LearnCheckoutSuccess() {
                 ? "This payment didn't go through — nothing was charged."
                 : "This purchase isn't active right now."}
             </p>
-            <Link to="/learn/courses/$courseId" params={{ courseId: result.course_id }}>
-              <Button variant="outline">Back to the course</Button>
-            </Link>
+            {result.learning_path_id ? (
+              <Link to="/learn/paths/$pathId" params={{ pathId: result.learning_path_id }}>
+                <Button variant="outline">Back to the path</Button>
+              </Link>
+            ) : (
+              <Link to="/learn/courses/$courseId" params={{ courseId: result.course_id! }}>
+                <Button variant="outline">Back to the course</Button>
+              </Link>
+            )}
           </>
         )}
       </Card>

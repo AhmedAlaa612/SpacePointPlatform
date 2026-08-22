@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Home, GraduationCap, Bell, LogOut, Rocket, Search, Trophy, User, Gamepad2, ArrowLeftRight,
+  Home, GraduationCap, Bell, LogOut, Rocket, Search, Trophy, User, Gamepad2, ArrowLeftRight, ClipboardCheck,
 } from "lucide-react";
 import { DomainIcon } from "@/components/ui/DomainIcon";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
@@ -18,11 +18,12 @@ import { roleHomePath } from "@/lib/roleHome";
  * aren't nav entries any more (2026-08-12): discovery moved onto the landing
  * page's rails, and Profile was a duplicate of the avatar menu top-right.
  * They keep their keys so those pages can still mark themselves active. */
-export type LearnNavActive = "home" | "catalog" | "missions" | "paths" | "my-courses" | "games" | "leaderboard" | "profile";
+export type LearnNavActive = "home" | "catalog" | "missions" | "paths" | "checklists" | "my-courses" | "games" | "leaderboard" | "profile";
 
 const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: typeof Home }[] = [
   { key: "home", label: "Home", to: "/learn", icon: Home },
   { key: "my-courses", label: "My Learning", to: "/learn/my-courses", icon: GraduationCap },
+  { key: "checklists", label: "Programs", to: "/learn/checklists", icon: ClipboardCheck },
   { key: "missions", label: "Missions", to: "/learn/missions", icon: Rocket },
   { key: "games", label: "Live Quiz", to: "/learn/games", icon: Gamepad2 },
   { key: "leaderboard", label: "Leaderboard", to: "/learn/leaderboard", icon: Trophy },

@@ -71,6 +71,34 @@ class InviteCodeUpdate(BaseModel):
     expires_at: datetime | None = None
 
 
+# ── invite-code course/path grants (2026-08-21) ─────────────────────────────
+
+class InviteCodeGrantCreate(BaseModel):
+    course_id: UUID | None = None
+    learning_path_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> "InviteCodeGrantCreate":
+        if (self.course_id is None) == (self.learning_path_id is None):
+            raise ValueError("Provide exactly one of course_id or learning_path_id")
+        return self
+
+
+class InviteCodeGrantOut(BaseModel):
+    id: UUID
+    product_type: Literal["course", "learning_path"]
+    course_id: UUID | None = None
+    course_title: str | None = None
+    learning_path_id: UUID | None = None
+    learning_path_title: str | None = None
+    created_at: datetime | None = None
+
+
+class InviteCodeGrantCreateOut(BaseModel):
+    grant: InviteCodeGrantOut
+    accounts_enrolled: int
+
+
 # ── student management (2026-08-12) ─────────────────────────────────────────
 
 class StudentSummaryOut(BaseModel):
@@ -387,31 +415,70 @@ class ItemReorderIn(BaseModel):
     item_ids: list[UUID]
 
 
-# ── program curriculum ──────────────────────────────────────────────────────
+# ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
 
-class CurriculumEntryIn(BaseModel):
-    course_id: UUID
+LmsProgramItemType = Literal["course", "mission_run", "external_link", "submission", "article", "manual"]
+
+
+class LmsProgramItemIn(BaseModel):
+    item_type: LmsProgramItemType
+    title: str
+    description: str | None = None
+    optional: bool = False
+    requires_confirmation: bool = False
+    course_id: UUID | None = None
+    mission_id: UUID | None = None
+    variant_id: UUID | None = None
+    external_url: str | None = None
+    submission_prompt: str | None = None
     position: int | None = None
 
 
-class CurriculumEntryOut(BaseModel):
+class LmsProgramItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
-    program_id: UUID
-    course_id: UUID
     position: int
+    item_type: LmsProgramItemType
+    title: str
+    description: str | None
+    optional: bool
+    requires_confirmation: bool
+    course_id: UUID | None
+    mission_id: UUID | None
+    variant_id: UUID | None
+    external_url: str | None
+    submission_prompt: str | None
 
 
-class CohortCurriculumEntryOut(BaseModel):
+class LmsProgramCreate(BaseModel):
+    program_id: UUID | None = None
+    name: str
+    description: str | None = None
+    certificate_required: bool = True
+
+
+class LmsProgramUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    certificate_required: bool | None = None
+
+
+class LmsProgramOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    program_id: UUID | None
+    name: str
+    description: str | None
+    certificate_required: bool
+    items: list[LmsProgramItemOut] = []
+
+
+class LmsProgramCohortOverrideOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     cohort_id: UUID
-    course_id: UUID
-    position: int
-
-
-class ReconcileEnrollmentsOut(BaseModel):
-    created: int
+    lms_program_id: UUID
+    items: list[LmsProgramItemOut] = []
 
 
 # ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────
@@ -419,12 +486,18 @@ class ReconcileEnrollmentsOut(BaseModel):
 class LearningPathCreate(BaseModel):
     title: str
     description: str | None = None
+    # Bundle pricing (2026-08-21) — mirrors Course; null = not purchasable as
+    # a bundle, existing free `/start` self-enrol is unaffected either way.
+    price_cents: int | None = Field(default=None, ge=1)
+    currency: str = "usd"
 
 
 class LearningPathUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     is_published: bool | None = None
+    price_cents: int | None = Field(default=None, ge=1)
+    currency: str | None = None
 
 
 class LearningPathAdminOut(BaseModel):
@@ -436,6 +509,8 @@ class LearningPathAdminOut(BaseModel):
     created_by: UUID
     created_at: datetime | None
     image_url: str | None = None
+    price_cents: int | None = None
+    currency: str = "usd"
 
 
 class LearningPathStepIn(BaseModel):
