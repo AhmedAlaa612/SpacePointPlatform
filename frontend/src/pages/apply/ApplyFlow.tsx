@@ -4,6 +4,7 @@ import { useNavigate } from "@tanstack/react-router"
 import { ChevronRight, Upload, CheckCircle2 } from "lucide-react"
 import { getApplyQuestionsApi, submitApplicationApi } from "@/api/apply"
 import { applyInstructorApi } from "@/api/auth"
+import { fetchPublicCities } from "@/api/lms"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { CountrySelect } from "@/components/ui/CountrySelect"
@@ -48,10 +49,27 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
   const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Internship-specific fields (2026-08-20) — HANDOFF_INTERNSHIP.md: these
+  // travel through Application.answers under fixed keys, distinct from the
+  // per-role admin-configurable `questions` below, so they can drive
+  // structured letter-generation logic (a real city id, a real date) rather
+  // than free-text Q&A.
+  const isIntern = role === "intern"
+  const [universityId, setUniversityId] = useState("")
+  const [preferredCityId, setPreferredCityId] = useState("")
+  const [requestedStartDate, setRequestedStartDate] = useState("")
+  const [requestedDurationWeeks, setRequestedDurationWeeks] = useState("")
+
   const { data: questions = [] } = useQuery({
     queryKey: ["apply-questions", role],
     queryFn: () => getApplyQuestionsApi(role),
     enabled: ROLES_WITH_QUESTIONS.has(role),
+  })
+
+  const { data: workCities = [] } = useQuery({
+    queryKey: ["public-cities"],
+    queryFn: fetchPublicCities,
+    enabled: isIntern,
   })
 
   const submit = useMutation({
@@ -73,6 +91,12 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
       if (cityId)     form.append("city_id", cityId)
       if (inviteCode) form.append("invite_code", inviteCode)
       if (cv)         form.append("cv", cv)
+      if (isIntern) {
+        if (universityId.trim())        form.append("university_id_number", universityId.trim())
+        if (preferredCityId)            form.append("preferred_city_id", preferredCityId)
+        if (requestedStartDate)         form.append("requested_start_date", requestedStartDate)
+        if (requestedDurationWeeks)     form.append("requested_duration_weeks", requestedDurationWeeks)
+      }
       form.append("answers", JSON.stringify({
         ...answers,
         ...(cityOther && !cityId ? { city_other: cityOther } : {}),
@@ -222,6 +246,32 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
                       onChange={(e) => setCv(e.target.files?.[0] ?? null)} />
                   </label>
                 </Field>
+              )}
+
+              {isIntern && (
+                <>
+                  <Field label="University ID number">
+                    <input className="input" value={universityId}
+                      onChange={(e) => setUniversityId(e.target.value)} />
+                  </Field>
+                  <Field label="Which city do you want to work at?">
+                    <select className="input" value={preferredCityId}
+                      onChange={(e) => setPreferredCityId(e.target.value)}>
+                      <option value="">Select a city...</option>
+                      {workCities.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Preferred start date">
+                      <input className="input" type="date" value={requestedStartDate}
+                        onChange={(e) => setRequestedStartDate(e.target.value)} />
+                    </Field>
+                    <Field label="Duration (weeks)">
+                      <input className="input" type="number" min={1} value={requestedDurationWeeks}
+                        onChange={(e) => setRequestedDurationWeeks(e.target.value)} />
+                    </Field>
+                  </div>
+                </>
               )}
 
               {questions.map((q) => (
