@@ -3,11 +3,13 @@
 The signature block's Facilitator column was misaligned in the DOCX
 template pipeline (the "Date:" label sat a full inch left of its column,
 and the date itself was tab-snapped away from the label). Both were fixed
-in services/documents/contract.py on 2026-08-09. Unsigned drafts need no
-backfill — `_ensure_contract` (routers/instructors/instructor.py) already
-re-renders those from scratch on every profile load — but signed PDFs are
-written once at signing time and never touched again, so they keep the old
-broken layout forever unless something rewrites them. That's this script.
+in services/documents/contract.py on 2026-08-09, and the block was rebuilt
+as a table on 2026-08-22 so a long name can no longer break it at all.
+Unsigned drafts need no backfill — `_ensure_contract`
+(routers/instructors/instructor.py) already re-renders those from scratch on
+every profile load — but signed PDFs are written once at signing time and
+never touched again, so they keep the old broken layout forever unless
+something rewrites them. That's this script.
 
 Everything needed to reproduce a signed contract byte-for-byte (modulo the
 layout fix itself) is persisted on InstructorProfile: `contract_signature_data`
@@ -20,11 +22,13 @@ DECISIONS (operator, 2026-08-09)
     ever stops being true, this script would silently reprint a DIFFERENT
     city than the one signed against — re-check the assumption before reusing
     it for a later backfill.
-  * The date is re-derived as `contract_signed_at.strftime("%d %B %Y")`,
-    matching the signing endpoint exactly — zero-padded ("09 August 2026").
-    Note this differs from the unsigned-draft path, which prints a non-padded
-    day; that difference is pre-existing and deliberately preserved here so
-    the re-render matches what was actually signed.
+  * The date is re-derived as `instructor_since` — the day the role was
+    granted — via format_contract_date, matching both the signing endpoint
+    and the unsigned draft (2026-08-22: all three used to disagree; signing
+    printed the signing date, zero-padded, and this script reproduced that).
+    A re-render therefore CORRECTS the date on contracts signed before that
+    change rather than reproducing it; falls back to the signing date for a
+    row with no instructor_since.
   * The signed PDF is REPLACED IN PLACE at its existing `signed_contract_path`,
     with no archival copy of the original. The as-signed artifact is not
     recoverable afterwards. This was an explicit call made when exactly one
@@ -41,7 +45,7 @@ USAGE
 IDEMPOTENCY
     Safe to re-run: each run regenerates from the same persisted inputs and
     overwrites the same path, so a second run produces the same bytes as the
-    first (the printed date comes from contract_signed_at, never today).
+    first (the printed date comes from instructor_since, never today).
 """
 
 from __future__ import annotations
@@ -56,7 +60,7 @@ from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.user import User
 from app.routers.instructors.instructor import _resolve_living_area
 from app.services import storage
-from app.services.documents.contract import generate_contract_pdf
+from app.services.documents.contract import format_contract_date, generate_contract_pdf
 
 
 async def rerender_signed_contracts(db: AsyncSession, *, dry_run: bool = False) -> tuple[int, int]:
@@ -85,19 +89,21 @@ async def rerender_signed_contracts(db: AsyncSession, *, dry_run: bool = False) 
             continue
 
         living_area = await _resolve_living_area(db, user)
-        signed_date = profile.contract_signed_at.strftime("%d %B %Y")
+        contract_date = format_contract_date(
+            profile.instructor_since or profile.contract_signed_at.date()
+        )
 
         pdf_bytes = await asyncio.to_thread(
             generate_contract_pdf,
             user.full_name,
             living_area,
-            signed_date=signed_date,
+            contract_date=contract_date,
             instructor_signature_b64=profile.contract_signature_data,
         )
 
         if dry_run:
             print(f"  WOULD REPLACE {user.full_name} -> {profile.signed_contract_path} "
-                  f"({len(pdf_bytes)} bytes, city={living_area!r}, date={signed_date!r})")
+                  f"({len(pdf_bytes)} bytes, city={living_area!r}, date={contract_date!r})")
         else:
             url = await storage.upload_file(
                 "contracts", profile.signed_contract_path, pdf_bytes, "application/pdf"
@@ -106,7 +112,7 @@ async def rerender_signed_contracts(db: AsyncSession, *, dry_run: bool = False) 
             # it's still the fallback in _profile_out when path is unset.
             profile.signed_contract_url = url
             print(f"  REPLACED {user.full_name} -> {profile.signed_contract_path} "
-                  f"({len(pdf_bytes)} bytes, city={living_area!r}, date={signed_date!r})")
+                  f"({len(pdf_bytes)} bytes, city={living_area!r}, date={contract_date!r})")
         rerendered += 1
 
     await db.flush()

@@ -166,12 +166,23 @@ async def sign_contract(
     living_area = await _resolve_living_area(db, current_user)
 
     now = datetime.now(timezone.utc)
+    # The date printed on the contract is the day they BECAME an instructor,
+    # not the day they got around to signing (operator ask, 2026-08-22: someone
+    # who finished the pipeline on the 18th and signed on the 22nd was seeing
+    # the 22nd). The unsigned preview already prints `instructor_since` — see
+    # _ensure_contract — so signing must not silently move the date forward, or
+    # the PDF changes the moment you sign it. `contract_signed_at` below still
+    # records the real signing timestamp; that's the audit trail, not this.
+    # Formatted through format_contract_date for the same reason: strftime
+    # here used to zero-pad the day ("08 August"), so a signed contract didn't
+    # even match the draft it was signed from.
+    contract_date = format_contract_date(profile.instructor_since or now.date())
     try:
         pdf_bytes = await asyncio.to_thread(
             generate_contract_pdf,
             current_user.full_name,
             living_area,
-            contract_date=now.strftime("%d %B %Y"),
+            contract_date=contract_date,
             instructor_signature_b64=body.signature,
         )
         signed_path = f"{current_user.id}/signed.pdf"

@@ -14,12 +14,14 @@ read back out of the template so the block still follows whatever the template
 says, and their signature image is lifted out of the template's anchor and
 redrawn inline in its own cell.
 
-Both parties' dates are always filled with the same value: `signed_date` once
-the instructor has actually signed, otherwise today's date (2026-08-09:
-previously left blank pre-signing — changed on operator request so an unsigned
-contract still shows a live, correct preview of both parties' dates rather than
-looking half-finished). The Facilitator's SIGNATURE IMAGE is the only piece
-still gated on actually signing.
+Both parties' dates are always filled with the same value — whatever
+`contract_date` the caller passes, which is `instructor_since`, the day the
+role was granted (2026-08-09: previously left blank pre-signing — changed on
+operator request so an unsigned contract still shows a live, correct preview
+of both parties' dates rather than looking half-finished; 2026-08-22: signing
+used to overwrite it with the signing date, so the date moved the moment you
+signed). The Facilitator's SIGNATURE IMAGE is the only piece that changes on
+signing.
 """
 
 import io
@@ -109,11 +111,12 @@ def generate_contract_pdf(
     contract_date: str | None = None,
     instructor_signature_b64: str | None = None,
 ) -> bytes:
-    """`contract_date` is whatever date should print on the PDF — the frozen
-    `instructor_since` date for an unsigned preview, or the real signing
-    timestamp when `instructor_signature_b64` is given. Falls back to
-    today only if the caller has no date on file at all (shouldn't happen
-    once instructor_since is always set — see instructor_profile.py)."""
+    """`contract_date` is whatever date should print on the PDF: the frozen
+    `instructor_since` date, for the unsigned preview and the signed copy
+    alike — signing does not move it (the real signing timestamp lives in
+    `contract_signed_at`, not on the page). Falls back to today only if the
+    caller has no date on file at all (shouldn't happen once instructor_since
+    is always set — see instructor_profile.py)."""
     today = contract_date or format_contract_date(date.today())
 
     tpl = DocxTemplate(str(_TEMPLATE))
