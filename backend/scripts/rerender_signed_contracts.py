@@ -40,7 +40,14 @@ and `signed_contract_path` are all left exactly as they are — this is not a
 re-signing, and it must never look like one.
 
 USAGE
-    python -m scripts.rerender_signed_contracts [--dry-run]
+    python -m scripts.rerender_signed_contracts [--dry-run] [--email EMAIL]
+
+    --email scopes the run to that one instructor instead of every signed
+    contract — for fixing a single reported-broken contract without
+    overwriting everyone else's already-signed PDF too (operator ask,
+    2026-08-22: exactly this case — one instructor's long name broke their
+    layout, the fix shouldn't touch anyone whose contract already looked
+    fine).
 
 IDEMPOTENCY
     Safe to re-run: each run regenerates from the same persisted inputs and
@@ -63,17 +70,25 @@ from app.services import storage
 from app.services.documents.contract import format_contract_date, generate_contract_pdf
 
 
-async def rerender_signed_contracts(db: AsyncSession, *, dry_run: bool = False) -> tuple[int, int]:
-    """Re-render every signed contract in place. Returns (rerendered, skipped).
+async def rerender_signed_contracts(
+    db: AsyncSession, *, dry_run: bool = False, email: str | None = None,
+) -> tuple[int, int]:
+    """Re-render signed contracts in place. Returns (rerendered, skipped).
+
+    `email` scopes this to one instructor's contract instead of every signed
+    one — see USAGE in the module docstring.
 
     Flushes but never commits/rolls back — that's the caller's job, matching
     scripts/backfill_user_contacts.py.
     """
-    rows = (await db.execute(
+    query = (
         select(InstructorProfile, User)
         .join(User, User.id == InstructorProfile.user_id)
         .where(InstructorProfile.contract_signed_at.is_not(None))
-    )).all()
+    )
+    if email is not None:
+        query = query.where(User.email == email)
+    rows = (await db.execute(query)).all()
 
     rerendered = skipped = 0
     for profile, user in rows:
@@ -119,11 +134,18 @@ async def rerender_signed_contracts(db: AsyncSession, *, dry_run: bool = False) 
     return rerendered, skipped
 
 
-async def run(dry_run: bool = False) -> tuple[int, int]:
+async def run(dry_run: bool = False, email: str | None = None) -> tuple[int, int]:
     from app.db.session import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
-        rerendered, skipped = await rerender_signed_contracts(db, dry_run=dry_run)
+        rerendered, skipped = await rerender_signed_contracts(db, dry_run=dry_run, email=email)
+        if email is not None and rerendered == 0 and skipped == 0:
+            # Distinguish "found them, nothing to do" from "typo'd the email
+            # and silently matched nobody" — the latter must not print the
+            # same all-clear as a real no-op run.
+            print(f"[rerender_signed_contracts] no signed contract found for {email!r} — "
+                  f"check the email is correct and that they've actually signed.")
+            return rerendered, skipped
         if dry_run:
             await db.rollback()
             print(f"[rerender_signed_contracts] DRY RUN — would re-render {rerendered} "
@@ -139,12 +161,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--dry-run", action="store_true",
                    help="Report what would be replaced; write nothing to storage or the DB.")
+    p.add_argument("--email", default=None,
+                   help="Only re-render this one instructor's signed contract, by login email.")
     return p.parse_args(argv)
 
 
 def main() -> None:
     args = parse_args()
-    asyncio.run(run(dry_run=args.dry_run))
+    asyncio.run(run(dry_run=args.dry_run, email=args.email))
 
 
 if __name__ == "__main__":
