@@ -1,7 +1,12 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, FileText, ClipboardCheck } from "lucide-react"
+import { useNavigate } from "@tanstack/react-router"
+import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, FileText, ClipboardCheck, ChevronDown, ChevronRight } from "lucide-react"
+import { isAxiosError } from "axios"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
+import { Button } from "@/components/ui/button"
+import { ConfirmDialog } from "@/pages/admin/components/common"
+import { useAuth } from "@/context/AuthContext"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { getCohortsApi } from "@/api/sessions/cohorts"
 import { listCoursesApi } from "@/api/lms_admin"
@@ -10,9 +15,25 @@ import {
   listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, updateLmsProgramApi,
   addLmsProgramItemApi, updateLmsProgramItemApi, deleteLmsProgramItemApi,
   getCohortProgramOverrideApi, addCohortOverrideItemApi, updateCohortOverrideItemApi, deleteCohortOverrideItemApi,
+  getMyReachableProgramsApi, getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi,
+  getAssignmentItemsApi,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType,
+  type LmsProgramRosterRow, type LmsAssignmentItemDetail,
 } from "@/api/lms_admin"
+import {
+  myInstructorCohortsApi, instructorStepGatesApi, setInstructorStepGateApi,
+  instructorStepSelectionApi, setInstructorStepSelectionApi, clearInstructorStepSelectionApi,
+  instructorReviewQueueApi, instructorReviewAttemptApi, instructorOverrideAttemptApi,
+  type InstructorCohort,
+} from "@/api/missionsInstructor"
+import { fetchMissionCatalog } from "@/api/missions"
 import type { Program } from "@/types/sessions"
+import type { ManagedAttempt } from "@/api/missions_manager"
+
+function errorDetail(err: unknown, fallback: string): string {
+  if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
+  return fallback
+}
 
 const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookOpen }[] = [
   { value: "course", label: "Course", icon: BookOpen },
@@ -23,19 +44,45 @@ const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookO
   { value: "manual", label: "Manual check-off", icon: ClipboardCheck },
 ]
 
-/** Replaces LmsCurriculum.tsx (2026-08-21) — the flat program_curriculum
- * course list is gone; a program's LMS view is now a full checklist
- * (LmsProgram/LmsProgramItem). Same nav slot (`/lms-authoring/curriculum`,
- * Sidebar's "Curriculum" entry, relabeled "Programs"). */
+type Scope = "program" | { cohortId: string; cohortName: string }
+type SubTab = "checklist" | "missions" | "progress" | "review"
+const SUBTAB_LABEL: Record<SubTab, string> = {
+  checklist: "Checklist", missions: "Missions", progress: "Progress", review: "Review",
+}
+
+/** The one LMS Programs page (2026-08-22 merge) — absorbs what used to be
+ * the separate Cohort Missions page. Operator's own framing: pick a
+ * program, see its template + mission runs + student progress/submissions;
+ * pick a cohort and the same four views switch into that cohort's own
+ * scope (override checklist, gated missions, cohort-only roster/review).
+ * Instructors get the same page, restricted to their own programs/cohorts
+ * (`getMyReachableProgramsApi`/`myInstructorCohortsApi`, both already
+ * scoped server-side the same way `/missions/instructor/*` always has
+ * been) and read-only on the checklist itself — editing the template or a
+ * cohort's override stays ops-only, same boundary as before this merge.
+ * Replaces `LmsCurriculum.tsx` (2026-08-21) and `CohortMissions.tsx`
+ * (2026-08-17, removed entirely by this change). */
 export default function LmsProgramAdmin() {
-  const [programId, setProgramId] = useState("")
-  const { data: programs = [], isLoading: programsLoading } = useQuery<Program[]>({
-    queryKey: ["sessions-programs"], queryFn: getProgramsApi,
+  const { currentUser } = useAuth()
+  const isStaff = currentUser?.role !== "instructor"
+
+  const { data: staffPrograms = [], isLoading: staffProgramsLoading } = useQuery<Program[]>({
+    queryKey: ["sessions-programs"], queryFn: getProgramsApi, enabled: isStaff,
   })
+  const { data: myPrograms = [], isLoading: myProgramsLoading } = useQuery<LmsProgram[]>({
+    queryKey: ["my-reachable-lms-programs"], queryFn: getMyReachableProgramsApi, enabled: !isStaff,
+  })
+
+  const [programId, setProgramId] = useState("")
+  const programsLoading = isStaff ? staffProgramsLoading : myProgramsLoading
+  const preloadedProgram = !isStaff ? myPrograms.find((p) => p.program_id === programId) : undefined
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="LMS Programs" subtitle="The checklist each program's students see in the LMS — courses, mission runs, submissions, and manual steps, in order." />
+      <PageHeader
+        title="Programs"
+        subtitle="Each program's checklist, mission runs, and student progress — pick a cohort to see its own overridden checklist, gated missions, and submissions."
+      />
 
       <div className="max-w-sm">
         <select
@@ -43,36 +90,49 @@ export default function LmsProgramAdmin() {
           className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
         >
           <option value="">Select a program…</option>
-          {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          {isStaff
+            ? staffPrograms.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)
+            : myPrograms.map((p) => <option key={p.id} value={p.program_id ?? ""}>{p.name}</option>)}
         </select>
       </div>
 
       {programsLoading ? (
         <Spinner />
       ) : !programId ? (
-        <EmptyState title="Pick a program" hint="Choose a program above to manage its checklist." />
+        <EmptyState
+          title="Pick a program"
+          hint={isStaff ? "Choose a program above to manage its checklist, missions, and student progress." : "Only programs attached to your own cohorts show up here."}
+        />
       ) : (
-        <ProgramChecklist key={programId} programId={programId} />
+        <ProgramWorkspace key={programId} programId={programId} isStaff={isStaff} preloadedProgram={preloadedProgram} />
       )}
     </div>
   )
 }
 
-function ProgramChecklist({ programId }: { programId: string }) {
+function ProgramWorkspace({
+  programId, isStaff, preloadedProgram,
+}: { programId: string; isStaff: boolean; preloadedProgram?: LmsProgram }) {
   const queryClient = useQueryClient()
-  const [tab, setTab] = useState<"template" | { cohortId: string }>("template")
+  const [scope, setScope] = useState<Scope>("program")
+  const [subtab, setSubtab] = useState<SubTab>("checklist")
 
   const { data: found = [], isLoading } = useQuery<LmsProgram[]>({
-    queryKey: ["lms-program-for-program", programId],
-    queryFn: () => listLmsProgramsApi(programId),
+    queryKey: ["lms-program-for-program", programId], queryFn: () => listLmsProgramsApi(programId),
+    enabled: isStaff,
   })
-
   const [created, setCreated] = useState<LmsProgram | null>(null)
-  const effective = created ?? found[0] ?? null
+  const effective = created ?? (isStaff ? found[0] : preloadedProgram) ?? null
 
-  const { data: cohorts = [] } = useQuery({
-    queryKey: ["sessions-cohorts", programId], queryFn: () => getCohortsApi(programId),
+  const { data: staffCohorts = [] } = useQuery({
+    queryKey: ["sessions-cohorts", programId], queryFn: () => getCohortsApi(programId), enabled: isStaff,
   })
+  const { data: instructorCohorts = [] } = useQuery<InstructorCohort[]>({
+    queryKey: ["instructor-cohorts"], queryFn: myInstructorCohortsApi, enabled: !isStaff,
+  })
+  const cohorts = isStaff
+    ? staffCohorts.map((c) => ({ id: c.id, name: c.name }))
+    : instructorCohorts.filter((c) => c.program_id === programId).map((c) => ({ id: c.id, name: c.name }))
 
   const createMutation = useMutation({
     mutationFn: (name: string) => createLmsProgramApi({ program_id: programId, name }),
@@ -80,46 +140,80 @@ function ProgramChecklist({ programId }: { programId: string }) {
   })
 
   const refresh = async () => {
-    if (!effective) return
-    const fresh = await getLmsProgramApi(effective.id)
-    setCreated(fresh)
-    void queryClient.invalidateQueries({ queryKey: ["lms-program-for-program", programId] })
+    if (isStaff && effective) {
+      const fresh = await getLmsProgramApi(effective.id)
+      setCreated(fresh)
+      void queryClient.invalidateQueries({ queryKey: ["lms-program-for-program", programId] })
+    } else {
+      void queryClient.invalidateQueries({ queryKey: ["my-reachable-lms-programs"] })
+    }
   }
 
-  if (isLoading) return <Spinner />
+  if (isStaff && isLoading) return <Spinner />
 
   if (!effective) {
+    if (!isStaff) {
+      return <EmptyState title="This program has no LMS checklist yet" hint="Ask ops to create one — instructors can't start a program's checklist from scratch." />
+    }
     return <CreateChecklistPrompt onCreate={(name) => createMutation.mutate(name)} pending={createMutation.isPending} />
   }
 
   return (
-    <div className="flex flex-col gap-5 max-w-3xl">
-      <div className="flex items-center gap-1 border-b border-border">
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
         <button
-          onClick={() => setTab("template")}
-          className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
-            tab === "template" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+          onClick={() => setScope("program")}
+          className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer whitespace-nowrap ${
+            scope === "program" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
           }`}
         >
-          Program template
+          Program
         </button>
         {cohorts.map((c) => (
           <button
             key={c.id}
-            onClick={() => setTab({ cohortId: c.id })}
+            onClick={() => setScope({ cohortId: c.id, cohortName: c.name })}
             className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer whitespace-nowrap ${
-              typeof tab === "object" && tab.cohortId === c.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              typeof scope === "object" && scope.cohortId === c.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
-            {c.name} override
+            {c.name}
           </button>
         ))}
       </div>
 
-      {tab === "template" ? (
-        <ProgramTemplateEditor program={effective} onChanged={refresh} />
-      ) : (
-        <CohortOverrideEditor cohortId={tab.cohortId} />
+      <div className="flex gap-1 border-b border-border">
+        {(["checklist", "missions", "progress", "review"] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setSubtab(t)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              subtab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          >
+            {SUBTAB_LABEL[t]}
+          </button>
+        ))}
+      </div>
+
+      {subtab === "checklist" && (
+        scope === "program"
+          ? <ProgramTemplateEditor program={effective} onChanged={refresh} readOnly={!isStaff} />
+          : <CohortOverrideEditor cohortId={scope.cohortId} readOnly={!isStaff} />
+      )}
+      {subtab === "missions" && (
+        scope === "program"
+          ? <ProgramMissionsPanel items={effective.items} />
+          : <CohortMissionsPanel cohortId={scope.cohortId} />
+      )}
+      {subtab === "progress" && (
+        scope === "program"
+          ? <ProgressPanel lmsProgramId={effective.id} scopeLabel="every cohort using this program" />
+          : <ProgressPanel cohortId={scope.cohortId} scopeLabel={scope.cohortName} />
+      )}
+      {subtab === "review" && (
+        scope === "program"
+          ? <EmptyState title="Pick a cohort to review submissions" hint="A mission run's review queue is always cohort-scoped." />
+          : <ReviewScopePanel cohortId={scope.cohortId} />
       )}
     </div>
   )
@@ -145,7 +239,9 @@ function CreateChecklistPrompt({ onCreate, pending }: { onCreate: (name: string)
   )
 }
 
-function ProgramTemplateEditor({ program, onChanged }: { program: LmsProgram; onChanged: () => void }) {
+function ProgramTemplateEditor({
+  program, onChanged, readOnly,
+}: { program: LmsProgram; onChanged: () => void; readOnly: boolean }) {
   const toggleCert = useMutation({
     mutationFn: (value: boolean) => updateLmsProgramApi(program.id, { certificate_required: value }),
     onSuccess: onChanged,
@@ -159,23 +255,17 @@ function ProgramTemplateEditor({ program, onChanged }: { program: LmsProgram; on
           <div className="text-xs text-muted-foreground mt-0.5">Cohort certificate needs every required step done</div>
         </div>
         <button
-          type="button"
-          onClick={() => toggleCert.mutate(!program.certificate_required)}
-          className={`w-10 h-6 rounded-full relative transition-colors cursor-pointer shrink-0 ${
-            program.certificate_required ? "bg-primary" : "bg-muted"
-          }`}
-          aria-pressed={program.certificate_required}
+          onClick={() => !readOnly && toggleCert.mutate(!program.certificate_required)}
+          disabled={readOnly}
+          className={`w-10 h-6 rounded-full relative transition-colors ${readOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${program.certificate_required ? "bg-primary" : "bg-muted"}`}
         >
-          <span
-            className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${
-              program.certificate_required ? "translate-x-4" : "translate-x-0"
-            }`}
-          />
+          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${program.certificate_required ? "translate-x-5" : "translate-x-1"}`} />
         </button>
       </div>
 
       <ChecklistItemsEditor
         items={program.items}
+        readOnly={readOnly}
         onAdd={(data) => addLmsProgramItemApi(program.id, data).then(onChanged)}
         onUpdate={(itemId, data) => updateLmsProgramItemApi(program.id, itemId, data).then(onChanged)}
         onDelete={(itemId) => deleteLmsProgramItemApi(program.id, itemId).then(onChanged)}
@@ -184,52 +274,44 @@ function ProgramTemplateEditor({ program, onChanged }: { program: LmsProgram; on
   )
 }
 
-function CohortOverrideEditor({ cohortId }: { cohortId: string }) {
+function CohortOverrideEditor({ cohortId, readOnly }: { cohortId: string; readOnly: boolean }) {
   const queryClient = useQueryClient()
-  const { data: override, isLoading, error } = useQuery({
+  const { data: override, isLoading } = useQuery({
     queryKey: ["lms-cohort-override", cohortId],
     queryFn: () => getCohortProgramOverrideApi(cohortId),
-    retry: false,
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-cohort-override", cohortId] })
 
   if (isLoading) return <Spinner />
-
-  if (error || !override) {
-    return (
-      <div className="flex flex-col gap-4">
-        <EmptyState
-          title="This cohort has no checklist override"
-          hint="Add an item below to start one — from that point on this cohort's checklist replaces the program's outright, never merged."
-        />
-        <ChecklistItemsEditor
-          items={[]}
-          onAdd={(data) => addCohortOverrideItemApi(cohortId, data).then(invalidate)}
-          onUpdate={() => Promise.resolve()}
-          onDelete={() => Promise.resolve()}
-        />
-      </div>
-    )
-  }
+  if (!override) return <EmptyState title="This cohort's program has no checklist yet" />
 
   return (
-    <ChecklistItemsEditor
-      items={override.items}
-      onAdd={(data) => addCohortOverrideItemApi(cohortId, data).then(invalidate)}
-      onUpdate={(itemId, data) => updateCohortOverrideItemApi(cohortId, itemId, data).then(invalidate)}
-      onDelete={(itemId) => deleteCohortOverrideItemApi(cohortId, itemId).then(invalidate)}
-    />
+    <div className="flex flex-col gap-3">
+      {override.is_inherited && (
+        <div className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-xl px-3 py-2">
+          Showing the program's own checklist — {readOnly ? "nothing has been overridden for this cohort yet." : "edit anything below to start this cohort's own override."}
+        </div>
+      )}
+      <ChecklistItemsEditor
+        items={override.items}
+        readOnly={readOnly}
+        onAdd={(data) => addCohortOverrideItemApi(cohortId, data).then(invalidate)}
+        onUpdate={(itemId, data) => updateCohortOverrideItemApi(cohortId, itemId, data).then(invalidate)}
+        onDelete={(itemId) => deleteCohortOverrideItemApi(cohortId, itemId).then(invalidate)}
+      />
+    </div>
   )
 }
 
 function ChecklistItemsEditor({
-  items, onAdd, onUpdate, onDelete,
+  items, onAdd, onUpdate, onDelete, readOnly,
 }: {
   items: LmsProgramItem[]
   onAdd: (data: LmsProgramItemInput) => Promise<unknown>
   onUpdate: (itemId: string, data: LmsProgramItemInput) => Promise<unknown>
   onDelete: (itemId: string) => Promise<unknown>
+  readOnly: boolean
 }) {
   const [addingType, setAddingType] = useState<LmsProgramItemType | null>(null)
 
@@ -238,10 +320,10 @@ function ChecklistItemsEditor({
       {items.length === 0 && addingType === null && <EmptyState title="No steps yet" />}
 
       {items.map((item) => (
-        <ItemRow key={item.id} item={item} onUpdate={onUpdate} onDelete={onDelete} />
+        <ItemRow key={item.id} item={item} onUpdate={onUpdate} onDelete={onDelete} readOnly={readOnly} />
       ))}
 
-      {addingType ? (
+      {readOnly ? null : addingType ? (
         <ItemForm
           itemType={addingType}
           onCancel={() => setAddingType(null)}
@@ -272,11 +354,12 @@ const ITEM_TYPE_META: Record<LmsProgramItemType, { label: string; icon: typeof B
 ) as Record<LmsProgramItemType, { label: string; icon: typeof BookOpen }>
 
 function ItemRow({
-  item, onUpdate, onDelete,
+  item, onUpdate, onDelete, readOnly,
 }: {
   item: LmsProgramItem
   onUpdate: (itemId: string, data: LmsProgramItemInput) => Promise<unknown>
   onDelete: (itemId: string) => Promise<unknown>
+  readOnly: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const meta = ITEM_TYPE_META[item.item_type]
@@ -308,15 +391,19 @@ function ItemRow({
         </div>
         <div className="text-xs text-muted-foreground">{meta.label}</div>
       </div>
-      <button onClick={() => setEditing(true)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">
-        Edit
-      </button>
-      <button
-        onClick={() => onDelete(item.id)}
-        className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"
-      >
-        <X size={14} />
-      </button>
+      {!readOnly && (
+        <>
+          <button onClick={() => setEditing(true)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">
+            Edit
+          </button>
+          <button
+            onClick={() => onDelete(item.id)}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"
+          >
+            <X size={14} />
+          </button>
+        </>
+      )}
     </div>
   )
 }
@@ -449,6 +536,470 @@ function ItemForm({
           Cancel
         </button>
       </div>
+    </div>
+  )
+}
+
+// ── Missions ─────────────────────────────────────────────────────────────
+// "a tab to create special mission runs for the program and add them to the
+// program checklist" (operator, 2026-08-22) — the mission_run items already
+// live in the checklist (Checklist tab handles authoring them); this tab is
+// where they're surfaced on their own, and where a cohort's gates/step
+// selection for each one lives.
+
+function ProgramMissionsPanel({ items }: { items: LmsProgramItem[] }) {
+  const missionItems = items.filter((i) => i.item_type === "mission_run")
+  if (missionItems.length === 0) {
+    return <EmptyState title="No mission runs on this checklist yet" hint='Add one from the Checklist tab ("Mission run").' />
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-muted-foreground">
+        Every mission run on this program's checklist. Pick a cohort to gate steps or choose which build steps apply
+        for that cohort's run — gating is always cohort-specific.
+      </p>
+      {missionItems.map((item) => (
+        <div key={item.id} className="flex items-center gap-3 p-3 bg-card border border-border rounded-xl">
+          <Rocket size={16} className="text-primary shrink-0" />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium truncate">{item.title}</div>
+            {item.description && <div className="text-xs text-muted-foreground truncate">{item.description}</div>}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CohortMissionsPanel({ cohortId }: { cohortId: string }) {
+  const { data: override, isLoading } = useQuery({
+    queryKey: ["lms-cohort-override", cohortId], queryFn: () => getCohortProgramOverrideApi(cohortId),
+  })
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  if (isLoading) return <Spinner />
+  const missionItems = (override?.items ?? []).filter((i) => i.item_type === "mission_run" && i.mission_id)
+  if (missionItems.length === 0) {
+    return <EmptyState title="No mission runs on this cohort's checklist" />
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {missionItems.map((item) => (
+        <div key={item.id} className="border border-border rounded-xl overflow-hidden">
+          <button
+            onClick={() => setExpanded(expanded === item.id ? null : item.id)}
+            className="w-full flex items-center gap-3 p-3 bg-card hover:bg-muted/40 transition-colors cursor-pointer text-left"
+          >
+            {expanded === item.id ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
+            <Rocket size={16} className="text-primary shrink-0" />
+            <span className="text-sm font-medium truncate">{item.title}</span>
+          </button>
+          {expanded === item.id && item.mission_id && (
+            <div className="p-3 border-t border-border flex flex-col gap-4 bg-background">
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Steps included</div>
+                <StepsTab cohortId={cohortId} missionId={item.mission_id} />
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Gates</div>
+                <GatesTab cohortId={cohortId} missionId={item.mission_id} />
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Compositional step selection (2026-08-17) — which of the 9 Design build
+ * steps even apply to this cohort's run, distinct from `GatesTab`'s
+ * temporal lock/unlock below. The dependency graph is never hardcoded
+ * here — it's built purely from each step's `prereqs`, as served by the
+ * backend, so this can never drift from the real math. */
+function StepsTab({ cohortId, missionId }: { cohortId: string; missionId: string }) {
+  const queryClient = useQueryClient()
+  const queryKey = ["instructor-step-selection", cohortId, missionId]
+  const { data, isLoading } = useQuery({
+    queryKey, queryFn: () => instructorStepSelectionApi(cohortId, missionId),
+  })
+  const [pendingRemoval, setPendingRemoval] = useState<{ stepKey: string; dependents: string[] } | null>(null)
+  const [error, setError] = useState("")
+
+  const putMutation = useMutation({
+    mutationFn: (stepKeys: string[]) => setInstructorStepSelectionApi(cohortId, missionId, stepKeys),
+    onSuccess: (next) => {
+      queryClient.setQueryData(queryKey, next)
+      setPendingRemoval(null)
+      setError("")
+    },
+    onError: (err) => setError(errorDetail(err, "Couldn't update the step selection.")),
+  })
+  const resetMutation = useMutation({
+    mutationFn: () => clearInstructorStepSelectionApi(cohortId, missionId),
+    onSuccess: (next) => queryClient.setQueryData(queryKey, next),
+  })
+
+  if (isLoading) return <Spinner />
+  if (!data) return null
+
+  const labelFor = (key: string) => data.steps.find((s) => s.step_key === key)?.label ?? key
+  const prereqsByKey = Object.fromEntries(data.steps.map((s) => [s.step_key, s.prereqs]))
+  const includedKeys = data.steps.filter((s) => s.included).map((s) => s.step_key)
+
+  const closure = (start: string[]): Set<string> => {
+    const result = new Set<string>()
+    const stack = [...start]
+    while (stack.length) {
+      const key = stack.pop() as string
+      if (result.has(key)) continue
+      result.add(key)
+      stack.push(...(prereqsByKey[key] ?? []))
+    }
+    return result
+  }
+
+  const handleSelect = (stepKey: string) => {
+    putMutation.mutate([...closure([...includedKeys, stepKey])])
+  }
+
+  const handleDeselect = (stepKey: string) => {
+    const remaining = includedKeys.filter((k) => k !== stepKey)
+    const dependents = remaining.filter((k) => closure([k]).has(stepKey))
+    if (dependents.length > 0) {
+      setPendingRemoval({ stepKey, dependents })
+      return
+    }
+    putMutation.mutate(remaining)
+  }
+
+  const confirmRemoval = () => {
+    if (!pendingRemoval) return
+    const drop = new Set([pendingRemoval.stepKey, ...pendingRemoval.dependents])
+    putMutation.mutate(includedKeys.filter((k) => !drop.has(k)))
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {!data.is_default && (
+        <button
+          onClick={() => resetMutation.mutate()}
+          disabled={resetMutation.isPending}
+          className="self-start h-8 px-3 rounded-lg text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/70 transition-colors disabled:opacity-50"
+        >
+          Reset to default (all steps)
+        </button>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {data.steps.map((s) => (
+        <div key={s.step_key} className="flex items-center justify-between p-2.5 bg-card border border-border rounded-lg">
+          <p className="text-sm text-foreground">{s.label}</p>
+          <button
+            onClick={() => (s.included ? handleDeselect(s.step_key) : handleSelect(s.step_key))}
+            disabled={putMutation.isPending}
+            className={`h-7 px-2.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+              s.included ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"}`}
+          >
+            {s.included ? "Included" : "Excluded"}
+          </button>
+        </div>
+      ))}
+      <p className="text-[11px] text-muted-foreground">
+        Downlink counts toward completion only when Data, Link and CONOPS are all included —
+        {" "}{data.downlink_included ? "currently included." : "currently excluded."}
+      </p>
+
+      {pendingRemoval && (
+        <ConfirmDialog
+          title="Remove dependent steps too?"
+          description={
+            `${labelFor(pendingRemoval.stepKey)} is required by ` +
+            `${pendingRemoval.dependents.map(labelFor).join(", ")}. Removing it will also remove ` +
+            `${pendingRemoval.dependents.length === 1 ? "that step" : "those steps"}.`
+          }
+          confirmLabel="Remove"
+          destructive
+          pending={putMutation.isPending}
+          onCancel={() => setPendingRemoval(null)}
+          onConfirm={confirmRemoval}
+        />
+      )}
+    </div>
+  )
+}
+
+function GatesTab({ cohortId, missionId }: { cohortId: string; missionId: string }) {
+  const queryClient = useQueryClient()
+  const { data: gates = [], isLoading } = useQuery({
+    queryKey: ["instructor-step-gates", cohortId, missionId], queryFn: () => instructorStepGatesApi(cohortId, missionId),
+  })
+  const toggleMutation = useMutation({
+    mutationFn: ({ stepKey, isUnlocked }: { stepKey: string; isUnlocked: boolean }) =>
+      setInstructorStepGateApi(cohortId, missionId, stepKey, isUnlocked),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["instructor-step-gates", cohortId, missionId] }),
+  })
+
+  if (isLoading) return <Spinner />
+
+  return (
+    <div className="flex flex-col gap-2">
+      {gates.map((g) => (
+        <div key={g.step_key} className="flex items-center justify-between p-2.5 bg-card border border-border rounded-lg">
+          <div>
+            <p className="text-sm text-foreground">{g.label}</p>
+            {g.updated_by_name && <p className="text-[11px] text-muted-foreground">Last set by {g.updated_by_name}</p>}
+          </div>
+          <button
+            onClick={() => toggleMutation.mutate({ stepKey: g.step_key, isUnlocked: !g.is_unlocked })}
+            disabled={toggleMutation.isPending}
+            className={`h-7 px-2.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
+              g.is_unlocked ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"}`}
+          >
+            {g.is_unlocked ? "Unlocked" : "Locked"}
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Progress ─────────────────────────────────────────────────────────────
+// Student roster — cohort- or program-wide. Clicking a student opens their
+// profile; each row expands to every checklist item's real status and
+// submission link, not just the ones awaiting confirmation (operator ask,
+// 2026-08-22: "detailed submissions... by detailed I really mean detailed").
+
+function ProgressPanel({
+  cohortId, lmsProgramId, scopeLabel,
+}: { cohortId?: string; lmsProgramId?: string; scopeLabel: string }) {
+  const queryClient = useQueryClient()
+  const queryKey = cohortId ? ["instructor-program-progress", cohortId] : ["instructor-program-wide-progress", lmsProgramId]
+  const { data: rows, isLoading } = useQuery({
+    queryKey,
+    queryFn: () => (cohortId ? getCohortProgramProgressApi(cohortId) : getProgramProgressApi(lmsProgramId as string)),
+  })
+
+  const confirmMutation = useMutation({
+    mutationFn: (vars: { assignmentCohortId: string; assignmentId: string; itemId: string }) =>
+      confirmChecklistItemApi(vars.assignmentCohortId, vars.assignmentId, vars.itemId),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey }),
+  })
+
+  if (isLoading) return <Spinner />
+  if (!rows || rows.length === 0) {
+    return <EmptyState title="No students assigned this checklist yet" hint={`Showing ${scopeLabel}.`} />
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {rows.map((row) => (
+        <ProgressRow
+          key={row.assignment_id} row={row} cohortId={cohortId}
+          onConfirm={(itemId) => cohortId && confirmMutation.mutate({ assignmentCohortId: cohortId, assignmentId: row.assignment_id, itemId })}
+          confirmPending={confirmMutation.isPending}
+        />
+      ))}
+    </div>
+  )
+}
+
+function ProgressRow({
+  row, cohortId, onConfirm, confirmPending,
+}: { row: LmsProgramRosterRow; cohortId?: string; onConfirm: (itemId: string) => void; confirmPending: boolean }) {
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const { data: items, isLoading: itemsLoading } = useQuery<LmsAssignmentItemDetail[]>({
+    queryKey: ["assignment-items", cohortId, row.assignment_id],
+    queryFn: () => getAssignmentItemsApi(cohortId as string, row.assignment_id),
+    enabled: open && !!cohortId,
+  })
+
+  return (
+    <div className="border border-border rounded-xl overflow-hidden">
+      <div className="flex items-center gap-4 p-3 bg-card">
+        <button
+          onClick={() => cohortId && setOpen((v) => !v)}
+          className="shrink-0 text-muted-foreground"
+          disabled={!cohortId}
+          title={cohortId ? "Show item detail" : "Pick a cohort to see item detail"}
+        >
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </button>
+        <button
+          onClick={() => void navigate({ to: `/lms-authoring/students/${row.user_id}` })}
+          className="min-w-0 flex-1 text-left hover:opacity-80 transition-opacity cursor-pointer"
+        >
+          <div className="text-sm font-medium text-foreground truncate underline decoration-dotted underline-offset-2">{row.student_name}</div>
+          <div className="text-xs text-muted-foreground truncate">{row.name}</div>
+        </button>
+        <div className="flex flex-col gap-1 w-40 shrink-0">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>{row.items_done}/{row.items_total}</span>
+            <span>{row.pct}%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-muted relative overflow-hidden">
+            <div className={`absolute inset-y-0 left-0 rounded-full ${row.pct === 100 ? "bg-emerald-500" : "bg-primary"}`} style={{ width: `${row.pct}%` }} />
+          </div>
+        </div>
+        {row.certificate_required && (
+          <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide rounded-md px-2 py-1 ${
+            row.certificate_earned ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"}`}
+          >
+            {row.certificate_earned ? "Certified" : "Not certified"}
+          </span>
+        )}
+        {row.pending_confirmations.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 shrink-0 max-w-[220px] justify-end">
+            {row.pending_confirmations.map((p) => (
+              <Button
+                key={p.item_id} size="sm" variant="outline"
+                disabled={confirmPending || !cohortId}
+                onClick={() => onConfirm(p.item_id)}
+                title={p.title}
+              >
+                Confirm: {p.title.length > 18 ? `${p.title.slice(0, 18)}…` : p.title}
+              </Button>
+            ))}
+          </div>
+        )}
+      </div>
+      {open && (
+        <div className="p-3 border-t border-border bg-background flex flex-col gap-1.5">
+          {itemsLoading ? <Spinner /> : (items ?? []).map((item) => (
+            <div key={item.item_id} className="flex items-center gap-3 text-xs">
+              <span className={`w-2 h-2 rounded-full shrink-0 ${item.status === "done" ? "bg-emerald-500" : item.status === "awaiting_confirmation" ? "bg-amber-500" : "bg-muted-foreground/30"}`} />
+              <span className="flex-1 text-foreground truncate">{item.title}</span>
+              <span className="text-muted-foreground shrink-0">{item.status.replace("_", " ")}</span>
+              {item.submitted_url && (
+                <a href={item.submitted_url} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
+                  submission
+                </a>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Review ───────────────────────────────────────────────────────────────
+// Cohort-scoped only. Adds a mission picker (a program checklist can list
+// several missions) on top of what `CohortMissions.tsx` used to do alone.
+
+function ReviewScopePanel({ cohortId }: { cohortId: string }) {
+  const { data: missions = [] } = useQuery({
+    queryKey: ["mission-catalog-design-only"],
+    queryFn: async () => (await fetchMissionCatalog()).filter((m) => m.kind === "design"),
+  })
+  const [missionId, setMissionId] = useState<string | null>(null)
+  const effectiveMissionId = missionId ?? missions[0]?.id ?? null
+
+  if (missions.length === 0) return <EmptyState title="No design missions published yet" />
+
+  return (
+    <div className="flex flex-col gap-3">
+      <select
+        value={effectiveMissionId ?? ""}
+        onChange={(e) => setMissionId(e.target.value)}
+        className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-fit focus:outline-none focus:border-primary"
+      >
+        {missions.map((m) => <option key={m.id} value={m.id}>{m.title}</option>)}
+      </select>
+      {effectiveMissionId && <ReviewTab cohortId={cohortId} missionId={effectiveMissionId} />}
+    </div>
+  )
+}
+
+function ReviewAttemptRow({ attempt, cohortId, missionId }: { attempt: ManagedAttempt; cohortId: string; missionId: string }) {
+  const queryClient = useQueryClient()
+  const [score, setScore] = useState("")
+  const [notes, setNotes] = useState("")
+  const [error, setError] = useState("")
+  const [overriding, setOverriding] = useState(false)
+  const [overrideReason, setOverrideReason] = useState("")
+
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["instructor-review-queue", cohortId, missionId] })
+
+  const reviewMutation = useMutation({
+    mutationFn: (passed: boolean) =>
+      instructorReviewAttemptApi(attempt.id, { passed, score: score ? Number(score) : null, review_comment: notes || null }),
+    onSuccess: () => { setError(""); invalidate() },
+    onError: (e) => setError(errorDetail(e, "Couldn't submit this review")),
+  })
+
+  const overrideMutation = useMutation({
+    mutationFn: (passed: boolean) => instructorOverrideAttemptApi(attempt.id, { passed, reason: overrideReason.trim() }),
+    onSuccess: () => { setError(""); setOverriding(false); setOverrideReason(""); invalidate() },
+    onError: (e) => setError(errorDetail(e, "Couldn't override this attempt")),
+  })
+
+  return (
+    <div className="p-4 bg-background border border-border rounded-xl flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-foreground">{attempt.student_name ?? attempt.team_name ?? "Unknown"}</p>
+        <span className="text-xs text-muted-foreground">Attempt {attempt.attempt_no} · {attempt.status}</span>
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={score} onChange={(e) => setScore(e.target.value)} placeholder="Score (0-100)"
+          className="h-8 w-28 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+        />
+        <input
+          value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes (optional)"
+          className="h-8 flex-1 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+        />
+      </div>
+      <div className="flex gap-2">
+        <Button size="sm" onClick={() => reviewMutation.mutate(true)} disabled={reviewMutation.isPending}>Pass</Button>
+        <Button size="sm" variant="destructive" onClick={() => reviewMutation.mutate(false)} disabled={reviewMutation.isPending}>Fail</Button>
+        <Button size="sm" variant="outline" onClick={() => setOverriding((v) => !v)}>
+          {overriding ? "Cancel override" : "Force pass/fail…"}
+        </Button>
+      </div>
+      {overriding && (
+        <div className="flex flex-col gap-2 p-3 bg-muted/40 border border-border rounded-lg">
+          <p className="text-[11px] text-muted-foreground">
+            Overrides this attempt's outcome regardless of its current status — use this to unblock a student stuck
+            on a mistake, not as the normal review path. A reason is required.
+          </p>
+          <input
+            value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="Why override this attempt?"
+            className="h-8 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
+          />
+          <div className="flex gap-2">
+            <Button size="sm" disabled={!overrideReason.trim() || overrideMutation.isPending} onClick={() => overrideMutation.mutate(true)}>
+              Force pass
+            </Button>
+            <Button size="sm" variant="destructive" disabled={!overrideReason.trim() || overrideMutation.isPending} onClick={() => overrideMutation.mutate(false)}>
+              Force fail
+            </Button>
+          </div>
+        </div>
+      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
+  )
+}
+
+function ReviewTab({ cohortId, missionId }: { cohortId: string; missionId: string }) {
+  const { data: queue = [], isLoading } = useQuery({
+    queryKey: ["instructor-review-queue", cohortId, missionId], queryFn: () => instructorReviewQueueApi(cohortId, missionId),
+  })
+
+  if (isLoading) return <Spinner />
+  if (queue.length === 0) {
+    return (
+      <EmptyState
+        title="Nothing in the review queue right now"
+        hint='A Design mission run passes on its own once every step is valid. Use "Force pass/fail" on a specific attempt below if a student needs a manual unblock.'
+      />
+    )
+  }
+  return (
+    <div className="flex flex-col gap-3">
+      {queue.map((a) => <ReviewAttemptRow key={a.id} attempt={a} cohortId={cohortId} missionId={missionId} />)}
     </div>
   )
 }
