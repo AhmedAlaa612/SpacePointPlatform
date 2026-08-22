@@ -19,10 +19,10 @@ from app.services.lms.points import award_points
 from app.services.nicknames import assign_nickname
 
 
-async def _user(db, *, full_name="Student", contact_id=None) -> User:
+async def _user(db, *, full_name="Student", contact_id=None, roles=None) -> User:
     user = User(
         id=uuid.uuid4(), full_name=full_name, email=f"lb-{uuid.uuid4().hex[:8]}@example.com",
-        password_hash="x", roles=["student"], status="active", contact_id=contact_id,
+        password_hash="x", roles=roles or ["student"], status="active", contact_id=contact_id,
     )
     db.add(user)
     await db.flush()
@@ -88,6 +88,23 @@ async def test_global_leaderboard_ranks_by_total_points_descending(db):
     assert by_user[low.id]["points"] == 20
     assert by_user[high.id]["rank"] == 1
     assert by_user[low.id]["rank"] == 2
+
+
+@pytest.mark.asyncio
+async def test_leaderboard_excludes_staff_even_when_they_outscore_every_student(db):
+    """Staff can take LMS courses too (D2) and rack up point_events the same
+    way students do — operator ask (2026-08-22): the leaderboard is a
+    student ranking, staff never belong on it regardless of score."""
+    staff = await _user(db, full_name="Staff Member", roles=["instructor"])
+    student = await _user(db, full_name="Student")
+    await award_points(db, user_id=staff.id, source="quiz", points=1000, idempotency_key="a")
+    await award_points(db, user_id=student.id, source="quiz", points=10, idempotency_key="b")
+    await db.commit()
+
+    rows = await leaderboard(db)
+    ids = {r["user_id"] for r in rows}
+    assert staff.id not in ids
+    assert student.id in ids
 
 
 @pytest.mark.asyncio
