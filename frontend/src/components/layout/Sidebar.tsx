@@ -140,6 +140,15 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   // its own top-level path so one URL space works for both roles rather than
   // duplicating pages under /operations and /instructors.
   if (pathname.startsWith("/lms-authoring")) {
+    // A plain instructor's backend access (require_instructor_missions) is
+    // cohort-scoped and Programs-only — every other tab here 403s for them,
+    // so show just their one real entry point instead of the full staff nav.
+    if (activeRole === "instructor") {
+      return [
+        mk("Programs", "/lms-authoring/curriculum"),
+        mk("Back", "/instructors/dashboard"),
+      ];
+    }
     return [
       mk("Courses", "/lms-authoring/courses"),
       mk("Programs", "/lms-authoring/curriculum"),
@@ -152,9 +161,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Invite Codes", "/lms-authoring/invite-codes"),
       mk(
         "Back",
-        activeRole === "facilitator" ? "/instructors/facilitator/training"
-          : activeRole === "instructor" ? "/instructors/dashboard"
-          : "/operations/dashboard",
+        activeRole === "facilitator" ? "/instructors/facilitator/training" : "/operations/dashboard",
       ),
     ];
   }
