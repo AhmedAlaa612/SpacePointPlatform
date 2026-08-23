@@ -15,6 +15,7 @@ from pydantic import BaseModel
 class InstructorCohortOut(BaseModel):
     id: UUID
     name: str
+    program_id: UUID
     program_name: str | None = None
     status: str
 

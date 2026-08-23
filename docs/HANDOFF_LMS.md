@@ -363,11 +363,10 @@ confirmed empty in production, no migration needed) with a real checklist. Both 
 frontend are complete and tested/built: `backend/app/models/lms/program.py`,
 `services/lms/program.py`, `routers/lms/{admin,student,instructor}.py`; frontend at
 `frontend/src/pages/learn/LearnChecklists.tsx`/`LearnChecklist.tsx` (student, `/learn/checklists`,
-nav-labeled "Programs"), `frontend/src/pages/lms-authoring/LmsProgramAdmin.tsx` (ops authoring,
-same `/lms-authoring/curriculum` route + Sidebar slot the old curriculum page used, relabeled
-"Programs" — replaces `LmsCurriculum.tsx` outright), and a new "Program" tab in
-`frontend/src/pages/lms-authoring/CohortMissions.tsx` (instructor roster + confirm, cohort-scoped
-like its Steps/Gates/Review siblings but not mission-scoped).
+nav-labeled "Programs"), `frontend/src/pages/lms-authoring/LmsProgramAdmin.tsx` (ops + instructor
+authoring/roster/review, same `/lms-authoring/curriculum` route + Sidebar slot the old curriculum
+page used, relabeled "Programs" — replaces `LmsCurriculum.tsx` outright, and as of §14 also absorbs
+what used to be the separate `CohortMissions.tsx` page, now deleted).
 
 - **Shape**: `LmsProgram` (a checklist template, attached to a Sessions `Program` via
   `program_id`, nullable+unique — one checklist per program) → `LmsProgramItem` (the steps;
@@ -519,3 +518,74 @@ doesn't get lost") — the ops course/learning-path pages could use a unified "A
 item showing every channel together (open/invite/paid self-serve, Stripe promo codes in play,
 one-shot bulk grants issued, invite-code grants attached) instead of each living in its own corner
 of the admin UI. Nobody has scoped what that actually looks like yet.
+
+## 14. Programs / Cohort Missions merge (2026-08-22)
+
+Operator complaint, verbatim: Programs (§11) and Cohort Missions were two separate pages doing
+overlapping things — checklist authoring lived on one, cohort-scoped mission progress/gates/review
+on the other — and neither showed real submission content, a student profile link, or actual
+design-mission detail. `LmsProgramAdmin.tsx` is now the one page; `CohortMissions.tsx` is deleted.
+
+- **One page, scope + sub-tab structure**: `LmsProgramAdmin.tsx`'s existing "Program template" /
+  "`{cohort}` override" tab bar is now the page's scope selector — whichever is active governs
+  everything below it, not just the checklist editor. Four sub-tabs per scope: **Checklist**
+  (existing editor), **Missions** (new — lists the scope's `mission_run` items; a cohort's mission
+  expands into Steps/Gates config, ported from the old `CohortMissions.tsx`), **Progress** (roster,
+  extended — student name navigates to `/lms-authoring/students/$userId`, row expands to every
+  item's status via the new `assignment_item_detail()`, submission items now show the actual
+  `submitted_url` instead of a bare title), **Review** (ported from the old page's review queue,
+  plus a new "Force pass/fail…" action).
+- **Cohort overrides start pre-filled, fork-on-write** (`services/lms/program.py::
+  effective_cohort_program_items`/`fork_cohort_override`): reading an unconfigured cohort's
+  override now transparently returns the *program's own* items (`is_inherited: true`) instead of
+  404/empty, so there's something to edit instead of starting from scratch. The first real write
+  (add/update/delete) bulk-copies every current program item into new cohort-owned rows first, then
+  applies the edit — including transparently redirecting an "edit this inherited item" call onto
+  its freshly-forked copy via an old-id→new-id map. `resolve_cohort_program`'s existing "override
+  with ≥1 item wins outright" rule is unchanged; this only changes what the *editor* shows before
+  any edit has happened.
+- **Manual pass/fail override, any attempt kind/status** (`services/missions/attempts.py::
+  override_attempt_outcome`) — distinct from `decide_attempt` (kind-specific self-grading,
+  `in_progress`/`submitted` only) and `review_submission_attempt` (human review, submission-kind
+  only, `submitted` only). This one works on any attempt regardless of kind or current status,
+  requires a `reason` string, and records `{reason, decided_by, decided_at, previous_status}` into
+  `attempt.payload["override"]` for an audit trail. **Known, accepted limitation**: flipping an
+  already-passed attempt to failed does not claw back points already awarded — operator confirmed
+  this is fine for v1. `POST /missions/instructor/attempts/{id}/override` (cohort-scoped, same
+  guard as the existing `.../review` endpoint) and `POST /missions/admin/attempts/{id}/override`
+  (ops, full catalog).
+- **Instructor access widened from one page to the whole `/lms-authoring` space**: instructors were
+  previously scoped to `/lms-authoring/cohort-missions` only (a client-side URL-space allowance, see
+  `router.tsx`'s `lmsAuthoringLayoutRoute` comment) with a separate, narrower backend dependency
+  (`require_instructor_missions`) than the ops-only `require_lms_content`. That dependency shape is
+  unchanged, but `LmsProgramAdmin.tsx` and `LmsStudentDetail.tsx` are now both role-aware
+  end-to-end: instructors get a program picker pre-filtered to their own cohorts' programs
+  (`GET /lms/instructor/programs`, derived from `Cohort.program_id` via `instructor_cohort_ids()`),
+  read-only checklist rendering (edit controls hidden, not disabled — "any extra edits need ops"),
+  and full edit rights on their own cohorts' mission gates/step-selection/review/override, same as
+  before.
+- **Student profile now reachable and actually detailed**: clicking a student's name anywhere on
+  the roster navigates to `LmsStudentDetail.tsx`. New instructor-side mirrors of the ops-only
+  student endpoints (`GET /lms/instructor/students/{user_id}`, `.../enrollments`,
+  `.../design-runs`, `.../courses/{course_id}/progress`) scoped to a 404 unless the target student
+  holds an active `Registration` in one of the instructor's cohorts — reuses `my_programs()`/
+  `student_design_runs()`/`student_course_progress()` as-is, just behind the new scope check.
+  Design-mission rows now expand into real detail (`GET /missions/{admin,instructor}/attempts/
+  {id}/design-detail`, reusing `design_state_out` — formerly the private `_design_state_out` in
+  `routers/missions/design.py`, made public for this reuse) instead of pass/fail dots: component
+  choices, CONOPS modes, computed margins/module cards. Margins/module cards deliberately stay
+  scoped to whatever step-selection the cohort has configured (same as what the student's own view
+  computes) — this is a grading view of *that attempt*, not an unscoped audit; the raw
+  component/CONOPS list itself (the actual "what did they select" ask) is never scope-filtered.
+- **Frontend syntax landmine, worth flagging for the next person editing this file**: a `/** */`
+  JSDoc comment on `LmsStudentDetail.tsx` originally documented an endpoint path containing a
+  wildcard segment written as `courses/*/enrollments` — the literal `*/` inside that URL closes a
+  block comment early. Everything after silently got swallowed into cascading phantom template
+  literals (real code parsed as string content) until the file's *last* stray backtick, at which
+  point parsing desynced and threw confusing, far-displaced syntax errors. `tsc --noEmit -p .`
+  (root `tsconfig.json`, which has an empty `files` array and only `references`) does **not** catch
+  this — it silently checks zero files unless invoked as `tsc -b` or pointed at
+  `tsconfig.app.json`/`tsconfig.node.json` directly. Use `npx tsc --noEmit -p tsconfig.app.json` (or
+  `npm run build`, which uses `tsc -b`) to actually verify the frontend typechecks — not bare
+  `tsc --noEmit -p .`. Fixed by rewording the path to `courses/{id}/enrollments`; more generally,
+  never write a literal `*/` sequence inside a `/** */` comment body.

@@ -100,14 +100,23 @@ async def _own_design_attempt(db: AsyncSession, attempt_id: uuid.UUID, user: Use
     return attempt
 
 
-async def _design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design: Design) -> DesignStateOut:
+async def design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design: Design) -> DesignStateOut:
     """Callers must build this BEFORE `db.commit()`, not after — this
     function's `ensure_default_modes()` call lazily creates the 4
     `DesignMode` rows on first read, and only flushes them (never
     commits). Committing first, then calling this, let those rows
     survive just long enough to serialize into that one response before
     the session closed and rolled them back — the next request's
-    `db.get()` on those now-nonexistent IDs 404'd with "Mode not found"."""
+    `db.get()` on those now-nonexistent IDs 404'd with "Mode not found".
+
+    Public (2026-08-22) — the real "what did they name it and what did
+    they pick" component/mode/margin detail this builds is exactly what
+    the staff-facing design-run detail routes (`routers/missions/instructor.py`,
+    `routers/missions/admin.py`) need too, keyed off any attempt, not just
+    the caller's own. `margins`/`module_cards` still follow the attempt's
+    own cohort step-selection scope (same as the student's own view) —
+    only the raw `components`/`modes` lists, which are never scoped, are
+    the actual "what they selected" detail those routes are really after."""
     mission = await db.get(Mission, attempt.mission_id)
     variant = await db.get(MissionVariant, attempt.variant_id)
 
@@ -368,7 +377,7 @@ async def get_design_state(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
-    result = await _design_state_out(db, attempt=attempt, design=design)
+    result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
 
@@ -390,7 +399,7 @@ async def update_design(
             )
     for field, value in changes.items():
         setattr(design, field, value)
-    result = await _design_state_out(db, attempt=attempt, design=design)
+    result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
 
@@ -404,7 +413,7 @@ async def add_design_component(
     await require_step_unlocked(db, attempt=attempt, step_key="components")
     design = await ensure_design(db, attempt=attempt)
     await design_service.add_component(db, design_id=design.id, library_component_id=body.library_component_id, quantity=body.quantity)
-    result = await _design_state_out(db, attempt=attempt, design=design)
+    result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
 
@@ -417,7 +426,7 @@ async def remove_design_component(
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
     await design_service.remove_component(db, design_id=design.id, design_component_id=design_component_id)
-    result = await _design_state_out(db, attempt=attempt, design=design)
+    result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
 
@@ -435,7 +444,7 @@ async def save_conops(
     for component_id, states in body.cell_states.items():
         for mode_id, is_on in states.items():
             await design_service.set_mode_state(db, design_component_id=component_id, design_mode_id=mode_id, is_on=is_on)
-    result = await _design_state_out(db, attempt=attempt, design=design)
+    result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
 
@@ -449,7 +458,7 @@ async def save_data_budget(
     await require_step_unlocked(db, attempt=attempt, step_key="data_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_data_entry(db, design_component_id=design_component_id, **body.model_dump())
-    result = await _design_state_out(db, attempt=attempt, design=design)
+    result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
 
@@ -463,7 +472,7 @@ async def save_power_budget(
     await require_step_unlocked(db, attempt=attempt, step_key="power_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_power_entry(db, design_component_id=design_component_id, **body.model_dump())
-    result = await _design_state_out(db, attempt=attempt, design=design)
+    result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
 
@@ -477,7 +486,7 @@ async def save_mass_budget(
     await require_step_unlocked(db, attempt=attempt, step_key="mass_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_mass_entry(db, design_component_id=design_component_id, **body.model_dump())
-    result = await _design_state_out(db, attempt=attempt, design=design)
+    result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
 
@@ -491,7 +500,7 @@ async def save_cost_budget(
     await require_step_unlocked(db, attempt=attempt, step_key="cost_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_cost_entry(db, design_component_id=design_component_id, **body.model_dump())
-    result = await _design_state_out(db, attempt=attempt, design=design)
+    result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
 
@@ -505,7 +514,7 @@ async def save_link_budget(
     await require_step_unlocked(db, attempt=attempt, step_key="link_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_link_entry(db, design_id=design.id, **body.model_dump())
-    result = await _design_state_out(db, attempt=attempt, design=design)
+    result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
 
@@ -522,6 +531,6 @@ async def complete_design(
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
     await mark_design_complete(db, attempt=attempt)
-    result = await _design_state_out(db, attempt=attempt, design=design)
+    result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result

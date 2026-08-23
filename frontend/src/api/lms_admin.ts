@@ -308,6 +308,10 @@ export interface LmsProgramItem {
   requires_confirmation: boolean;
   course_id: string | null;
   mission_id: string | null;
+  /** `Mission.kind` for a mission_run item — null otherwise. Only
+   * kind === "design" missions have build steps/gates to configure;
+   * anything else has nothing for StepsTab/GatesTab to show. */
+  mission_kind: string | null;
   variant_id: string | null;
   external_url: string | null;
   submission_prompt: string | null;
@@ -336,10 +340,14 @@ export interface LmsProgram {
   items: LmsProgramItem[];
 }
 
-export interface LmsProgramCohortOverride {
-  id: string;
+export interface LmsProgramCohortEffective {
   cohort_id: string;
   lms_program_id: string;
+  /** True when this is the program's own checklist shown as an editable
+   * starting point — no override exists yet. Editing it forks a real
+   * per-cohort override server-side (2026-08-22); the UI doesn't need to
+   * call anything extra for that, just edit and refetch. */
+  is_inherited: boolean;
   items: LmsProgramItem[];
 }
 
@@ -360,21 +368,39 @@ export const updateLmsProgramItemApi = (lmsProgramId: string, itemId: string, da
   api.patch<LmsProgramItem>(`/lms/admin/programs/${lmsProgramId}/items/${itemId}`, data).then((r) => r.data);
 export const deleteLmsProgramItemApi = (lmsProgramId: string, itemId: string) =>
   api.delete<void>(`/lms/admin/programs/${lmsProgramId}/items/${itemId}`).then((r) => r.data);
+export const reorderLmsProgramItemsApi = (lmsProgramId: string, itemIds: string[]) =>
+  api.post<LmsProgramItem[]>(`/lms/admin/programs/${lmsProgramId}/items/reorder`, { item_ids: itemIds }).then((r) => r.data);
 
 export const getCohortProgramOverrideApi = (cohortId: string) =>
-  api.get<LmsProgramCohortOverride>(`/lms/admin/cohorts/${cohortId}/program-override`).then((r) => r.data);
+  api.get<LmsProgramCohortEffective>(`/lms/admin/cohorts/${cohortId}/program-override`).then((r) => r.data);
 export const addCohortOverrideItemApi = (cohortId: string, data: LmsProgramItemInput) =>
   api.post<LmsProgramItem>(`/lms/admin/cohorts/${cohortId}/program-override/items`, data).then((r) => r.data);
 export const updateCohortOverrideItemApi = (cohortId: string, itemId: string, data: LmsProgramItemInput) =>
   api.patch<LmsProgramItem>(`/lms/admin/cohorts/${cohortId}/program-override/items/${itemId}`, data).then((r) => r.data);
 export const deleteCohortOverrideItemApi = (cohortId: string, itemId: string) =>
   api.delete<void>(`/lms/admin/cohorts/${cohortId}/program-override/items/${itemId}`).then((r) => r.data);
+export const reorderCohortOverrideItemsApi = (cohortId: string, itemIds: string[]) =>
+  api.post<LmsProgramItem[]>(`/lms/admin/cohorts/${cohortId}/program-override/items/reorder`, { item_ids: itemIds }).then((r) => r.data);
+
+// Instructor mirrors (2026-08-23, fixes a real 403 — instructors had no way
+// to even read their own cohort's checklist). Same shape, cohort-scoped;
+// write is server-restricted to mission_run items for a plain instructor —
+// see `routers/lms/instructor.py`'s own comment for the exact boundary.
+export const getCohortProgramOverrideInstructorApi = (cohortId: string) =>
+  api.get<LmsProgramCohortEffective>(`/lms/instructor/cohorts/${cohortId}/program-override`).then((r) => r.data);
+export const addCohortOverrideItemInstructorApi = (cohortId: string, data: LmsProgramItemInput) =>
+  api.post<LmsProgramItem>(`/lms/instructor/cohorts/${cohortId}/program-override/items`, data).then((r) => r.data);
+export const updateCohortOverrideItemInstructorApi = (cohortId: string, itemId: string, data: LmsProgramItemInput) =>
+  api.patch<LmsProgramItem>(`/lms/instructor/cohorts/${cohortId}/program-override/items/${itemId}`, data).then((r) => r.data);
+export const deleteCohortOverrideItemInstructorApi = (cohortId: string, itemId: string) =>
+  api.delete<void>(`/lms/instructor/cohorts/${cohortId}/program-override/items/${itemId}`).then((r) => r.data);
 
 // ── instructor progress (cohort-scoped roster + confirm) ────────────────────
 
 export interface PendingConfirmation {
   item_id: string;
   title: string;
+  submitted_url: string | null;
 }
 
 export interface LmsProgramRosterRow {
@@ -396,6 +422,75 @@ export const getCohortProgramProgressApi = (cohortId: string) =>
 export const confirmChecklistItemApi = (cohortId: string, assignmentId: string, itemId: string) =>
   api.post<LmsProgramRosterRow>(
     `/lms/instructor/cohorts/${cohortId}/program-progress/${assignmentId}/items/${itemId}/confirm`, {},
+  ).then((r) => r.data);
+
+// ── program-merge additions (2026-08-22) — program-wide roster, per-item
+// detail, instructor-reachable programs, and instructor mirrors of the
+// student-profile endpoints below. `/lms/instructor/*` works for staff too
+// (the backend dependency lets ops/facilitator/admin through unrestricted),
+// so these are the ones the merged Programs page should call regardless of
+// role — only checklist *authoring* (add/edit/delete items) stays on the
+// `/lms/admin/*` functions above, which 403 for a plain instructor.
+
+export const getMyReachableProgramsApi = () =>
+  api.get<LmsProgram[]>("/lms/instructor/programs").then((r) => r.data);
+
+export const getProgramProgressApi = (lmsProgramId: string) =>
+  api.get<LmsProgramRosterRow[]>(`/lms/instructor/programs/${lmsProgramId}/progress`).then((r) => r.data);
+
+export interface LmsAssignmentItemDetail {
+  item_id: string;
+  title: string;
+  item_type: LmsProgramItemType;
+  status: string;
+  submitted_url: string | null;
+  completed_at: string | null;
+  mission_attempt_id: string | null;
+  confirmed_by_user_id: string | null;
+}
+
+export const getAssignmentItemsApi = (cohortId: string, assignmentId: string) =>
+  api.get<LmsAssignmentItemDetail[]>(
+    `/lms/instructor/cohorts/${cohortId}/program-progress/${assignmentId}/items`,
+  ).then((r) => r.data);
+
+export const getStudentProfileInstructorApi = (userId: string) =>
+  api.get<StudentProfile>(`/lms/instructor/students/${userId}`).then((r) => r.data);
+
+export const listUserEnrollmentsInstructorApi = (userId: string) =>
+  api.get<AdminEnrollment[]>(`/lms/instructor/students/${userId}/enrollments`).then((r) => r.data);
+
+export const getStudentDesignRunsInstructorApi = (userId: string) =>
+  api.get<StudentDesignRunsOut>(`/lms/instructor/students/${userId}/design-runs`).then((r) => r.data);
+
+export interface CourseProgressModule {
+  module_id: string;
+  title: string | null;
+  position: number;
+  locked: boolean;
+  mandatory_total: number;
+  mandatory_completed: number;
+}
+
+export interface CourseProgressQuiz {
+  item_id: string;
+  title: string | null;
+  status: string;
+  attempts: number;
+  best_score: number | null;
+}
+
+export interface StudentCourseProgress {
+  course_id: string;
+  course_title: string | null;
+  completed: boolean;
+  modules: CourseProgressModule[];
+  quizzes: CourseProgressQuiz[];
+}
+
+export const getStudentCourseProgressApi = (userId: string, courseId: string, role: "admin" | "instructor") =>
+  api.get<StudentCourseProgress>(
+    `/lms/${role === "admin" ? "admin" : "instructor"}/students/${userId}/courses/${courseId}/progress`,
   ).then((r) => r.data);
 
 // ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────

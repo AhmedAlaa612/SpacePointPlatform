@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -50,6 +51,23 @@ class SessionLmsProgressOut(BaseModel):
 class PendingConfirmationOut(BaseModel):
     item_id: UUID
     title: str
+    submitted_url: str | None = None
+
+
+class LmsAssignmentItemDetailOut(BaseModel):
+    """Every item on one student's checklist assignment — the "detailed
+    submissions" drill-in (operator ask, 2026-08-22), not just the ones
+    awaiting confirmation `LmsProgramRosterRowOut.pending_confirmations`
+    already carries. `GET /lms/instructor/cohorts/{cohort_id}/
+    program-progress/{assignment_id}/items`."""
+    item_id: UUID
+    title: str
+    item_type: str
+    status: str
+    submitted_url: str | None = None
+    completed_at: datetime | None = None
+    mission_attempt_id: UUID | None = None
+    confirmed_by_user_id: UUID | None = None
 
 
 class LmsProgramRosterRowOut(BaseModel):

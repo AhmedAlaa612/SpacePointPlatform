@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
 from app.models.missions.assignment import MissionAssignment
+from app.models.missions.design import Design
 from app.models.missions.manager import MissionManager
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.sessions.cohort import Cohort
@@ -32,6 +33,7 @@ from app.schemas.missions_admin import (
     MissionAssignmentOut,
     MissionAttemptAdminOut,
     MissionAttemptAssignIn,
+    MissionAttemptOverrideIn,
     MissionAttemptReviewIn,
     MissionBulkAssignIn,
     MissionBulkAssignOut,
@@ -43,11 +45,14 @@ from app.schemas.missions_admin import (
     MissionVariantCreate,
     MissionVariantUpdate,
 )
+from app.schemas.missions_design import DesignStateOut
 from app.schemas.missions_manager import MissionManagerAssignIn, MissionManagerOut
 from app.services import storage
 from app.services.teams import create_team, team_member_ids
 from app.services.missions import assign_mission_run
 from app.services.missions.assignment import assign as assign_mission
+from app.routers.missions.design import design_state_out
+from app.services.missions.attempts import override_attempt_outcome
 from app.services.missions.verifiers.submission import review_submission_attempt
 
 router = APIRouter(prefix="/missions/admin", tags=["missions-admin"], dependencies=[Depends(require_lms_content)])
@@ -416,6 +421,41 @@ async def review_attempt(
     await db.commit()
     await db.refresh(reviewed)
     return await _attempt_admin_out(db, reviewed)
+
+
+@router.post("/attempts/{attempt_id}/override", response_model=MissionAttemptAdminOut)
+async def override_attempt(
+    attempt_id: uuid.UUID, body: MissionAttemptOverrideIn,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_lms_content),
+):
+    """Ops-side mirror of `/missions/instructor/attempts/{id}/override` —
+    force any attempt (any kind, any current status) to passed/failed. See
+    `override_attempt_outcome`'s docstring for why this exists alongside
+    `/review` above rather than replacing it."""
+    if not body.reason.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="A reason is required for a manual override")
+    attempt = await db.get(MissionAttempt, attempt_id)
+    if attempt is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+    decided = await override_attempt_outcome(
+        db, attempt=attempt, passed=body.passed, reason=body.reason.strip(), decided_by=current_user.id,
+    )
+    await db.commit()
+    await db.refresh(decided)
+    return await _attempt_admin_out(db, decided)
+
+
+@router.get("/attempts/{attempt_id}/design-detail", response_model=DesignStateOut)
+async def attempt_design_detail(attempt_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content)):
+    """Ops-side mirror of `/missions/instructor/attempts/{id}/design-detail`
+    — see `design_state_out`'s docstring."""
+    attempt = await db.get(MissionAttempt, attempt_id)
+    if attempt is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+    design = (await db.execute(select(Design).where(Design.attempt_id == attempt.id))).scalars().first()
+    if design is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This student hasn't started their design yet")
+    return await design_state_out(db, attempt=attempt, design=design)
 
 
 # ── cohort-scoped run assignment (2026-08-21, LMS Program redesign) ─────────

@@ -87,6 +87,11 @@ myenv/
 *.dump
 *.sql.gz
 
+# Redis's own snapshot file, dropped in whatever directory redis-server was
+# started from (e.g. backend/, when run locally for tests) — regenerable
+# runtime state, never something to track.
+*.rdb
+
 # LMS Drive import (2026-08-09) — OAuth client secret + cached refresh
 # token (lms_drive_oauth_download.py) are real credentials; the drive dump
 # itself is real (large) course content, and its manifest just tracks

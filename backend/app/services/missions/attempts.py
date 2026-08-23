@@ -216,3 +216,38 @@ async def decide_attempt(
             db, mission_id=attempt.mission_id, variant_id=attempt.variant_id, user_ids=recipients,
         )
     return attempt
+
+
+async def override_attempt_outcome(
+    db: AsyncSession, *, attempt: MissionAttempt, passed: bool, reason: str, decided_by: uuid.UUID,
+) -> MissionAttempt:
+    """Instructor/ops escape hatch (operator ask, 2026-08-22): every other
+    caller of `decide_attempt` is a kind-specific verifier deciding an
+    attempt's *own* first real outcome (quiz/design/operate self-grade;
+    `review_submission_attempt` only touches a `submission`-kind attempt
+    still sitting in `submitted`). This is the generic override — any
+    kind, any current status, including one already decided — for the
+    real case of a stuck run (a design mission blocked on a data-entry
+    mistake, a quiz a student should be allowed to pass on request).
+
+    `decide_attempt` itself already applies unconditionally regardless of
+    the attempt's current status, so this only adds the audit trail before
+    delegating to it: `reason` (required — this is a human overruling the
+    mission's own grading, it needs a reason on record) and the prior
+    status land in `attempt.payload["override"]`.
+
+    Not built: revoking an already-awarded points/embedded-item completion
+    when flipping a *passed* attempt to failed — `decide_attempt`'s own
+    point-award is idempotent (safe to re-decide pass→pass), but has no
+    reciprocal claw-back path, and building one is a separate, riskier
+    feature than what was asked for (unblocking a stuck run). Flip
+    passed→failed with that in mind."""
+    attempt.payload = {
+        **(attempt.payload or {}),
+        "override": {
+            "reason": reason, "decided_by": str(decided_by),
+            "decided_at": datetime.now(timezone.utc).isoformat(), "previous_status": attempt.status,
+        },
+    }
+    score = Decimal(100) if passed else Decimal(0)
+    return await decide_attempt(db, attempt=attempt, passed=passed, score=score, decided_by=decided_by)

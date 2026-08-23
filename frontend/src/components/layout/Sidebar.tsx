@@ -140,22 +140,28 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   // its own top-level path so one URL space works for both roles rather than
   // duplicating pages under /operations and /instructors.
   if (pathname.startsWith("/lms-authoring")) {
+    // A plain instructor's backend access (require_instructor_missions) is
+    // cohort-scoped and Programs-only — every other tab here 403s for them,
+    // so show just their one real entry point instead of the full staff nav.
+    if (activeRole === "instructor") {
+      return [
+        mk("Programs", "/lms-authoring/curriculum"),
+        mk("Back", "/instructors/dashboard"),
+      ];
+    }
     return [
       mk("Courses", "/lms-authoring/courses"),
-      mk("Programs", "/lms-authoring/curriculum"),
       mk("Learning Paths", "/lms-authoring/learning-paths"),
+      mk("Programs", "/lms-authoring/curriculum"),
       mk("Live Quiz", "/lms-authoring/games"),
-      mk("Progress", "/lms-authoring/progress"),
       mk("Missions", "/lms-authoring/missions"),
-      mk("Component library", "/lms-authoring/design-library"),
       mk("Students", "/lms-authoring/students"),
       mk("Invite Codes", "/lms-authoring/invite-codes"),
-      mk("Cohort Missions", "/lms-authoring/cohort-missions"),
+      mk("Progress", "/lms-authoring/progress"),
+      mk("Component library", "/lms-authoring/design-library"),
       mk(
         "Back",
-        activeRole === "facilitator" ? "/instructors/facilitator/training"
-          : activeRole === "instructor" ? "/instructors/dashboard"
-          : "/operations/dashboard",
+        activeRole === "facilitator" ? "/instructors/facilitator/training" : "/operations/dashboard",
       ),
     ];
   }
@@ -194,6 +200,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("User Management", "/admin/users"),
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
+      mk("Role Requests", "/admin/role-requests"),
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       // I0-1: admin previously had NO navigational path into the registration/
@@ -275,14 +282,14 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Overview", "/instructors/dashboard"),
       mk("Sessions", "/instructors/my-sessions"),
-      mk("My Kits & Items", "/instructors/my-holdings"),
-      mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
-      mk("Cohort Missions", "/lms-authoring/cohort-missions"),
-      mk("Learn", "/learn"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Instructor ID Card", "/instructors/id-card"),
       mk("Payments", "/instructors/payments"),
+      mk("LMS Programs", "/lms-authoring/curriculum"),
+      mk("Learn", "/learn"),
+      mk("SatKit Training", "/instructors/training"),
+      mk("My Kits & Items", "/instructors/my-holdings"),
     ];
   }
   if (pathname.startsWith("/interns")) {
@@ -341,14 +348,14 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Overview", "/instructors/dashboard"),
       mk("Sessions", "/instructors/my-sessions"),
-      mk("My Kits & Items", "/instructors/my-holdings"),
-      mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
-      mk("Cohort Missions", "/lms-authoring/cohort-missions"),
-      mk("Learn", "/learn"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Instructor ID Card", "/instructors/id-card"),
       mk("Payments", "/instructors/payments"),
+      mk("LMS Programs", "/lms-authoring/curriculum"),
+      mk("Learn", "/learn"),
+      mk("SatKit Training", "/instructors/training"),
+      mk("My Kits & Items", "/instructors/my-holdings"),
     ];
   }
   if (activeRole === "facilitator") {
@@ -372,6 +379,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("User Management", "/admin/users"),
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
+      mk("Role Requests", "/admin/role-requests"),
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       mk("Operations", "/operations/dashboard"),

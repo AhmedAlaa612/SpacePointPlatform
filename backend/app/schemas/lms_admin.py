@@ -445,9 +445,23 @@ class LmsProgramItemOut(BaseModel):
     requires_confirmation: bool
     course_id: UUID | None
     mission_id: UUID | None
+    # `Mission.kind` (design|submission|quiz|checklist|external) for a
+    # mission_run item — None for every other item_type, or if mission_id
+    # is somehow dangling. The Missions tab uses this to decide whether a
+    # mission actually has build steps/gates to configure: those concepts
+    # (`MissionStepSelection`/`MissionStepGate`) only exist for kind='design'
+    # missions, never derived from the item itself.
+    mission_kind: str | None = None
     variant_id: UUID | None
     external_url: str | None
     submission_prompt: str | None
+
+
+class LmsProgramItemReorderIn(BaseModel):
+    """Full ordered id list, same idiom as `ModuleReorderIn` — one
+    transaction rewrites every position instead of racing the unique
+    constraint one drag at a time."""
+    item_ids: list[UUID]
 
 
 class LmsProgramCreate(BaseModel):
@@ -473,11 +487,16 @@ class LmsProgramOut(BaseModel):
     items: list[LmsProgramItemOut] = []
 
 
-class LmsProgramCohortOverrideOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: UUID
+class LmsProgramCohortEffectiveOut(BaseModel):
+    """What a cohort's checklist actually resolves to right now — its own
+    override once one has real items, else its program's own checklist
+    shown as the editable starting point (`is_inherited=True`; operator
+    ask, 2026-08-22: don't make ops start from scratch). No `id` when
+    inherited — there's no override row yet, the first edit creates one
+    (`fork_cohort_override`)."""
     cohort_id: UUID
     lms_program_id: UUID
+    is_inherited: bool
     items: list[LmsProgramItemOut] = []
 
 
