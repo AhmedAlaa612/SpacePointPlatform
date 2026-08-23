@@ -167,6 +167,8 @@ function RoleRequestDetailDialog({
                     requestedCityId={req.details.preferred_city_id as string | undefined}
                     requestedDurationWeeks={req.details.requested_duration_weeks as number | undefined}
                     requestedStartDate={req.details.requested_start_date as string | undefined}
+                    internName={req.requester_name ?? undefined}
+                    universityIdNumber={req.details.university_id_number as string | undefined}
                   />
                 </CardContent>
               </Card>

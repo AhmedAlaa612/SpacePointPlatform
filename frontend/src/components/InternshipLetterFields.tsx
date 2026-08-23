@@ -1,10 +1,16 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { fetchPublicCities } from "@/api/lms"
-import type { InternshipApproveBody } from "@/api/internship"
+import { previewInternshipLetterApi, type InternshipApproveBody } from "@/api/internship"
+import { Button } from "@/components/ui/button"
 
+// Defaults from the reference letter (Amna Khairi's, the example the
+// letter template/design was built from) — the same supervisor signs off
+// on essentially every internship letter today, so admins shouldn't have
+// to retype this every time; still fully editable per request.
 export const emptyInternshipApprove = (): InternshipApproveBody => ({
-  salutation: "", activity_description: "", supervisor_title: "",
-  supervisor_name: "", supervisor_email: "", supervisor_phone: "",
+  salutation: "", activity_description: "research and development", supervisor_title: "Mr.",
+  supervisor_name: "Abdullah AlSalmani", supervisor_email: "abdel.alsalmani@gmail.com",
+  supervisor_phone: "+971562987005", hours_per_week: 40,
 })
 
 export const isInternshipApproveComplete = (v: InternshipApproveBody) =>
@@ -18,9 +24,12 @@ export const isInternshipApproveComplete = (v: InternshipApproveBody) =>
  * `requestedStartDate` show as placeholders/context when the applicant
  * already supplied one and admin hasn't overridden it. Pass
  * `showRefNumberOverride={false}` for the onboarding flow, where the ref
- * number is deliberately never pre-set. */
+ * number is deliberately never pre-set. `internName`/`universityIdNumber`
+ * are only used for the Preview button — omit to hide it (e.g. if the
+ * caller doesn't have an applicant identity to preview against yet). */
 export function InternshipLetterFields({
   value, onChange, requestedCityId, requestedDurationWeeks, requestedStartDate, showRefNumberOverride = true,
+  internName, universityIdNumber,
 }: {
   value: InternshipApproveBody
   onChange: (next: InternshipApproveBody) => void
@@ -28,9 +37,24 @@ export function InternshipLetterFields({
   requestedDurationWeeks?: number
   requestedStartDate?: string
   showRefNumberOverride?: boolean
+  internName?: string
+  universityIdNumber?: string
 }) {
   const { data: cities = [] } = useQuery({ queryKey: ["public-cities"], queryFn: fetchPublicCities })
   const requestedCityName = cities.find((c) => c.id === requestedCityId)?.name
+
+  const preview = useMutation({
+    mutationFn: async () => {
+      const blob = await previewInternshipLetterApi({
+        ...value, intern_name: internName || "Applicant",
+        university_id_number: universityIdNumber, requested_start_date: requestedStartDate,
+      })
+      const url = URL.createObjectURL(blob)
+      window.open(url, "_blank")
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    },
+    onError: (err: any) => alert(err?.response?.data?.detail || "Failed to render preview."),
+  })
 
   return (
     <div className="flex flex-col gap-3">
@@ -82,14 +106,19 @@ export function InternshipLetterFields({
         </Field>
       )}
 
-      <Field label="Start date override (optional)">
+      <Field label="Start date override">
+        {/* Shows the requested date by default so the admin sees what will
+            actually be used without having to look it up elsewhere — but
+            `value.start_date_override` itself stays unset until the admin
+            actually edits this, so the auto-resolve rule below still runs
+            normally (e.g. the day-after-approval case) unless they do. */}
         <input className="input" type="date"
-          value={value.start_date_override ?? ""}
+          value={value.start_date_override ?? requestedStartDate ?? ""}
           onChange={(e) => onChange({ ...value, start_date_override: e.target.value || undefined })} />
         <p className="text-[11px] text-muted-foreground mt-1">
           {requestedStartDate
-            ? `Left blank: if approved on or before ${requestedStartDate}, that's the start date; if approved after, the start date becomes the day after approval.`
-            : "Left blank and nothing was requested: defaults to the approval date."}
+            ? `Shown: the requester's own choice. Left as-is: if approved on or before ${requestedStartDate}, that's the start date; if approved after, the start date becomes the day after approval. Change it to override.`
+            : "Nothing was requested — leave blank to default to the approval date, or set one to override."}
         </p>
       </Field>
 
@@ -119,6 +148,13 @@ export function InternshipLetterFields({
             onChange={(e) => onChange({ ...value, supervisor_phone: e.target.value })} />
         </Field>
       </div>
+
+      {internName && (
+        <Button type="button" variant="outline" className="w-full mt-1"
+          onClick={() => preview.mutate()} disabled={preview.isPending}>
+          {preview.isPending ? "Rendering preview…" : "Preview Letter"}
+        </Button>
+      )}
     </div>
   )
 }

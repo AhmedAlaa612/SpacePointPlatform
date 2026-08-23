@@ -294,6 +294,8 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                         requestedDurationWeeks={app.answers?.requested_duration_weeks as number | undefined}
                         requestedStartDate={app.answers?.requested_start_date as string | undefined}
                         showRefNumberOverride={false}
+                        internName={app.full_name}
+                        universityIdNumber={app.answers?.university_id_number as string | undefined}
                       />
                       <p className="text-[11px] text-muted-foreground border-t border-border/50 pt-2 mt-1">
                         Approving directly generates the letter now, with these details. Sending to

@@ -26,7 +26,7 @@ from app.services.email import send_internship_letter_ready_email
 from app.services.internship.ref_number import next_ref_number
 
 
-def _format_letter_date(d: date) -> str:
+def format_letter_date(d: date) -> str:
     """"8 July 2026" — cross-platform, no %-d/%#d strftime flag needed.
     Matches contract.py's format_contract_date convention."""
     return f"{d.day} {d.strftime('%B %Y')}"
@@ -119,8 +119,8 @@ async def approve_internship(
 
     supervisor_first_name = approve.supervisor_name.split(" ")[0] if approve.supervisor_name else ""
     profile.letter_date = profile.letter_date or approval_date
-    letter_date = _format_letter_date(profile.letter_date)
-    start_date_str = _format_letter_date(profile.start_date) if profile.start_date else letter_date
+    letter_date = format_letter_date(profile.letter_date)
+    start_date_str = format_letter_date(profile.start_date) if profile.start_date else letter_date
 
     pdf_bytes = await asyncio.to_thread(
         generate_internship_letter_pdf,

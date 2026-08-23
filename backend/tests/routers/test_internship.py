@@ -7,6 +7,7 @@ scripts/bulk_import_interns.py was verified against)."""
 import uuid
 
 import pytest
+from sqlalchemy import select
 
 from app.core.security import create_access_token, get_password_hash
 from app.models.enums import UserRole
@@ -250,3 +251,69 @@ async def test_admin_start_date_override_wins_over_requested_date(db, client):
 
     profile = await db.get(InternProfile, instructor.id)
     assert profile.start_date.isoformat() == override
+
+
+# ── letter preview ───────────────────────────────────────────────────────────
+
+_PREVIEW_BODY = {
+    "salutation": "Ms.", "activity_description": "research and development",
+    "supervisor_title": "Mr.", "supervisor_name": "Abdullah AlSalmani",
+    "supervisor_email": "abdel.alsalmani@gmail.com", "supervisor_phone": "+971562987005",
+    "duration_weeks": 8, "hours_per_week": 40,
+    "intern_name": "Amna Khairi", "university_id_number": "1092579",
+}
+
+
+async def test_preview_requires_admin(db, client):
+    instructor = await _make_user(db, roles=[UserRole.instructor])
+    resp = await client.post(
+        "/admin/internship-letter/preview", json=_PREVIEW_BODY, headers=_auth(instructor),
+    )
+    assert resp.status_code == 403
+
+
+async def test_preview_renders_a_pdf_without_persisting_anything(db, client):
+    admin = await _make_user(db, roles=[UserRole.admin])
+
+    resp = await client.post(
+        "/admin/internship-letter/preview", json=_PREVIEW_BODY, headers=_auth(admin),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/pdf"
+    assert resp.content[:4] == b"%PDF"
+
+    # No InternProfile/RoleRequest exists for anyone — preview is read-only.
+    assert (await db.execute(select(InternProfile))).first() is None
+    assert (await db.execute(select(RoleRequest))).first() is None
+
+
+async def test_preview_does_not_consume_the_real_ref_number(db, client):
+    admin = await _make_user(db, roles=[UserRole.admin])
+
+    first = await client.post(
+        "/admin/internship-letter/preview", json=_PREVIEW_BODY, headers=_auth(admin),
+    )
+    second = await client.post(
+        "/admin/internship-letter/preview", json=_PREVIEW_BODY, headers=_auth(admin),
+    )
+    assert first.status_code == 200 and second.status_code == 200
+
+    # Two previews in a row don't burn two numbers off the real counter —
+    # confirmed by actually approving next and seeing the number it gets.
+    instructor = await _make_user(db, roles=[UserRole.instructor], email="after-preview@example.com")
+    submit = await client.post(
+        "/me/role-requests", json={"target_role": "intern", "details": {}}, headers=_auth(instructor),
+    )
+    req_id = submit.json()["id"]
+    approve = await client.post(
+        f"/admin/role-requests/{req_id}/approve",
+        json={
+            "salutation": "Mr.", "activity_description": "engineering",
+            "supervisor_title": "Mr.", "supervisor_name": "Test Supervisor",
+            "supervisor_email": "sup@example.com", "supervisor_phone": "+971500000000",
+        },
+        headers=_auth(admin),
+    )
+    assert approve.status_code == 200, approve.text
+    ref = approve.json()["resolution"]["ref_number"]
+    assert ref.split("/")[0] == "1"  # first real approval this year — unaffected by the two preview calls
