@@ -11,9 +11,14 @@ showing real names on a leaderboard isn't acceptable given the user base
 skews toward minors, and nobody had picked what to show instead.
 `services/nicknames.py` (8-1) is that answer: every student already has an
 auto-generated public nickname, so `_display_name` uses it directly.
-Non-student accounts (staff can take LMS courses too, D2) have no
-nickname — they fall back to the old first-name + last-initial stand-in,
-since a staff member's name isn't the privacy concern D6 was about.
+
+Staff accounts (D2: instructors/ops/etc. can take LMS courses too, and rack
+up `point_events` the same way students do) are excluded outright
+(operator ask, 2026-08-22) — a leaderboard mixing in staff isn't a fair
+ranking for the students it's for. `_display_name`'s non-student fallback
+below is now unreachable from `leaderboard()` itself as a result, but it
+stays generic (keyed on nickname/full_name, not role) rather than assuming
+every caller has already filtered to students.
 """
 
 from __future__ import annotations
@@ -52,6 +57,7 @@ async def leaderboard(
     stmt = (
         select(User.id, User.full_name, User.nickname, total_col)
         .join(PointEvent, PointEvent.user_id == User.id)
+        .where(User.roles.any("student"))
         .group_by(User.id, User.full_name, User.nickname)
         .order_by(total_col.desc())
         .limit(limit)
