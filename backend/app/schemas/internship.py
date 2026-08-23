@@ -64,6 +64,17 @@ class InternshipApprove(BaseModel):
     admin_notes: Optional[str] = None
 
 
+class InternshipPreviewRequest(InternshipApprove):
+    """POST /admin/internship-letter/preview — same fields an admin fills
+    in on the approve form, plus the applicant identity that InternshipApprove
+    itself doesn't carry (it's always applied against an already-known user).
+    Read-only: never touches the DB or the intern's real ref number."""
+    intern_name: str
+    university_id_number: Optional[str] = None
+    requested_start_date: Optional[date] = None
+    requested_duration_weeks: Optional[int] = None
+
+
 class InternProfileOut(BaseModel):
     user_id: UUID
     ref_number: Optional[str] = None

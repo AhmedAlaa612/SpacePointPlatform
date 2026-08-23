@@ -39,6 +39,26 @@ async def _max_existing_ref_for_year(db: AsyncSession, year: int) -> int:
     return max_n
 
 
+async def peek_next_ref_number(db: AsyncSession, *, year: int | None = None, override: int | None = None) -> str:
+    """Read-only preview of what `next_ref_number` would hand out — no
+    insert, no row lock, no mutation. Used by the letter-preview endpoint,
+    which must never consume a real number just because an admin clicked
+    Preview. May be off by one under concurrent approvals, which is fine:
+    it's cosmetic, and the real allocation still happens correctly at
+    actual approval time."""
+    year = year or date.today().year
+    if override is not None:
+        return f"{override}/{year}"
+
+    counter = (await db.execute(
+        select(InternshipRefCounter).where(InternshipRefCounter.year == year)
+    )).scalar_one_or_none()
+    last_number = counter.last_number if counter else 0
+    if last_number == 0:
+        last_number = await _max_existing_ref_for_year(db, year)
+    return f"{last_number + 1}/{year}"
+
+
 async def next_ref_number(db: AsyncSession, *, year: int | None = None, override: int | None = None) -> str:
     """Allocates the next internship-letter reference number for `year`
     (default: current calendar year). Must be called inside the same

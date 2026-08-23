@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { getCountries } from "@/lib/countries"
+import { fetchPublicCities } from "@/api/lms"
 import { InternshipLetterFields, emptyInternshipApprove, isInternshipApproveComplete } from "@/components/InternshipLetterFields"
 
 // `application.country` is stored as an ISO code (2026-08-08 country-code
@@ -171,6 +172,13 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
   })
   const qLabel = (qid: string) => questions.find((q) => q.id === qid)?.question_text ?? qid
 
+  const { data: workCities = [] } = useQuery({
+    queryKey: ["public-cities"],
+    queryFn: fetchPublicCities,
+    enabled: app?.role === "intern",
+  })
+  const requestedCityName = workCities.find((c) => c.id === app?.answers?.preferred_city_id)?.name
+
   // Required by the backend when app.role === "intern" — see
   // InternshipLetterFields and HANDOFF_INTERNSHIP.md's two paths.
   const isIntern = app?.role === "intern"
@@ -261,11 +269,15 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                         Internship Letter Details
                       </p>
                       {(app.answers?.university_id_number != null ||
+                        app.answers?.preferred_city_id != null ||
                         app.answers?.requested_start_date != null ||
                         app.answers?.requested_duration_weeks != null) && (
                         <div className="flex flex-col gap-1 text-xs bg-muted/20 border border-border/50 rounded-lg p-2.5">
                           {app.answers.university_id_number != null && (
                             <p><span className="text-muted-foreground">University ID: </span>{String(app.answers.university_id_number)}</p>
+                          )}
+                          {app.answers.preferred_city_id != null && (
+                            <p><span className="text-muted-foreground">Requested city: </span>{requestedCityName ?? String(app.answers.preferred_city_id)}</p>
                           )}
                           {app.answers.requested_start_date != null && (
                             <p><span className="text-muted-foreground">Requested start: </span>{String(app.answers.requested_start_date)}</p>
@@ -282,6 +294,8 @@ function ApplicationDetailDialog({ id, onClose }: { id: string; onClose: () => v
                         requestedDurationWeeks={app.answers?.requested_duration_weeks as number | undefined}
                         requestedStartDate={app.answers?.requested_start_date as string | undefined}
                         showRefNumberOverride={false}
+                        internName={app.full_name}
+                        universityIdNumber={app.answers?.university_id_number as string | undefined}
                       />
                       <p className="text-[11px] text-muted-foreground border-t border-border/50 pt-2 mt-1">
                         Approving directly generates the letter now, with these details. Sending to

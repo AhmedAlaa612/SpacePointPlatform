@@ -6,6 +6,7 @@ import {
   approveRoleRequestApi,
   rejectRoleRequestApi,
 } from "@/api/internship"
+import { fetchPublicCities } from "@/api/lms"
 import type { RoleRequest } from "@/types/internship"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -102,6 +103,8 @@ function RoleRequestDetailDialog({
 }: { req: RoleRequest; onClose: () => void; onChanged: () => void }) {
   const [notes, setNotes] = useState("")
   const [form, setForm] = useState(emptyInternshipApprove)
+  const { data: cities = [] } = useQuery({ queryKey: ["public-cities"], queryFn: fetchPublicCities })
+  const requestedCityName = cities.find((c) => c.id === req.details.preferred_city_id)?.name
 
   const approve = useMutation({
     mutationFn: () => approveRoleRequestApi(req.id, { ...form, admin_notes: notes || undefined }),
@@ -138,6 +141,9 @@ function RoleRequestDetailDialog({
                     {req.details.university_id_number != null && (
                       <p><span className="text-muted-foreground">University ID: </span>{String(req.details.university_id_number)}</p>
                     )}
+                    {req.details.preferred_city_id != null && (
+                      <p><span className="text-muted-foreground">Requested city: </span>{requestedCityName ?? String(req.details.preferred_city_id)}</p>
+                    )}
                     {req.details.requested_start_date != null && (
                       <p><span className="text-muted-foreground">Requested start: </span>{String(req.details.requested_start_date)}</p>
                     )}
@@ -161,6 +167,8 @@ function RoleRequestDetailDialog({
                     requestedCityId={req.details.preferred_city_id as string | undefined}
                     requestedDurationWeeks={req.details.requested_duration_weeks as number | undefined}
                     requestedStartDate={req.details.requested_start_date as string | undefined}
+                    internName={req.requester_name ?? undefined}
+                    universityIdNumber={req.details.university_id_number as string | undefined}
                   />
                 </CardContent>
               </Card>

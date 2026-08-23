@@ -45,3 +45,15 @@ export const approveRoleRequestApi = (id: string, body: InternshipApproveBody) =
 
 export const rejectRoleRequestApi = (id: string, admin_notes?: string) =>
   api.post<RoleRequest>(`/admin/role-requests/${id}/reject`, { admin_notes }).then((r) => r.data)
+
+export interface InternshipPreviewBody extends InternshipApproveBody {
+  intern_name: string
+  university_id_number?: string
+  requested_start_date?: string  // YYYY-MM-DD
+  requested_duration_weeks?: number
+}
+
+// Renders the letter from whatever's currently in the form — no DB writes,
+// no ref number consumed. Returns the raw PDF as a blob to open/preview.
+export const previewInternshipLetterApi = (body: InternshipPreviewBody) =>
+  api.post<Blob>("/admin/internship-letter/preview", body, { responseType: "blob" }).then((r) => r.data)

@@ -22,7 +22,7 @@ import asyncio
 import uuid
 from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -33,6 +33,7 @@ from app.models.user import User
 from app.schemas.internship import (
     InternProfileOut,
     InternshipApprove,
+    InternshipPreviewRequest,
     RoleRequestCreate,
     RoleRequestOut,
     RoleRequestReject,
@@ -45,7 +46,8 @@ from app.services.email import (
     send_signed_internship_letter_email,
 )
 from app.services.internship.allowed_role_requests import can_request_role
-from app.services.internship.approval import approve_internship, resolve_internship_request_fields
+from app.services.internship.approval import approve_internship, format_letter_date, resolve_internship_request_fields, resolve_start_date
+from app.services.internship.ref_number import peek_next_ref_number
 from app.services.notification import create_notification as notify
 
 router = APIRouter(tags=["internship"])
@@ -134,6 +136,47 @@ def _request_out(req: RoleRequest, requester: User) -> RoleRequestOut:
 
 
 # ── admin review ─────────────────────────────────────────────────────────────
+
+@router.post("/admin/internship-letter/preview")
+async def preview_internship_letter(
+    body: InternshipPreviewRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Renders the letter exactly as the real approve/onboard actions would,
+    from whatever the admin has typed into the form so far — no DB writes,
+    no ref number consumed, no email sent. Lets an admin sanity-check the
+    letter before committing to Approve."""
+    approval_date = datetime.now(timezone.utc).date()
+    start_date = resolve_start_date(body.requested_start_date, body.start_date_override, approval_date)
+    ref_number = await peek_next_ref_number(db, override=body.ref_number_override)
+    supervisor_first_name = body.supervisor_name.split(" ")[0] if body.supervisor_name else ""
+    # Same "admin override wins, else fall back to what was requested"
+    # rule resolve_internship_request_fields applies for the real approve
+    # flow — the preview form doesn't always have duration_weeks typed in
+    # yet (it comes from the applicant's own request instead), same as the
+    # real letter wouldn't.
+    duration_weeks = body.duration_weeks if body.duration_weeks is not None else body.requested_duration_weeks
+
+    pdf_bytes = await asyncio.to_thread(
+        generate_internship_letter_pdf,
+        ref_number=ref_number,
+        university_id=body.university_id_number or "",
+        letter_date=format_letter_date(approval_date),
+        salutation=body.salutation,
+        intern_name=body.intern_name,
+        start_date=format_letter_date(start_date) if start_date else format_letter_date(approval_date),
+        duration_weeks=duration_weeks or 0,
+        activity_description=body.activity_description,
+        hours_per_week=body.hours_per_week or 0,
+        supervisor_title=body.supervisor_title,
+        supervisor_name=body.supervisor_name,
+        supervisor_first_name=supervisor_first_name,
+        supervisor_email=body.supervisor_email,
+        supervisor_phone=body.supervisor_phone,
+    )
+    return Response(content=pdf_bytes, media_type="application/pdf")
+
 
 @router.get("/admin/role-requests", response_model=list[RoleRequestOut])
 async def list_role_requests(

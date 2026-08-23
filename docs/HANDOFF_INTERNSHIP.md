@@ -21,8 +21,16 @@ docstring).
   `POST /me/role-requests`. Frontend: the "Apply for Internship" card on
   `pages/shared/PersonalDocuments.tsx`, shown only when the allowlist covers the active role.
 - **`admin`** — reviews the queue (`GET /admin/role-requests`), approves (sets the internship
-  letter's salutation, activity description, supervisor name/email/phone, and can override the
-  requester's city/duration/hours/ref-number/start-date) or rejects. Frontend:
+  letter's salutation, supervisor name/email/phone, and can override the requester's
+  city/duration/hours/ref-number/start-date) or rejects. `activity_description` is **not** an admin
+  field at all — every internship letter to date reads "research and development", so it's a fixed
+  constant (`components/InternshipLetterFields.tsx::emptyInternshipApprove`), never shown or
+  editable in the UI (still a real field on `InternshipApprove`, just always sent as that value).
+  Salutation aside, the remaining approve-form defaults are pre-filled from the reference letter
+  (Amna Khairi's) — supervisor Mr. Abdullah AlSalmani, 40 hours/week — since that's who signs off
+  on essentially every internship letter today; still fully editable per request. Can also render a
+  read-only PDF preview of the letter before committing (`POST
+  /admin/internship-letter/preview` — see "Letter preview" below). Frontend:
   `pages/admin/RoleRequests.tsx`, linked from the admin dashboard with a pending-count badge.
 - **`intern`** (role granted on approval, added to whatever roles the user already held — never
   replaces them) — views and signs their own internship letter. `GET /intern/internship-letter`,
@@ -125,6 +133,30 @@ correct: the requested date travels through `pending_intern_details` untouched, 
 against **whenever `review_applicant` actually runs** — which could be weeks after send-to-
 onboarding — not against the date the request was originally made. Covered end-to-end (both
 branches) in `tests/routers/admin/test_intern_application_letter.py`.
+
+The "Start date override" input on all three review forms shows the requester's own date by
+default (rather than a blank picker) so the admin can see at a glance what will be used — but this
+is display-only: the underlying `start_date_override` field stays unset until the admin actually
+edits it, so the auto-resolve rule above still runs normally (including the day-after-approval
+case) unless they deliberately change the value.
+
+### Letter preview
+
+`POST /admin/internship-letter/preview` (`routers/internship.py`, admin-only) renders the letter
+PDF from whatever's currently in the approve form — same `generate_internship_letter_pdf()` call
+the real approve/onboard/self-apply paths use, same `resolve_start_date()` logic (using today as
+the approval date) — but writes nothing: no `InternProfile`, no role grant, no email, and critically
+no ref number consumed (`services/internship/ref_number.py::peek_next_ref_number` reads the
+counter without locking or incrementing it, so clicking Preview repeatedly never skips numbers in
+the real sequence). The "Preview Letter" button lives inside the shared `InternshipLetterFields`
+component itself, shown whenever the caller passes an `internName` prop (all three review
+surfaces do). Opens the rendered PDF in a new tab.
+
+`duration_weeks` gets the same "admin override wins, else fall back to what was requested"
+treatment `resolve_internship_request_fields` applies for the real approve flow — the preview
+request also carries `requested_duration_weeks` (same fallback pattern the "Start date override"
+field's UI already used) since an admin who hasn't typed a duration yet should still see the
+applicant's real number in the preview, not 0.
 
 ## Main DB tables
 
