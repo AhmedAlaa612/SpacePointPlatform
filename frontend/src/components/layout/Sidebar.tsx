@@ -281,14 +281,14 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Overview", "/instructors/dashboard"),
       mk("Sessions", "/instructors/my-sessions"),
-      mk("My Kits & Items", "/instructors/my-holdings"),
-      mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
-      mk("Programs", "/lms-authoring/curriculum"),
-      mk("Learn", "/learn"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Instructor ID Card", "/instructors/id-card"),
       mk("Payments", "/instructors/payments"),
+      mk("LMS Programs", "/lms-authoring/curriculum"),
+      mk("Learn", "/learn"),
+      mk("SatKit Training", "/instructors/training"),
+      mk("My Kits & Items", "/instructors/my-holdings"),
     ];
   }
   if (pathname.startsWith("/interns")) {
@@ -347,14 +347,14 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     return [
       mk("Overview", "/instructors/dashboard"),
       mk("Sessions", "/instructors/my-sessions"),
-      mk("My Kits & Items", "/instructors/my-holdings"),
-      mk("SatKit Training", "/instructors/training"),
       mk("Library Resources", "/instructors/library"),
-      mk("Programs", "/lms-authoring/curriculum"),
-      mk("Learn", "/learn"),
       mk("Personal Documents", "/instructors/personal-documents"),
       mk("Instructor ID Card", "/instructors/id-card"),
       mk("Payments", "/instructors/payments"),
+      mk("LMS Programs", "/lms-authoring/curriculum"),
+      mk("Learn", "/learn"),
+      mk("SatKit Training", "/instructors/training"),
+      mk("My Kits & Items", "/instructors/my-holdings"),
     ];
   }
   if (activeRole === "facilitator") {
