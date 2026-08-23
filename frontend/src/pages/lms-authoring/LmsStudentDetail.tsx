@@ -110,13 +110,18 @@ export default function LmsStudentDetail() {
   return (
     <div className="flex flex-col gap-6">
       <button
-        // `/students` declares a validateSearch (?invite_code=), so TanStack
-        // requires the search object here with every key present.
-        // undefined = back to the unfiltered list.
-        onClick={() => void navigate({ to: "/lms-authoring/students", search: { invite_code: undefined } })}
+        // Staff has a full students roster to go back to (`/students`
+        // declares a validateSearch (?invite_code=), so TanStack requires
+        // the search object here with every key present — undefined = back
+        // to the unfiltered list). Instructors never had a roster page of
+        // their own to land on — the only page they can actually reach is
+        // Programs, where the student link that got them here lives.
+        onClick={() => void (isStaff
+          ? navigate({ to: "/lms-authoring/students", search: { invite_code: undefined } })
+          : navigate({ to: "/lms-authoring/curriculum" }))}
         className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors w-fit"
       >
-        <ArrowLeft size={14} /> Students
+        <ArrowLeft size={14} /> {isStaff ? "Students" : "Programs"}
       </button>
 
       <PageHeader
