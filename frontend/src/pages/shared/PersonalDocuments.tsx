@@ -84,7 +84,7 @@ export default function PersonalDocuments() {
   const [universityId, setUniversityId] = useState("")
   const [preferredCityId, setPreferredCityId] = useState("")
   const [requestedStartDate, setRequestedStartDate] = useState("")
-  const [requestedDurationWeeks, setRequestedDurationWeeks] = useState("")
+  const [requestedDurationWeeks, setRequestedDurationWeeks] = useState("8")
 
   // ── Queries ──────────────────────────────────────────────────
   const { data: vaultDocs = [], isLoading: loadingVault } = useQuery({
@@ -185,7 +185,7 @@ export default function PersonalDocuments() {
       setUniversityId("")
       setPreferredCityId("")
       setRequestedStartDate("")
-      setRequestedDurationWeeks("")
+      setRequestedDurationWeeks("8")
     },
     onError: (err: any) => alert(err?.response?.data?.detail || "Failed to submit internship request."),
   })
@@ -583,7 +583,7 @@ export default function PersonalDocuments() {
       )}
 
       <Dialog open={signingContract} onOpenChange={(open) => !open && setSigningContract(false)}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Sign Facilitator Agreement Contract</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground mb-3">
             By signing, you confirm agreement to the terms of your SpacePoint Instructor Agreement.
@@ -593,7 +593,7 @@ export default function PersonalDocuments() {
       </Dialog>
 
       <Dialog open={signingInternshipLetter} onOpenChange={(open) => !open && setSigningInternshipLetter(false)}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Sign Internship Letter</DialogTitle></DialogHeader>
           <p className="text-sm text-muted-foreground mb-3">
             By signing, you confirm acceptance of your SpacePoint internship offer.
@@ -603,7 +603,7 @@ export default function PersonalDocuments() {
       </Dialog>
 
       <Dialog open={applying} onOpenChange={(open) => !open && setApplying(false)}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader><DialogTitle>Apply for Internship</DialogTitle></DialogHeader>
           <form
             onSubmit={(e) => {
