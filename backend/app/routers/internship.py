@@ -151,6 +151,12 @@ async def preview_internship_letter(
     start_date = resolve_start_date(body.requested_start_date, body.start_date_override, approval_date)
     ref_number = await peek_next_ref_number(db, override=body.ref_number_override)
     supervisor_first_name = body.supervisor_name.split(" ")[0] if body.supervisor_name else ""
+    # Same "admin override wins, else fall back to what was requested"
+    # rule resolve_internship_request_fields applies for the real approve
+    # flow — the preview form doesn't always have duration_weeks typed in
+    # yet (it comes from the applicant's own request instead), same as the
+    # real letter wouldn't.
+    duration_weeks = body.duration_weeks if body.duration_weeks is not None else body.requested_duration_weeks
 
     pdf_bytes = await asyncio.to_thread(
         generate_internship_letter_pdf,
@@ -160,7 +166,7 @@ async def preview_internship_letter(
         salutation=body.salutation,
         intern_name=body.intern_name,
         start_date=format_letter_date(start_date) if start_date else format_letter_date(approval_date),
-        duration_weeks=body.duration_weeks or 0,
+        duration_weeks=duration_weeks or 0,
         activity_description=body.activity_description,
         hours_per_week=body.hours_per_week or 0,
         supervisor_title=body.supervisor_title,

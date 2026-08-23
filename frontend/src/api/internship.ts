@@ -50,6 +50,7 @@ export interface InternshipPreviewBody extends InternshipApproveBody {
   intern_name: string
   university_id_number?: string
   requested_start_date?: string  // YYYY-MM-DD
+  requested_duration_weeks?: number
 }
 
 // Renders the letter from whatever's currently in the form — no DB writes,

@@ -21,12 +21,14 @@ docstring).
   `POST /me/role-requests`. Frontend: the "Apply for Internship" card on
   `pages/shared/PersonalDocuments.tsx`, shown only when the allowlist covers the active role.
 - **`admin`** — reviews the queue (`GET /admin/role-requests`), approves (sets the internship
-  letter's salutation, activity description, supervisor name/email/phone, and can override the
-  requester's city/duration/hours/ref-number/start-date) or rejects. Salutation aside, the
-  approve-form defaults (`components/InternshipLetterFields.tsx::emptyInternshipApprove`) are
-  pre-filled from the reference letter (Amna Khairi's) — activity description "research and
-  development", supervisor Mr. Abdullah AlSalmani, 40 hours/week — since that's who signs off on
-  essentially every internship letter today; still fully editable per request. Can also render a
+  letter's salutation, supervisor name/email/phone, and can override the requester's
+  city/duration/hours/ref-number/start-date) or rejects. `activity_description` is **not** an admin
+  field at all — every internship letter to date reads "research and development", so it's a fixed
+  constant (`components/InternshipLetterFields.tsx::emptyInternshipApprove`), never shown or
+  editable in the UI (still a real field on `InternshipApprove`, just always sent as that value).
+  Salutation aside, the remaining approve-form defaults are pre-filled from the reference letter
+  (Amna Khairi's) — supervisor Mr. Abdullah AlSalmani, 40 hours/week — since that's who signs off
+  on essentially every internship letter today; still fully editable per request. Can also render a
   read-only PDF preview of the letter before committing (`POST
   /admin/internship-letter/preview` — see "Letter preview" below). Frontend:
   `pages/admin/RoleRequests.tsx`, linked from the admin dashboard with a pending-count badge.
@@ -149,6 +151,12 @@ counter without locking or incrementing it, so clicking Preview repeatedly never
 the real sequence). The "Preview Letter" button lives inside the shared `InternshipLetterFields`
 component itself, shown whenever the caller passes an `internName` prop (all three review
 surfaces do). Opens the rendered PDF in a new tab.
+
+`duration_weeks` gets the same "admin override wins, else fall back to what was requested"
+treatment `resolve_internship_request_fields` applies for the real approve flow — the preview
+request also carries `requested_duration_weeks` (same fallback pattern the "Start date override"
+field's UI already used) since an admin who hasn't typed a duration yet should still see the
+applicant's real number in the preview, not 0.
 
 ## Main DB tables
 

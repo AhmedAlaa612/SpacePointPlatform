@@ -4,6 +4,7 @@ routers/internship.py + services/internship/{approval,ref_number}.py against
 a real Postgres test DB and real LibreOffice conversion (the same stack
 scripts/bulk_import_interns.py was verified against)."""
 
+import io
 import uuid
 
 import pytest
@@ -270,6 +271,28 @@ async def test_preview_requires_admin(db, client):
         "/admin/internship-letter/preview", json=_PREVIEW_BODY, headers=_auth(instructor),
     )
     assert resp.status_code == 403
+
+
+async def test_preview_falls_back_to_the_requested_duration_when_admin_hasnt_typed_one(db, client):
+    """Regression: admin opens the review form and clicks Preview before
+    typing anything into Duration — same "shown, but not yet an explicit
+    admin value" UI pattern the start-date-override field uses. The
+    rendered letter must still reflect the applicant's own requested
+    duration, not silently fall back to 0."""
+    from pypdf import PdfReader
+
+    admin = await _make_user(db, roles=[UserRole.admin])
+    body = {**_PREVIEW_BODY, "requested_duration_weeks": 8}
+    del body["duration_weeks"]
+
+    resp = await client.post(
+        "/admin/internship-letter/preview", json=body, headers=_auth(admin),
+    )
+    assert resp.status_code == 200, resp.text
+
+    text = "".join(page.extract_text() for page in PdfReader(io.BytesIO(resp.content)).pages)
+    assert "8-week" in text
+    assert "0-week" not in text
 
 
 async def test_preview_renders_a_pdf_without_persisting_anything(db, client):

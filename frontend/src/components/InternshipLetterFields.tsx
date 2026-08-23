@@ -6,7 +6,10 @@ import { Button } from "@/components/ui/button"
 // Defaults from the reference letter (Amna Khairi's, the example the
 // letter template/design was built from) — the same supervisor signs off
 // on essentially every internship letter today, so admins shouldn't have
-// to retype this every time; still fully editable per request.
+// to retype this every time; supervisor/hours are still editable per
+// request. `activity_description` has no form field at all below — it's
+// always "research and development" (every internship letter to date),
+// so admins never see or touch it.
 export const emptyInternshipApprove = (): InternshipApproveBody => ({
   salutation: "", activity_description: "research and development", supervisor_title: "Mr.",
   supervisor_name: "Abdullah AlSalmani", supervisor_email: "abdel.alsalmani@gmail.com",
@@ -48,6 +51,7 @@ export function InternshipLetterFields({
       const blob = await previewInternshipLetterApi({
         ...value, intern_name: internName || "Applicant",
         university_id_number: universityIdNumber, requested_start_date: requestedStartDate,
+        requested_duration_weeks: requestedDurationWeeks,
       })
       const url = URL.createObjectURL(blob)
       window.open(url, "_blank")
@@ -78,12 +82,6 @@ export function InternshipLetterFields({
           </select>
         </Field>
       </div>
-
-      <Field label="Activity Description (prints in the letter)">
-        <input className="input" value={value.activity_description}
-          placeholder="e.g. research and development"
-          onChange={(e) => onChange({ ...value, activity_description: e.target.value })} />
-      </Field>
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Duration (weeks)">

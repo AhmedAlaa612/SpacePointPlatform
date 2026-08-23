@@ -72,6 +72,7 @@ class InternshipPreviewRequest(InternshipApprove):
     intern_name: str
     university_id_number: Optional[str] = None
     requested_start_date: Optional[date] = None
+    requested_duration_weeks: Optional[int] = None
 
 
 class InternProfileOut(BaseModel):
