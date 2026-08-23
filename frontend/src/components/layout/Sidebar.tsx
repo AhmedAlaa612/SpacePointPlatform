@@ -151,14 +151,14 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     }
     return [
       mk("Courses", "/lms-authoring/courses"),
-      mk("Programs", "/lms-authoring/curriculum"),
       mk("Learning Paths", "/lms-authoring/learning-paths"),
+      mk("Programs", "/lms-authoring/curriculum"),
       mk("Live Quiz", "/lms-authoring/games"),
-      mk("Progress", "/lms-authoring/progress"),
       mk("Missions", "/lms-authoring/missions"),
-      mk("Component library", "/lms-authoring/design-library"),
       mk("Students", "/lms-authoring/students"),
       mk("Invite Codes", "/lms-authoring/invite-codes"),
+      mk("Progress", "/lms-authoring/progress"),
+      mk("Component library", "/lms-authoring/design-library"),
       mk(
         "Back",
         activeRole === "facilitator" ? "/instructors/facilitator/training" : "/operations/dashboard",
