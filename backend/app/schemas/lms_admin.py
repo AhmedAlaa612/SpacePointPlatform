@@ -457,6 +457,13 @@ class LmsProgramItemOut(BaseModel):
     submission_prompt: str | None
 
 
+class LmsProgramItemReorderIn(BaseModel):
+    """Full ordered id list, same idiom as `ModuleReorderIn` — one
+    transaction rewrites every position instead of racing the unique
+    constraint one drag at a time."""
+    item_ids: list[UUID]
+
+
 class LmsProgramCreate(BaseModel):
     program_id: UUID | None = None
     name: str

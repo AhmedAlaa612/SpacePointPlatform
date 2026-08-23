@@ -368,6 +368,8 @@ export const updateLmsProgramItemApi = (lmsProgramId: string, itemId: string, da
   api.patch<LmsProgramItem>(`/lms/admin/programs/${lmsProgramId}/items/${itemId}`, data).then((r) => r.data);
 export const deleteLmsProgramItemApi = (lmsProgramId: string, itemId: string) =>
   api.delete<void>(`/lms/admin/programs/${lmsProgramId}/items/${itemId}`).then((r) => r.data);
+export const reorderLmsProgramItemsApi = (lmsProgramId: string, itemIds: string[]) =>
+  api.post<LmsProgramItem[]>(`/lms/admin/programs/${lmsProgramId}/items/reorder`, { item_ids: itemIds }).then((r) => r.data);
 
 export const getCohortProgramOverrideApi = (cohortId: string) =>
   api.get<LmsProgramCohortEffective>(`/lms/admin/cohorts/${cohortId}/program-override`).then((r) => r.data);
@@ -377,6 +379,8 @@ export const updateCohortOverrideItemApi = (cohortId: string, itemId: string, da
   api.patch<LmsProgramItem>(`/lms/admin/cohorts/${cohortId}/program-override/items/${itemId}`, data).then((r) => r.data);
 export const deleteCohortOverrideItemApi = (cohortId: string, itemId: string) =>
   api.delete<void>(`/lms/admin/cohorts/${cohortId}/program-override/items/${itemId}`).then((r) => r.data);
+export const reorderCohortOverrideItemsApi = (cohortId: string, itemIds: string[]) =>
+  api.post<LmsProgramItem[]>(`/lms/admin/cohorts/${cohortId}/program-override/items/reorder`, { item_ids: itemIds }).then((r) => r.data);
 
 // Instructor mirrors (2026-08-23, fixes a real 403 — instructors had no way
 // to even read their own cohort's checklist). Same shape, cohort-scoped;

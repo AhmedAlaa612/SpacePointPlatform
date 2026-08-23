@@ -133,6 +133,34 @@ async def next_position(db: AsyncSession, *, owner_type: str, owner_id: uuid.UUI
     return (max_pos or 0) + 1
 
 
+async def reorder_program_items(
+    db: AsyncSession, *, owner_type: str, owner_id: uuid.UUID, item_ids: list[uuid.UUID],
+) -> list[LmsProgramItem] | None:
+    """Drag-and-drop reorder — same `ModuleReorderIn`/`reorder_modules`
+    idiom: caller must send every item id for this owner exactly once, and
+    positions are rewritten in one transaction via a negative-offset pass
+    first, since `uq_lms_program_items_owner_position` isn't deferrable and
+    a direct swap can collide mid-transaction. Returns None if `item_ids`
+    doesn't match this owner's actual item set exactly."""
+    items = (await db.execute(
+        select(LmsProgramItem).where(LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id)
+    )).scalars().all()
+    by_id = {i.id: i for i in items}
+    if set(item_ids) != set(by_id) or len(item_ids) != len(by_id):
+        return None
+    for offset, item_id in enumerate(item_ids, start=1):
+        by_id[item_id].position = -offset
+    await db.flush()
+    for position, item_id in enumerate(item_ids, start=1):
+        by_id[item_id].position = position
+    await db.commit()
+    return (await db.execute(
+        select(LmsProgramItem)
+        .where(LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id)
+        .order_by(LmsProgramItem.position)
+    )).scalars().all()
+
+
 async def resolve_cohort_program(
     db: AsyncSession, cohort_id: uuid.UUID,
 ) -> tuple[LmsProgram, list[LmsProgramItem]] | None:

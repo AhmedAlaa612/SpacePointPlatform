@@ -69,6 +69,7 @@ from app.schemas.lms_admin import (
     LmsProgramCreate,
     LmsProgramItemIn,
     LmsProgramItemOut,
+    LmsProgramItemReorderIn,
     LmsProgramOut,
     LmsProgramUpdate,
     ModuleAdminOut,
@@ -99,7 +100,7 @@ from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
 from app.services.lms.program import (
     check_item_conflicts, effective_cohort_program_items, fork_cohort_override, item_out, items_out,
-    next_position, resolve_cohort_program, validate_item_payload, validate_item_refs,
+    next_position, reorder_program_items, resolve_cohort_program, validate_item_payload, validate_item_refs,
 )
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
@@ -1412,6 +1413,22 @@ async def delete_lms_program_item(
     await db.commit()
 
 
+@router.post("/programs/{lms_program_id}/items/reorder", response_model=list[LmsProgramItemOut])
+async def reorder_lms_program_items(
+    lms_program_id: uuid.UUID, body: LmsProgramItemReorderIn,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    program = await db.get(LmsProgram, lms_program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    reordered = await reorder_program_items(db, owner_type="program", owner_id=program.id, item_ids=body.item_ids)
+    if reordered is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="item_ids must include every item on this checklist exactly once",
+        )
+    return await items_out(db, reordered)
+
+
 @router.get("/cohorts/{cohort_id}/program-override", response_model=LmsProgramCohortEffectiveOut)
 async def get_cohort_program_override(
     cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
@@ -1524,6 +1541,27 @@ async def delete_cohort_override_item(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
     await db.delete(item)
     await db.commit()
+
+
+@router.post("/cohorts/{cohort_id}/program-override/items/reorder", response_model=list[LmsProgramItemOut])
+async def reorder_cohort_override_items(
+    cohort_id: uuid.UUID, body: LmsProgramItemReorderIn,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    """Same fork-then-translate as edit/delete above — dragging an
+    "inherited" list forks it first, translating every dragged id through
+    the fresh id map before handing the (now real) ids to `reorder_program_items`."""
+    forked = await fork_cohort_override(db, cohort_id=cohort_id)
+    if forked is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort has no checklist to override")
+    override, id_map = forked
+    resolved_ids = [id_map.get(i, i) for i in body.item_ids]
+    reordered = await reorder_program_items(db, owner_type="cohort_override", owner_id=override.id, item_ids=resolved_ids)
+    if reordered is None:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="item_ids must include every item on this checklist exactly once",
+        )
+    return await items_out(db, reordered)
 
 
 # ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────

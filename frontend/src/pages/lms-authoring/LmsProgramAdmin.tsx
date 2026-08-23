@@ -13,8 +13,9 @@ import { listCoursesApi } from "@/api/lms_admin"
 import { listMissionsAdminFullApi } from "@/api/missions_admin"
 import {
   listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, updateLmsProgramApi,
-  addLmsProgramItemApi, updateLmsProgramItemApi, deleteLmsProgramItemApi,
+  addLmsProgramItemApi, updateLmsProgramItemApi, deleteLmsProgramItemApi, reorderLmsProgramItemsApi,
   getCohortProgramOverrideApi, addCohortOverrideItemApi, updateCohortOverrideItemApi, deleteCohortOverrideItemApi,
+  reorderCohortOverrideItemsApi,
   getCohortProgramOverrideInstructorApi, addCohortOverrideItemInstructorApi,
   updateCohortOverrideItemInstructorApi, deleteCohortOverrideItemInstructorApi,
   getMyReachableProgramsApi, getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi,
@@ -282,6 +283,7 @@ function ProgramTemplateEditor({
         onAdd={(data) => addLmsProgramItemApi(program.id, data).then(onChanged)}
         onUpdate={(itemId, data) => updateLmsProgramItemApi(program.id, itemId, data).then(onChanged)}
         onDelete={(itemId) => deleteLmsProgramItemApi(program.id, itemId).then(onChanged)}
+        onReorder={(itemIds) => reorderLmsProgramItemsApi(program.id, itemIds).then(onChanged)}
       />
     </div>
   )
@@ -312,28 +314,58 @@ function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: strin
         onAdd={(data) => addCohortOverrideItemApi(cohortId, data).then(invalidate)}
         onUpdate={(itemId, data) => updateCohortOverrideItemApi(cohortId, itemId, data).then(invalidate)}
         onDelete={(itemId) => deleteCohortOverrideItemApi(cohortId, itemId).then(invalidate)}
+        onReorder={(itemIds) => reorderCohortOverrideItemsApi(cohortId, itemIds).then(invalidate)}
       />
     </div>
   )
 }
 
 function ChecklistItemsEditor({
-  items, onAdd, onUpdate, onDelete, readOnly,
+  items, onAdd, onUpdate, onDelete, onReorder, readOnly,
 }: {
   items: LmsProgramItem[]
   onAdd: (data: LmsProgramItemInput) => Promise<unknown>
   onUpdate: (itemId: string, data: LmsProgramItemInput) => Promise<unknown>
   onDelete: (itemId: string) => Promise<unknown>
+  onReorder: (itemIds: string[]) => Promise<unknown>
   readOnly: boolean
 }) {
   const [addingType, setAddingType] = useState<LmsProgramItemType | null>(null)
+  const [dragId, setDragId] = useState<string | null>(null)
+  // Optimistic id order while a drag is in flight (or just settled) so the
+  // row doesn't visually snap back before the parent's refetch lands —
+  // cleared once the reorder call resolves, at which point `items` itself
+  // should already reflect the new order.
+  const [order, setOrder] = useState<string[] | null>(null)
+  const displayItems = order
+    ? order.map((id) => items.find((i) => i.id === id)).filter((i): i is LmsProgramItem => !!i)
+    : items
+
+  const dropOnto = (targetId: string) => {
+    if (!dragId || dragId === targetId) { setDragId(null); return }
+    const ids = displayItems.map((i) => i.id)
+    const from = ids.indexOf(dragId)
+    const to = ids.indexOf(targetId)
+    setDragId(null)
+    if (from === -1 || to === -1) return
+    ids.splice(to, 0, ids.splice(from, 1)[0])
+    setOrder(ids)
+    void onReorder(ids).then(() => setOrder(null)).catch(() => setOrder(null))
+  }
 
   return (
     <div className="flex flex-col gap-2">
-      {items.length === 0 && addingType === null && <EmptyState title="No steps yet" />}
+      {displayItems.length === 0 && addingType === null && <EmptyState title="No steps yet" />}
 
-      {items.map((item) => (
-        <ItemRow key={item.id} item={item} onUpdate={onUpdate} onDelete={onDelete} readOnly={readOnly} />
+      {displayItems.map((item) => (
+        <ItemRow
+          key={item.id} item={item} onUpdate={onUpdate} onDelete={onDelete} readOnly={readOnly}
+          draggable={!readOnly}
+          isDragging={dragId === item.id}
+          onDragStartRow={() => setDragId(item.id)}
+          onDropRow={() => dropOnto(item.id)}
+          onDragEndRow={() => setDragId(null)}
+        />
       ))}
 
       {readOnly ? null : addingType ? (
@@ -368,11 +400,17 @@ const ITEM_TYPE_META: Record<LmsProgramItemType, { label: string; icon: typeof B
 
 function ItemRow({
   item, onUpdate, onDelete, readOnly,
+  draggable, isDragging, onDragStartRow, onDropRow, onDragEndRow,
 }: {
   item: LmsProgramItem
   onUpdate: (itemId: string, data: LmsProgramItemInput) => Promise<unknown>
   onDelete: (itemId: string) => Promise<unknown>
   readOnly: boolean
+  draggable?: boolean
+  isDragging?: boolean
+  onDragStartRow?: () => void
+  onDropRow?: () => void
+  onDragEndRow?: () => void
 }) {
   const [editing, setEditing] = useState(false)
   const meta = ITEM_TYPE_META[item.item_type]
@@ -390,7 +428,16 @@ function ItemRow({
   }
 
   return (
-    <div className="flex items-center gap-3 p-3 bg-card border border-border rounded-xl">
+    <div
+      draggable={draggable}
+      onDragStart={draggable ? () => onDragStartRow?.() : undefined}
+      onDragOver={draggable ? (e) => e.preventDefault() : undefined}
+      onDrop={draggable ? (e) => { e.preventDefault(); onDropRow?.() } : undefined}
+      onDragEnd={draggable ? () => onDragEndRow?.() : undefined}
+      className={`flex items-center gap-3 p-3 bg-card border rounded-xl transition-colors ${
+        isDragging ? "opacity-40 border-primary" : "border-border"
+      } ${draggable ? "cursor-grab active:cursor-grabbing" : ""}`}
+    >
       <GripVertical size={14} className="text-muted-foreground shrink-0" />
       <span className="text-xs font-semibold text-muted-foreground w-5 text-center shrink-0">{item.position}</span>
       <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 text-primary">

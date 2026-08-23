@@ -374,3 +374,98 @@ async def test_deleting_an_inherited_item_forks_everything_else_in(db, client):
     # The program's own checklist still has both.
     program_after = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
     assert {i["course_id"] for i in program_after.json()["items"]} == {str(keep_course.id), str(drop_course.id)}
+
+
+# ── reorder ───────────────────────────────────────────────────────────────
+
+async def test_reorder_program_items_rewrites_positions(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Base"},
+    )).json()["id"]
+    a = (await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "A"},
+    )).json()
+    b = (await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "B"},
+    )).json()
+    c = (await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "C"},
+    )).json()
+
+    reordered = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items/reorder", headers=_headers(ops),
+        json={"item_ids": [c["id"], a["id"], b["id"]]},
+    )
+    assert reordered.status_code == 200
+    assert [i["title"] for i in reordered.json()] == ["C", "A", "B"]
+    assert [i["position"] for i in reordered.json()] == [1, 2, 3]
+
+    fetched = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
+    assert [i["title"] for i in fetched.json()["items"]] == ["C", "A", "B"]
+
+
+async def test_reorder_program_items_rejects_a_mismatched_id_set(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Base"},
+    )).json()["id"]
+    await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "A"},
+    )
+
+    resp = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items/reorder", headers=_headers(ops),
+        json={"item_ids": [str(uuid.uuid4())]},
+    )
+    assert resp.status_code == 400
+
+
+async def test_reordering_an_inherited_cohort_list_forks_it(db, client):
+    """Dragging within a cohort's still-inherited (unforked) checklist must
+    fork first and translate the dragged ids, same as edit/delete already do."""
+    ops = await _user(db)
+    program = await _program(db)
+    cohort = await _cohort(db, program)
+    await db.commit()
+
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Base"},
+    )).json()["id"]
+    a = (await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "A"},
+    )).json()
+    b = (await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "B"},
+    )).json()
+
+    inherited = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
+    assert inherited.json()["is_inherited"] is True
+
+    reordered = await client.post(
+        f"/lms/admin/cohorts/{cohort.id}/program-override/items/reorder", headers=_headers(ops),
+        json={"item_ids": [b["id"], a["id"]]},
+    )
+    assert reordered.status_code == 200
+    assert [i["title"] for i in reordered.json()] == ["B", "A"]
+    assert {i["id"] for i in reordered.json()} != {a["id"], b["id"]}  # real, distinct forked copies
+
+    override = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
+    assert override.json()["is_inherited"] is False
+    assert [i["title"] for i in override.json()["items"]] == ["B", "A"]
+
+    # The program's own checklist keeps its original order.
+    program_after = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
+    assert [i["title"] for i in program_after.json()["items"]] == ["A", "B"]
