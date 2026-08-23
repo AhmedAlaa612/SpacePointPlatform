@@ -200,6 +200,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("User Management", "/admin/users"),
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
+      mk("Role Requests", "/admin/role-requests"),
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       // I0-1: admin previously had NO navigational path into the registration/
@@ -378,6 +379,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("User Management", "/admin/users"),
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
+      mk("Role Requests", "/admin/role-requests"),
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       mk("Operations", "/operations/dashboard"),
