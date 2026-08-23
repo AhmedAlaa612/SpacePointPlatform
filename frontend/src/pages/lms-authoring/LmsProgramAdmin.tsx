@@ -202,8 +202,8 @@ function ProgramWorkspace({
       )}
       {subtab === "missions" && (
         scope === "program"
-          ? <ProgramMissionsPanel items={effective.items} />
-          : <CohortMissionsPanel cohortId={scope.cohortId} />
+          ? <ProgramMissionsPanel program={effective} onChanged={refresh} readOnly={!isStaff} />
+          : <CohortMissionsPanel cohortId={scope.cohortId} readOnly={!isStaff} />
       )}
       {subtab === "progress" && (
         scope === "program"
@@ -542,73 +542,123 @@ function ItemForm({
 
 // ── Missions ─────────────────────────────────────────────────────────────
 // "a tab to create special mission runs for the program and add them to the
-// program checklist" (operator, 2026-08-22) — the mission_run items already
-// live in the checklist (Checklist tab handles authoring them); this tab is
-// where they're surfaced on their own, and where a cohort's gates/step
-// selection for each one lives.
+// program checklist" (operator, 2026-08-22) — mission_run items are still
+// `LmsProgramItem` rows under the hood (Checklist tab shows the same items
+// mixed in with everything else), but this tab is the dedicated place to
+// add/edit them and is where a cohort's gates/step selection for each one
+// lives, so authoring a mission run never requires the flat item list.
 
-function ProgramMissionsPanel({ items }: { items: LmsProgramItem[] }) {
-  const missionItems = items.filter((i) => i.item_type === "mission_run")
-  if (missionItems.length === 0) {
-    return <EmptyState title="No mission runs on this checklist yet" hint='Add one from the Checklist tab ("Mission run").' />
+function AddMissionRunButton({ onSave }: { onSave: (data: LmsProgramItemInput) => Promise<void> }) {
+  const [adding, setAdding] = useState(false)
+  if (adding) {
+    return <ItemForm itemType="mission_run" onCancel={() => setAdding(false)} onSave={async (data) => { await onSave(data); setAdding(false) }} />
   }
+  return (
+    <button
+      onClick={() => setAdding(true)}
+      className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-dashed border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer w-fit"
+    >
+      <Plus size={13} /> Add mission run
+    </button>
+  )
+}
+
+function ProgramMissionsPanel({
+  program, onChanged, readOnly,
+}: { program: LmsProgram; onChanged: () => void; readOnly: boolean }) {
+  const missionItems = program.items.filter((i) => i.item_type === "mission_run")
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-muted-foreground">
         Every mission run on this program's checklist. Pick a cohort to gate steps or choose which build steps apply
         for that cohort's run — gating is always cohort-specific.
       </p>
+      {missionItems.length === 0 && <EmptyState title="No mission runs on this checklist yet" />}
       {missionItems.map((item) => (
-        <div key={item.id} className="flex items-center gap-3 p-3 bg-card border border-border rounded-xl">
-          <Rocket size={16} className="text-primary shrink-0" />
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium truncate">{item.title}</div>
-            {item.description && <div className="text-xs text-muted-foreground truncate">{item.description}</div>}
-          </div>
-        </div>
+        <ItemRow
+          key={item.id}
+          item={item}
+          readOnly={readOnly}
+          onUpdate={(itemId, data) => updateLmsProgramItemApi(program.id, itemId, data).then(onChanged)}
+          onDelete={(itemId) => deleteLmsProgramItemApi(program.id, itemId).then(onChanged)}
+        />
       ))}
+      {!readOnly && <AddMissionRunButton onSave={(data) => addLmsProgramItemApi(program.id, data).then(onChanged)} />}
     </div>
   )
 }
 
-function CohortMissionsPanel({ cohortId }: { cohortId: string }) {
+function CohortMissionsPanel({ cohortId, readOnly }: { cohortId: string; readOnly: boolean }) {
+  const queryClient = useQueryClient()
   const { data: override, isLoading } = useQuery({
     queryKey: ["lms-cohort-override", cohortId], queryFn: () => getCohortProgramOverrideApi(cohortId),
   })
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-cohort-override", cohortId] })
 
   if (isLoading) return <Spinner />
-  const missionItems = (override?.items ?? []).filter((i) => i.item_type === "mission_run" && i.mission_id)
-  if (missionItems.length === 0) {
-    return <EmptyState title="No mission runs on this cohort's checklist" />
-  }
+  const missionItems = (override?.items ?? []).filter((i) => i.item_type === "mission_run")
 
   return (
     <div className="flex flex-col gap-2">
+      {missionItems.length === 0 && <EmptyState title="No mission runs on this cohort's checklist" />}
       {missionItems.map((item) => (
-        <div key={item.id} className="border border-border rounded-xl overflow-hidden">
-          <button
-            onClick={() => setExpanded(expanded === item.id ? null : item.id)}
-            className="w-full flex items-center gap-3 p-3 bg-card hover:bg-muted/40 transition-colors cursor-pointer text-left"
-          >
-            {expanded === item.id ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
-            <Rocket size={16} className="text-primary shrink-0" />
-            <span className="text-sm font-medium truncate">{item.title}</span>
-          </button>
-          {expanded === item.id && item.mission_id && (
-            <div className="p-3 border-t border-border flex flex-col gap-4 bg-background">
-              <div>
-                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Steps included</div>
-                <StepsTab cohortId={cohortId} missionId={item.mission_id} />
-              </div>
-              <div>
-                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Gates</div>
-                <GatesTab cohortId={cohortId} missionId={item.mission_id} />
-              </div>
+        editingId === item.id ? (
+          <ItemForm
+            key={item.id}
+            itemType="mission_run"
+            initial={item}
+            onCancel={() => setEditingId(null)}
+            onSave={async (data) => { await updateCohortOverrideItemApi(cohortId, item.id, data).then(invalidate); setEditingId(null) }}
+          />
+        ) : (
+          <div key={item.id} className="border border-border rounded-xl overflow-hidden">
+            <div className="flex items-center gap-1 pr-2">
+              <button
+                onClick={() => setExpanded(expanded === item.id ? null : item.id)}
+                className="flex-1 flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors cursor-pointer text-left"
+              >
+                {expanded === item.id ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
+                <Rocket size={16} className="text-primary shrink-0" />
+                <span className="text-sm font-medium truncate">{item.title}</span>
+              </button>
+              {!readOnly && (
+                <>
+                  <button onClick={() => setEditingId(item.id)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => void deleteCohortOverrideItemApi(cohortId, item.id).then(invalidate)}
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                </>
+              )}
             </div>
-          )}
-        </div>
+            {expanded === item.id && item.mission_id && (
+              <div className="p-3 border-t border-border flex flex-col gap-4 bg-background">
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Steps included</div>
+                  <StepsTab cohortId={cohortId} missionId={item.mission_id} />
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Gates</div>
+                  <GatesTab cohortId={cohortId} missionId={item.mission_id} />
+                </div>
+              </div>
+            )}
+            {expanded === item.id && !item.mission_id && (
+              <div className="p-3 border-t border-border text-xs text-muted-foreground bg-background">
+                Save a mission for this run before gates/steps can be configured.
+              </div>
+            )}
+          </div>
+        )
       ))}
+      {!readOnly && <AddMissionRunButton onSave={(data) => addCohortOverrideItemApi(cohortId, data).then(invalidate)} />}
     </div>
   )
 }
