@@ -87,14 +87,29 @@ async def cohort_progress(
     return grid
 
 
+async def _require_design_mission(db: AsyncSession, mission_id: uuid.UUID) -> Mission:
+    """Steps/gates (`MissionStepSelection`/`MissionStepGate`) are Design-
+    mission machinery only — every endpoint below serves the same
+    hardcoded `DESIGN_STEP_LABELS` catalog regardless of which mission_id
+    is passed, so without this check a non-design mission (e.g. a
+    `submission`/`checklist`-kind ops mission added to a program's
+    Missions tab) would silently get served the Design mission's own
+    step list instead of a real 404/400."""
+    mission = await db.get(Mission, mission_id)
+    if mission is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    if mission.kind != "design":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Step gating only applies to design missions")
+    return mission
+
+
 @router.get("/cohorts/{cohort_id}/missions/{mission_id}/gates", response_model=list[MissionStepGateOut])
 async def get_step_gates(
     cohort_id: uuid.UUID, mission_id: uuid.UUID,
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     await require_cohort_access(db, cohort_id=cohort_id, user=current)
-    if await db.get(Mission, mission_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    await _require_design_mission(db, mission_id)
     gates = await step_gates_for_mission(db, cohort_id=cohort_id, mission_id=mission_id)
     out = []
     for key, label in DESIGN_STEP_LABELS:
@@ -118,8 +133,7 @@ async def put_step_gate(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     await require_cohort_access(db, cohort_id=cohort_id, user=current)
-    if await db.get(Mission, mission_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    await _require_design_mission(db, mission_id)
     if step_key not in dict(DESIGN_STEP_LABELS):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown step")
     gate = await set_step_gate(
@@ -154,8 +168,7 @@ async def get_step_selection(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     await require_cohort_access(db, cohort_id=cohort_id, user=current)
-    if await db.get(Mission, mission_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    await _require_design_mission(db, mission_id)
     has_rows = (await db.execute(
         select(MissionStepSelection.step_key).where(
             MissionStepSelection.cohort_id == cohort_id, MissionStepSelection.mission_id == mission_id,
@@ -171,8 +184,7 @@ async def put_step_selection(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     await require_cohort_access(db, cohort_id=cohort_id, user=current)
-    if await db.get(Mission, mission_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    await _require_design_mission(db, mission_id)
     included = await set_selected_steps(
         db, cohort_id=cohort_id, mission_id=mission_id, step_keys=body.step_keys, created_by=current.id,
     )
@@ -186,8 +198,7 @@ async def delete_step_selection(
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     await require_cohort_access(db, cohort_id=cohort_id, user=current)
-    if await db.get(Mission, mission_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    await _require_design_mission(db, mission_id)
     await clear_selected_steps(db, cohort_id=cohort_id, mission_id=mission_id)
     await db.commit()
     included = await selected_steps_for_cohort_mission(db, cohort_id=cohort_id, mission_id=mission_id)

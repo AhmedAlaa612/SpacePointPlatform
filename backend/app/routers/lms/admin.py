@@ -97,7 +97,10 @@ from app.services.lms.admin_progress import (
 )
 from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
-from app.services.lms.program import effective_cohort_program_items, fork_cohort_override, resolve_cohort_program
+from app.services.lms.program import (
+    check_item_conflicts, effective_cohort_program_items, fork_cohort_override, item_out, items_out,
+    next_position, resolve_cohort_program, validate_item_payload, validate_item_refs,
+)
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
 router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
@@ -1257,65 +1260,6 @@ async def delete_checkpoint(
 # override (below) with ANY item rows overrides its program's checklist
 # outright, same nearest-wins idiom the old tables used.
 
-def _validate_item_payload(body: LmsProgramItemIn) -> None:
-    required = {
-        "course": body.course_id is not None,
-        "mission_run": body.mission_id is not None,
-        "external_link": bool(body.external_url),
-        "submission": bool(body.external_url) or bool(body.submission_prompt),
-        "article": bool(body.external_url),
-        "manual": True,
-    }
-    if not required[body.item_type]:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail=f"A '{body.item_type}' item is missing its required field",
-        )
-
-
-async def _validate_item_refs(db: AsyncSession, body: LmsProgramItemIn) -> None:
-    if body.course_id is not None and await db.get(Course, body.course_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-    if body.mission_id is not None and await db.get(Mission, body.mission_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
-
-
-async def _check_item_conflicts(
-    db: AsyncSession, *, owner_type: str, owner_id: uuid.UUID, body: LmsProgramItemIn,
-    exclude_item_id: uuid.UUID | None = None,
-) -> None:
-    """Clean 409s for the two DB-level unique constraints
-    (`uq_lms_program_items_owner_position`/`_owner_course`) rather than
-    letting them surface as a raw IntegrityError."""
-    if body.position is not None:
-        q = select(LmsProgramItem.id).where(
-            LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id,
-            LmsProgramItem.position == body.position,
-        )
-        if exclude_item_id is not None:
-            q = q.where(LmsProgramItem.id != exclude_item_id)
-        if await db.scalar(q):
-            raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Position {body.position} is already taken")
-    if body.course_id is not None:
-        q = select(LmsProgramItem.id).where(
-            LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id,
-            LmsProgramItem.course_id == body.course_id,
-        )
-        if exclude_item_id is not None:
-            q = q.where(LmsProgramItem.id != exclude_item_id)
-        if await db.scalar(q):
-            raise HTTPException(status.HTTP_409_CONFLICT, detail="This course is already on the checklist")
-
-
-async def _next_position(db: AsyncSession, *, owner_type: str, owner_id: uuid.UUID) -> int:
-    max_pos = await db.scalar(
-        select(func.max(LmsProgramItem.position)).where(
-            LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id,
-        )
-    )
-    return (max_pos or 0) + 1
-
-
 async def _items_for_owner(db: AsyncSession, *, owner_type: str, owner_id: uuid.UUID) -> list[LmsProgramItem]:
     return list((await db.execute(
         select(LmsProgramItem)
@@ -1329,7 +1273,7 @@ async def program_out(db: AsyncSession, program: LmsProgram) -> LmsProgramOut:
     return LmsProgramOut(
         id=program.id, program_id=program.program_id, name=program.name,
         description=program.description, certificate_required=program.certificate_required,
-        items=[LmsProgramItemOut.model_validate(i) for i in items],
+        items=await items_out(db, items),
     )
 
 
@@ -1414,10 +1358,10 @@ async def add_lms_program_item(
     program = await db.get(LmsProgram, lms_program_id)
     if program is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
-    _validate_item_payload(body)
-    await _validate_item_refs(db, body)
-    await _check_item_conflicts(db, owner_type="program", owner_id=program.id, body=body)
-    position = body.position or await _next_position(db, owner_type="program", owner_id=program.id)
+    validate_item_payload(body)
+    await validate_item_refs(db, body)
+    await check_item_conflicts(db, owner_type="program", owner_id=program.id, body=body)
+    position = body.position or await next_position(db, owner_type="program", owner_id=program.id)
     item = LmsProgramItem(
         id=uuid.uuid4(), owner_type="program", owner_id=program.id, position=position,
         **body.model_dump(exclude={"position"}),
@@ -1425,7 +1369,7 @@ async def add_lms_program_item(
     db.add(item)
     await db.commit()
     await db.refresh(item)
-    return item
+    return await item_out(db, item)
 
 
 @router.patch("/programs/{lms_program_id}/items/{item_id}", response_model=LmsProgramItemOut)
@@ -1440,16 +1384,16 @@ async def update_lms_program_item(
     )).scalars().first()
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
-    _validate_item_payload(body)
-    await _validate_item_refs(db, body)
-    await _check_item_conflicts(db, owner_type="program", owner_id=lms_program_id, body=body, exclude_item_id=item.id)
+    validate_item_payload(body)
+    await validate_item_refs(db, body)
+    await check_item_conflicts(db, owner_type="program", owner_id=lms_program_id, body=body, exclude_item_id=item.id)
     for field, value in body.model_dump(exclude={"position"}).items():
         setattr(item, field, value)
     if body.position is not None:
         item.position = body.position
     await db.commit()
     await db.refresh(item)
-    return item
+    return await item_out(db, item)
 
 
 @router.delete("/programs/{lms_program_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1482,7 +1426,7 @@ async def get_cohort_program_override(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort's program has no LMS checklist yet")
     program, items, is_inherited = resolved
     return LmsProgramCohortEffectiveOut(
-        cohort_id=cohort_id, lms_program_id=program.id, is_inherited=is_inherited, items=items,
+        cohort_id=cohort_id, lms_program_id=program.id, is_inherited=is_inherited, items=await items_out(db, items),
     )
 
 
@@ -1505,10 +1449,10 @@ async def add_cohort_override_item(
         )
     override, _id_map = forked
 
-    _validate_item_payload(body)
-    await _validate_item_refs(db, body)
-    await _check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body)
-    position = body.position or await _next_position(db, owner_type="cohort_override", owner_id=override.id)
+    validate_item_payload(body)
+    await validate_item_refs(db, body)
+    await check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body)
+    position = body.position or await next_position(db, owner_type="cohort_override", owner_id=override.id)
     item = LmsProgramItem(
         id=uuid.uuid4(), owner_type="cohort_override", owner_id=override.id, position=position,
         **body.model_dump(exclude={"position"}),
@@ -1516,7 +1460,7 @@ async def add_cohort_override_item(
     db.add(item)
     await db.commit()
     await db.refresh(item)
-    return item
+    return await item_out(db, item)
 
 
 @router.patch("/cohorts/{cohort_id}/program-override/items/{item_id}", response_model=LmsProgramItemOut)
@@ -1543,16 +1487,16 @@ async def update_cohort_override_item(
     )).scalars().first()
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
-    _validate_item_payload(body)
-    await _validate_item_refs(db, body)
-    await _check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body, exclude_item_id=item.id)
+    validate_item_payload(body)
+    await validate_item_refs(db, body)
+    await check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body, exclude_item_id=item.id)
     for field, value in body.model_dump(exclude={"position"}).items():
         setattr(item, field, value)
     if body.position is not None:
         item.position = body.position
     await db.commit()
     await db.refresh(item)
-    return item
+    return await item_out(db, item)
 
 
 @router.delete("/cohorts/{cohort_id}/program-override/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)

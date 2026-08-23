@@ -21,7 +21,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from fastapi import HTTPException, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.certificate import Certificate
@@ -32,11 +33,104 @@ from app.models.lms.program import (
 from app.models.missions.mission import Mission, MissionAttempt
 from app.models.sessions.cohort import Cohort
 from app.models.user import User
+from app.schemas.lms_admin import LmsProgramItemIn, LmsProgramItemOut
 from app.services.lms.enrollment import enroll
 from app.services.lms.progress import course_completion
 from app.services.missions import assign_mission_run
 
 AUTO_TRACKED_TYPES = {"course", "mission_run"}
+
+
+async def item_out(db: AsyncSession, item: LmsProgramItem) -> LmsProgramItemOut:
+    """Serializes one item, filling `mission_kind` off a fresh `Mission`
+    lookup for a `mission_run` item — see the schema's own docstring for
+    why the Missions tab needs this (design-only Steps/Gates)."""
+    out = LmsProgramItemOut.model_validate(item)
+    if item.mission_id is not None:
+        mission = await db.get(Mission, item.mission_id)
+        out.mission_kind = mission.kind if mission is not None else None
+    return out
+
+
+async def items_out(db: AsyncSession, items: list[LmsProgramItem]) -> list[LmsProgramItemOut]:
+    """Batch form of `item_out` — one query for every distinct mission_id
+    in the list instead of N+1."""
+    mission_ids = {i.mission_id for i in items if i.mission_id is not None}
+    kinds: dict[uuid.UUID, str] = {}
+    if mission_ids:
+        rows = (await db.execute(select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids)))).all()
+        kinds = dict(rows)
+    out = []
+    for item in items:
+        o = LmsProgramItemOut.model_validate(item)
+        if item.mission_id is not None:
+            o.mission_kind = kinds.get(item.mission_id)
+        out.append(o)
+    return out
+
+
+# ── Checklist item CRUD helpers — shared by `routers/lms/admin.py` (full
+# authoring, program or cohort-override scope) and `routers/lms/instructor.py`
+# (cohort-override scope only, item_type further restricted to mission_run
+# by the caller — see that router's own item-type check). ──────────────────
+
+def validate_item_payload(body: LmsProgramItemIn) -> None:
+    required = {
+        "course": body.course_id is not None,
+        "mission_run": body.mission_id is not None,
+        "external_link": bool(body.external_url),
+        "submission": bool(body.external_url) or bool(body.submission_prompt),
+        "article": bool(body.external_url),
+        "manual": True,
+    }
+    if not required[body.item_type]:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"A '{body.item_type}' item is missing its required field",
+        )
+
+
+async def validate_item_refs(db: AsyncSession, body: LmsProgramItemIn) -> None:
+    if body.course_id is not None and await db.get(Course, body.course_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    if body.mission_id is not None and await db.get(Mission, body.mission_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+
+
+async def check_item_conflicts(
+    db: AsyncSession, *, owner_type: str, owner_id: uuid.UUID, body: LmsProgramItemIn,
+    exclude_item_id: uuid.UUID | None = None,
+) -> None:
+    """Clean 409s for the two DB-level unique constraints
+    (`uq_lms_program_items_owner_position`/`_owner_course`) rather than
+    letting them surface as a raw IntegrityError."""
+    if body.position is not None:
+        q = select(LmsProgramItem.id).where(
+            LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id,
+            LmsProgramItem.position == body.position,
+        )
+        if exclude_item_id is not None:
+            q = q.where(LmsProgramItem.id != exclude_item_id)
+        if await db.scalar(q):
+            raise HTTPException(status.HTTP_409_CONFLICT, detail=f"Position {body.position} is already taken")
+    if body.course_id is not None:
+        q = select(LmsProgramItem.id).where(
+            LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id,
+            LmsProgramItem.course_id == body.course_id,
+        )
+        if exclude_item_id is not None:
+            q = q.where(LmsProgramItem.id != exclude_item_id)
+        if await db.scalar(q):
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="This course is already on the checklist")
+
+
+async def next_position(db: AsyncSession, *, owner_type: str, owner_id: uuid.UUID) -> int:
+    max_pos = await db.scalar(
+        select(func.max(LmsProgramItem.position)).where(
+            LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id,
+        )
+    )
+    return (max_pos or 0) + 1
 
 
 async def resolve_cohort_program(

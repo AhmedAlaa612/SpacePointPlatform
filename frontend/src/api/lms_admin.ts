@@ -308,6 +308,10 @@ export interface LmsProgramItem {
   requires_confirmation: boolean;
   course_id: string | null;
   mission_id: string | null;
+  /** `Mission.kind` for a mission_run item — null otherwise. Only
+   * kind === "design" missions have build steps/gates to configure;
+   * anything else has nothing for StepsTab/GatesTab to show. */
+  mission_kind: string | null;
   variant_id: string | null;
   external_url: string | null;
   submission_prompt: string | null;
@@ -373,6 +377,19 @@ export const updateCohortOverrideItemApi = (cohortId: string, itemId: string, da
   api.patch<LmsProgramItem>(`/lms/admin/cohorts/${cohortId}/program-override/items/${itemId}`, data).then((r) => r.data);
 export const deleteCohortOverrideItemApi = (cohortId: string, itemId: string) =>
   api.delete<void>(`/lms/admin/cohorts/${cohortId}/program-override/items/${itemId}`).then((r) => r.data);
+
+// Instructor mirrors (2026-08-23, fixes a real 403 — instructors had no way
+// to even read their own cohort's checklist). Same shape, cohort-scoped;
+// write is server-restricted to mission_run items for a plain instructor —
+// see `routers/lms/instructor.py`'s own comment for the exact boundary.
+export const getCohortProgramOverrideInstructorApi = (cohortId: string) =>
+  api.get<LmsProgramCohortEffective>(`/lms/instructor/cohorts/${cohortId}/program-override`).then((r) => r.data);
+export const addCohortOverrideItemInstructorApi = (cohortId: string, data: LmsProgramItemInput) =>
+  api.post<LmsProgramItem>(`/lms/instructor/cohorts/${cohortId}/program-override/items`, data).then((r) => r.data);
+export const updateCohortOverrideItemInstructorApi = (cohortId: string, itemId: string, data: LmsProgramItemInput) =>
+  api.patch<LmsProgramItem>(`/lms/instructor/cohorts/${cohortId}/program-override/items/${itemId}`, data).then((r) => r.data);
+export const deleteCohortOverrideItemInstructorApi = (cohortId: string, itemId: string) =>
+  api.delete<void>(`/lms/instructor/cohorts/${cohortId}/program-override/items/${itemId}`).then((r) => r.data);
 
 // ── instructor progress (cohort-scoped roster + confirm) ────────────────────
 

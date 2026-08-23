@@ -445,6 +445,13 @@ class LmsProgramItemOut(BaseModel):
     requires_confirmation: bool
     course_id: UUID | None
     mission_id: UUID | None
+    # `Mission.kind` (design|submission|quiz|checklist|external) for a
+    # mission_run item — None for every other item_type, or if mission_id
+    # is somehow dangling. The Missions tab uses this to decide whether a
+    # mission actually has build steps/gates to configure: those concepts
+    # (`MissionStepSelection`/`MissionStepGate`) only exist for kind='design'
+    # missions, never derived from the item itself.
+    mission_kind: str | None = None
     variant_id: UUID | None
     external_url: str | None
     submission_prompt: str | None

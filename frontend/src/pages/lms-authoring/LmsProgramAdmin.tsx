@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, FileText, ClipboardCheck, ChevronDown, ChevronRight } from "lucide-react"
@@ -15,6 +15,8 @@ import {
   listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, updateLmsProgramApi,
   addLmsProgramItemApi, updateLmsProgramItemApi, deleteLmsProgramItemApi,
   getCohortProgramOverrideApi, addCohortOverrideItemApi, updateCohortOverrideItemApi, deleteCohortOverrideItemApi,
+  getCohortProgramOverrideInstructorApi, addCohortOverrideItemInstructorApi,
+  updateCohortOverrideItemInstructorApi, deleteCohortOverrideItemInstructorApi,
   getMyReachableProgramsApi, getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi,
   getAssignmentItemsApi,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType,
@@ -134,6 +136,15 @@ function ProgramWorkspace({
     ? staffCohorts.map((c) => ({ id: c.id, name: c.name }))
     : instructorCohorts.filter((c) => c.program_id === programId).map((c) => ({ id: c.id, name: c.name }))
 
+  // Instructors don't get a "Program" scope at all — they land straight on
+  // their own cohort (operator ask, 2026-08-23), never the master template.
+  useEffect(() => {
+    if (!isStaff && scope === "program" && cohorts.length > 0) {
+      setScope({ cohortId: cohorts[0].id, cohortName: cohorts[0].name })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStaff, scope, cohorts.length])
+
   const createMutation = useMutation({
     mutationFn: (name: string) => createLmsProgramApi({ program_id: programId, name }),
     onSuccess: (p) => setCreated(p),
@@ -161,14 +172,16 @@ function ProgramWorkspace({
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
-        <button
-          onClick={() => setScope("program")}
-          className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer whitespace-nowrap ${
-            scope === "program" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          Program
-        </button>
+        {isStaff && (
+          <button
+            onClick={() => setScope("program")}
+            className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer whitespace-nowrap ${
+              scope === "program" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Program
+          </button>
+        )}
         {cohorts.map((c) => (
           <button
             key={c.id}
@@ -198,12 +211,12 @@ function ProgramWorkspace({
       {subtab === "checklist" && (
         scope === "program"
           ? <ProgramTemplateEditor program={effective} onChanged={refresh} readOnly={!isStaff} />
-          : <CohortOverrideEditor cohortId={scope.cohortId} readOnly={!isStaff} />
+          : <CohortOverrideEditor cohortId={scope.cohortId} isStaff={isStaff} readOnly={!isStaff} />
       )}
       {subtab === "missions" && (
         scope === "program"
           ? <ProgramMissionsPanel program={effective} onChanged={refresh} readOnly={!isStaff} />
-          : <CohortMissionsPanel cohortId={scope.cohortId} readOnly={!isStaff} />
+          : <CohortMissionsPanel cohortId={scope.cohortId} isStaff={isStaff} />
       )}
       {subtab === "progress" && (
         scope === "program"
@@ -259,7 +272,7 @@ function ProgramTemplateEditor({
           disabled={readOnly}
           className={`w-10 h-6 rounded-full relative transition-colors ${readOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"} ${program.certificate_required ? "bg-primary" : "bg-muted"}`}
         >
-          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${program.certificate_required ? "translate-x-5" : "translate-x-1"}`} />
+          <span className={`absolute left-1 top-1 w-4 h-4 rounded-full bg-white transition-transform ${program.certificate_required ? "translate-x-4" : "translate-x-0"}`} />
         </button>
       </div>
 
@@ -274,11 +287,11 @@ function ProgramTemplateEditor({
   )
 }
 
-function CohortOverrideEditor({ cohortId, readOnly }: { cohortId: string; readOnly: boolean }) {
+function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: string; isStaff: boolean; readOnly: boolean }) {
   const queryClient = useQueryClient()
   const { data: override, isLoading } = useQuery({
     queryKey: ["lms-cohort-override", cohortId],
-    queryFn: () => getCohortProgramOverrideApi(cohortId),
+    queryFn: () => (isStaff ? getCohortProgramOverrideApi(cohortId) : getCohortProgramOverrideInstructorApi(cohortId)),
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-cohort-override", cohortId] })
@@ -588,15 +601,23 @@ function ProgramMissionsPanel({
   )
 }
 
-function CohortMissionsPanel({ cohortId, readOnly }: { cohortId: string; readOnly: boolean }) {
+function CohortMissionsPanel({ cohortId, isStaff }: { cohortId: string; isStaff: boolean }) {
   const queryClient = useQueryClient()
   const { data: override, isLoading } = useQuery({
-    queryKey: ["lms-cohort-override", cohortId], queryFn: () => getCohortProgramOverrideApi(cohortId),
+    queryKey: ["lms-cohort-override", cohortId],
+    queryFn: () => (isStaff ? getCohortProgramOverrideApi(cohortId) : getCohortProgramOverrideInstructorApi(cohortId)),
   })
   const [expanded, setExpanded] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-cohort-override", cohortId] })
+  // Every item here is already filtered to mission_run, and the backend's
+  // own instructor-scope check restricts writes to exactly that item_type —
+  // so anyone who can see this tab at all can edit every row on it, no
+  // extra client-side readOnly gate needed.
+  const updateItem = isStaff ? updateCohortOverrideItemApi : updateCohortOverrideItemInstructorApi
+  const deleteItem = isStaff ? deleteCohortOverrideItemApi : deleteCohortOverrideItemInstructorApi
+  const addItem = isStaff ? addCohortOverrideItemApi : addCohortOverrideItemInstructorApi
 
   if (isLoading) return <Spinner />
   const missionItems = (override?.items ?? []).filter((i) => i.item_type === "mission_run")
@@ -611,7 +632,7 @@ function CohortMissionsPanel({ cohortId, readOnly }: { cohortId: string; readOnl
             itemType="mission_run"
             initial={item}
             onCancel={() => setEditingId(null)}
-            onSave={async (data) => { await updateCohortOverrideItemApi(cohortId, item.id, data).then(invalidate); setEditingId(null) }}
+            onSave={async (data) => { await updateItem(cohortId, item.id, data).then(invalidate); setEditingId(null) }}
           />
         ) : (
           <div key={item.id} className="border border-border rounded-xl overflow-hidden">
@@ -624,21 +645,17 @@ function CohortMissionsPanel({ cohortId, readOnly }: { cohortId: string; readOnl
                 <Rocket size={16} className="text-primary shrink-0" />
                 <span className="text-sm font-medium truncate">{item.title}</span>
               </button>
-              {!readOnly && (
-                <>
-                  <button onClick={() => setEditingId(item.id)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => void deleteCohortOverrideItemApi(cohortId, item.id).then(invalidate)}
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"
-                  >
-                    <X size={14} />
-                  </button>
-                </>
-              )}
+              <button onClick={() => setEditingId(item.id)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">
+                Edit
+              </button>
+              <button
+                onClick={() => void deleteItem(cohortId, item.id).then(invalidate)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"
+              >
+                <X size={14} />
+              </button>
             </div>
-            {expanded === item.id && item.mission_id && (
+            {expanded === item.id && item.mission_id && item.mission_kind === "design" && (
               <div className="p-3 border-t border-border flex flex-col gap-4 bg-background">
                 <div>
                   <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Steps included</div>
@@ -650,6 +667,12 @@ function CohortMissionsPanel({ cohortId, readOnly }: { cohortId: string; readOnl
                 </div>
               </div>
             )}
+            {expanded === item.id && item.mission_id && item.mission_kind !== "design" && (
+              <div className="p-3 border-t border-border text-xs text-muted-foreground bg-background">
+                This is a {item.mission_kind ?? "non-design"} mission — it has no build steps or gates to configure,
+                those only apply to Design missions.
+              </div>
+            )}
             {expanded === item.id && !item.mission_id && (
               <div className="p-3 border-t border-border text-xs text-muted-foreground bg-background">
                 Save a mission for this run before gates/steps can be configured.
@@ -658,7 +681,7 @@ function CohortMissionsPanel({ cohortId, readOnly }: { cohortId: string; readOnl
           </div>
         )
       ))}
-      {!readOnly && <AddMissionRunButton onSave={(data) => addCohortOverrideItemApi(cohortId, data).then(invalidate)} />}
+      <AddMissionRunButton onSave={(data) => addItem(cohortId, data).then(invalidate)} />
     </div>
   )
 }
