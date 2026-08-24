@@ -228,6 +228,13 @@ def generate_payment_letter_pdf(
 
     # --- Table 0: Sessions ---
     tbl0 = doc.tables[0]
+    # The template's fifth column is headed "Duration", which stops being true
+    # the moment a cohort row prints "5 x 500" in it. Relabel it when any row
+    # is a cohort row — patched here rather than in the DOCX because the
+    # column carries hours for single-session and manual rows, so neither
+    # label is right for every letter.
+    if any(s.get("session_count") for s in sessions):
+        _fill_cell(tbl0.rows[0].cells[4], "Sessions / Duration")
     orig_tr = tbl0.rows[1]._tr
     row_template = copy.deepcopy(orig_tr)
     tbl0._tbl.remove(orig_tr)

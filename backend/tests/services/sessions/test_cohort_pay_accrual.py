@@ -140,6 +140,38 @@ async def test_an_absence_reduces_the_count_not_the_date_range(db):
 
 
 @pytest.mark.asyncio
+async def test_the_range_is_the_cohorts_even_when_the_last_day_was_missed(db):
+    """The operator was explicit: "the data in the payment is always the range
+    of the cohort no matter which date you worked on". Shrinking the dates to
+    the days actually delivered would leak which specific days somebody missed
+    onto a document that deliberately does not itemise attendance."""
+    cohort, sessions = await _cohort(db, days=5)
+    user, ops = await _instructor(db), await _ops(db)
+    await _staff(db, cohort, sessions, user)
+    # Absent on the first AND last day — the two that would move a naive range.
+    await _approve_days(db, sessions, user, ops, absent_on={sessions[0].id, sessions[4].id})
+
+    line = (await journey.unbilled_cohorts(db, user.id))[0]
+    assert line["session_date"] == "10/10/2026 - 14/10/2026"
+    assert line["session_count"] == 3, "the absence shows up here, and only here"
+
+
+@pytest.mark.asyncio
+async def test_the_range_falls_back_to_the_sessions_when_cohort_dates_are_unset(db):
+    cohort, sessions = await _cohort(db, days=3)
+    cohort.starts_on = None
+    cohort.ends_on = None
+    await db.flush()
+    user, ops = await _instructor(db), await _ops(db)
+    await _staff(db, cohort, sessions, user)
+    await _approve_days(db, sessions, user, ops, absent_on={sessions[2].id})
+
+    line = (await journey.unbilled_cohorts(db, user.id))[0]
+    assert line["session_date"] == "10/10/2026 - 12/10/2026", \
+        "with no cohort dates set, the cohort's own sessions define the span"
+
+
+@pytest.mark.asyncio
 async def test_days_never_approved_do_not_count(db):
     """`completed_at` alone is not delivery — ops has to have signed it off."""
     cohort, sessions = await _cohort(db, days=3)

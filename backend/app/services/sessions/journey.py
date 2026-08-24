@@ -257,6 +257,19 @@ async def unbilled_cohorts(db: AsyncSession, instructor_user_id: uuid.UUID) -> l
         )).scalars().all()
         location = await resolve_session_location_display(db, sessions[0], cohort)
 
+        # **The printed range is the cohort's, not the delivered subset's**
+        # (operator, 2026-08-24: "the data in the payment is always the range
+        # of the cohort no matter which date you worked on"). An absence must
+        # show up as a smaller session count and nothing else — shrinking the
+        # dates would leak which specific days somebody missed onto a document
+        # that is not supposed to itemise attendance at all. Falls back to the
+        # cohort's own sessions when starts_on/ends_on were never filled in.
+        span = [d for d in (cohort.starts_on, cohort.ends_on) if d is not None]
+        if len(span) < 2:
+            span = list((await db.execute(
+                select(Session.meeting_date).where(Session.cohort_id == cohort.id)
+            )).scalars().all())
+
         rate = assignment.rate_aed
         if assignment.rate_basis == "flat":
             total = float(assignment.flat_amount_aed or 0)
@@ -275,7 +288,7 @@ async def unbilled_cohorts(db: AsyncSession, instructor_user_id: uuid.UUID) -> l
             # What the client sends back to bill this line.
             "line_id": cohort.id,
             "session_ids": delivered,
-            "session_date": _format_range([s.meeting_date for s in sessions]),
+            "session_date": _format_range(span or [s.meeting_date for s in sessions]),
             "workshop_description": cohort.name or program.name,
             "role": role.name,
             "location": location["name"],
