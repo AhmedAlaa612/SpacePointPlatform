@@ -100,8 +100,8 @@ CheckpointContent = Union[CheckpointNoteOut, CheckpointQuizOut]
 
 class VideoCheckpointOut(BaseModel):
     id: UUID
-    start_seconds: int
-    end_seconds: int | None = None
+    start_seconds: float
+    end_seconds: float | None = None
     kind: Literal["note", "quiz"]
     content: CheckpointContent
 
