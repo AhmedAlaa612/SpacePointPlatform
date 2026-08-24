@@ -249,6 +249,41 @@ export interface DesignState {
   poster_url: string | null;
 }
 
+/** The 4-prompt guided objective, concatenated into one `design_objective`
+ * string — matching legacy Madar's "Requirement Form" (mission.html), which
+ * consistently got better answers than a single blank textarea. Shared
+ * between `DesignBriefingPage` (pre-attempt) and `DesignMissionPage`'s Setup
+ * tab (2026-08-24 — program-linked mission runs skip the briefing page
+ * entirely, since their attempt is created eagerly at assignment time, so
+ * Setup has to be able to collect the same questions on its own). */
+export const OBJECTIVE_PROMPTS: { key: string; label: string; placeholder: string }[] = [
+  { key: "primary", label: "The satellite shall achieve the primary mission objective of:", placeholder: "e.g. capturing daily imagery of the UAE coastline" },
+  { key: "success", label: "The mission is successful if the satellite is able to:", placeholder: "e.g. downlink at least one usable image per day for 30 days" },
+  { key: "lifetime", label: "The satellite shall operate for a minimum duration of:", placeholder: "e.g. 6 months" },
+  { key: "conops", label: "The satellite shall perform its mission tasks by:", placeholder: "e.g. imaging in sunlight, downlinking over the ground station pass" },
+];
+
+export function joinObjectivePrompts(values: Record<string, string>): string {
+  return OBJECTIVE_PROMPTS.map((p) => `${p.label} ${(values[p.key] ?? "").trim()}`).join("\n\n");
+}
+
+/** Splits a `design_objective` string back into its 4 prompts for editing.
+ * Falls back to putting the whole thing in `primary` when it doesn't match
+ * the guided format (legacy freeform text, or a program run's blank
+ * server-set default) so nothing already saved is silently dropped. */
+export function parseObjectivePrompts(objective: string | null): Record<string, string> {
+  const values: Record<string, string> = {};
+  if (!objective) return values;
+  for (const chunk of objective.split("\n\n")) {
+    const match = OBJECTIVE_PROMPTS.find((p) => chunk.startsWith(p.label));
+    if (match) values[match.key] = chunk.slice(match.label.length).trim();
+  }
+  if (Object.keys(values).length === 0 && objective.trim()) {
+    values.primary = objective.trim();
+  }
+  return values;
+}
+
 export async function fetchDesignState(attemptId: string): Promise<DesignState> {
   const { data } = await api.get<DesignState>(`/missions/design/attempts/${attemptId}`);
   return data;
