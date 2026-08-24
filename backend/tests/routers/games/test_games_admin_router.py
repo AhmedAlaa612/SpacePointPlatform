@@ -2,14 +2,17 @@
 Redis-free (uses the `client` fixture).
 """
 
+import io
 import uuid
 
+import openpyxl
 import pytest
 from fastapi import status as http_status
 
 from app.core.security import create_access_token
 from app.models.games.game import Game, GameQuestion
 from app.models.user import User
+from app.services.games.importer import TEMPLATE_HEADERS
 
 
 async def _user(db, *, roles=None) -> User:
@@ -42,6 +45,17 @@ def _mc(prompt="Which burn raises apoapsis?", correct=1):
             {"text": "C", "is_correct": correct == 2},
         ],
     }
+
+
+def _build_question_workbook(rows: list[list]) -> bytes:
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(TEMPLATE_HEADERS)
+    for row in rows:
+        ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 @pytest.mark.asyncio
@@ -186,3 +200,65 @@ async def test_delete_question_and_delete_game(db, client):
     assert deleted_game.status_code == http_status.HTTP_204_NO_CONTENT
     gone = await client.get(f"/games/admin/{game.id}", headers=_headers(ops))
     assert gone.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_download_question_import_template_returns_an_xlsx(db, client):
+    ops = await _user(db)
+    await db.commit()
+
+    resp = await client.get("/games/admin/questions/import/template", headers=_headers(ops))
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/vnd.openxmlformats")
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    header = [c.value for c in next(wb.active.iter_rows(max_row=1))]
+    assert header == TEMPLATE_HEADERS
+
+
+@pytest.mark.asyncio
+async def test_import_questions_creates_valid_rows_and_reports_bad_ones(db, client):
+    ops = await _user(db)
+    game = await _game(db, author=ops)
+    await db.commit()
+    # one question already exists — imported rows must append after it
+    existing = await client.post(f"/games/admin/{game.id}/questions", headers=_headers(ops), json=_mc())
+    assert existing.status_code == 201, existing.text
+
+    file_bytes = _build_question_workbook([
+        ["Which burn raises apoapsis?", "Prograde at periapsis", "Retrograde at periapsis", "Radial", None, "A", 15, "double"],
+        ["Second question?", "Yes", "No", None, None, "B", None, None],
+        ["Bad correct letter", "Yes", "No", None, None, "Z", None, None],
+        [None, None, None, None, None, None, None, None],  # blank row — skipped silently
+    ])
+
+    resp = await client.post(
+        f"/games/admin/{game.id}/questions/import", headers=_headers(ops),
+        files={"file": ("questions.xlsx", file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["created"] == 2
+    assert len(body["errors"]) == 1 and "Row 4" in body["errors"][0]
+    assert [q["position"] for q in body["questions"]] == [2, 3]
+    assert body["questions"][0]["points_mode"] == "double"
+    assert body["questions"][0]["max_points"] == 200
+    assert body["questions"][1]["time_limit_seconds"] is None
+    assert body["questions"][1]["points_mode"] == "normal"
+
+    detail = await client.get(f"/games/admin/{game.id}", headers=_headers(ops))
+    assert detail.json()["question_count"] == 3
+
+
+@pytest.mark.asyncio
+async def test_import_questions_requires_content_role(db, client):
+    student = await _user(db, roles=["student"])
+    ops = await _user(db)
+    game = await _game(db, author=ops)
+    await db.commit()
+
+    file_bytes = _build_question_workbook([])
+    resp = await client.post(
+        f"/games/admin/{game.id}/questions/import", headers=_headers(student),
+        files={"file": ("questions.xlsx", file_bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert resp.status_code == http_status.HTTP_403_FORBIDDEN

@@ -59,6 +59,12 @@ class GameQuestionReorderIn(BaseModel):
     question_ids: list[UUID]
 
 
+class GameQuestionImportOut(BaseModel):
+    created: int
+    errors: list[str]
+    questions: list[GameQuestionOut]
+
+
 class GameCreate(BaseModel):
     title: str
     description: str | None = None

@@ -11,7 +11,7 @@ handling (auto-append, collision check, negative-offset reorder) mirrors
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,12 +24,14 @@ from app.schemas.games_admin import (
     GameCreate,
     GameDetailOut,
     GameOut,
+    GameQuestionImportOut,
     GameQuestionIn,
     GameQuestionOut,
     GameQuestionReorderIn,
     GameQuestionUpdate,
     GameUpdate,
 )
+from app.services.games.importer import generate_game_question_template_xlsx, parse_game_question_import
 from app.services.games.points import max_points_for
 
 router = APIRouter(prefix="/games/admin", tags=["games-admin"], dependencies=[Depends(require_lms_content)])
@@ -218,3 +220,44 @@ async def delete_question(question_id: uuid.UUID, db: AsyncSession = Depends(get
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Question not found")
     await db.delete(question)
     await db.commit()
+
+
+# ── bulk import from Excel ──────────────────────────────────────────────────
+
+@router.get("/questions/import/template")
+async def download_question_import_template():
+    content = generate_game_question_template_xlsx()
+    return Response(
+        content=content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=game_questions_template.xlsx"},
+    )
+
+
+@router.post("/{game_id}/questions/import", response_model=GameQuestionImportOut)
+async def import_questions(game_id: uuid.UUID, file: UploadFile, db: AsyncSession = Depends(get_db)):
+    """Bad rows are skipped and reported, not fatal — same posture as the
+    payments bulk importer (`services/documents/payment_letter.py`)."""
+    await _game_or_404(db, game_id)
+    data = await file.read()
+    parsed, errors = parse_game_question_import(data)
+
+    max_pos = await db.scalar(select(func.max(GameQuestion.position)).where(GameQuestion.game_id == game_id))
+    next_position = (max_pos or 0) + 1
+
+    created: list[GameQuestion] = []
+    for body in parsed:
+        question = GameQuestion(
+            id=uuid.uuid4(), game_id=game_id, position=next_position, prompt=body.prompt,
+            options=[o.model_dump() for o in body.options],
+            time_limit_seconds=body.time_limit_seconds, points_mode=body.points_mode,
+        )
+        db.add(question)
+        created.append(question)
+        next_position += 1
+    await db.commit()
+    for question in created:
+        await db.refresh(question)
+
+    return GameQuestionImportOut(
+        created=len(created), errors=errors, questions=[_question_out(q) for q in created],
+    )

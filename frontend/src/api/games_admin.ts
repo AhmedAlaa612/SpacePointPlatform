@@ -55,6 +55,12 @@ export interface GameQuestionInput {
 
 export type GameQuestionUpdateInput = Partial<GameQuestionInput>;
 
+export interface GameQuestionImportResult {
+  created: number;
+  errors: string[];
+  questions: GameQuestion[];
+}
+
 export const listGamesApi = () => api.get<Game[]>("/games/admin").then((r) => r.data);
 
 export const createGameApi = (data: GameCreateInput) =>
@@ -83,3 +89,19 @@ export const deleteGameQuestionApi = (questionId: string) =>
 
 export const reorderGameQuestionsApi = (gameId: string, questionIds: string[]) =>
   api.post<GameQuestion[]>(`/games/admin/${gameId}/questions/reorder`, { question_ids: questionIds }).then((r) => r.data);
+
+export const importGameQuestionsApi = (gameId: string, file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post<GameQuestionImportResult>(`/games/admin/${gameId}/questions/import`, form).then((r) => r.data);
+};
+
+export const downloadGameQuestionsTemplateApi = async () => {
+  const res = await api.get("/games/admin/questions/import/template", { responseType: "blob" });
+  const url = URL.createObjectURL(res.data as Blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "game_questions_template.xlsx";
+  a.click();
+  URL.revokeObjectURL(url);
+};
