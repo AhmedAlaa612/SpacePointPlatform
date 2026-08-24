@@ -101,14 +101,15 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
     saveAddon.mutate({ id: b.id, sort_order: a.sort_order })
   }
 
-  // I5-8: completed sessions with no payment line yet.
+  // Delivered work with no payment line yet. Normally one entry per cohort
+  // (2026-08-24), carrying its date range and "n x rate".
   const { data: billable = [] } = useQuery({
     queryKey: ["billable", letter.id],
     queryFn: () => getBillableSessionsApi(letter.id),
     enabled: !locked,
   })
   const bill = useMutation({
-    mutationFn: (ids: string[]) => billSessionsApi({ letterId: letter.id, sessionIds: ids }),
+    mutationFn: (ids: string[]) => billSessionsApi({ letterId: letter.id, lineIds: ids }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["billable", letter.id] })
       refresh()
@@ -214,17 +215,45 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
                   />
                 </div>
               </div>
-              <div className="grid grid-cols-3 gap-2 items-end">
+              {/* Sessions x rate is what a cohort row actually prints in the
+                  document's units column — the hours field stays for
+                  single-session and manual rows, which still print hours. */}
+              <div className="grid grid-cols-4 gap-2 items-end">
                 <div>
-                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Hours</label>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">
+                    {s.session_count != null ? "Sessions" : "Hours"}
+                  </label>
+                  {s.session_count != null ? (
+                    <input
+                      type="number" min={1} step="1" className={`${cell} text-right tabular-nums`}
+                      defaultValue={s.session_count} disabled={locked}
+                      onBlur={(e) => {
+                        const v = e.target.value === "" ? null : Number(e.target.value)
+                        if (v !== s.session_count) saveSession.mutate({ id: s.id, session_count: v })
+                      }}
+                    />
+                  ) : (
+                    <input
+                      type="number" step="0.5" min={0} className={`${cell} text-right tabular-nums`}
+                      defaultValue={s.duration_hours ?? ""} disabled={locked}
+                      onBlur={(e) => {
+                        const v = e.target.value === "" ? null : Number(e.target.value)
+                        if (v !== (s.duration_hours ?? null)) {
+                          saveSession.mutate({ id: s.id, duration_hours: v })
+                        }
+                      }}
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className="text-[10px] font-semibold uppercase text-muted-foreground block mb-1">Rate</label>
                   <input
-                    type="number" step="0.5" min={0} className={`${cell} text-right tabular-nums`}
-                    defaultValue={s.duration_hours ?? ""} disabled={locked}
+                    type="number" min={0} className={`${cell} text-right tabular-nums`}
+                    defaultValue={s.rate_aed ?? ""} disabled={locked}
+                    placeholder="—"
                     onBlur={(e) => {
                       const v = e.target.value === "" ? null : Number(e.target.value)
-                      if (v !== (s.duration_hours ?? null)) {
-                        saveSession.mutate({ id: s.id, duration_hours: v })
-                      }
+                      if (v !== (s.rate_aed ?? null)) saveSession.mutate({ id: s.id, rate_aed: v })
                     }}
                   />
                 </div>
@@ -520,19 +549,22 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
       {billable.length > 0 && (
         <div className="rounded-xl border border-dashed border-border p-3 flex flex-col gap-2">
           <p className="text-xs font-semibold text-foreground">
-            {billable.length} delivered session{billable.length === 1 ? "" : "s"} not on any letter
+            {billable.length} piece{billable.length === 1 ? "" : "s"} of delivered work not on any letter
           </p>
           <div className="flex flex-col gap-1">
             {billable.map((b) => (
-              <div key={b.session_id} className="flex items-center justify-between gap-3 text-sm">
+              <div key={b.line_id} className="flex items-center justify-between gap-3 text-sm">
                 <span className="text-foreground truncate">
                   {b.session_date} · {b.workshop_description}
                   <span className="text-xs text-muted-foreground">
                     {" "}· {b.role}{b.location ? ` · ${b.location}` : ""}
+                    {b.session_count > 1 && b.rate_aed != null
+                      ? ` · ${b.session_count} × AED ${b.rate_aed.toLocaleString()}`
+                      : b.session_count > 1 ? ` · ${b.session_count} sessions` : ""}
                   </span>
                 </span>
                 <button
-                  onClick={() => bill.mutate([b.session_id])}
+                  onClick={() => bill.mutate([b.line_id])}
                   disabled={bill.isPending}
                   className="h-7 px-2.5 text-xs border border-border rounded-lg hover:bg-muted shrink-0 disabled:opacity-40"
                 >
@@ -542,15 +574,16 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
             ))}
           </div>
           <button
-            onClick={() => bill.mutate(billable.map((b) => b.session_id))}
+            onClick={() => bill.mutate(billable.map((b) => b.line_id))}
             disabled={bill.isPending}
             className="self-start h-8 px-3 bg-primary text-primary-foreground text-xs font-medium rounded-lg hover:opacity-90 disabled:opacity-40"
           >
             {bill.isPending ? "Adding…" : "Add all"}
           </button>
           <p className="text-xs text-muted-foreground">
-            Date, workshop, role, location and hours are filled in from the session. The
-            amount stays blank — that&apos;s yours to set.
+            A cohort row carries its date range and the number of days ops approved, priced at
+            the rate agreed when the instructor was staffed. Every cell stays editable until you
+            publish — the figure is a draft, not a decision already made for you.
           </p>
         </div>
       )}
