@@ -9,8 +9,8 @@ import DesignHandbookDrawer from "@/components/missions/DesignHandbook";
 import PosterTab from "@/components/missions/PosterTab";
 import {
   addDesignComponent, completeDesign, fetchDesignHandbook, fetchDesignLibrary, fetchDesignState,
-  removeDesignComponent, saveConops, saveCostBudget, saveDataBudget, saveLinkBudget, saveMassBudget,
-  savePowerBudget, updateDesign,
+  joinObjectivePrompts, parseObjectivePrompts, removeDesignComponent, saveConops, saveCostBudget,
+  saveDataBudget, saveLinkBudget, saveMassBudget, savePowerBudget, updateDesign, OBJECTIVE_PROMPTS,
   type DesignHandbook, type DesignLibraryComponent, type DesignState,
 } from "@/api/missionsDesign";
 
@@ -183,9 +183,21 @@ export default function DesignMissionPage() {
 
 // ── Setup ────────────────────────────────────────────────────────────────
 
+/** 2026-08-24 — a program-linked mission run's attempt is created eagerly
+ * at cohort-assignment time (`assign_lms_program`), server-side, with no
+ * name/objective/orbit collected — the checklist links straight into this
+ * page's attempt id, skipping `DesignBriefingPage` (the flow that normally
+ * gathers those) entirely. So Setup has to be able to collect the same
+ * guided questions on its own, not just a bare free-text field. */
+const ORBIT_PRESETS: Record<string, { orbit_type: string; orbit_duration_min: number; orbits_per_day: number }> = {
+  LEO: { orbit_type: "LEO", orbit_duration_min: 90, orbits_per_day: 16 },
+  SSO: { orbit_type: "SSO", orbit_duration_min: 100, orbits_per_day: 14 },
+  GEO: { orbit_type: "GEO", orbit_duration_min: 1436, orbits_per_day: 1 },
+};
+
 function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: DesignState) => void }) {
   const [name, setName] = useState(state.design_name);
-  const [objective, setObjective] = useState(state.design_objective ?? "");
+  const [objectives, setObjectives] = useState<Record<string, string>>(() => parseObjectivePrompts(state.design_objective));
   const [orbitType, setOrbitType] = useState(state.orbit_type ?? "LEO");
   const [orbitDuration, setOrbitDuration] = useState(state.orbit_duration_min ?? 90);
   const [orbitsPerDay, setOrbitsPerDay] = useState(state.orbits_per_day ?? 15);
@@ -194,6 +206,13 @@ function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: DesignS
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState("");
 
+  const applyOrbitPreset = (preset: keyof typeof ORBIT_PRESETS) => {
+    const p = ORBIT_PRESETS[preset];
+    setOrbitType(p.orbit_type);
+    setOrbitDuration(p.orbit_duration_min);
+    setOrbitsPerDay(p.orbits_per_day);
+  };
+
   const save = async () => {
     setSaving(true);
     setSaveError("");
@@ -201,7 +220,7 @@ function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: DesignS
     try {
       const next = await updateDesign(state.attempt_id, {
         design_name: name,
-        design_objective: objective,
+        design_objective: joinObjectivePrompts(objectives),
         orbit_type: orbitType,
         orbit_duration_min: Number(orbitDuration),
         orbits_per_day: Number(orbitsPerDay),
@@ -226,31 +245,49 @@ function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: DesignS
         </p>
       </div>
 
-      <div className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
-          <label className={labelCls}>Mission Name</label>
-          <input
-            className={`${inputCls} h-10 px-3.5`}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. EduSat-1"
-          />
-        </div>
+      <div className="flex flex-col gap-2">
+        <label className={labelCls}>Mission Name</label>
+        <input
+          className={`${inputCls} h-10 px-3.5`}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. EduSat-1"
+        />
+        <p className="text-[11px] text-muted-foreground">You can run this mission more than once — this name is how you'll tell your runs apart.</p>
+      </div>
 
-        <div className="flex flex-col gap-2">
-          <label className={labelCls}>Objective</label>
-          <textarea
-            className={`${inputCls} h-auto min-h-[140px] p-3.5 leading-relaxed resize-y`}
-            rows={5}
-            value={objective}
-            onChange={(e) => setObjective(e.target.value)}
-            placeholder="Describe your mission objective, success criteria, lifetime, and operational goals..."
-          />
-        </div>
+      <div className="flex flex-col gap-3 border-t border-border/60 pt-5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-primary">Mission Objective</p>
+        {OBJECTIVE_PROMPTS.map((p) => (
+          <div key={p.key} className="flex flex-col gap-1.5">
+            <label className="text-xs text-muted-foreground">{p.label}</label>
+            <input
+              className={`${inputCls} h-10 px-3.5`}
+              value={objectives[p.key] ?? ""}
+              onChange={(e) => setObjectives((prev) => ({ ...prev, [p.key]: e.target.value }))}
+              placeholder={p.placeholder}
+            />
+          </div>
+        ))}
       </div>
 
       <div className="flex flex-col gap-4 border-t border-border/60 pt-5">
         <p className="text-xs font-semibold uppercase tracking-wider text-primary">Orbital & Satellite Specifications</p>
+
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(ORBIT_PRESETS) as (keyof typeof ORBIT_PRESETS)[]).map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => applyOrbitPreset(preset)}
+              className={`px-3 py-1.5 rounded-xl text-sm ring-1 transition-colors ${
+                orbitType === preset ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
+              }`}
+            >
+              {preset}
+            </button>
+          ))}
+        </div>
 
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="flex flex-col gap-2">

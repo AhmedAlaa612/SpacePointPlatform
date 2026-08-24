@@ -16,7 +16,7 @@ import { Boxes, ChevronRight, Gauge, Rocket, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { startMissionAttempt } from "@/api/missions";
-import { fetchDesignBriefing, updateDesign, type DesignBriefing } from "@/api/missionsDesign";
+import { fetchDesignBriefing, joinObjectivePrompts, updateDesign, OBJECTIVE_PROMPTS, type DesignBriefing } from "@/api/missionsDesign";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
@@ -28,16 +28,6 @@ const ORBIT_PRESETS: Record<string, { orbit_type: string; orbit_duration_min: st
   SSO: { orbit_type: "SSO", orbit_duration_min: "100", orbits_per_day: "14" },
   GEO: { orbit_type: "GEO", orbit_duration_min: "1436", orbits_per_day: "1" },
 };
-
-/** The 4-prompt guided objective, concatenated into one `design_objective`
- * string — matching legacy Madar's "Requirement Form" (mission.html), which
- * consistently got better answers than a single blank textarea. */
-const OBJECTIVE_PROMPTS: { key: string; label: string; placeholder: string }[] = [
-  { key: "primary", label: "The satellite shall achieve the primary mission objective of:", placeholder: "e.g. capturing daily imagery of the UAE coastline" },
-  { key: "success", label: "The mission is successful if the satellite is able to:", placeholder: "e.g. downlink at least one usable image per day for 30 days" },
-  { key: "lifetime", label: "The satellite shall operate for a minimum duration of:", placeholder: "e.g. 6 months" },
-  { key: "conops", label: "The satellite shall perform its mission tasks by:", placeholder: "e.g. imaging in sunlight, downlinking over the ground station pass" },
-];
 
 export default function DesignBriefingPage() {
   const { missionId } = useParams({ strict: false }) as { missionId: string };
@@ -90,9 +80,7 @@ export default function DesignBriefingPage() {
       // have several CubeSat designs going at once (2026-08-15), so there's
       // no "the" in-progress attempt to resume here.
       const attempt = await startMissionAttempt(briefing.mission_id, briefing.variant_id, search.team, true);
-      const design_objective = OBJECTIVE_PROMPTS
-        .map((p) => `${p.label} ${(objectives[p.key] ?? "").trim()}`)
-        .join("\n\n");
+      const design_objective = joinObjectivePrompts(objectives);
       await updateDesign(attempt.id, {
         design_name: missionName.trim(),
         design_objective,
