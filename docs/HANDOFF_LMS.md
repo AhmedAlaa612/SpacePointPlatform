@@ -310,18 +310,22 @@ frontend/src/pages/learn/          # student surface
   OperateMissionPage.tsx, OperateBriefingPage.tsx, OperateDebriefPanel.tsx
   LearnGames.tsx, GamePlay.tsx, LearnLeaderboard.tsx
 
-frontend/src/pages/lms-authoring/  # staff surface (+ instructor, cohort-missions only — see §4)
+frontend/src/pages/lms-authoring/  # staff surface (+ instructor — role-aware end-to-end, see §14)
   LmsCourses.tsx, LmsCourseDetail.tsx, LmsCurriculum.tsx, LmsLearningPaths.tsx
   LmsMissions.tsx, LmsMissionDetail.tsx, LmsDesignLibrary.tsx   # the component library editor
   LmsGames.tsx, LmsGameDetail.tsx
   LmsProgressGrid.tsx, LmsStudents.tsx, LmsStudentDetail.tsx
   LmsInviteCodes.tsx
-  CohortMissions.tsx    # instructor/facilitator/operations: progress, gates, review (§4)
+  LmsProgramAdmin.tsx   # curriculum route (§11) — checklist authoring + progress/gates/review, see §14
+                         # (CohortMissions.tsx, listed here pre-2026-08-22, is deleted — merged into this)
 ```
 
-Ops-role sidebar nav says **"LMS"**, not "LMS Courses" — it covers all of the above now, not
-just courses. Facilitator/instructor nav still says "LMS Courses" (different audience,
-deliberately unchanged).
+Ops-role sidebar nav order (`Sidebar.tsx`, 2026-08-22): Courses, Learning Paths, Programs, Live Quiz,
+Missions, Students, Invite Codes, Progress, Component library. Says **"LMS"**, not "LMS Courses" —
+it covers all of the above now, not just courses. Plain-instructor nav (2026-08-22): Overview,
+Sessions, Library Resources, Personal Documents, Instructor ID Card, Payments, **LMS Programs**
+(renamed from "Programs"), Learn, SatKit Training, My Kits & Items — a different audience from the
+ops nav, deliberately reordered/renamed separately.
 
 ## 9. The `/learn` hero (`frontend/src/components/satkit/`)
 
@@ -589,3 +593,80 @@ design-mission detail. `LmsProgramAdmin.tsx` is now the one page; `CohortMission
   `npm run build`, which uses `tsc -b`) to actually verify the frontend typechecks — not bare
   `tsc --noEmit -p .`. Fixed by rewording the path to `courses/{id}/enrollments`; more generally,
   never write a literal `*/` sequence inside a `/** */` comment body.
+
+## 15. Post-merge fixes from live testing, and full design-run detail (2026-08-22 → 2026-08-24)
+
+Everything below landed after §14 merged, mostly bugs the operator found live-testing
+`LmsProgramAdmin.tsx` on their own machine, plus two follow-on gaps found while answering "how does
+an instructor see what a student built."
+
+- **Design-only Steps/Gates, enforced**: `Mission.kind` (`design|submission|quiz|checklist|
+  external`) is now checked before serving any Steps/Gates endpoint — previously a non-design
+  mission_run item (e.g. an "Operations" mission) rendered collapsible into the same 9-step Design
+  build catalog as an unrelated SatKit design mission, because nothing scoped the step-selection UI
+  to the item's actual mission. `LmsProgramItemOut.mission_kind` now travels with every item
+  (`item_out`/`items_out` in `services/lms/program.py`, populated from a `Mission` lookup), and the
+  frontend gates `StepsTab`/`GatesTab` rendering on `item.mission_kind === "design"`, showing an
+  explanatory message otherwise. Backend gate: `_require_design_mission()` in
+  `routers/missions/instructor.py`, 400 on a non-design mission id.
+- **Instructor never lands on Program scope**: a plain instructor opening `/lms-authoring/curriculum`
+  used to load the entire authoring surface and 403 across the board. Fixed two ways: (1) an
+  effect-driven redirect lands them straight on their own cohort's scope, never "Program"; (2) the
+  "Program" scope tab itself is now `{isStaff && (...)}` — not just defaulted away from, actually
+  unreachable for a non-staff instructor.
+- **Instructor cohort-checklist 403 despite the program default rendering fine**: `CohortOverrideEditor`
+  was calling the ops-only `getCohortProgramOverrideApi` regardless of role. Added the instructor
+  mirror `GET /lms/instructor/cohorts/{cohort_id}/program-override` (read-only,
+  `effective_cohort_program_items` reused as-is) and switched the editor to pick admin vs. instructor
+  fetch by role.
+- **Missions tab existed as a viewer only**: ops opening a program's Missions tab had no way to add
+  or edit `mission_run` items — `ProgramMissionsPanel`/`CohortMissionsPanel` were rewritten with real
+  add/edit/delete (shared `AddMissionRunButton`), matching the checklist editor's existing pattern.
+  Delete is the `X` next to Edit on each mission run's row (`ItemRow`, `!readOnly` only) — this was
+  the answer when the operator later asked whether removing a mistakenly-added mission run was even
+  possible; it already was, just easy to miss since the row only shows Edit/Delete when not
+  read-only.
+- **Student-profile back link 403'd for an instructor**: `LmsStudentDetail.tsx`'s `<ArrowLeft />
+  Students` link always pointed at `/lms-authoring/students`, an ops-only route. Made role-aware:
+  staff still goes there; instructor goes to `/lms-authoring/curriculum` labeled "Programs" instead.
+- **Checklist items were not actually draggable**: an earlier pass removed the decorative
+  grip-icon-only affordance but never wired real reordering. `ChecklistItemsEditor`/`ItemRow` now
+  implement native HTML5 drag-and-drop (`draggable`/`onDragStart`/`onDragOver`/`onDrop`/`onDragEnd` —
+  not `@dnd-kit`, which is already used elsewhere for the interns Kanban board but is overkill for a
+  simple vertical list) with optimistic local reordering, backed by new `POST
+  /programs/{id}/items/reorder` and `POST /cohorts/{id}/program-override/items/reorder`
+  (`services/lms/program.py::reorder_program_items`, negative-offset-then-final-position, same idiom
+  as the pre-existing course-module reorder). **Naming-collision gotcha**: this function was
+  originally imported as `reorder_items` into `routers/lms/admin.py`, which silently shadowed an
+  unrelated, pre-existing local `reorder_items` (course-module item reorder) defined later in the
+  same file — no import or type error, just a `TypeError` at call time, caught only by running the
+  new tests. Renamed to `reorder_program_items` to avoid the collision outright.
+- **Sidebar nav reorders/renames** (`Sidebar.tsx`) — see §8's frontend map for the current order.
+  Also added `mk("Role Requests", "/admin/role-requests")` under Applications on the admin sidebar
+  (both the `/admin`-path block and the domain-less admin fallback block).
+- **Full read-only design-run detail on the student profile** (`LmsStudentDetail.tsx`
+  `DesignRunDetail`, 2026-08-24): the roster's design-mission expand only ever showed a components
+  table and margin chips. Operator ask, verbatim: "for every student run i should have a way to know
+  everything they did there... and most importantly their poster" — followed by their own proposed
+  fix, "open the run and see everything there with read only, just like the student view." That
+  turned out to be exactly right and needed no backend change: `attemptDesignDetailApi`
+  (`/missions/{admin,instructor}/attempts/{id}/design-detail`) already returns the identical
+  `DesignState` shape the student's own wizard (`DesignMissionPage.tsx`) consumes. Rebuilt the expand
+  as a tabbed read-only replica — **Setup, Components, CONOPS, Budgets (data/power/energy/link/mass/
+  cost, per-component entries and totals), Report (alerts/margins/recommendations), Poster** (their
+  template + working-copy Canva links) — with zero edit/save controls anywhere; it's a grading
+  surface, not a second editor.
+- **Program-linked design runs never saw the guided objective/orbit setup**: found while building the
+  above. `assign_lms_program` (§14) creates a mission_run item's `MissionAttempt` (and its `Design`
+  row) eagerly at cohort-assignment time, server-side — no name/objective/orbit collected. The
+  student checklist (`LearnChecklist.tsx`) links straight into `DesignMissionPage.tsx` by that
+  attempt id, entirely skipping `DesignBriefingPage.tsx` (the pre-attempt flow that normally gathers
+  those via "Name this mission" — 4 guided objective prompts + LEO/SSO/GEO orbit presets, only run
+  when a student starts a *catalog* mission on their own). `DesignMissionPage`'s own Setup tab did
+  exist as a fallback (it's the wizard's default tab, so a program-linked run does land there first)
+  but was just a bare free-text objective box with no orbit presets — no guided format at all.
+  Extracted the briefing page's format into shared helpers in `missionsDesign.ts`
+  (`OBJECTIVE_PROMPTS`, `joinObjectivePrompts`, `parseObjectivePrompts` — the parse direction
+  reconstructs the 4 fields from an already-saved `design_objective` string, so editing a
+  briefing-page-started run still round-trips instead of collapsing into one blob) and rebuilt Setup
+  around them. Both entry paths now collect and display the same questions in the same format.
