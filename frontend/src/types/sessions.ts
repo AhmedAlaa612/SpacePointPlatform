@@ -23,6 +23,9 @@ export interface Program {
   active: boolean;
   completion_rule_type: CompletionRuleType;
   completion_rule_value: number;
+  // Competition domain (2026-08-24) — a behavioral flag layered on top of
+  // program_type, not a fourth value of it. See the backend model's docstring.
+  is_competition: boolean;
   created_at: string;
 }
 
@@ -69,6 +72,9 @@ export interface Cohort {
   // Convenience join, populated only by the list endpoint.
   program_name?: string | null;
   program_code?: string | null;
+  // Same convenience-join pattern — whether this cohort's program has the
+  // competition domain's judging tools available (2026-08-24).
+  program_is_competition?: boolean;
 }
 
 export interface SessionInstructor {

@@ -7,10 +7,12 @@ in stages, each landing as its own PR — this doc grows with each one rather th
 finished domain up front. If a section below says "not yet built," that's accurate, not a typo.
 
 A competition is deliberately **not** a new top-level entity — it's the existing `Program`/
-`Cohort`/`LmsProgram` machinery (see [`HANDOFF_LMS.md`](./HANDOFF_LMS.md)) with a flag and two
+`Cohort`/`LmsProgram` machinery (see [`HANDOFF_LMS.md`](./HANDOFF_LMS.md)) with a flag and
 extensions layered on top: a competition Program has `is_competition=true`, its checklist items
-can be team-scoped instead of per-student, and (in a later stage) it gains judging. Everything
-else — courses, guides, cohort-scoped access, certificates — is unchanged, reused as-is.
+can be team-scoped instead of per-student, and it gains a judging domain (rubric, blind per-judge
+scoring, a publish gate, a `judge` role) that reads that same shared checklist rather than
+duplicating it. Everything else — courses, guides, cohort-scoped access, certificates — is
+unchanged, reused as-is.
 
 ---
 
@@ -80,11 +82,103 @@ else — courses, guides, cohort-scoped access, certificates — is unchanged, r
 
 ### What's still not built (later stages, tracked in the implementation plan, not here yet)
 
-- Judging: rubric, blind per-judge scores, publish/unpublish gate, `judge` role.
 - Registration import (Excel/CSV → bulk `User`/`Registration`/`Team` creation).
 - Progression: the ops "confirm Top 10 → move to Finalists" action + congrats email.
-- Ops UI for any of the above (Rubric/Judges/Results tabs on `LmsProgramAdmin.tsx`).
 
 A wireframe set for the ops/judge/student/team views (all four, including stages not yet built)
 exists as a Claude Design canvas from the planning pass — ask whoever ran that session for the
 link if you need it; it isn't checked into the repo.
+
+---
+
+## 2. Stage 2 — Judging (2026-08-24)
+
+### The shape
+
+Five new tables under `app/models/competitions/judging.py`, all cascading off `programs`/`cohorts`/
+`users`/`learner_teams` rather than introducing a parallel identity concept:
+
+- **`competition_rubrics`** / **`competition_rubric_criteria`** — program-scoped (not cohort-scoped:
+  the same criteria carry across a competition's stages unless a future need splits them), authored
+  by ops rather than hardcoded. `upsert_rubric()` (`services/competitions/judging.py`) is a
+  declarative full-sync, same "one call rewrites everything" idiom
+  `LmsProgramItemReorderIn`/`reorder_program_items` already use — a criterion whose `key` isn't in
+  the payload gets deleted, an existing `key` gets updated in place, a new one gets inserted.
+- **`competition_scores`** — one row per `(rubric, team, judge, cohort)`, upserted by
+  `submit_score()`. Blindness (a judge never sees another judge's score, even after publish — only
+  the aggregate) is enforced by which endpoints expose this table, not by a schema flag: nothing in
+  `services/competitions/judging.py` or its routers ever returns one judge's `criterion_scores` to a
+  different judge. 409s once the cohort is published.
+- **`competition_result_publications`** — the blind-until-published gate, one row per cohort;
+  row-exists *is* published, `unpublish()` just deletes it. Publishing closes scoring for every
+  judge on that cohort; unpublishing reopens it.
+- **`competition_judges`** — a judge's cohort assignment, exact shape of `SessionInstructor`: a
+  judge assigned to the Qualifier cohort has no row for Finalists and can't see it.
+- **`judge` role** *(new `UserRole` enum value + Postgres `user_role` type value)* — a temporary,
+  cohort-scoped account with zero ops access. `require_judge`
+  (`core/dependencies.py`) is the role-only gate; `require_judge_cohort_access`/`judge_cohort_ids`
+  (`services/competitions/judges.py`) is the per-cohort scope, same split
+  `require_instructor_missions`/`cohort_access.py` use for instructors — deliberately **no staff
+  bypass** here, since staff reach the same data through the separate `/competitions/admin/*`
+  surface, never through the judge one. `invite_judge()` reuses the exact find-or-create +
+  set-password-email flow `services/lms/ops_integration.py` already has for student accounts
+  (`get_or_create_student_account`/`send_set_password_email`) rather than duplicating it.
+
+**Caught mid-build, worth flagging**: the migration added `judge` to the Postgres enum, but nothing
+had added it to the Python-side `UserRole` enum (`app/models/enums.py`) — SQLAlchemy validates an
+`ARRAY(ENUM(UserRole, ...))` column against the Python enum's members, not the DB's, so every
+`User.roles` read on a judge account raised `LookupError` even though the DB was fine. Fixed
+alongside this stage; if a future role migration only touches the DB enum, it will hit the exact
+same failure.
+
+Score aggregation (leaderboard, `leaderboard()`): a team's score is the **average of every judge's
+`total_points`** for that cohort — not specified verbatim anywhere in the source docs, called as a
+reasonable default and flagged as such. `export_top()` is just `leaderboard()[:limit]`; there's no
+separate "frozen at export time" concept.
+
+### API surface
+
+- **`/competitions/admin/*`** (`require_lms_content` — operations/facilitator/admin, same authoring
+  gate `/lms/admin` uses): rubric GET/PUT per program, judges GET/POST/DELETE per cohort,
+  leaderboard/export-top20/publish/unpublish per cohort.
+- **`/competitions/judge/*`** (`require_judge`): `GET /cohorts` (this judge's own cohort picker —
+  which cohorts they hold a `CompetitionJudge` row for), `GET /teams?cohort_id=` (roster + whether
+  *this* judge has already scored each team), `GET /teams/{id}` (submissions +
+  rubric + this judge's own score, via a new `team_submission_items()` in
+  `services/lms/program.py` that resolves a team's cohort → effective checklist items filtered to
+  `scope="team"`, joined against `LmsProgramTeamItemProgress` — the judge view reads the *same*
+  shared checklist a teammate's Learn page writes, not a judging-only copy), `PUT
+  /teams/{id}/score`.
+- Mounted at its own top-level `/competitions` prefix (`app/routers/competitions/`, registered in
+  `main.py`), not nested under `/lms/` or `/missions/` — judging is neither checklist authoring nor
+  a mission attempt, and deliberately not the plan doc's literal bare `/admin/...` paths either,
+  to avoid colliding with the pre-existing generic `/admin/*` user-management router.
+
+### Frontend
+
+- **Ops**: `Programs.tsx` gained an "is this a competition" toggle (also newly exposed on
+  `ProgramOut`/`ProgramIn`/`ProgramUpdate` — Stage 1 added the DB column but never surfaced it over
+  the API at all, closed here). `CohortDetail.tsx` shows a "Judging" header action when the cohort's
+  program is a competition (`CohortOut` gained a `program_is_competition` convenience-join field,
+  same pattern `program_name` already uses), linking to the new `CompetitionJudging.tsx`
+  (`/operations/cohorts/$cohortId/judging`) — Rubric / Judges / Results tabs.
+- **Judge**: a new top-level surface at `/judge/*`, same "own separate area, not a portal role"
+  treatment `/learn` gives students (`roleHomePath`, `Sidebar.tsx`) — `JudgeTeams.tsx` (cohort
+  picker + team roster with a scored/not-scored mark) and `JudgeTeamDetail.tsx` (submissions +
+  scoring form). Unlike `/learn`, judges use the ordinary portal shell (`AppShell`/`Sidebar`) rather
+  than a standalone shell — nested under `authLayoutRoute`, gated by `active_role === "judge"`.
+- `judge` added to `types/shared.ts`'s `Role` union, `ROLE_LABEL`, and `roleHomePath()`
+  (→ `/judge`), and to `Users.tsx`'s `roleBadgeColor` map (a `Record<Role, ...>` — TypeScript's
+  exhaustiveness check is what caught this one).
+- The judge/student account invite email (`send_set_password_email`,
+  `services/lms/ops_integration.py`) was hardcoded to link to `/learn/set-password` for every role —
+  harmless for students, wrong for everyone else (a judge or ops-invited instructor would land on
+  the LMS-branded page and its "back to login" would send them to `/learn/login`, not the portal).
+  `LearnSetPassword.tsx`'s own docstring already documented the intended fix (it's mounted at both
+  `/learn/set-password` and `/set-password` for exactly this reason) — the email just never used the
+  second mount. Now role-aware: `/learn/set-password` only for `student`, `/set-password` otherwise.
+
+### What's still not built
+
+- Registration import (Excel/CSV → bulk `User`/`Registration`/`Team` creation).
+- Progression: the ops "confirm Top 10 → move to Finalists" action + congrats email.

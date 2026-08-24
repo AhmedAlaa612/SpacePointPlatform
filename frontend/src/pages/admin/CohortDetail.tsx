@@ -244,6 +244,15 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         }
         action={
           <div className="flex items-center gap-2 flex-wrap">
+            {cohort.program_is_competition && (
+              <Link
+                to="/operations/cohorts/$cohortId/judging"
+                params={{ cohortId: cohort.id }}
+                className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
+              >
+                <Award size={14} /> Judging
+              </Link>
+            )}
             {cohort.status !== "completed" && cohort.status !== "cancelled" && (
               <button
                 onClick={() => setCompleteConfirmOpen(true)}

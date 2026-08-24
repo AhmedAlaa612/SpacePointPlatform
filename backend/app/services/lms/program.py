@@ -247,6 +247,41 @@ async def effective_cohort_program_items(
     return program, list(items), True
 
 
+async def team_submission_items(db: AsyncSession, *, team_id: uuid.UUID) -> list[dict]:
+    """Every team-scoped item on the team's cohort checklist, plus that
+    team's own progress row for it — the judge team-detail view's "what did
+    they actually submit" panel, read straight off the same shared checklist
+    a teammate's Learn page edits (`checklist_item_write_target`), not a
+    judging-only copy of it."""
+    team = await db.get(Team, team_id)
+    if team is None or team.cohort_id is None:
+        return []
+    resolved = await effective_cohort_program_items(db, team.cohort_id)
+    if resolved is None:
+        return []
+    _, items, _ = resolved
+    team_items = [i for i in items if i.scope == "team"]
+    if not team_items:
+        return []
+    progress_by_item = {
+        p.item_id: p for p in (await db.execute(
+            select(LmsProgramTeamItemProgress).where(
+                LmsProgramTeamItemProgress.item_id.in_([i.id for i in team_items]),
+                LmsProgramTeamItemProgress.team_id == team_id,
+            )
+        )).scalars().all()
+    }
+    out = []
+    for item in team_items:
+        progress = progress_by_item.get(item.id)
+        out.append({
+            "item_id": item.id, "title": item.title, "item_type": item.item_type,
+            "status": progress.status if progress else "pending",
+            "submitted_url": progress.submitted_url if progress else None,
+        })
+    return out
+
+
 async def fork_cohort_override(
     db: AsyncSession, *, cohort_id: uuid.UUID,
 ) -> tuple[LmsProgramCohortOverride, dict[uuid.UUID, uuid.UUID]] | None:

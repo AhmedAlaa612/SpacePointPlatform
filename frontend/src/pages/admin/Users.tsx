@@ -28,6 +28,7 @@ const roleBadgeColor: Record<Role, string> = {
   coo: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-400",
   storekeeper: "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300",
   student: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-400",
+  judge: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-500/15 dark:text-fuchsia-400",
 }
 
 /* ================================================================== */
