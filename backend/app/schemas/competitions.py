@@ -89,6 +89,8 @@ class CompetitionSubmissionItemOut(BaseModel):
     item_type: str
     status: str
     submitted_url: str | None = None
+    updated_at: datetime | None = None
+    updated_by_name: str | None = None
 
 
 class CompetitionJudgeCohortOut(BaseModel):

@@ -243,6 +243,34 @@ async def test_judge_team_detail_surfaces_submissions_and_rubric(db, client):
 
 
 @pytest.mark.asyncio
+async def test_judge_team_detail_shows_who_submitted_and_when(db, client):
+    from datetime import datetime, timezone
+    from app.models.lms.program import LmsProgramTeamItemProgress
+
+    ops, program, cohort, team, judge, poster_item = await _judge_setup(db)
+    student_b = User(
+        id=uuid.uuid4(), full_name="Lina Nasser", email=f"lina-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash="x", roles=["student"], status="active",
+    )
+    db.add(student_b)
+    await db.flush()
+    submitted_at = datetime(2026, 8, 24, 14, 30, tzinfo=timezone.utc)
+    db.add(LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=poster_item.id, team_id=team.id, status="done",
+        submitted_url="https://canva.com/design/poster-v1", updated_by_user_id=student_b.id,
+        updated_at=submitted_at,
+    ))
+    await db.commit()
+
+    resp = await client.get(f"/competitions/judge/teams/{team.id}", headers=_headers(judge))
+    assert resp.status_code == 200, resp.text
+    submission = resp.json()["submissions"][0]
+    assert submission["submitted_url"] == "https://canva.com/design/poster-v1"
+    assert submission["updated_by_name"] == "Lina Nasser"
+    assert submission["updated_at"] is not None
+
+
+@pytest.mark.asyncio
 async def test_judge_submits_a_score_then_can_revise_it_before_publish(db, client):
     ops, program, cohort, team, judge, poster_item = await _judge_setup(db)
 

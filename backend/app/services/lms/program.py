@@ -252,7 +252,10 @@ async def team_submission_items(db: AsyncSession, *, team_id: uuid.UUID) -> list
     team's own progress row for it — the judge team-detail view's "what did
     they actually submit" panel, read straight off the same shared checklist
     a teammate's Learn page edits (`checklist_item_write_target`), not a
-    judging-only copy of it."""
+    judging-only copy of it. Carries `updated_at`/`updated_by_name` too
+    (operator ask, 2026-08-24: a judge needs to see "submitted at [time] by
+    [student]", not just the bare link), same fields
+    `get_student_checklist` already surfaces for the team's own view."""
     team = await db.get(Team, team_id)
     if team is None or team.cohort_id is None:
         return []
@@ -271,6 +274,13 @@ async def team_submission_items(db: AsyncSession, *, team_id: uuid.UUID) -> list
             )
         )).scalars().all()
     }
+    updater_ids = {p.updated_by_user_id for p in progress_by_item.values() if p.updated_by_user_id}
+    updater_names: dict[uuid.UUID, str] = {}
+    if updater_ids:
+        updater_names = dict((await db.execute(
+            select(User.id, User.full_name).where(User.id.in_(updater_ids))
+        )).all())
+
     out = []
     for item in team_items:
         progress = progress_by_item.get(item.id)
@@ -278,6 +288,8 @@ async def team_submission_items(db: AsyncSession, *, team_id: uuid.UUID) -> list
             "item_id": item.id, "title": item.title, "item_type": item.item_type,
             "status": progress.status if progress else "pending",
             "submitted_url": progress.submitted_url if progress else None,
+            "updated_at": progress.updated_at if progress else None,
+            "updated_by_name": updater_names.get(progress.updated_by_user_id) if progress and progress.updated_by_user_id else None,
         })
     return out
 

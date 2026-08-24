@@ -237,3 +237,44 @@ codebase uses).
 Nothing tracked as outstanding — all three stages of the original implementation plan (team-scoped
 checklists, judging, registration import + progression) are built. Anything past this is a new ask,
 not a gap in this plan.
+
+---
+
+## 4. Boss feedback round (2026-08-24)
+
+Three items from the boss after seeing the built domain — the first two below are real code
+changes; the third and fourth just confirm existing design decisions with no code needed.
+
+- **"Submitted at [timestamp] by [student X]" needed to actually be visible, not just tracked.**
+  Two gaps, both fixed:
+  - The judge team-detail view (`team_submission_items()`, `services/lms/program.py`) only
+    returned `status`/`submitted_url` — never the `updated_at`/`updated_by_user_id` the team-progress
+    table already stores. Added both (plus a batch name lookup, same pattern
+    `get_student_checklist` already uses) to `CompetitionSubmissionItemOut`, surfaced on
+    `JudgeTeamDetail.tsx`.
+  - The bigger one, on the **student/team side**: `LearnChecklist.tsx`'s submission block —
+    link input, "last updated by" caption, the works — was gated behind `status !== "done" &&
+    status !== "awaiting_confirmation"`. The moment a submission item was marked done, the entire
+    block vanished — no link, no submitter, no timestamp, nothing but a bare "Complete" badge. That's
+    exactly the operator's stated worry ("teams worry which submission went through") and it wasn't
+    a display nitpick, it was a real hole: a team-scoped item is *supposed* to be overridable by any
+    teammate at any time (Stage 1's own design), and there was no way to even see what was currently
+    submitted once done, let alone replace it. Fixed by decoupling three things that were wrongly
+    tied to one status check: the submitted-link summary (now always visible whenever
+    `submitted_url` is set, any status), the edit form (now always open, "Replace link" once
+    something exists), and the "Mark as done" button (still hidden once done/awaiting — that part
+    of the original gating was correct). The "Submitted [time] by [name]" caption itself is
+    team-scope-only, matching what's actually tracked — individual items have no equivalent
+    timestamp column, and the boss's ask was explicitly about the team view.
+- **Judge scoring needed to survive being split across separate sessions.** `JudgeTeamDetail.tsx`
+  now autosaves on every score/bonus change (1.2s debounce, restarts on each keystroke) instead of
+  only writing on an explicit submit — `submit_score()` already upserts, so autosaving is just
+  calling the same endpoint more often. A status line ("Saving…" / "Unsaved changes" / "Saved
+  [time]") makes the background writes visible rather than silent; a "Save now" button stays for
+  an immediate, non-debounced write. No backend change needed.
+- **Pre/mid/post-session quizzes are Google Forms**, added as ordinary `external_link` checklist
+  items — no new item type, no new mechanism. Confirmed with the boss, already exactly how the
+  checklist model works.
+- **The dashboard deliverable has no platform template** — teams build it themselves (vibecoded) and
+  submit a link, same as poster/video/circuit/CAD. Ops gives guides, not a builder. Also already
+  exactly how `scope="team"` + `submission`/`external_link` items work; no new mechanism needed.

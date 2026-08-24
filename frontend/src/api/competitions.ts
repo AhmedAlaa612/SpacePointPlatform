@@ -57,6 +57,8 @@ export interface CompetitionSubmissionItem {
   item_type: string
   status: string
   submitted_url: string | null
+  updated_at: string | null
+  updated_by_name: string | null
 }
 
 export interface CompetitionImportRow {

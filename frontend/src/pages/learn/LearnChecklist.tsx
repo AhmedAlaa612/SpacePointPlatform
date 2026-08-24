@@ -212,9 +212,33 @@ function ChecklistItemRow({
           </a>
         )}
 
-        {item.item_type === "submission" && item.status !== "done" && item.status !== "awaiting_confirmation" && (
+        {item.item_type === "submission" && (
           <div className="flex flex-col gap-2 mt-1 max-w-md" onClick={(e) => e.stopPropagation()}>
             {item.submission_prompt && <p className="text-xs text-muted-foreground">{item.submission_prompt}</p>}
+
+            {/* Always visible once something's been submitted — done or not —
+                so "which submission actually went through" never has to be
+                guessed at (operator ask, 2026-08-24: teams worried exactly
+                this). Editing stays open after done too: a team-scoped
+                item is meant to be overridable by any teammate at any time. */}
+            {item.submitted_url && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-lg px-2.5 py-1.5">
+                <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
+                <a
+                  href={item.submitted_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                  className="text-primary hover:underline truncate"
+                >
+                  {item.submitted_url}
+                </a>
+                <span className="shrink-0">
+                  · Submitted
+                  {item.scope === "team" && item.updated_at &&
+                    ` ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+                  {item.scope === "team" && item.updated_by_name && ` by ${item.updated_by_name}`}
+                </span>
+              </div>
+            )}
+
             <div className="flex gap-2">
               <input
                 value={submitUrl || item.submitted_url || ""}
@@ -227,16 +251,10 @@ function ChecklistItemRow({
                 disabled={!(submitUrl || item.submitted_url) || submitMutation.isPending}
                 onClick={() => { setSubmitting(true); submitMutation.mutate(submitUrl || item.submitted_url || ""); }}
               >
-                {submitMutation.isPending && submitting ? "Saving…" : "Save link"}
+                {submitMutation.isPending && submitting ? "Saving…" : item.submitted_url ? "Replace link" : "Save link"}
               </Button>
             </div>
-            {item.scope === "team" && item.updated_by_name && (
-              <p className="text-xs text-muted-foreground">
-                Last updated by {item.updated_by_name}
-                {item.updated_at && ` · ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
-              </p>
-            )}
-            {item.submitted_url && (
+            {item.submitted_url && item.status !== "done" && item.status !== "awaiting_confirmation" && (
               <Button size="sm" variant="outline" disabled={completeMutation.isPending} onClick={() => completeMutation.mutate()}>
                 {completeMutation.isPending ? "Marking done…" : "Mark as done"}
               </Button>
