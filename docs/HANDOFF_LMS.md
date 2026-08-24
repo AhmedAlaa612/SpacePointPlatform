@@ -670,3 +670,12 @@ an instructor see what a student built."
   reconstructs the 4 fields from an already-saved `design_objective` string, so editing a
   briefing-page-started run still round-trips instead of collapsing into one blob) and rebuilt Setup
   around them. Both entry paths now collect and display the same questions in the same format.
+
+## 16. `LmsProgramItem.scope` — see `HANDOFF_COMPETITIONS.md` (2026-08-24)
+
+`LmsProgramItem` gained a `scope` column (`individual|team`, default `individual`) and a sibling
+progress table, `lms_program_team_item_progress`, for the new Competition domain. Every item that
+existed before this stays `individual` and behaves exactly as documented above — this is additive,
+not a change to the checklist model §11 describes. Full detail, including why it's a separate
+table rather than a nullable second key on `LmsProgramItemProgress`, is in
+[`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md).

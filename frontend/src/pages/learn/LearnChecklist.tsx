@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen, CheckCircle2, ChevronRight, ClipboardCheck, ExternalLink, FileText, Link2,
-  Rocket, Trophy, Upload,
+  Rocket, Trophy, Upload, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -189,6 +189,14 @@ function ChecklistItemRow({
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground border border-border rounded px-1.5 py-0.5">
             {ITEM_LABEL[item.item_type]}
           </span>
+          {item.scope === "team" && (
+            <span
+              title="Shared with your team — any of you can submit or override it"
+              className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5"
+            >
+              <Users className="size-2.5" /> Team
+            </span>
+          )}
           {item.optional && <span className="text-[10px] font-medium italic text-muted-foreground">optional</span>}
         </div>
         {item.description && <p className="text-sm text-muted-foreground max-w-lg">{item.description}</p>}
@@ -222,6 +230,12 @@ function ChecklistItemRow({
                 {submitMutation.isPending && submitting ? "Saving…" : "Save link"}
               </Button>
             </div>
+            {item.scope === "team" && item.updated_by_name && (
+              <p className="text-xs text-muted-foreground">
+                Last updated by {item.updated_by_name}
+                {item.updated_at && ` · ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+              </p>
+            )}
             {item.submitted_url && (
               <Button size="sm" variant="outline" disabled={completeMutation.isPending} onClick={() => completeMutation.mutate()}>
                 {completeMutation.isPending ? "Marking done…" : "Mark as done"}

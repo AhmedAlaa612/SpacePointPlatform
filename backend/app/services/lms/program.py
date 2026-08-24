@@ -29,9 +29,11 @@ from app.models.certificate import Certificate
 from app.models.lms.course import Course
 from app.models.lms.program import (
     LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem, LmsProgramItemProgress,
+    LmsProgramTeamItemProgress,
 )
 from app.models.missions.mission import Mission, MissionAttempt
 from app.models.sessions.cohort import Cohort
+from app.models.team import Team, TeamMember
 from app.models.user import User
 from app.schemas.lms_admin import LmsProgramItemIn, LmsProgramItemOut
 from app.services.lms.enrollment import enroll
@@ -87,6 +89,16 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail=f"A '{body.item_type}' item is missing its required field",
+        )
+    # Competition domain (2026-08-24) — team scope is for the link-only
+    # deliverables a team submits once together. Learning content
+    # (course/mission_run/article) stays individual on purpose: each
+    # teammate's own course progress and Design mission attempt are
+    # genuinely personal, not something one submission speaks for.
+    if body.scope == "team" and body.item_type not in ("submission", "external_link", "manual"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"A '{body.item_type}' item can't be team-scoped — only submission, external_link, or manual items can be",
         )
 
 
@@ -496,6 +508,56 @@ async def _assignment_items_and_progress(
     return pairs
 
 
+async def team_for_cohort_member(db: AsyncSession, *, cohort_id: uuid.UUID | None, user_id: uuid.UUID) -> Team | None:
+    """The caller's `Team` within this cohort, or None if they're not on
+    one — a solo/no-cohort assignment (`cohort_id` None) never has a team.
+    One row expected in practice (a student holds at most one team per
+    cohort); `.first()` rather than erroring keeps this a lookup, not an
+    invariant check that has no business living here."""
+    if cohort_id is None:
+        return None
+    return await db.scalar(
+        select(Team).join(TeamMember, TeamMember.team_id == Team.id)
+        .where(TeamMember.user_id == user_id, Team.cohort_id == cohort_id)
+    )
+
+
+async def _get_or_create_team_progress(
+    db: AsyncSession, *, item_id: uuid.UUID, team_id: uuid.UUID,
+) -> LmsProgramTeamItemProgress:
+    row = await db.scalar(
+        select(LmsProgramTeamItemProgress).where(
+            LmsProgramTeamItemProgress.item_id == item_id, LmsProgramTeamItemProgress.team_id == team_id,
+        )
+    )
+    if row is None:
+        row = LmsProgramTeamItemProgress(id=uuid.uuid4(), item_id=item_id, team_id=team_id)
+        db.add(row)
+        await db.flush()
+    return row
+
+
+async def checklist_item_write_target(
+    db: AsyncSession, *, assignment: LmsProgramAssignment, item: LmsProgramItem,
+    individual: LmsProgramItemProgress, user_id: uuid.UUID,
+) -> LmsProgramItemProgress | LmsProgramTeamItemProgress:
+    """Where a checklist item's mutable state (status/submitted_url/
+    completed_at/confirmed_by_user_id) actually lives. `individual` items
+    write straight to their own `LmsProgramItemProgress` row — `individual`
+    passed in, unchanged, same as before this function existed. `team`
+    items write to the shared `LmsProgramTeamItemProgress` row for the
+    caller's Team in this assignment's cohort, created on first write, so
+    every teammate's edit lands on the same row — `individual`'s own row
+    still exists (materialized at assignment time, see module docstring)
+    but its state is never read or written once an item is team-scoped."""
+    if item.scope != "team":
+        return individual
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user_id)
+    if team is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="You're not on a team for this cohort")
+    return await _get_or_create_team_progress(db, item_id=item.id, team_id=team.id)
+
+
 async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, user_id: uuid.UUID) -> dict | None:
     """None means either the assignment doesn't exist or belongs to a
     different student — the router turns both into a plain 404, never
@@ -514,9 +576,36 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids))
     )).all()) if mission_ids else {}
 
+    # Team-scoped items read their state from the shared team row instead
+    # of the individual one materialized above — one lookup for the
+    # caller's team, one batched query for every team-scoped item's
+    # progress row, one for the names of whoever last touched each.
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=user_id)
+    team_item_ids = [item.id for item, _ in pairs if item.scope == "team"]
+    team_progress_by_item: dict[uuid.UUID, LmsProgramTeamItemProgress] = {}
+    updater_names: dict[uuid.UUID, str] = {}
+    if team is not None and team_item_ids:
+        rows = (await db.execute(
+            select(LmsProgramTeamItemProgress).where(
+                LmsProgramTeamItemProgress.team_id == team.id,
+                LmsProgramTeamItemProgress.item_id.in_(team_item_ids),
+            )
+        )).scalars().all()
+        team_progress_by_item = {r.item_id: r for r in rows}
+        updater_ids = {r.updated_by_user_id for r in rows if r.updated_by_user_id}
+        if updater_ids:
+            updater_names = dict((await db.execute(
+                select(User.id, User.full_name).where(User.id.in_(updater_ids))
+            )).all())
+
     items_out = []
     for item, progress in pairs:
-        status = await refresh_item_progress(db, progress=progress, item=item, user_id=user_id)
+        team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
+        status = (
+            team_progress.status if team_progress is not None
+            else (await refresh_item_progress(db, progress=progress, item=item, user_id=user_id))
+        )
+        submitted_url = team_progress.submitted_url if team_progress is not None else progress.submitted_url
         items_out.append({
             "id": item.id, "position": item.position, "item_type": item.item_type,
             "title": item.title, "description": item.description,
@@ -525,7 +614,10 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "mission_attempt_id": progress.mission_attempt_id,
             "mission_id": item.mission_id, "mission_kind": mission_kinds.get(item.mission_id),
             "external_url": item.external_url, "submission_prompt": item.submission_prompt,
-            "submitted_url": progress.submitted_url,
+            "submitted_url": submitted_url,
+            "scope": item.scope,
+            "updated_by_name": updater_names.get(team_progress.updated_by_user_id) if team_progress and team_progress.updated_by_user_id else None,
+            "updated_at": team_progress.updated_at if team_progress is not None else None,
         })
 
     return {

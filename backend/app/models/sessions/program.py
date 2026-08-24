@@ -20,6 +20,12 @@ class Program(Base):
     name = Column(String(255), nullable=False)
     program_type = Column(String(24), nullable=False)  # workshop|course|session
     description = Column(Text, nullable=True)
+    # Competition domain (2026-08-24, Ru'ya Space Race first) — a behavioral
+    # flag layered on top of program_type's format axis, not a 4th format:
+    # a competition unlocks judging (rubric/scores/publish), temporary judge
+    # accounts, and team-scoped checklist items on whichever Program it's set
+    # on. See services/competitions/.
+    is_competition = Column(Boolean, nullable=False, default=False, server_default="false")
     price = Column(Numeric(10, 2), nullable=True)
     # I5-2. Same three-level fallback shape as `price`: set here, overridable
     # on the cohort, overridable again on the session. The payment line

@@ -440,6 +440,14 @@ class LmsProgramChecklistItemOut(BaseModel):
     submission_prompt: str | None = None
     # What the student themself submitted back, for a `submission` item.
     submitted_url: str | None = None
+    # Competition domain (2026-08-24) — individual (default) means
+    # submitted_url/status above are this student's own, same as always.
+    # team means they're the whole Team's shared fact: any member wrote
+    # them, and updated_by_name/updated_at say who last did, since there's
+    # no single "you" for a team row.
+    scope: str = "individual"
+    updated_by_name: str | None = None
+    updated_at: datetime | None = None
 
 
 class LmsProgramAssignmentSummaryOut(BaseModel):
