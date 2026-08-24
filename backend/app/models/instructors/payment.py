@@ -81,6 +81,26 @@ class PaymentSession(Base):
     compensation_aed = Column(Float, nullable=False, default=0)
     sort_order = Column(Integer, nullable=False, default=1)
 
+    # ── cohort lines (2026-08-24) ───────────────────────────────────────────
+    # A line can now stand for a whole cohort rather than one session: the
+    # operator wants one row per cohort showing its date range and
+    # "n sessions x rate", so a monthly letter can aggregate several cohorts
+    # into few enough bank transactions to avoid the per-transaction fee.
+    #
+    # All three are nullable and every existing row stays valid — a manual
+    # or single-session line simply leaves them NULL and prints as it always
+    # has. Which sessions a cohort line covers lives in
+    # `payment_session_coverage`, not here; see that model for why.
+    cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="SET NULL"), nullable=True)
+    # How many ops-approved days this line is paying for. Stored rather than
+    # counted from the coverage rows because, like `role` and `session_date`,
+    # it is a snapshot: a signed letter has to keep saying what it said even
+    # if a session is later deleted.
+    session_count = Column(Integer, nullable=True)
+    # The per-session rate that produced `compensation_aed`, for the printed
+    # "5 x 500" breakdown. NULL on a flat-amount arrangement.
+    rate_aed = Column(Float, nullable=True)
+
 
 class PaymentAddon(Base):
     __tablename__ = "payment_addons"

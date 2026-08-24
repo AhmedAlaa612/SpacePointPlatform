@@ -520,4 +520,10 @@ async def maybe_complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id
     if not await cohort_is_fully_reviewed(db, cohort_id):
         return False
     await complete_cohort(db, cohort_id, actor_user_id)
+    # The same event pays the instructors: a draft line per cohort assignment,
+    # amount pre-computed, on their open draft letter (or a new one). Imported
+    # here rather than at module scope — `journey` imports `openings`, which
+    # imports back into this domain, and a top-level import closes the cycle.
+    from app.services.sessions.journey import accrue_cohort_pay
+    await accrue_cohort_pay(db, cohort_id)
     return True

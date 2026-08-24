@@ -6,16 +6,21 @@ delivered session into something an instructor signs.
 
 import uuid
 from datetime import datetime, timezone
+from decimal import Decimal
 from hashlib import sha256
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.enums import PaymentLetterStatus
 from app.models.instructors.payment import PaymentLetter, PaymentSession
+from app.models.sessions.checklist import InstructorSessionDay
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.cohort_assignment import CohortInstructorAssignment
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.instructor_interest import InstructorInterest
+from app.models.sessions.payment_coverage import PaymentSessionCoverage
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
@@ -106,24 +111,38 @@ async def accept_responsibilities(
     return interest
 
 
-# ── I5-8: completed sessions prefill the payment letter ─────────────────────
+# ── I5-8 / 2026-08-24: delivered work prefills the payment letter ───────────
+#
+# This section changed shape on 2026-08-24. It used to return one row per
+# completed session; it now returns one row per *cohort assignment*, because
+# the operator wants a letter that reads
+#
+#     10-14/10/2026   TDRA Camp   Lead Instructor   Abu Dhabi   4 x 500   2,000
+#
+# rather than five near-identical rows. The reason is operational, not
+# cosmetic: the bank charges extra past ten transactions a month, so several
+# cohorts are settled on one letter per instructor, and an itemised day list
+# makes that unreadable.
+#
+# Sessions delivered outside any cohort assignment (a one-off session-only
+# call, or anything staffed before assignments existed and not backfilled)
+# still produce per-session rows, so nothing becomes unbillable.
 
-async def unbilled_sessions(db: AsyncSession, instructor_user_id: uuid.UUID) -> list[dict]:
-    """Completed sessions this person delivered that no payment line covers.
 
-    "Unbilled" is derived from the absence of a `payment_sessions.session_id`
-    pointing at it — which is also what stops the same session being billed
-    twice, so there is no separate flag to keep honest.
+async def _billed_session_ids(db: AsyncSession, instructor_user_id: uuid.UUID) -> set[uuid.UUID]:
+    """Sessions already covered by one of *this instructor's* payment lines.
 
-    **Scoped to this instructor's own letters.** One session is routinely
-    delivered by several people — `session_openings` exists precisely to offer
-    "1 Lead Facilitator at 2000 and 2 Assistants at 400" — and each of them is
-    paid separately. Asking globally whether a session had *ever* been billed
-    made paying the lead silently delete it from the assistant's list, so the
-    assistant could never be offered it again and nobody would see that it had
-    gone missing.
+    Two sources, because a cohort line covers many sessions and
+    `payment_sessions.session_id` can only name one: the column itself (single
+    lines, manual lines, everything historical) and `payment_session_coverage`
+    (cohort lines).
+
+    **Scoped to this instructor's own letters**, exactly as before. One session
+    is routinely delivered by several people and each is paid separately;
+    asking globally whether a session had *ever* been billed made paying the
+    lead silently delete it from the assistant's list.
     """
-    billed = set((await db.execute(
+    direct = set((await db.execute(
         select(PaymentSession.session_id)
         .join(PaymentLetter, PaymentLetter.id == PaymentSession.payment_letter_id)
         .where(
@@ -131,6 +150,157 @@ async def unbilled_sessions(db: AsyncSession, instructor_user_id: uuid.UUID) -> 
             PaymentLetter.instructor_user_id == instructor_user_id,
         )
     )).scalars().all())
+    covered = set((await db.execute(
+        select(PaymentSessionCoverage.session_id)
+        .join(PaymentSession, PaymentSession.id == PaymentSessionCoverage.payment_session_id)
+        .join(PaymentLetter, PaymentLetter.id == PaymentSession.payment_letter_id)
+        .where(PaymentLetter.instructor_user_id == instructor_user_id)
+    )).scalars().all())
+    return direct | covered
+
+
+async def _paid_day_session_ids(
+    db: AsyncSession, instructor_user_id: uuid.UUID, session_ids: list[uuid.UUID],
+) -> list[uuid.UUID]:
+    """Which of these sessions count as *delivered* for this instructor.
+
+    A paid day is one ops approved with the instructor present — the operator's
+    rule (§18/§19, and the voice note: "operations confirms the instructor
+    actually attended that day... that's locked in the system"). An approved
+    absence is on the record and deliberately does not count.
+
+    Sessions with no `InstructorSessionDay` row at all fall back to
+    `completed_at`, so cohorts delivered before the daily loop existed remain
+    billable rather than silently dropping to zero.
+    """
+    if not session_ids:
+        return []
+    days = {
+        d.session_id: d for d in (await db.execute(
+            select(InstructorSessionDay).where(
+                InstructorSessionDay.session_id.in_(session_ids),
+                InstructorSessionDay.user_id == instructor_user_id,
+            )
+        )).scalars().all()
+    }
+    completed = set((await db.execute(
+        select(Session.id).where(Session.id.in_(session_ids), Session.completed_at.isnot(None))
+    )).scalars().all())
+
+    out = []
+    for session_id in session_ids:
+        day = days.get(session_id)
+        if day is None:
+            if session_id in completed:
+                out.append(session_id)
+        elif day.status == "approved" and day.att_status == "present":
+            out.append(session_id)
+    return out
+
+
+def _format_range(dates: list) -> str:
+    """The printed date cell. One day prints as one date; several print as a
+    range — never an itemised attended-day list, per the operator: an absence
+    shows up as a smaller session count, not as a gap in the dates."""
+    if not dates:
+        return ""
+    lo, hi = min(dates), max(dates)
+    if lo == hi:
+        return lo.strftime("%d/%m/%Y")
+    return f"{lo.strftime('%d/%m/%Y')} - {hi.strftime('%d/%m/%Y')}"
+
+
+async def unbilled_cohorts(db: AsyncSession, instructor_user_id: uuid.UUID) -> list[dict]:
+    """One draft payment line per cohort this person delivered and hasn't been
+    paid for.
+
+    `compensation_aed` is **computed here and still editable afterwards**. That
+    reverses the earlier deliberate choice to leave it at 0 ("the money is a
+    decision"), but keeps the decision: ops sees a filled-in draft and can
+    change any cell before publishing, and `_refuse_if_signed` still blocks
+    edits once signed. Typing a number the system already knows was the actual
+    friction.
+    """
+    billed = await _billed_session_ids(db, instructor_user_id)
+
+    assignments = (await db.execute(
+        select(CohortInstructorAssignment, Cohort, Program, DeliveryRole)
+        .join(Cohort, Cohort.id == CohortInstructorAssignment.cohort_id)
+        .join(Program, Program.id == Cohort.program_id)
+        .join(DeliveryRole, DeliveryRole.id == CohortInstructorAssignment.role_id)
+        .where(
+            CohortInstructorAssignment.user_id == instructor_user_id,
+            CohortInstructorAssignment.status == "active",
+        )
+        .order_by(Cohort.starts_on.asc().nullslast())
+    )).all()
+
+    out = []
+    for assignment, cohort, program, role in assignments:
+        mine = list((await db.execute(
+            select(Session.id)
+            .join(SessionInstructor, SessionInstructor.session_id == Session.id)
+            .where(
+                Session.cohort_id == cohort.id,
+                SessionInstructor.user_id == instructor_user_id,
+                SessionInstructor.role_id == assignment.role_id,
+            )
+            .order_by(Session.meeting_date.asc())
+        )).scalars().all())
+        delivered = [sid for sid in await _paid_day_session_ids(db, instructor_user_id, mine)
+                     if sid not in billed]
+        if not delivered:
+            continue
+
+        sessions = (await db.execute(
+            select(Session).where(Session.id.in_(delivered)).order_by(Session.meeting_date.asc())
+        )).scalars().all()
+        location = await resolve_session_location_display(db, sessions[0], cohort)
+
+        rate = assignment.rate_aed
+        if assignment.rate_basis == "flat":
+            total = float(assignment.flat_amount_aed or 0)
+            rate_out = None
+        else:
+            rate_out = float(rate) if rate is not None else None
+            total = float(rate) * len(delivered) if rate is not None else 0.0
+
+        hours = Decimal("0")
+        for session in sessions:
+            hours += await resolve_duration(db, session) or Decimal("0")
+
+        out.append({
+            "cohort_id": cohort.id,
+            "session_id": None,
+            # What the client sends back to bill this line.
+            "line_id": cohort.id,
+            "session_ids": delivered,
+            "session_date": _format_range([s.meeting_date for s in sessions]),
+            "workshop_description": cohort.name or program.name,
+            "role": role.name,
+            "location": location["name"],
+            "session_count": len(delivered),
+            "rate_aed": rate_out,
+            "compensation_aed": total,
+            "duration_hours": float(hours) or None,
+            "rate_basis": assignment.rate_basis,
+            "cohort_name": cohort.name,
+        })
+    return out
+
+
+async def unbilled_sessions(db: AsyncSession, instructor_user_id: uuid.UUID) -> list[dict]:
+    """Delivered work this person hasn't been paid for, as payment lines.
+
+    Cohort assignments first (one line each, carrying the cohort's date range
+    and `n x rate`), then any leftover delivered session that no assignment
+    covers — a session-only call, or work staffed before assignments existed.
+    Those keep the original one-row-per-session shape, so nothing that used to
+    be billable stops being so.
+    """
+    lines = await unbilled_cohorts(db, instructor_user_id)
+    claimed = {sid for line in lines for sid in line["session_ids"]}
+    billed = await _billed_session_ids(db, instructor_user_id)
 
     rows = (await db.execute(
         select(Session, Cohort, Program, DeliveryRole.name)
@@ -145,75 +315,184 @@ async def unbilled_sessions(db: AsyncSession, instructor_user_id: uuid.UUID) -> 
         .order_by(Session.meeting_date.desc())
     )).all()
 
-    out = []
-    for session, cohort, program, role_name in rows:
-        if session.id in billed:
-            continue
-        # Payment-letter rows store a one-line venue snapshot — through the
-        # canonical resolver (session override, then cohort location, then
-        # legacy free-text) so the printed line matches every other surface.
-        location = await resolve_session_location_display(db, session, cohort)
-        loc_name = location["name"]
+    leftovers = [
+        (session, cohort, program, role_name)
+        for session, cohort, program, role_name in rows
+        if session.id not in billed and session.id not in claimed
+    ]
+    delivered = set(await _paid_day_session_ids(
+        db, instructor_user_id, [s.id for s, _c, _p, _r in leftovers]
+    ))
 
-        out.append({
+    for session, cohort, program, role_name in leftovers:
+        if session.id not in delivered:
+            continue
+        location = await resolve_session_location_display(db, session, cohort)
+        lines.append({
+            "cohort_id": None,
             "session_id": session.id,
-            # Formatted the way the document prints it, because that is what
-            # the (String) payment line stores.
+            "line_id": session.id,
+            "session_ids": [session.id],
             "session_date": session.meeting_date.strftime("%d/%m/%Y"),
             "workshop_description": session.title or program.name,
             "role": role_name,
-            "location": loc_name,
+            "location": location["name"],
+            "session_count": 1,
+            "rate_aed": None,
+            # No assignment means no agreed rate to compute from — left for ops
+            # to type, exactly as this path has always behaved.
+            "compensation_aed": 0.0,
             "duration_hours": float(await resolve_duration(db, session) or 0) or None,
+            "rate_basis": "per_session",
             "cohort_name": cohort.name,
         })
-    return out
+    return lines
 
 
 async def pending_payment_instructors(db: AsyncSession) -> list[dict]:
-    """Every instructor with at least one completed session not yet on any of
-    their payment letters — the admin's payment-letter to-do list.
+    """Every instructor with delivered work not yet on any of their letters —
+    the admin's payment-letter to-do list.
 
-    Same "unbilled" rule as `unbilled_sessions` (absence of a
-    `payment_sessions.session_id` row under that instructor's own letters),
-    just computed for everyone at once instead of one instructor at a time,
-    so admin doesn't have to already know who to look up.
+    Counts **cohorts** now rather than sessions, matching what a letter row
+    actually is. Same unbilled rule as `unbilled_sessions`, just computed for
+    everyone at once so admin doesn't have to know who to look up.
     """
-    billed_pairs = set((await db.execute(
-        select(PaymentLetter.instructor_user_id, PaymentSession.session_id)
-        .join(PaymentSession, PaymentSession.payment_letter_id == PaymentLetter.id)
-        .where(PaymentSession.session_id.isnot(None))
-    )).all())
-
-    rows = (await db.execute(
-        select(User.id, User.full_name, User.email, Session.id, Session.meeting_date)
-        .select_from(SessionInstructor)
+    candidates = set((await db.execute(
+        select(CohortInstructorAssignment.user_id)
+        .where(CohortInstructorAssignment.status == "active")
+    )).scalars().all())
+    candidates |= set((await db.execute(
+        select(SessionInstructor.user_id)
         .join(Session, Session.id == SessionInstructor.session_id)
-        .join(User, User.id == SessionInstructor.user_id)
         .where(Session.completed_at.isnot(None))
-    )).all()
+    )).scalars().all())
+    if not candidates:
+        return []
 
-    by_instructor: dict[uuid.UUID, dict] = {}
-    for user_id, full_name, email, session_id, meeting_date in rows:
-        if (user_id, session_id) in billed_pairs:
+    users = {
+        u.id: u for u in (await db.execute(
+            select(User).where(User.id.in_(candidates))
+        )).scalars().all()
+    }
+
+    out = []
+    for user_id in candidates:
+        lines = await unbilled_sessions(db, user_id)
+        if not lines:
             continue
-        entry = by_instructor.setdefault(user_id, {
-            "instructor_user_id": user_id, "full_name": full_name, "email": email,
-            "session_ids": set(), "earliest_date": meeting_date, "latest_date": meeting_date,
+        user = users.get(user_id)
+        dates = []
+        for line in lines:
+            for session_id in line["session_ids"]:
+                session = await db.get(Session, session_id)
+                if session is not None:
+                    dates.append(session.meeting_date)
+        if not dates:
+            continue
+        out.append({
+            "instructor_user_id": user_id,
+            "full_name": user.full_name if user else "",
+            "email": user.email if user else "",
+            "pending_cohort_count": len(lines),
+            # Kept under its old name so the existing schema/UI field still
+            # resolves; it now counts the days behind those lines.
+            "pending_session_count": sum(line["session_count"] for line in lines),
+            "earliest_date": min(dates),
+            "latest_date": max(dates),
         })
-        entry["session_ids"].add(session_id)
-        entry["earliest_date"] = min(entry["earliest_date"], meeting_date)
-        entry["latest_date"] = max(entry["latest_date"], meeting_date)
-
-    out = [
-        {
-            "instructor_user_id": e["instructor_user_id"],
-            "full_name": e["full_name"],
-            "email": e["email"],
-            "pending_session_count": len(e["session_ids"]),
-            "earliest_date": e["earliest_date"],
-            "latest_date": e["latest_date"],
-        }
-        for e in by_instructor.values()
-    ]
     out.sort(key=lambda r: r["earliest_date"])
     return out
+
+
+# ── cohort completion accrues a draft payment line ──────────────────────────
+
+async def _draft_letter_for(db: AsyncSession, instructor_user_id: uuid.UUID) -> PaymentLetter:
+    """That instructor's open draft letter, or a new one.
+
+    Appending to an existing draft is what makes monthly aggregation work: a
+    second cohort completing in the same month lands on the same letter. Once
+    a letter has moved past `draft` it is out of bounds — a published letter is
+    being signed and a signed one is a document somebody put their name to, so
+    later work starts a fresh draft instead.
+    """
+    letter = (await db.execute(
+        select(PaymentLetter)
+        .where(
+            PaymentLetter.instructor_user_id == instructor_user_id,
+            PaymentLetter.status == PaymentLetterStatus.draft,
+        )
+        .order_by(PaymentLetter.created_at.desc())
+        .limit(1)
+    )).scalars().first()
+    if letter is not None:
+        return letter
+
+    letter = PaymentLetter(
+        id=uuid.uuid4(), instructor_user_id=instructor_user_id,
+        letter_date=datetime.now(timezone.utc).strftime("%d/%m/%Y"),
+        status=PaymentLetterStatus.draft,
+    )
+    db.add(letter)
+    await db.flush()
+    return letter
+
+
+async def accrue_cohort_pay(db: AsyncSession, cohort_id: uuid.UUID) -> list[PaymentSession]:
+    """Write a draft payment line for everyone who delivered this cohort.
+
+    Called when a cohort completes. Idempotent by construction: the lines it
+    would write are derived from `unbilled_sessions`, which excludes anything
+    already covered, so running it twice adds nothing the second time.
+
+    Everything it writes is a **draft ops can edit** — the amount included.
+    Nothing here publishes, signs or pays.
+    """
+    assignments = (await db.execute(
+        select(CohortInstructorAssignment).where(
+            CohortInstructorAssignment.cohort_id == cohort_id,
+            CohortInstructorAssignment.status == "active",
+        )
+    )).scalars().all()
+
+    written: list[PaymentSession] = []
+    for assignment in assignments:
+        lines = [
+            line for line in await unbilled_cohorts(db, assignment.user_id)
+            if line["cohort_id"] == cohort_id
+        ]
+        if not lines:
+            continue
+        letter = await _draft_letter_for(db, assignment.user_id)
+        highest = await db.scalar(
+            select(func.max(PaymentSession.sort_order))
+            .where(PaymentSession.payment_letter_id == letter.id)
+        ) or 0
+
+        for offset, line in enumerate(lines, start=1):
+            row = PaymentSession(
+                id=uuid.uuid4(), payment_letter_id=letter.id,
+                cohort_id=line["cohort_id"],
+                # Left NULL on a cohort line — coverage rows carry the real
+                # answer, and naming one session of five would be a lie.
+                session_id=None,
+                session_date=line["session_date"],
+                workshop_description=line["workshop_description"],
+                role=line["role"], location=line["location"],
+                duration_hours=line["duration_hours"],
+                compensation_aed=line["compensation_aed"],
+                session_count=line["session_count"], rate_aed=line["rate_aed"],
+                sort_order=highest + offset,
+            )
+            db.add(row)
+            await db.flush()
+            for session_id in line["session_ids"]:
+                db.add(PaymentSessionCoverage(
+                    id=uuid.uuid4(), payment_session_id=row.id, session_id=session_id,
+                ))
+            written.append(row)
+        # A new line invalidates any PDF already rendered for this letter.
+        letter.pdf_url = None
+        letter.pdf_path = None
+
+    await db.flush()
+    return written
