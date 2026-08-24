@@ -196,3 +196,147 @@ class MySessionOut(BaseModel):
     staffing_status: StaffingStatus
     started_at: datetime | None = None
     completed_at: datetime | None = None
+
+
+# ── Cohort-level staffing (2026-08-24) ──────────────────────────────────────
+# The cohort layer over the session-scoped marketplace above: ops opens one
+# call across N sessions, the instructor answers it once with a role and the
+# days they can do, and ops picks from one table instead of N.
+
+class CohortCallSessionOut(BaseModel):
+    """One tickable day inside a cohort card."""
+    session_id: UUID
+    title: str | None = None
+    meeting_date: date
+    starts_at: time | None = None
+    # Whether this instructor has already ticked it — lets the card come back
+    # showing their previous answer instead of a blank form.
+    selected: bool = False
+
+
+class AvailableCohortCallOut(BaseModel):
+    """One cohort card on the instructor's Available Sessions page.
+
+    `openings` are summed across the call's sessions, so "1 of 3 left" is a
+    cohort-scale statement rather than one session's. `amount_aed` on each is
+    the per-session rate resolved through the full hierarchy (session opening
+    -> cohort opening -> role default).
+    """
+    cohort_call_id: UUID
+    cohort_id: UUID
+    cohort_name: str
+    program_name: str
+    program_type: str | None = None
+    description: str | None = None
+    label: str | None = None
+    starts_on: date
+    ends_on: date
+    session_count: int
+    location: str | None = None
+    location_address: str | None = None
+    location_map_url: str | None = None
+    interested_count: int
+    sessions: list[CohortCallSessionOut] = []
+    openings: list[OpeningSummary] = []
+
+    my_interest: bool = False
+    my_role_id: UUID | None = None
+    my_note: str | None = None
+    my_needs_transport: bool = False
+    my_needs_ops_support: bool = False
+    my_travelling_from_other_city: bool = False
+    my_concerns: str | None = None
+
+
+class AvailableWorkOut(BaseModel):
+    """Everything an instructor can apply for right now.
+
+    Deliberately two lists rather than one flattened feed: a cohort call is a
+    single decision about a run of days, while a session opened on its own is
+    still a standalone offer. `single_sessions` reuses `AvailableSessionOut`
+    unchanged, so the existing `GET /sessions/available` contract keeps
+    working for one release instead of shifting under the current page.
+    """
+    cohort_calls: list[AvailableCohortCallOut] = []
+    single_sessions: list[AvailableSessionOut] = []
+
+
+class RegisterCohortInterestRequest(BaseModel):
+    # The days they can actually do. Anything not offered by this call is
+    # ignored rather than erroring — the client's list can lag a call edit.
+    session_ids: list[UUID]
+    role_id: UUID | None = None
+    note: str | None = None
+    # Operations process doc §2.
+    needs_transport: bool = False
+    needs_ops_support: bool = False
+    travelling_from_other_city: bool = False
+    concerns: str | None = None
+    # The version of the combined role + general responsibilities text that
+    # was on screen. A stale one is refused, same as the per-session flow.
+    responsibilities_version: str | None = None
+
+
+class CohortCallInterestOut(BaseModel):
+    """One row of the ops applicant table — one instructor, not one session."""
+    user_id: UUID
+    full_name: str
+    email: str
+    role_id: UUID | None = None
+    role_name: str | None = None
+    session_ids: list[UUID] = []
+    session_count: int
+    note: str | None = None
+    needs_transport: bool = False
+    needs_ops_support: bool = False
+    travelling_from_other_city: bool = False
+    concerns: str | None = None
+    responsibilities_accepted_at: datetime | None = None
+    # Whether the cohort's city is one they already said they'd travel to
+    # (ApplicantProfile.deliver_city_ids) — same signal the per-session
+    # eligible-instructors list surfaces.
+    available_in_city: bool = False
+    status: str
+    already_assigned: bool = False
+    created_at: datetime | None = None
+
+
+class SelectForCohortRequest(BaseModel):
+    user_ids: list[UUID]
+    # Omitted uses whichever role each applicant applied for, then the most
+    # senior — picking somebody as what they asked to be shouldn't require
+    # restating it.
+    role_id: UUID | None = None
+    # Omitted assigns exactly the days each applicant ticked.
+    session_ids: list[UUID] | None = None
+    cohort_call_id: UUID | None = None
+    close_call: bool = True
+    rate_basis: Literal["per_session", "flat"] = "per_session"
+    flat_amount_aed: float | None = None
+
+
+class CohortSelectionOut(BaseModel):
+    user_id: UUID
+    role_id: UUID
+    session_ids: list[UUID]
+    rate_aed: float | None = None
+    rate_basis: str
+    flat_amount_aed: float | None = None
+
+
+class CohortAssignmentOut(BaseModel):
+    """Who is staffed on a cohort, in what role, at what agreed rate."""
+    id: UUID
+    cohort_id: UUID
+    user_id: UUID
+    full_name: str
+    email: str
+    role_id: UUID
+    role_name: str
+    rate_basis: str
+    rate_aed: float | None = None
+    flat_amount_aed: float | None = None
+    status: str
+    source: str
+    session_count: int
+    created_at: datetime | None = None
