@@ -2,9 +2,10 @@
 
 Back to [`HANDOFF.md`](./HANDOFF.md).
 
-**Status: in progress.** First case is Ru'ya Space Race: SatKit Edition (September 2026). Built
-in stages, each landing as its own PR — this doc grows with each one rather than describing a
-finished domain up front. If a section below says "not yet built," that's accurate, not a typo.
+**Status: all three planned stages built** (team-scoped checklists, judging, registration import +
+progression). First case is Ru'ya Space Race: SatKit Edition (September 2026). Built in stages,
+each section below covering one — this doc grew with each one rather than describing a finished
+domain up front.
 
 A competition is deliberately **not** a new top-level entity — it's the existing `Program`/
 `Cohort`/`LmsProgram` machinery (see [`HANDOFF_LMS.md`](./HANDOFF_LMS.md)) with a flag and
@@ -178,7 +179,61 @@ separate "frozen at export time" concept.
   `/learn/set-password` and `/set-password` for exactly this reason) — the email just never used the
   second mount. Now role-aware: `/learn/set-password` only for `student`, `/set-password` otherwise.
 
+---
+
+## 3. Stage 3 — Registration import + progression (2026-08-24)
+
+Registration/filtering itself stays in Google Forms per the boss thread — the platform's job
+starts once ops has a final roster to import, and ends with an explicit, never-automatic action
+that moves a team to the next stage.
+
+### Registration import (`services/competitions/registration_import.py`)
+
+Deliberately lighter than `services/sessions/importer.py`'s general bulk sheet importer: one pass,
+immediately committed, no dry-run/`ImportBatch` two-phase flow, no contact-merge review queue — a
+competition roster is small and already hand-curated by ops before it gets here, so that extra
+machinery buys nothing. `parse_registration_sheet()` reads an Excel/CSV export (header on row 1
+exactly, columns `team_name`/`member_name`/`email`, optional `phone`/`school`);
+`import_registrations()` reuses the exact same identity/registration/LMS primitives the desk and
+the general importer already use per row —`resolve_or_create_contact` → `register()` →
+`sync_registration_lms()` (find-or-create the student account, assign the cohort's LMS checklist,
+email the set-password link) — then finds-or-creates a same-named `Team` in that cohort and adds
+the member. Idempotent on `(contact, cohort)`: re-running the exact same sheet twice reports every
+row `matched`, not duplicated, since `resolve_or_create_contact` and the pre-existing-registration
+check are themselves idempotent.
+
+`POST /competitions/admin/cohorts/{cohort_id}/registration-import` (multipart file upload) returns
+a per-row report (`created|matched|error` + reason) for the ops UI to show — a bad row errors
+without failing the rest of the batch.
+
+### Progression (`services/competitions/progression.py`)
+
+Never automatic off a score threshold — exporting the Top 20 for external NSA review and deciding
+the real Top 10 happens off platform; `advance_teams()` is the one explicit ops action that moves
+anyone, called once ops has that final list. Advancing a team means the same pair advancing an
+individual student between cohorts already means elsewhere in this codebase — `register()` +
+`assign_lms_program()` per member (idempotent, pre-existing-registration checked first) — plus a
+same-named `Team` in the target cohort, since `Team.cohort_id` is fixed at creation and a Qualifier
+team can't just be reused for Finalists. Refuses (400) a team that isn't actually in the stated
+source cohort — a safety check against advancing the wrong roster. Each advanced member gets a
+congrats email (`try_send_email`, same shared primitive every other transactional email in this
+codebase uses).
+
+`POST /competitions/admin/cohorts/{cohort_id}/advance-teams` (body: `{team_ids, to_cohort_id}`) —
+`cohort_id` in the path is the *source* cohort, validated against each team's actual `cohort_id`.
+
+### Frontend
+
+- **Roster tab** (`CompetitionJudging.tsx`, now the default tab) — file upload, per-row import
+  report table.
+- **Results tab** — a checkbox column on the leaderboard plus a "Advance to…" cohort picker
+  (siblings of the current cohort's own program, via the already-existing `getCohortsApi
+  (programId)`) and button, wired to `advance-teams`. This is deliberately the operator's own
+  "Confirm Top 10 → move to Finalists" moment — selecting rows off the published leaderboard *is*
+  the confirmation, nothing auto-selects the top N for them.
+
 ### What's still not built
 
-- Registration import (Excel/CSV → bulk `User`/`Registration`/`Team` creation).
-- Progression: the ops "confirm Top 10 → move to Finalists" action + congrats email.
+Nothing tracked as outstanding — all three stages of the original implementation plan (team-scoped
+checklists, judging, registration import + progression) are built. Anything past this is a new ask,
+not a gap in this plan.

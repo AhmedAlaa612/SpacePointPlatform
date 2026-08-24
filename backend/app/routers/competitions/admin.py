@@ -7,7 +7,7 @@ not a separate permission concept.
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_lms_content
@@ -16,11 +16,14 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.schemas.competitions import (
+    CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionImportResultOut, CompetitionImportRowOut,
     CompetitionJudgeInviteIn, CompetitionJudgeOut, CompetitionJudgeProgressOut, CompetitionLeaderboardRowOut,
     CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut,
 )
 from app.services.competitions import judges as judges_service
 from app.services.competitions import judging as judging_service
+from app.services.competitions import progression as progression_service
+from app.services.competitions import registration_import as import_service
 
 router = APIRouter(
     prefix="/competitions/admin", tags=["competitions-admin"],
@@ -91,6 +94,33 @@ async def delete_cohort_judge(cohort_id: uuid.UUID, user_id: uuid.UUID, db: Asyn
     if not removed:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This judge isn't assigned to this cohort")
     await db.commit()
+
+
+# ── Registration import, progression ────────────────────────────────────
+
+@router.post("/cohorts/{cohort_id}/registration-import", response_model=CompetitionImportResultOut)
+async def post_cohort_registration_import(
+    cohort_id: uuid.UUID, file: UploadFile = File(...), db: AsyncSession = Depends(get_db),
+):
+    await _get_cohort_or_404(db, cohort_id)
+    file_bytes = await file.read()
+    rows = import_service.parse_registration_sheet(file_bytes)
+    results = await import_service.import_registrations(db, cohort_id=cohort_id, rows=rows)
+    await db.commit()
+    return CompetitionImportResultOut(
+        summary=import_service.summarize(results),
+        rows=[CompetitionImportRowOut(**r) for r in import_service.results_as_dicts(results)],
+    )
+
+
+@router.post("/cohorts/{cohort_id}/advance-teams", response_model=list[CompetitionAdvanceResultOut])
+async def post_cohort_advance_teams(cohort_id: uuid.UUID, body: CompetitionAdvanceTeamsIn, db: AsyncSession = Depends(get_db)):
+    await _get_cohort_or_404(db, cohort_id)
+    results = await progression_service.advance_teams(
+        db, team_ids=body.team_ids, from_cohort_id=cohort_id, to_cohort_id=body.to_cohort_id,
+    )
+    await db.commit()
+    return [CompetitionAdvanceResultOut(**r) for r in progression_service.results_as_dicts(results)]
 
 
 # ── Leaderboard, publish, export ────────────────────────────────────────

@@ -1,21 +1,24 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, Plus, Trash2, Trophy, UserPlus } from "lucide-react"
-import { getCohortApi } from "@/api/sessions/cohorts"
+import { ArrowLeft, Plus, Trash2, Trophy, Upload, UserPlus } from "lucide-react"
+import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
+import type { Cohort } from "@/types/sessions"
 import {
-  getCohortExportTop20Api, getCohortJudgesApi, getCohortLeaderboardApi, getProgramRubricApi,
-  inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi, revokeCohortJudgeApi,
-  unpublishCohortResultsApi,
-  type CompetitionJudgeProgress, type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric,
+  advanceCohortTeamsApi, getCohortExportTop20Api, getCohortJudgesApi, getCohortLeaderboardApi, getProgramRubricApi,
+  importCohortRegistrationsApi, inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi,
+  revokeCohortJudgeApi, unpublishCohortResultsApi,
+  type CompetitionImportResult, type CompetitionJudgeProgress, type CompetitionLeaderboardRow,
+  type CompetitionPublication, type CompetitionRubric,
 } from "@/api/competitions"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 import { Field } from "@/pages/admin/components/common"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
 
-type JudgingTab = "rubric" | "judges" | "results"
+type JudgingTab = "roster" | "rubric" | "judges" | "results"
 const TABS: { key: JudgingTab; label: string }[] = [
+  { key: "roster", label: "Roster" },
   { key: "rubric", label: "Rubric" },
   { key: "judges", label: "Judges" },
   { key: "results", label: "Results" },
@@ -23,7 +26,7 @@ const TABS: { key: JudgingTab; label: string }[] = [
 
 export default function CompetitionJudging() {
   const { cohortId } = useParams({ strict: false }) as { cohortId: string }
-  const [tab, setTab] = useState<JudgingTab>("rubric")
+  const [tab, setTab] = useState<JudgingTab>("roster")
 
   const { data: cohort, isLoading } = useQuery({
     queryKey: ["sessions-cohort", cohortId],
@@ -67,9 +70,83 @@ export default function CompetitionJudging() {
         ))}
       </div>
 
+      {tab === "roster" && <RosterTab cohortId={cohort.id} />}
       {tab === "rubric" && <RubricTab programId={cohort.program_id} />}
       {tab === "judges" && <JudgesTab cohortId={cohort.id} />}
-      {tab === "results" && <ResultsTab cohortId={cohort.id} />}
+      {tab === "results" && <ResultsTab cohortId={cohort.id} programId={cohort.program_id} />}
+    </div>
+  )
+}
+
+/* ================================================================== */
+/* Roster (registration import)                                        */
+/* ================================================================== */
+function RosterTab({ cohortId }: { cohortId: string }) {
+  const toast = useToast()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [result, setResult] = useState<CompetitionImportResult | null>(null)
+
+  const importMutation = useMutation({
+    mutationFn: (file: File) => importCohortRegistrationsApi(cohortId, file),
+    onSuccess: (res) => {
+      setResult(res)
+      toast.success(`Imported: ${res.summary.created} created, ${res.summary.matched} matched, ${res.summary.error} errors`)
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to import roster")),
+  })
+
+  return (
+    <div className="flex flex-col gap-4 max-w-2xl">
+      <p className="text-sm text-muted-foreground">
+        Upload the final roster exported from the registration form — columns <code>team_name</code>,{" "}
+        <code>member_name</code>, <code>email</code>, and optionally <code>phone</code>/<code>school</code>.
+        Creates a student account, registration, and team per row; re-uploading the same sheet just matches
+        instead of duplicating.
+      </p>
+      <input
+        ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+        onChange={(e) => { const file = e.target.files?.[0]; if (file) importMutation.mutate(file); e.target.value = "" }}
+      />
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        disabled={importMutation.isPending}
+        className="self-start flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+      >
+        <Upload size={14} /> {importMutation.isPending ? "Importing…" : "Upload roster"}
+      </button>
+
+      {result && (
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-medium text-foreground">
+            {result.summary.total} rows · {result.summary.created} created · {result.summary.matched} matched ·{" "}
+            {result.summary.error} errors
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
+                  <th className="py-2 pr-3">Row</th>
+                  <th className="py-2 pr-3">Team</th>
+                  <th className="py-2 pr-3">Email</th>
+                  <th className="py-2 pr-3">Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.rows.map((r) => (
+                  <tr key={r.row_number} className="border-b border-border/50">
+                    <td className="py-2 pr-3 text-muted-foreground">{r.row_number}</td>
+                    <td className="py-2 pr-3">{r.team_name ?? "—"}</td>
+                    <td className="py-2 pr-3">{r.email ?? "—"}</td>
+                    <td className={`py-2 pr-3 ${r.disposition === "error" ? "text-red-600 dark:text-red-400" : "text-foreground"}`}>
+                      {r.disposition === "error" ? r.reason : r.disposition}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -254,10 +331,12 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
 /* ================================================================== */
 /* Results                                                              */
 /* ================================================================== */
-function ResultsTab({ cohortId }: { cohortId: string }) {
+function ResultsTab({ cohortId, programId }: { cohortId: string; programId: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const [showTop20, setShowTop20] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [toCohortId, setToCohortId] = useState("")
 
   const { data: board = [], isLoading } = useQuery<CompetitionLeaderboardRow[]>({
     queryKey: ["competitions-leaderboard", cohortId],
@@ -268,6 +347,11 @@ function ResultsTab({ cohortId }: { cohortId: string }) {
     queryFn: () => getCohortExportTop20Api(cohortId),
     enabled: showTop20,
   })
+  const { data: siblingCohorts = [] } = useQuery<Cohort[]>({
+    queryKey: ["sessions-cohorts", programId],
+    queryFn: () => getCohortsApi(programId),
+  })
+  const advanceTargets = siblingCohorts.filter((c) => c.id !== cohortId)
 
   const publishMutation = useMutation({
     mutationFn: () => publishCohortResultsApi(cohortId),
@@ -285,8 +369,25 @@ function ResultsTab({ cohortId }: { cohortId: string }) {
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to unpublish results")),
   })
+  const advanceMutation = useMutation({
+    mutationFn: () => advanceCohortTeamsApi(cohortId, { team_ids: [...selected], to_cohort_id: toCohortId }),
+    onSuccess: (results) => {
+      const targetName = advanceTargets.find((c) => c.id === toCohortId)?.name ?? "the next stage"
+      toast.success(`Advanced ${results.length} team(s) to ${targetName}`)
+      setSelected(new Set())
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to advance teams")),
+  })
 
   if (isLoading) return <Spinner />
+
+  const toggleTeam = (teamId: string) => {
+    setSelected((s) => {
+      const next = new Set(s)
+      if (next.has(teamId)) next.delete(teamId); else next.add(teamId)
+      return next
+    })
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -316,18 +417,43 @@ function ResultsTab({ cohortId }: { cohortId: string }) {
         Publishing closes scoring for every judge on this cohort — unpublish to reopen it.
       </p>
 
-      <LeaderboardTable rows={showTop20 ? top20 : board} />
+      {advanceTargets.length > 0 && (
+        <div className="flex items-center gap-2 p-3 bg-card border border-border rounded-xl flex-wrap">
+          <span className="text-sm text-foreground font-medium">
+            {selected.size > 0 ? `${selected.size} team(s) selected` : "Select teams below to advance"}
+          </span>
+          <select
+            value={toCohortId} onChange={(e) => setToCohortId(e.target.value)}
+            className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary cursor-pointer"
+          >
+            <option value="">Advance to…</option>
+            {advanceTargets.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <button
+            onClick={() => advanceMutation.mutate()}
+            disabled={advanceMutation.isPending || selected.size === 0 || !toCohortId}
+            className="h-9 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+          >
+            {advanceMutation.isPending ? "Advancing…" : "Advance selected teams"}
+          </button>
+        </div>
+      )}
+
+      <LeaderboardTable rows={showTop20 ? top20 : board} selected={selected} onToggle={toggleTeam} />
     </div>
   )
 }
 
-function LeaderboardTable({ rows }: { rows: CompetitionLeaderboardRow[] }) {
+function LeaderboardTable({ rows, selected, onToggle }: {
+  rows: CompetitionLeaderboardRow[]; selected?: Set<string>; onToggle?: (teamId: string) => void
+}) {
   if (rows.length === 0) return <EmptyState title="No teams yet" hint="Teams appear here once they're formed for this cohort." />
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
+            {onToggle && <th className="py-2 pr-3 w-8" />}
             <th className="py-2 pr-3">Rank</th>
             <th className="py-2 pr-3">Team</th>
             <th className="py-2 pr-3">Score</th>
@@ -337,6 +463,14 @@ function LeaderboardTable({ rows }: { rows: CompetitionLeaderboardRow[] }) {
         <tbody>
           {rows.map((r) => (
             <tr key={r.team_id} className="border-b border-border/50">
+              {onToggle && (
+                <td className="py-2 pr-3">
+                  <input
+                    type="checkbox" checked={selected?.has(r.team_id) ?? false}
+                    onChange={() => onToggle(r.team_id)}
+                  />
+                </td>
+              )}
               <td className="py-2 pr-3 font-semibold tabular-nums">{r.rank}</td>
               <td className="py-2 pr-3 text-foreground">{r.team_name}</td>
               <td className="py-2 pr-3 tabular-nums">{r.score ?? "—"}</td>

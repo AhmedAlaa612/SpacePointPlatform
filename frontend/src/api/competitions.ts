@@ -59,6 +59,26 @@ export interface CompetitionSubmissionItem {
   submitted_url: string | null
 }
 
+export interface CompetitionImportRow {
+  row_number: number
+  team_name: string | null
+  email: string | null
+  disposition: "created" | "matched" | "error"
+  reason: string | null
+}
+
+export interface CompetitionImportResult {
+  summary: { total: number; created: number; matched: number; error: number }
+  rows: CompetitionImportRow[]
+}
+
+export interface CompetitionAdvanceResult {
+  team_id: string
+  team_name: string
+  to_team_id: string
+  members_advanced: number
+}
+
 export interface CompetitionJudgeCohort {
   id: string
   name: string
@@ -111,6 +131,18 @@ export const publishCohortResultsApi = (cohortId: string) =>
 
 export const unpublishCohortResultsApi = (cohortId: string) =>
   api.post<void>(`/competitions/admin/cohorts/${cohortId}/unpublish`).then((r) => r.data)
+
+export const importCohortRegistrationsApi = (cohortId: string, file: File) => {
+  const form = new FormData()
+  form.append("file", file)
+  return api.post<CompetitionImportResult>(
+    `/competitions/admin/cohorts/${cohortId}/registration-import`, form,
+    { headers: { "Content-Type": "multipart/form-data" } },
+  ).then((r) => r.data)
+}
+
+export const advanceCohortTeamsApi = (cohortId: string, data: { team_ids: string[]; to_cohort_id: string }) =>
+  api.post<CompetitionAdvanceResult[]>(`/competitions/admin/cohorts/${cohortId}/advance-teams`, data).then((r) => r.data)
 
 // ── Judge surface ────────────────────────────────────────────────────────
 

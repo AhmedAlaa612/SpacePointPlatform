@@ -3,16 +3,20 @@
 publish gate, the leaderboard, and judge-roster management.
 """
 
+import io
 import uuid
 
+import openpyxl
 import pytest
 from fastapi import status as http_status
+from sqlalchemy import select
 
 from app.core.security import create_access_token
 from app.models.competitions.judging import CompetitionJudge
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.team import Team
 from app.models.user import User
 from app.services.teams import create_team
 
@@ -308,6 +312,67 @@ async def test_leaderboard_averages_across_judges_and_ranks_unscored_last(db, cl
     unscored_row = next(r for r in rows if r["team_id"] == str(unscored_team.id))
     assert unscored_row["status"] == "unscored"
     assert unscored_row["rank"] == 2
+
+
+# ── Registration import, progression ─────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_registration_import_via_multipart_upload_creates_teams(db, client):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet.append(["team_name", "member_name", "email", "phone", "school"])
+    sheet.append(["Falcon Eye", "Amir Salem", f"amir-{uuid.uuid4().hex[:6]}@example.com", "", ""])
+    sheet.append(["Falcon Eye", "Lina Nasser", f"lina-{uuid.uuid4().hex[:6]}@example.com", "", ""])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import",
+        files={"file": ("roster.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["summary"] == {"total": 2, "created": 2, "matched": 0, "error": 0}
+
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert [t.name for t in teams] == ["Falcon Eye"]
+
+
+@pytest.mark.asyncio
+async def test_advance_teams_via_http_moves_a_team_to_the_target_cohort(db, client):
+    ops = await _ops(db)
+    program, qualifier = await _program_and_cohort(db)
+    finalists = Cohort(id=uuid.uuid4(), program_id=program.id, name="Finalists", status="registration_open")
+    db.add(finalists)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Checklist")
+    db.add(lms_program)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="manual", title="Orientation",
+    ))
+    student = await _student(db)
+    await db.commit()
+    team = await create_team(db, name="Falcon Eye", created_by=student.id, cohort_id=qualifier.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/competitions/admin/cohorts/{qualifier.id}/advance-teams", headers=_headers(ops),
+        json={"team_ids": [str(team.id)], "to_cohort_id": str(finalists.id)},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body[0]["team_name"] == "Falcon Eye" and body[0]["members_advanced"] == 1
+
+    moved_team = (await db.execute(
+        select(Team).where(Team.cohort_id == finalists.id, Team.name == "Falcon Eye")
+    )).scalars().first()
+    assert moved_team is not None
 
 
 @pytest.mark.asyncio

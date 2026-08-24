@@ -110,3 +110,28 @@ class CompetitionTeamDetailOut(BaseModel):
     submissions: list[CompetitionSubmissionItemOut]
     rubric: CompetitionRubricOut | None = None
     own_score: CompetitionScoreOut | None = None
+
+
+class CompetitionImportRowOut(BaseModel):
+    row_number: int
+    team_name: str | None = None
+    email: str | None = None
+    disposition: str  # created|matched|error
+    reason: str | None = None
+
+
+class CompetitionImportResultOut(BaseModel):
+    summary: dict[str, int]
+    rows: list[CompetitionImportRowOut]
+
+
+class CompetitionAdvanceTeamsIn(BaseModel):
+    team_ids: list[UUID]
+    to_cohort_id: UUID
+
+
+class CompetitionAdvanceResultOut(BaseModel):
+    team_id: UUID
+    team_name: str
+    to_team_id: UUID
+    members_advanced: int
