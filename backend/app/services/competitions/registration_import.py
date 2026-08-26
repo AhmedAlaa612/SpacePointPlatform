@@ -40,6 +40,19 @@ from app.services.teams import create_team, join_team, team_member_ids
 REQUIRED_COLUMNS = ["team_name", "member_name", "email"]
 OPTIONAL_COLUMNS = ["phone", "school"]
 
+# Ops's actual selection tracker (the sheet the roster gets exported from —
+# "Eligible" for the qualifier cohort, "Final Selection" for the finalist
+# one) uses these column labels, not the canonical names above. Aliased
+# here rather than renaming the canonical keys, since those also read as
+# `row.get("member_name")`/`row.get("school")` in `_import_row` below and
+# match the general bulk importer's convention. "Team Name" already matches
+# `team_name` natively and needs no alias.
+_HEADER_ALIASES = {
+    "student_name": "member_name",
+    "school_/_university": "school",
+    "school_university": "school",  # in case a re-save strips the slash
+}
+
 
 @dataclass
 class ImportRowResult:
@@ -51,7 +64,8 @@ class ImportRowResult:
 
 
 def _normalize_header(raw: object) -> str:
-    return str(raw or "").strip().lower().replace(" ", "_").replace("-", "_")
+    slug = str(raw or "").strip().lower().replace(" ", "_").replace("-", "_")
+    return _HEADER_ALIASES.get(slug, slug)
 
 
 def parse_registration_sheet(file_bytes: bytes) -> list[dict]:
