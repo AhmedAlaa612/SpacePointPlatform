@@ -24,7 +24,7 @@ const ITEM_ICON: Record<LmsProgramItemType, typeof BookOpen> = {
 const ITEM_LABEL: Record<LmsProgramItemType, string> = {
   course: "Course",
   mission_run: "Mission run",
-  external_link: "Meeting / link",
+  external_link: "Link",
   submission: "Submission",
   article: "Article",
   manual: "Manual check-off",

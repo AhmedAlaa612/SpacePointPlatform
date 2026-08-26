@@ -41,7 +41,7 @@ function errorDetail(err: unknown, fallback: string): string {
 const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookOpen }[] = [
   { value: "course", label: "Course", icon: BookOpen },
   { value: "mission_run", label: "Mission run", icon: Rocket },
-  { value: "external_link", label: "Meeting / link", icon: Link2 },
+  { value: "external_link", label: "Link", icon: Link2 },
   { value: "submission", label: "Submission", icon: Upload },
   { value: "article", label: "Article", icon: FileText },
   { value: "manual", label: "Manual check-off", icon: ClipboardCheck },

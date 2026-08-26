@@ -13,7 +13,7 @@ import { getSettingsApi } from "@/api/admin/settings"
 import { cn } from "@/lib/utils"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
 
-const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper"]
+const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "judge"]
 
 const roleBadgeColor: Record<Role, string> = {
   admin: "bg-foreground text-background",
