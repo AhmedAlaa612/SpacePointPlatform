@@ -22,7 +22,7 @@ from app.services.teams import team_member_ids
 async def _make_cohort(db) -> Cohort:
     program = Program(
         id=uuid.uuid4(), code=f"REG-{uuid.uuid4().hex[:8]}", name="Ru'ya Space Race",
-        program_type="workshop", pricing_model="free", active=True, is_competition=True,
+        program_type="competition", pricing_model="free", active=True,
     )
     db.add(program)
     await db.flush()
@@ -114,3 +114,29 @@ async def test_a_row_missing_a_required_field_errors_without_failing_the_batch(d
 
     summary = summarize(results)
     assert summary["error"] == 1 and summary["created"] == 1
+
+
+@pytest.mark.asyncio
+async def test_import_accepts_the_ops_selection_tracker_headers(db):
+    """Ops's real "Eligible"/"Final Selection" tracker sheet uses "Student
+    Name" and "School / University", not this module's canonical
+    `member_name`/`school` — see `_HEADER_ALIASES`."""
+    cohort = await _make_cohort(db)
+    await db.commit()
+
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet.append(["Team Name", "Student Name", "Email", "Phone", "School / University"])
+    sheet.append([
+        "Falcon Eye", "Amir Salem", f"amir-{uuid.uuid4().hex[:6]}@example.com", "0501234567", "SABIS",
+    ])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    rows = parse_registration_sheet(buf.getvalue())
+    results = await import_registrations(db, cohort_id=cohort.id, rows=rows)
+    await db.commit()
+
+    assert summarize(results) == {"total": 1, "created": 1, "matched": 0, "error": 0}
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert {t.name for t in teams} == {"Falcon Eye"}

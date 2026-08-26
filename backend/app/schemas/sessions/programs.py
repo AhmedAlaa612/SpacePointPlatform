@@ -16,7 +16,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-ProgramType = Literal["workshop", "course", "info_session"]
+ProgramType = Literal["workshop", "course", "info_session", "competition"]
 PricingModel = Literal["paid", "free"]
 # "percentage": completion_rule_value is 0-100, compared against a cohort's
 # present/total_sessions rate. "session_count": completion_rule_value is a
@@ -34,11 +34,6 @@ class ProgramBase(BaseModel):
     active: bool = True
     completion_rule_type: CompletionRuleType = "percentage"
     completion_rule_value: Decimal = Decimal("70")
-    # Competition domain (2026-08-24) — a behavioral flag layered on top of
-    # program_type's workshop|course|info_session format axis, not a fourth
-    # value of it (see the model's own docstring). Ru'ya Space Race is a
-    # `program_type="workshop"` program with `is_competition=True`.
-    is_competition: bool = False
 
 
 class ProgramCreate(ProgramBase):
@@ -60,13 +55,16 @@ class ProgramUpdate(BaseModel):
     active: bool | None = None
     completion_rule_type: CompletionRuleType | None = None
     completion_rule_value: Decimal | None = None
-    is_competition: bool | None = None
 
 
 class ProgramOut(ProgramBase):
     id: UUID
     code: str
     created_at: datetime
+    # Competition domain (2026-08-24) — read-only, derived from
+    # `program_type == "competition"` (see the model's `is_competition`
+    # property). Not settable here: `program_type` is the single lever.
+    is_competition: bool
 
     class Config:
         from_attributes = True

@@ -63,7 +63,7 @@ async def _student(db) -> User:
 async def _program_and_cohort(db) -> tuple[Program, Cohort]:
     program = Program(
         id=uuid.uuid4(), code=f"RUYA-{uuid.uuid4().hex[:8]}", name="Ru'ya Space Race",
-        program_type="workshop", pricing_model="free", active=True, is_competition=True,
+        program_type="competition", pricing_model="free", active=True,
     )
     db.add(program)
     await db.flush()

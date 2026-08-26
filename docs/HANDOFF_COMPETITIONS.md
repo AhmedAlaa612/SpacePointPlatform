@@ -9,22 +9,27 @@ domain up front.
 
 A competition is deliberately **not** a new top-level entity — it's the existing `Program`/
 `Cohort`/`LmsProgram` machinery (see [`HANDOFF_LMS.md`](./HANDOFF_LMS.md)) with a flag and
-extensions layered on top: a competition Program has `is_competition=true`, its checklist items
-can be team-scoped instead of per-student, and it gains a judging domain (rubric, blind per-judge
-scoring, a publish gate, a `judge` role) that reads that same shared checklist rather than
-duplicating it. Everything else — courses, guides, cohort-scoped access, certificates — is
+extensions layered on top: a competition Program has `program_type="competition"`, its checklist
+items can be team-scoped instead of per-student, and it gains a judging domain (rubric, blind
+per-judge scoring, a publish gate, a `judge` role) that reads that same shared checklist rather
+than duplicating it. Everything else — courses, guides, cohort-scoped access, certificates — is
 unchanged, reused as-is.
 
 ---
 
-## 1. Stage 1 — `Program.is_competition` + team-scoped checklist items (2026-08-24)
+## 1. Stage 1 — `program_type="competition"` + team-scoped checklist items (2026-08-24)
 
 ### The shape
 
-- **`programs.is_competition`** (`Boolean`, default `false`) — a competition is a normal
-  `Program`, just flagged. Deliberately a new column rather than overloading the existing
-  `program_type` (`workshop|course|session`, a *format* axis): a competition isn't a 4th format,
-  it's a behavioral flag layered on top of one.
+- **`program_type="competition"`** — a competition is a normal `Program`, just typed as one.
+  `program_type` was already a plain `String(24)` (not a DB enum, `workshop|course|info_session`
+  by convention only), so this needed no schema change at all. `Program.is_competition` (see
+  `models/sessions/program.py`) is a read-only Python property over it — `program.program_type ==
+  "competition"` — kept so the many `program.is_competition` call sites across
+  `services/competitions/` read the same as before. (An earlier version of this stage added a
+  separate `programs.is_competition` boolean column; operator feedback was that a competition
+  should just be a program *type*, not a second flag alongside one — that column never shipped
+  past this repo's own review.)
 - **`lms_program_items.scope`** (`individual|team`, default `individual`) — every item that
   existed before this column stays `individual`, unchanged. `team` is for a competition's
   link-only deliverables (poster, presentation video, Tinkercad circuit, CAD design, hosted
@@ -124,6 +129,15 @@ Five new tables under `app/models/competitions/judging.py`, all cascading off `p
   surface, never through the judge one. `invite_judge()` reuses the exact find-or-create +
   set-password-email flow `services/lms/ops_integration.py` already has for student accounts
   (`get_or_create_student_account`/`send_set_password_email`) rather than duplicating it.
+  "Temporary" here means the `CompetitionJudge` cohort-assignment is temporary — `revoke_judge`
+  only ever deletes that row, never the `judge` role or the account itself, so a revoked judge
+  can still be found by email and re-invited later. Ending a judge's access for good is a plain
+  admin action, same as any other role: deactivate the account (`PATCH /admin/users/{id}`,
+  `status="inactive"` — added 2026-08-26, `Users.tsx`'s new deactivate/reactivate toggle) blocks
+  login/every request immediately without touching their `CompetitionScore` rows. `delete_user`
+  refuses outright once a judge has actually scored anything, since `CompetitionScore.judge_user_id`
+  CASCADEs on delete and would silently erase those teams' evaluations — deactivate is the only
+  safe way to retire a judge who's judged.
 
 **Caught mid-build, worth flagging**: the migration added `judge` to the Postgres enum, but nothing
 had added it to the Python-side `UserRole` enum (`app/models/enums.py`) — SQLAlchemy validates an
@@ -157,9 +171,10 @@ separate "frozen at export time" concept.
 
 ### Frontend
 
-- **Ops**: `Programs.tsx` gained an "is this a competition" toggle (also newly exposed on
-  `ProgramOut`/`ProgramIn`/`ProgramUpdate` — Stage 1 added the DB column but never surfaced it over
-  the API at all, closed here). `CohortDetail.tsx` shows a "Judging" header action when the cohort's
+- **Ops**: `Programs.tsx`'s existing program "Type" dropdown gained a `Competition` option —
+  no separate toggle. `ProgramOut` exposes `is_competition` read-only, derived from
+  `program_type`; `ProgramCreate`/`ProgramUpdate` don't carry it at all, since `program_type` is
+  the only lever. `CohortDetail.tsx` shows a "Judging" header action when the cohort's
   program is a competition (`CohortOut` gained a `program_is_competition` convenience-join field,
   same pattern `program_name` already uses), linking to the new `CompetitionJudging.tsx`
   (`/operations/cohorts/$cohortId/judging`) — Rubric / Judges / Results tabs.
@@ -193,7 +208,9 @@ Deliberately lighter than `services/sessions/importer.py`'s general bulk sheet i
 immediately committed, no dry-run/`ImportBatch` two-phase flow, no contact-merge review queue — a
 competition roster is small and already hand-curated by ops before it gets here, so that extra
 machinery buys nothing. `parse_registration_sheet()` reads an Excel/CSV export (header on row 1
-exactly, columns `team_name`/`member_name`/`email`, optional `phone`/`school`);
+exactly, columns `team_name`/`member_name`/`email`, optional `phone`/`school`; `_HEADER_ALIASES`
+maps ops's actual selection-tracker column labels — "Student Name", "School / University" — onto
+those canonical names, added 2026-08-26 once the real sheet's headers turned out not to match);
 `import_registrations()` reuses the exact same identity/registration/LMS primitives the desk and
 the general importer already use per row —`resolve_or_create_contact` → `register()` →
 `sync_registration_lms()` (find-or-create the student account, assign the cohort's LMS checklist,

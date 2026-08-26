@@ -3,7 +3,7 @@
  * registration_desk}.py. Kept separate from types/shared.ts, matching how
  * the backend keeps this domain's schemas in their own module. */
 
-export type ProgramType = "workshop" | "course" | "info_session";
+export type ProgramType = "workshop" | "course" | "info_session" | "competition";
 export type PricingModel = "paid" | "free";
 
 // "percentage": completion_rule_value is 0-100, compared against a cohort's
@@ -23,8 +23,8 @@ export interface Program {
   active: boolean;
   completion_rule_type: CompletionRuleType;
   completion_rule_value: number;
-  // Competition domain (2026-08-24) — a behavioral flag layered on top of
-  // program_type, not a fourth value of it. See the backend model's docstring.
+  // Competition domain (2026-08-24) — read-only, derived from
+  // `program_type === "competition"`. Not part of the create/update payload.
   is_competition: boolean;
   created_at: string;
 }

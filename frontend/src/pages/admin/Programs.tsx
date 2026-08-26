@@ -5,7 +5,7 @@ import type { Program, ProgramType, PricingModel, CompletionRuleType } from "@/t
 import { getProgramsApi, createProgramApi, updateProgramApi, deleteProgramApi } from "@/api/sessions/programs"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
 
-const PROGRAM_TYPES: ProgramType[] = ["workshop", "course", "info_session"]
+const PROGRAM_TYPES: ProgramType[] = ["workshop", "course", "info_session", "competition"]
 const PRICING_MODELS: PricingModel[] = ["paid", "free"]
 const COMPLETION_RULE_TYPES: CompletionRuleType[] = ["percentage", "session_count"]
 
@@ -13,6 +13,7 @@ const PROGRAM_TYPE_LABEL: Record<ProgramType, string> = {
   workshop: "Workshop",
   course: "Course",
   info_session: "Info session",
+  competition: "Competition",
 }
 
 const PRICING_MODEL_LABEL: Record<PricingModel, string> = {
@@ -86,9 +87,6 @@ export default function Programs() {
                 {!p.active && (
                   <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Inactive</span>
                 )}
-                {p.is_competition && (
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">Competition</span>
-                )}
               </div>
               <p className="text-xs text-muted-foreground truncate">
                 {p.code} · {PROGRAM_TYPE_LABEL[p.program_type]} ·{" "}
@@ -157,7 +155,6 @@ function ProgramModal({ program, onClose, onSuccess }: {
   const [defaultCapacity, setDefaultCapacity] = useState(program?.default_capacity != null ? String(program.default_capacity) : "")
   const [description, setDescription] = useState(program?.description ?? "")
   const [active, setActive] = useState(program?.active ?? true)
-  const [isCompetition, setIsCompetition] = useState(program?.is_competition ?? false)
   const [completionRuleType, setCompletionRuleType] = useState<CompletionRuleType>(program?.completion_rule_type ?? "percentage")
   const [completionRuleValue, setCompletionRuleValue] = useState(
     program?.completion_rule_value != null ? String(program.completion_rule_value) : "70",
@@ -177,7 +174,6 @@ function ProgramModal({ program, onClose, onSuccess }: {
         active,
         completion_rule_type: completionRuleType,
         completion_rule_value: completionRuleValue.trim() ? Number(completionRuleValue) : undefined,
-        is_competition: isCompetition,
       }
       return isEdit ? updateProgramApi(program!.id, payload) : createProgramApi(payload)
     },
@@ -207,6 +203,11 @@ function ProgramModal({ program, onClose, onSuccess }: {
           >
             {PROGRAM_TYPES.map((t) => <option key={t} value={t}>{PROGRAM_TYPE_LABEL[t]}</option>)}
           </select>
+          {programType === "competition" && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Enables the judging tools (rubric, judges, leaderboard) on this program's cohorts.
+            </p>
+          )}
         </Field>
         <Field label="Pricing model">
           <select
@@ -265,13 +266,6 @@ function ProgramModal({ program, onClose, onSuccess }: {
             className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors resize-none"
           />
         </Field>
-        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-          <input type="checkbox" checked={isCompetition} onChange={(e) => setIsCompetition(e.target.checked)} />
-          This is a competition
-        </label>
-        <p className="-mt-2 text-xs text-muted-foreground">
-          Enables the judging tools (rubric, judges, leaderboard) on this program's cohorts.
-        </p>
         {isEdit && (
           <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
             <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />

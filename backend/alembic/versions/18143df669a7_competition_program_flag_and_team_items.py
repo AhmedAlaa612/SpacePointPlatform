@@ -1,12 +1,14 @@
-"""Competition domain, stage 1: Program.is_competition + team-scoped items (2026-08-24)
+"""Competition domain, stage 1: program_type="competition" + team-scoped items (2026-08-24)
 
 Opening move of the Competition domain (Ru'ya Space Race first), per the
-boss-approved plan. Three additive pieces, nothing existing changes shape:
+boss-approved plan. Two additive pieces, nothing existing changes shape:
 
-- `programs.is_competition` — a competition is a normal `Program`, just
-  flagged. Deliberately a new boolean rather than overloading the existing
-  `program_type` (workshop|course|session, a *format* axis) — a competition
-  isn't a 4th format, it's a behavioral flag that layers on top of one.
+- A competition is just a `Program` whose `program_type` is `"competition"`
+  — no new column. `program_type` is a plain `String(24)`, not a DB-level
+  enum, so this needed no schema change at all; `Program.is_competition`
+  (see `models/sessions/program.py`) is a read-only Python property over
+  it, kept so the many `program.is_competition` call sites in
+  services/competitions/ didn't need touching.
 - `lms_program_items.scope` (`individual`|`team`, default `individual`) —
   every existing item stays individual, unchanged. `team` is for a
   competition's link-only deliverables (poster, video, circuit, CAD,
@@ -37,10 +39,6 @@ depends_on = None
 
 def upgrade() -> None:
     op.add_column(
-        "programs",
-        sa.Column("is_competition", sa.Boolean(), nullable=False, server_default="false"),
-    )
-    op.add_column(
         "lms_program_items",
         sa.Column("scope", sa.String(16), nullable=False, server_default="individual"),
     )
@@ -67,4 +65,3 @@ def downgrade() -> None:
     op.drop_index("ix_lms_program_team_item_progress_team_id", table_name="lms_program_team_item_progress")
     op.drop_table("lms_program_team_item_progress")
     op.drop_column("lms_program_items", "scope")
-    op.drop_column("programs", "is_competition")

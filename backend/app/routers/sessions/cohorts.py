@@ -170,7 +170,7 @@ async def list_cohorts(
     stmt = (
         select(
             Cohort, Program.name, Program.code, Location,
-            sessions_count, registrations_count, unstaffed_count, next_session_date, Program.is_competition,
+            sessions_count, registrations_count, unstaffed_count, next_session_date, Program.program_type,
         )
         .join(Program, Program.id == Cohort.program_id)
         .outerjoin(Location, Location.id == Cohort.location_id)
@@ -183,9 +183,9 @@ async def list_cohorts(
     return [
         await _cohort_out(
             db, cohort, program_name, program_code, location, (sessions, regs, unstaffed, next_date),
-            program_is_competition=is_competition,
+            program_is_competition=(program_type == "competition"),
         )
-        for cohort, program_name, program_code, location, sessions, regs, unstaffed, next_date, is_competition in rows
+        for cohort, program_name, program_code, location, sessions, regs, unstaffed, next_date, program_type in rows
     ]
 
 

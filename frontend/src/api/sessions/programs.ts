@@ -18,7 +18,6 @@ export const createProgramApi = (data: {
   active?: boolean
   completion_rule_type?: CompletionRuleType
   completion_rule_value?: number
-  is_competition?: boolean
 }) => api.post<Program>("/sessions/programs", data).then((r) => r.data)
 
 export const updateProgramApi = (
@@ -34,7 +33,6 @@ export const updateProgramApi = (
     active: boolean
     completion_rule_type: CompletionRuleType
     completion_rule_value: number
-    is_competition: boolean
   }>
 ) => api.patch<Program>(`/sessions/programs/${id}`, data).then((r) => r.data)
 

@@ -24,7 +24,7 @@ from app.services.teams import create_team, team_member_ids
 async def _competition_program(db) -> Program:
     program = Program(
         id=uuid.uuid4(), code=f"ADV-{uuid.uuid4().hex[:8]}", name="Ru'ya Space Race",
-        program_type="workshop", pricing_model="free", active=True, is_competition=True,
+        program_type="competition", pricing_model="free", active=True,
     )
     db.add(program)
     await db.flush()
