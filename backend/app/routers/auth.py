@@ -161,7 +161,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     roles = user.role_values
     if "admin" not in roles and user.status != "active":
         await db.commit()
-        raise HTTPException(status_code=403, detail="Account is not active")
+        raise HTTPException(status_code=403, detail="Account deactivated, contact admin")
 
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
