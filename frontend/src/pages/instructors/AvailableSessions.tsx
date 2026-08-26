@@ -1,29 +1,59 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Calendar, Clock, ExternalLink, MapPin, Users } from "lucide-react"
-import { listAvailableSessionsApi, registerInterestApi, withdrawInterestApi } from "@/api/sessions/staffing"
+import { listAvailableWorkApi, registerInterestApi, withdrawInterestApi } from "@/api/sessions/staffing"
 import { acceptResponsibilitiesApi, getResponsibilitiesApi } from "@/api/sessions/openings"
 import type { AvailableSession } from "@/types/sessions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { SessionsSubNav } from "@/components/layout/SessionsSubNav"
+import CohortCallCard from "@/pages/instructors/components/CohortCallCard"
 
+/**
+ * Two groups, not one flat list (2026-08-24). A cohort call is a single
+ * decision about a run of days — one role, the days you can do — so it gets a
+ * card of its own. A session opened on its own is still a standalone offer and
+ * keeps the original card. The server guarantees a session appears in exactly
+ * one of the two lists, so nothing is offered twice.
+ */
 export default function AvailableSessions() {
-  const sessions = useQuery({ queryKey: ["staffing-available-sessions"], queryFn: listAvailableSessionsApi })
+  const work = useQuery({ queryKey: ["available-work"], queryFn: listAvailableWorkApi })
 
-  if (sessions.isLoading) return <Spinner />
+  if (work.isLoading) return <Spinner />
+
+  const cohortCalls = work.data?.cohort_calls ?? []
+  const singles = work.data?.single_sessions ?? []
+  const nothing = cohortCalls.length === 0 && singles.length === 0
 
   return (
     <div>
       <SessionsSubNav activeTab="available" />
-      <PageHeader title="Available Sessions" subtitle="Sessions open for interest — register for the ones you'd like to teach." />
+      <PageHeader
+        title="Available Work"
+        subtitle="Open calls you can register for — pick a role and the days you can deliver."
+      />
 
-      {(sessions.data ?? []).length === 0 ? (
-        <EmptyState title="No sessions open right now" hint="Check back once ops opens a call for a session." />
+      {nothing ? (
+        <EmptyState title="Nothing open right now" hint="Check back once ops opens a call." />
       ) : (
-        <div className="space-y-3">
-          {sessions.data!.map((s) => <SessionCard key={s.session_id} s={s} />)}
+        <div className="space-y-6">
+          {cohortCalls.length > 0 && (
+            <div className="space-y-3">
+              {cohortCalls.map((c) => <CohortCallCard key={c.cohort_call_id} c={c} />)}
+            </div>
+          )}
+
+          {singles.length > 0 && (
+            <div className="space-y-3">
+              {cohortCalls.length > 0 && (
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Single sessions
+                </h2>
+              )}
+              {singles.map((s) => <SessionCard key={s.session_id} s={s} />)}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -61,14 +91,14 @@ function SessionCard({ s }: { s: AvailableSession }) {
     },
     onSuccess: () => {
       setError("")
-      qc.invalidateQueries({ queryKey: ["staffing-available-sessions"] })
+      qc.invalidateQueries({ queryKey: ["available-work"] })
     },
     onError: (e: any) =>
       setError(e?.response?.data?.detail ?? "Could not register your interest"),
   })
   const withdraw = useMutation({
     mutationFn: () => withdrawInterestApi(s.session_id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["staffing-available-sessions"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["available-work"] }),
   })
 
   const pending = register.isPending || withdraw.isPending

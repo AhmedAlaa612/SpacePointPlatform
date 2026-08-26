@@ -247,3 +247,108 @@ async def test_editing_a_row_that_does_not_exist_is_404(client, db):
         json={"compensation_aed": 1}, headers=_headers(admin),
     )
     assert r.status_code == 404
+
+
+# ── cohort lines (2026-08-24) ───────────────────────────────────────────────
+# `bill-sessions` changed shape: it takes `line_ids` (a cohort id, or a session
+# id for work outside any cohort assignment) rather than `session_ids`, and the
+# amount now arrives pre-computed instead of at 0. Nothing covered this
+# endpoint before, so these are the first tests of it.
+
+@pytest.mark.asyncio
+async def test_billing_a_cohort_line_prefills_the_amount_and_records_coverage(db, client):
+    import uuid as _uuid
+    from datetime import date as _date, datetime as _datetime, timezone as _timezone
+    from decimal import Decimal as _Decimal
+
+    from sqlalchemy import select
+
+    from app.models.instructors.payment import PaymentLetter, PaymentSession
+    from app.models.sessions.cohort import Cohort
+    from app.models.sessions.cohort_assignment import CohortInstructorAssignment
+    from app.models.sessions.delivery_role import DeliveryRole
+    from app.models.sessions.payment_coverage import PaymentSessionCoverage
+    from app.models.sessions.program import Program
+    from app.models.sessions.session import Session, SessionInstructor
+    from app.models.user import User
+
+    admin = await _user(db, "admin")
+    admin_headers = _headers(admin)
+    instructor = await _user(db, "instructor")
+    program = Program(
+        id=_uuid.uuid4(), code=f"BL-{_uuid.uuid4().hex[:8]}", name="Billing Program",
+        program_type="workshop", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(
+        id=_uuid.uuid4(), program_id=program.id, name="Billing Cohort",
+        status="running", visibility="public",
+        starts_on=_date(2026, 10, 10), ends_on=_date(2026, 10, 11),
+    )
+    db.add(cohort)
+    await db.flush()
+
+    role_id = await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == "Lead Facilitator"))
+    sessions = []
+    for i in range(2):
+        s = Session(
+            id=_uuid.uuid4(), cohort_id=cohort.id, meeting_date=_date(2026, 10, 10 + i),
+            completed_at=_datetime.now(_timezone.utc),
+        )
+        db.add(s)
+        sessions.append(s)
+    await db.flush()
+    for s in sessions:
+        db.add(SessionInstructor(
+            id=_uuid.uuid4(), session_id=s.id, user_id=instructor.id, role_id=role_id,
+        ))
+    db.add(CohortInstructorAssignment(
+        id=_uuid.uuid4(), cohort_id=cohort.id, user_id=instructor.id, role_id=role_id,
+        rate_basis="per_session", rate_aed=_Decimal("500.00"), status="active",
+    ))
+    letter = PaymentLetter(id=_uuid.uuid4(), instructor_user_id=instructor.id)
+    db.add(letter)
+    await db.commit()
+
+    billable = await client.get(
+        f"/instructors/admin/payments/letters/{letter.id}/billable", headers=admin_headers
+    )
+    assert billable.status_code == 200, billable.text
+    lines = billable.json()
+    assert len(lines) == 1
+    line = lines[0]
+    assert line["cohort_id"] == str(cohort.id)
+    assert line["session_id"] is None
+    assert line["line_id"] == str(cohort.id)
+    assert line["session_count"] == 2
+    assert line["session_date"] == "10/10/2026 - 11/10/2026"
+    assert line["compensation_aed"] == 1000.0
+
+    billed = await client.post(
+        f"/instructors/admin/payments/letters/{letter.id}/bill-sessions",
+        json={"line_ids": [line["line_id"]]}, headers=admin_headers,
+    )
+    assert billed.status_code == 201, billed.text
+    rows = billed.json()["sessions"]
+    assert len(rows) == 1
+    assert rows[0]["compensation_aed"] == 1000.0, "the amount arrives filled in, not at 0"
+
+    coverage = (await db.execute(
+        select(PaymentSessionCoverage.session_id)
+        .join(PaymentSession, PaymentSession.id == PaymentSessionCoverage.payment_session_id)
+        .where(PaymentSession.payment_letter_id == letter.id)
+    )).scalars().all()
+    assert set(coverage) == {s.id for s in sessions}
+
+    # And it must not be billable twice.
+    again = await client.get(
+        f"/instructors/admin/payments/letters/{letter.id}/billable", headers=admin_headers
+    )
+    assert again.json() == []
+
+    conflict = await client.post(
+        f"/instructors/admin/payments/letters/{letter.id}/bill-sessions",
+        json={"line_ids": [str(cohort.id)]}, headers=admin_headers,
+    )
+    assert conflict.status_code == 409

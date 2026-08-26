@@ -49,6 +49,28 @@ def _currency(v) -> str:
     return f"{float(v):,.0f}"
 
 
+def _units_label(line: dict) -> str:
+    """What goes in the fifth column.
+
+    A cohort line prints the breakdown the operator asked to see on the letter
+    — "5 x AED 500" — because the row's own dates are a *range* and the count
+    is the only thing showing how many days were actually delivered (an
+    absence reduces the count, never the range). Anything else keeps the
+    original hours label.
+
+    Deliberately reusing the existing column rather than adding one: the
+    template's table is patched by hardcoded cell index, so a new column would
+    mean editing the DOCX and renumbering every `_fill_cell` below it.
+    """
+    count, rate = line.get("session_count"), line.get("rate_aed")
+    if count and rate:
+        return f"{count} x {_currency(rate)}"
+    if count and count > 1:
+        return f"{count} sessions"
+    hours = line.get("duration_hours")
+    return f"{hours} hrs" if hours is not None else ""
+
+
 def _replace_aptos(doc: Document) -> None:
     """Replace Aptos font references with Calibri throughout the document.
 
@@ -206,6 +228,13 @@ def generate_payment_letter_pdf(
 
     # --- Table 0: Sessions ---
     tbl0 = doc.tables[0]
+    # The template's fifth column is headed "Duration", which stops being true
+    # the moment a cohort row prints "5 x 500" in it. Relabel it when any row
+    # is a cohort row — patched here rather than in the DOCX because the
+    # column carries hours for single-session and manual rows, so neither
+    # label is right for every letter.
+    if any(s.get("session_count") for s in sessions):
+        _fill_cell(tbl0.rows[0].cells[4], "Sessions / Duration")
     orig_tr = tbl0.rows[1]._tr
     row_template = copy.deepcopy(orig_tr)
     tbl0._tbl.remove(orig_tr)
@@ -217,7 +246,7 @@ def generate_payment_letter_pdf(
         _fill_cell(row.cells[1], s["workshop_description"])
         _fill_cell(row.cells[2], s["role"])
         _fill_cell(row.cells[3], s["location"])
-        _fill_cell(row.cells[4], f"{s['duration_hours']} hrs")
+        _fill_cell(row.cells[4], _units_label(s))
         _fill_cell(row.cells[5], _currency(s["compensation_aed"]))
 
     # --- Table 1: Add-ons ---

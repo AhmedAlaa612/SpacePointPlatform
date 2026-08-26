@@ -36,6 +36,7 @@ import { SessionKitsPanel } from "@/pages/instructors/components/SessionKitsPane
 import { SessionEquipmentPanel } from "@/pages/instructors/components/SessionEquipmentPanel"
 import { SessionMaterialsPanel } from "@/pages/instructors/components/SessionMaterialsPanel"
 import { SessionGamesPanel } from "@/pages/instructors/components/SessionGamesPanel"
+import InstructorDayPanel from "@/pages/instructors/components/InstructorDayPanel"
 
 type Stage = "pre" | "session" | "post"
 
@@ -238,6 +239,16 @@ export default function SessionDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* ── Today ───────────────────────────────────────────────────────────
+          Check-in, the daily checklist and the day submission (operations doc
+          §4-§12). Above the stages on purpose: it gates the day, and ops
+          approving it is what makes the day count on the payment letter. */}
+      <InstructorDayPanel
+        sessionId={sessionId}
+        cohortId={delivery.data!.cohort_id}
+        onChanged={invalidate}
+      />
 
       {/* ── Pre-session ─────────────────────────────────────────────────── */}
       <StageSection

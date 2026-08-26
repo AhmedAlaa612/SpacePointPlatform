@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.routers.sessions.checkin import router as checkin_router
 from app.routers.sessions.calendar import router as calendar_router
 from app.routers.sessions.cohorts import router as cohorts_router
+from app.routers.sessions.day import router as day_router
 from app.routers.sessions.delivery import router as delivery_router
 from app.routers.sessions.lms_progress import router as lms_progress_router
 from app.routers.sessions.imports import router as imports_router
@@ -26,6 +27,10 @@ router.include_router(openings_router)
 # /sessions/billable are literal paths that a {session_id} route would try to
 # parse as a UUID.
 router.include_router(journey_router)
+# Same reason again: `/sessions/day-reviews` is a literal path, and a
+# `{session_id}` route mounted ahead of it would try to parse "day-reviews"
+# as a UUID and 422 before this router ever sees the request.
+router.include_router(day_router)
 router.include_router(programs_router)
 router.include_router(cohorts_router)
 router.include_router(checkin_router)

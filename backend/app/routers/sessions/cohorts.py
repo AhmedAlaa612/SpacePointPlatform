@@ -82,7 +82,9 @@ from app.schemas.sessions.reports import SessionReportOut
 from app.services import storage
 from app.services.notification import create_notification
 from app.services.inventory.cohort_kits import resolve_session_kits
+from app.services.sessions import day as day_service
 from app.services.sessions import delivery
+from app.services.sessions import journey as journey_service
 from app.services.sessions import materials as materials_service
 from app.services.sessions import staffing as staffing_service
 from app.services.sessions import reports as reports_service
@@ -310,11 +312,31 @@ async def complete_cohort(
 ):
     """Ops/admin only (W5 S5-1). S5-2 adds the zero-reports warning below —
     it never blocks completion, just rides along in the response; S5-3 will
-    add the attendance-rate/certificate logic on top of this same function."""
+    add the attendance-rate/certificate logic on top of this same function.
+
+    Still here, and still manual, even though completing a cohort is now also
+    triggered automatically once every instructor-day is approved
+    (`services/sessions/day.py::maybe_complete_cohort`). Ops needs the button
+    for the cohorts the daily loop doesn't cover — anything delivered before
+    it existed, or a run that ends without every day being submitted.
+
+    Accrues the same draft payment lines the automatic path does (2026-08-24),
+    so which route completed a cohort makes no difference to what an
+    instructor gets paid. It is idempotent: the lines are derived from what is
+    still unbilled, so pressing this after the automatic path already fired
+    adds nothing.
+    """
     warnings: list[str] = []
     if await reports_service.report_count_for_cohort(db, cohort_id) == 0:
         warnings.append("No session reports were uploaded for this cohort.")
+    unreviewed = await day_service.list_day_reviews(db, status_filter="submitted", cohort_id=cohort_id)
+    if unreviewed:
+        warnings.append(
+            f"{len(unreviewed)} workshop day(s) are still awaiting review — "
+            "those days won't be counted on anyone's payment letter."
+        )
     cohort = await delivery.complete_cohort(db, cohort_id, current_user.id)
+    await journey_service.accrue_cohort_pay(db, cohort_id)
     await db.commit()
     return CompleteCohortResponse(cohort=cohort, warnings=warnings)
 

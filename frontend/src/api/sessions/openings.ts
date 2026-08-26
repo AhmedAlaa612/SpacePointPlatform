@@ -11,6 +11,11 @@ export interface DeliveryRole {
   /** Seniority, lowest first. "The lead" is the lowest sort_order, never a
    *  name match — so renaming or inserting a role doesn't break who's boss. */
   sort_order: number
+  /** The global tier of the rate hierarchy (2026-08-24): what this role is
+   *  normally paid per session, before any cohort or session override.
+   *  null = not set, which stays null rather than guessing a number onto a
+   *  document somebody signs. */
+  default_rate_aed: number | null
   is_active: boolean
 }
 
@@ -82,6 +87,11 @@ export const updateDeliveryRoleApi = ({ id, ...body }: {
   description?: string | null
   sort_order?: number
   is_active?: boolean
+  /** The global tier of the rate hierarchy (2026-08-24). Omitted leaves it
+   *  alone; pass `clear_default_rate` to unset it, since `null` here is
+   *  indistinguishable from an untouched field. */
+  default_rate_aed?: number
+  clear_default_rate?: boolean
 }) => api.patch<DeliveryRole>(`/sessions/delivery-roles/${id}`, body).then((r) => r.data)
 
 /* ── openings ──────────────────────────────────────────────────────────── */

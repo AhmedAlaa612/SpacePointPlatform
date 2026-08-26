@@ -420,3 +420,188 @@ export interface PublicTicket {
   status: string;
   checked_in: boolean;
 }
+
+/* ── Cohort-level staffing (2026-08-24) ──────────────────────────────────────
+ * Ops opens one call across a set of a cohort's sessions; the instructor
+ * answers it once, ticking the days they can do and picking a single role for
+ * the whole cohort. See backend/app/services/sessions/cohort_staffing.py. */
+
+export interface CohortCallSessionOption {
+  session_id: string;
+  title?: string | null;
+  meeting_date: string;
+  starts_at?: string | null;
+  /** Whether this instructor has already ticked it — the card comes back
+   *  showing their previous answer rather than a blank form. */
+  selected: boolean;
+}
+
+export interface AvailableCohortCall {
+  cohort_call_id: string;
+  cohort_id: string;
+  cohort_name: string;
+  program_name: string;
+  program_type?: string | null;
+  description?: string | null;
+  label?: string | null;
+  starts_on: string;
+  ends_on: string;
+  session_count: number;
+  location?: string | null;
+  location_address?: string | null;
+  location_map_url?: string | null;
+  interested_count: number;
+  sessions: CohortCallSessionOption[];
+  /** Summed across the call's sessions, so "1 of 3 left" is a cohort-scale
+   *  statement. `amount_aed` is the per-session rate. */
+  openings: {
+    role_id: string;
+    role_name: string;
+    role_description?: string | null;
+    slots: number;
+    remaining: number;
+    amount_aed?: number | null;
+    notes?: string | null;
+  }[];
+
+  my_interest: boolean;
+  my_role_id?: string | null;
+  my_note?: string | null;
+  my_needs_transport: boolean;
+  my_needs_ops_support: boolean;
+  my_travelling_from_other_city: boolean;
+  my_concerns?: string | null;
+}
+
+/** Two lists on purpose: a cohort call is one decision about a run of days,
+ *  while a session opened on its own is still a standalone offer. A session
+ *  never appears in both. */
+export interface AvailableWork {
+  cohort_calls: AvailableCohortCall[];
+  single_sessions: AvailableSession[];
+}
+
+export interface RegisterCohortInterestBody {
+  session_ids: string[];
+  role_id?: string | null;
+  note?: string | null;
+  needs_transport?: boolean;
+  needs_ops_support?: boolean;
+  travelling_from_other_city?: boolean;
+  concerns?: string | null;
+  responsibilities_version?: string | null;
+}
+
+/** One row of the ops applicant table — one instructor, not one session. */
+export interface CohortCallApplicant {
+  user_id: string;
+  full_name: string;
+  email: string;
+  role_id?: string | null;
+  role_name?: string | null;
+  session_ids: string[];
+  session_count: number;
+  note?: string | null;
+  needs_transport: boolean;
+  needs_ops_support: boolean;
+  travelling_from_other_city: boolean;
+  concerns?: string | null;
+  responsibilities_accepted_at?: string | null;
+  /** The cohort's city is one they already said they'd travel to. */
+  available_in_city: boolean;
+  status: string;
+  already_assigned: boolean;
+  created_at?: string | null;
+}
+
+export interface CohortAssignment {
+  id: string;
+  cohort_id: string;
+  user_id: string;
+  full_name: string;
+  email: string;
+  role_id: string;
+  role_name: string;
+  rate_basis: "per_session" | "flat";
+  rate_aed?: number | null;
+  flat_amount_aed?: number | null;
+  status: "active" | "withdrawn";
+  source: "call" | "direct";
+  session_count: number;
+  created_at?: string | null;
+}
+
+/* ── Instructor daily loop (2026-08-24) ──────────────────────────────────────
+ * Operations process doc §4-§12. See backend/app/services/sessions/day.py. */
+
+export type InstructorAttendance = "present" | "absent";
+export type DayStatus = "draft" | "submitted" | "changes_required" | "approved";
+
+export interface ChecklistItem {
+  id: string;
+  program_id?: string | null;
+  cohort_id?: string | null;
+  session_id?: string | null;
+  title: string;
+  description?: string | null;
+  /** Can't be ticked off without a photo attached. */
+  requires_proof: boolean;
+  /** A non-required item is a prompt, not a gate. */
+  is_required: boolean;
+  sort_order: number;
+}
+
+export interface ChecklistLine {
+  item_id: string;
+  title: string;
+  description?: string | null;
+  requires_proof: boolean;
+  is_required: boolean;
+  sort_order: number;
+  is_done: boolean;
+  note?: string | null;
+  proof_report_id?: string | null;
+  /** Signed URL, minted per request — never stored. */
+  proof_url?: string | null;
+}
+
+export interface DayDetail {
+  day_id: string;
+  session_id: string;
+  user_id: string;
+  att_status?: InstructorAttendance | null;
+  absence_reason?: string | null;
+  checked_in_at?: string | null;
+  status: DayStatus;
+  submitted_at?: string | null;
+  reviewed_at?: string | null;
+  review_comment?: string | null;
+  instructor_notes?: string | null;
+  checklist: ChecklistLine[];
+  can_submit: boolean;
+  /** Everything still outstanding, so it can be shown at once rather than one
+   *  failed submit at a time. */
+  missing: string[];
+}
+
+/** One card in the ops Day Reviews queue. */
+export interface DayReview {
+  day_id: string;
+  session_id: string;
+  cohort_id: string;
+  cohort_name: string;
+  program_name: string;
+  session_title?: string | null;
+  meeting_date: string;
+  user_id: string;
+  full_name: string;
+  att_status?: InstructorAttendance | null;
+  absence_reason?: string | null;
+  checked_in_at?: string | null;
+  status: DayStatus;
+  submitted_at?: string | null;
+  review_comment?: string | null;
+  instructor_notes?: string | null;
+  checklist_done: number;
+  checklist_total: number;
+}

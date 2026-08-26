@@ -13,6 +13,8 @@ import type {
 import { getProgramsApi } from "@/api/sessions/programs"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { CohortCallsPanel } from "@/pages/admin/components/CohortCallsPanel"
+import CohortStaffingPanel from "@/pages/admin/components/CohortStaffingPanel"
+import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPanel"
 import { CohortKitsPanel } from "@/pages/admin/components/CohortKitsPanel"
 import { CohortOpeningsPanel } from "@/pages/admin/components/CohortOpeningsPanel"
 import { SessionsTable } from "@/pages/admin/components/SessionsTable"
@@ -46,9 +48,13 @@ const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 /** Sessions and Students are the daily work; Setup is the stuff you touch
  *  once when the cohort is created (2026-08-02). Setup used to sit *between*
  *  the two daily ones, which is what made the page feel endless. */
-type CohortTab = "sessions" | "students" | "setup"
+type CohortTab = "sessions" | "staffing" | "students" | "setup"
 const TABS: { key: CohortTab; label: string }[] = [
   { key: "sessions", label: "Sessions" },
+  // Staffing moved out of the Sessions tab (2026-08-24): opening a call,
+  // reading the applicant table and seeing who ended up staffed are one job,
+  // and they were buried under a table that had grown to own the whole tab.
+  { key: "staffing", label: "Staffing" },
   { key: "students", label: "Students" },
   { key: "setup", label: "Setup" },
 ]
@@ -417,16 +423,29 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           onToggleSession={(id) =>
             setSelectedSessionIds((prev) => prev.includes(id) ? prev.filter((sid) => sid !== id) : [...prev, id])}
         />
-        <Card className="px-4 mt-5">
+      </div>
+      )}
+
+      {tab === "staffing" && (
+      <div className="space-y-5">
+        {/* Roles and rates first — they define what a call is offering, so
+            they belong above the call that advertises them. */}
+        <Card className="px-4">
           <CohortOpeningsPanel cohort={cohort} />
         </Card>
-        {/* Staffing lives with the sessions it staffs — one "Open a call"
-            entry point, managed and closed as one entity. The old ungrouped
-            "Open call for all" quick action is gone: it wrote to a model this
-            panel couldn't see, so calls opened that way could never be closed
-            as a group. */}
-        <Card className="px-4 mt-5">
+        {/* One "Open a call" entry point, managed and closed as one entity.
+            The old ungrouped "Open call for all" quick action is gone: it
+            wrote to a model this panel couldn't see, so calls opened that way
+            could never be closed as a group. */}
+        <Card className="px-4">
           <CohortCallsPanel cohort={cohort} sessions={sessions} />
+        </Card>
+        {/* One row per applicant, not per session — see the panel's docstring. */}
+        <Card className="px-4">
+          <CohortStaffingPanel cohort={cohort} />
+        </Card>
+        <Card className="px-4">
+          <CohortDayReviewsPanel cohort={cohort} />
         </Card>
       </div>
       )}

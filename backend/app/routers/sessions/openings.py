@@ -64,7 +64,10 @@ async def create_delivery_role(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operations),
 ):
-    role = await svc.create_role(db, name=body.name, description=body.description, sort_order=body.sort_order)
+    role = await svc.create_role(
+        db, name=body.name, description=body.description, sort_order=body.sort_order,
+        default_rate_aed=body.default_rate_aed,
+    )
     await db.commit()
     await db.refresh(role)
     return role
@@ -86,6 +89,7 @@ async def update_delivery_role(
     await svc.update_role(
         db, role=role, name=body.name, description=body.description,
         sort_order=body.sort_order, is_active=body.is_active,
+        default_rate_aed=body.default_rate_aed, clear_default_rate=body.clear_default_rate,
     )
     await db.commit()
     await db.refresh(role)

@@ -51,7 +51,7 @@ export default function InstructorsAdminPayments() {
       const letter = await createLetterApi({ instructor_user_id: instructorId })
       const billable = await getBillableSessionsApi(letter.id)
       if (billable.length > 0) {
-        await billSessionsApi({ letterId: letter.id, sessionIds: billable.map((s) => s.session_id) })
+        await billSessionsApi({ letterId: letter.id, lineIds: billable.map((s) => s.line_id) })
       }
       return letter.id
     },
@@ -167,7 +167,9 @@ export default function InstructorsAdminPayments() {
                 <div>
                   <p className="text-sm font-medium">{p.full_name}</p>
                   <p className="text-xs text-muted-foreground">
-                    {p.pending_session_count} session{p.pending_session_count === 1 ? "" : "s"} not billed
+                    {p.pending_cohort_count > 0
+                      ? `${p.pending_cohort_count} cohort${p.pending_cohort_count === 1 ? "" : "s"} pending`
+                      : `${p.pending_session_count} session${p.pending_session_count === 1 ? "" : "s"} not billed`}
                     {p.earliest_date === p.latest_date ? ` · ${p.earliest_date}` : ` · ${p.earliest_date} – ${p.latest_date}`}
                   </p>
                 </div>

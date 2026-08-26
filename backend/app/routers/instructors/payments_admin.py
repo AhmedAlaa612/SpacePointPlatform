@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.certificate import Certificate
 from app.models.enums import CertificateType, PaymentLetterStatus
+from app.models.sessions.payment_coverage import PaymentSessionCoverage
 from app.models.instructors.payment import (
     InstructorBankDetails,
     PaymentAddon,
@@ -194,42 +195,61 @@ async def bill_sessions(
     letter_id: uuid.UUID, body: BillSessionsIn,
     db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin),
 ):
-    """I5-8: turn chosen completed sessions into payment lines, prefilled with
-    date, description, location, role and duration from real data.
+    """Turn chosen billable lines into payment lines, prefilled from real data.
 
-    The amount is **not** filled in — it stays 0 for ops to type. Everything
-    else on the line is a fact the system knows; the money is a decision, and
-    a plausible-looking number nobody chose is how a wrong figure reaches a
-    signature.
+    A line is normally a whole cohort (2026-08-24): the cohort's date range,
+    the role, and `n sessions x rate`, where n is the days ops actually
+    approved. Work delivered outside any cohort assignment still bills one row
+    per session, as it always did.
+
+    **The amount now arrives pre-computed**, which reverses the earlier choice
+    to leave it at 0. The reasoning behind that choice is preserved, not
+    discarded: the money is still a decision, ops still sees every figure and
+    can change it, and `_refuse_if_signed` still blocks edits once signed. What
+    changed is that ops no longer retypes a number the system already agreed at
+    staffing time — that transcription was the actual source of error, not the
+    automation. A line with no agreed rate behind it still arrives at 0.
     """
     letter = (await db.execute(select(PaymentLetter).where(PaymentLetter.id == letter_id))).scalars().first()
     if not letter:
         raise HTTPException(status_code=404, detail="Letter not found")
     _refuse_if_signed(letter)
 
-    available = {r["session_id"]: r for r in await unbilled_sessions(db, letter.instructor_user_id)}
+    available = {r["line_id"]: r for r in await unbilled_sessions(db, letter.instructor_user_id)}
     highest = (await db.execute(
         select(func.max(PaymentSession.sort_order)).where(PaymentSession.payment_letter_id == letter_id)
     )).scalar() or 0
 
-    for offset, session_id in enumerate(body.session_ids, start=1):
-        row = available.get(session_id)
+    for offset, line_id in enumerate(body.line_ids, start=1):
+        row = available.get(line_id)
         if row is None:
-            # Either not theirs, not finished, or already on a letter — all
+            # Either not theirs, not delivered, or already on a letter — all
             # three mean the same thing to the caller and naming which would
             # leak who else has been paid for it.
-            raise HTTPException(status_code=409, detail="That session isn't available to bill")
-        db.add(PaymentSession(
+            raise HTTPException(status_code=409, detail="That work isn't available to bill")
+        line = PaymentSession(
+            id=uuid.uuid4(),
             payment_letter_id=letter_id,
+            cohort_id=row["cohort_id"],
+            # NULL on a cohort line: the coverage rows below carry the real
+            # answer, and naming one session of five would be a lie.
             session_id=row["session_id"],
             session_date=row["session_date"],
             workshop_description=row["workshop_description"],
             role=row["role"],
             location=row["location"],
             duration_hours=row["duration_hours"],
-            compensation_aed=0,
+            compensation_aed=row["compensation_aed"],
+            session_count=row["session_count"],
+            rate_aed=row["rate_aed"],
             sort_order=highest + offset,
-        ))
+        )
+        db.add(line)
+        await db.flush()
+        for session_id in row["session_ids"]:
+            db.add(PaymentSessionCoverage(
+                id=uuid.uuid4(), payment_session_id=line.id, session_id=session_id,
+            ))
 
     _invalidate_pdf(letter)
     await db.commit()
@@ -411,7 +431,8 @@ async def generate_pdf(
             generate_payment_letter_pdf,
             instructor_name=instructor.full_name, reference=letter.reference, letter_date=letter.letter_date or "",
             sessions=[{"session_date": s.session_date, "workshop_description": s.workshop_description, "role": s.role,
-                       "location": s.location, "duration_hours": s.duration_hours, "compensation_aed": s.compensation_aed} for s in sessions],
+                       "location": s.location, "duration_hours": s.duration_hours, "compensation_aed": s.compensation_aed,
+                       "session_count": s.session_count, "rate_aed": s.rate_aed} for s in sessions],
             addons=[{"description": a.description, "amount_aed": a.amount_aed, "notes": a.notes} for a in addons],
             bank={"account_holder_name": bank.account_holder_name, "bank_name": bank.bank_name, "iban": bank.iban,
                   "swift_bic": bank.swift_bic} if bank else None,
