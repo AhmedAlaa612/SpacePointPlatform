@@ -28,6 +28,13 @@ class UserUpdate(BaseModel):
     # class, and there was previously no way to change it for someone else.
     nickname: str | None = None
     avatar: str | None = None
+    # "active" | "inactive" — already enforced everywhere (auth.py's login
+    # checks, dependencies.py's per-request check), but had no admin-facing
+    # way to set it. Judge accounts (competition domain, 2026-08-24) are
+    # meant to be temporary; deactivating one blocks login/access instantly
+    # without touching their historical CompetitionScore rows the way a
+    # hard delete would (see delete_user's guard below).
+    status: str | None = None
 
 
 class UserSelfUpdate(BaseModel):

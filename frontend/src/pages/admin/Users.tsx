@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Trash2, UserPlus, FileText, Pencil } from "lucide-react"
+import { Trash2, UserPlus, FileText, Pencil, UserX, UserCheck } from "lucide-react"
 import type { Role, User } from "@/types/shared"
 import { ROLE_LABEL } from "@/types/shared"
 import { UserProfileModal } from "@/components/UserProfileModal"
@@ -76,6 +76,17 @@ export default function Users() {
 
   const deleteMutation = useMutation({
     mutationFn: deleteUserApi,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+  })
+
+  // Deactivating (not deleting) is the right lever for an account that's
+  // done but shouldn't lose its history — a judge who already scored
+  // teams, most concretely: status="inactive" blocks login/every request
+  // immediately (already enforced backend-wide), without touching rows
+  // that reference them (e.g. competition_scores, which CASCADE on a real
+  // delete and would silently erase the evaluations they gave).
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status: next }: { id: string; status: string }) => updateUserApi(id, { status: next }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
   })
 
@@ -164,6 +175,11 @@ export default function Users() {
                         {u.card_id}
                       </span>
                     )}
+                    {u.status !== "active" && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground shrink-0">
+                        Inactive
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-muted-foreground truncate">{u.email}</p>
                 </div>
@@ -195,6 +211,18 @@ export default function Users() {
                   title="Documents"
                 >
                   <FileText size={14} />
+                </button>
+                <button
+                  onClick={() => {
+                    const next = u.status === "active" ? "inactive" : "active"
+                    if (confirm(`${next === "inactive" ? "Deactivate" : "Reactivate"} ${u.full_name}?`)) {
+                      statusMutation.mutate({ id: u.id, status: next })
+                    }
+                  }}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
+                  title={u.status === "active" ? "Deactivate" : "Reactivate"}
+                >
+                  {u.status === "active" ? <UserX size={14} /> : <UserCheck size={14} />}
                 </button>
                 <button
                   onClick={() => { if (confirm(`Delete ${u.full_name}?`)) deleteMutation.mutate(u.id) }}
