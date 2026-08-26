@@ -794,10 +794,47 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
 
 // ── video checkpoints (timeline notes + mid-video quizzes) ─────────────────
 
+function secondsToParts(total: number): { h: number; m: number; s: number; ms: number } {
+  const t = Math.max(0, total)
+  const h = Math.floor(t / 3600)
+  const m = Math.floor((t % 3600) / 60)
+  const s = Math.floor(t % 60)
+  const ms = Math.round((t - Math.floor(t)) * 1000)
+  return { h, m, s, ms }
+}
+
+function partsToSeconds(h: number, m: number, s: number, ms: number): number {
+  return Math.round((h * 3600 + m * 60 + s + ms / 1000) * 1000) / 1000
+}
+
 function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${String(s).padStart(2, "0")}`
+  const { h, m, s, ms } = secondsToParts(seconds)
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}:${String(ms).padStart(3, "0")}`
+}
+
+function TimeFields({ label, value, onChange }: {
+  label: string; value: number; onChange: (seconds: number) => void
+}) {
+  const { h, m, s, ms } = secondsToParts(value)
+  const update = (part: "h" | "m" | "s" | "ms", raw: string) => {
+    const n = Math.max(0, Number(raw) || 0)
+    const next = { h, m, s, ms, [part]: n }
+    onChange(partsToSeconds(next.h, next.m, next.s, next.ms))
+  }
+  const box = "w-full h-10 px-1 border border-border bg-card text-foreground rounded-xl text-sm text-center focus:outline-none focus:border-primary transition-colors"
+  return (
+    <Field label={`${label} (h:m:s:ms)`}>
+      <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr_auto_1.3fr] items-center gap-1">
+        <input type="number" min={0} aria-label="hours" value={h} onChange={(e) => update("h", e.target.value)} className={box} />
+        <span className="text-muted-foreground">:</span>
+        <input type="number" min={0} max={59} aria-label="minutes" value={m} onChange={(e) => update("m", e.target.value)} className={box} />
+        <span className="text-muted-foreground">:</span>
+        <input type="number" min={0} max={59} aria-label="seconds" value={s} onChange={(e) => update("s", e.target.value)} className={box} />
+        <span className="text-muted-foreground">:</span>
+        <input type="number" min={0} max={999} aria-label="milliseconds" value={ms} onChange={(e) => update("ms", e.target.value)} className={box} />
+      </div>
+    </Field>
+  )
 }
 
 function checkpointPreview(c: AdminCheckpoint): string {
@@ -909,10 +946,8 @@ function CheckpointFormModal({ videoItemId, checkpoint, onClose, onSuccess }: {
 
   // Kind is immutable once created (matches the backend — VideoCheckpointUpdate has no `kind`).
   const [kind, setKind] = useState<CheckpointKind>(checkpoint?.kind ?? "note")
-  const [startSeconds, setStartSeconds] = useState(String(checkpoint?.start_seconds ?? 0))
-  const [endSeconds, setEndSeconds] = useState(
-    checkpoint?.end_seconds != null ? String(checkpoint.end_seconds) : "",
-  )
+  const [startSeconds, setStartSeconds] = useState(checkpoint?.start_seconds ?? 0)
+  const [endSeconds, setEndSeconds] = useState(checkpoint?.end_seconds ?? 0)
   const [body, setBody] = useState(existingNoteBody)
   const [questionType, setQuestionType] = useState<CheckpointQuestionType>(existingQuiz?.question_type ?? "mcq")
   const [prompt, setPrompt] = useState(existingQuiz?.prompt ?? "")
@@ -932,7 +967,7 @@ function CheckpointFormModal({ videoItemId, checkpoint, onClose, onSuccess }: {
   }
 
   const valid = kind === "note"
-    ? body.trim() && endSeconds.trim() && Number(endSeconds) > Number(startSeconds)
+    ? body.trim() && endSeconds > startSeconds
     : questionType === "open"
       ? prompt.trim()
       : prompt.trim() && options.filter((o) => o.text.trim()).length >= 2 && options.some((o) => o.is_correct)
@@ -948,8 +983,8 @@ function CheckpointFormModal({ videoItemId, checkpoint, onClose, onSuccess }: {
             options: options.filter((o) => o.text.trim()),
           }
       const payload = {
-        start_seconds: Number(startSeconds),
-        end_seconds: kind === "note" ? Number(endSeconds) : null,
+        start_seconds: startSeconds,
+        end_seconds: kind === "note" ? endSeconds : null,
         content,
       }
       return checkpoint
@@ -981,21 +1016,9 @@ function CheckpointFormModal({ videoItemId, checkpoint, onClose, onSuccess }: {
           </Field>
         )}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Start (seconds)">
-            <input
-              type="number" min={0} value={startSeconds} autoFocus
-              onChange={(e) => setStartSeconds(e.target.value)}
-              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-          </Field>
+          <TimeFields label="Start" value={startSeconds} onChange={setStartSeconds} />
           {kind === "note" && (
-            <Field label="End (seconds)">
-              <input
-                type="number" min={0} value={endSeconds}
-                onChange={(e) => setEndSeconds(e.target.value)}
-                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-              />
-            </Field>
+            <TimeFields label="End" value={endSeconds} onChange={setEndSeconds} />
           )}
         </div>
 
