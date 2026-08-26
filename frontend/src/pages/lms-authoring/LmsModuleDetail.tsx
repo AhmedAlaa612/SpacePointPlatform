@@ -5,7 +5,7 @@ import {
   Plus, Pencil, ArrowLeft, ArrowUp, ArrowDown, FileText, HelpCircle, Layers, Video as VideoIcon, Loader2,
   StickyNote, MessageCircleQuestion, Paperclip,
 } from "lucide-react"
-import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
+import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import {
   listItemsApi, createItemApi, updateItemApi, deleteItemApi, uploadVideoApi, reorderItemsApi,
@@ -113,31 +113,38 @@ export default function LmsModuleDetail() {
         <ArrowLeft size={14} /> Back
       </button>
 
-      <PageHeader
-        title={module ? module.title : "Module items"}
-        subtitle="Add lessons in the order students should see them."
-        action={
-          <div className="flex gap-2">
-            {module && (
-              <button
-                onClick={() => setEditModuleOpen(true)}
-                className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors"
-              >
-                <Pencil size={12} /> Rename
-              </button>
-            )}
-            {(["text", "flashcards", "quiz", "video", "attachment"] as ModuleItemKind[]).map((kind) => (
-              <button
-                key={kind}
-                onClick={() => setAddKind(kind)}
-                className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors"
-              >
-                <Plus size={12} /> {KIND_LABEL[kind]}
-              </button>
-            ))}
+      <div className="flex flex-col gap-3 mb-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight truncate">
+              {module ? module.title : "Module items"}
+            </h1>
+            <p className="text-sm text-muted-foreground mt-1">Add lessons in the order students should see them.</p>
           </div>
-        }
-      />
+          {module && (
+            <button
+              onClick={() => setEditModuleOpen(true)}
+              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors shrink-0"
+            >
+              <Pencil size={12} /> Rename
+            </button>
+          )}
+        </div>
+        {/* Scrolls horizontally on narrow screens instead of overflowing the
+            page or wrapping into a cramped stack — five "Add X" buttons don't
+            fit a phone's width at their natural size. */}
+        <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+          {(["text", "flashcards", "quiz", "video", "attachment"] as ModuleItemKind[]).map((kind) => (
+            <button
+              key={kind}
+              onClick={() => setAddKind(kind)}
+              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
+            >
+              <Plus size={12} /> {KIND_LABEL[kind]}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {items.length === 0 ? (
         <EmptyState title="No items yet" hint="Add a reading, a quiz, flashcards, or a video." />
