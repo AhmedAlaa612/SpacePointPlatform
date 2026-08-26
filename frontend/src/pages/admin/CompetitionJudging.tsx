@@ -1,24 +1,26 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, Plus, Trash2, Trophy, Upload, UserPlus } from "lucide-react"
+import { ArrowLeft, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
 import {
-  advanceCohortTeamsApi, getCohortExportTop20Api, getCohortJudgesApi, getCohortLeaderboardApi, getProgramRubricApi,
-  importCohortRegistrationsApi, inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi,
-  revokeCohortJudgeApi, unpublishCohortResultsApi,
+  advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, getCohortExportTop20Api,
+  getCohortJudgesApi, getCohortLeaderboardApi, getCohortTeamsApi, getProgramRubricApi, importCohortRegistrationsApi,
+  inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi, registerAndAddTeamMemberApi,
+  removeTeamMemberApi, renameTeamApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
   type CompetitionImportResult, type CompetitionJudgeProgress, type CompetitionLeaderboardRow,
-  type CompetitionPublication, type CompetitionRubric,
+  type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
 } from "@/api/competitions"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 import { Field } from "@/pages/admin/components/common"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
 
-type JudgingTab = "roster" | "rubric" | "judges" | "results"
+type JudgingTab = "roster" | "teams" | "rubric" | "judges" | "results"
 const TABS: { key: JudgingTab; label: string }[] = [
   { key: "roster", label: "Roster" },
+  { key: "teams", label: "Teams" },
   { key: "rubric", label: "Rubric" },
   { key: "judges", label: "Judges" },
   { key: "results", label: "Results" },
@@ -71,6 +73,7 @@ export default function CompetitionJudging() {
       </div>
 
       {tab === "roster" && <RosterTab cohortId={cohort.id} />}
+      {tab === "teams" && <TeamsTab cohortId={cohort.id} />}
       {tab === "rubric" && <RubricTab programId={cohort.program_id} />}
       {tab === "judges" && <JudgesTab cohortId={cohort.id} />}
       {tab === "results" && <ResultsTab cohortId={cohort.id} programId={cohort.program_id} />}
@@ -146,6 +149,197 @@ function RosterTab({ cohortId }: { cohortId: string }) {
             </table>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+/* ================================================================== */
+/* Teams (manual management — complements Roster import)               */
+/* ================================================================== */
+function TeamsTab({ cohortId }: { cohortId: string }) {
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["competitions-teams", cohortId] })
+
+  const { data: teams = [], isLoading } = useQuery<CompetitionTeam[]>({
+    queryKey: ["competitions-teams", cohortId],
+    queryFn: () => getCohortTeamsApi(cohortId),
+  })
+
+  const [newTeamName, setNewTeamName] = useState("")
+  const createMutation = useMutation({
+    mutationFn: () => createCohortTeamApi(cohortId, newTeamName.trim()),
+    onSuccess: () => { setNewTeamName(""); invalidate() },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to create team")),
+  })
+
+  if (isLoading) return <Spinner />
+
+  return (
+    <div className="flex flex-col gap-4 max-w-3xl">
+      <p className="text-sm text-muted-foreground">
+        For one-off corrections after a Roster import — a late signup, a team split, someone switching
+        teams — without re-uploading a whole sheet. Adding a member by name + email registers them if
+        they're new, or matches an existing account if that email already has one — same as a Roster row.
+      </p>
+
+      <div className="flex items-end gap-2">
+        <Field label="New team name">
+          <input
+            value={newTeamName} onChange={(e) => setNewTeamName(e.target.value)} placeholder="Falcon Eye"
+            className="w-64 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+          />
+        </Field>
+        <button
+          onClick={() => createMutation.mutate()}
+          disabled={createMutation.isPending || !newTeamName.trim()}
+          className="flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+        >
+          <Plus size={14} /> Add team
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {teams.map((team) => (
+          <TeamCard key={team.id} team={team} onChanged={invalidate} />
+        ))}
+        {teams.length === 0 && (
+          <EmptyState title="No teams yet" hint="Add one above, or import a roster from the Roster tab." />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () => void }) {
+  const toast = useToast()
+  const [renaming, setRenaming] = useState(false)
+  const [name, setName] = useState(team.name)
+  const [adding, setAdding] = useState(false)
+  const [memberName, setMemberName] = useState("")
+  const [memberEmail, setMemberEmail] = useState("")
+
+  const renameMutation = useMutation({
+    mutationFn: () => renameTeamApi(team.id, name.trim()),
+    onSuccess: () => { setRenaming(false); onChanged() },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to rename team")),
+  })
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteTeamApi(team.id),
+    onSuccess: onChanged,
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to delete team")),
+  })
+  const addMemberMutation = useMutation({
+    mutationFn: () => registerAndAddTeamMemberApi(team.id, { full_name: memberName.trim(), email: memberEmail.trim() }),
+    onSuccess: () => { setMemberName(""); setMemberEmail(""); setAdding(false); onChanged() },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to add member")),
+  })
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId: string) => removeTeamMemberApi(team.id, userId),
+    onSuccess: onChanged,
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to remove member")),
+  })
+
+  return (
+    <div className="p-4 bg-card border border-border rounded-2xl flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        {renaming ? (
+          <div className="flex items-center gap-2 flex-1">
+            <input
+              value={name} onChange={(e) => setName(e.target.value)} autoFocus
+              className="flex-1 h-9 px-3 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+            />
+            <button
+              onClick={() => renameMutation.mutate()} disabled={renameMutation.isPending || !name.trim()}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+            >
+              <Check size={14} />
+            </button>
+            <button
+              onClick={() => { setRenaming(false); setName(team.name) }}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm font-semibold text-foreground">{team.name}</p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setRenaming(true)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title="Rename"
+              >
+                <Pencil size={14} />
+              </button>
+              <button
+                onClick={() => { if (confirm(`Delete team "${team.name}"?`)) deleteMutation.mutate() }}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+                title="Delete team"
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        {team.member_names.map((memberFullName, i) => (
+          <div key={team.member_ids[i]} className="flex items-center justify-between text-sm">
+            <div>
+              <span className="text-foreground">{memberFullName}</span>
+              <span className="text-muted-foreground text-xs ml-2">{team.member_emails[i]}</span>
+            </div>
+            <button
+              onClick={() => { if (confirm(`Remove ${memberFullName} from ${team.name}?`)) removeMemberMutation.mutate(team.member_ids[i]) }}
+              className="p-1 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+              title="Remove from team"
+            >
+              <UserMinus size={13} />
+            </button>
+          </div>
+        ))}
+        {team.member_names.length === 0 && <p className="text-xs text-muted-foreground">No members yet.</p>}
+      </div>
+
+      {adding ? (
+        <div className="flex items-end gap-2 flex-wrap pt-1 border-t border-border/50">
+          <Field label="Name">
+            <input
+              value={memberName} onChange={(e) => setMemberName(e.target.value)}
+              className="w-40 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+            />
+          </Field>
+          <Field label="Email">
+            <input
+              value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} type="email"
+              className="w-56 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+            />
+          </Field>
+          <button
+            onClick={() => addMemberMutation.mutate()}
+            disabled={addMemberMutation.isPending || !memberName.trim() || !memberEmail.trim()}
+            className="h-9 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+          >
+            {addMemberMutation.isPending ? "Adding…" : "Add"}
+          </button>
+          <button
+            onClick={() => setAdding(false)}
+            className="h-9 px-3 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setAdding(true)}
+          className="self-start flex items-center gap-1.5 text-xs font-medium text-primary hover:opacity-80 pt-1 border-t border-border/50 w-full justify-start"
+        >
+          <UserPlus size={13} /> Add member
+        </button>
       )}
     </div>
   )

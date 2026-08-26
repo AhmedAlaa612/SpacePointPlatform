@@ -13,6 +13,37 @@ from pydantic import BaseModel
 from app.schemas.teams import TeamOut
 
 
+class CompetitionTeamOut(BaseModel):
+    """Manual team management (2026-08-26) — like `TeamOut` but with
+    emails, since the ops-facing Teams panel needs to show who's who
+    without a second round trip per team."""
+    id: UUID
+    name: str
+    cohort_id: UUID | None = None
+    member_ids: list[UUID] = []
+    member_names: list[str] = []
+    member_emails: list[str] = []
+
+
+class CompetitionTeamCreateIn(BaseModel):
+    name: str
+
+
+class CompetitionTeamRenameIn(BaseModel):
+    name: str
+
+
+class CompetitionTeamMemberIn(BaseModel):
+    """Either `user_id` (an already-registered person) or `full_name` +
+    `email` (find-or-create a brand-new one, the single-row equivalent of
+    a Roster import row) — never both."""
+    user_id: UUID | None = None
+    full_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    school: str | None = None
+
+
 class CompetitionRubricCriterionIn(BaseModel):
     key: str
     label: str

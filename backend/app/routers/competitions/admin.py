@@ -18,12 +18,14 @@ from app.models.user import User
 from app.schemas.competitions import (
     CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionImportResultOut, CompetitionImportRowOut,
     CompetitionJudgeInviteIn, CompetitionJudgeOut, CompetitionJudgeProgressOut, CompetitionLeaderboardRowOut,
-    CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut,
+    CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut, CompetitionTeamCreateIn,
+    CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
 )
 from app.services.competitions import judges as judges_service
 from app.services.competitions import judging as judging_service
 from app.services.competitions import progression as progression_service
 from app.services.competitions import registration_import as import_service
+from app.services.competitions import team_management as team_service
 
 router = APIRouter(
     prefix="/competitions/admin", tags=["competitions-admin"],
@@ -94,6 +96,74 @@ async def delete_cohort_judge(cohort_id: uuid.UUID, user_id: uuid.UUID, db: Asyn
     if not removed:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This judge isn't assigned to this cohort")
     await db.commit()
+
+
+# ── Teams (manual management — 2026-08-26) ─────────────────────────────
+# Complements Roster import: that's for the whole-sheet bulk case, this is
+# for the one-off corrections after — a late signup, a team split, someone
+# switching teams — without re-uploading a whole sheet over one row.
+
+@router.get("/cohorts/{cohort_id}/teams", response_model=list[CompetitionTeamOut])
+async def get_cohort_teams(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await _get_cohort_or_404(db, cohort_id)
+    rows = await team_service.list_teams_with_members(db, cohort_id=cohort_id)
+    return [CompetitionTeamOut(**row) for row in rows]
+
+
+@router.post("/cohorts/{cohort_id}/teams", response_model=CompetitionTeamOut, status_code=status.HTTP_201_CREATED)
+async def post_cohort_team(
+    cohort_id: uuid.UUID, body: CompetitionTeamCreateIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    await _get_cohort_or_404(db, cohort_id)
+    team = await team_service.create_empty_team(db, cohort_id=cohort_id, name=body.name, created_by=current.id)
+    await db.commit()
+    return CompetitionTeamOut(id=team.id, name=team.name, cohort_id=team.cohort_id)
+
+
+@router.patch("/teams/{team_id}", response_model=CompetitionTeamOut)
+async def patch_team(team_id: uuid.UUID, body: CompetitionTeamRenameIn, db: AsyncSession = Depends(get_db)):
+    await team_service.rename_team(db, team_id=team_id, name=body.name)
+    await db.commit()
+    rows = await team_service.list_teams_with_members(db, cohort_id=(await _team_cohort_id(db, team_id)))
+    return next(CompetitionTeamOut(**r) for r in rows if r["id"] == team_id)
+
+
+@router.delete("/teams/{team_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_team(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await team_service.delete_team(db, team_id=team_id)
+    await db.commit()
+
+
+@router.post("/teams/{team_id}/members", response_model=CompetitionTeamOut, status_code=status.HTTP_201_CREATED)
+async def post_team_member(team_id: uuid.UUID, body: CompetitionTeamMemberIn, db: AsyncSession = Depends(get_db)):
+    if body.user_id is not None:
+        await team_service.add_existing_member(db, team_id=team_id, user_id=body.user_id)
+    elif body.full_name and body.email:
+        await team_service.register_and_add_member(
+            db, team_id=team_id, full_name=body.full_name, email=body.email,
+            phone=body.phone, school=body.school,
+        )
+    else:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Provide either user_id, or full_name and email")
+    await db.commit()
+    cohort_id = await _team_cohort_id(db, team_id)
+    rows = await team_service.list_teams_with_members(db, cohort_id=cohort_id)
+    return next(CompetitionTeamOut(**r) for r in rows if r["id"] == team_id)
+
+
+@router.delete("/teams/{team_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_team_member(team_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await team_service.remove_member(db, team_id=team_id, user_id=user_id)
+    await db.commit()
+
+
+async def _team_cohort_id(db: AsyncSession, team_id: uuid.UUID) -> uuid.UUID:
+    from app.models.team import Team
+    team = await db.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    return team.cohort_id
 
 
 # ── Registration import, progression ────────────────────────────────────

@@ -96,6 +96,15 @@ export interface CompetitionJudgeTeam {
   already_scored: boolean
 }
 
+export interface CompetitionTeam {
+  id: string
+  name: string
+  cohort_id: string | null
+  member_ids: string[]
+  member_names: string[]
+  member_emails: string[]
+}
+
 export interface CompetitionTeamDetail {
   team: { id: string; name: string; cohort_id: string | null; member_ids: string[]; member_names: string[] }
   submissions: CompetitionSubmissionItem[]
@@ -145,6 +154,30 @@ export const importCohortRegistrationsApi = (cohortId: string, file: File) => {
 
 export const advanceCohortTeamsApi = (cohortId: string, data: { team_ids: string[]; to_cohort_id: string }) =>
   api.post<CompetitionAdvanceResult[]>(`/competitions/admin/cohorts/${cohortId}/advance-teams`, data).then((r) => r.data)
+
+// ── Teams (manual management) ───────────────────────────────────────────
+
+export const getCohortTeamsApi = (cohortId: string) =>
+  api.get<CompetitionTeam[]>(`/competitions/admin/cohorts/${cohortId}/teams`).then((r) => r.data)
+
+export const createCohortTeamApi = (cohortId: string, name: string) =>
+  api.post<CompetitionTeam>(`/competitions/admin/cohorts/${cohortId}/teams`, { name }).then((r) => r.data)
+
+export const renameTeamApi = (teamId: string, name: string) =>
+  api.patch<CompetitionTeam>(`/competitions/admin/teams/${teamId}`, { name }).then((r) => r.data)
+
+export const deleteTeamApi = (teamId: string) =>
+  api.delete<void>(`/competitions/admin/teams/${teamId}`).then((r) => r.data)
+
+export const addExistingTeamMemberApi = (teamId: string, userId: string) =>
+  api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/members`, { user_id: userId }).then((r) => r.data)
+
+export const registerAndAddTeamMemberApi = (
+  teamId: string, data: { full_name: string; email: string; phone?: string; school?: string },
+) => api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/members`, data).then((r) => r.data)
+
+export const removeTeamMemberApi = (teamId: string, userId: string) =>
+  api.delete<void>(`/competitions/admin/teams/${teamId}/members/${userId}`).then((r) => r.data)
 
 // ── Judge surface ────────────────────────────────────────────────────────
 
