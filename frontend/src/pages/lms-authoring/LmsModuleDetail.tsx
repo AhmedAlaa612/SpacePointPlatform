@@ -155,7 +155,7 @@ export default function LmsModuleDetail() {
             return (
               <div
                 key={item.id}
-                className="flex items-center justify-between p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors"
+                className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="flex flex-col shrink-0">
@@ -198,11 +198,14 @@ export default function LmsModuleDetail() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-1 flex-shrink-0 ml-3">
+                {/* Own row on mobile (not squeezed beside the title anymore —
+                    that's what was overlapping), with a horizontal-scroll
+                    fallback for video's 4-button case. Unchanged on sm+. */}
+                <div className="flex items-center gap-1 overflow-x-auto -mx-1 px-1 sm:ml-3 sm:shrink-0">
                   {item.kind === "video" && (
                     <button
                       onClick={() => setCheckpointTarget(item)}
-                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
+                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
                     >
                       Checkpoints
                     </button>
@@ -210,7 +213,7 @@ export default function LmsModuleDetail() {
                   {item.kind === "video" && (
                     <button
                       onClick={() => setUploadTarget(item)}
-                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
+                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
                     >
                       {videoStatus(item) === "ready" ? "Replace video" : "Upload video"}
                     </button>
@@ -218,20 +221,20 @@ export default function LmsModuleDetail() {
                   {item.kind === "attachment" && (
                     <button
                       onClick={() => setUploadTarget(item)}
-                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
+                      className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
                     >
                       {attachmentFilename(item) ? "Replace PDF" : "Upload PDF"}
                     </button>
                   )}
                   <button
                     onClick={() => setEditItem(item)}
-                    className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors"
+                    className="h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors shrink-0 whitespace-nowrap"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => setDeleteTarget(item)}
-                    className="h-8 px-3 rounded-lg text-xs font-medium text-red-600 hover:bg-red-500/10 transition-colors"
+                    className="h-8 px-3 rounded-lg text-xs font-medium text-red-600 hover:bg-red-500/10 transition-colors shrink-0 whitespace-nowrap"
                   >
                     Delete
                   </button>
