@@ -47,16 +47,19 @@ export default function PosterTab({ state, attemptId, onSaved }: {
 
   return (
     <>
+      {/* Smaller on mobile (icon only, tight padding) — at full desktop size
+          it sat on top of form content instead of in the page's side
+          margin, since mobile layouts don't have that margin to spare. */}
       <button
         onClick={() => setOpen(true)}
-        className="fixed left-0 top-1/2 -translate-y-1/2 z-40 group flex flex-col items-center gap-3 px-3.5 py-6 rounded-r-2xl bg-[#1d132e]/95 hover:bg-[#271a3e] border border-l-0 border-purple-500/30 hover:border-purple-400/50 text-purple-100 shadow-2xl shadow-purple-950/80 -translate-x-1.5 hover:translate-x-0 transition-all duration-300 ease-out cursor-pointer select-none"
+        className="fixed left-0 top-1/2 -translate-y-1/2 z-40 group flex flex-col items-center gap-1.5 sm:gap-3 px-2 sm:px-3.5 py-2.5 sm:py-6 rounded-r-2xl bg-[#1d132e]/95 hover:bg-[#271a3e] border border-l-0 border-purple-500/30 hover:border-purple-400/50 text-purple-100 shadow-2xl shadow-purple-950/80 -translate-x-1.5 hover:translate-x-0 transition-all duration-300 ease-out cursor-pointer select-none"
         title="Open Poster Tab"
       >
-        <span className="text-[11px] font-bold tracking-widest uppercase [writing-mode:vertical-rl] rotate-180 text-purple-200/90 group-hover:text-white transition-colors">
+        <span className="hidden sm:inline text-[11px] font-bold tracking-widest uppercase [writing-mode:vertical-rl] rotate-180 text-purple-200/90 group-hover:text-white transition-colors">
           POSTER
         </span>
-        <div className="p-1.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 group-hover:bg-purple-500/25 group-hover:text-purple-100 transition-colors">
-          <ImageIcon className="size-4" />
+        <div className="p-1 sm:p-1.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 group-hover:bg-purple-500/25 group-hover:text-purple-100 transition-colors">
+          <ImageIcon className="size-3.5 sm:size-4" />
         </div>
       </button>
 
@@ -88,9 +91,9 @@ export default function PosterTab({ state, attemptId, onSaved }: {
               </button>
             </div>
 
-            <div className="flex flex-col gap-2.5 p-4 rounded-2xl bg-muted/30 border border-border/60">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Template</p>
-              {state.poster_template_url ? (
+            {state.poster_template_url && (
+              <div className="flex flex-col gap-2.5 p-4 rounded-2xl bg-muted/30 border border-border/60">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Template</p>
                 <a
                   href={state.poster_template_url}
                   target="_blank"
@@ -99,12 +102,8 @@ export default function PosterTab({ state, attemptId, onSaved }: {
                 >
                   Open your poster template ↗
                 </a>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Ask your ops team to set a poster template for this cohort.
-                </p>
-              )}
-            </div>
+              </div>
+            )}
 
             <div className="flex flex-col gap-3 p-4 rounded-2xl bg-card border border-border shadow-sm">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
