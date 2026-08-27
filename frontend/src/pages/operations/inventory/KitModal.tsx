@@ -22,6 +22,7 @@ import { Field, Modal, ModalActions, Spinner } from "@/pages/admin/components/co
 import { KitQrCode } from "@/components/ui/KitQrCode"
 import { LocationModal } from "@/pages/operations/inventory/LocationModal"
 import { KitSessionsCalendar } from "@/pages/operations/inventory/KitSessionsCalendar"
+import { useAuth } from "@/context/AuthContext"
 
 
 const STATUSES: KitStatus[] = ["working", "damaged", "retired", "lost"]
@@ -44,6 +45,8 @@ interface KitModalProps {
 
 export function KitModal({ kitId, onClose }: KitModalProps) {
   const queryClient = useQueryClient()
+  const { activeRole } = useAuth()
+  const canManage = activeRole !== "storekeeper"
   const [moveAction, setMoveAction] = useState<"warehouse" | "person" | null>(null)
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null)
 
@@ -159,35 +162,43 @@ export function KitModal({ kitId, onClose }: KitModalProps) {
 
                 <div className="flex items-center gap-2 pt-1 w-fit">
                   <span className="text-xs text-muted-foreground uppercase font-semibold tracking-wider shrink-0">Status:</span>
-                  <select
-                    value={kit.status}
-                    onChange={(e) => statusMutation.mutate({ id: kitId, status: e.target.value as KitStatus })}
-                    className="h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs font-medium cursor-pointer capitalize w-fit shrink-0"
-                  >
-                    {STATUSES.map((s) => (
-                      <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>
-                    ))}
-                  </select>
+                  {canManage ? (
+                    <select
+                      value={kit.status}
+                      onChange={(e) => statusMutation.mutate({ id: kitId, status: e.target.value as KitStatus })}
+                      className="h-8 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs font-medium cursor-pointer capitalize w-fit shrink-0"
+                    >
+                      {STATUSES.map((s) => (
+                        <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="h-8 px-2.5 bg-muted text-foreground rounded-lg text-xs font-medium capitalize w-fit shrink-0 inline-flex items-center">
+                      {kit.status}
+                    </span>
+                  )}
                 </div>
               </div>
 
               {/* Change Holder Buttons */}
-              <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-border">
-                <button
-                  type="button"
-                  onClick={() => setMoveAction("warehouse")}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 px-3 border border-border text-foreground text-xs font-semibold rounded-xl hover:bg-muted transition-colors whitespace-nowrap cursor-pointer"
-                >
-                  <Building2 size={14} /> Move to warehouse
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMoveAction("person")}
-                  className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 px-3 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 transition-colors whitespace-nowrap cursor-pointer"
-                >
-                  <UserPlus size={14} /> Assign to a person
-                </button>
-              </div>
+              {canManage && (
+                <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-border">
+                  <button
+                    type="button"
+                    onClick={() => setMoveAction("warehouse")}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 px-3 border border-border text-foreground text-xs font-semibold rounded-xl hover:bg-muted transition-colors whitespace-nowrap cursor-pointer"
+                  >
+                    <Building2 size={14} /> Move to warehouse
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMoveAction("person")}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 h-9 px-3 bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 transition-colors whitespace-nowrap cursor-pointer"
+                  >
+                    <UserPlus size={14} /> Assign to a person
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
