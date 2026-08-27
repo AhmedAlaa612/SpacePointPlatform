@@ -51,13 +51,13 @@ export default function Catalog() {
         </p>
       </div>
 
-      <div className="flex gap-1 border-b border-border">
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
         {(["templates", "items", "locations", "cities", "warehouses", "categories"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors capitalize",
+              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors capitalize shrink-0 whitespace-nowrap",
               tab === t
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground",
@@ -1180,7 +1180,7 @@ function Warehouses() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
           A warehouse is a store within a location — the shelf stock and kits are actually counted
           against. Most locations need exactly one; add a second only where a site genuinely has two
@@ -1189,7 +1189,7 @@ function Warehouses() {
         {canManage && (
           <button
             onClick={() => setOpen(true)}
-            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 shrink-0 cursor-pointer"
+            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 shrink-0 cursor-pointer w-fit"
           >
             <Plus size={14} /> New warehouse
           </button>
