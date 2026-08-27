@@ -425,13 +425,17 @@ function Items() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      {/* Below `sm`: a horizontal swipe slider (CSS scroll-snap, no JS
+       *  library) — a 2-up grid squeezed every card's photo/badges/buttons
+       *  too narrow to use on a phone. `sm:` and up reverts to the original
+       *  grid untouched. */}
+      <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-3 lg:grid-cols-4 sm:overflow-visible sm:pb-0">
         {cards.map((card) => {
           const item = card.kind === "group" ? card.representative : card.item
           const total = card.kind === "group" ? card.total : (totalByItem[item.id] ?? 0)
           const displayName = card.kind === "group" ? card.groupName : item.name
           return (
-            <div key={card.kind === "group" ? card.groupName : item.id} className="rounded-2xl border border-border bg-card overflow-hidden flex flex-col">
+            <div key={card.kind === "group" ? card.groupName : item.id} className="w-44 shrink-0 snap-start sm:w-auto sm:shrink rounded-2xl border border-border bg-card overflow-hidden flex flex-col">
               <ItemPhoto item={item} canManage={canManage} />
               <div className="p-3 flex flex-col gap-2 flex-1">
                 <div>
