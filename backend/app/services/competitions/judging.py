@@ -120,7 +120,7 @@ async def get_own_score(
 async def submit_score(
     db: AsyncSession, *, rubric: CompetitionRubric, criteria: list[CompetitionRubricCriterion],
     team_id: uuid.UUID, judge_user_id: uuid.UUID, cohort_id: uuid.UUID,
-    criterion_scores: dict[str, int], bonus_points: int = 0,
+    criterion_scores: dict[str, int], bonus_points: int = 0, submitted: bool = False,
 ) -> CompetitionScore:
     if await is_published(db, cohort_id=cohort_id):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="Results are published — scoring is closed for this stage")
@@ -142,7 +142,7 @@ async def submit_score(
     if score is None:
         score = CompetitionScore(
             id=uuid.uuid4(), rubric_id=rubric.id, team_id=team_id, judge_user_id=judge_user_id, cohort_id=cohort_id,
-            criterion_scores=criterion_scores, bonus_points=bonus_points, total_points=total,
+            criterion_scores=criterion_scores, bonus_points=bonus_points, total_points=total, submitted=submitted,
         )
         db.add(score)
     else:
@@ -150,19 +150,25 @@ async def submit_score(
         score.bonus_points = bonus_points
         score.total_points = total
         score.submitted_at = datetime.now(timezone.utc)
+        # Ratchet-only: an autosaved draft (submitted=False) never clears a
+        # team that's already been deliberately submitted.
+        score.submitted = score.submitted or submitted
     await db.flush()
     return score
 
 
 async def scored_team_ids(db: AsyncSession, *, judge_user_id: uuid.UUID, cohort_id: uuid.UUID) -> set[uuid.UUID]:
-    """Which teams this specific judge has already scored in this cohort —
-    the judge roster's done/pending mark. Deliberately not rubric-scoped:
-    a cohort has exactly one rubric in practice (`get_rubric` is
-    program-scoped), so "scored in this cohort at all" is the same
-    question as "scored against the current rubric"."""
+    """Which teams this specific judge has *deliberately submitted* a score
+    for in this cohort — the judge roster's done/pending mark. Filters on
+    `submitted`, not mere row existence, so a team with only an autosaved
+    draft still reads as pending. Deliberately not rubric-scoped: a cohort
+    has exactly one rubric in practice (`get_rubric` is program-scoped),
+    so "scored in this cohort at all" is the same question as "scored
+    against the current rubric"."""
     rows = (await db.execute(
         select(CompetitionScore.team_id).where(
             CompetitionScore.judge_user_id == judge_user_id, CompetitionScore.cohort_id == cohort_id,
+            CompetitionScore.submitted.is_(True),
         )
     )).scalars().all()
     return set(rows)
@@ -178,7 +184,7 @@ async def list_judges_with_progress(db: AsyncSession, *, cohort_id: uuid.UUID) -
     )).scalars().all()
     scored_counts = dict((await db.execute(
         select(CompetitionScore.judge_user_id, func.count(CompetitionScore.id))
-        .where(CompetitionScore.cohort_id == cohort_id)
+        .where(CompetitionScore.cohort_id == cohort_id, CompetitionScore.submitted.is_(True))
         .group_by(CompetitionScore.judge_user_id)
     )).all())
     return [
@@ -193,11 +199,12 @@ async def list_judges_with_progress(db: AsyncSession, *, cohort_id: uuid.UUID) -
 async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     """Every team in this cohort, ranked by the average of every judge's
     `total_points` — `None` (last, `status="unscored"`) for a team no judge
-    has scored yet."""
+    has scored yet. Only counts `submitted=True` rows, so a judge's
+    in-progress autosaved draft never moves the standings."""
     teams = (await db.execute(select(Team).where(Team.cohort_id == cohort_id))).scalars().all()
     rows = (await db.execute(
         select(CompetitionScore.team_id, func.avg(CompetitionScore.total_points), func.count(CompetitionScore.id))
-        .where(CompetitionScore.cohort_id == cohort_id)
+        .where(CompetitionScore.cohort_id == cohort_id, CompetitionScore.submitted.is_(True))
         .group_by(CompetitionScore.team_id)
     )).all()
     by_team = {team_id: (float(avg), count) for team_id, avg, count in rows}

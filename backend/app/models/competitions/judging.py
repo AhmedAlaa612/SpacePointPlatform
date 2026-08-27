@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
@@ -44,6 +44,16 @@ class CompetitionScore(Base):
     averaged at write time, only at read time (`leaderboard()`), so every
     individual judge's numbers stay intact and re-computable.
 
+    `submitted` (2026-08-27) separates the autosaved draft every keystroke
+    writes from the judge's own deliberate "done with this team" — a row
+    can exist and keep being overwritten by autosave with `submitted`
+    still False; only an explicit submit flips it, and it only ratchets
+    forward (`submit_score` never clears it back to False), so a team
+    already marked scored can't be un-scored by the judge going back to
+    tweak a number. `already_scored`/`leaderboard`/`judges_scored` all
+    read this flag, not mere row existence, so an in-progress draft never
+    counts toward standings.
+
     Blindness (a judge never sees another judge's score, even after
     publish — only the aggregate) is enforced by which endpoints expose
     this table, not by anything in its own shape."""
@@ -67,6 +77,7 @@ class CompetitionScore(Base):
     bonus_points = Column(Integer, nullable=False, default=0)
     total_points = Column(Integer, nullable=False)
     submitted_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    submitted = Column(Boolean, nullable=False, default=False, server_default="false")
 
 
 class CompetitionResultPublication(Base):

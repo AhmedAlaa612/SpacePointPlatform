@@ -24,6 +24,9 @@ export interface CompetitionScore {
   bonus_points: number
   total_points: number
   submitted_at: string | null
+  /** False: only an autosaved draft — doesn't count toward already_scored,
+   * judges_scored, or the leaderboard. True: the judge clicked Submit. */
+  submitted: boolean
 }
 
 export interface CompetitionLeaderboardRow {
@@ -194,5 +197,5 @@ export const getMyJudgeTeamApi = (teamId: string) =>
   api.get<CompetitionTeamDetail>(`/competitions/judge/teams/${teamId}`).then((r) => r.data)
 
 export const submitMyJudgeScoreApi = (
-  teamId: string, data: { criterion_scores: Record<string, number>; bonus_points?: number },
+  teamId: string, data: { criterion_scores: Record<string, number>; bonus_points?: number; submitted?: boolean },
 ) => api.put<CompetitionScore>(`/competitions/judge/teams/${teamId}/score`, data).then((r) => r.data)

@@ -276,14 +276,15 @@ async def test_judge_submits_a_score_then_can_revise_it_before_publish(db, clien
 
     submitted = await client.put(
         f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
-        json={"criterion_scores": {"design": 25, "execution": 20}, "bonus_points": 2},
+        json={"criterion_scores": {"design": 25, "execution": 20}, "bonus_points": 2, "submitted": True},
     )
     assert submitted.status_code == 200, submitted.text
     assert submitted.json()["total_points"] == 47
+    assert submitted.json()["submitted"] is True
 
     revised = await client.put(
         f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
-        json={"criterion_scores": {"design": 30, "execution": 25}, "bonus_points": 0},
+        json={"criterion_scores": {"design": 30, "execution": 25}, "bonus_points": 0, "submitted": True},
     )
     assert revised.status_code == 200
     assert revised.json()["total_points"] == 55
@@ -291,6 +292,46 @@ async def test_judge_submits_a_score_then_can_revise_it_before_publish(db, clien
 
     roster = await client.get(f"/competitions/judge/teams?cohort_id={cohort.id}", headers=_headers(judge))
     assert roster.json()[0]["already_scored"] is True
+
+
+@pytest.mark.asyncio
+async def test_an_autosaved_draft_never_counts_as_scored_until_submitted(db, client):
+    """The judge scoring UI autosaves on every keystroke, but a draft alone
+    must never mark a team done (2026-08-27 fix) — only an explicit submit
+    does, and it's a one-way ratchet from there."""
+    ops, program, cohort, team, judge, poster_item = await _judge_setup(db)
+
+    draft = await client.put(
+        f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
+        json={"criterion_scores": {"design": 25, "execution": 20}, "bonus_points": 0},
+    )
+    assert draft.status_code == 200, draft.text
+    assert draft.json()["submitted"] is False
+
+    roster = await client.get(f"/competitions/judge/teams?cohort_id={cohort.id}", headers=_headers(judge))
+    assert roster.json()[0]["already_scored"] is False
+
+    finalized = await client.put(
+        f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
+        json={"criterion_scores": {"design": 25, "execution": 20}, "bonus_points": 0, "submitted": True},
+    )
+    assert finalized.status_code == 200
+    assert finalized.json()["submitted"] is True
+    assert finalized.json()["id"] == draft.json()["id"]
+
+    roster_after = await client.get(f"/competitions/judge/teams?cohort_id={cohort.id}", headers=_headers(judge))
+    assert roster_after.json()[0]["already_scored"] is True
+
+    # A later autosaved edit (submitted omitted => False) must not un-score it.
+    edited = await client.put(
+        f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
+        json={"criterion_scores": {"design": 30, "execution": 20}, "bonus_points": 0},
+    )
+    assert edited.status_code == 200
+    assert edited.json()["submitted"] is True
+
+    roster_still = await client.get(f"/competitions/judge/teams?cohort_id={cohort.id}", headers=_headers(judge))
+    assert roster_still.json()[0]["already_scored"] is True
 
 
 @pytest.mark.asyncio
@@ -322,11 +363,11 @@ async def test_leaderboard_averages_across_judges_and_ranks_unscored_last(db, cl
 
     await client.put(
         f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
-        json={"criterion_scores": {"design": 30, "execution": 20}, "bonus_points": 0},
+        json={"criterion_scores": {"design": 30, "execution": 20}, "bonus_points": 0, "submitted": True},
     )
     await client.put(
         f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge_two),
-        json={"criterion_scores": {"design": 20, "execution": 20}, "bonus_points": 0},
+        json={"criterion_scores": {"design": 20, "execution": 20}, "bonus_points": 0, "submitted": True},
     )
 
     board = await client.get(f"/competitions/admin/cohorts/{cohort.id}/leaderboard", headers=_headers(ops))

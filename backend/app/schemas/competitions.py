@@ -72,6 +72,9 @@ class CompetitionRubricOut(BaseModel):
 class CompetitionScoreIn(BaseModel):
     criterion_scores: dict[str, int]
     bonus_points: int = 0
+    # False (default): an autosaved draft — stored, but doesn't count as
+    # "scored" anywhere. True: the judge's own deliberate submit click.
+    submitted: bool = False
 
 
 class CompetitionScoreOut(BaseModel):
@@ -82,6 +85,7 @@ class CompetitionScoreOut(BaseModel):
     bonus_points: int
     total_points: int
     submitted_at: datetime | None = None
+    submitted: bool = False
 
 
 class CompetitionLeaderboardRowOut(BaseModel):

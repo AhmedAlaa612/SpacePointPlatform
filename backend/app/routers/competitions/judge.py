@@ -123,7 +123,7 @@ async def put_my_team_score(
 
     score = await submit_score(
         db, rubric=rubric, criteria=criteria, team_id=team.id, judge_user_id=current.id, cohort_id=team.cohort_id,
-        criterion_scores=body.criterion_scores, bonus_points=body.bonus_points,
+        criterion_scores=body.criterion_scores, bonus_points=body.bonus_points, submitted=body.submitted,
     )
     await db.commit()
     return CompetitionScoreOut.model_validate(score, from_attributes=True)
