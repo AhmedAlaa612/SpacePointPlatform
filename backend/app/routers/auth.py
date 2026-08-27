@@ -50,7 +50,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # generous — a whole school shares one IP), useless against password
 # guessing. This is the real defence: a per-account counter, checked before
 # the password itself so a locked account can't be probed during its window.
-_MAX_FAILED_LOGIN_ATTEMPTS = 10
+_MAX_FAILED_LOGIN_ATTEMPTS = 100
 _LOCKOUT_MINUTES = 15
 
 
