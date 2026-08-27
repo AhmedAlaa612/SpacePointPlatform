@@ -188,7 +188,11 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     // routers (`require_inventory_manage`), not just read access. Sessions
     // and registrations still aren't theirs — those stay ops-only.
     if (activeRole === "coo") {
-      return [...INVENTORY_NAV.map(([label, to]) => mk(label, to)), mk("Learn", "/learn")];
+      return [
+        ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+        mk("Learn", "/learn"),
+        mk("Profile & Settings", "/operations/profile"),
+      ];
     }
     return [
       mk("Dashboard", "/operations/dashboard"),
@@ -406,8 +410,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   }
   if (activeRole === "storekeeper") {
     return [
-      mk("Stock", "/operations/inventory/stock"),
-      mk("Fulfilment", "/operations/inventory/fulfilment"),
+      ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
       mk("Learn", "/learn"),
       mk("Profile & Settings", "/operations/profile"),
     ];
