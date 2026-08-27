@@ -174,7 +174,7 @@ async def post_cohort_registration_import(
 ):
     await _get_cohort_or_404(db, cohort_id)
     file_bytes = await file.read()
-    rows = import_service.parse_registration_sheet(file_bytes)
+    rows = import_service.parse_registration_sheet(file_bytes, filename=file.filename)
     results = await import_service.import_registrations(db, cohort_id=cohort_id, rows=rows)
     await db.commit()
     return CompetitionImportResultOut(

@@ -19,6 +19,7 @@ Registration, nothing competition-specific about either.
 
 from __future__ import annotations
 
+import csv
 import io
 import uuid
 from dataclasses import asdict, dataclass
@@ -68,13 +69,44 @@ def _normalize_header(raw: object) -> str:
     return _HEADER_ALIASES.get(slug, slug)
 
 
-def parse_registration_sheet(file_bytes: bytes) -> list[dict]:
-    """One dict per data row (header on row 1, exactly — ops controls this
-    sheet's format via a shared template, unlike the general bulk importer's
-    tolerance for stray title rows above the header)."""
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+def _rows_from_csv(file_bytes: bytes) -> tuple[list[str], list[list]]:
+    # utf-8-sig eats the BOM Excel/Sheets stamp on a CSV export — without
+    # it the first header cell decodes as "﻿team_name" and silently
+    # never matches "team_name", which looks identical to a missing column.
+    text = file_bytes.decode("utf-8-sig", errors="replace")
+    rows = list(csv.reader(io.StringIO(text)))
+    if not rows:
+        return [], []
+    return [_normalize_header(c) for c in rows[0]], rows[1:]
+
+
+def _rows_from_xlsx(file_bytes: bytes) -> tuple[list[str], list[list]]:
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    except Exception as exc:
+        # openpyxl raises whatever the zip/xml layer underneath happens to
+        # raise on garbage input (BadZipFile, KeyError, its own
+        # InvalidFileException...) — none of that is useful to ops, who
+        # just picked the wrong file or exported it wrong.
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Couldn't read this file as an Excel spreadsheet. Upload a real .xlsx, or a .csv export.",
+        ) from exc
     sheet = wb.worksheets[0]
     header = [_normalize_header(c.value) for c in sheet[1]]
+    data_rows = [[c.value for c in sheet[row_idx]] for row_idx in range(2, sheet.max_row + 1)]
+    return header, data_rows
+
+
+def parse_registration_sheet(file_bytes: bytes, filename: str | None = None) -> list[dict]:
+    """One dict per data row (header on row 1, exactly — ops controls this
+    sheet's format via a shared template, unlike the general bulk importer's
+    tolerance for stray title rows above the header). Accepts .xlsx or
+    .csv — the upload widget advertises both, and ops's tracker gets
+    exported as either depending on how the sheet is downloaded."""
+    is_csv = (filename or "").lower().endswith(".csv")
+    header, data_rows = _rows_from_csv(file_bytes) if is_csv else _rows_from_xlsx(file_bytes)
+
     col_index = {name: i for i, name in enumerate(header) if name}
     missing = [c for c in REQUIRED_COLUMNS if c not in col_index]
     if missing:
@@ -84,12 +116,15 @@ def parse_registration_sheet(file_bytes: bytes) -> list[dict]:
         )
 
     rows = []
-    for row_idx in range(2, sheet.max_row + 1):
-        cells = sheet[row_idx]
-        if all(c.value is None for c in cells):
+    for offset, cells in enumerate(data_rows):
+        row_number = offset + 2
+        if all(c is None or str(c).strip() == "" for c in cells):
             continue
-        row = {name: cells[idx].value for name, idx in col_index.items()}
-        rows.append({"row_number": row_idx, "raw": row})
+        # CSV rows can be shorter than the header (a trailing blank cell is
+        # just omitted by whatever exported it) — cells past the end read
+        # as None rather than indexing off the end of the row.
+        row = {name: (cells[idx] if idx < len(cells) else None) for name, idx in col_index.items()}
+        rows.append({"row_number": row_number, "raw": row})
     return rows
 
 

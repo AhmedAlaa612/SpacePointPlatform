@@ -140,3 +140,31 @@ async def test_import_accepts_the_ops_selection_tracker_headers(db):
     assert summarize(results) == {"total": 1, "created": 1, "matched": 0, "error": 0}
     teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
     assert {t.name for t in teams} == {"Falcon Eye"}
+
+
+@pytest.mark.asyncio
+async def test_import_accepts_a_csv_export_of_the_same_tracker(db):
+    """The upload widget advertises .csv as well as .xlsx — a Google Sheets
+    "Download as CSV" of the same tracker tab must work identically,
+    BOM and all (Excel/Sheets stamp a UTF-8 BOM on CSV exports)."""
+    cohort = await _make_cohort(db)
+    await db.commit()
+
+    email = f"csvrow-{uuid.uuid4().hex[:6]}@example.com"
+    csv_text = f"Team Name,Student Name,Email,Phone,School / University\r\nFalcon Eye,Amir Salem,{email},0501234567,SABIS\r\n"
+    file_bytes = b"\xef\xbb\xbf" + csv_text.encode("utf-8")  # UTF-8 BOM, as Excel/Sheets stamp it
+
+    rows = parse_registration_sheet(file_bytes, filename="eligible.csv")
+    results = await import_registrations(db, cohort_id=cohort.id, rows=rows)
+    await db.commit()
+
+    assert summarize(results) == {"total": 1, "created": 1, "matched": 0, "error": 0}
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert {t.name for t in teams} == {"Falcon Eye"}
+
+
+def test_parse_rejects_a_non_spreadsheet_file_cleanly():
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        parse_registration_sheet(b"this is plainly not a zip file", filename="roster.xlsx")
+    assert exc_info.value.status_code == 422
