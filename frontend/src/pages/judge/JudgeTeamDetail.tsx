@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, ExternalLink } from "lucide-react"
 import { Link, useParams } from "@tanstack/react-router"
@@ -7,8 +7,6 @@ import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
 
-const AUTOSAVE_DELAY_MS = 1200
-
 function formatSubmittedAt(iso: string | null): string {
   if (!iso) return ""
   return new Date(iso).toLocaleString(undefined, {
@@ -16,12 +14,11 @@ function formatSubmittedAt(iso: string | null): string {
   })
 }
 
-/** A judge may score a team across several separate sessions (operator ask,
- * 2026-08-24) — scores autosave on every change (debounced) instead of
- * requiring one explicit "submit" that could lose an interrupted session's
- * work. `submitMyJudgeScoreApi` already upserts, so autosaving is just
- * calling it more often; the visible status line is what makes that safe
- * to trust instead of a silent background write. */
+/** Nothing is persisted until the judge clicks Submit (2026-08-27 —
+ * opening a team's page was previously enough to autosave a zero-valued
+ * score and mark it "Scored"). `submitMyJudgeScoreApi` upserts, so a judge
+ * can still come back and revise a team across several sessions; the
+ * difference is purely that a visit with no click now writes nothing. */
 export default function JudgeTeamDetail() {
   const { teamId } = useParams({ strict: false }) as { teamId: string }
   const toast = useToast()
@@ -36,12 +33,9 @@ export default function JudgeTeamDetail() {
   const [bonus, setBonus] = useState(0)
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
-  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const hydrated = useRef(false)
 
   useEffect(() => {
     if (!detail) return
-    hydrated.current = false
     if (detail.own_score) {
       setScores(detail.own_score.criterion_scores)
       setBonus(detail.own_score.bonus_points)
@@ -52,8 +46,6 @@ export default function JudgeTeamDetail() {
       setLastSavedAt(null)
     }
     setDirty(false)
-    // Defer to the next tick so the hydration above doesn't itself trigger the autosave effect below.
-    setTimeout(() => { hydrated.current = true })
   }, [detail])
 
   const saveMutation = useMutation({
@@ -65,17 +57,6 @@ export default function JudgeTeamDetail() {
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to save score — results may already be published")),
   })
-
-  // Debounced autosave: any score/bonus change while the rubric is loaded
-  // schedules a save, restarting the timer on every further keystroke.
-  useEffect(() => {
-    if (!hydrated.current || !detail?.rubric) return
-    setDirty(true)
-    if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
-    autosaveTimer.current = setTimeout(() => saveMutation.mutate(), AUTOSAVE_DELAY_MS)
-    return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scores, bonus])
 
   if (isLoading) return <Spinner />
   if (!detail) return <EmptyState title="Team not found" />
@@ -144,7 +125,7 @@ export default function JudgeTeamDetail() {
         ) : (
           <>
             <p className="text-xs text-muted-foreground -mt-1">
-              Scores save automatically as you type — pick this team back up any time, nothing is lost.
+              Nothing is saved until you click Submit — come back and revise it any time before results are published.
             </p>
             {detail.rubric.criteria.map((c) => (
               <div key={c.key} className="flex items-center gap-3">
@@ -152,7 +133,7 @@ export default function JudgeTeamDetail() {
                 <input
                   type="number" min={0} max={c.max_points}
                   value={scores[c.key] ?? 0}
-                  onChange={(e) => setScores((s) => ({ ...s, [c.key]: Number(e.target.value) }))}
+                  onChange={(e) => { setScores((s) => ({ ...s, [c.key]: Number(e.target.value) })); setDirty(true) }}
                   className="w-20 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
                 />
                 <span className="w-16 text-xs text-muted-foreground">/ {c.max_points}</span>
@@ -163,7 +144,7 @@ export default function JudgeTeamDetail() {
               <input
                 type="number" min={0}
                 value={bonus}
-                onChange={(e) => setBonus(Number(e.target.value))}
+                onChange={(e) => { setBonus(Number(e.target.value)); setDirty(true) }}
                 className="w-20 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
               />
               <span className="w-16 text-xs text-muted-foreground" />
@@ -172,11 +153,11 @@ export default function JudgeTeamDetail() {
             <div className="flex items-center justify-between pt-2 border-t border-border">
               <span className="text-sm font-semibold text-foreground">Total: {total}</span>
               <button
-                onClick={() => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current); saveMutation.mutate() }}
+                onClick={() => saveMutation.mutate()}
                 disabled={saveMutation.isPending || !dirty}
                 className="h-10 px-5 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
               >
-                {saveMutation.isPending ? "Saving…" : "Save now"}
+                {saveMutation.isPending ? "Submitting…" : "Submit score"}
               </button>
             </div>
           </>
