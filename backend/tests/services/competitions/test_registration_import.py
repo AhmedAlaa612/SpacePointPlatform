@@ -168,3 +168,30 @@ def test_parse_rejects_a_non_spreadsheet_file_cleanly():
     with pytest.raises(HTTPException) as exc_info:
         parse_registration_sheet(b"this is plainly not a zip file", filename="roster.xlsx")
     assert exc_info.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_import_finds_the_header_past_the_trackers_title_and_stage_rows(db):
+    """Ops's real "Eligible" export (the one that actually broke): a title
+    row, a stage-description row, THEN the header on row 3 — not row 1.
+    Real shape, real columns, straight from the file that failed."""
+    cohort = await _make_cohort(db)
+    await db.commit()
+
+    email = f"ed1-{uuid.uuid4().hex[:6]}@example.com"
+    csv_text = (
+        "Eligible Applicants — Before Qualifier,,,,,,,,,,,,,\r\n"
+        "Stage 2: Confirm eligibility before the qualifier; eligible candidates are sent for NSA approval.,,,,,,,,,,,,,\r\n"
+        "Application ID,Student Name,Email,Phone,School / University,Age / Grade,Emirate,Team Name,Team ID,"
+        "Eligibility Status,Eligibility Check,Eligible?,Reason / Notes,Sent to NSA?\r\n"
+        f"1,ed1,{email},,msa,12,yes,edos,1,,,,,\r\n"
+    )
+    file_bytes = csv_text.encode("utf-8")
+
+    rows = parse_registration_sheet(file_bytes, filename="eligible.csv")
+    results = await import_registrations(db, cohort_id=cohort.id, rows=rows)
+    await db.commit()
+
+    assert summarize(results) == {"total": 1, "created": 1, "matched": 0, "error": 0}
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert {t.name for t in teams} == {"edos"}

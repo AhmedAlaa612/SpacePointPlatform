@@ -69,18 +69,15 @@ def _normalize_header(raw: object) -> str:
     return _HEADER_ALIASES.get(slug, slug)
 
 
-def _rows_from_csv(file_bytes: bytes) -> tuple[list[str], list[list]]:
+def _rows_from_csv(file_bytes: bytes) -> list[list]:
     # utf-8-sig eats the BOM Excel/Sheets stamp on a CSV export — without
     # it the first header cell decodes as "﻿team_name" and silently
     # never matches "team_name", which looks identical to a missing column.
     text = file_bytes.decode("utf-8-sig", errors="replace")
-    rows = list(csv.reader(io.StringIO(text)))
-    if not rows:
-        return [], []
-    return [_normalize_header(c) for c in rows[0]], rows[1:]
+    return list(csv.reader(io.StringIO(text)))
 
 
-def _rows_from_xlsx(file_bytes: bytes) -> tuple[list[str], list[list]]:
+def _rows_from_xlsx(file_bytes: bytes) -> list[list]:
     try:
         wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
     except Exception as exc:
@@ -93,36 +90,51 @@ def _rows_from_xlsx(file_bytes: bytes) -> tuple[list[str], list[list]]:
             detail="Couldn't read this file as an Excel spreadsheet. Upload a real .xlsx, or a .csv export.",
         ) from exc
     sheet = wb.worksheets[0]
-    header = [_normalize_header(c.value) for c in sheet[1]]
-    data_rows = [[c.value for c in sheet[row_idx]] for row_idx in range(2, sheet.max_row + 1)]
-    return header, data_rows
+    return [[c.value for c in sheet[row_idx]] for row_idx in range(1, sheet.max_row + 1)]
+
+
+# Ops's actual tracker sheets ("Eligible", "Final Selection") each open with
+# a title row and a stage-description row before the real header — same
+# "title row / banner row above the header" shape
+# services/sessions/importer.py's general bulk importer already tolerates.
+# 10 rows is generous headroom over the tracker's real 2.
+_MAX_HEADER_SCAN_ROWS = 10
+
+
+def _find_header_row(rows: list[list]) -> tuple[int, dict[str, int]]:
+    """Scans the first `_MAX_HEADER_SCAN_ROWS` rows for one whose normalized
+    cells cover every required column, same idiom as
+    `services/sessions/importer.py::_find_header_row`."""
+    for row_idx, cells in enumerate(rows[:_MAX_HEADER_SCAN_ROWS]):
+        header = [_normalize_header(c) for c in cells]
+        col_index = {name: i for i, name in enumerate(header) if name}
+        if all(c in col_index for c in REQUIRED_COLUMNS):
+            return row_idx, col_index
+    raise HTTPException(
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=f"Couldn't find a header row with all required columns ({', '.join(REQUIRED_COLUMNS)}) "
+               f"in the first {_MAX_HEADER_SCAN_ROWS} rows",
+    )
 
 
 def parse_registration_sheet(file_bytes: bytes, filename: str | None = None) -> list[dict]:
-    """One dict per data row (header on row 1, exactly — ops controls this
-    sheet's format via a shared template, unlike the general bulk importer's
-    tolerance for stray title rows above the header). Accepts .xlsx or
-    .csv — the upload widget advertises both, and ops's tracker gets
-    exported as either depending on how the sheet is downloaded."""
+    """One dict per data row. Tolerates a title row and/or a stage-description
+    row above the real header (scans the first `_MAX_HEADER_SCAN_ROWS` rows
+    for it) — ops's actual tracker sheets open with exactly that shape.
+    Accepts .xlsx or .csv — the upload widget advertises both, and ops's
+    tracker gets exported as either depending on how the sheet is
+    downloaded."""
     is_csv = (filename or "").lower().endswith(".csv")
-    header, data_rows = _rows_from_csv(file_bytes) if is_csv else _rows_from_xlsx(file_bytes)
-
-    col_index = {name: i for i, name in enumerate(header) if name}
-    missing = [c for c in REQUIRED_COLUMNS if c not in col_index]
-    if missing:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Missing required column(s): {', '.join(missing)}",
-        )
+    all_rows = _rows_from_csv(file_bytes) if is_csv else _rows_from_xlsx(file_bytes)
+    header_idx, col_index = _find_header_row(all_rows)
 
     rows = []
-    for offset, cells in enumerate(data_rows):
-        row_number = offset + 2
+    for offset, cells in enumerate(all_rows[header_idx + 1:]):
+        row_number = header_idx + offset + 2  # 1-indexed sheet row number
         if all(c is None or str(c).strip() == "" for c in cells):
             continue
-        # CSV rows can be shorter than the header (a trailing blank cell is
-        # just omitted by whatever exported it) — cells past the end read
-        # as None rather than indexing off the end of the row.
+        # CSV rows (and a ragged xlsx row) can be shorter than the header —
+        # cells past the end read as None rather than indexing off the end.
         row = {name: (cells[idx] if idx < len(cells) else None) for name, idx in col_index.items()}
         rows.append({"row_number": row_number, "raw": row})
     return rows

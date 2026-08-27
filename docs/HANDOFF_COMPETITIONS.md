@@ -207,10 +207,17 @@ that moves a team to the next stage.
 Deliberately lighter than `services/sessions/importer.py`'s general bulk sheet importer: one pass,
 immediately committed, no dry-run/`ImportBatch` two-phase flow, no contact-merge review queue — a
 competition roster is small and already hand-curated by ops before it gets here, so that extra
-machinery buys nothing. `parse_registration_sheet()` reads an Excel/CSV export (header on row 1
-exactly, columns `team_name`/`member_name`/`email`, optional `phone`/`school`; `_HEADER_ALIASES`
-maps ops's actual selection-tracker column labels — "Student Name", "School / University" — onto
-those canonical names, added 2026-08-26 once the real sheet's headers turned out not to match);
+machinery buys nothing. `parse_registration_sheet()` reads an Excel or CSV export — `.csv` handled
+via Python's `csv` module (utf-8-sig, to eat the BOM Excel/Sheets stamp on a CSV export), `.xlsx`
+via openpyxl, chosen by the uploaded filename's extension; a genuinely unreadable file 422s with a
+clear message instead of the raw `zipfile.BadZipFile` 500 that shipped at first. `_find_header_row`
+scans the first 10 rows for one covering every required column (`team_name`/`member_name`/`email`;
+optional `phone`/`school`) — same "tolerate a title/banner row above the header" idiom
+`services/sessions/importer.py` already uses — since ops's real tracker sheets open with a title
+row and a stage-description row before the actual header on row 3. `_HEADER_ALIASES` maps ops's
+actual selection-tracker column labels — "Student Name", "School / University" — onto those
+canonical names. Both gaps (row offset, then header labels, then CSV support) surfaced only once
+testing hit the real exported sheet, added 2026-08-26.
 `import_registrations()` reuses the exact same identity/registration/LMS primitives the desk and
 the general importer already use per row —`resolve_or_create_contact` → `register()` →
 `sync_registration_lms()` (find-or-create the student account, assign the cohort's LMS checklist,
