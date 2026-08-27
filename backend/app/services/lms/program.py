@@ -5,15 +5,19 @@ the override, same role `resolve_cohort_curriculum` used to play; nothing
 else should query `lms_program_items` directly to figure out what a
 specific cohort's students see.
 
-Items are resolved and materialized ONCE, at assignment time
-(`assign_lms_program`) — a later edit to a program's or cohort's checklist
-does not retroactively change an existing assignment, mirroring
-`enroll_in_cohort_curriculum`'s original "no reconciliation on read"
-behavior. A `reconcile`-style fan-out (the `enroll_in_cohort_curriculum`
-precedent has one) is a deliberate v1 gap, not an oversight — there is no
-production data yet to migrate and no cohort has re-registered students
-against a changed checklist; add one the same way P4-2 did if that need
-shows up.
+Items are first materialized at assignment time (`assign_lms_program`),
+but a later edit to a program's or cohort's checklist is not silently
+invisible to students already assigned to it — every item-adding endpoint
+calls `sync_assignment_items`/`sync_program_assignments`/
+`sync_cohort_assignments` (2026-08-27) afterward, which backfills a
+missing progress row (with the same course-enroll/mission-assign side
+effects `assign_lms_program` runs) for anything the cohort's checklist
+currently resolves to that an assignment doesn't have yet. This was a
+deliberate v1 gap ("no production data yet to migrate") until a live
+competition hit it — ops added a checklist step mid-run and already-
+assigned students never saw it. Forking a cohort override
+(`fork_cohort_override`) repoints existing progress onto the fork's new
+item-id copies for the same reason, rather than orphaning it.
 """
 
 from __future__ import annotations
@@ -345,14 +349,48 @@ async def fork_cohort_override(
         copy = LmsProgramItem(
             id=uuid.uuid4(), owner_type="cohort_override", owner_id=override.id, position=item.position,
             item_type=item.item_type, title=item.title, description=item.description,
-            optional=item.optional, requires_confirmation=item.requires_confirmation,
+            optional=item.optional, requires_confirmation=item.requires_confirmation, scope=item.scope,
             course_id=item.course_id, mission_id=item.mission_id, variant_id=item.variant_id,
             external_url=item.external_url, submission_prompt=item.submission_prompt,
         )
         db.add(copy)
         id_map[item.id] = copy.id
     await db.flush()
+    # Every already-assigned student's progress row still points at the
+    # original program item ids — repoint them to this cohort's new
+    # copies in place (same row, same status/submitted_url) so the fork
+    # is invisible to them, rather than leaving their existing progress
+    # orphaned under an id nothing resolves to any more.
+    await _repoint_cohort_progress(db, cohort_id=cohort_id, id_map=id_map)
     return override, id_map
+
+
+async def _repoint_cohort_progress(
+    db: AsyncSession, *, cohort_id: uuid.UUID, id_map: dict[uuid.UUID, uuid.UUID],
+) -> None:
+    if not id_map:
+        return
+    old_ids = list(id_map.keys())
+    assignment_ids = (await db.execute(
+        select(LmsProgramAssignment.id).where(LmsProgramAssignment.cohort_id == cohort_id)
+    )).scalars().all()
+    if assignment_ids:
+        rows = (await db.execute(
+            select(LmsProgramItemProgress).where(
+                LmsProgramItemProgress.assignment_id.in_(assignment_ids),
+                LmsProgramItemProgress.item_id.in_(old_ids),
+            )
+        )).scalars().all()
+        for row in rows:
+            row.item_id = id_map[row.item_id]
+    team_rows = (await db.execute(
+        select(LmsProgramTeamItemProgress)
+        .join(Team, Team.id == LmsProgramTeamItemProgress.team_id)
+        .where(LmsProgramTeamItemProgress.item_id.in_(old_ids), Team.cohort_id == cohort_id)
+    )).scalars().all()
+    for row in team_rows:
+        row.item_id = id_map[row.item_id]
+    await db.flush()
 
 
 async def resolve_cohort_program_course_ids(db: AsyncSession, cohort_id: uuid.UUID) -> list[uuid.UUID]:
@@ -439,6 +477,71 @@ async def assign_lms_program(
 
     await db.flush()
     return assignment
+
+
+async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssignment) -> int:
+    """Backfill — creates a progress row for any item the assignment's
+    cohort currently resolves to (via `resolve_cohort_program`, so it
+    automatically respects whichever override wins) that this assignment
+    was never materialized against. The module docstring's "deliberate
+    v1 gap" (adding a checklist item after students are already assigned
+    never reached them) stops being a gap once callers that add items
+    run this afterward — a no-op once every current item already has a
+    row, so it's safe to call any time, not just right after an add."""
+    if assignment.cohort_id is None:
+        return 0
+    resolved = await resolve_cohort_program(db, assignment.cohort_id)
+    if resolved is None:
+        return 0
+    _program, items = resolved
+    existing_item_ids = set((await db.execute(
+        select(LmsProgramItemProgress.item_id).where(LmsProgramItemProgress.assignment_id == assignment.id)
+    )).scalars().all())
+    missing = [item for item in items if item.id not in existing_item_ids]
+    if not missing:
+        return 0
+    cohort = await db.get(Cohort, assignment.cohort_id)
+    for item in missing:
+        progress = LmsProgramItemProgress(id=uuid.uuid4(), assignment_id=assignment.id, item_id=item.id)
+        if item.item_type == "course" and item.course_id:
+            await enroll(
+                db, user_id=assignment.user_id, course_id=item.course_id, source="registration",
+                program_id=cohort.program_id if cohort else None, registration_id=assignment.registration_id,
+            )
+        elif item.item_type == "mission_run" and item.mission_id:
+            attempt = await assign_mission_run(
+                db, mission_id=item.mission_id, user_id=assignment.user_id,
+                cohort_id=assignment.cohort_id, variant_id=item.variant_id,
+            )
+            progress.mission_attempt_id = attempt.id
+        db.add(progress)
+    await db.flush()
+    return len(missing)
+
+
+async def sync_program_assignments(db: AsyncSession, *, lms_program_id: uuid.UUID) -> int:
+    """Backfill every existing assignment against this program — call
+    after adding an item on the program's own checklist. Safe to call
+    broadly: a cohort whose own override currently wins just no-ops."""
+    assignments = (await db.execute(
+        select(LmsProgramAssignment).where(LmsProgramAssignment.lms_program_id == lms_program_id)
+    )).scalars().all()
+    total = 0
+    for assignment in assignments:
+        total += await sync_assignment_items(db, assignment=assignment)
+    return total
+
+
+async def sync_cohort_assignments(db: AsyncSession, *, cohort_id: uuid.UUID) -> int:
+    """Backfill every existing assignment in this one cohort — call after
+    adding an item on a cohort's own override."""
+    assignments = (await db.execute(
+        select(LmsProgramAssignment).where(LmsProgramAssignment.cohort_id == cohort_id)
+    )).scalars().all()
+    total = 0
+    for assignment in assignments:
+        total += await sync_assignment_items(db, assignment=assignment)
+    return total
 
 
 async def _course_item_done(db: AsyncSession, *, user_id: uuid.UUID, course_id: uuid.UUID) -> bool:
@@ -538,9 +641,10 @@ async def _assignment_items_and_progress(
     db: AsyncSession, assignment_id: uuid.UUID,
 ) -> list[tuple[LmsProgramItem, LmsProgramItemProgress]]:
     """The assignment's own materialized item set, resolved via its
-    progress rows rather than re-resolving `resolve_cohort_program` —
-    a later checklist edit must not retroactively change an existing
-    assignment (see module docstring)."""
+    progress rows rather than re-resolving `resolve_cohort_program` on
+    every read — `sync_assignment_items` (see module docstring) is what
+    keeps those progress rows caught up with a later checklist edit,
+    not this function re-deriving them live."""
     progress_rows = (await db.execute(
         select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == assignment_id)
     )).scalars().all()

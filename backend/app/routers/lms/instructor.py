@@ -43,7 +43,7 @@ from app.services.lms.my_programs import my_programs
 from app.services.lms.program import (
     assignment_item_detail, check_item_conflicts, cohort_program_roster, confirm_program_item,
     effective_cohort_program_items, fork_cohort_override, item_out, items_out, next_position, program_roster,
-    validate_item_payload, validate_item_refs,
+    sync_cohort_assignments, validate_item_payload, validate_item_refs,
 )
 from app.services.missions.cohort_access import instructor_cohort_ids, require_cohort_access
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
@@ -193,6 +193,8 @@ async def add_cohort_override_item(
         **body.model_dump(exclude={"position"}),
     )
     db.add(item)
+    await db.flush()
+    await sync_cohort_assignments(db, cohort_id=cohort_id)
     await db.commit()
     await db.refresh(item)
     return await item_out(db, item)

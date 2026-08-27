@@ -387,6 +387,11 @@ export const deleteCohortOverrideItemApi = (cohortId: string, itemId: string) =>
   api.delete<void>(`/lms/admin/cohorts/${cohortId}/program-override/items/${itemId}`).then((r) => r.data);
 export const reorderCohortOverrideItemsApi = (cohortId: string, itemIds: string[]) =>
   api.post<LmsProgramItem[]>(`/lms/admin/cohorts/${cohortId}/program-override/items/reorder`, { item_ids: itemIds }).then((r) => r.data);
+/** One-off catch-up for a cohort edited before 2026-08-27 — every add now
+ * backfills already-assigned students automatically, but this fixes
+ * cohorts a checklist step was added to before that shipped. */
+export const resyncCohortProgramAssignmentsApi = (cohortId: string) =>
+  api.post<{ items_added: number }>(`/lms/admin/cohorts/${cohortId}/program-override/resync`).then((r) => r.data);
 
 // Instructor mirrors (2026-08-23, fixes a real 403 — instructors had no way
 // to even read their own cohort's checklist). Same shape, cohort-scoped;
