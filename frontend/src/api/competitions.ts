@@ -29,6 +29,12 @@ export interface CompetitionScore {
   submitted: boolean
 }
 
+export interface CompetitionJudgeScore {
+  judge_user_id: string
+  judge_name: string
+  total_points: number
+}
+
 export interface CompetitionLeaderboardRow {
   rank: number
   team_id: string
@@ -36,6 +42,7 @@ export interface CompetitionLeaderboardRow {
   score: number | null
   judges_scored: number
   status: "scored" | "unscored"
+  judge_scores: CompetitionJudgeScore[]
 }
 
 export interface CompetitionJudge {

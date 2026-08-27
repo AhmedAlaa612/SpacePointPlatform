@@ -88,6 +88,12 @@ class CompetitionScoreOut(BaseModel):
     submitted: bool = False
 
 
+class CompetitionJudgeScoreOut(BaseModel):
+    judge_user_id: UUID
+    judge_name: str
+    total_points: int
+
+
 class CompetitionLeaderboardRowOut(BaseModel):
     rank: int
     team_id: UUID
@@ -95,6 +101,7 @@ class CompetitionLeaderboardRowOut(BaseModel):
     score: float | None = None
     judges_scored: int
     status: str  # scored|unscored
+    judge_scores: list[CompetitionJudgeScoreOut] = []
 
 
 class CompetitionJudgeOut(BaseModel):

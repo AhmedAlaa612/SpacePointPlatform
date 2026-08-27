@@ -378,6 +378,13 @@ async def test_leaderboard_averages_across_judges_and_ranks_unscored_last(db, cl
     assert scored_row["judges_scored"] == 2
     assert scored_row["rank"] == 1
 
+    # Ops needs to see who scored what, not just the blended average.
+    by_judge = {js["judge_user_id"]: js["total_points"] for js in scored_row["judge_scores"]}
+    assert by_judge == {str(judge.id): 50, str(judge_two.id): 40}
+
+    unscored_row = next(r for r in rows if r["team_id"] == str(unscored_team.id))
+    assert unscored_row["judge_scores"] == []
+
     unscored_row = next(r for r in rows if r["team_id"] == str(unscored_team.id))
     assert unscored_row["status"] == "unscored"
     assert unscored_row["rank"] == 2

@@ -200,14 +200,29 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     """Every team in this cohort, ranked by the average of every judge's
     `total_points` — `None` (last, `status="unscored"`) for a team no judge
     has scored yet. Only counts `submitted=True` rows, so a judge's
-    in-progress autosaved draft never moves the standings."""
+    in-progress autosaved draft never moves the standings. Carries each
+    individual judge's own score too (`judge_scores`) — ops reviewing a
+    result needs to see who scored what, not just the blended average a
+    judge themselves is blind to (see the model's own blindness note)."""
     teams = (await db.execute(select(Team).where(Team.cohort_id == cohort_id))).scalars().all()
-    rows = (await db.execute(
+    agg_rows = (await db.execute(
         select(CompetitionScore.team_id, func.avg(CompetitionScore.total_points), func.count(CompetitionScore.id))
         .where(CompetitionScore.cohort_id == cohort_id, CompetitionScore.submitted.is_(True))
         .group_by(CompetitionScore.team_id)
     )).all()
-    by_team = {team_id: (float(avg), count) for team_id, avg, count in rows}
+    by_team = {team_id: (float(avg), count) for team_id, avg, count in agg_rows}
+
+    score_rows = (await db.execute(
+        select(CompetitionScore.team_id, CompetitionScore.judge_user_id, CompetitionScore.total_points, User.full_name)
+        .join(User, User.id == CompetitionScore.judge_user_id)
+        .where(CompetitionScore.cohort_id == cohort_id, CompetitionScore.submitted.is_(True))
+        .order_by(User.full_name)
+    )).all()
+    judge_scores_by_team: dict[uuid.UUID, list[dict]] = {}
+    for team_id, judge_user_id, total_points, judge_name in score_rows:
+        judge_scores_by_team.setdefault(team_id, []).append({
+            "judge_user_id": judge_user_id, "judge_name": judge_name, "total_points": total_points,
+        })
 
     out = []
     for team in teams:
@@ -217,6 +232,7 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
             "score": round(avg, 1) if avg is not None else None,
             "judges_scored": count,
             "status": "unscored" if count == 0 else "scored",
+            "judge_scores": judge_scores_by_team.get(team.id, []),
         })
     out.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0)))
     for i, row in enumerate(out, start=1):

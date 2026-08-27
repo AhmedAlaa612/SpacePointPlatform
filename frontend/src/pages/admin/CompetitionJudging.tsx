@@ -723,25 +723,41 @@ function LeaderboardTable({ rows, selected, onToggle }: {
             {onToggle && <th className="py-2 pr-3 w-8" />}
             <th className="py-2 pr-3">Rank</th>
             <th className="py-2 pr-3">Team</th>
-            <th className="py-2 pr-3">Score</th>
-            <th className="py-2 pr-3">Judges scored</th>
+            <th className="py-2 pr-3">Avg. score</th>
+            <th className="py-2 pr-3">Per judge</th>
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
             <tr key={r.team_id} className="border-b border-border/50">
               {onToggle && (
-                <td className="py-2 pr-3">
+                <td className="py-2 pr-3 align-top">
                   <input
                     type="checkbox" checked={selected?.has(r.team_id) ?? false}
                     onChange={() => onToggle(r.team_id)}
                   />
                 </td>
               )}
-              <td className="py-2 pr-3 font-semibold tabular-nums">{r.rank}</td>
-              <td className="py-2 pr-3 text-foreground">{r.team_name}</td>
-              <td className="py-2 pr-3 tabular-nums">{r.score ?? "—"}</td>
-              <td className="py-2 pr-3 text-muted-foreground">{r.judges_scored}</td>
+              <td className="py-2 pr-3 font-semibold tabular-nums align-top">{r.rank}</td>
+              <td className="py-2 pr-3 text-foreground align-top">{r.team_name}</td>
+              <td className="py-2 pr-3 tabular-nums align-top">{r.score ?? "—"}</td>
+              <td className="py-2 pr-3">
+                {r.judge_scores.length === 0 ? (
+                  <span className="text-muted-foreground">Not scored yet</span>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {r.judge_scores.map((js) => (
+                      <span
+                        key={js.judge_user_id}
+                        className="inline-flex items-center gap-1 text-xs bg-muted/60 rounded-full px-2 py-0.5 whitespace-nowrap"
+                      >
+                        <span className="text-muted-foreground">{js.judge_name}</span>
+                        <span className="font-semibold tabular-nums">{js.total_points}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
