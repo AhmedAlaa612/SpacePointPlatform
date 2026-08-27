@@ -102,6 +102,10 @@ class CompetitionLeaderboardRowOut(BaseModel):
     judges_scored: int
     status: str  # scored|unscored
     judge_scores: list[CompetitionJudgeScoreOut] = []
+    # Inferred by name-match against a later-created sibling cohort under
+    # the same program — see leaderboard()'s own docstring. None = not
+    # advanced (yet), otherwise the sibling cohort name(s) it advanced to.
+    advanced_to: str | None = None
 
 
 class CompetitionJudgeOut(BaseModel):

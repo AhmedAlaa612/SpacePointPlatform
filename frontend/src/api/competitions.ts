@@ -43,6 +43,9 @@ export interface CompetitionLeaderboardRow {
   judges_scored: number
   status: "scored" | "unscored"
   judge_scores: CompetitionJudgeScore[]
+  /** Sibling cohort(s) under the same program with a same-named team —
+   * inferred, not stored; null means not advanced (yet). */
+  advanced_to: string | null
 }
 
 export interface CompetitionJudge {

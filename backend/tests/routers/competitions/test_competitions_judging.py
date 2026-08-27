@@ -450,6 +450,17 @@ async def test_advance_teams_via_http_moves_a_team_to_the_target_cohort(db, clie
     )).scalars().first()
     assert moved_team is not None
 
+    # The Results tab needs to show this team already advanced — there's
+    # no stored flag for it, so it's inferred from the same-named team
+    # advance_teams itself just created in the sibling cohort.
+    board = await client.get(f"/competitions/admin/cohorts/{qualifier.id}/leaderboard", headers=_headers(ops))
+    row = next(r for r in board.json() if r["team_id"] == str(team.id))
+    assert row["advanced_to"] == "Finalists"
+
+    unadvanced_board = await client.get(f"/competitions/admin/cohorts/{finalists.id}/leaderboard", headers=_headers(ops))
+    finalist_row = next(r for r in unadvanced_board.json() if r["team_id"] == str(moved_team.id))
+    assert finalist_row["advanced_to"] is None  # nothing advances further from the last stage
+
 
 @pytest.mark.asyncio
 async def test_publishing_closes_scoring_and_unpublish_reopens_it(db, client):

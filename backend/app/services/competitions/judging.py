@@ -20,6 +20,7 @@ from app.models.competitions.judging import (
     CompetitionJudge, CompetitionResultPublication, CompetitionRubric, CompetitionRubricCriterion,
     CompetitionScore,
 )
+from app.models.sessions.cohort import Cohort
 from app.models.team import Team
 from app.models.user import User
 
@@ -203,8 +204,32 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     in-progress autosaved draft never moves the standings. Carries each
     individual judge's own score too (`judge_scores`) — ops reviewing a
     result needs to see who scored what, not just the blended average a
-    judge themselves is blind to (see the model's own blindness note)."""
+    judge themselves is blind to (see the model's own blindness note).
+    Also carries `advanced_to` — there's no stored "this team advanced"
+    flag (`advance_teams` is itself just idempotent re-resolution by
+    name), so this is inferred for display: a same-named team in a
+    sibling cohort under the same program, created *after* this one
+    (`created_at`, a proxy for which stage is later since there's no
+    explicit phase-order field) — so a Finalists team doesn't turn
+    around and read as having "advanced to" its own Qualifier stage."""
     teams = (await db.execute(select(Team).where(Team.cohort_id == cohort_id))).scalars().all()
+
+    cohort = await db.get(Cohort, cohort_id)
+    advanced_to_by_name: dict[str, list[str]] = {}
+    if cohort is not None:
+        siblings = (await db.execute(
+            select(Cohort).where(
+                Cohort.program_id == cohort.program_id, Cohort.id != cohort_id,
+                Cohort.created_at > cohort.created_at,
+            )
+        )).scalars().all()
+        if siblings:
+            sibling_names = {c.id: c.name for c in siblings}
+            sibling_teams = (await db.execute(
+                select(Team.cohort_id, Team.name).where(Team.cohort_id.in_(sibling_names))
+            )).all()
+            for sib_cohort_id, name in sibling_teams:
+                advanced_to_by_name.setdefault(name, []).append(sibling_names[sib_cohort_id])
     agg_rows = (await db.execute(
         select(CompetitionScore.team_id, func.avg(CompetitionScore.total_points), func.count(CompetitionScore.id))
         .where(CompetitionScore.cohort_id == cohort_id, CompetitionScore.submitted.is_(True))
@@ -233,6 +258,7 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
             "judges_scored": count,
             "status": "unscored" if count == 0 else "scored",
             "judge_scores": judge_scores_by_team.get(team.id, []),
+            "advanced_to": ", ".join(advanced_to_by_name.get(team.name, [])) or None,
         })
     out.sort(key=lambda r: (r["score"] is None, -(r["score"] or 0)))
     for i, row in enumerate(out, start=1):

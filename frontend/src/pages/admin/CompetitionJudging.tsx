@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
 import { searchStaffApi, type StaffOption } from "@/api/lms_admin"
@@ -739,7 +739,19 @@ function LeaderboardTable({ rows, selected, onToggle }: {
                 </td>
               )}
               <td className="py-2 pr-3 font-semibold tabular-nums align-top">{r.rank}</td>
-              <td className="py-2 pr-3 text-foreground align-top">{r.team_name}</td>
+              <td className="py-2 pr-3 text-foreground align-top">
+                <div className="flex items-center gap-1.5">
+                  {r.team_name}
+                  {r.advanced_to && (
+                    <span
+                      title={`Advanced to ${r.advanced_to}`}
+                      className="inline-flex items-center gap-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded-full px-1.5 py-0.5 whitespace-nowrap"
+                    >
+                      <ArrowUpRight size={10} /> Advanced
+                    </span>
+                  )}
+                </div>
+              </td>
               <td className="py-2 pr-3 tabular-nums align-top">{r.score ?? "—"}</td>
               <td className="py-2 pr-3">
                 {r.judge_scores.length === 0 ? (
