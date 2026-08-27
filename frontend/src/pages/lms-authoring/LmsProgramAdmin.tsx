@@ -19,7 +19,7 @@ import {
   getCohortProgramOverrideInstructorApi, addCohortOverrideItemInstructorApi,
   updateCohortOverrideItemInstructorApi, deleteCohortOverrideItemInstructorApi,
   getMyReachableProgramsApi, getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi,
-  getAssignmentItemsApi,
+  getAssignmentItemsApi, resyncCohortProgramAssignmentsApi,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType,
   type LmsProgramRosterRow, type LmsAssignmentItemDetail,
 } from "@/api/lms_admin"
@@ -32,6 +32,8 @@ import {
 import { fetchMissionCatalog } from "@/api/missions"
 import type { Program } from "@/types/sessions"
 import type { ManagedAttempt } from "@/api/missions_manager"
+import { ensureAbsoluteUrl } from "@/lib/utils"
+import { useToast } from "@/components/ui/toast"
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -296,12 +298,21 @@ function ProgramTemplateEditor({
 
 function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: string; isStaff: boolean; readOnly: boolean }) {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const { data: override, isLoading } = useQuery({
     queryKey: ["lms-cohort-override", cohortId],
     queryFn: () => (isStaff ? getCohortProgramOverrideApi(cohortId) : getCohortProgramOverrideInstructorApi(cohortId)),
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-cohort-override", cohortId] })
+
+  const resyncMutation = useMutation({
+    mutationFn: () => resyncCohortProgramAssignmentsApi(cohortId),
+    onSuccess: (r) => toast.success(
+      r.items_added === 0 ? "Every assigned student is already caught up." : `Caught up ${r.items_added} missing checklist item${r.items_added === 1 ? "" : "s"} for already-assigned students.`,
+    ),
+    onError: () => toast.error("Couldn't resync students — try again."),
+  })
 
   if (isLoading) return <Spinner />
   if (!override) return <EmptyState title="This cohort's program has no checklist yet" />
@@ -311,6 +322,20 @@ function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: strin
       {override.is_inherited && (
         <div className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-xl px-3 py-2">
           Showing the program's own checklist — {readOnly ? "nothing has been overridden for this cohort yet." : "edit anything below to start this cohort's own override."}
+        </div>
+      )}
+      {isStaff && !readOnly && (
+        <div className="flex items-center justify-between gap-3 text-xs bg-muted/30 border border-border rounded-xl px-3 py-2">
+          <span className="text-muted-foreground">
+            Added a step and an already-assigned student isn't seeing it? New items backfill automatically now — this catches up anything added before that.
+          </span>
+          <button
+            onClick={() => resyncMutation.mutate()}
+            disabled={resyncMutation.isPending}
+            className="shrink-0 h-7 px-3 rounded-full border border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {resyncMutation.isPending ? "Resyncing…" : "Resync students"}
+          </button>
         </div>
       )}
       <ChecklistItemsEditor
@@ -1006,7 +1031,7 @@ function ProgressRow({
               <span className="flex-1 text-foreground truncate">{item.title}</span>
               <span className="text-muted-foreground shrink-0">{item.status.replace("_", " ")}</span>
               {item.submitted_url && (
-                <a href={item.submitted_url} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
+                <a href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
                   submission
                 </a>
               )}

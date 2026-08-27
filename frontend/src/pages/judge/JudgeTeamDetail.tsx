@@ -5,7 +5,7 @@ import { Link, useParams } from "@tanstack/react-router"
 import { getMyJudgeTeamApi, submitMyJudgeScoreApi } from "@/api/competitions"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 import { useToast } from "@/components/ui/toast"
-import { getErrorMessage } from "@/lib/utils"
+import { ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 
 const AUTOSAVE_DELAY_MS = 1200
 
@@ -122,7 +122,7 @@ export default function JudgeTeamDetail() {
                 </div>
                 {s.submitted_url ? (
                   <a
-                    href={s.submitted_url} target="_blank" rel="noreferrer"
+                    href={ensureAbsoluteUrl(s.submitted_url)} target="_blank" rel="noreferrer"
                     className="flex items-center gap-1 text-xs font-medium text-primary hover:opacity-80"
                   >
                     Open <ExternalLink size={12} />

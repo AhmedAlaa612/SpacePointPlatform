@@ -14,6 +14,7 @@ import { isAxiosError } from "axios";
 import { Image as ImageIcon, X } from "lucide-react";
 import type { DesignState } from "@/api/missionsDesign";
 import { updateDesign } from "@/api/missionsDesign";
+import { ensureAbsoluteUrl } from "@/lib/utils";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err)) {
@@ -95,7 +96,7 @@ export default function PosterTab({ state, attemptId, onSaved }: {
               <div className="flex flex-col gap-2.5 p-4 rounded-2xl bg-muted/30 border border-border/60">
                 <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Template</p>
                 <a
-                  href={state.poster_template_url}
+                  href={ensureAbsoluteUrl(state.poster_template_url)}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline underline-offset-4"

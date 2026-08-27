@@ -6,7 +6,7 @@ import {
   Rocket, Upload, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, ensureAbsoluteUrl } from "@/lib/utils";
 import {
   fetchChecklist, completeChecklistItem, submitChecklistItem,
   type LmsProgramChecklistItem, type LmsProgramItemType,
@@ -186,12 +186,12 @@ function ChecklistItemRow({
         {item.description && <p className="text-sm text-muted-foreground max-w-lg">{item.description}</p>}
 
         {item.item_type === "external_link" && item.external_url && (
-          <a href={item.external_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-sm text-primary hover:underline w-fit flex items-center gap-1">
+          <a href={ensureAbsoluteUrl(item.external_url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-sm text-primary hover:underline w-fit flex items-center gap-1">
             {item.external_url} <ExternalLink className="size-3" />
           </a>
         )}
         {item.item_type === "article" && item.external_url && (
-          <a href={item.external_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-sm text-primary hover:underline w-fit flex items-center gap-1">
+          <a href={ensureAbsoluteUrl(item.external_url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-sm text-primary hover:underline w-fit flex items-center gap-1">
             Read the article <ExternalLink className="size-3" />
           </a>
         )}
@@ -209,7 +209,7 @@ function ChecklistItemRow({
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-lg px-2.5 py-1.5">
                 <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
                 <a
-                  href={item.submitted_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                  href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
                   className="text-primary hover:underline truncate"
                 >
                   {item.submitted_url}
