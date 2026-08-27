@@ -47,6 +47,11 @@ const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookO
   { value: "manual", label: "Manual check-off", icon: ClipboardCheck },
 ]
 
+// Mirrors the server-side rule in services/lms/program.py: only a
+// link-only deliverable (nothing auto-tracked like course/mission_run)
+// can be shared as one team-wide submission.
+const TEAM_SCOPABLE_TYPES = new Set<LmsProgramItemType>(["submission", "external_link", "manual"])
+
 type Scope = "program" | { cohortId: string; cohortName: string }
 type SubTab = "checklist" | "missions" | "progress" | "review"
 const SUBTAB_LABEL: Record<SubTab, string> = {
@@ -446,6 +451,7 @@ function ItemRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-sm font-medium truncate">{item.title}</span>
+          {item.scope === "team" && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">team</span>}
           {item.optional && <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">optional</span>}
           {item.requires_confirmation && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 rounded px-1.5 py-0.5">needs confirmation</span>}
         </div>
@@ -480,6 +486,7 @@ function ItemForm({
   const [description, setDescription] = useState(initial?.description ?? "")
   const [optional, setOptional] = useState(initial?.optional ?? false)
   const [requiresConfirmation, setRequiresConfirmation] = useState(initial?.requires_confirmation ?? false)
+  const [teamScoped, setTeamScoped] = useState(initial?.scope === "team")
   const [courseId, setCourseId] = useState(initial?.course_id ?? "")
   const [missionId, setMissionId] = useState(initial?.mission_id ?? "")
   const [variantId, setVariantId] = useState(initial?.variant_id ?? "")
@@ -508,6 +515,7 @@ function ItemForm({
         description: description.trim() || null,
         optional,
         requires_confirmation: requiresConfirmation,
+        scope: TEAM_SCOPABLE_TYPES.has(itemType) && teamScoped ? "team" : "individual",
         course_id: itemType === "course" ? courseId : null,
         mission_id: itemType === "mission_run" ? missionId : null,
         variant_id: itemType === "mission_run" ? (variantId || null) : null,
@@ -572,7 +580,7 @@ function ItemForm({
         </>
       )}
 
-      <div className="flex items-center gap-4 pt-1">
+      <div className="flex items-center gap-4 pt-1 flex-wrap">
         <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
           <input type="checkbox" checked={optional} onChange={(e) => setOptional(e.target.checked)} />
           Optional
@@ -581,6 +589,12 @@ function ItemForm({
           <input type="checkbox" checked={requiresConfirmation} onChange={(e) => setRequiresConfirmation(e.target.checked)} />
           Needs instructor/ops confirmation
         </label>
+        {TEAM_SCOPABLE_TYPES.has(itemType) && (
+          <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
+            <input type="checkbox" checked={teamScoped} onChange={(e) => setTeamScoped(e.target.checked)} />
+            Shared with the whole team (one submission per team)
+          </label>
+        )}
       </div>
 
       {error && <p className="text-xs text-red-500">{error}</p>}
