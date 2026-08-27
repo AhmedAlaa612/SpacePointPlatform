@@ -549,6 +549,7 @@ export interface LmsProgramChecklist {
   description: string | null;
   cohort_id: string | null;
   cohort_name: string | null;
+  team_name: string | null;
   certificate_required: boolean;
   certificate_earned: boolean;
   items: LmsProgramChecklistItem[];

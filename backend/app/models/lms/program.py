@@ -194,6 +194,10 @@ class LmsProgramItemProgress(Base):
     # What the student pasted back for a `submission`-type item — same
     # shape as the Poster tab's link-paste-back flow.
     submitted_url = Column(String(512), nullable=True)
+    # When submitted_url (or status) last changed. No updated_by column —
+    # unlike the team table below, an individual row only ever has one
+    # possible author: the assignment's own user.
+    updated_at = Column(DateTime(timezone=True), nullable=True)
 
 
 class LmsProgramTeamItemProgress(Base):

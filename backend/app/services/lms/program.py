@@ -645,6 +645,12 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
                 select(User.id, User.full_name).where(User.id.in_(updater_ids))
             )).all())
 
+    # Individual-row updates have one possible author — the student
+    # themselves — so a single lookup covers every such item below,
+    # unlike the per-item `updater_names` batch the team rows needed.
+    student = await db.get(User, user_id)
+    student_name = student.full_name if student else None
+
     items_out = []
     for item, progress in pairs:
         team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
@@ -653,6 +659,12 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             else (await refresh_item_progress(db, progress=progress, item=item, user_id=user_id))
         )
         submitted_url = team_progress.submitted_url if team_progress is not None else progress.submitted_url
+        updated_at = team_progress.updated_at if team_progress is not None else progress.updated_at
+        updated_by_name = (
+            updater_names.get(team_progress.updated_by_user_id)
+            if team_progress is not None and team_progress.updated_by_user_id
+            else (student_name if team_progress is None and progress.updated_at else None)
+        )
         items_out.append({
             "id": item.id, "position": item.position, "item_type": item.item_type,
             "title": item.title, "description": item.description,
@@ -663,14 +675,19 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "external_url": item.external_url, "submission_prompt": item.submission_prompt,
             "submitted_url": submitted_url,
             "scope": item.scope,
-            "updated_by_name": updater_names.get(team_progress.updated_by_user_id) if team_progress and team_progress.updated_by_user_id else None,
-            "updated_at": team_progress.updated_at if team_progress is not None else None,
+            "updated_by_name": updated_by_name,
+            "updated_at": updated_at,
         })
 
     return {
         "assignment_id": assignment.id, "lms_program_id": program.id, "name": program.name,
         "description": program.description, "cohort_id": assignment.cohort_id,
         "cohort_name": cohort.name if cohort else None,
+        # Only meaningful once any item is team-scoped — resolved from the
+        # same `team` lookup above rather than a second query. A student
+        # with no team yet (or a program with no team-scoped items at all)
+        # gets None, same as cohort_name for a program with no cohort.
+        "team_name": team.name if team is not None else None,
         "certificate_required": program.certificate_required,
         "certificate_earned": await _certificate_earned(db, assignment.registration_id),
         "items": items_out,

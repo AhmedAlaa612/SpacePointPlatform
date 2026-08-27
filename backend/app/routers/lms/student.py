@@ -500,6 +500,10 @@ async def _checklist_item_out(
     if is_team and target.updated_by_user_id:
         updater = await db.get(User, target.updated_by_user_id)
         updated_by_name = updater.full_name if updater else None
+    elif not is_team:
+        assignment = await db.get(LmsProgramAssignment, target.assignment_id)
+        submitter = await db.get(User, assignment.user_id) if assignment else None
+        updated_by_name = submitter.full_name if submitter else None
     return LmsProgramChecklistItemOut(
         id=item.id, position=item.position, item_type=item.item_type, title=item.title,
         description=item.description, optional=item.optional, requires_confirmation=item.requires_confirmation,
@@ -508,7 +512,7 @@ async def _checklist_item_out(
         external_url=item.external_url, submission_prompt=item.submission_prompt,
         submitted_url=target.submitted_url,
         scope=item.scope, updated_by_name=updated_by_name,
-        updated_at=target.updated_at if is_team else None,
+        updated_at=target.updated_at,
     )
 
 
@@ -536,7 +540,7 @@ async def complete_program_item(
         target.completed_at = datetime.now(timezone.utc)
     if isinstance(target, LmsProgramTeamItemProgress):
         target.updated_by_user_id = current.id
-        target.updated_at = datetime.now(timezone.utc)
+    target.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(target)
     return await _checklist_item_out(db, item=item, target=target)
@@ -561,7 +565,7 @@ async def submit_program_item(
     target.submitted_url = body.url
     if isinstance(target, LmsProgramTeamItemProgress):
         target.updated_by_user_id = current.id
-        target.updated_at = datetime.now(timezone.utc)
+    target.updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(target)
     return await _checklist_item_out(db, item=item, target=target)

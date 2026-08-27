@@ -5,6 +5,7 @@ import { ArrowLeft, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
 import { searchStaffApi, type StaffOption } from "@/api/lms_admin"
+import { UserProfileModal } from "@/components/UserProfileModal"
 import {
   advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, getCohortExportTop20Api,
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
@@ -221,6 +222,7 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
   const [adding, setAdding] = useState(false)
   const [memberName, setMemberName] = useState("")
   const [memberEmail, setMemberEmail] = useState("")
+  const [profileUserId, setProfileUserId] = useState<string | null>(null)
 
   const renameMutation = useMutation({
     mutationFn: () => renameTeamApi(team.id, name.trim()),
@@ -292,7 +294,12 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
         {team.member_names.map((memberFullName, i) => (
           <div key={team.member_ids[i]} className="flex items-center justify-between text-sm">
             <div>
-              <span className="text-foreground">{memberFullName}</span>
+              <button
+                onClick={() => setProfileUserId(team.member_ids[i])}
+                className="text-foreground hover:text-primary hover:underline transition-colors"
+              >
+                {memberFullName}
+              </button>
               <span className="text-muted-foreground text-xs ml-2">{team.member_emails[i]}</span>
             </div>
             <button
@@ -342,6 +349,9 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
         >
           <UserPlus size={13} /> Add member
         </button>
+      )}
+      {profileUserId && (
+        <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />
       )}
     </div>
   )

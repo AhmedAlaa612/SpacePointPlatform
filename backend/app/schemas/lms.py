@@ -471,6 +471,10 @@ class LmsProgramChecklistOut(BaseModel):
     description: str | None = None
     cohort_id: UUID | None = None
     cohort_name: str | None = None
+    # Competition domain — the student's own team in this cohort, if any
+    # (resolved once for the whole checklist, not per item). None when
+    # they have no team yet or the program has no team-scoped items.
+    team_name: str | None = None
     certificate_required: bool
     certificate_earned: bool
     items: list[LmsProgramChecklistItemOut]

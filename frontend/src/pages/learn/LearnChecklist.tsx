@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen, CheckCircle2, ChevronRight, ClipboardCheck, ExternalLink, FileText, Link2,
-  Rocket, Trophy, Upload, Users,
+  Rocket, Upload, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -53,7 +53,6 @@ export default function LearnChecklist() {
   const requiredItems = checklist.items.filter((i) => !i.optional);
   const done = requiredItems.filter((i) => i.status === "done").length;
   const pct = requiredItems.length ? Math.round((100 * done) / requiredItems.length) : 100;
-  const allRequiredDone = requiredItems.length > 0 && done === requiredItems.length;
   const currentItemId = checklist.items.find((i) => !i.optional && i.status !== "done")?.id;
 
   const openItem = (item: LmsProgramChecklistItem) => {
@@ -79,6 +78,11 @@ export default function LearnChecklist() {
             Program{checklist.cohort_name ? ` · ${checklist.cohort_name}` : ""}
           </div>
           <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight leading-none">{checklist.name}</h1>
+          {checklist.team_name && (
+            <div className="flex items-center gap-1.5 text-sm font-medium text-foreground/90">
+              <Users className="size-3.5" /> Team {checklist.team_name}
+            </div>
+          )}
           {checklist.description && <p className="text-sm leading-relaxed text-muted-foreground max-w-lg text-pretty">{checklist.description}</p>}
         </div>
       </div>
@@ -109,26 +113,6 @@ export default function LearnChecklist() {
           ))}
         </div>
 
-        <div className="flex items-center gap-5 sm:gap-6">
-          <div className={cn(
-            "w-16 h-16 rounded-full ring-1 flex items-center justify-center shrink-0",
-            checklist.certificate_earned ? "ring-primary bg-primary/10 text-primary" : "ring-primary/35 text-primary",
-          )}>
-            <Trophy className="size-6" />
-          </div>
-          <div className="min-w-0">
-            <div className="font-display text-lg sm:text-xl font-semibold tracking-tight">{checklist.name} certificate</div>
-            <div className="text-sm text-muted-foreground mt-1 max-w-md text-pretty">
-              {!checklist.certificate_required
-                ? "This program doesn't gate a certificate."
-                : checklist.certificate_earned
-                ? "Earned — it's on your profile."
-                : allRequiredDone
-                ? "All required steps are done — your certificate is issued with your cohort's completion."
-                : "Awarded automatically once every required step above is complete."}
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -219,8 +203,8 @@ function ChecklistItemRow({
             {/* Always visible once something's been submitted — done or not —
                 so "which submission actually went through" never has to be
                 guessed at (operator ask, 2026-08-24: teams worried exactly
-                this). Editing stays open after done too: a team-scoped
-                item is meant to be overridable by any teammate at any time. */}
+                this). Editing stays open after done too: every submission
+                item is overridable at any time, individual or team-scoped. */}
             {item.submitted_url && (
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-lg px-2.5 py-1.5">
                 <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
@@ -232,9 +216,9 @@ function ChecklistItemRow({
                 </a>
                 <span className="shrink-0">
                   · Submitted
-                  {item.scope === "team" && item.updated_at &&
+                  {item.updated_at &&
                     ` ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
-                  {item.scope === "team" && item.updated_by_name && ` by ${item.updated_by_name}`}
+                  {item.updated_by_name && ` by ${item.updated_by_name}`}
                 </span>
               </div>
             )}
@@ -251,7 +235,7 @@ function ChecklistItemRow({
                 disabled={!(submitUrl || item.submitted_url) || submitMutation.isPending}
                 onClick={() => { setSubmitting(true); submitMutation.mutate(submitUrl || item.submitted_url || ""); }}
               >
-                {submitMutation.isPending && submitting ? "Saving…" : item.submitted_url ? "Replace link" : "Save link"}
+                {submitMutation.isPending && submitting ? "Submitting…" : item.submitted_url ? "Replace submission" : "Submit"}
               </Button>
             </div>
             {item.submitted_url && item.status !== "done" && item.status !== "awaiting_confirmation" && (
