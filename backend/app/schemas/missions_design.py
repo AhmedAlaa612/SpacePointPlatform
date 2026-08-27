@@ -35,7 +35,13 @@ class DesignLibraryComponentOut(BaseModel):
     key_specs: str | None = None
     image_url: str | None = None
     component_code: str | None = None
+    # `datasheet_url` is only ever populated here when there's no uploaded
+    # file to protect — an external link with nothing we can do about its
+    # download-ability anyway. Once `has_datasheet_file` is true, this stays
+    # None; the frontend calls the datasheet-url endpoint on demand instead
+    # of holding a downloadable link in this list payload.
     datasheet_url: str | None = None
+    has_datasheet_file: bool = False
 
 
 # ── design components (with budget overrides) ────────────────────────────
@@ -462,6 +468,7 @@ class LibraryComponentAdminOut(LibraryComponentBase):
     subsystem: str
     is_active: bool
     image_url: str | None = None
+    has_datasheet_file: bool = False
     updated_at: datetime | None = None
     updated_by_name: str | None = None
     # How many designs have ever added this. Retiring is safe at any count;

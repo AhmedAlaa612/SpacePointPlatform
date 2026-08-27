@@ -22,7 +22,12 @@ export interface DesignLibraryComponent {
   key_specs: string | null;
   image_url: string | null;
   component_code: string | null;
+  /** Only set when there's no uploaded file — an external link (Google
+   *  Drive, a manufacturer's site) with nothing to do about its
+   *  download-ability. When `has_datasheet_file` is true, this is null and
+   *  `getComponentDatasheetUrlApi` resolves the actual URL on demand. */
   datasheet_url: string | null;
+  has_datasheet_file: boolean;
 }
 
 export interface DesignDataEntry {
@@ -292,6 +297,14 @@ export async function fetchDesignState(attemptId: string): Promise<DesignState> 
 export async function fetchDesignLibrary(params?: { subsystem?: string; search?: string }): Promise<DesignLibraryComponent[]> {
   const { data } = await api.get<DesignLibraryComponent[]>("/missions/design/library", { params });
   return data;
+}
+
+/** Resolved fresh per view, same posture as the LMS attachment viewer and
+ *  the instructor library's own datasheet fix — never embedded in the list
+ *  above for a hosted PDF. */
+export async function fetchComponentDatasheetUrl(componentId: string): Promise<string> {
+  const { data } = await api.get<{ url: string }>(`/missions/design/library/${componentId}/datasheet-url`);
+  return data.url;
 }
 
 export async function updateDesign(attemptId: string, body: Partial<{

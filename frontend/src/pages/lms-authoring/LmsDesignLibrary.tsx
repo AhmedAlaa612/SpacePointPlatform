@@ -24,8 +24,8 @@ import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-  bulkImportLibrary, createLibraryComponent, listLibrary,
-  setLibraryRetired, updateLibraryComponent, uploadLibraryImage, SUBSYSTEMS,
+  bulkImportLibrary, createLibraryComponent, deleteLibraryDatasheet, listLibrary,
+  setLibraryRetired, updateLibraryComponent, uploadLibraryDatasheet, uploadLibraryImage, SUBSYSTEMS,
   type LibraryComponentAdmin, type LibraryComponentInput,
 } from "@/api/missionsLibrary";
 
@@ -77,7 +77,7 @@ const EDITABLE: {
   { key: "temperature_range", label: "Temp range", group: "electrical" },
 
   { key: "assumed_cost_usd", label: "Cost (USD)", group: "sourcing" },
-  { key: "datasheet_url", label: "Datasheet URL", group: "sourcing", wide: true, hint: "Linked from the component card — this is where a student goes to check a number." },
+  { key: "datasheet_url", label: "Datasheet URL (external link only)", group: "sourcing", wide: true, hint: "Only used if there's no uploaded PDF — see \"Upload datasheet\" on the row below. Most of these are Google Drive links or a manufacturer's own site, i.e. files we don't host and can't protect from being downloaded; upload the org's own copy instead wherever you have one." },
   { key: "notes", label: "Notes", group: "sourcing", wide: true },
 ];
 
@@ -153,6 +153,7 @@ export default function LmsDesignLibrary() {
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const datasheetRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // react-query, matching the rest of `/lms-authoring` — and it keeps the
   // fetch out of an effect, which this repo's lint rules disallow.
@@ -195,6 +196,26 @@ export default function LmsDesignLibrary() {
       load();
     } catch (err) {
       setError(errorDetail(err, "Couldn't upload that image."));
+    }
+  };
+
+  const handleDatasheet = async (id: string, file: File) => {
+    setError("");
+    try {
+      await uploadLibraryDatasheet(id, file);
+      load();
+    } catch (err) {
+      setError(errorDetail(err, "Couldn't upload that datasheet."));
+    }
+  };
+
+  const handleRemoveDatasheet = async (id: string) => {
+    setError("");
+    try {
+      await deleteLibraryDatasheet(id);
+      load();
+    } catch (err) {
+      setError(errorDetail(err, "Couldn't remove that datasheet."));
     }
   };
 
@@ -315,6 +336,20 @@ export default function LmsDesignLibrary() {
                     onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImage(row.id, f); e.target.value = ""; }}
                   />
                   <Button size="sm" variant="outline" onClick={() => imageRefs.current[row.id]?.click()}>Upload image</Button>
+                  <input
+                    ref={(el) => { datasheetRefs.current[row.id] = el; }}
+                    type="file" accept="application/pdf" className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleDatasheet(row.id, f); e.target.value = ""; }}
+                  />
+                  {row.has_datasheet_file ? (
+                    <Button size="sm" variant="outline" onClick={() => void handleRemoveDatasheet(row.id)}>
+                      Remove datasheet
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => datasheetRefs.current[row.id]?.click()}>
+                      Upload datasheet
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline"
                     onClick={() => { setEditingId(editingId === row.id ? null : row.id); setCreating(false); }}>
                     {editingId === row.id ? "Close" : "Edit"}

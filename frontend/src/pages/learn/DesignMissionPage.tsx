@@ -5,12 +5,15 @@ import { CheckCircle2, ChevronRight, Rocket, Trash2, XCircle } from "lucide-reac
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PdfViewer } from "@/components/documents/PdfViewer";
 import DesignHandbookDrawer from "@/components/missions/DesignHandbook";
 import PosterTab from "@/components/missions/PosterTab";
 import {
-  addDesignComponent, completeDesign, fetchDesignHandbook, fetchDesignLibrary, fetchDesignState,
-  joinObjectivePrompts, parseObjectivePrompts, removeDesignComponent, saveConops, saveCostBudget,
-  saveDataBudget, saveLinkBudget, saveMassBudget, savePowerBudget, updateDesign, OBJECTIVE_PROMPTS,
+  addDesignComponent, completeDesign, fetchComponentDatasheetUrl, fetchDesignHandbook, fetchDesignLibrary,
+  fetchDesignState, joinObjectivePrompts, parseObjectivePrompts, removeDesignComponent, saveConops,
+  saveCostBudget, saveDataBudget, saveLinkBudget, saveMassBudget, savePowerBudget, updateDesign,
+  OBJECTIVE_PROMPTS,
   type DesignHandbook, type DesignLibraryComponent, type DesignState,
 } from "@/api/missionsDesign";
 
@@ -531,7 +534,9 @@ function LibraryCard({ component: c, onAdd }: { component: DesignLibraryComponen
           )}
           <div className="flex items-center gap-3 pt-1">
             <Button size="sm" onClick={onAdd}>Add to design</Button>
-            {c.datasheet_url && (
+            {c.has_datasheet_file ? (
+              <DatasheetViewerButton componentId={c.id} componentName={c.component_name} />
+            ) : c.datasheet_url && (
               <a
                 href={c.datasheet_url} target="_blank" rel="noreferrer"
                 className="text-[11px] text-primary hover:opacity-80"
@@ -543,6 +548,49 @@ function LibraryCard({ component: c, onAdd }: { component: DesignLibraryComponen
         </div>
       )}
     </div>
+  );
+}
+
+/** The org's own uploaded datasheet — opens in the same no-download viewer
+ *  the LMS attachments and instructor library use, rather than a link.
+ *  `datasheet_url` alone (no upload) stays a plain external link above —
+ *  most of the seeded components still point at a Google Drive share or a
+ *  manufacturer's site, files that aren't ours to protect. */
+function DatasheetViewerButton({ componentId, componentName }: { componentId: string; componentName: string }) {
+  const [open, setOpen] = useState(false);
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  const handleOpen = () => {
+    setOpen(true);
+    if (url || loading) return;
+    setLoading(true);
+    setError(false);
+    fetchComponentDatasheetUrl(componentId)
+      .then(setUrl)
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={handleOpen}
+        className="text-[11px] text-primary hover:opacity-80"
+      >
+        Datasheet ↗
+      </button>
+      <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setUrl(null); setError(false); } }}>
+        <DialogContent className="sm:max-w-3xl max-w-3xl">
+          <DialogHeader><DialogTitle>{componentName}</DialogTitle></DialogHeader>
+          {loading && <p className="text-sm text-muted-foreground py-6">Loading document...</p>}
+          {error && <p className="text-sm text-destructive py-6">Couldn't load this document.</p>}
+          {url && <PdfViewer url={url} />}
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
