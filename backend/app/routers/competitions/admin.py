@@ -209,6 +209,13 @@ async def get_cohort_export_top20(cohort_id: uuid.UUID, db: AsyncSession = Depen
     return [CompetitionLeaderboardRowOut(**row) for row in rows]
 
 
+@router.get("/cohorts/{cohort_id}/publication", response_model=CompetitionPublicationOut)
+async def get_cohort_publication(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await _get_cohort_or_404(db, cohort_id)
+    row = await judging_service.get_publication(db, cohort_id=cohort_id)
+    return CompetitionPublicationOut(published=row is not None, published_at=row.published_at if row else None)
+
+
 @router.post("/cohorts/{cohort_id}/publish", response_model=CompetitionPublicationOut)
 async def post_cohort_publish(
     cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),

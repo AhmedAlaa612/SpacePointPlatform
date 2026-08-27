@@ -96,6 +96,16 @@ async def is_published(db: AsyncSession, *, cohort_id: uuid.UUID) -> bool:
     ) is not None
 
 
+async def get_publication(db: AsyncSession, *, cohort_id: uuid.UUID) -> CompetitionResultPublication | None:
+    """The current publish state on page load — `publish`/`unpublish` only
+    ever return it as a side effect of the action just taken, so the
+    Results tab had no way to show what's actually true before you click
+    anything."""
+    return await db.scalar(
+        select(CompetitionResultPublication).where(CompetitionResultPublication.cohort_id == cohort_id)
+    )
+
+
 async def get_own_score(
     db: AsyncSession, *, rubric_id: uuid.UUID, team_id: uuid.UUID, judge_user_id: uuid.UUID, cohort_id: uuid.UUID,
 ) -> CompetitionScore | None:

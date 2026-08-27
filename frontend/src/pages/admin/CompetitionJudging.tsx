@@ -6,7 +6,8 @@ import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
 import {
   advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, getCohortExportTop20Api,
-  getCohortJudgesApi, getCohortLeaderboardApi, getCohortTeamsApi, getProgramRubricApi, importCohortRegistrationsApi,
+  getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
+  importCohortRegistrationsApi,
   inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi, registerAndAddTeamMemberApi,
   removeTeamMemberApi, renameTeamApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
   type CompetitionImportResult, type CompetitionJudgeProgress, type CompetitionLeaderboardRow,
@@ -547,20 +548,24 @@ function ResultsTab({ cohortId, programId }: { cohortId: string; programId: stri
   })
   const advanceTargets = siblingCohorts.filter((c) => c.id !== cohortId)
 
+  const { data: publication } = useQuery<CompetitionPublication>({
+    queryKey: ["competitions-publication", cohortId],
+    queryFn: () => getCohortPublicationApi(cohortId),
+  })
+  const isPublished = publication?.published ?? false
+
+  const invalidatePublication = () => {
+    queryClient.invalidateQueries({ queryKey: ["competitions-publication", cohortId] })
+    queryClient.invalidateQueries({ queryKey: ["competitions-leaderboard", cohortId] })
+  }
   const publishMutation = useMutation({
     mutationFn: () => publishCohortResultsApi(cohortId),
-    onSuccess: (pub: CompetitionPublication) => {
-      toast.success(pub.published ? "Results published" : "Results updated")
-      queryClient.invalidateQueries({ queryKey: ["competitions-leaderboard", cohortId] })
-    },
+    onSuccess: () => { toast.success("Results published"); invalidatePublication() },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to publish results")),
   })
   const unpublishMutation = useMutation({
     mutationFn: () => unpublishCohortResultsApi(cohortId),
-    onSuccess: () => {
-      toast.success("Results unpublished — judges can score again")
-      queryClient.invalidateQueries({ queryKey: ["competitions-leaderboard", cohortId] })
-    },
+    onSuccess: () => { toast.success("Results unpublished — judges can score again"); invalidatePublication() },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to unpublish results")),
   })
   const advanceMutation = useMutation({
@@ -585,20 +590,29 @@ function ResultsTab({ cohortId, programId }: { cohortId: string; programId: stri
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => publishMutation.mutate()}
-          disabled={publishMutation.isPending}
-          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+      <div className="flex items-center gap-3 flex-wrap">
+        <span
+          className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full ${
+            isPublished ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+          }`}
         >
-          <Trophy size={14} /> Publish results
-        </button>
+          <Trophy size={12} />
+          {isPublished
+            ? `Published${publication?.published_at ? ` · ${new Date(publication.published_at).toLocaleDateString()}` : ""}`
+            : "Not published"}
+        </span>
         <button
-          onClick={() => unpublishMutation.mutate()}
-          disabled={unpublishMutation.isPending}
-          className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+          onClick={() => (isPublished ? unpublishMutation.mutate() : publishMutation.mutate())}
+          disabled={publishMutation.isPending || unpublishMutation.isPending}
+          className={`h-9 px-4 rounded-xl text-sm font-medium transition-colors disabled:opacity-50 ${
+            isPublished
+              ? "border border-border text-foreground hover:bg-muted"
+              : "bg-primary text-primary-foreground hover:opacity-90"
+          }`}
         >
-          Unpublish
+          {publishMutation.isPending || unpublishMutation.isPending
+            ? "Working…"
+            : isPublished ? "Unpublish" : "Publish results"}
         </button>
         <button
           onClick={() => setShowTop20((s) => !s)}
@@ -611,7 +625,7 @@ function ResultsTab({ cohortId, programId }: { cohortId: string; programId: stri
         Publishing closes scoring for every judge on this cohort — unpublish to reopen it.
       </p>
 
-      {advanceTargets.length > 0 && (
+      {advanceTargets.length > 0 ? (
         <div className="flex items-center gap-2 p-3 bg-card border border-border rounded-xl flex-wrap">
           <span className="text-sm text-foreground font-medium">
             {selected.size > 0 ? `${selected.size} team(s) selected` : "Select teams below to advance"}
@@ -631,6 +645,11 @@ function ResultsTab({ cohortId, programId }: { cohortId: string; programId: stri
             {advanceMutation.isPending ? "Advancing…" : "Advance selected teams"}
           </button>
         </div>
+      ) : (
+        <p className="text-xs text-muted-foreground p-3 bg-card border border-dashed border-border rounded-xl">
+          No other cohort exists yet under this program to advance teams into — create one (e.g. a Finalist
+          stage) on the Cohorts page first, and this control appears here.
+        </p>
       )}
 
       <LeaderboardTable rows={showTop20 ? top20 : board} selected={selected} onToggle={toggleTeam} />

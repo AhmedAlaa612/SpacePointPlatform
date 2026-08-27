@@ -137,6 +137,9 @@ export const getCohortLeaderboardApi = (cohortId: string) =>
 export const getCohortExportTop20Api = (cohortId: string) =>
   api.get<CompetitionLeaderboardRow[]>(`/competitions/admin/cohorts/${cohortId}/export-top20`).then((r) => r.data)
 
+export const getCohortPublicationApi = (cohortId: string) =>
+  api.get<CompetitionPublication>(`/competitions/admin/cohorts/${cohortId}/publication`).then((r) => r.data)
+
 export const publishCohortResultsApi = (cohortId: string) =>
   api.post<CompetitionPublication>(`/competitions/admin/cohorts/${cohortId}/publish`).then((r) => r.data)
 

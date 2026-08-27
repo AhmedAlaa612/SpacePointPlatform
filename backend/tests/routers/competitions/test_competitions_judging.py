@@ -408,9 +408,17 @@ async def test_publishing_closes_scoring_and_unpublish_reopens_it(db, client):
     ops, program, cohort, team, judge, poster_item = await _judge_setup(db)
     await db.commit()
 
+    # The Results tab has to be able to show current state on load, not
+    # only as the response to an action just taken.
+    before = await client.get(f"/competitions/admin/cohorts/{cohort.id}/publication", headers=_headers(ops))
+    assert before.status_code == 200 and before.json()["published"] is False
+
     published = await client.post(f"/competitions/admin/cohorts/{cohort.id}/publish", headers=_headers(ops))
     assert published.status_code == 200
     assert published.json()["published"] is True
+
+    after_publish = await client.get(f"/competitions/admin/cohorts/{cohort.id}/publication", headers=_headers(ops))
+    assert after_publish.json()["published"] is True
 
     blocked = await client.put(
         f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
@@ -420,6 +428,9 @@ async def test_publishing_closes_scoring_and_unpublish_reopens_it(db, client):
 
     unpublished = await client.post(f"/competitions/admin/cohorts/{cohort.id}/unpublish", headers=_headers(ops))
     assert unpublished.status_code == http_status.HTTP_204_NO_CONTENT
+
+    after_unpublish = await client.get(f"/competitions/admin/cohorts/{cohort.id}/publication", headers=_headers(ops))
+    assert after_unpublish.json()["published"] is False
 
     reopened = await client.put(
         f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
