@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { StockLevel } from "@/types/inventory"
-import { adjustStockBulkApi, getItemCategoriesApi, getItemsApi, getStockApi, getWarehousesApi } from "@/api/inventory"
+import {
+  adjustStockBulkApi,
+  getItemCategoriesApi,
+  getItemsApi,
+  getStockApi,
+  getWarehousesApi,
+  isPendingApproval,
+} from "@/api/inventory"
 import { Field, Modal, ModalActions } from "@/pages/admin/components/common"
+import { useToast } from "@/components/ui/toast"
 
 /** The transposed grid: one warehouse, every item. Same `adjust-bulk`
  *  endpoint as `StockCountModal`, just the other axis — this is the one that
@@ -10,6 +18,7 @@ import { Field, Modal, ModalActions } from "@/pages/admin/components/common"
  *  one, which is the actual reason most items never get a count anywhere. */
 export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
   const queryClient = useQueryClient()
+  const { success } = useToast()
   const [warehouseId, setWarehouseId] = useState("")
   const [search, setSearch] = useState("")
   const [category, setCategory] = useState("")
@@ -58,8 +67,12 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
 
   const mutation = useMutation({
     mutationFn: adjustStockBulkApi,
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["inv-stock"] })
+      if (isPendingApproval(result)) {
+        queryClient.invalidateQueries({ queryKey: ["inv-approvals-mine"] })
+        success("Submitted for approval — the count won't apply until a COO signs off.")
+      }
       onClose()
     },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not record that"),

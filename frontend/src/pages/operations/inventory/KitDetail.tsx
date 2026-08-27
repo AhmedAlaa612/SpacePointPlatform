@@ -10,6 +10,7 @@ import {
   getKitHistoryApi,
   getLocationsApi,
   getWarehousesApi,
+  isPendingApproval,
   moveKitApi,
   updateKitApi,
 } from "@/api/inventory"
@@ -17,6 +18,8 @@ import { Field, Modal, ModalActions, Spinner } from "@/pages/admin/components/co
 import { KitQrCode } from "@/components/ui/KitQrCode"
 import { LocationModal } from "@/pages/operations/inventory/LocationModal"
 import { KitSessionsCalendar } from "@/pages/operations/inventory/KitSessionsCalendar"
+import { useAuth } from "@/context/AuthContext"
+import { useToast } from "@/components/ui/toast"
 
 
 const STATUSES: KitStatus[] = ["working", "damaged", "retired", "lost"]
@@ -35,6 +38,8 @@ const REASON_LABEL: Record<string, string> = {
 export default function KitDetail() {
   const { kitId } = useParams({ from: "/auth/operations/inventory/kits/$kitId" })
   const queryClient = useQueryClient()
+  const { activeRole } = useAuth()
+  const canManage = activeRole !== "storekeeper"
   const [moveAction, setMoveAction] = useState<"warehouse" | "person" | null>(null)
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null)
   const [counting, setCounting] = useState(false)
@@ -122,29 +127,37 @@ export default function KitDetail() {
         <div className="flex flex-col gap-3 shrink-0 w-full sm:w-auto">
           <div className="flex items-center gap-2 w-fit">
             <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider shrink-0">Status:</span>
-            <select
-              value={kit.status}
-              onChange={(e) => statusMutation.mutate({ id: kitId, status: e.target.value as KitStatus })}
-              className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm cursor-pointer focus:outline-none focus:border-primary shrink-0 transition-colors font-medium capitalize w-fit"
-            >
-              {STATUSES.map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
-            </select>
+            {canManage ? (
+              <select
+                value={kit.status}
+                onChange={(e) => statusMutation.mutate({ id: kitId, status: e.target.value as KitStatus })}
+                className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm cursor-pointer focus:outline-none focus:border-primary shrink-0 transition-colors font-medium capitalize w-fit"
+              >
+                {STATUSES.map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
+              </select>
+            ) : (
+              <span className="h-9 px-3 bg-muted text-foreground rounded-xl text-sm font-medium capitalize w-fit shrink-0 inline-flex items-center">
+                {kit.status}
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setMoveAction("warehouse")}
-              className="inline-flex items-center justify-center gap-1.5 h-9 px-4 border border-border text-foreground text-sm font-medium rounded-xl hover:bg-muted transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Building2 size={14} /> Move to warehouse
-            </button>
-            <button
-              onClick={() => setMoveAction("person")}
-              className="inline-flex items-center justify-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <UserPlus size={14} /> Assign to a person
-            </button>
-          </div>
+          {canManage && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setMoveAction("warehouse")}
+                className="inline-flex items-center justify-center gap-1.5 h-9 px-4 border border-border text-foreground text-sm font-medium rounded-xl hover:bg-muted transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Building2 size={14} /> Move to warehouse
+              </button>
+              <button
+                onClick={() => setMoveAction("person")}
+                className="inline-flex items-center justify-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <UserPlus size={14} /> Assign to a person
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -414,6 +427,7 @@ function MoveModal({ kitId, action, hasHolder, onClose }: {
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
+  const { success } = useToast()
   const { data: locations = [] } = useQuery({
     queryKey: ["inv-locations"], queryFn: () => getLocationsApi(), enabled: action === "warehouse",
   })
@@ -436,10 +450,14 @@ function MoveModal({ kitId, action, hasHolder, onClose }: {
 
   const mutation = useMutation({
     mutationFn: moveKitApi,
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["inv-kit", kitId] })
       queryClient.invalidateQueries({ queryKey: ["inv-kit-history", kitId] })
       queryClient.invalidateQueries({ queryKey: ["inv-kits"] })
+      if (isPendingApproval(result)) {
+        queryClient.invalidateQueries({ queryKey: ["inv-approvals-mine"] })
+        success("Submitted for approval — the kit won't move until a COO signs off.")
+      }
       onClose()
     },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not move the kit"),

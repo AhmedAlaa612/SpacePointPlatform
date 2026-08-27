@@ -15,6 +15,7 @@ import {
   getKitHistoryApi,
   getLocationsApi,
   getWarehousesApi,
+  isPendingApproval,
   moveKitApi,
   updateKitApi,
 } from "@/api/inventory"
@@ -23,6 +24,7 @@ import { KitQrCode } from "@/components/ui/KitQrCode"
 import { LocationModal } from "@/pages/operations/inventory/LocationModal"
 import { KitSessionsCalendar } from "@/pages/operations/inventory/KitSessionsCalendar"
 import { useAuth } from "@/context/AuthContext"
+import { useToast } from "@/components/ui/toast"
 
 
 const STATUSES: KitStatus[] = ["working", "damaged", "retired", "lost"]
@@ -300,6 +302,7 @@ function MoveModal({ kitId, action, hasHolder, onClose }: {
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
+  const { success } = useToast()
   const { data: locations = [] } = useQuery({
     queryKey: ["inv-locations"], queryFn: () => getLocationsApi(), enabled: action === "warehouse",
   })
@@ -322,10 +325,14 @@ function MoveModal({ kitId, action, hasHolder, onClose }: {
 
   const mutation = useMutation({
     mutationFn: moveKitApi,
-    onSuccess: () => {
+    onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["inv-kit", kitId] })
       queryClient.invalidateQueries({ queryKey: ["inv-kit-history", kitId] })
       queryClient.invalidateQueries({ queryKey: ["inv-kits"] })
+      if (isPendingApproval(result)) {
+        queryClient.invalidateQueries({ queryKey: ["inv-approvals-mine"] })
+        success("Submitted for approval — the kit won't move until a COO signs off.")
+      }
       onClose()
     },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not move the kit"),

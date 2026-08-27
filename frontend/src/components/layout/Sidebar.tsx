@@ -8,6 +8,7 @@ import {
   BookOpen,
   Boxes,
   CalendarDays,
+  CheckCircle2,
   ChevronDown,
   ClipboardList,
   CreditCard,
@@ -107,6 +108,8 @@ const ICONS: Record<string, LucideIcon> = {
   Fulfilment: Wrench,
   "Delivery Settings": SettingsIcon,
   Catalogue: ClipboardList,
+  Approvals: CheckCircle2,
+  "My Requests": CheckCircle2,
   Learn: GraduationCap,
   Students: Users,
   "Invite Codes": Ticket,
@@ -179,6 +182,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     if (activeRole === "storekeeper") {
       return [
         ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+        mk("My Requests", "/operations/inventory/approvals"),
         mk("Learn", "/learn"),
         mk("Profile & Settings", "/operations/profile"),
       ];
@@ -190,6 +194,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     if (activeRole === "coo") {
       return [
         ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+        mk("Approvals", "/operations/inventory/approvals"),
         mk("Learn", "/learn"),
         mk("Profile & Settings", "/operations/profile"),
       ];
@@ -203,6 +208,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Learn", "/learn"),
       mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+      mk("My Requests", "/operations/inventory/approvals"),
     ];
   }
   if (pathname.startsWith("/admin")) {
@@ -406,11 +412,13 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Learn", "/learn"),
       mk("Delivery Settings", "/operations/delivery-settings"),
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+      mk("My Requests", "/operations/inventory/approvals"),
     ];
   }
   if (activeRole === "storekeeper") {
     return [
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+      mk("My Requests", "/operations/inventory/approvals"),
       mk("Learn", "/learn"),
       mk("Profile & Settings", "/operations/profile"),
     ];
@@ -418,6 +426,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   if (activeRole === "coo") {
     return [
       ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+      mk("Approvals", "/operations/inventory/approvals"),
       mk("Learn", "/learn"),
       mk("Profile & Settings", "/operations/profile"),
     ];

@@ -18,6 +18,18 @@ import type {
   StockLevel,
 } from "@/types/inventory"
 
+/** What a gated write (kit.move, merch.issue/return, stock.adjust) returns
+ *  instead of its usual 201 while the COO has that action type's approval
+ *  policy turned on and the caller isn't coo/admin — nothing happened yet;
+ *  see `isPendingApproval` for how callers should branch on this. */
+export interface PendingApproval {
+  status: "pending_approval"
+  approval_request_id: string
+}
+
+export const isPendingApproval = (result: unknown): result is PendingApproval =>
+  !!result && typeof result === "object" && (result as { status?: string }).status === "pending_approval"
+
 /* ── locations ─────────────────────────────────────────────────────────── */
 
 export const getLocationsApi = (includeInactive = false) =>
@@ -172,7 +184,7 @@ export const moveKitApi = ({ id, ...body }: {
   reason: MovementReason
   due_back_on?: string | null
   note?: string | null
-}) => api.post<Movement>(`/inventory/kits/${id}/move`, body).then((r) => r.data)
+}) => api.post<Movement | PendingApproval>(`/inventory/kits/${id}/move`, body).then((r) => r.data)
 
 export const getKitHistoryApi = (id: string) =>
   api.get<Movement[]>(`/inventory/kits/${id}/movements`).then((r) => r.data)
@@ -237,14 +249,14 @@ export const adjustStockApi = (body: {
   warehouse_id: string
   new_qty: number
   reason: string
-}) => api.post<Movement>("/inventory/stock/adjust", body).then((r) => r.data)
+}) => api.post<Movement | PendingApproval>("/inventory/stock/adjust", body).then((r) => r.data)
 
 /** One stocktake, many item/warehouse counts, one reason. Skips lines that
  *  didn't change server-side; only send lines the caller actually edited. */
 export const adjustStockBulkApi = (body: {
   reason: string
   levels: { item_id: string; warehouse_id: string; new_qty: number }[]
-}) => api.post<Movement[]>("/inventory/stock/adjust-bulk", body).then((r) => r.data)
+}) => api.post<Movement[] | PendingApproval>("/inventory/stock/adjust-bulk", body).then((r) => r.data)
 
 export const getOverdueApi = () =>
   api.get<Movement[]>("/inventory/overdue").then((r) => r.data)
@@ -536,3 +548,55 @@ export interface PublicKit {
 
 export const getPublicKitApi = (token: string) =>
   api.get<PublicKit>(`/public/kit/${token}`).then((r) => r.data)
+
+/* ── the approval gate (2026-08-27) ────────────────────────────────────── */
+
+export interface ApprovalRequest {
+  id: string
+  action_type: string
+  action_label: string
+  status: "pending" | "approved" | "rejected"
+  summary: string
+  requested_by_user_id: string
+  requested_by_name: string
+  requested_at: string | null
+  reviewed_by_user_id: string | null
+  reviewed_by_name: string | null
+  reviewed_at: string | null
+  review_note: string | null
+}
+
+export interface ActionPolicy {
+  action_type: string
+  action_label: string
+  requires_approval: boolean
+  updated_by_name: string | null
+  updated_at: string | null
+}
+
+/** The full queue — coo/admin only. Defaults to pending; pass "all" to see
+ *  the history too. */
+export const getApprovalQueueApi = (status: "pending" | "all" = "pending") =>
+  api.get<ApprovalRequest[]>("/inventory/approvals", { params: { status } }).then((r) => r.data)
+
+/** Whatever the caller themselves has submitted — any role that can hit a
+ *  gated endpoint can call this, and only ever sees their own rows. */
+export const getMyApprovalRequestsApi = () =>
+  api.get<ApprovalRequest[]>("/inventory/approvals/mine").then((r) => r.data)
+
+export const approveRequestApi = ({ id, note }: { id: string; note?: string }) =>
+  api.post<ApprovalRequest>(`/inventory/approvals/${id}/approve`, { note }).then((r) => r.data)
+
+export const rejectRequestApi = ({ id, note }: { id: string; note?: string }) =>
+  api.post<ApprovalRequest>(`/inventory/approvals/${id}/reject`, { note }).then((r) => r.data)
+
+export const getApprovalPoliciesApi = () =>
+  api.get<ActionPolicy[]>("/inventory/approval-policies").then((r) => r.data)
+
+export const setApprovalPolicyApi = ({ actionType, requiresApproval }: {
+  actionType: string
+  requiresApproval: boolean
+}) =>
+  api.put<ActionPolicy>(`/inventory/approval-policies/${actionType}`, {
+    requires_approval: requiresApproval,
+  }).then((r) => r.data)

@@ -107,6 +107,7 @@ import InventoryLocationDetail from "@/pages/operations/inventory/LocationDetail
 import InventoryStock from "@/pages/operations/inventory/Stock";
 import InventoryCatalog from "@/pages/operations/inventory/Catalog";
 import InventoryFulfilment from "@/pages/operations/inventory/Fulfilment";
+import InventoryApprovals from "@/pages/operations/inventory/Approvals";
 import DeliverySettings from "@/pages/operations/DeliverySettings";
 
 // Unified apply flow
@@ -702,6 +703,7 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/inventory/stock", component: InventoryStock }),
   createRoute({ getParentRoute: po, path: "/inventory/catalog", component: InventoryCatalog }),
   createRoute({ getParentRoute: po, path: "/inventory/fulfilment", component: InventoryFulfilment }),
+  createRoute({ getParentRoute: po, path: "/inventory/approvals", component: InventoryApprovals }),
   createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),
 ];
 
