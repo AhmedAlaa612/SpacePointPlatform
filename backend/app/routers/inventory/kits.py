@@ -6,6 +6,20 @@ Ops actions are `require_operations`. `/inventory/my-kits` is
 instructor only ever sees kits they are actually holding — an unrelated kit
 is a **404, not a 403**, matching this codebase's don't-leak-existence
 convention (see services/sessions/delivery.py).
+
+**Exception, same shape as `catalog.py`'s `GET /locations`/`GET /warehouses`:**
+`GET /kits`, `GET /kits/{kit_id}`, and `GET /kits/{kit_id}/movements` are
+`require_storekeeper` — a storekeeper who "restocks kits, receives goods and
+records stock movements" (their own role docstring, `core/dependencies.py`)
+cannot actually do that job blind to which kits exist, where they are, or
+what's already happened to them. Found live in production (2026-08-27): a
+storekeeper's Kits page rendered completely empty with no error, because
+every read here 403'd while the sibling stock/locations/warehouses endpoints
+they could already reach stayed silent about it. Every write stays
+`require_operations` — a storekeeper still can't create, edit, or bulk-add
+kits, only count/move stock into ones that already exist (`POST
+/kits/{kit_id}/count` was already `require_storekeeper`, so a storekeeper
+who could count a kit couldn't previously even see it in the list first).
 """
 
 import uuid
@@ -86,7 +100,7 @@ async def list_kits(
     kit_status: str | None = Query(default=None, alias="status"),
     available_only: bool = False,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     """`available_only` is "could be handed out right now" — on the shelf
     (nobody holding it) and in working order. Damaged/retired/lost kits on a
@@ -246,7 +260,7 @@ async def bulk_create_kits(
 async def get_kit(
     kit_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     kit = await db.get(Kit, kit_id)
     if kit is None:
@@ -364,7 +378,7 @@ async def count_kit_route(
 async def kit_history(
     kit_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     """Everything that ever happened to this kit — where it went, and what
     went into or out of it."""

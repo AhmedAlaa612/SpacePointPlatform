@@ -760,11 +760,37 @@ async def test_a_storekeeper_may_count_a_kit(db, client, keeper_headers):
 
 
 @pytest.mark.asyncio
+async def test_a_storekeeper_may_read_kits_list_detail_and_movements(db, client, keeper_headers):
+    """Found live in production (2026-08-27): a storekeeper's Kits page
+    rendered completely empty, because these three reads 403'd while the
+    sibling stock/locations/warehouses reads they could already reach
+    stayed silent about it. Same "read is storekeeper-safe, write isn't"
+    shape as GET /locations and GET /warehouses already have — a
+    storekeeper who "restocks kits, receives goods and records stock
+    movements" cannot do that blind to which kits exist or what already
+    happened to them."""
+    loc = await _location(db)
+    wh = await _warehouse(db, loc)
+    tpl = await _template(db)
+    kit = await _kit(db, wh, tpl)
+    await db.commit()
+
+    allowed = [
+        await client.get("/inventory/kits", headers=keeper_headers),
+        await client.get(f"/inventory/kits/{kit.id}", headers=keeper_headers),
+        await client.get(f"/inventory/kits/{kit.id}/movements", headers=keeper_headers),
+    ]
+    assert [r.status_code for r in allowed] == [200] * len(allowed)
+
+
+@pytest.mark.asyncio
 async def test_a_storekeeper_cannot_touch_the_catalogue_or_the_kits(db, client, keeper_headers):
     """The reason the role exists. If any of these starts returning 2xx,
     somebody has widened require_operations or pointed an endpoint at the
-    wrong guard. (`/kits/{id}/count` is the one deliberate exception — see
-    test_a_storekeeper_may_count_a_kit above.)"""
+    wrong guard. (`/kits/{id}/count` is a deliberate exception — see
+    test_a_storekeeper_may_count_a_kit above — and reading, as opposed to
+    writing, the kits themselves is too — see
+    test_a_storekeeper_may_read_kits_list_detail_and_movements.)"""
     loc = await _location(db)
     wh = await _warehouse(db, loc)
     tpl = await _template(db)
@@ -772,8 +798,6 @@ async def test_a_storekeeper_cannot_touch_the_catalogue_or_the_kits(db, client, 
     await db.commit()
 
     forbidden = [
-        await client.get("/inventory/kits", headers=keeper_headers),
-        await client.get(f"/inventory/kits/{kit.id}", headers=keeper_headers),
         await client.post("/inventory/kits", headers=keeper_headers, json={
             "template_id": str(tpl.id), "label": "SP-X-0001", "current_warehouse_id": str(wh.id),
         }),

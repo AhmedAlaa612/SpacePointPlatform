@@ -112,16 +112,25 @@ async def test_an_instructor_cannot_see_the_queue(client, db):
 
 
 @pytest.mark.asyncio
-async def test_the_storekeeper_still_cannot_reach_the_kits_namespace(client, db):
+async def test_the_storekeeper_still_cannot_write_the_kits_namespace(client, db):
     """This is why fulfilment lives under its own prefix. Adding a
     storekeeper-writable route inside `/inventory/kits` would make that
-    boundary a per-route question instead of one you can read off the URL."""
+    boundary a per-route question instead of one you can read off the URL.
+
+    Reading `/inventory/kits` is a *different* boundary, widened 2026-08-27
+    (see `kits.py`'s own docstring) — a storekeeper couldn't even see the
+    kit they were about to restock, which is what this test used to assert
+    as correct. See test_a_storekeeper_may_read_kits_list_detail_and_movements
+    in test_inventory_routers.py for that positive case."""
     keeper = await _user(db, "storekeeper")
     kit, _item, _loc = await _short_kit(db)
 
-    assert (await client.get("/inventory/kits", headers=_headers(keeper))).status_code == 403
+    assert (await client.get("/inventory/kits", headers=_headers(keeper))).status_code == 200
     assert (await client.get(
         f"/inventory/kits/{kit.id}", headers=_headers(keeper)
+    )).status_code == 200
+    assert (await client.patch(
+        f"/inventory/kits/{kit.id}", headers=_headers(keeper), json={"status": "retired"},
     )).status_code == 403
 
 
@@ -198,11 +207,14 @@ async def test_a_storekeeper_can_load_every_page_their_sidebar_offers(client, db
     assert [r.status_code for r in reachable] == [200] * 4
 
     # ...and widening those reads must not have opened any of the writes.
+    # (GET /inventory/kits was itself a same-shaped silent-403 bug, found live
+    # 2026-08-27 and fixed the same way as this test's own three — it's
+    # deliberately not on this list any more; see
+    # test_a_storekeeper_may_read_kits_list_detail_and_movements.)
     still_shut = [
         await client.post("/inventory/locations", headers=_headers(keeper),
                           json={"name": "Sneaky"}),
         await client.get("/inventory/items", headers=_headers(keeper)),
         await client.get("/inventory/movements", headers=_headers(keeper)),
-        await client.get("/inventory/kits", headers=_headers(keeper)),
     ]
-    assert [r.status_code for r in still_shut] == [403] * 4
+    assert [r.status_code for r in still_shut] == [403] * 3
