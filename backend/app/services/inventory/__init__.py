@@ -27,6 +27,15 @@ from app.services.inventory.cohort_kits import (
     resolve_session_kits,
     set_cohort_kits,
 )
+from app.services.inventory.approvals import (
+    ACTION_TYPES,
+    approve_request,
+    gate,
+    is_approver,
+    list_policies,
+    policy_requires_approval,
+    reject_request,
+)
 from app.services.inventory.completeness import is_complete, kit_shortages, shortages_for_kits
 from app.services.inventory.custody import (
     held_by_user,
@@ -110,4 +119,12 @@ __all__ = [
     "fulfilment_queue",
     "fulfil_kit",
     "set_awaiting_parts",
+    # approval gate (2026-08-27)
+    "ACTION_TYPES",
+    "gate",
+    "is_approver",
+    "policy_requires_approval",
+    "approve_request",
+    "reject_request",
+    "list_policies",
 ]

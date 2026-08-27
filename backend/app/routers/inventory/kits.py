@@ -31,6 +31,7 @@ separately; see `require_inventory_manage`'s own docstring.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,6 +62,7 @@ from app.schemas.inventory.kits import (
 from app.services.inventory import (
     count_kit,
     default_kit_return_warehouse,
+    gate,
     kit_shortages,
     kit_sessions,
     move,
@@ -331,9 +333,42 @@ async def move_kit(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_inventory_manage),
 ):
+    """Gated by the `kit.move` approval policy (2026-08-27 follow-up),
+    default off — see `services/inventory/approvals.py`. While it's off, or
+    for a coo/admin, this is exactly the direct write it always was. While
+    it's on, anyone else gets a 202 with a pending-request id instead of a
+    201, and nothing about the kit changes until a coo/admin approves it.
+    """
     kit = await db.get(Kit, kit_id)
     if kit is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Kit not found")
+
+    destination = "a warehouse" if body.to_warehouse_id else "a person"
+    if body.to_warehouse_id:
+        warehouse = await db.get(Warehouse, body.to_warehouse_id)
+        destination = warehouse.name if warehouse else "a warehouse"
+    elif body.to_user_id:
+        recipient = await db.get(User, body.to_user_id)
+        destination = recipient.full_name if recipient else "a person"
+
+    pending = await gate(
+        db, action_type="kit.move", actor=current_user,
+        summary=f"Move kit {kit.label} to {destination}",
+        payload={
+            "kit_id": str(kit_id), "reason": body.reason,
+            "to_warehouse_id": str(body.to_warehouse_id) if body.to_warehouse_id else None,
+            "to_user_id": str(body.to_user_id) if body.to_user_id else None,
+            "session_id": str(body.session_id) if body.session_id else None,
+            "due_back_on": body.due_back_on.isoformat() if body.due_back_on else None,
+            "note": body.note,
+        },
+    )
+    if pending:
+        await db.commit()
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={"status": "pending_approval", "approval_request_id": str(pending.id)},
+        )
 
     movement = await move(
         db,

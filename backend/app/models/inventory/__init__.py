@@ -13,6 +13,7 @@ every new contact FK must be registered there or a contact merge will
 silently orphan the rows.
 """
 
+from app.models.inventory.approval import InventoryActionPolicy, InventoryApprovalRequest
 from app.models.inventory.city import City
 from app.models.inventory.cohort_kit import CohortKit
 from app.models.inventory.equipment_flag import EquipmentReturnFlag
@@ -42,4 +43,6 @@ __all__ = [
     "KitCheck",
     "CohortKit",
     "EquipmentReturnFlag",
+    "InventoryActionPolicy",
+    "InventoryApprovalRequest",
 ]

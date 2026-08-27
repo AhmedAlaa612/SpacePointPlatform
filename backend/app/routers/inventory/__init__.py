@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.routers.inventory.approvals import router as approvals_router
 from app.routers.inventory.catalog import router as catalog_router
 from app.routers.inventory.checks import router as checks_router
 from app.routers.inventory.custody import router as custody_router
@@ -21,6 +22,7 @@ router.include_router(custody_router)
 router.include_router(equipment_router)
 router.include_router(fulfilment_router)
 router.include_router(holdings_router)
+router.include_router(approvals_router)
 # Mounts at /public/kit/*, not /inventory/* — it's unauthenticated, and the
 # app already groups no-auth routes under /public (see routers/sessions/public.py).
 router.include_router(public_router)

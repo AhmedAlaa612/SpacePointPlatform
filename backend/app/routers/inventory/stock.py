@@ -28,12 +28,19 @@ create/edit/delete, the catalogue, session assignments — enforced by
 domain only) on the same 2026-08-27 directive: "if I can see a page with my
 role, I can use it" — no inventory page may show a control that then 403s
 for a role that can reach the page.
+
+`/stock/adjust` and `/stock/adjust-bulk` are additionally gated by the
+`stock.adjust` approval policy (2026-08-27 follow-up, default off) — see
+`services/inventory/approvals.py`. Gated for anyone who isn't coo/admin,
+this returns a 202 with a pending-request id instead of a 201, and nothing
+changes until approved.
 """
 
 import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,7 +59,7 @@ from app.schemas.inventory.kits import (
     StockLevelOut,
     StockMoveIn,
 )
-from app.services.inventory import adjust_stock, confirm, move, overdue
+from app.services.inventory import adjust_stock, confirm, gate, move, overdue
 
 router = APIRouter(prefix="/inventory", tags=["inventory-stock"])
 
@@ -131,11 +138,34 @@ async def adjust(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_storekeeper),
 ):
-    """Correct a stock level to the counted total. Reason is mandatory."""
-    if await db.get(Item, body.item_id) is None:
+    """Correct a stock level to the counted total. Reason is mandatory.
+
+    Gated by the `stock.adjust` approval policy (2026-08-27), default off —
+    see `services/inventory/approvals.py`. Same policy/action type as
+    `/stock/adjust-bulk` below, since both just loop `adjust_stock()`; turning
+    this gate on queues *every* correction, routine stocktakes included —
+    there's no code-level distinction between a stocktake and an override.
+    """
+    item = await db.get(Item, body.item_id)
+    if item is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown item")
-    if await db.get(Warehouse, body.warehouse_id) is None:
+    warehouse = await db.get(Warehouse, body.warehouse_id)
+    if warehouse is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown warehouse")
+
+    pending = await gate(
+        db, action_type="stock.adjust", actor=current_user,
+        summary=f"Correct {item.name} at {warehouse.name} to {body.new_qty} ({body.reason})",
+        payload={"reason": body.reason, "lines": [
+            {"item_id": str(body.item_id), "warehouse_id": str(body.warehouse_id), "new_qty": body.new_qty},
+        ]},
+    )
+    if pending:
+        await db.commit()
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={"status": "pending_approval", "approval_request_id": str(pending.id)},
+        )
 
     movement = await adjust_stock(
         db,
@@ -159,12 +189,34 @@ async def adjust_bulk(
     """One stocktake, many item/warehouse counts, one reason. Loops the same
     `adjust_stock()` a single correction uses, in one transaction, skipping
     rows where the count didn't change instead of failing the whole save on
-    the first one (`adjust_stock`'s own 409)."""
+    the first one (`adjust_stock`'s own 409).
+
+    Gated by the same `stock.adjust` policy as the single-line endpoint
+    above — one pending request for the whole stocktake, not one per line.
+    """
+    items, warehouses = {}, {}
     for line in body.levels:
-        if await db.get(Item, line.item_id) is None:
+        items[line.item_id] = items.get(line.item_id) or await db.get(Item, line.item_id)
+        if items[line.item_id] is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown item")
-        if await db.get(Warehouse, line.warehouse_id) is None:
+        warehouses[line.warehouse_id] = warehouses.get(line.warehouse_id) or await db.get(Warehouse, line.warehouse_id)
+        if warehouses[line.warehouse_id] is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Unknown warehouse")
+
+    pending = await gate(
+        db, action_type="stock.adjust", actor=current_user,
+        summary=f"Stocktake correction — {len(body.levels)} line(s) ({body.reason})",
+        payload={"reason": body.reason, "lines": [
+            {"item_id": str(line.item_id), "warehouse_id": str(line.warehouse_id), "new_qty": line.new_qty}
+            for line in body.levels
+        ]},
+    )
+    if pending:
+        await db.commit()
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={"status": "pending_approval", "approval_request_id": str(pending.id)},
+        )
 
     movements = []
     for line in body.levels:
