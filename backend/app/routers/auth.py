@@ -51,7 +51,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # guessing. This is the real defence: a per-account counter, checked before
 # the password itself so a locked account can't be probed during its window.
 _MAX_FAILED_LOGIN_ATTEMPTS = 100
-_LOCKOUT_MINUTES = 15
+_LOCKOUT_MINUTES = 5
 
 
 async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | None = None) -> dict:
