@@ -16,7 +16,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-ProgramType = Literal["workshop", "course", "info_session"]
+ProgramType = Literal["workshop", "course", "info_session", "competition"]
 PricingModel = Literal["paid", "free"]
 # "percentage": completion_rule_value is 0-100, compared against a cohort's
 # present/total_sessions rate. "session_count": completion_rule_value is a
@@ -61,6 +61,10 @@ class ProgramOut(ProgramBase):
     id: UUID
     code: str
     created_at: datetime
+    # Competition domain (2026-08-24) — read-only, derived from
+    # `program_type == "competition"` (see the model's `is_competition`
+    # property). Not settable here: `program_type` is the single lever.
+    is_competition: bool
 
     class Config:
         from_attributes = True

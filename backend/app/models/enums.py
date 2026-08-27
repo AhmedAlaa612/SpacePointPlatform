@@ -20,6 +20,10 @@ class UserRole(str, enum.Enum):
     # be rejected by require_operations. Content access is gated by
     # `enrollments`, not by this role — see services/lms/.
     student = "student"
+    # Competition domain (2026-08-24). A temporary, cohort-scoped judging
+    # account — see core/dependencies.py::require_judge and
+    # services/competitions/judges.py.
+    judge = "judge"
 
 
 # ── Interns domain ───────────────────────────────────────────────────────────

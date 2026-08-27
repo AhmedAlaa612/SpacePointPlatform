@@ -111,6 +111,15 @@ class LmsProgramItem(Base):
     # student's own self-check. Self-check is the v1 default everywhere
     # else (operator call, 2026-08-21: "not everything can be trackable").
     requires_confirmation = Column(Boolean, nullable=False, default=False, server_default="false")
+    # Competition domain (2026-08-24) — individual|team. individual (default)
+    # tracks per-student, exactly as every item did before this column
+    # existed. team means this item is one shared fact for a `Team`
+    # (learner_teams) rather than per-student — a competition's link-only
+    # deliverables (poster, video, circuit, CAD, dashboard). Progress for a
+    # team-scoped item lives in `lms_program_team_item_progress`, not
+    # `LmsProgramItemProgress` below — see services/lms/program.py's
+    # resolver for which table a given item's progress actually reads/writes.
+    scope = Column(String(16), nullable=False, default="individual", server_default="individual")
 
     course_id = Column(UUID(as_uuid=True), ForeignKey("courses.id", ondelete="CASCADE"), nullable=True)
     # The template mission — the per-student MissionAttempt is created at
@@ -185,3 +194,40 @@ class LmsProgramItemProgress(Base):
     # What the student pasted back for a `submission`-type item — same
     # shape as the Poster tab's link-paste-back flow.
     submitted_url = Column(String(512), nullable=True)
+    # When submitted_url (or status) last changed. No updated_by column —
+    # unlike the team table below, an individual row only ever has one
+    # possible author: the assignment's own user.
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class LmsProgramTeamItemProgress(Base):
+    """The team-scoped twin of `LmsProgramItemProgress` above — same shape,
+    keyed by `(item_id, team_id)` instead of `(item_id, assignment_id)`.
+
+    Exists so a `scope="team"` item's progress is one row every team member
+    reads and writes, without overloading the per-student table with a
+    second, mutually-exclusive key (assignment_id nullable XOR team_id
+    nullable is exactly the kind of one-table-two-meanings shape this
+    codebase avoids elsewhere — see `LmsProgramItem.owner_type`'s own
+    docstring on the same instinct). Which table a given item's progress
+    lives in is decided once, by `item.scope`, in
+    services/lms/program.py's resolver — never both."""
+
+    __tablename__ = "lms_program_team_item_progress"
+    __table_args__ = (
+        UniqueConstraint("item_id", "team_id", name="uq_lms_program_team_item_progress_item_team"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("lms_program_items.id", ondelete="CASCADE"), nullable=False)
+    team_id = Column(UUID(as_uuid=True), ForeignKey("learner_teams.id", ondelete="CASCADE"), nullable=False, index=True)
+    # pending|done|awaiting_confirmation — same vocabulary as the individual table.
+    status = Column(String(24), nullable=False, default="pending", server_default="pending")
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    confirmed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    submitted_url = Column(String(512), nullable=True)
+    # Whichever teammate last pasted/edited submitted_url, and when — a team
+    # row has no single "you", so the checklist shows "last updated by
+    # [name]" here instead of the individual table's implicit "you".
+    updated_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=True)

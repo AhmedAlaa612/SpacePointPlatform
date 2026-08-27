@@ -164,6 +164,21 @@ async def delete_user(db: AsyncSession, user_id: UUID):
             detail=f"Cannot delete user who created project(s): {proj_names}. Delete or reassign projects first."
         )
 
+    # Judge accounts (competition domain) can be deleted once they've never
+    # scored anything, but CompetitionScore.judge_user_id CASCADEs on
+    # delete — hard-deleting a judge who already judged would silently
+    # wipe those teams' evaluation record. Deactivate instead (PATCH
+    # .../users/{id} with status="inactive") for a judge who's done.
+    score_check = await db.execute(
+        text("SELECT COUNT(*) FROM competition_scores WHERE judge_user_id = :uid"), {"uid": user_id}
+    )
+    if score_check.scalar_one() > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete a judge who has already scored teams — deactivate the account instead "
+                   "so the scores they gave stay on record.",
+        )
+
     # Remove from team_members
     await db.execute(text("DELETE FROM team_members WHERE user_id = :uid"), {"uid": user_id})
     # Remove from task_assignees

@@ -412,6 +412,9 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Profile & Settings", "/operations/profile"),
     ];
   }
+  if (activeRole === "judge") {
+    return [mk("Teams", "/judge")];
+  }
   if (activeRole === "intern" || activeRole === "leader") {
     return [
       mk("Board", "/interns"),
@@ -669,6 +672,8 @@ export function AppShell({ children }: { children: ReactNode }) {
       ? "/instructors/status"
       : activeRole === "instructor" || activeRole === "facilitator"
       ? "/instructors/profile"
+      : activeRole === "judge"
+      ? "/judge"
       : "/interns/profile";
 
   // Body scroll lock + Escape-to-close for the mobile drawer.

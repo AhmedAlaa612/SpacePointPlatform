@@ -13,6 +13,7 @@ const programColors: Record<ProgramType, string> = {
   workshop: "border-violet-400/50 bg-violet-500/10 text-violet-700 dark:text-violet-300",
   course: "border-sky-400/50 bg-sky-500/10 text-sky-700 dark:text-sky-300",
   info_session: "border-amber-400/50 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  competition: "border-rose-400/50 bg-rose-500/10 text-rose-700 dark:text-rose-300",
 }
 
 function iso(d: Date) { return d.toISOString().slice(0, 10) }

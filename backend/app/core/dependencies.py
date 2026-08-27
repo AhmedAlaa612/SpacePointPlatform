@@ -156,3 +156,14 @@ require_lms_content = RequireRole(["operations", "facilitator"])
 # per-cohort inside each route via `cohort_access.py::require_cohort_access`.
 # Same role split `require_session_delivery` already uses.
 require_instructor_missions = RequireRole(["instructor", "facilitator", "operations"])
+
+# ── Competition domain (2026-08-24) ─────────────────────────────────────────
+# A judge is a temporary, cohort-scoped account with zero ops access — this
+# gate only answers "is this a judge account at all?"; per-cohort scoping
+# (which cohort this specific judge can see) is a separate check,
+# `services/competitions/judges.py::require_judge_cohort_access`, same split
+# `require_instructor_missions`/`cohort_access.py` already use for
+# instructors. Deliberately not listing operations/facilitator here — a
+# judge surface staff needs to see goes through the ops endpoints, not this
+# one, so there's no reason to widen it.
+require_judge = RequireRole(["judge"])

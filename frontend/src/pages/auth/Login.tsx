@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { PLAIN_LOGO } from "@/lib/logos";
 import { Button } from "@/components/ui/button";
 import { Mail, Lock, Eye, EyeOff, Loader2 } from "lucide-react";
+import { getErrorMessage } from "@/lib/utils";
 
 export function Login() {
   const { login } = useAuth();
@@ -22,8 +23,11 @@ export function Login() {
     try {
       await login(email, password);
       await navigate({ to: "/" });
-    } catch {
-      setError("Invalid email or password.");
+    } catch (err) {
+      // Surfaces the backend's actual reason (e.g. "Account deactivated,
+      // contact admin") instead of always showing the same generic
+      // credentials message regardless of cause.
+      setError(getErrorMessage(err, "Invalid email or password."));
     } finally {
       setBusy(false);
     }

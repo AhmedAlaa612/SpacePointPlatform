@@ -418,6 +418,10 @@ class ItemReorderIn(BaseModel):
 # ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
 
 LmsProgramItemType = Literal["course", "mission_run", "external_link", "submission", "article", "manual"]
+# individual (default) tracks per-student, exactly as every item did before
+# this existed. team means the whole `Team` shares one progress row — a
+# competition's link-only deliverables. See LmsProgramItem.scope's docstring.
+LmsProgramItemScope = Literal["individual", "team"]
 
 
 class LmsProgramItemIn(BaseModel):
@@ -426,6 +430,7 @@ class LmsProgramItemIn(BaseModel):
     description: str | None = None
     optional: bool = False
     requires_confirmation: bool = False
+    scope: LmsProgramItemScope = "individual"
     course_id: UUID | None = None
     mission_id: UUID | None = None
     variant_id: UUID | None = None
@@ -443,6 +448,7 @@ class LmsProgramItemOut(BaseModel):
     description: str | None
     optional: bool
     requires_confirmation: bool
+    scope: LmsProgramItemScope = "individual"
     course_id: UUID | None
     mission_id: UUID | None
     # `Mission.kind` (design|submission|quiz|checklist|external) for a

@@ -3,10 +3,10 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen, CheckCircle2, ChevronRight, ClipboardCheck, ExternalLink, FileText, Link2,
-  Rocket, Trophy, Upload,
+  Rocket, Upload, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, ensureAbsoluteUrl } from "@/lib/utils";
 import {
   fetchChecklist, completeChecklistItem, submitChecklistItem,
   type LmsProgramChecklistItem, type LmsProgramItemType,
@@ -24,7 +24,7 @@ const ITEM_ICON: Record<LmsProgramItemType, typeof BookOpen> = {
 const ITEM_LABEL: Record<LmsProgramItemType, string> = {
   course: "Course",
   mission_run: "Mission run",
-  external_link: "Meeting / link",
+  external_link: "Link",
   submission: "Submission",
   article: "Article",
   manual: "Manual check-off",
@@ -53,7 +53,6 @@ export default function LearnChecklist() {
   const requiredItems = checklist.items.filter((i) => !i.optional);
   const done = requiredItems.filter((i) => i.status === "done").length;
   const pct = requiredItems.length ? Math.round((100 * done) / requiredItems.length) : 100;
-  const allRequiredDone = requiredItems.length > 0 && done === requiredItems.length;
   const currentItemId = checklist.items.find((i) => !i.optional && i.status !== "done")?.id;
 
   const openItem = (item: LmsProgramChecklistItem) => {
@@ -79,6 +78,11 @@ export default function LearnChecklist() {
             Program{checklist.cohort_name ? ` · ${checklist.cohort_name}` : ""}
           </div>
           <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight leading-none">{checklist.name}</h1>
+          {checklist.team_name && (
+            <div className="flex items-center gap-1.5 text-sm font-medium text-foreground/90">
+              <Users className="size-3.5" /> Team {checklist.team_name}
+            </div>
+          )}
           {checklist.description && <p className="text-sm leading-relaxed text-muted-foreground max-w-lg text-pretty">{checklist.description}</p>}
         </div>
       </div>
@@ -109,26 +113,6 @@ export default function LearnChecklist() {
           ))}
         </div>
 
-        <div className="flex items-center gap-5 sm:gap-6">
-          <div className={cn(
-            "w-16 h-16 rounded-full ring-1 flex items-center justify-center shrink-0",
-            checklist.certificate_earned ? "ring-primary bg-primary/10 text-primary" : "ring-primary/35 text-primary",
-          )}>
-            <Trophy className="size-6" />
-          </div>
-          <div className="min-w-0">
-            <div className="font-display text-lg sm:text-xl font-semibold tracking-tight">{checklist.name} certificate</div>
-            <div className="text-sm text-muted-foreground mt-1 max-w-md text-pretty">
-              {!checklist.certificate_required
-                ? "This program doesn't gate a certificate."
-                : checklist.certificate_earned
-                ? "Earned — it's on your profile."
-                : allRequiredDone
-                ? "All required steps are done — your certificate is issued with your cohort's completion."
-                : "Awarded automatically once every required step above is complete."}
-            </div>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -189,24 +173,56 @@ function ChecklistItemRow({
           <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground border border-border rounded px-1.5 py-0.5">
             {ITEM_LABEL[item.item_type]}
           </span>
+          {item.scope === "team" && (
+            <span
+              title="Shared with your team — any of you can submit or override it"
+              className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5"
+            >
+              <Users className="size-2.5" /> Team
+            </span>
+          )}
           {item.optional && <span className="text-[10px] font-medium italic text-muted-foreground">optional</span>}
         </div>
         {item.description && <p className="text-sm text-muted-foreground max-w-lg">{item.description}</p>}
 
         {item.item_type === "external_link" && item.external_url && (
-          <a href={item.external_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-sm text-primary hover:underline w-fit flex items-center gap-1">
+          <a href={ensureAbsoluteUrl(item.external_url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-sm text-primary hover:underline w-fit flex items-center gap-1">
             {item.external_url} <ExternalLink className="size-3" />
           </a>
         )}
         {item.item_type === "article" && item.external_url && (
-          <a href={item.external_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-sm text-primary hover:underline w-fit flex items-center gap-1">
+          <a href={ensureAbsoluteUrl(item.external_url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-sm text-primary hover:underline w-fit flex items-center gap-1">
             Read the article <ExternalLink className="size-3" />
           </a>
         )}
 
-        {item.item_type === "submission" && item.status !== "done" && item.status !== "awaiting_confirmation" && (
+        {item.item_type === "submission" && (
           <div className="flex flex-col gap-2 mt-1 max-w-md" onClick={(e) => e.stopPropagation()}>
             {item.submission_prompt && <p className="text-xs text-muted-foreground">{item.submission_prompt}</p>}
+
+            {/* Always visible once something's been submitted — done or not —
+                so "which submission actually went through" never has to be
+                guessed at (operator ask, 2026-08-24: teams worried exactly
+                this). Editing stays open after done too: every submission
+                item is overridable at any time, individual or team-scoped. */}
+            {item.submitted_url && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-lg px-2.5 py-1.5">
+                <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
+                <a
+                  href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                  className="text-primary hover:underline truncate"
+                >
+                  {item.submitted_url}
+                </a>
+                <span className="shrink-0">
+                  · Submitted
+                  {item.updated_at &&
+                    ` ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+                  {item.updated_by_name && ` by ${item.updated_by_name}`}
+                </span>
+              </div>
+            )}
+
             <div className="flex gap-2">
               <input
                 value={submitUrl || item.submitted_url || ""}
@@ -219,10 +235,10 @@ function ChecklistItemRow({
                 disabled={!(submitUrl || item.submitted_url) || submitMutation.isPending}
                 onClick={() => { setSubmitting(true); submitMutation.mutate(submitUrl || item.submitted_url || ""); }}
               >
-                {submitMutation.isPending && submitting ? "Saving…" : "Save link"}
+                {submitMutation.isPending && submitting ? "Submitting…" : item.submitted_url ? "Replace submission" : "Submit"}
               </Button>
             </div>
-            {item.submitted_url && (
+            {item.submitted_url && item.status !== "done" && item.status !== "awaiting_confirmation" && (
               <Button size="sm" variant="outline" disabled={completeMutation.isPending} onClick={() => completeMutation.mutate()}>
                 {completeMutation.isPending ? "Marking done…" : "Mark as done"}
               </Button>

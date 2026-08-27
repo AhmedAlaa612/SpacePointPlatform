@@ -5,7 +5,7 @@ import type { Program, ProgramType, PricingModel, CompletionRuleType } from "@/t
 import { getProgramsApi, createProgramApi, updateProgramApi, deleteProgramApi } from "@/api/sessions/programs"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
 
-const PROGRAM_TYPES: ProgramType[] = ["workshop", "course", "info_session"]
+const PROGRAM_TYPES: ProgramType[] = ["workshop", "course", "info_session", "competition"]
 const PRICING_MODELS: PricingModel[] = ["paid", "free"]
 const COMPLETION_RULE_TYPES: CompletionRuleType[] = ["percentage", "session_count"]
 
@@ -13,6 +13,7 @@ const PROGRAM_TYPE_LABEL: Record<ProgramType, string> = {
   workshop: "Workshop",
   course: "Course",
   info_session: "Info session",
+  competition: "Competition",
 }
 
 const PRICING_MODEL_LABEL: Record<PricingModel, string> = {
@@ -202,6 +203,11 @@ function ProgramModal({ program, onClose, onSuccess }: {
           >
             {PROGRAM_TYPES.map((t) => <option key={t} value={t}>{PROGRAM_TYPE_LABEL[t]}</option>)}
           </select>
+          {programType === "competition" && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Enables the judging tools (rubric, judges, leaderboard) on this program's cohorts.
+            </p>
+          )}
         </Field>
         <Field label="Pricing model">
           <select

@@ -18,7 +18,7 @@ class Program(Base):
     # Format like SATKIT-WS-2026-Q3, validated in the service layer, not the DB.
     code = Column(String(32), unique=True, nullable=False)
     name = Column(String(255), nullable=False)
-    program_type = Column(String(24), nullable=False)  # workshop|course|session
+    program_type = Column(String(24), nullable=False)  # workshop|course|info_session|competition
     description = Column(Text, nullable=True)
     price = Column(Numeric(10, 2), nullable=True)
     # I5-2. Same three-level fallback shape as `price`: set here, overridable
@@ -36,3 +36,15 @@ class Program(Base):
     completion_rule_type = Column(String(16), nullable=False, default="percentage")
     completion_rule_value = Column(Numeric(6, 2), nullable=False, default=70)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    @property
+    def is_competition(self) -> bool:
+        """Competition domain (2026-08-24, Ru'ya Space Race first) reads
+        this everywhere rather than a `program_type == "competition"`
+        string comparison sprinkled across services/routers. `competition`
+        is a normal `program_type` value (like `workshop`/`course`), not a
+        separate boolean flag — a competition doesn't need a second format
+        axis, it just needs judging (rubric/scores/publish), temporary
+        judge accounts, and team-scoped checklist items unlocked, which
+        this property's callers key off of. See services/competitions/."""
+        return self.program_type == "competition"
