@@ -4,6 +4,7 @@ import { Link, useParams } from "@tanstack/react-router"
 import { ArrowLeft, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
+import { searchStaffApi, type StaffOption } from "@/api/lms_admin"
 import {
   advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, getCohortExportTop20Api,
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
@@ -458,14 +459,22 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
 
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
+  const [staffQuery, setStaffQuery] = useState("")
+  const { data: staffOptions = [] } = useQuery<StaffOption[]>({
+    queryKey: ["staff-search-for-judge", staffQuery],
+    queryFn: () => searchStaffApi({ q: staffQuery.trim() }),
+    enabled: staffQuery.trim().length >= 2,
+  })
+  const alreadyJudging = new Set(judges.map((j) => j.email))
+
   const inviteMutation = useMutation({
     mutationFn: () => inviteCohortJudgeApi(cohortId, { name: name.trim(), email: email.trim() }),
     onSuccess: () => {
-      toast.success("Judge invited")
-      setName(""); setEmail("")
+      toast.success("Judge added")
+      setName(""); setEmail(""); setStaffQuery("")
       queryClient.invalidateQueries({ queryKey: ["competitions-judges", cohortId] })
     },
-    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to invite judge")),
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to add judge")),
   })
   const revokeMutation = useMutation({
     mutationFn: (userId: string) => revokeCohortJudgeApi(cohortId, userId),
@@ -477,8 +486,43 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
 
   return (
     <div className="flex flex-col gap-5 max-w-2xl">
+      <div className="flex flex-col gap-2">
+        <Field label="Add an existing account as judge">
+          <input
+            value={staffQuery} onChange={(e) => setStaffQuery(e.target.value)}
+            placeholder="Search staff by name or email…"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+          />
+        </Field>
+        {staffQuery.trim().length >= 2 && (
+          <div className="flex flex-col gap-1 border border-border rounded-xl p-1.5 bg-card max-h-56 overflow-y-auto">
+            {staffOptions.length === 0 ? (
+              <p className="text-xs text-muted-foreground px-2 py-1.5">No matching staff account.</p>
+            ) : (
+              staffOptions.map((u) => {
+                const already = alreadyJudging.has(u.email)
+                return (
+                  <button
+                    key={u.id}
+                    disabled={already}
+                    onClick={() => { setName(u.full_name); setEmail(u.email); setStaffQuery("") }}
+                    className="flex items-center justify-between text-left px-2 py-1.5 rounded-lg text-sm hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <span>
+                      <span className="text-foreground font-medium">{u.full_name}</span>
+                      <span className="text-muted-foreground text-xs ml-2">{u.email}</span>
+                    </span>
+                    {already && <span className="text-xs text-muted-foreground shrink-0">Already judging</span>}
+                  </button>
+                )
+              })
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="flex items-end gap-2">
-        <Field label="Name">
+        <Field label={name || email ? "Name" : "…or add someone new — name"}>
           <input
             value={name} onChange={(e) => setName(e.target.value)} placeholder="Dr. Amina Al Suwaidi"
             className="w-48 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
@@ -495,7 +539,7 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
           disabled={inviteMutation.isPending || !name.trim() || !email.trim()}
           className="flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
         >
-          <UserPlus size={14} /> Invite
+          <UserPlus size={14} /> {inviteMutation.isPending ? "Adding…" : "Add as judge"}
         </button>
       </div>
 
