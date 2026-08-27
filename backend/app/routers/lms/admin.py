@@ -1455,11 +1455,11 @@ async def resync_cohort_program_assignments(
     cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
     """One-off catch-up for a cohort whose checklist was edited before
-    2026-08-27 — every add now backfills automatically (see
-    `sync_cohort_assignments`'s module docstring), but a step added
-    before that fix shipped never reached the students already assigned
-    at the time. Safe to call any time; a cohort with nothing missing
-    just reports 0."""
+    2026-08-27, or whose checklist didn't exist yet when a team advanced
+    into it — both now backfill automatically going forward (see
+    `sync_cohort_assignments`'s own docstring), but this catches up
+    whatever already happened before either fix shipped. Safe to call
+    any time; a cohort with nothing missing just reports 0."""
     if await db.get(Cohort, cohort_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     added = await sync_cohort_assignments(db, cohort_id=cohort_id)

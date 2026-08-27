@@ -80,6 +80,9 @@ export default function LearnLanding() {
 
       {cohortTeams.length > 0 && (
         <div className="flex flex-col gap-3">
+          {/* A team from each phase/cohort a student has ever been on shows up
+              here (advancing to the next stage doesn't remove the old team) —
+              the phase name is what tells two same-named "edos" cards apart. */}
           {cohortTeams.map((team) => {
             const checklist = myChecklists?.find((c) => c.cohort_id === team.cohort_id);
             return (
@@ -88,17 +91,23 @@ export default function LearnLanding() {
                   <Users className="size-5" />
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col gap-1">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">My Team</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+                    My Team{checklist?.cohort_name ? ` · ${checklist.cohort_name}` : ""}
+                  </div>
                   <div className="font-display text-lg font-semibold truncate">{team.name}</div>
                   <div className="text-sm text-muted-foreground truncate">{team.member_names.join(", ")}</div>
                 </div>
-                {checklist && (
+                {checklist ? (
                   <Button
                     size="xl" variant="outline" className="shrink-0"
                     onClick={() => void navigate({ to: `/learn/checklists/${checklist.assignment_id}` })}
                   >
                     Open checklist
                   </Button>
+                ) : (
+                  <div className="text-xs text-muted-foreground text-right shrink-0 max-w-[160px]">
+                    No checklist yet — check back soon
+                  </div>
                 )}
               </Card>
             );

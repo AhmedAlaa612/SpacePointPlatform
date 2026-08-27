@@ -37,6 +37,7 @@ from app.models.lms.program import (
 )
 from app.models.missions.mission import Mission, MissionAttempt
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.registration import Registration
 from app.models.team import Team, TeamMember
 from app.models.user import User
 from app.schemas.lms_admin import LmsProgramItemIn, LmsProgramItemOut
@@ -534,7 +535,35 @@ async def sync_program_assignments(db: AsyncSession, *, lms_program_id: uuid.UUI
 
 async def sync_cohort_assignments(db: AsyncSession, *, cohort_id: uuid.UUID) -> int:
     """Backfill every existing assignment in this one cohort — call after
-    adding an item on a cohort's own override."""
+    adding an item on a cohort's own override.
+
+    Also creates a missing assignment outright for anyone already on a
+    team in this cohort but never assigned at all — the gap
+    `advance_teams` leaves behind when it ran before this cohort had any
+    checklist to assign (`assign_lms_program` silently no-ops with
+    nothing to resolve, and nothing ever retries it once a checklist
+    exists): a team advances fine, but the advanced student never gets a
+    checklist until this runs."""
+    team_ids = (await db.execute(select(Team.id).where(Team.cohort_id == cohort_id))).scalars().all()
+    if team_ids:
+        member_user_ids = set((await db.execute(
+            select(TeamMember.user_id).where(TeamMember.team_id.in_(team_ids))
+        )).scalars().all())
+        already_assigned = set((await db.execute(
+            select(LmsProgramAssignment.user_id).where(LmsProgramAssignment.cohort_id == cohort_id)
+        )).scalars().all())
+        for user_id in member_user_ids - already_assigned:
+            user = await db.get(User, user_id)
+            registration_id = None
+            if user is not None and user.contact_id is not None:
+                registration_id = await db.scalar(
+                    select(Registration.id).where(
+                        Registration.contact_id == user.contact_id, Registration.cohort_id == cohort_id,
+                        Registration.status != "cancelled",
+                    )
+                )
+            await assign_lms_program(db, user_id=user_id, cohort_id=cohort_id, registration_id=registration_id)
+
     assignments = (await db.execute(
         select(LmsProgramAssignment).where(LmsProgramAssignment.cohort_id == cohort_id)
     )).scalars().all()

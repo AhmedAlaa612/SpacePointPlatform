@@ -13,6 +13,7 @@ from app.models.lms import Course, Enrollment
 from app.models.lms.program import (
     LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem, LmsProgramItemProgress,
 )
+from app.services.teams import create_team
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
@@ -366,6 +367,60 @@ async def test_adding_a_cohort_override_item_backfills_that_cohort_only(db):
         select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == assignment.id)
     )).scalars().all()
     assert len(progress_rows) == 2
+
+
+@pytest.mark.asyncio
+async def test_sync_creates_a_missing_assignment_for_a_team_member_with_none_yet(db):
+    """The reported bug: a team advances into a cohort that had no
+    checklist yet, so assign_lms_program no-ops and the student never
+    gets an assignment at all — sync_cohort_assignments must create one
+    outright once a checklist exists, not just backfill missing items on
+    an assignment that's already there."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    student = await _student(db)
+    await db.commit()
+
+    # Team exists in the cohort (as advance_teams would leave behind),
+    # but there's no checklist yet, so no assignment was ever created.
+    await create_team(db, name="edos", created_by=student.id, cohort_id=cohort.id)
+    await db.commit()
+    assert await resolve_cohort_program(db, cohort.id) is None
+    assert (await db.execute(
+        select(LmsProgramAssignment).where(LmsProgramAssignment.cohort_id == cohort.id)
+    )).scalars().first() is None
+
+    # Ops sets up the phase's checklist after the fact.
+    course = await _course(db, author=author)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Phase Checklist")
+    db.add(lms_program)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="course", title=course.title, course_id=course.id,
+    ))
+    await db.commit()
+
+    # assign_lms_program materializes a fresh assignment's items itself, so
+    # the newly-created assignment needs no further item backfill here —
+    # `added` only counts items missing from an assignment that already existed.
+    added = await sync_cohort_assignments(db, cohort_id=cohort.id)
+    await db.commit()
+    assert added == 0
+
+    assignment = (await db.execute(
+        select(LmsProgramAssignment).where(
+            LmsProgramAssignment.cohort_id == cohort.id, LmsProgramAssignment.user_id == student.id,
+        )
+    )).scalars().first()
+    assert assignment is not None
+    progress_rows = (await db.execute(
+        select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == assignment.id)
+    )).scalars().all()
+    assert len(progress_rows) == 1
+
+    # Safe to call again — nothing missing now.
+    assert await sync_cohort_assignments(db, cohort_id=cohort.id) == 0
 
 
 @pytest.mark.asyncio
