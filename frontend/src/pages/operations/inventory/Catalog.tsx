@@ -51,13 +51,13 @@ export default function Catalog() {
         </p>
       </div>
 
-      <div className="flex gap-1 border-b border-border">
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
         {(["templates", "items", "locations", "cities", "warehouses", "categories"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors capitalize",
+              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors capitalize shrink-0 whitespace-nowrap",
               tab === t
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground",
@@ -425,13 +425,17 @@ function Items() {
         )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      {/* Below `sm`: a horizontal swipe slider (CSS scroll-snap, no JS
+       *  library) — a 2-up grid squeezed every card's photo/badges/buttons
+       *  too narrow to use on a phone. `sm:` and up reverts to the original
+       *  grid untouched. */}
+      <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-3 lg:grid-cols-4 sm:overflow-visible sm:pb-0">
         {cards.map((card) => {
           const item = card.kind === "group" ? card.representative : card.item
           const total = card.kind === "group" ? card.total : (totalByItem[item.id] ?? 0)
           const displayName = card.kind === "group" ? card.groupName : item.name
           return (
-            <div key={card.kind === "group" ? card.groupName : item.id} className="rounded-2xl border border-border bg-card overflow-hidden flex flex-col">
+            <div key={card.kind === "group" ? card.groupName : item.id} className="w-44 shrink-0 snap-start sm:w-auto sm:shrink rounded-2xl border border-border bg-card overflow-hidden flex flex-col">
               <ItemPhoto item={item} canManage={canManage} />
               <div className="p-3 flex flex-col gap-2 flex-1">
                 <div>
@@ -1176,7 +1180,7 @@ function Warehouses() {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
           A warehouse is a store within a location — the shelf stock and kits are actually counted
           against. Most locations need exactly one; add a second only where a site genuinely has two
@@ -1185,7 +1189,7 @@ function Warehouses() {
         {canManage && (
           <button
             onClick={() => setOpen(true)}
-            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 shrink-0 cursor-pointer"
+            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 shrink-0 cursor-pointer w-fit"
           >
             <Plus size={14} /> New warehouse
           </button>
