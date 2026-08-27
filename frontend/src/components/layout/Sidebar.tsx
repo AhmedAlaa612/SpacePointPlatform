@@ -167,19 +167,26 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   }
   // V2 S6-2: operations domain — dedicated sidebar, no longer piggybacking on admin.
   if (pathname.startsWith("/operations")) {
-    // I1-4: a storekeeper restocks and receives, nothing else. Everything the
-    // ops nav offers below would 403 for them (require_operations doesn't
-    // list the role), so offering it would be a menu of dead ends.
+    // I1-4: a storekeeper restocks, receives, and (2026-08-27) reads
+    // everything in the inventory domain — but still can't create/edit/
+    // delete anything outside a stock count. The full inventory nav is
+    // offered now that every read behind it actually works
+    // (require_storekeeper, not require_operations); the create/edit
+    // controls each page renders are individually hidden for this role —
+    // see e.g. Kits.tsx/Catalog.tsx's own `canManage` checks — so nothing
+    // reachable from here is a dead end. Sessions/registrations/programs
+    // stay off this nav entirely; those aren't the storekeeper's job.
     if (activeRole === "storekeeper") {
       return [
-        mk("Stock", "/operations/inventory/stock"),
-        mk("Fulfilment", "/operations/inventory/fulfilment"),
+        ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
         mk("Learn", "/learn"),
         mk("Profile & Settings", "/operations/profile"),
       ];
     }
-    // I1-4: the COO approves inventory movement. Sessions and registrations
-    // aren't theirs — `require_operations` rejects `coo` too.
+    // I1-4: the COO can do anything with the inventory (2026-08-27 operator
+    // directive) — full write parity with operations within the inventory
+    // routers (`require_inventory_manage`), not just read access. Sessions
+    // and registrations still aren't theirs — those stay ops-only.
     if (activeRole === "coo") {
       return [...INVENTORY_NAV.map(([label, to]) => mk(label, to)), mk("Learn", "/learn")];
     }

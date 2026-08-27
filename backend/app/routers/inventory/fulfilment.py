@@ -4,14 +4,16 @@
     POST /inventory/fulfilment/{kit_id}/fulfil       put parts back in the box
     PUT  /inventory/fulfilment/{kit_id}/awaiting     I looked; the shelf was empty
 
-**Everything here is `require_storekeeper`**, which admits `storekeeper` or
-`operations`. Deliberately mounted under `/inventory/fulfilment` rather than
-as more `/inventory/kits/{id}/...` routes: every path under `/inventory/kits`
-is `require_operations`, and keeping that true means the boundary can be read
-off the URL instead of checked route by route. The storekeeper's narrowness
-is invisible negative space — `test_a_storekeeper_cannot_touch_the_catalogue_
-or_the_kits` is what pins it — so the fewer exceptions inside that namespace,
-the better.
+**Everything here is `require_storekeeper`**, which admits `storekeeper`,
+`operations`, or `coo`. Deliberately mounted under `/inventory/fulfilment`
+rather than as more `/inventory/kits/{id}/...` routes: every *write* path
+under `/inventory/kits` is `require_inventory_manage` (reads are
+`require_storekeeper` too, widened 2026-08-27 — see `kits.py`'s own
+docstring), and keeping the write boundary consistent means it can be read
+off which dependency a route uses rather than checked route by route. The
+storekeeper's narrowness on writes is invisible negative space —
+`test_a_storekeeper_cannot_touch_the_catalogue_or_the_kits` is what pins it
+— so the fewer exceptions inside that boundary, the better.
 """
 
 import uuid

@@ -203,18 +203,20 @@ async def test_a_storekeeper_can_load_every_page_their_sidebar_offers(client, db
         await client.get("/inventory/overdue", headers=_headers(keeper)),
         await client.get("/inventory/locations", headers=_headers(keeper)),
         await client.get("/inventory/fulfilment", headers=_headers(keeper)),
-    ]
-    assert [r.status_code for r in reachable] == [200] * 4
-
-    # ...and widening those reads must not have opened any of the writes.
-    # (GET /inventory/kits was itself a same-shaped silent-403 bug, found live
-    # 2026-08-27 and fixed the same way as this test's own three — it's
-    # deliberately not on this list any more; see
-    # test_a_storekeeper_may_read_kits_list_detail_and_movements.)
-    still_shut = [
-        await client.post("/inventory/locations", headers=_headers(keeper),
-                          json={"name": "Sneaky"}),
+        # Widened again 2026-08-27, same failure shape, same fix: "read
+        # everything" now covers the whole catalogue and the kit/movement
+        # namespaces too, not just this page's own four calls — see
+        # test_a_storekeeper_may_read_kits_list_detail_and_movements and
+        # catalog.py's own module docstring.
         await client.get("/inventory/items", headers=_headers(keeper)),
         await client.get("/inventory/movements", headers=_headers(keeper)),
     ]
-    assert [r.status_code for r in still_shut] == [403] * 3
+    assert [r.status_code for r in reachable] == [200] * 6
+
+    # ...and widening every read must not have opened any of the writes —
+    # the actual, permanent boundary is create/edit/delete, not visibility.
+    still_shut = [
+        await client.post("/inventory/locations", headers=_headers(keeper),
+                          json={"name": "Sneaky"}),
+    ]
+    assert [r.status_code for r in still_shut] == [403] * 1

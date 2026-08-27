@@ -1,7 +1,8 @@
 """Stock levels, stock movements and the movement ledger (I1-3).
 
 The writes here — moving stock, adjusting a count, confirming a movement —
-are `require_storekeeper`, which admits `storekeeper` **or** `operations`.
+are `require_storekeeper`, which admits `storekeeper`, `operations`, or
+`coo`.
 
 **`GET /stock` and `GET /overdue` are `require_storekeeper` too** (fixed
 2026-07-30). They were `require_operations`, which meant the storekeeper's
@@ -10,13 +11,23 @@ every call it made and rendered "nothing on the shelves yet" no matter what
 was on them. The role was unusable in practice from I1-4 until this was
 caught in the browser.
 
-`GET /movements` stays `require_operations`: the full ledger is an audit
-surface, and nothing a storekeeper does needs it.
+**`GET /movements` (the full ledger) is `require_storekeeper` too now**
+(widened 2026-08-27) — it used to stay ops-only on the theory that "nothing
+a storekeeper does needs it," but the operator directive that day ("storekeeper
+should read everything") settled that the other way; it's read-only, so
+there's nothing to protect by withholding it.
 
-The shape of the role is what they *cannot* reach — kits, the catalogue,
-session assignments — and that is enforced by `require_operations` simply not
-listing them, pinned by
+What the role still *cannot* reach is writes outside its own job — kit
+create/edit/delete, the catalogue, session assignments — enforced by
+`require_inventory_manage` (in `kits.py`/`catalog.py`) simply not listing
+`storekeeper`, pinned by
 `test_a_storekeeper_cannot_touch_the_catalogue_or_the_kits`.
+
+`coo` was added to `require_storekeeper` and given its own
+`require_inventory_manage` (full write parity with `operations`, inventory-
+domain only) on the same 2026-08-27 directive: "if I can see a page with my
+role, I can use it" — no inventory page may show a control that then 403s
+for a role that can reach the page.
 """
 
 import uuid
@@ -26,7 +37,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_operations, require_storekeeper
+from app.core.dependencies import require_storekeeper
 from app.db.session import get_db
 from app.models.inventory.item import Item
 from app.models.inventory.location import Location
@@ -190,7 +201,7 @@ async def list_movements(
     unconfirmed_only: bool = False,
     limit: int = 200,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     stmt = select(Movement).order_by(Movement.created_at.desc()).limit(min(limit, 500))
     if kit_id:

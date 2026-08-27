@@ -60,6 +60,16 @@ async def keeper_headers(keeper):
 
 
 @pytest.fixture
+async def coo(db):
+    return await _make_user(db, "coo")
+
+
+@pytest.fixture
+async def coo_headers(coo):
+    return _headers(coo)
+
+
+@pytest.fixture
 async def instructor(db):
     return await _make_user(db, "instructor")
 
@@ -786,8 +796,8 @@ async def test_a_storekeeper_may_read_kits_list_detail_and_movements(db, client,
 @pytest.mark.asyncio
 async def test_a_storekeeper_cannot_touch_the_catalogue_or_the_kits(db, client, keeper_headers):
     """The reason the role exists. If any of these starts returning 2xx,
-    somebody has widened require_operations or pointed an endpoint at the
-    wrong guard. (`/kits/{id}/count` is a deliberate exception — see
+    somebody has widened require_inventory_manage or pointed an endpoint at
+    the wrong guard. (`/kits/{id}/count` is a deliberate exception — see
     test_a_storekeeper_may_count_a_kit above — and reading, as opposed to
     writing, the kits themselves is too — see
     test_a_storekeeper_may_read_kits_list_detail_and_movements.)"""
@@ -817,6 +827,56 @@ async def test_a_storekeeper_cannot_touch_the_catalogue_or_the_kits(db, client, 
         }),
     ]
     assert [r.status_code for r in forbidden] == [403] * len(forbidden)
+
+
+@pytest.mark.asyncio
+async def test_a_coo_can_do_anything_with_the_inventory(db, client, coo_headers):
+    """Operator directive, 2026-08-27: "COO alone should be able to do
+    anything with the inv if he wants" — and "if I can see a page with my
+    role, I can use it," after two live incidents where the frontend routed
+    a coo into the full inventory nav while the backend rejected every
+    single call it made (coo was in neither require_operations nor
+    require_storekeeper). `coo` is now full write parity with `operations`
+    within the inventory routers (`require_inventory_manage`), on top of
+    the read access `require_storekeeper` already gives it. This is a
+    blanket grant, not the real scoped approvals/purchasing workflow the
+    operator separately described — that's follow-up work."""
+    loc = await _location(db)
+    wh = await _warehouse(db, loc)
+    tpl = await _template(db)
+    kit = await _kit(db, wh, tpl)
+    item = await _item(db)
+    city = City(id=uuid.uuid4(), name=f"COO Test City {uuid.uuid4().hex[:6]}", country="AE")
+    db.add(city)
+    await db.commit()
+
+    ok = [
+        # Reads, across every inventory router.
+        await client.get("/inventory/kits", headers=coo_headers),
+        await client.get(f"/inventory/kits/{kit.id}", headers=coo_headers),
+        await client.get("/inventory/items", headers=coo_headers),
+        await client.get("/inventory/templates", headers=coo_headers),
+        await client.get("/inventory/stock", headers=coo_headers),
+        await client.get("/inventory/movements", headers=coo_headers),
+        # Writes — exactly what storekeeper is refused above.
+        await client.post("/inventory/kits", headers=coo_headers, json={
+            "template_id": str(tpl.id), "label": f"SP-COO-{uuid.uuid4().hex[:6]}",
+            "current_warehouse_id": str(wh.id),
+        }),
+        await client.patch(f"/inventory/kits/{kit.id}", headers=coo_headers, json={"status": "damaged"}),
+        await client.post(f"/inventory/kits/{kit.id}/move", headers=coo_headers, json={
+            "to_warehouse_id": str(wh.id),
+        }),
+        await client.patch(f"/inventory/items/{item.id}", headers=coo_headers, json={"notes": "coo edit"}),
+        await client.post("/inventory/locations", headers=coo_headers, json={
+            "name": "COO Test Location", "city_id": str(city.id),
+        }),
+        await client.post("/inventory/templates", headers=coo_headers, json={
+            "name": "COO Template", "code": f"COOTPL{uuid.uuid4().hex[:4].upper()}",
+        }),
+    ]
+    assert [r.status_code for r in ok] == [200, 200, 200, 200, 200, 200, 201, 200, 201, 200, 201, 201], \
+        [(r.status_code, r.text) for r in ok]
 
 
 @pytest.mark.asyncio
