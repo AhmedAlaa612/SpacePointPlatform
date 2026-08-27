@@ -150,6 +150,19 @@ export const getCohortLeaderboardApi = (cohortId: string) =>
 export const getCohortExportTop20Api = (cohortId: string) =>
   api.get<CompetitionLeaderboardRow[]>(`/competitions/admin/cohorts/${cohortId}/export-top20`).then((r) => r.data)
 
+/** One .xlsx: a Scores sheet (rank, average, every judge's own score) and
+ * a Submissions sheet (every team's link deliverables, who sent them,
+ * when) — for reviewing a cohort's judging round outside the app. */
+export const downloadCohortResultsWorkbookApi = async (cohortId: string, cohortName: string) => {
+  const res = await api.get(`/competitions/admin/cohorts/${cohortId}/export.xlsx`, { responseType: "blob" })
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `${cohortName.replace(/[^a-z0-9]+/gi, "_")}_results.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export const getCohortPublicationApi = (cohortId: string) =>
   api.get<CompetitionPublication>(`/competitions/admin/cohorts/${cohortId}/publication`).then((r) => r.data)
 

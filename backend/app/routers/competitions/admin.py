@@ -8,6 +8,7 @@ not a separate permission concept.
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_lms_content
@@ -21,6 +22,7 @@ from app.schemas.competitions import (
     CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut, CompetitionTeamCreateIn,
     CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
 )
+from app.services.competitions import export as export_service
 from app.services.competitions import judges as judges_service
 from app.services.competitions import judging as judging_service
 from app.services.competitions import progression as progression_service
@@ -207,6 +209,21 @@ async def get_cohort_export_top20(cohort_id: uuid.UUID, db: AsyncSession = Depen
     await _get_cohort_or_404(db, cohort_id)
     rows = await judging_service.export_top(db, cohort_id=cohort_id, limit=20)
     return [CompetitionLeaderboardRowOut(**row) for row in rows]
+
+
+@router.get("/cohorts/{cohort_id}/export.xlsx")
+async def export_cohort_results_workbook(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """A single spreadsheet for offline review: every team's rank/average/
+    each judge's own score on one sheet, every team's link submissions
+    (who sent it, when) on another. Same numbers as the Results tab and
+    judge team-detail view, just handed over as a file."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    content = await export_service.export_results_workbook(db, cohort_id=cohort_id)
+    safe_name = "".join(c if c.isalnum() or c in " -_" else "_" for c in cohort.name).strip() or cohort_id
+    return Response(
+        content=content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name} results.xlsx"'},
+    )
 
 
 @router.get("/cohorts/{cohort_id}/publication", response_model=CompetitionPublicationOut)

@@ -393,6 +393,46 @@ async def test_leaderboard_averages_across_judges_and_ranks_unscored_last(db, cl
 # ── Registration import, progression ─────────────────────────────────────
 
 @pytest.mark.asyncio
+async def test_export_workbook_has_a_scores_sheet_and_a_submissions_sheet(db, client):
+    from datetime import datetime, timezone
+    from app.models.lms.program import LmsProgramTeamItemProgress
+
+    ops, program, cohort, team, judge, poster_item = await _judge_setup(db)
+    db.add(LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=poster_item.id, team_id=team.id, status="done",
+        submitted_url="https://canva.com/design/poster-v1", updated_by_user_id=judge.id,
+        updated_at=datetime(2026, 8, 24, 14, 30, tzinfo=timezone.utc),
+    ))
+    await db.commit()
+    await client.put(
+        f"/competitions/judge/teams/{team.id}/score", headers=_headers(judge),
+        json={"criterion_scores": {"design": 30, "execution": 20}, "bonus_points": 0, "submitted": True},
+    )
+
+    resp = await client.get(f"/competitions/admin/cohorts/{cohort.id}/export.xlsx", headers=_headers(ops))
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["content-type"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    assert "attachment" in resp.headers["content-disposition"]
+
+    wb = openpyxl.load_workbook(io.BytesIO(resp.content))
+    assert wb.sheetnames == ["Scores", "Submissions"]
+
+    scores = wb["Scores"]
+    header = [c.value for c in scores[1]]
+    assert header[:5] == ["Rank", "Team", "Avg Score", "Status", "Advanced To"]
+    assert judge.full_name in header
+    team_row = next(r for r in scores.iter_rows(min_row=2, values_only=True) if r[1] == "Falcon Eye")
+    assert team_row[2] == 50.0  # 30 + 20
+
+    submissions = wb["Submissions"]
+    assert [c.value for c in submissions[1]] == ["Team", "Item", "Type", "Status", "Link", "Submitted At", "Submitted By"]
+    sub_row = next(r for r in submissions.iter_rows(min_row=2, values_only=True) if r[0] == "Falcon Eye")
+    assert sub_row[1] == "Poster"
+    assert sub_row[4] == "https://canva.com/design/poster-v1"
+    assert sub_row[6] == judge.full_name
+
+
+@pytest.mark.asyncio
 async def test_registration_import_via_multipart_upload_creates_teams(db, client):
     ops = await _ops(db)
     _program, cohort = await _program_and_cohort(db)

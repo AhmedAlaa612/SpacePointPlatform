@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ArrowUpRight, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Download, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
 import { searchStaffApi, type StaffOption } from "@/api/lms_admin"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import {
-  advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, getCohortExportTop20Api,
+  advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
+  getCohortExportTop20Api,
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
   importCohortRegistrationsApi,
   inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi, registerAndAddTeamMemberApi,
@@ -79,7 +80,7 @@ export default function CompetitionJudging() {
       {tab === "teams" && <TeamsTab cohortId={cohort.id} />}
       {tab === "rubric" && <RubricTab programId={cohort.program_id} />}
       {tab === "judges" && <JudgesTab cohortId={cohort.id} />}
-      {tab === "results" && <ResultsTab cohortId={cohort.id} programId={cohort.program_id} />}
+      {tab === "results" && <ResultsTab cohortId={cohort.id} cohortName={cohort.name} programId={cohort.program_id} />}
     </div>
   )
 }
@@ -580,12 +581,13 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
 /* ================================================================== */
 /* Results                                                              */
 /* ================================================================== */
-function ResultsTab({ cohortId, programId }: { cohortId: string; programId: string }) {
+function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; cohortName: string; programId: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const [showTop20, setShowTop20] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [toCohortId, setToCohortId] = useState("")
+  const [exporting, setExporting] = useState(false)
 
   const { data: board = [], isLoading } = useQuery<CompetitionLeaderboardRow[]>({
     queryKey: ["competitions-leaderboard", cohortId],
@@ -670,13 +672,31 @@ function ResultsTab({ cohortId, programId }: { cohortId: string; programId: stri
         </button>
         <button
           onClick={() => setShowTop20((s) => !s)}
+          title="Filters the table below to only the 20 highest-ranked teams — doesn't download anything"
           className="h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
         >
-          {showTop20 ? "Hide Top 20" : "Show Top 20"}
+          {showTop20 ? "Show all teams" : "Filter to Top 20"}
+        </button>
+        <button
+          onClick={async () => {
+            setExporting(true)
+            try {
+              await downloadCohortResultsWorkbookApi(cohortId, cohortName)
+            } catch (e: any) {
+              toast.error(getErrorMessage(e, "Failed to export results"))
+            } finally {
+              setExporting(false)
+            }
+          }}
+          disabled={exporting}
+          className="flex items-center gap-1.5 h-9 px-4 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+        >
+          <Download size={14} /> {exporting ? "Exporting…" : "Export spreadsheet"}
         </button>
       </div>
       <p className="text-xs text-muted-foreground -mt-2">
-        Publishing closes scoring for every judge on this cohort — unpublish to reopen it.
+        Publishing closes scoring for every judge on this cohort — unpublish to reopen it. "Export spreadsheet"
+        downloads an .xlsx with every team's score breakdown and submission links, for reviewing outside the app.
       </p>
 
       {advanceTargets.length > 0 ? (
