@@ -41,7 +41,7 @@ from app.schemas.internship import (
 )
 from app.services import storage
 from app.services.documents.internship_letter import generate_internship_letter_pdf
-from app.services.email import (
+from app.services.email_templates import (
     send_internship_letter_signed_notification_email,
     send_signed_internship_letter_email,
 )
@@ -335,8 +335,8 @@ async def sign_internship_letter(
     for admin in admins:
         await notify(db, admin.id, "Internship Letter Signed",
                      f"{current_user.full_name} signed their internship letter.", type="internship")
-        await send_internship_letter_signed_notification_email(admin.email, current_user.full_name)
-    await send_signed_internship_letter_email(current_user.email, current_user.full_name, pdf_bytes)
+        await send_internship_letter_signed_notification_email(db, admin.email, current_user.full_name)
+    await send_signed_internship_letter_email(db, current_user.email, current_user.full_name, pdf_bytes)
 
     await db.commit()
     await db.refresh(profile)

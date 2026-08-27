@@ -29,7 +29,7 @@ from app.models.inventory.session_kit import SessionKit
 from app.models.notification import Notification
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
-from app.services.email import try_send_email
+from app.services.email_templates import render_and_send
 from app.services.inventory.checks import outstanding_post_checks
 from app.services.inventory.movements import overdue
 from app.services.notification import create_notification
@@ -92,15 +92,9 @@ async def _remind_uncounted(db: AsyncSession) -> int:
                 db, user_id=user.id, title="Kits still to count",
                 body=body, type=UNCOUNTED_TYPE,
             )
-            await try_send_email(
-                to=user.email,
-                subject="Kits still to count",
-                body=(
-                    f"Hi {user.full_name},\n\n"
-                    f"Your session hasn't been closed out yet — these kits still need "
-                    f"counting: {labels}.\n\n"
-                    f"You can do it from the session page in the portal.\n"
-                ),
+            await render_and_send(
+                db, key="kits_uncounted_reminder", to=user.email,
+                placeholders={"name": user.full_name, "labels": labels},
             )
             sent += 1
     return sent
@@ -130,15 +124,9 @@ async def _remind_overdue(db: AsyncSession) -> int:
             body=f"{what} was due back on {movement.due_back_on}. (movement {movement.id})",
             type=OVERDUE_TYPE,
         )
-        await try_send_email(
-            to=user.email,
-            subject="Something is due back",
-            body=(
-                f"Hi {user.full_name},\n\n"
-                f"{what} was due back on {movement.due_back_on} and we haven't recorded it "
-                f"returning. If you've already handed it over, let operations know so we can "
-                f"fix the record.\n"
-            ),
+        await render_and_send(
+            db, key="overdue_item_reminder", to=user.email,
+            placeholders={"name": user.full_name, "what": what, "due_back_on": str(movement.due_back_on)},
         )
         sent += 1
     return sent

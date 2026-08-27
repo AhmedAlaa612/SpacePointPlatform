@@ -20,7 +20,7 @@ from app.models.user import User
 from app.services import storage
 from app.services.documents.id_card import ensure_card_number
 from app.schemas.internship import InternshipApprove
-from app.services.email import send_application_approved_email, send_moved_to_onboarding_email
+from app.services.email_templates import send_application_approved_email, send_moved_to_onboarding_email
 from app.services.internship.approval import approve_internship, resolve_internship_request_fields
 from app.services.notification import create_notification as notify
 from app.services.points import award_points, get_setting_int
@@ -164,7 +164,7 @@ async def approve_application(
     await notify(db, new_user.id, "Application Approved",
                  f"Your {app.role} application has been approved. Welcome to SpacePoint!", type="application")
 
-    email_sent = await send_application_approved_email(new_user.email, new_user.full_name, app.role)
+    email_sent = await send_application_approved_email(db, new_user.email, new_user.full_name, app.role)
 
     await db.commit()
     return {"detail": "approved", "user_id": str(new_user.id), "email_sent": email_sent}
@@ -280,7 +280,7 @@ async def onboard_application(
     app.reviewed_by = current_user.id
     app.reviewed_at = datetime.now(timezone.utc)
 
-    email_sent = await send_moved_to_onboarding_email(new_user.email, new_user.full_name)
+    email_sent = await send_moved_to_onboarding_email(db, new_user.email, new_user.full_name)
 
     await db.commit()
     return {"detail": "onboarding", "user_id": str(new_user.id), "email_sent": email_sent}

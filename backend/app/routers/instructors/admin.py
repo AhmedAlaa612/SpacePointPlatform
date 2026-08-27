@@ -48,7 +48,7 @@ from app.services.documents.certificate import generate_completion_certificate_p
 from app.services.documents.contract import format_contract_date, generate_contract_pdf
 from app.services.documents.dossier import build_applicant_dossier_pdf
 from app.schemas.internship import InternshipApprove
-from app.services.email import send_approval_credentials_email, send_phase1_approval_email
+from app.services.email_templates import send_approval_credentials_email, send_phase1_approval_email
 from app.services.internship.approval import approve_internship
 from app.services.notification import create_notification as notify
 from app.services.points import award_points
@@ -304,7 +304,7 @@ async def review_applicant(
     email_sent = None
 
     if body.status == ApplicationStatus.phase_1_approved:
-        email_sent = await send_phase1_approval_email(user.email, user.full_name)
+        email_sent = await send_phase1_approval_email(db, user.email, user.full_name)
 
     elif body.status == ApplicationStatus.approved:
         profile = (await db.execute(select(ApplicantProfile).where(ApplicantProfile.user_id == user_id))).scalars().first()
@@ -402,7 +402,7 @@ async def review_applicant(
         ))
 
         email_sent = await send_approval_credentials_email(
-            user.email, user.full_name, contract_pdf=contract_bytes
+            db, user.email, user.full_name, contract_pdf=contract_bytes
         )
 
         if user.invited_by_id:

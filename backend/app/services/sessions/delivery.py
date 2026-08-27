@@ -31,7 +31,7 @@ from app.models.sessions.session import Session, SessionInstructor
 from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.documents.certificate import generate_completion_certificate_pdf
-from app.services.email import try_send_email
+from app.services.email_templates import render_and_send
 from app.services.lms.program import certificate_gate_satisfied
 from app.services.sessions.registration import check_in, format_cohort_dates
 from app.services.sessions.staffing import resolve_session_location_display
@@ -237,11 +237,9 @@ async def _issue_student_certificate(
     # Email the cert as a PDF attachment — best-effort, never blocks completion.
     if contact.email:
         filename = f"SpacePoint_Certificate_{program.name.replace(' ', '_')}.pdf"
-        await try_send_email(
-            contact.email,
-            f"Your SpacePoint certificate — {program.name}",
-            _cert_email_body(contact.full_name, program.name, dates),
-            html=True,
+        await render_and_send(
+            db, key="student_completion_certificate", to=contact.email,
+            placeholders={"student_name": contact.full_name, "program_name": program.name, "dates": dates},
             attachments=[(filename, cert_bytes, "pdf")],
         )
 
@@ -306,10 +304,3 @@ async def issue_certificate_override(db: AsyncSession, registration_id: UUID, ac
     return certificate
 
 
-def _cert_email_body(student_name: str, program_name: str, dates: str) -> str:
-    return (
-        f"<p>Hi {student_name},</p>"
-        f"<p>Congratulations on completing <strong>{program_name}</strong> ({dates})!</p>"
-        "<p>Your certificate of completion is attached to this email as a PDF.</p>"
-        "<p>— SpacePoint</p>"
-    )

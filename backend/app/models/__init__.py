@@ -12,6 +12,7 @@ from app.models.certificate import Certificate  # noqa: F401  (shared, PLAN §4.
 from app.models.document import Document  # noqa: F401  (shared — unified generated letters, replaces rec/intern letters)
 from app.models.document_request import DocumentRequest  # noqa: F401  (shared, PLAN §4.5 — Phase 4)
 from app.models.document_template import DocumentTemplate  # noqa: F401  (shared, PLAN §4.5)
+from app.models.email_template import EmailTemplate  # noqa: F401  (shared — Email Templates System)
 from app.models.application import Application  # noqa: F401  (shared, unified apply pipeline)
 from app.models.application_question import ApplicationQuestion  # noqa: F401  (shared, admin-managed apply form)
 from app.models.internship import InternProfile, RoleRequest, InternshipRefCounter  # noqa: F401  (2026-08-20 — intern onboarding + generic extra-role requests)

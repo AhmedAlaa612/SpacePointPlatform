@@ -34,7 +34,7 @@ from app.models.sessions.registration import Registration, RegistrationSession
 from app.models.sessions.session import Session
 from app.services.documents.ticket import ticket_url
 from app.services.documents.ticket_image import render_ticket_png
-from app.services.email import try_send_email
+from app.services.email_templates import render_and_send
 from app.services.sessions.staffing import resolve_session_location_display
 
 logger = logging.getLogger(__name__)
@@ -239,19 +239,20 @@ async def issue_ticket(db: AsyncSession, registration_id: UUID, force: bool = Fa
         ticket_token=registration.ticket_token,
     )
 
-    sent = await try_send_email(
-        contact.email,
-        f"Your SpacePoint ticket — {program.name if program else 'Workshop'}",
-        _ticket_email_body(
-            student_name=contact.full_name,
-            program_name=program.name if program else "your workshop",
-            dates=dates,
-            location=location_str,
-            location_address=location["address"],
-            location_maps_url=location["maps_url"],
-            ticket_link=ticket_url(registration.ticket_token),
-        ),
-        html=True,
+    program_name = program.name if program else "your workshop"
+    sent = await render_and_send(
+        db, key="ticket_confirmation", to=contact.email,
+        placeholders={
+            "student_name": contact.full_name,
+            "program_name": program_name,
+            "dates": dates,
+            "where": _ticket_where(location_str, location["address"], location["maps_url"]),
+            "ticket_qr": (
+                '<img src="cid:ticket" alt="Your Ticket" '
+                'style="display:block;max-width:525px;height:auto;margin:20px auto;border-radius:18px">'
+            ),
+            "ticket_link": ticket_url(registration.ticket_token),
+        },
         inline_images={"ticket": (ticket_png, "image", "png")},
     )
     if sent:
@@ -314,10 +315,13 @@ def format_cohort_dates(cohort: Cohort | None) -> str:
     return f"{cohort.starts_on:%b %d, %Y}"
 
 
-def _ticket_email_body(
-    *, student_name: str, program_name: str, dates: str, location: str | None,
-    location_address: str | None = None, location_maps_url: str | None = None, ticket_link: str,
-) -> str:
+def _ticket_where(location: str | None, location_address: str | None, location_maps_url: str | None) -> str:
+    """The `{where}` token for the `ticket_confirmation` template — HTML,
+    not plain text (unlike `_where_suffix` in `services/email_templates.py`
+    for the two staffing emails), because a ticket email is worth a
+    clickable maps link. That's also why `ticket_confirmation` marks `where`
+    as a structural/raw token in `STRUCTURAL_TOKENS` — this value must not
+    get HTML-escaped a second time on the way into the body."""
     where = location or "To be confirmed"
     if location_address:
         where += f"<br>{escape(location_address)}"
@@ -326,13 +330,4 @@ def _ticket_email_body(
             f'<br><a href="{escape(location_maps_url)}" style="color:#2563eb">'
             f"Open in Google Maps</a>"
         )
-    return (
-        f"<p>Hi {student_name},</p>"
-        f"<p>You're registered for <strong>{program_name}</strong>.</p>"
-        f"<p><strong>When:</strong> {dates}<br>"
-        f"<strong>Where:</strong> {where}</p>"
-        f'<p style="text-align:center"><img src="cid:ticket" alt="Your Ticket" style="display:block;max-width:525px;height:auto;margin:20px auto;border-radius:18px"></p>'
-        f"<p>Show this ticket at the door. You can also view it online: "
-        f'<a href="{ticket_link}">{ticket_link}</a></p>'
-        "<p>— SpacePoint</p>"
-    )
+    return where

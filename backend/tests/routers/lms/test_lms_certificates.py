@@ -13,8 +13,8 @@ from app.models.enums import CertificateType
 from app.models.lms import Course, CourseModule, ModuleItem
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.user import User
+from app.services import email_templates as email_templates_service
 from app.services.lms import enroll, item_progress
-from app.services.lms import certificates as certificates_service
 from app.services.lms.certificates import award_for_course_completion
 from sqlalchemy import select
 
@@ -29,7 +29,7 @@ def sent_emails(monkeypatch):
         captured.append({"to": to, "subject": subject, "body": body, **kwargs})
         return True
 
-    monkeypatch.setattr(certificates_service, "try_send_email", _capture)
+    monkeypatch.setattr(email_templates_service, "try_send_email", _capture)
     return captured
 
 

@@ -49,7 +49,7 @@ from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from xml.sax.saxutils import escape
 from app.services.documents.letters import generate_letter_pdf
-from app.services.email import send_recommendation_letter_email
+from app.services.email_templates import send_recommendation_letter_email
 from app.services.notification import create_notification as notify
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -166,7 +166,7 @@ async def create_recommendation_letter(
     await db.commit()
     await db.refresh(doc)
 
-    await send_recommendation_letter_email(user.email, user.full_name)
+    await send_recommendation_letter_email(db, user.email, user.full_name)
     return doc
 
 

@@ -20,7 +20,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.cohort_interest import CohortInterest
 from app.models.sessions.program import Program
 from app.models.spine.contact import Contact
-from app.services.email import send_cohort_interest_notification_email
+from app.services.email_templates import send_cohort_interest_notification_email
 
 logger = logging.getLogger("workers.cohort_interest")
 
@@ -50,7 +50,7 @@ async def send_cohort_interest_notifications(ctx, cohort_id: str) -> dict:
             contact = await db.get(Contact, row.contact_id)
             ok = False
             if contact and contact.email:
-                ok = await send_cohort_interest_notification_email(contact.email, contact.full_name, program_name)
+                ok = await send_cohort_interest_notification_email(db, contact.email, contact.full_name, program_name)
             if ok:
                 row.notified_at = datetime.now(timezone.utc)
             await db.commit()

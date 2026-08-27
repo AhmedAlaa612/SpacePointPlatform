@@ -27,7 +27,6 @@ from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.documents.id_card import ensure_card_number
-from app.services.email import try_send_email
 from app.services.lms.program import assign_lms_program
 from app.services.nicknames import assign_nickname
 
@@ -84,14 +83,16 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
     return user, True
 
 
-async def send_set_password_email(user: User, *, purpose: str = "welcome") -> bool:
+async def send_set_password_email(db: AsyncSession, user: User, *, purpose: str = "welcome") -> bool:
     """Public (P3-3, 2026-08-10) — was module-private until the student
     panel's "create account & invite" and "password reset" actions needed
     to call it directly, not just via `sync_registration_lms`. Same token
     mechanism either way (`create_password_set_token`, 24h, stateless) —
-    `purpose` only changes the copy, since "an account was created for you"
-    reads wrong for a reset on an account that already existed."""
+    `purpose` picks which of the two templates (`account_welcome_set_password`
+    / `account_password_reset`) to render, since "an account was created for
+    you" reads wrong for a reset on an account that already existed."""
     from app.core.config import settings
+    from app.services.email_templates import render_and_send
     token = create_password_set_token(user.id)
     # LearnSetPassword is mounted at both paths for exactly this reason (see
     # its own docstring) — a student's link should log them back in at
@@ -99,21 +100,10 @@ async def send_set_password_email(user: User, *, purpose: str = "welcome") -> bo
     # sends them somewhere real afterward instead of the LMS shell.
     set_password_path = "/learn/set-password" if "student" in user.role_values else "/set-password"
     link = f"{settings.FRONTEND_URL}{set_password_path}?token={token}"
-    intro = (
-        "An account was created for you on SpacePoint."
-        if purpose == "welcome" else
-        "Here's the link to reset your SpacePoint password."
-    )
-    return await try_send_email(
-        user.email,
-        "Your SpacePoint learning account",
-        (
-            f"<p>Hi {user.full_name},</p>"
-            f'<p>{intro} Set your password here: <a href="{link}">{link}</a></p>'
-            "<p>This link is valid for 24 hours.</p>"
-            "<p>— SpacePoint</p>"
-        ),
-        html=True,
+    key = "account_welcome_set_password" if purpose == "welcome" else "account_password_reset"
+    return await render_and_send(
+        db, key=key, to=user.email,
+        placeholders={"name": user.full_name, "set_password_link": link},
     )
 
 
@@ -139,7 +129,7 @@ async def sync_registration_lms(
             db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id,
         )
         if created:
-            await send_set_password_email(user)
+            await send_set_password_email(db, user)
         return user
     except Exception:
         logger.exception("sync_registration_lms failed for registration %s", registration.id)

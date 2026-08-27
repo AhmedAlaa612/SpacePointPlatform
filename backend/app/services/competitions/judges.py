@@ -105,7 +105,7 @@ async def invite_judge(db: AsyncSession, *, cohort_id: uuid.UUID, name: str, ema
         await db.flush()
 
     if is_new:
-        await send_set_password_email(user, purpose="welcome")
+        await send_set_password_email(db, user, purpose="welcome")
     return user
 
 

@@ -31,7 +31,7 @@ from app.schemas.instructors.instructor import (
 from app.services import storage
 from app.services.documents.contract import format_contract_date, generate_contract_pdf
 from app.services.documents.id_card import ensure_card_id, render_card_png, render_card_back_png
-from app.services.email import send_contract_signed_notification_email, send_signed_contract_email
+from app.services.email_templates import send_contract_signed_notification_email, send_signed_contract_email
 from app.services.notification import create_notification as notify
 
 router = APIRouter(tags=["instructors-instructor"])
@@ -201,8 +201,8 @@ async def sign_contract(
     for admin in admins:
         await notify(db, admin.id, "Instructor Contract Signed",
                      f"{current_user.full_name} signed their instructor contract.", type="instructor")
-        await send_contract_signed_notification_email(admin.email, current_user.full_name)
-    await send_signed_contract_email(current_user.email, current_user.full_name, pdf_bytes)
+        await send_contract_signed_notification_email(db, admin.email, current_user.full_name)
+    await send_signed_contract_email(db, current_user.email, current_user.full_name, pdf_bytes)
 
     await db.commit()
     return await _profile_out(profile, current_user)

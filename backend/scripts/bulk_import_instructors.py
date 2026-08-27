@@ -89,7 +89,7 @@ from app.models.inventory.city import City
 from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.user import User
 from app.services.documents.id_card import ensure_card_number
-from app.services.email import send_instructor_welcome_email
+from app.services.email_templates import send_instructor_welcome_email
 from app.services.spine.identity import ensure_user_contact
 
 DEFAULT_FILE = r"C:\Users\ahmed\Downloads\Untitled spreadsheet (4).xlsx"
@@ -291,7 +291,7 @@ async def run(args) -> Report:
                 token = create_password_set_token(user.id)
                 link = f"{settings.FRONTEND_URL}/set-password?token={token}"
                 set_password_links.append((row.name, row.email, link))
-                sent = await send_instructor_welcome_email(user.email, user.full_name, link)
+                sent = await send_instructor_welcome_email(db, user.email, user.full_name, link)
                 if sent:
                     report.emails_sent += 1
                 else:

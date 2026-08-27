@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.routers import admin, auth, documents, notifications
+from app.routers import admin, auth, documents, email_templates, notifications
 from app.routers.apply import router as apply_router
 from app.routers.internship import router as internship_router
 from app.routers.files import router as files_router
@@ -93,6 +93,7 @@ app.include_router(files_router)          # public (HMAC-signed): /files/* — l
 app.include_router(apply_router)          # public: /apply/*
 app.include_router(notifications.router)  # shared: /notifications/*
 app.include_router(documents.router)  # shared: /documents/*  (Phase 4)
+app.include_router(email_templates.router)  # shared, admin-only: /email-templates/*  (Email Templates System)
 app.include_router(admin.router, prefix="/admin")  # shared: /admin/users/*  (generic user management)
 
 # Internship request/letter (2026-08-20) — /me/role-requests, /admin/role-requests/*,

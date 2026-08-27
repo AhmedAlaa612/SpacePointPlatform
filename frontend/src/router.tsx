@@ -80,6 +80,7 @@ import InstructorMyHoldings from "@/pages/instructors/MyHoldings";
 import AdminHub from "@/pages/admin/Dashboard";
 import AdminUsers from "@/pages/admin/Users";
 import AdminDocuments from "@/pages/admin/Documents";
+import AdminEmailTemplates from "@/pages/admin/EmailTemplates";
 import AdminApplications from "@/pages/admin/Applications";
 import AdminRoleRequests from "@/pages/admin/RoleRequests";
 import Settings from "@/pages/admin/Settings";
@@ -575,6 +576,13 @@ const adminDocumentsRoute = createRoute({
   path: "/admin/documents",
   beforeLoad: requireAdminRole,
   component: AdminDocuments,
+});
+
+const adminEmailTemplatesRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/admin/email-templates",
+  beforeLoad: requireAdminRole,
+  component: AdminEmailTemplates,
 });
 
 const adminSettingsRoute = createRoute({
@@ -1077,6 +1085,7 @@ const routeTree = rootRoute.addChildren([
     adminHubRoute,
     adminUsersRoute,
     adminDocumentsRoute,
+    adminEmailTemplatesRoute,
     adminApplicationsRoute,
     adminRoleRequestsRoute,
     adminSettingsRoute,
