@@ -407,10 +407,36 @@ async def test_list_my_sessions_only_shows_assigned(db):
     rows = await staffing.list_my_sessions(db, instructor)
 
     assert len(rows) == 1
-    s, _, _, role = rows[0]
+    s, _, _, role, day = rows[0]
     assert s.id == assigned_session.id
     assert role == "Facilitator"
+    assert day is None, "no check-in has happened yet — no InstructorSessionDay row exists"
     assert other_session.id not in {r[0].id for r in rows}
+
+
+@pytest.mark.asyncio
+async def test_list_my_sessions_carries_the_days_check_in_state(db):
+    """The My Sessions redesign (2026-08-28) needs check-in/day status without
+    a second round trip per session — list_my_sessions carries it directly."""
+    from app.services.sessions import day as day_svc
+
+    _, session = await _make_cohort_with_session(db, staffing_status="staffed")
+    instructor = await _make_user(db, ["instructor"])
+    db.add(SessionInstructor(
+        id=uuid.uuid4(), session_id=session.id, user_id=instructor.id,
+        role_id=await _role_id(db, "Facilitator"),
+    ))
+    await db.flush()
+
+    await day_svc.check_in(db, session.id, instructor, att_status="present")
+
+    rows = await staffing.list_my_sessions(db, instructor)
+    assert len(rows) == 1
+    _s, _c, _p, _role, day = rows[0]
+    assert day is not None
+    assert day.att_status == "present"
+    assert day.status == "draft"
+    assert day.checked_in_at is not None
 
 
 # ── close_call is a choice, not automatic (operator 2026-07-26) ──────────────

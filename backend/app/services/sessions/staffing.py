@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.inventory.city import City
 from app.models.inventory.location import Location
+from app.models.sessions.checklist import InstructorSessionDay
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.cohort_call import CohortCall, CohortCallTarget
 from app.models.sessions.cohort_opening import CohortOpening
@@ -560,10 +561,18 @@ async def list_available_sessions(
     return [(s, c, p, counts.get(s.id, 0), my_interests.get(s.id)) for s, c, p in rows]
 
 
-async def list_my_sessions(db: AsyncSession, user: User) -> list[tuple[Session, Cohort, Program, str]]:
+async def list_my_sessions(
+    db: AsyncSession, user: User,
+) -> list[tuple[Session, Cohort, Program, str, InstructorSessionDay | None]]:
     """Every session this user is assigned to (via either the marketplace's
     select_instructors or the pre-existing direct-assign path — both write
-    the same SessionInstructor row) — the S4-3 "My sessions" instructor page."""
+    the same SessionInstructor row) — the S4-3 "My sessions" instructor page.
+
+    Carries this instructor's own `InstructorSessionDay` alongside each row
+    (2026-08-28), None when they haven't checked in yet — the redesigned page
+    needs check-in/submission state to show Today's cards without a second
+    round trip per session.
+    """
     rows = (await db.execute(
         select(Session, Cohort, Program, DeliveryRole.name)
         .join(Cohort, Cohort.id == Session.cohort_id)
@@ -573,7 +582,16 @@ async def list_my_sessions(db: AsyncSession, user: User) -> list[tuple[Session, 
         .where(SessionInstructor.user_id == user.id)
         .order_by(Session.meeting_date.asc())
     )).all()
-    return [(s, c, p, role) for s, c, p, role in rows]
+    session_ids = [s.id for s, _c, _p, _role in rows]
+    days = {
+        d.session_id: d for d in (await db.execute(
+            select(InstructorSessionDay).where(
+                InstructorSessionDay.session_id.in_(session_ids or [None]),
+                InstructorSessionDay.user_id == user.id,
+            )
+        )).scalars().all()
+    } if session_ids else {}
+    return [(s, c, p, role, days.get(s.id)) for s, c, p, role in rows]
 
 
 async def register_interest(

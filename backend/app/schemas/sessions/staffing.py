@@ -196,6 +196,12 @@ class MySessionOut(BaseModel):
     staffing_status: StaffingStatus
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    # This instructor's own day record for this session (2026-08-28) — None
+    # when they haven't checked in yet (no InstructorSessionDay row exists),
+    # which the "My Sessions" redesign treats the same as day_status="draft".
+    att_status: str | None = None
+    checked_in_at: datetime | None = None
+    day_status: str | None = None
 
 
 # ── Cohort-level staffing (2026-08-24) ──────────────────────────────────────

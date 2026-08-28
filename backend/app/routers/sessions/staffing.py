@@ -542,7 +542,7 @@ async def list_my_sessions(
 ):
     rows = await staffing.list_my_sessions(db, current_user)
     out = []
-    for s, c, p, role in rows:
+    for s, c, p, role, day in rows:
         location = await staffing.resolve_session_location_display(db, s, c)
         out.append(MySessionOut(
             session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,
@@ -553,6 +553,9 @@ async def list_my_sessions(
             meeting_date=s.meeting_date, starts_at=s.starts_at,
             my_role=role, staffing_status=s.staffing_status,
             started_at=s.started_at, completed_at=s.completed_at,
+            att_status=day.att_status if day else None,
+            checked_in_at=day.checked_in_at if day else None,
+            day_status=day.status if day else None,
         ))
     return out
 
