@@ -217,6 +217,11 @@ export interface MySession {
   staffing_status: StaffingStatus;
   started_at?: string | null;
   completed_at?: string | null;
+  /** This instructor's own day record (2026-08-28) — all null/undefined
+   *  means they haven't checked in yet, same as day_status="draft". */
+  att_status?: InstructorAttendance | null;
+  checked_in_at?: string | null;
+  day_status?: "draft" | "submitted" | "changes_required" | "approved" | null;
 }
 
 /** V2 W6 S6-1 — one read-only event in the unified calendar. */
