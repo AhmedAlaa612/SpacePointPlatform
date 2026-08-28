@@ -542,6 +542,9 @@ export interface ChecklistItem {
   program_id?: string | null;
   cohort_id?: string | null;
   session_id?: string | null;
+  /** null = general (every role); set = only that role sees this item,
+   *  replacing the general list at this level rather than adding to it. */
+  role_id?: string | null;
   title: string;
   description?: string | null;
   /** Can't be ticked off without a photo attached. */

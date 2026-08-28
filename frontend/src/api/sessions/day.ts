@@ -18,14 +18,19 @@ import type {
 
 export type ChecklistScope = "programs" | "cohorts" | "sessions"
 
-/** Items attached at this level only — the management view, no inheritance
- *  applied. What actually resolves for a session comes back on the day. */
-export const listChecklistItemsApi = (scope: ChecklistScope, ownerId: string) =>
-  api.get<ChecklistItem[]>(`/sessions/${scope}/${ownerId}/checklist-items`).then((r) => r.data)
+/** One (level, role) bucket — the management view, no inheritance applied.
+ *  Omit `roleId` for the general bucket; pass a role to see that role's own
+ *  list. What actually resolves for an instructor comes back on the day. */
+export const listChecklistItemsApi = (scope: ChecklistScope, ownerId: string, roleId?: string | null) =>
+  api.get<ChecklistItem[]>(`/sessions/${scope}/${ownerId}/checklist-items`, {
+    params: roleId ? { role_id: roleId } : {},
+  }).then((r) => r.data)
 
-/** Whole-set replace, like openings. Saving an empty list clears this level,
- *  which makes the level above apply again — that is how you go back to
- *  inheriting rather than overriding. */
+/** Whole-bucket replace, like openings. Saving an empty list clears this
+ *  (level, role) bucket, which makes the fallback apply again — general at
+ *  this level if a role's list is cleared, or the level above if the general
+ *  one is cleared. That is how you go back to inheriting rather than
+ *  overriding. */
 export const setChecklistItemsApi = (
   scope: ChecklistScope,
   ownerId: string,
@@ -36,9 +41,11 @@ export const setChecklistItemsApi = (
     is_required?: boolean
     sort_order?: number | null
   }[],
+  roleId?: string | null,
 ) =>
-  api.put<ChecklistItem[]>(`/sessions/${scope}/${ownerId}/checklist-items`, { items })
-    .then((r) => r.data)
+  api.put<ChecklistItem[]>(`/sessions/${scope}/${ownerId}/checklist-items`, { items }, {
+    params: roleId ? { role_id: roleId } : {},
+  }).then((r) => r.data)
 
 // ── instructor: the day ─────────────────────────────────────────────────────
 

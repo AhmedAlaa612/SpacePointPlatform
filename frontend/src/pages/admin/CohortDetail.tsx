@@ -16,7 +16,7 @@ import { CohortCallsPanel } from "@/pages/admin/components/CohortCallsPanel"
 import CohortStaffingPanel from "@/pages/admin/components/CohortStaffingPanel"
 import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPanel"
 import { CohortKitsPanel } from "@/pages/admin/components/CohortKitsPanel"
-import { CohortOpeningsPanel } from "@/pages/admin/components/CohortOpeningsPanel"
+import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
 import { SessionsTable } from "@/pages/admin/components/SessionsTable"
 import {
   getCohortApi, getSessionsApi,
@@ -49,9 +49,13 @@ const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 /** Sessions and Students are the daily work; Setup is the stuff you touch
  *  once when the cohort is created (2026-08-02). Setup used to sit *between*
  *  the two daily ones, which is what made the page feel endless. */
-type CohortTab = "sessions" | "staffing" | "students" | "setup"
+type CohortTab = "sessions" | "roles" | "staffing" | "students" | "setup"
 const TABS: { key: CohortTab; label: string }[] = [
   { key: "sessions", label: "Sessions" },
+  // Roles moved out of Staffing (2026-08-28): rate, responsibilities and the
+  // checklist are all "what does this role mean here", one thing ops sets up
+  // before opening a call — separate from running the call itself.
+  { key: "roles", label: "Roles" },
   // Staffing moved out of the Sessions tab (2026-08-24): opening a call,
   // reading the applicant table and seeing who ended up staffed are one job,
   // and they were buried under a table that had grown to own the whole tab.
@@ -428,13 +432,16 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       </div>
       )}
 
+      {tab === "roles" && (
+      <div className="space-y-5">
+        <Card className="px-4">
+          <CohortRolesPanel cohort={cohort} />
+        </Card>
+      </div>
+      )}
+
       {tab === "staffing" && (
       <div className="space-y-5">
-        {/* Roles and rates first — they define what a call is offering, so
-            they belong above the call that advertises them. */}
-        <Card className="px-4">
-          <CohortOpeningsPanel cohort={cohort} />
-        </Card>
         {/* One "Open a call" entry point, managed and closed as one entity.
             The old ungrouped "Open call for all" quick action is gone: it
             wrote to a model this panel couldn't see, so calls opened that way
