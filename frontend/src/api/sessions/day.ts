@@ -12,6 +12,7 @@ import type {
   DayDetail,
   DayReview,
   InstructorAttendance,
+  SessionBoard,
 } from "@/types/sessions"
 
 // ── ops: checklist templates ────────────────────────────────────────────────
@@ -102,3 +103,12 @@ export const returnDayApi = (dayId: string, comment: string) =>
   api.post<{ day_id: string; status: string; review_comment: string | null }>(
     `/sessions/day-reviews/${dayId}/return`, { comment },
   ).then((r) => r.data)
+
+// ── ops: the session board ──────────────────────────────────────────────────
+
+/** Running/Upcoming/Done across every cohort. Needs Review is
+ *  `listDayReviewsApi` — the board page calls both. */
+export const getSessionBoardApi = (opts: { doneOffset?: number; doneLimit?: number } = {}) =>
+  api.get<SessionBoard>("/sessions/board", {
+    params: { done_offset: opts.doneOffset ?? 0, done_limit: opts.doneLimit ?? 5 },
+  }).then((r) => r.data)

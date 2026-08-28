@@ -613,3 +613,27 @@ export interface DayReview {
   checklist_done: number;
   checklist_total: number;
 }
+
+/** One session on the ops board (2026-08-28) — Running/Upcoming/Done, not
+ *  Needs Review (that's DayReview, above, from the existing queue). */
+export interface BoardSession {
+  session_id: string;
+  cohort_id: string;
+  cohort_name: string;
+  program_name: string;
+  title?: string | null;
+  location?: string | null;
+  meeting_date: string;
+  starts_at?: string | null;
+  staffing_status: StaffingStatus;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface SessionBoard {
+  running: BoardSession[];
+  upcoming: BoardSession[];
+  done: BoardSession[];
+  /** Total Done sessions that exist, not just this page. */
+  done_total: number;
+}
