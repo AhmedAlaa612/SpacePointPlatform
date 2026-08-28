@@ -114,12 +114,39 @@ require_operations = RequireRole(["operations"])  # V2 sessions/spine domains (R
 #
 # Operations is included here because ops can obviously also restock — the
 # narrowness is the storekeeper's, not an exclusive claim on the action.
-require_storekeeper = RequireRole(["storekeeper", "operations"])
+#
+# `coo` was added 2026-08-27 (operator directive, after two live incidents —
+# a storekeeper's Kits page silently 403ing on every read, then a COO
+# discovering the frontend routes them into the whole inventory nav while
+# the backend rejected every single call it makes): "if I can see a page
+# with my role, I can use it" — no inventory page may show a control that
+# then 403s for the role that can reach the page. `coo` gets read access
+# here for the same reason `operations` already does; full write parity is
+# `require_inventory_manage` below.
+require_storekeeper = RequireRole(["storekeeper", "operations", "coo"])
 
-# Approvals (purchases, cross-border transfers). `admin` passes every
-# RequireRole check, which is exactly what "the CEO can approve in the COO's
-# absence without changing the workflow" needs — no delegation table, no
-# expiry. The approval record stores who actually signed.
+# Inventory-domain write parity for `coo` (2026-08-27, same operator
+# directive as above: "COO alone should be able to do anything with the
+# inv if he wants"). Deliberately scoped to the inventory routers only —
+# unlike `require_storekeeper` above, `coo` is NOT added to the *global*
+# `require_operations` below, so this never leaks into sessions, cohorts,
+# programs, or any non-inventory domain. Every inventory write endpoint
+# that used to depend on `require_operations` directly now depends on this
+# instead; every inventory *read* uses `require_storekeeper` above.
+#
+# This is a placeholder for the real approvals/purchasing workflow the
+# operator described (approve a purchase, approve a shipment, allocate a
+# kit, with a delegable override to another ops/admin account when the COO
+# is unavailable) — that's scoped as separate follow-up work, not this
+# blanket grant. `require_inventory_approval` below stays reserved for it.
+require_inventory_manage = RequireRole(["operations", "coo"])
+
+# Approvals (purchases, cross-border transfers) — reserved for the real
+# approval workflow (not yet built; see `require_inventory_manage` above).
+# `admin` passes every RequireRole check, which is exactly what "the CEO
+# can approve in the COO's absence without changing the workflow" needs —
+# no delegation table, no expiry. The approval record stores who actually
+# signed.
 require_inventory_approval = RequireRole(["coo"])
 # W5 S5-1 — instructor delivery actions (start/attendance/done) are allowed
 # for the assigned instructor/facilitator OR ops; the per-session assignment
@@ -156,3 +183,14 @@ require_lms_content = RequireRole(["operations", "facilitator"])
 # per-cohort inside each route via `cohort_access.py::require_cohort_access`.
 # Same role split `require_session_delivery` already uses.
 require_instructor_missions = RequireRole(["instructor", "facilitator", "operations"])
+
+# ── Competition domain (2026-08-24) ─────────────────────────────────────────
+# A judge is a temporary, cohort-scoped account with zero ops access — this
+# gate only answers "is this a judge account at all?"; per-cohort scoping
+# (which cohort this specific judge can see) is a separate check,
+# `services/competitions/judges.py::require_judge_cohort_access`, same split
+# `require_instructor_missions`/`cohort_access.py` already use for
+# instructors. Deliberately not listing operations/facilitator here — a
+# judge surface staff needs to see goes through the ops endpoints, not this
+# one, so there's no reason to widen it.
+require_judge = RequireRole(["judge"])

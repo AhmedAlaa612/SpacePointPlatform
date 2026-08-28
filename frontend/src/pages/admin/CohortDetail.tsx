@@ -34,6 +34,7 @@ import { Modal, Field, ModalActions, ConfirmDialog, Spinner, PageHeader, EmptySt
 import { ImportListModal } from "@/pages/admin/components/ImportList"
 import { listOrganizationsApi, updateContactApi } from "@/api/spine/contacts"
 import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR } from "@/pages/admin/Cohorts"
+import { ContactDetailModal } from "@/pages/admin/Contacts"
 import { useToast } from "@/components/ui/toast"
 import { Card } from "@/components/ui/card"
 import { getErrorMessage } from "@/lib/utils"
@@ -121,6 +122,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const [importOpen, setImportOpen] = useState(false)
   const [paymentTarget, setPaymentTarget] = useState<Registration | null>(null)
   const [editRegistrationTarget, setEditRegistrationTarget] = useState<Registration | null>(null)
+  const [profileContactId, setProfileContactId] = useState<string | null>(null)
   const [bulkMode, setBulkMode] = useState(false)
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
   const [bulkAssignOpen, setBulkAssignOpen] = useState(false)
@@ -250,6 +252,15 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         }
         action={
           <div className="flex items-center gap-2 flex-wrap">
+            {cohort.program_is_competition && (
+              <Link
+                to="/operations/cohorts/$cohortId/judging"
+                params={{ cohortId: cohort.id }}
+                className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
+              >
+                <Award size={14} /> Judging
+              </Link>
+            )}
             {cohort.status !== "completed" && cohort.status !== "cancelled" && (
               <button
                 onClick={() => setCompleteConfirmOpen(true)}
@@ -482,7 +493,12 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                     onClick={() => setEditRegistrationTarget(r)}
                   >
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <p className="text-sm font-medium text-foreground group-hover:text-primary transition-colors break-words w-full sm:w-auto">{r.student_name}</p>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setProfileContactId(r.contact_id) }}
+                        className="text-sm font-medium text-foreground hover:text-primary hover:underline transition-colors break-words w-full sm:w-auto text-left"
+                      >
+                        {r.student_name}
+                      </button>
                       {r.ticket_sent ? (
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400">
                           Ticket sent
@@ -703,6 +719,13 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           registration={editRegistrationTarget}
           onClose={() => setEditRegistrationTarget(null)}
           onSuccess={() => { invalidateRegistrations(); setEditRegistrationTarget(null) }}
+        />
+      )}
+      {profileContactId && (
+        <ContactDetailModal
+          contactId={profileContactId}
+          onClose={() => setProfileContactId(null)}
+          onChanged={invalidateRegistrations}
         />
       )}
       {attendanceTarget && (

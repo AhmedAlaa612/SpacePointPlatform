@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DomainIcon } from "@/components/ui/DomainIcon";
+import { getErrorMessage } from "@/lib/utils";
 
 /**
  * Student login — mounted on rootRoute, outside the portal auth shell (the
@@ -29,8 +30,8 @@ export default function LearnLogin() {
       try {
         await login(email, password);
         void navigate({ to: "/learn" });
-      } catch {
-        setError("Invalid email or password.");
+      } catch (err) {
+        setError(getErrorMessage(err, "Invalid email or password."));
       } finally {
         setLoading(false);
       }

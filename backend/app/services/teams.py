@@ -70,6 +70,12 @@ async def team_member_ids(db: AsyncSession, *, team_id: uuid.UUID) -> list[uuid.
     return list(rows)
 
 
+async def teams_for_cohort(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[Team]:
+    return list((await db.execute(
+        select(Team).where(Team.cohort_id == cohort_id).order_by(Team.name)
+    )).scalars().all())
+
+
 async def teams_for_user(db: AsyncSession, *, user_id: uuid.UUID) -> list[Team]:
     return list((await db.execute(
         select(Team)

@@ -500,6 +500,8 @@ export async function submitCheckpointAnswer(
 export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "article" | "manual";
 export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
 
+export type LmsProgramItemScope = "individual" | "team";
+
 export interface LmsProgramChecklistItem {
   id: string;
   position: number;
@@ -516,6 +518,14 @@ export interface LmsProgramChecklistItem {
   external_url: string | null;
   submission_prompt: string | null;
   submitted_url: string | null;
+  // Competition domain (2026-08-24) — "individual" (the default, every
+  // item before this existed) means the fields above are this student's
+  // own. "team" means they're the whole team's shared fact: any member
+  // wrote them, and updated_by_name/updated_at say who last did, since
+  // there's no single "you" for a team row.
+  scope: LmsProgramItemScope;
+  updated_by_name: string | null;
+  updated_at: string | null;
 }
 
 export interface LmsProgramAssignmentSummary {
@@ -539,6 +549,7 @@ export interface LmsProgramChecklist {
   description: string | null;
   cohort_id: string | null;
   cohort_name: string | null;
+  team_name: string | null;
   certificate_required: boolean;
   certificate_earned: boolean;
   items: LmsProgramChecklistItem[];

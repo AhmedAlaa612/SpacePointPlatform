@@ -4,11 +4,15 @@ Ops assigns kits to a session. The instructor counts them before and after.
 The post-count is what unlocks finishing the session — see
 `services/sessions/delivery.py::mark_done`.
 
-Assignment is `require_operations`. The check endpoints are
-`require_session_delivery` and go through the same `_get_deliverable_session`
-gate the rest of the delivery flow uses, so an instructor can only count kits
-on a session they are actually assigned to — and an unrelated session is a
-404, not a 403.
+Assignment is `require_inventory_manage` (operations or coo). The check
+endpoints are `require_session_delivery` and go through the same
+`_get_deliverable_session` gate the rest of the delivery flow uses, so an
+instructor can only count kits on a session they are actually assigned to —
+and an unrelated session is a 404, not a 403.
+
+The two reads that just report state — `GET /kits/{kit_id}/checks` and
+`GET /cohorts/{cohort_id}/kits-defaults` — are `require_storekeeper`
+(2026-08-27, same "read everything" widening as `catalog.py`/`kits.py`).
 """
 
 import uuid
@@ -17,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_operations, require_session_delivery
+from app.core.dependencies import require_inventory_manage, require_session_delivery, require_storekeeper
 from app.db.session import get_db
 from app.models.inventory.kit import Kit
 from app.models.inventory.kit_template import KitTemplate
@@ -132,7 +136,7 @@ async def set_session_kits(
     session_id: uuid.UUID,
     body: AssignKitsIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_inventory_manage),
 ):
     await assign_kits(
         db, session_id=session_id, kit_ids=body.kit_ids, actor_user_id=current_user.id
@@ -146,7 +150,7 @@ async def remove_session_kit(
     session_id: uuid.UUID,
     kit_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_inventory_manage),
 ):
     await unassign_kit(
         db, session_id=session_id, kit_id=kit_id, actor_user_id=current_user.id
@@ -212,7 +216,7 @@ async def confirm_kit_returns_route(
     session_id: uuid.UUID,
     body: ConfirmKitReturnsIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_inventory_manage),
 ):
     """Ops reviews the instructor's report, in the session review screen.
     Restocking a kit onto a shelf is optional and separate from confirming
@@ -288,7 +292,7 @@ async def submit_check(
 async def kit_check_history(
     kit_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     """Every count of this kit, newest first — the record of what was in the
     box on any given day."""
@@ -339,7 +343,7 @@ async def _cohort_kit_view(db: AsyncSession, cohort_id: uuid.UUID) -> CohortKitS
 async def get_cohort_kits(
     cohort_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     """A cohort's default kit list — what every session in it starts with
     until that specific session's own kit activity happens."""
@@ -353,7 +357,7 @@ async def set_cohort_kits_route(
     cohort_id: uuid.UUID,
     body: AssignKitsIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_inventory_manage),
 ):
     """The full default list, resubmitted — same multi-select contract as
     `set_session_kits`, one level up. Sessions already materialized (their
@@ -370,7 +374,7 @@ async def remove_cohort_kit_route(
     cohort_id: uuid.UUID,
     kit_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     await remove_cohort_kit(db, cohort_id=cohort_id, kit_id=kit_id)
     await db.commit()

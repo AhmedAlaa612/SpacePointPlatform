@@ -3,6 +3,11 @@
 Kits have no equivalent here — they're assigned to a session and the
 instructor reports on them directly (see routers/inventory/checks.py), with
 no separate issue/collect/return-to-a-location step.
+
+Issuing/returning merch is `require_inventory_manage` (operations or coo) —
+handing a T-shirt or vest to a person is ops logistics, not the storekeeper's
+restock job. `GET /merch/held/{user_id}` is `require_storekeeper` (read
+everything, 2026-08-27).
 """
 
 import uuid
@@ -10,7 +15,7 @@ import uuid
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_operations, require_session_delivery
+from app.core.dependencies import require_inventory_manage, require_session_delivery, require_storekeeper
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.inventory.custody import HeldItemOut, IssueMerchIn, ReturnMerchIn
@@ -26,7 +31,7 @@ router = APIRouter(prefix="/inventory", tags=["inventory-custody"])
 async def give_merch(
     body: IssueMerchIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_inventory_manage),
 ):
     """Whether it comes back defaults to the item's own setting — vests yes,
     T-shirts no — and stays overridable per issue."""
@@ -50,7 +55,7 @@ async def give_merch(
 async def take_merch_back(
     body: ReturnMerchIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_inventory_manage),
 ):
     movement = await return_merch(
         db,
@@ -69,7 +74,7 @@ async def take_merch_back(
 async def merch_held_by(
     user_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     return [HeldItemOut(**h) for h in await held_by_user(db, user_id)]
 

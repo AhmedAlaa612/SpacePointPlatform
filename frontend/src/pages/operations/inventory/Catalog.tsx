@@ -35,6 +35,7 @@ import { VariantsModal } from "@/pages/operations/inventory/VariantsModal"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { cn } from "@/lib/utils"
 import { getCountries } from "@/lib/countries"
+import { useAuth } from "@/context/AuthContext"
 
 type Tab = "templates" | "items" | "locations" | "cities" | "warehouses" | "categories"
 
@@ -50,13 +51,13 @@ export default function Catalog() {
         </p>
       </div>
 
-      <div className="flex gap-1 border-b border-border">
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
         {(["templates", "items", "locations", "cities", "warehouses", "categories"] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors capitalize",
+              "px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors capitalize shrink-0 whitespace-nowrap",
               tab === t
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground",
@@ -81,6 +82,8 @@ export default function Catalog() {
 
 function Templates() {
   const queryClient = useQueryClient()
+  const { activeRole } = useAuth()
+  const canManage = activeRole !== "storekeeper"
   const { data: templates = [], isLoading } = useQuery({ queryKey: ["inv-templates"], queryFn: getTemplatesApi })
   const [openId, setOpenId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -100,12 +103,14 @@ function Templates() {
 
   return (
     <div className="flex flex-col gap-4">
-      <button
-        onClick={() => setCreating(true)}
-        className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 w-fit"
-      >
-        <Plus size={14} /> New kit type
-      </button>
+      {canManage && (
+        <button
+          onClick={() => setCreating(true)}
+          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 w-fit"
+        >
+          <Plus size={14} /> New kit type
+        </button>
+      )}
 
       <div className="flex flex-col gap-2">
         {templates.map((t) => (
@@ -125,28 +130,32 @@ function Templates() {
                 >
                   {openId === t.id ? "Hide" : "Parts list"}
                 </button>
-                <button
-                  onClick={() => setEditing(t)}
-                  title="Edit"
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-                >
-                  <Pencil size={14} />
-                </button>
-                <button
-                  onClick={() => {
-                    if (confirm(`Delete the kit type "${t.name}"? This only works if no kit was built from it.`)) {
-                      remove.mutate(t.id)
-                    }
-                  }}
-                  disabled={remove.isPending}
-                  title="Delete"
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors disabled:opacity-50"
-                >
-                  <Trash2 size={14} />
-                </button>
+                {canManage && (
+                  <>
+                    <button
+                      onClick={() => setEditing(t)}
+                      title="Edit"
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete the kit type "${t.name}"? This only works if no kit was built from it.`)) {
+                          remove.mutate(t.id)
+                        }
+                      }}
+                      disabled={remove.isPending}
+                      title="Delete"
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors disabled:opacity-50"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
-            {openId === t.id && <TemplateLines templateId={t.id} />}
+            {openId === t.id && <TemplateLines templateId={t.id} canManage={canManage} />}
           </div>
         ))}
         {templates.length === 0 && (
@@ -218,7 +227,7 @@ function TemplateModal({ existing, onClose }: { existing?: KitTemplate | null; o
   )
 }
 
-function TemplateLines({ templateId }: { templateId: string }) {
+function TemplateLines({ templateId, canManage }: { templateId: string; canManage: boolean }) {
   const queryClient = useQueryClient()
   const { data: detail, isLoading } = useQuery({
     queryKey: ["inv-template", templateId],
@@ -245,26 +254,30 @@ function TemplateLines({ templateId }: { templateId: string }) {
       {detail.items.map((line) => (
         <div key={line.item_id} className="flex items-center justify-between gap-3">
           <span className="text-sm text-foreground">{line.item_name}</span>
-          <div className="flex items-center gap-2">
-            <input
-              type="number" min={1} defaultValue={line.required_qty}
-              onBlur={(e) => {
-                const qty = Math.max(1, Number(e.target.value) || 1)
-                if (qty === line.required_qty) return
-                save.mutate({
-                  id: templateId,
-                  lines: lines.map((l) => l.item_id === line.item_id ? { ...l, required_qty: qty } : l),
-                })
-              }}
-              className="w-16 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
-            />
-            <button
-              onClick={() => save.mutate({ id: templateId, lines: lines.filter((l) => l.item_id !== line.item_id) })}
-              className="text-xs text-muted-foreground hover:text-red-600 px-1"
-            >
-              Remove
-            </button>
-          </div>
+          {canManage ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="number" min={1} defaultValue={line.required_qty}
+                onBlur={(e) => {
+                  const qty = Math.max(1, Number(e.target.value) || 1)
+                  if (qty === line.required_qty) return
+                  save.mutate({
+                    id: templateId,
+                    lines: lines.map((l) => l.item_id === line.item_id ? { ...l, required_qty: qty } : l),
+                  })
+                }}
+                className="w-16 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
+              />
+              <button
+                onClick={() => save.mutate({ id: templateId, lines: lines.filter((l) => l.item_id !== line.item_id) })}
+                className="text-xs text-muted-foreground hover:text-red-600 px-1"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <span className="text-sm text-muted-foreground tabular-nums">{line.required_qty}</span>
+          )}
         </div>
       ))}
 
@@ -274,7 +287,7 @@ function TemplateLines({ templateId }: { templateId: string }) {
         </p>
       )}
 
-      {adding ? (
+      {canManage && (adding ? (
         <div className="flex items-center gap-2 pt-2 border-t border-border">
           <select
             value={newItemId} onChange={(e) => setNewItemId(e.target.value)}
@@ -308,7 +321,7 @@ function TemplateLines({ templateId }: { templateId: string }) {
         >
           <Plus size={13} /> Add a part
         </button>
-      )}
+      ))}
     </div>
   )
 }
@@ -323,6 +336,8 @@ function TemplateLines({ templateId }: { templateId: string }) {
  */
 
 function Items() {
+  const { activeRole } = useAuth()
+  const canManage = activeRole !== "storekeeper"
   const { data: items = [], isLoading } = useQuery({ queryKey: ["inv-items"], queryFn: () => getItemsApi() })
   const { data: categories = [] } = useQuery({ queryKey: ["inv-categories"], queryFn: () => getItemCategoriesApi() })
   const { data: stock = [] } = useQuery<StockLevel[]>({ queryKey: ["inv-stock", ""], queryFn: () => getStockApi() })
@@ -400,22 +415,28 @@ function Items() {
             </select>
           </Field>
         </div>
-        <button
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90"
-        >
-          <Plus size={14} /> Add Component
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setOpen(true)}
+            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90"
+          >
+            <Plus size={14} /> Add Component
+          </button>
+        )}
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+      {/* Below `sm`: a horizontal swipe slider (CSS scroll-snap, no JS
+       *  library) — a 2-up grid squeezed every card's photo/badges/buttons
+       *  too narrow to use on a phone. `sm:` and up reverts to the original
+       *  grid untouched. */}
+      <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory sm:grid sm:grid-cols-3 lg:grid-cols-4 sm:overflow-visible sm:pb-0">
         {cards.map((card) => {
           const item = card.kind === "group" ? card.representative : card.item
           const total = card.kind === "group" ? card.total : (totalByItem[item.id] ?? 0)
           const displayName = card.kind === "group" ? card.groupName : item.name
           return (
-            <div key={card.kind === "group" ? card.groupName : item.id} className="rounded-2xl border border-border bg-card overflow-hidden flex flex-col">
-              <ItemPhoto item={item} />
+            <div key={card.kind === "group" ? card.groupName : item.id} className="w-44 shrink-0 snap-start sm:w-auto sm:shrink rounded-2xl border border-border bg-card overflow-hidden flex flex-col">
+              <ItemPhoto item={item} canManage={canManage} />
               <div className="p-3 flex flex-col gap-2 flex-1">
                 <div>
                   <p className="text-sm font-semibold text-foreground truncate" title={displayName}>{displayName}</p>
@@ -457,12 +478,14 @@ function Items() {
                       <Boxes size={13} /> Adjust
                     </button>
                   )}
-                  <button
-                    onClick={() => setEditing(item)}
-                    className="flex items-center justify-center gap-1.5 h-8 px-3 border border-border bg-background text-foreground text-xs font-medium rounded-lg hover:bg-muted/60"
-                  >
-                    <Pencil size={12} /> Edit{card.kind === "group" ? ` ${item.variant_label || item.name}` : ""}
-                  </button>
+                  {canManage && (
+                    <button
+                      onClick={() => setEditing(item)}
+                      className="flex items-center justify-center gap-1.5 h-8 px-3 border border-border bg-background text-foreground text-xs font-medium rounded-lg hover:bg-muted/60"
+                    >
+                      <Pencil size={12} /> Edit{card.kind === "group" ? ` ${item.variant_label || item.name}` : ""}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -486,13 +509,25 @@ function Items() {
 
 /** Optional photo shown to instructors picking this off the shelf (B3).
  *  Click the thumbnail (or the placeholder) to upload/replace; the X removes it. */
-function ItemPhoto({ item }: { item: Item }) {
+function ItemPhoto({ item, canManage }: { item: Item; canManage: boolean }) {
   const queryClient = useQueryClient()
   const fileInput = useRef<HTMLInputElement>(null)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["inv-items"] })
   const upload = useMutation({ mutationFn: setItemImageApi, onSuccess: invalidate })
   const remove = useMutation({ mutationFn: removeItemImageApi, onSuccess: invalidate })
+
+  if (!canManage) {
+    return (
+      <div className="relative w-full aspect-square bg-muted/40 border-b border-border flex items-center justify-center overflow-hidden">
+        {item.image_url ? (
+          <img src={item.image_url} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <ImagePlus size={28} className="text-muted-foreground" />
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="relative group w-full aspect-square bg-muted/40 border-b border-border">
@@ -654,6 +689,8 @@ function ItemModal({ existing, onClose }: { existing?: Item; onClose: () => void
 
 function Categories() {
   const queryClient = useQueryClient()
+  const { activeRole } = useAuth()
+  const canManage = activeRole !== "storekeeper"
   const { data: categories = [], isLoading } = useQuery({
     queryKey: ["inv-categories"],
     queryFn: () => getItemCategoriesApi(),
@@ -701,19 +738,21 @@ function Categories() {
           const inUse = countByCategory[c.name] ?? 0
           return (
             <div key={c.id} className="flex items-center justify-between px-4 py-2.5 gap-3">
-              <RenamableCategory category={c} onSaved={invalidate} />
+              <RenamableCategory category={c} onSaved={invalidate} canManage={canManage} />
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-xs text-muted-foreground tabular-nums">
                   {inUse} component{inUse === 1 ? "" : "s"}
                 </span>
-                <button
-                  onClick={() => remove.mutate(c.id)}
-                  disabled={inUse > 0 || remove.isPending}
-                  title={inUse > 0 ? "Still in use — move its components first" : "Delete"}
-                  className="text-xs text-red-600 dark:text-red-400 hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed"
-                >
-                  Delete
-                </button>
+                {canManage && (
+                  <button
+                    onClick={() => remove.mutate(c.id)}
+                    disabled={inUse > 0 || remove.isPending}
+                    title={inUse > 0 ? "Still in use — move its components first" : "Delete"}
+                    className="text-xs text-red-600 dark:text-red-400 hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed"
+                  >
+                    Delete
+                  </button>
+                )}
               </div>
             </div>
           )
@@ -723,20 +762,22 @@ function Categories() {
         )}
       </div>
 
-      <div className="flex items-center gap-2">
-        <input
-          value={name} onChange={(e) => { setName(e.target.value); setError("") }}
-          placeholder="New category name…"
-          className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
-        />
-        <button
-          disabled={!name.trim() || create.isPending}
-          onClick={() => create.mutate(name.trim())}
-          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-50"
-        >
-          <Plus size={14} /> Add
-        </button>
-      </div>
+      {canManage && (
+        <div className="flex items-center gap-2">
+          <input
+            value={name} onChange={(e) => { setName(e.target.value); setError("") }}
+            placeholder="New category name…"
+            className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
+          />
+          <button
+            disabled={!name.trim() || create.isPending}
+            onClick={() => create.mutate(name.trim())}
+            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-50"
+          >
+            <Plus size={14} /> Add
+          </button>
+        </div>
+      )}
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
     </div>
   )
@@ -744,7 +785,11 @@ function Categories() {
 
 /** Click the name to rename in place — renaming re-labels every item already
  *  using the old name (handled server-side), so it never strands them. */
-function RenamableCategory({ category, onSaved }: { category: ItemCategoryDef; onSaved: () => void }) {
+function RenamableCategory({ category, onSaved, canManage }: {
+  category: ItemCategoryDef
+  onSaved: () => void
+  canManage: boolean
+}) {
   const [editing, setEditing] = useState(false)
   const [value, setValue] = useState(category.name)
 
@@ -752,6 +797,14 @@ function RenamableCategory({ category, onSaved }: { category: ItemCategoryDef; o
     mutationFn: updateItemCategoryApi,
     onSuccess: () => { onSaved(); setEditing(false) },
   })
+
+  if (!canManage) {
+    return (
+      <span className="flex items-center gap-1.5 text-sm text-foreground capitalize min-w-0 truncate">
+        <Tag size={13} className="shrink-0 text-muted-foreground" /> {category.name}
+      </span>
+    )
+  }
 
   if (!editing) {
     return (
@@ -786,6 +839,8 @@ function RenamableCategory({ category, onSaved }: { category: ItemCategoryDef; o
 /* ── locations ─────────────────────────────────────────────────────────── */
 
 function Locations() {
+  const { activeRole } = useAuth()
+  const canManage = activeRole !== "storekeeper"
   const { data: locations = [], isLoading } = useQuery({
     queryKey: ["inv-locations-all"],
     queryFn: () => getLocationsApi(true),
@@ -795,6 +850,34 @@ function Locations() {
 
   if (isLoading) return <Spinner />
 
+  const rowContent = (l: Location) => (
+    <>
+      <div className="min-w-0">
+        <p className="text-sm text-foreground">{l.name}</p>
+        <p className="text-xs text-muted-foreground truncate">
+          {l.city_name ? `${l.city_name}${l.country ? `, ${l.country}` : ""}` : (l.country ?? "no city yet")}
+          {l.address && ` · ${l.address}`}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {l.maps_url && (
+          <a
+            href={l.maps_url} target="_blank" rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-muted-foreground hover:text-primary"
+            title="Open in maps"
+          >
+            <MapPin size={14} />
+          </a>
+        )}
+        {!l.is_active && (
+          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
+        )}
+        {canManage && <Pencil size={12} className="text-muted-foreground" />}
+      </div>
+    </>
+  )
+
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground -mt-1">
@@ -802,48 +885,32 @@ function Locations() {
         created automatically; add one from the Warehouses tab once you
         actually need to hold stock here.
       </p>
-      <button
-        onClick={() => setOpen(true)}
-        className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 w-fit"
-      >
-        <Plus size={14} /> New location
-      </button>
+      {canManage && (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 w-fit"
+        >
+          <Plus size={14} /> New location
+        </button>
+      )}
 
       <div className="rounded-2xl border border-border bg-card divide-y divide-border">
-        {locations.map((l) => (
+        {locations.map((l) => canManage ? (
           <button
             key={l.id}
             onClick={() => setEditing(l)}
             className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 transition-colors"
           >
-            <div className="min-w-0">
-              <p className="text-sm text-foreground">{l.name}</p>
-              <p className="text-xs text-muted-foreground truncate">
-                {l.city_name ? `${l.city_name}${l.country ? `, ${l.country}` : ""}` : (l.country ?? "no city yet")}
-                {l.address && ` · ${l.address}`}
-              </p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {l.maps_url && (
-                <a
-                  href={l.maps_url} target="_blank" rel="noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="text-muted-foreground hover:text-primary"
-                  title="Open in maps"
-                >
-                  <MapPin size={14} />
-                </a>
-              )}
-              {!l.is_active && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
-              )}
-              <Pencil size={12} className="text-muted-foreground" />
-            </div>
+            {rowContent(l)}
           </button>
+        ) : (
+          <div key={l.id} className="w-full flex items-center justify-between px-4 py-3">
+            {rowContent(l)}
+          </div>
         ))}
       </div>
 
-      {(open || editing) && (
+      {canManage && (open || editing) && (
         <LocationModal
           location={editing}
           onClose={() => { setOpen(false); setEditing(null) }}
@@ -946,6 +1013,8 @@ function LocationModal({ location, onClose }: { location: Location | null; onClo
 /* ── cities ────────────────────────────────────────────────────────────── */
 
 function Cities() {
+  const { activeRole } = useAuth()
+  const canManage = activeRole !== "storekeeper"
   const { data: cities = [], isLoading } = useQuery({
     queryKey: ["inv-cities-all"],
     queryFn: () => getCitiesApi(true),
@@ -955,6 +1024,21 @@ function Cities() {
 
   if (isLoading) return <Spinner />
 
+  const rowContent = (c: City) => (
+    <>
+      <div className="min-w-0">
+        <p className="text-sm text-foreground">{c.name}</p>
+        <p className="text-xs text-muted-foreground">{c.country}</p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {!c.is_active && (
+          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
+        )}
+        {canManage && <Pencil size={12} className="text-muted-foreground" />}
+      </div>
+    </>
+  )
+
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground -mt-1">
@@ -962,38 +1046,35 @@ function Cities() {
         can sit in — seeded with the UAE emirates, add more as the org
         expands. Reflected live on the instructor apply form and profile.
       </p>
-      <button
-        onClick={() => setOpen(true)}
-        className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 w-fit"
-      >
-        <Plus size={14} /> New city
-      </button>
+      {canManage && (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 w-fit"
+        >
+          <Plus size={14} /> New city
+        </button>
+      )}
 
       <div className="rounded-2xl border border-border bg-card divide-y divide-border">
-        {cities.map((c) => (
+        {cities.map((c) => canManage ? (
           <button
             key={c.id}
             onClick={() => setEditing(c)}
             className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 transition-colors"
           >
-            <div className="min-w-0">
-              <p className="text-sm text-foreground">{c.name}</p>
-              <p className="text-xs text-muted-foreground">{c.country}</p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {!c.is_active && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
-              )}
-              <Pencil size={12} className="text-muted-foreground" />
-            </div>
+            {rowContent(c)}
           </button>
+        ) : (
+          <div key={c.id} className="w-full flex items-center justify-between px-4 py-3">
+            {rowContent(c)}
+          </div>
         ))}
         {cities.length === 0 && (
           <div className="p-8 text-center text-sm text-muted-foreground">No cities yet.</div>
         )}
       </div>
 
-      {(open || editing) && (
+      {canManage && (open || editing) && (
         <CityModal city={editing} onClose={() => { setOpen(false); setEditing(null) }} />
       )}
     </div>
@@ -1061,6 +1142,8 @@ function CityModal({ city, onClose }: { city: City | null; onClose: () => void }
 /* ── warehouses ────────────────────────────────────────────────────────── */
 
 function Warehouses() {
+  const { activeRole } = useAuth()
+  const canManage = activeRole !== "storekeeper"
   const { data: warehouses = [], isLoading } = useQuery({
     queryKey: ["inv-warehouses-all"],
     queryFn: () => getWarehousesApi(undefined, true),
@@ -1070,60 +1153,72 @@ function Warehouses() {
 
   if (isLoading) return <Spinner />
 
+  const rowContent = (w: Warehouse) => (
+    <>
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-foreground">{w.name}</p>
+          {w.code && (
+            <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground">
+              {w.code}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground truncate mt-0.5">
+          Location: <span className="font-medium text-foreground">{w.location_name}</span>
+          {w.address && ` · ${w.address}`}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {!w.is_active && (
+          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
+        )}
+        {canManage && <Pencil size={12} className="text-muted-foreground" />}
+      </div>
+    </>
+  )
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
           A warehouse is a store within a location — the shelf stock and kits are actually counted
           against. Most locations need exactly one; add a second only where a site genuinely has two
           separate stores (a depot and a workshop, say).
         </p>
-        <button
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 shrink-0 cursor-pointer"
-        >
-          <Plus size={14} /> New warehouse
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setOpen(true)}
+            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 shrink-0 cursor-pointer w-fit"
+          >
+            <Plus size={14} /> New warehouse
+          </button>
+        )}
       </div>
 
       <div className="rounded-2xl border border-border bg-card divide-y divide-border">
-        {warehouses.map((w) => (
+        {warehouses.map((w) => canManage ? (
           <button
             key={w.id}
             onClick={() => setEditing(w)}
             className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 transition-colors cursor-pointer"
           >
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold text-foreground">{w.name}</p>
-                {w.code && (
-                  <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground">
-                    {w.code}
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground truncate mt-0.5">
-                Location: <span className="font-medium text-foreground">{w.location_name}</span>
-                {w.address && ` · ${w.address}`}
-              </p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {!w.is_active && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
-              )}
-              <Pencil size={12} className="text-muted-foreground" />
-            </div>
+            {rowContent(w)}
           </button>
+        ) : (
+          <div key={w.id} className="w-full flex items-center justify-between px-4 py-3">
+            {rowContent(w)}
+          </div>
         ))}
 
         {warehouses.length === 0 && (
           <div className="p-8 text-center text-sm text-muted-foreground">
-            No warehouses created yet. Click "New warehouse" above to add one.
+            {canManage ? "No warehouses created yet. Click \"New warehouse\" above to add one." : "No warehouses created yet."}
           </div>
         )}
       </div>
 
-      {(open || editing) && (
+      {canManage && (open || editing) && (
         <WarehouseEditModal
           warehouse={editing}
           onClose={() => { setOpen(false); setEditing(null) }}

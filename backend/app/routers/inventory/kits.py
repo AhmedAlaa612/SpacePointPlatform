@@ -1,11 +1,31 @@
 """Kits — list, detail, create (including bulk), move, and an instructor's own
 kits (I1-3).
 
-Ops actions are `require_operations`. `/inventory/my-kits` is
-`require_session_delivery` (instructor|facilitator|operations), and an
+Writes are `require_inventory_manage` (operations or coo). `/inventory/my-kits`
+is `require_session_delivery` (instructor|facilitator|operations), and an
 instructor only ever sees kits they are actually holding — an unrelated kit
 is a **404, not a 403**, matching this codebase's don't-leak-existence
 convention (see services/sessions/delivery.py).
+
+**Reads are `require_storekeeper`** (storekeeper, operations, or coo) — same
+shape as `catalog.py`'s reads. A storekeeper who "restocks kits, receives
+goods and records stock movements" (their own role docstring,
+`core/dependencies.py`) cannot actually do that job blind to which kits
+exist, where they are, or what's already happened to them; a coo who can
+navigate to the page at all needs every read on it to actually work, full
+stop (operator directive, 2026-08-27: "if I can see a page with my role, I
+can use it"). Found live in production (2026-08-27): a storekeeper's Kits
+page rendered completely empty with no error, because every read here
+403'd while the sibling stock/locations/warehouses endpoints they could
+already reach stayed silent about it.
+
+Every *write* still stays manage-only — a storekeeper can't create, edit,
+bulk-add, or move a kit, only count/move stock into one that already
+exists (`POST /kits/{kit_id}/count` is `require_storekeeper`). `coo` gets
+full write parity same as `operations`, per the same 2026-08-27 directive
+("COO alone should be able to do anything with the inv") — that's a
+blanket grant, not the real approve/allocate workflow described
+separately; see `require_inventory_manage`'s own docstring.
 """
 
 import uuid
@@ -14,7 +34,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_operations, require_session_delivery, require_storekeeper
+from app.core.dependencies import require_inventory_manage, require_session_delivery, require_storekeeper
 from app.db.session import get_db
 from app.models.inventory.item import Item
 from app.models.inventory.kit import Kit, KitItem
@@ -86,7 +106,7 @@ async def list_kits(
     kit_status: str | None = Query(default=None, alias="status"),
     available_only: bool = False,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     """`available_only` is "could be handed out right now" — on the shelf
     (nobody holding it) and in working order. Damaged/retired/lost kits on a
@@ -134,7 +154,7 @@ async def list_kits(
 async def create_kit(
     body: KitCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_inventory_manage),
 ):
     template = await db.get(KitTemplate, body.template_id)
     if template is None:
@@ -176,7 +196,7 @@ async def create_kit(
 async def bulk_create_kits(
     body: KitBulkCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     """Create N kits of one template in one warehouse.
 
@@ -246,7 +266,7 @@ async def bulk_create_kits(
 async def get_kit(
     kit_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     kit = await db.get(Kit, kit_id)
     if kit is None:
@@ -286,7 +306,7 @@ async def update_kit(
     kit_id: uuid.UUID,
     body: KitUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     kit = await db.get(Kit, kit_id)
     if kit is None:
@@ -309,7 +329,7 @@ async def move_kit(
     kit_id: uuid.UUID,
     body: KitMoveIn,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_operations),
+    current_user: User = Depends(require_inventory_manage),
 ):
     kit = await db.get(Kit, kit_id)
     if kit is None:
@@ -338,10 +358,10 @@ async def count_kit_route(
     kit_id: uuid.UUID,
     body: KitCountIn,
     db: AsyncSession = Depends(get_db),
-    # `require_storekeeper` (storekeeper OR operations) rather than this
-    # router's usual `require_operations` — a storekeeper standing in front
-    # of an open box is exactly who should be able to say what's in it, and
-    # this is the one kit-write they get. See
+    # `require_storekeeper` (storekeeper, operations, or coo) rather than
+    # this router's usual `require_inventory_manage` — a storekeeper
+    # standing in front of an open box is exactly who should be able to say
+    # what's in it, and this is the one kit-write they get. See
     # test_a_storekeeper_cannot_touch_the_catalogue_or_the_kits, which this
     # is an intentional, narrow carve-out from.
     current_user: User = Depends(require_storekeeper),
@@ -364,7 +384,7 @@ async def count_kit_route(
 async def kit_history(
     kit_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     """Everything that ever happened to this kit — where it went, and what
     went into or out of it."""
@@ -407,7 +427,7 @@ async def kit_history(
 async def kit_sessions_route(
     kit_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     """Every session this kit has been earmarked for — past and future, for
     the kit's own calendar view."""
@@ -420,7 +440,7 @@ async def kit_sessions_route(
 @router.get("/holders", response_model=list[HolderOut])
 async def list_holders(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_storekeeper),
 ):
     """People a kit can be handed to.
 

@@ -19,7 +19,7 @@ import {
   getCohortProgramOverrideInstructorApi, addCohortOverrideItemInstructorApi,
   updateCohortOverrideItemInstructorApi, deleteCohortOverrideItemInstructorApi,
   getMyReachableProgramsApi, getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi,
-  getAssignmentItemsApi,
+  getAssignmentItemsApi, resyncCohortProgramAssignmentsApi,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType,
   type LmsProgramRosterRow, type LmsAssignmentItemDetail,
 } from "@/api/lms_admin"
@@ -32,6 +32,8 @@ import {
 import { fetchMissionCatalog } from "@/api/missions"
 import type { Program } from "@/types/sessions"
 import type { ManagedAttempt } from "@/api/missions_manager"
+import { ensureAbsoluteUrl } from "@/lib/utils"
+import { useToast } from "@/components/ui/toast"
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -41,11 +43,16 @@ function errorDetail(err: unknown, fallback: string): string {
 const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookOpen }[] = [
   { value: "course", label: "Course", icon: BookOpen },
   { value: "mission_run", label: "Mission run", icon: Rocket },
-  { value: "external_link", label: "Meeting / link", icon: Link2 },
+  { value: "external_link", label: "Link", icon: Link2 },
   { value: "submission", label: "Submission", icon: Upload },
   { value: "article", label: "Article", icon: FileText },
   { value: "manual", label: "Manual check-off", icon: ClipboardCheck },
 ]
+
+// Mirrors the server-side rule in services/lms/program.py: only a
+// link-only deliverable (nothing auto-tracked like course/mission_run)
+// can be shared as one team-wide submission.
+const TEAM_SCOPABLE_TYPES = new Set<LmsProgramItemType>(["submission", "external_link", "manual"])
 
 type Scope = "program" | { cohortId: string; cohortName: string }
 type SubTab = "checklist" | "missions" | "progress" | "review"
@@ -291,12 +298,21 @@ function ProgramTemplateEditor({
 
 function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: string; isStaff: boolean; readOnly: boolean }) {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const { data: override, isLoading } = useQuery({
     queryKey: ["lms-cohort-override", cohortId],
     queryFn: () => (isStaff ? getCohortProgramOverrideApi(cohortId) : getCohortProgramOverrideInstructorApi(cohortId)),
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-cohort-override", cohortId] })
+
+  const resyncMutation = useMutation({
+    mutationFn: () => resyncCohortProgramAssignmentsApi(cohortId),
+    onSuccess: (r) => toast.success(
+      r.items_added === 0 ? "Every assigned student is already caught up." : `Caught up ${r.items_added} missing checklist item${r.items_added === 1 ? "" : "s"} for already-assigned students.`,
+    ),
+    onError: () => toast.error("Couldn't resync students — try again."),
+  })
 
   if (isLoading) return <Spinner />
   if (!override) return <EmptyState title="This cohort's program has no checklist yet" />
@@ -306,6 +322,20 @@ function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: strin
       {override.is_inherited && (
         <div className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-xl px-3 py-2">
           Showing the program's own checklist — {readOnly ? "nothing has been overridden for this cohort yet." : "edit anything below to start this cohort's own override."}
+        </div>
+      )}
+      {isStaff && !readOnly && (
+        <div className="flex items-center justify-between gap-3 text-xs bg-muted/30 border border-border rounded-xl px-3 py-2">
+          <span className="text-muted-foreground">
+            Added a step and an already-assigned student isn't seeing it? New items backfill automatically now — this catches up anything added before that.
+          </span>
+          <button
+            onClick={() => resyncMutation.mutate()}
+            disabled={resyncMutation.isPending}
+            className="shrink-0 h-7 px-3 rounded-full border border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {resyncMutation.isPending ? "Resyncing…" : "Resync students"}
+          </button>
         </div>
       )}
       <ChecklistItemsEditor
@@ -446,6 +476,7 @@ function ItemRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-sm font-medium truncate">{item.title}</span>
+          {item.scope === "team" && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">team</span>}
           {item.optional && <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">optional</span>}
           {item.requires_confirmation && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 rounded px-1.5 py-0.5">needs confirmation</span>}
         </div>
@@ -480,6 +511,7 @@ function ItemForm({
   const [description, setDescription] = useState(initial?.description ?? "")
   const [optional, setOptional] = useState(initial?.optional ?? false)
   const [requiresConfirmation, setRequiresConfirmation] = useState(initial?.requires_confirmation ?? false)
+  const [teamScoped, setTeamScoped] = useState(initial?.scope === "team")
   const [courseId, setCourseId] = useState(initial?.course_id ?? "")
   const [missionId, setMissionId] = useState(initial?.mission_id ?? "")
   const [variantId, setVariantId] = useState(initial?.variant_id ?? "")
@@ -508,6 +540,7 @@ function ItemForm({
         description: description.trim() || null,
         optional,
         requires_confirmation: requiresConfirmation,
+        scope: TEAM_SCOPABLE_TYPES.has(itemType) && teamScoped ? "team" : "individual",
         course_id: itemType === "course" ? courseId : null,
         mission_id: itemType === "mission_run" ? missionId : null,
         variant_id: itemType === "mission_run" ? (variantId || null) : null,
@@ -572,7 +605,7 @@ function ItemForm({
         </>
       )}
 
-      <div className="flex items-center gap-4 pt-1">
+      <div className="flex items-center gap-4 pt-1 flex-wrap">
         <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
           <input type="checkbox" checked={optional} onChange={(e) => setOptional(e.target.checked)} />
           Optional
@@ -581,6 +614,12 @@ function ItemForm({
           <input type="checkbox" checked={requiresConfirmation} onChange={(e) => setRequiresConfirmation(e.target.checked)} />
           Needs instructor/ops confirmation
         </label>
+        {TEAM_SCOPABLE_TYPES.has(itemType) && (
+          <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
+            <input type="checkbox" checked={teamScoped} onChange={(e) => setTeamScoped(e.target.checked)} />
+            Shared with the whole team (one submission per team)
+          </label>
+        )}
       </div>
 
       {error && <p className="text-xs text-red-500">{error}</p>}
@@ -992,7 +1031,7 @@ function ProgressRow({
               <span className="flex-1 text-foreground truncate">{item.title}</span>
               <span className="text-muted-foreground shrink-0">{item.status.replace("_", " ")}</span>
               {item.submitted_url && (
-                <a href={item.submitted_url} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
+                <a href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
                   submission
                 </a>
               )}

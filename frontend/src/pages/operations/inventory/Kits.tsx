@@ -22,6 +22,7 @@ import { KitQrCode, downloadKitQrLabel } from "@/components/ui/KitQrCode"
 import { KitModal } from "@/pages/operations/inventory/KitModal"
 import { LocationModal } from "@/pages/operations/inventory/LocationModal"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/context/AuthContext"
 
 const STATUS_LABEL: Record<KitStatus, string> = {
   working: "Working",
@@ -38,6 +39,14 @@ const STATUS_STYLE: Record<KitStatus, string> = {
 }
 
 export default function Kits() {
+  // Backend parity: creating/editing/moving a kit is require_inventory_manage
+  // (operations, coo, admin) — a storekeeper only reads and counts. Every
+  // control this page and KitModal render for a write is gated the same way,
+  // so a storekeeper who can reach this page (it's in their nav now) never
+  // sees a button that then 403s.
+  const { activeRole } = useAuth()
+  const canManage = activeRole !== "storekeeper"
+
   const [locationId, setLocationId] = useState("")
   const [warehouseId, setWarehouseId] = useState("")
   const [status, setStatus] = useState("")
@@ -82,12 +91,14 @@ export default function Kits() {
             {kits.length} kit{kits.length === 1 ? "" : "s"} · {out} out with someone · {short} incomplete
           </p>
         </div>
-        <button
-          onClick={() => setBulkOpen(true)}
-          className="inline-flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-        >
-          <Plus size={14} /> Add kits
-        </button>
+        {canManage && (
+          <button
+            onClick={() => setBulkOpen(true)}
+            className="inline-flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <Plus size={14} /> Add kits
+          </button>
+        )}
       </div>
 
       {/* filters */}

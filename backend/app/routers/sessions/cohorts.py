@@ -118,10 +118,12 @@ async def _resolve_effective_warehouse(
 async def _cohort_out(
     db: AsyncSession, cohort: Cohort, program_name: str | None = None, program_code: str | None = None,
     location: Location | None = None, counts: tuple[int, int, int, date | None] | None = None,
+    program_is_competition: bool = False,
 ) -> CohortOut:
     out = CohortOut.model_validate(cohort)
     out.program_name = program_name
     out.program_code = program_code
+    out.program_is_competition = program_is_competition
     if counts is not None:
         out.sessions_count, out.registrations_count, out.unstaffed_count, out.next_session_date = counts
     if location is not None:
@@ -170,7 +172,7 @@ async def list_cohorts(
     stmt = (
         select(
             Cohort, Program.name, Program.code, Location,
-            sessions_count, registrations_count, unstaffed_count, next_session_date,
+            sessions_count, registrations_count, unstaffed_count, next_session_date, Program.program_type,
         )
         .join(Program, Program.id == Cohort.program_id)
         .outerjoin(Location, Location.id == Cohort.location_id)
@@ -181,8 +183,11 @@ async def list_cohorts(
 
     rows = (await db.execute(stmt)).all()
     return [
-        await _cohort_out(db, cohort, program_name, program_code, location, (sessions, regs, unstaffed, next_date))
-        for cohort, program_name, program_code, location, sessions, regs, unstaffed, next_date in rows
+        await _cohort_out(
+            db, cohort, program_name, program_code, location, (sessions, regs, unstaffed, next_date),
+            program_is_competition=(program_type == "competition"),
+        )
+        for cohort, program_name, program_code, location, sessions, regs, unstaffed, next_date, program_type in rows
     ]
 
 
@@ -205,7 +210,7 @@ async def create_cohort(
     db.add(cohort)
     await db.commit()
     await db.refresh(cohort)
-    return await _cohort_out(db, cohort, program.name, program.code, location)
+    return await _cohort_out(db, cohort, program.name, program.code, location, program_is_competition=program.is_competition)
 
 
 @router.get("/cohorts/{cohort_id}", response_model=CohortOut)
@@ -219,7 +224,10 @@ async def get_cohort(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     program = await db.get(Program, cohort.program_id)
     location = await db.get(Location, cohort.location_id) if cohort.location_id else None
-    return await _cohort_out(db, cohort, program.name if program else None, program.code if program else None, location)
+    return await _cohort_out(
+        db, cohort, program.name if program else None, program.code if program else None, location,
+        program_is_competition=program.is_competition if program else False,
+    )
 
 
 @router.patch("/cohorts/{cohort_id}", response_model=CohortOut)

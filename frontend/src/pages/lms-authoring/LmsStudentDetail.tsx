@@ -13,6 +13,7 @@ import {
   getStudentCourseProgressApi,
 } from "@/api/lms_admin"
 import { attemptDesignDetailApi } from "@/api/missionsInstructor"
+import { ensureAbsoluteUrl } from "@/lib/utils"
 import { ItemPicker } from "@/pages/lms-authoring/components/ItemPicker"
 import { AVATAR_PRESETS } from "@/components/games/avatarPresets"
 import { updateUserApi } from "@/api/admin/users"
@@ -549,7 +550,7 @@ function DesignRunDetail({ attemptId }: { attemptId: string }) {
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Cohort template</div>
                 {detail.poster_template_url ? (
-                  <a href={detail.poster_template_url} target="_blank" rel="noreferrer" className="text-primary hover:underline underline-offset-4">
+                  <a href={ensureAbsoluteUrl(detail.poster_template_url)} target="_blank" rel="noreferrer" className="text-primary hover:underline underline-offset-4">
                     Open template ↗
                   </a>
                 ) : <span className="text-muted-foreground">Not set</span>}
@@ -557,7 +558,7 @@ function DesignRunDetail({ attemptId }: { attemptId: string }) {
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Their working poster</div>
                 {detail.poster_url ? (
-                  <a href={detail.poster_url} target="_blank" rel="noreferrer" className="text-primary hover:underline underline-offset-4">
+                  <a href={ensureAbsoluteUrl(detail.poster_url)} target="_blank" rel="noreferrer" className="text-primary hover:underline underline-offset-4">
                     Open their poster ↗
                   </a>
                 ) : <span className="text-muted-foreground">Not linked yet</span>}

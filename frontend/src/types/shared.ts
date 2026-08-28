@@ -19,7 +19,10 @@ export type Role =
   // own shell, login and navbar, mounted outside the portal's auth layout. A
   // student who lands on "/" is redirected there by `indexRoute.beforeLoad`;
   // they have no portal home and are not meant to.
-  | "student";
+  | "student"
+  // Competition domain (2026-08-24). A temporary, cohort-scoped judging
+  // account — zero ops access, lives at /judge/*.
+  | "judge";
 
 /**
  * There is deliberately no `ROLE_DOMAIN` map. One existed until I0-1
@@ -46,6 +49,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   coo: "COO",
   storekeeper: "Storekeeper",
   student: "Student",
+  judge: "Judge",
 };
 
 export interface User {

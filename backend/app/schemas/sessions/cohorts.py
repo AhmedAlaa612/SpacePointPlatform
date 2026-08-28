@@ -73,6 +73,9 @@ class CohortOut(CohortBase):
     # belongs to.
     program_name: str | None = None
     program_code: str | None = None
+    # Same convenience-join pattern — whether this cohort's own program has
+    # the competition domain's judging tools available (2026-08-24).
+    program_is_competition: bool = False
     # Resolved from location_id, same convenience-join pattern.
     location_name: str | None = None
     location_maps_url: str | None = None
