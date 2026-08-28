@@ -237,6 +237,42 @@ async def test_slots_cannot_drop_below_the_number_already_assigned(db):
     assert exc.value.status_code == 409
 
 
+# ── cohort-level rate/responsibilities override (2026-08-28) ────────────────
+
+@pytest.mark.asyncio
+async def test_cohort_opening_round_trips_the_responsibilities_override(db):
+    ops = await _user(db, "operations")
+    role = DeliveryRole(
+        id=uuid.uuid4(), name=f"Lead {uuid.uuid4().hex[:4]}", sort_order=1,
+        description="Carry the kit.",
+    )
+    db.add(role)
+    await db.flush()
+    _p, cohort, _s = await _chain(db)
+
+    rows = await svc.set_cohort_openings(
+        db, cohort_id=cohort.id, actor_user_id=ops.id,
+        lines=[{
+            "role_id": role.id, "slots": 1, "amount_aed": Decimal("500"),
+            "responsibilities_override": "This cohort uses the MPKit.",
+        }],
+    )
+    assert rows[0].responsibilities_override == "This cohort uses the MPKit."
+
+    out = await svc.cohort_openings(db, cohort.id)
+    assert out[0]["responsibilities_override"] == "This cohort uses the MPKit."
+    assert out[0]["role_description"] == "Carry the kit.", \
+        "the role's own default text comes along for the editor to show what a blank override falls back to"
+
+    # Clearing it (an empty/omitted override) goes back to the role default.
+    await svc.set_cohort_openings(
+        db, cohort_id=cohort.id, actor_user_id=ops.id,
+        lines=[{"role_id": role.id, "slots": 1}],
+    )
+    out = await svc.cohort_openings(db, cohort.id)
+    assert out[0]["responsibilities_override"] is None
+
+
 # ── §G-addons ───────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

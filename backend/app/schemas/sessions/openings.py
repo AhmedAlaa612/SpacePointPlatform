@@ -50,6 +50,9 @@ class OpeningIn(BaseModel):
     slots: int = Field(default=1, ge=1)
     amount_aed: Decimal | None = None
     notes: str | None = None
+    # Cohort-level only (2026-08-28) — ignored by the session-level endpoint
+    # that shares this schema. See CohortOpening.responsibilities_override.
+    responsibilities_override: str | None = None
 
 
 class SetOpeningsIn(BaseModel):
@@ -97,6 +100,10 @@ class CohortOpeningOut(BaseModel):
     # What a blank amount_aed here would fall back to, so the cohort editor
     # can show the effective rate without a second lookup.
     role_default_rate_aed: Decimal | None = None
+    responsibilities_override: str | None = None
+    # Same reasoning as role_default_rate_aed, for the other override — what
+    # a blank responsibilities_override falls back to (2026-08-28).
+    role_description: str | None = None
 
 
 # ── add-ons (§G-addons) ─────────────────────────────────────────────────────

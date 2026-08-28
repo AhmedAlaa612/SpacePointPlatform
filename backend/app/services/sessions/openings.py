@@ -388,6 +388,7 @@ async def set_cohort_openings(
         opening.slots = slots
         opening.amount_aed = line.get("amount_aed")
         opening.notes = line.get("notes")
+        opening.responsibilities_override = line.get("responsibilities_override")
         out.append(opening)
 
     await db.flush()
@@ -409,6 +410,8 @@ async def cohort_openings(db: AsyncSession, cohort_id: uuid.UUID) -> list[dict]:
             # blank amount would actually fall back to instead of ops having
             # to open another page to find out.
             "role_default_rate_aed": role.default_rate_aed,
+            "responsibilities_override": o.responsibilities_override,
+            "role_description": role.description,
         }
         for o, role in rows
     ]
