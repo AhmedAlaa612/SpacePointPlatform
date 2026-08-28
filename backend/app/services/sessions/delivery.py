@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.certificate import Certificate
 from app.models.document_template import DocumentTemplate
+from app.models.email_template import EmailTemplate
 from app.models.enums import CertificateType
 from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
@@ -31,7 +32,7 @@ from app.models.sessions.session import Session, SessionInstructor
 from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.documents.certificate import generate_completion_certificate_pdf
-from app.services.email_templates import render_and_send
+from app.services.email_templates import fetch_template, render_and_send
 from app.services.lms.program import certificate_gate_satisfied
 from app.services.sessions.registration import check_in, format_cohort_dates
 from app.services.sessions.staffing import resolve_session_location_display
@@ -189,6 +190,7 @@ def _meets_completion_rule(program: Program, present: int, total: int) -> bool:
 
 async def _issue_student_certificate(
     db: AsyncSession, registration: Registration, contact: Contact, cohort: Cohort, program: Program, actor_user_id: UUID,
+    *, email_template: EmailTemplate | None,
 ) -> Certificate:
     """Idempotent — returns the existing certificate if one was already
     issued (auto on complete_cohort, or by manual override) rather than
@@ -241,6 +243,7 @@ async def _issue_student_certificate(
             db, key="student_completion_certificate", to=contact.email,
             placeholders={"student_name": contact.full_name, "program_name": program.name, "dates": dates},
             attachments=[(filename, cert_bytes, "pdf")],
+            template=email_template,
         )
 
     return certificate
@@ -265,6 +268,7 @@ async def complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id: UUID
     registrations = (await db.execute(
         select(Registration).where(Registration.cohort_id == cohort_id, Registration.status != "cancelled")
     )).scalars().all()
+    cert_email_template = await fetch_template(db, "student_completion_certificate")
     for registration in registrations:
         total = await _sessions_covered(db, cohort_id, registration.id)
         present = await _present_count(db, registration.id)
@@ -275,7 +279,9 @@ async def complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id: UUID
         if _meets_completion_rule(program, present, total) and gate_ok:
             registration.status = "completed"
             contact = await db.get(Contact, registration.contact_id)
-            await _issue_student_certificate(db, registration, contact, cohort, program, actor_user_id)
+            await _issue_student_certificate(
+                db, registration, contact, cohort, program, actor_user_id, email_template=cert_email_template,
+            )
         else:
             registration.status = "attended"
 
@@ -298,7 +304,10 @@ async def issue_certificate_override(db: AsyncSession, registration_id: UUID, ac
     program = await db.get(Program, cohort.program_id)
     contact = await db.get(Contact, registration.contact_id)
 
-    certificate = await _issue_student_certificate(db, registration, contact, cohort, program, actor_user_id)
+    email_template = await fetch_template(db, "student_completion_certificate")
+    certificate = await _issue_student_certificate(
+        db, registration, contact, cohort, program, actor_user_id, email_template=email_template,
+    )
     registration.status = "completed"
     await db.flush()
     return certificate

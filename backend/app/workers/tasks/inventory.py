@@ -29,7 +29,7 @@ from app.models.inventory.session_kit import SessionKit
 from app.models.notification import Notification
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
-from app.services.email_templates import render_and_send
+from app.services.email_templates import fetch_template, render_and_send
 from app.services.inventory.checks import outstanding_post_checks
 from app.services.inventory.movements import overdue
 from app.services.notification import create_notification
@@ -69,6 +69,7 @@ async def _remind_uncounted(db: AsyncSession) -> int:
     )).scalars().all()
 
     sent = 0
+    template = await fetch_template(db, "kits_uncounted_reminder")
     for session_id in session_ids:
         uncounted = await outstanding_post_checks(db, session_id)
         if not uncounted:
@@ -95,6 +96,7 @@ async def _remind_uncounted(db: AsyncSession) -> int:
             await render_and_send(
                 db, key="kits_uncounted_reminder", to=user.email,
                 placeholders={"name": user.full_name, "labels": labels},
+                template=template,
             )
             sent += 1
     return sent
@@ -102,6 +104,7 @@ async def _remind_uncounted(db: AsyncSession) -> int:
 
 async def _remind_overdue(db: AsyncSession) -> int:
     sent = 0
+    template = await fetch_template(db, "overdue_item_reminder")
     for movement in await overdue(db):
         if movement.to_user_id is None:
             continue
@@ -127,6 +130,7 @@ async def _remind_overdue(db: AsyncSession) -> int:
         await render_and_send(
             db, key="overdue_item_reminder", to=user.email,
             placeholders={"name": user.full_name, "what": what, "due_back_on": str(movement.due_back_on)},
+            template=template,
         )
         sent += 1
     return sent

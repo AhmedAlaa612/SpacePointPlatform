@@ -24,9 +24,11 @@ for no benefit, since each already owns exactly one call site.
 
 import logging
 import re
+from typing import Any
 from xml.sax.saxutils import escape
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -37,6 +39,31 @@ from app.services.email import try_send_email
 logger = logging.getLogger("email_templates")
 
 _DEFAULTS_BY_KEY = {t["key"]: t for t in EMAIL_TEMPLATE_DEFAULTS}
+
+# Sentinel for render_and_send's `template` param — None is itself a
+# meaningful value there (no DB row, fall back to the bundled default), so
+# "not supplied" needs a value None can't be confused with.
+_NOT_FETCHED: Any = object()
+
+
+async def fetch_template(db: AsyncSession, key: str) -> EmailTemplate | None:
+    """The `EmailTemplate` lookup `render_and_send` does on every call,
+    pulled out so a batch sender (same key, many recipients — a reminder
+    cron, a cohort-wide certificate pass) can fetch it once and pass the
+    row into each `render_and_send(..., template=row)` call instead of
+    re-querying per recipient.
+
+    Isolated in its own try/except so a lookup failure can't poison the
+    caller's transaction: Postgres aborts a transaction after a failed
+    statement, and most callers go on to `db.commit()` other work right
+    after sending the email, so the rollback here is scoped to just this
+    SELECT rather than discarding whatever the caller already wrote."""
+    try:
+        return (await db.execute(select(EmailTemplate).where(EmailTemplate.key == key))).scalars().first()
+    except SQLAlchemyError:
+        logger.exception("email_templates: template lookup failed for %r", key)
+        await db.rollback()
+        return None
 
 
 def fill_placeholders(text: str, values: dict[str, str], raw_keys: set[str] = frozenset()) -> str:
@@ -65,12 +92,17 @@ async def render_and_send(
     placeholders: dict[str, str],
     attachments: list[tuple[str, bytes, str]] | None = None,
     inline_images: dict[str, tuple[bytes, str, str]] | None = None,
+    template: EmailTemplate | None = _NOT_FETCHED,
 ) -> bool:
     """Best-effort, never raises — matches `try_send_email`'s contract.
     Returns False (logged) if the template is paused, if `key` is unknown
     entirely (a coding error, not a runtime one — every real key is seeded),
-    or if the underlying SMTP send fails."""
-    row = (await db.execute(select(EmailTemplate).where(EmailTemplate.key == key))).scalars().first()
+    or if the underlying SMTP send fails.
+
+    Pass `template=` (a row from `fetch_template`, possibly None) to skip
+    this function's own lookup — for a batch sender that already fetched it
+    once outside a per-recipient loop."""
+    row = await fetch_template(db, key) if template is _NOT_FETCHED else template
     default = _DEFAULTS_BY_KEY.get(key)
     if row is None and default is None:
         logger.error("email_templates: unknown key %r — nothing to send to %s", key, to)
