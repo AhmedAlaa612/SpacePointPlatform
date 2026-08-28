@@ -66,12 +66,14 @@ def _scope_kwarg(scope: str, owner_id: uuid.UUID) -> dict:
 async def list_checklist_items(
     scope: str,
     owner_id: uuid.UUID,
+    role_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operations),
 ):
-    """Items attached at this level only — the management view, no inheritance
-    applied. Use the instructor's day endpoint to see what actually resolves."""
-    return await svc.list_checklist_items(db, **_scope_kwarg(scope, owner_id))
+    """One (level, role) bucket — the management view, no inheritance applied.
+    Omit `role_id` for the general bucket; pass a role to edit that role's own
+    list. Use the instructor's day endpoint to see what actually resolves."""
+    return await svc.list_checklist_items(db, role_id=role_id, **_scope_kwarg(scope, owner_id))
 
 
 @router.put("/{scope}/{owner_id}/checklist-items", response_model=list[ChecklistItemOut])
@@ -79,14 +81,16 @@ async def set_checklist_items(
     scope: str,
     owner_id: uuid.UUID,
     body: SetChecklistItemsIn,
+    role_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
 ):
-    """Replace the whole set at this level. Saving an empty list clears this
-    level, which makes the next level up apply again — that is how you go back
-    to inheriting rather than overriding."""
+    """Replace one (level, role) bucket. Saving an empty list clears it, which
+    makes the next fallback apply again — general at this level if a role's
+    list is cleared, or the next level up if the general one is cleared. That
+    is how you go back to inheriting rather than overriding."""
     items = await svc.set_checklist_items(
-        db, lines=[i.model_dump() for i in body.items], actor_user_id=current_user.id,
+        db, lines=[i.model_dump() for i in body.items], actor_user_id=current_user.id, role_id=role_id,
         **_scope_kwarg(scope, owner_id),
     )
     await db.commit()

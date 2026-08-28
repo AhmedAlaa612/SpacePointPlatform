@@ -53,16 +53,14 @@ DAY_STATUSES = {"draft", "submitted", "changes_required", "approved"}
 
 # ── checklist templates (ops) ───────────────────────────────────────────────
 
-async def list_checklist_items(
+async def _items_at_level(
     db: AsyncSession, *,
     program_id: UUID | None = None, cohort_id: UUID | None = None, session_id: UUID | None = None,
 ) -> list[DeliveryChecklistItem]:
-    """Items attached at exactly one level — no inheritance applied.
-
-    This is the management view: ops editing a program's checklist has to see
-    the program's own rows, not whatever a cohort happens to inherit. Same
-    split as `materials.list_materials` vs. its resolver.
-    """
+    """Every item set at exactly one level — general *and* every role's,
+    unfiltered. The raw fetch both `list_checklist_items` (which then filters
+    to one role bucket) and `resolve_checklist` (which splits by role itself,
+    level by level) build on."""
     column = (
         DeliveryChecklistItem.program_id if program_id
         else DeliveryChecklistItem.cohort_id if cohort_id
@@ -78,15 +76,36 @@ async def list_checklist_items(
     )).scalars().all())
 
 
+async def list_checklist_items(
+    db: AsyncSession, *,
+    program_id: UUID | None = None, cohort_id: UUID | None = None, session_id: UUID | None = None,
+    role_id: UUID | None = None,
+) -> list[DeliveryChecklistItem]:
+    """One (level, role) bucket — no inheritance, no role fallback applied.
+
+    This is the management view: ops editing a program's *general* checklist
+    has to see exactly the program's own general rows, not whatever a cohort
+    happens to inherit and not another role's list. `role_id=None` (the
+    default) means the general bucket; pass a role to edit that role's own
+    list. Same split as `materials.list_materials` vs. its resolver, with role
+    as a second, independent axis on top.
+    """
+    items = await _items_at_level(db, program_id=program_id, cohort_id=cohort_id, session_id=session_id)
+    return [i for i in items if i.role_id == role_id]
+
+
 async def set_checklist_items(
     db: AsyncSession, *, lines: list[dict], actor_user_id: UUID,
     program_id: UUID | None = None, cohort_id: UUID | None = None, session_id: UUID | None = None,
+    role_id: UUID | None = None,
 ) -> list[DeliveryChecklistItem]:
-    """Replace the whole set at one level.
+    """Replace one (level, role) bucket wholesale.
 
-    Whole-set rather than per-line editing, the same choice `set_openings` and
-    `PUT /templates/{id}/items` already make: the client never has to diff, and
-    a half-applied edit can't leave a checklist half-rewritten mid-workshop.
+    Whole-bucket rather than per-line editing, the same choice `set_openings`
+    and `PUT /templates/{id}/items` already make: the client never has to
+    diff, and a half-applied edit can't leave a checklist half-rewritten
+    mid-workshop. Scoped to `role_id` so editing a role's own list never
+    touches the general bucket or another role's — each is independent.
 
     Rows are replaced wholesale, so progress rows against removed items go with
     them (CASCADE). That is correct — an item ops deleted is not an item
@@ -101,7 +120,7 @@ async def set_checklist_items(
         )
 
     existing = await list_checklist_items(
-        db, program_id=program_id, cohort_id=cohort_id, session_id=session_id
+        db, program_id=program_id, cohort_id=cohort_id, session_id=session_id, role_id=role_id,
     )
     for item in existing:
         await db.delete(item)
@@ -113,7 +132,7 @@ async def set_checklist_items(
         if not title:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="A checklist item needs a title")
         item = DeliveryChecklistItem(
-            id=uuid4(), program_id=program_id, cohort_id=cohort_id, session_id=session_id,
+            id=uuid4(), program_id=program_id, cohort_id=cohort_id, session_id=session_id, role_id=role_id,
             title=title, description=line.get("description"),
             requires_proof=bool(line.get("requires_proof")),
             is_required=bool(line.get("is_required", True)),
@@ -126,25 +145,58 @@ async def set_checklist_items(
     return out
 
 
-async def resolve_checklist(db: AsyncSession, session: Session) -> list[DeliveryChecklistItem]:
-    """What this session's instructors actually work through.
+async def _instructor_role(db: AsyncSession, session_id: UUID, user_id: UUID) -> UUID | None:
+    """Which role this instructor holds on this session — what `resolve_checklist`
+    needs to pick their bucket over the general one. `None` for someone with no
+    `SessionInstructor` row (shouldn't happen for a deliverable session, but
+    resolving to the general checklist rather than raising is the safer default)."""
+    return await db.scalar(
+        select(SessionInstructor.role_id).where(
+            SessionInstructor.session_id == session_id, SessionInstructor.user_id == user_id,
+        )
+    )
 
-    **Override, not merge** — the nearest level with any rows wins outright:
-    the session's own items, else its cohort's, else its program's. Merging
-    would make it impossible to *remove* a program-level item for one cohort,
-    which is exactly what overridable has to mean (see `materials.py`).
+
+async def resolve_checklist(
+    db: AsyncSession, session: Session, role_id: UUID | None = None,
+) -> list[DeliveryChecklistItem]:
+    """What this instructor actually works through on this session.
+
+    Two overrides stacked, both **override, not merge**:
+
+    * **Level** — the nearest of session -> cohort -> program with *anything*
+      set at all wins outright; a level with nothing set is skipped entirely,
+      not treated as "zero items."
+    * **Role**, within whichever level wins — that role's own items if any
+      exist there, else that level's general (role_id IS NULL) items. A role
+      checklist replaces the general one for that role; it is never added on
+      top of it.
+
+    Merging either axis would make it impossible to *remove* an item for one
+    cohort or one role, which is exactly what overridable has to mean (see
+    `materials.py` for the level half of this reasoning).
     """
     for kwargs in (
         {"session_id": session.id},
         {"cohort_id": session.cohort_id},
     ):
-        rows = await list_checklist_items(db, **kwargs)
-        if rows:
-            return rows
+        items = await _items_at_level(db, **kwargs)
+        if not items:
+            continue
+        role_items = [i for i in items if i.role_id == role_id] if role_id is not None else []
+        if role_items:
+            return role_items
+        general = [i for i in items if i.role_id is None]
+        if general:
+            return general
     cohort = await db.get(Cohort, session.cohort_id)
     if cohort is None:
         return []
-    return await list_checklist_items(db, program_id=cohort.program_id)
+    items = await _items_at_level(db, program_id=cohort.program_id)
+    role_items = [i for i in items if i.role_id == role_id] if role_id is not None else []
+    if role_items:
+        return role_items
+    return [i for i in items if i.role_id is None]
 
 
 # ── the instructor's day ────────────────────────────────────────────────────
@@ -212,7 +264,8 @@ async def set_checklist_progress(
     day = await _get_or_create_day(db, session_id, user.id)
     _refuse_if_locked(day)
 
-    valid_ids = {i.id for i in await resolve_checklist(db, session)}
+    role_id = await _instructor_role(db, session_id, user.id)
+    valid_ids = {i.id for i in await resolve_checklist(db, session, role_id)}
     if checklist_item_id not in valid_ids:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="That item isn't on this session's checklist")
 
@@ -257,7 +310,8 @@ async def _missing_requirements(
         # An absence has nothing to submit — ops acknowledges it directly.
         return []
 
-    items = await resolve_checklist(db, session)
+    role_id = await _instructor_role(db, session.id, day.user_id)
+    items = await resolve_checklist(db, session, role_id)
     progress = {
         p.checklist_item_id: p for p in (await db.execute(
             select(InstructorChecklistProgress).where(InstructorChecklistProgress.day_id == day.id)
@@ -384,7 +438,8 @@ async def list_day_reviews(
 
     out = []
     for day, user, session, cohort, program in rows:
-        total = len(await resolve_checklist(db, session))
+        role_id = await _instructor_role(db, session.id, user.id)
+        total = len(await resolve_checklist(db, session, role_id))
         out.append({
             "day_id": day.id,
             "session_id": session.id,
@@ -415,7 +470,8 @@ async def get_day_detail(db: AsyncSession, session_id: UUID, user: User, *, for_
     target_id = for_user_id or user.id
     day = await _get_or_create_day(db, session_id, target_id)
 
-    items = await resolve_checklist(db, session)
+    role_id = await _instructor_role(db, session_id, target_id)
+    items = await resolve_checklist(db, session, role_id)
     progress = {
         p.checklist_item_id: p for p in (await db.execute(
             select(InstructorChecklistProgress).where(InstructorChecklistProgress.day_id == day.id)

@@ -37,6 +37,7 @@ class ChecklistItemOut(BaseModel):
     program_id: UUID | None = None
     cohort_id: UUID | None = None
     session_id: UUID | None = None
+    role_id: UUID | None = None
     title: str
     description: str | None = None
     requires_proof: bool

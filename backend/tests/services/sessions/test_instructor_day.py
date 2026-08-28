@@ -127,6 +127,75 @@ async def test_clearing_a_level_falls_back_to_the_one_above(db):
     assert [i.title for i in await svc.resolve_checklist(db, sessions[0])] == ["Program item"]
 
 
+async def _role(db, name: str) -> uuid.UUID:
+    return await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == name))
+
+
+@pytest.mark.asyncio
+async def test_role_checklist_replaces_general_not_adds_to_it(db):
+    """A role with its own items at a level sees *only* those — the general
+    ones at that same level don't also apply."""
+    _program, cohort, sessions = await _make(db)
+    session = sessions[0]
+    lead_id, facilitator_id = await _role(db, "Lead Facilitator"), await _role(db, "Facilitator")
+
+    db.add(DeliveryChecklistItem(id=uuid.uuid4(), cohort_id=cohort.id, title="General item"))
+    db.add(DeliveryChecklistItem(id=uuid.uuid4(), cohort_id=cohort.id, role_id=lead_id, title="Lead-only item"))
+    await db.flush()
+
+    lead_items = await svc.resolve_checklist(db, session, lead_id)
+    assert [i.title for i in lead_items] == ["Lead-only item"], \
+        "Lead has their own list at this level — the general item must not also appear"
+
+    facilitator_items = await svc.resolve_checklist(db, session, facilitator_id)
+    assert [i.title for i in facilitator_items] == ["General item"], \
+        "Facilitator has nothing role-specific at this level, so falls back to general"
+
+    no_role_items = await svc.resolve_checklist(db, session, None)
+    assert [i.title for i in no_role_items] == ["General item"]
+
+
+@pytest.mark.asyncio
+async def test_role_fallback_is_per_level_not_across_levels(db):
+    """A role checklist set at the program level must not leak past a cohort
+    that has its own (general-only) items — level still wins outright first,
+    role fallback only applies within whichever level wins."""
+    program, cohort, sessions = await _make(db)
+    session = sessions[0]
+    lead_id = await _role(db, "Lead Facilitator")
+
+    db.add(DeliveryChecklistItem(id=uuid.uuid4(), program_id=program.id, role_id=lead_id, title="Program Lead item"))
+    db.add(DeliveryChecklistItem(id=uuid.uuid4(), cohort_id=cohort.id, title="Cohort general item"))
+    await db.flush()
+
+    items = await svc.resolve_checklist(db, session, lead_id)
+    assert [i.title for i in items] == ["Cohort general item"], \
+        "the cohort level has something (general), so it wins outright over the program's Lead-specific list"
+
+
+@pytest.mark.asyncio
+async def test_setting_a_role_bucket_does_not_touch_the_general_one(db):
+    program, _cohort, sessions = await _make(db)
+    ops = await _ops(db)
+    lead_id = await _role(db, "Lead Facilitator")
+
+    await svc.set_checklist_items(db, lines=[{"title": "General"}], actor_user_id=ops.id, program_id=program.id)
+    await svc.set_checklist_items(
+        db, lines=[{"title": "Lead only"}], actor_user_id=ops.id, program_id=program.id, role_id=lead_id,
+    )
+
+    general = await svc.list_checklist_items(db, program_id=program.id)
+    lead = await svc.list_checklist_items(db, program_id=program.id, role_id=lead_id)
+    assert [i.title for i in general] == ["General"]
+    assert [i.title for i in lead] == ["Lead only"]
+
+    # Clearing the Lead bucket falls back to general for Lead; general itself
+    # is untouched.
+    await svc.set_checklist_items(db, lines=[], actor_user_id=ops.id, program_id=program.id, role_id=lead_id)
+    items = await svc.resolve_checklist(db, sessions[0], lead_id)
+    assert [i.title for i in items] == ["General"]
+
+
 @pytest.mark.asyncio
 async def test_checklist_must_belong_to_exactly_one_level(db):
     program, cohort, _sessions = await _make(db)
@@ -236,6 +305,36 @@ async def test_a_ticked_but_unproven_item_still_blocks_submission(db):
     )
     day = await svc.submit_day(db, sessions[0].id, user)
     assert day.status == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_an_assigned_instructors_role_is_picked_up_automatically(db):
+    """End to end: nobody passes role_id explicitly on the instructor-facing
+    calls — it's resolved from their own `SessionInstructor` assignment."""
+    _p, cohort, sessions = await _make(db)
+    lead = await _instructor(db, "Lead Mona")
+    facilitator = await _instructor(db, "Facilitator Yousef")
+    ops = await _ops(db)
+    await _assign(db, sessions[0], lead)  # _assign staffs as Lead Facilitator
+    facilitator_id = await _role(db, "Facilitator")
+    db.add(SessionInstructor(id=uuid.uuid4(), session_id=sessions[0].id, user_id=facilitator.id, role_id=facilitator_id))
+    await db.flush()
+
+    lead_id = await _role(db, "Lead Facilitator")
+    await svc.set_checklist_items(
+        db, actor_user_id=ops.id, cohort_id=cohort.id, role_id=lead_id,
+        lines=[{"title": "Lead-only setup check"}],
+    )
+    await svc.set_checklist_items(
+        db, actor_user_id=ops.id, cohort_id=cohort.id,
+        lines=[{"title": "General setup check"}],
+    )
+
+    lead_detail = await svc.get_day_detail(db, sessions[0].id, lead)
+    assert [i["title"] for i in lead_detail["checklist"]] == ["Lead-only setup check"]
+
+    facilitator_detail = await svc.get_day_detail(db, sessions[0].id, facilitator)
+    assert [i["title"] for i in facilitator_detail["checklist"]] == ["General setup check"]
 
 
 @pytest.mark.asyncio

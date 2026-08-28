@@ -18,6 +18,7 @@ from app.models.instructors.payment import PaymentLetter, PaymentSession
 from app.models.sessions.checklist import InstructorSessionDay
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.cohort_assignment import CohortInstructorAssignment
+from app.models.sessions.cohort_opening import CohortOpening
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.payment_coverage import PaymentSessionCoverage
@@ -53,7 +54,7 @@ async def set_responsibilities(db: AsyncSession, text: str) -> tuple[str, str]:
 
 
 async def get_responsibilities_for_role(
-    db: AsyncSession, role_id: uuid.UUID | None
+    db: AsyncSession, role_id: uuid.UUID | None, cohort_id: uuid.UUID | None = None,
 ) -> tuple[str, str, str | None]:
     """What an instructor actually reads and agrees to: that role's own
     responsibilities first, with the general text as a fixed note after it —
@@ -65,15 +66,34 @@ async def get_responsibilities_for_role(
     existed. The version is a hash of the *combination*, so editing either
     half invalidates a stale acceptance — same reasoning as the general-only
     version, just scoped to what this instructor was actually shown.
+
+    `cohort_id` (2026-08-28), when given, checks `cohort_openings
+    .responsibilities_override` for this (cohort, role) first — the cohort
+    tier of the same override chain, ahead of the role's own default text.
+    Folded into the version hash too: switching cohorts (or ops editing the
+    override) invalidates a stale acceptance exactly like editing the role's
+    own text already does.
     """
     general, general_version = await get_responsibilities(db)
     role_desc: str | None = None
     role_name: str | None = None
+    override_marker = ""
     if role_id is not None:
         role = await db.get(DeliveryRole, role_id)
         if role is not None:
             role_desc = (role.description or "").strip() or None
             role_name = role.name
+
+        if cohort_id is not None:
+            opening = (await db.execute(
+                select(CohortOpening).where(
+                    CohortOpening.cohort_id == cohort_id, CohortOpening.role_id == role_id,
+                )
+            )).scalars().first()
+            override = (opening.responsibilities_override or "").strip() if opening else ""
+            if override:
+                role_desc = override
+                override_marker = f"\x1f{cohort_id}"
 
     if role_desc is None:
         # No role, or a role with nothing extra to say — text and version
@@ -84,7 +104,7 @@ async def get_responsibilities_for_role(
 
     general_stripped = general.strip()
     text = f"{role_desc}\n\n{general_stripped}" if general_stripped else role_desc
-    version = sha256(f"{role_id}\x1f{text}".encode("utf-8")).hexdigest()[:16]
+    version = sha256(f"{role_id}{override_marker}\x1f{text}".encode("utf-8")).hexdigest()[:16]
     return text, version, role_name
 
 
@@ -99,7 +119,9 @@ async def accept_responsibilities(
     somebody has the invite open, the acceptance they submit is for wording
     they never saw.
     """
-    _text, current, _role_name = await get_responsibilities_for_role(db, interest.role_id)
+    session = await db.get(Session, interest.session_id)
+    cohort_id = session.cohort_id if session is not None else None
+    _text, current, _role_name = await get_responsibilities_for_role(db, interest.role_id, cohort_id)
     if version != current:
         raise HTTPException(
             409, detail="The responsibilities have changed — reload and read them again"

@@ -33,6 +33,16 @@ class DeliveryChecklistItem(Base):
     ticks: §5 asks for a photo against specific items (the setup, students
     working, the cleaned tables), and a day cannot be submitted until every
     proof-required item actually carries a file.
+
+    `role_id` (2026-08-28) is a second, independent axis on top of the
+    program/cohort/session level: NULL means "general" (every role sees it),
+    a role means "only that role's checklist." Resolution overrides here too,
+    same shape as the level: at whichever level has anything at all, a role
+    with its own rows sees *only* those, never the general ones too — see
+    `resolve_checklist`. A role is never deleted (`DeliveryRole.is_active`),
+    so RESTRICT rather than SET NULL: a role-specific checklist silently
+    becoming "general" the moment a role went away would change who owes
+    proof for what without anyone deciding that.
     """
 
     __tablename__ = "delivery_checklist_items"
@@ -49,6 +59,9 @@ class DeliveryChecklistItem(Base):
     program_id = Column(UUID(as_uuid=True), ForeignKey("programs.id", ondelete="CASCADE"), nullable=True, index=True)
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True, index=True)
     session_id = Column(UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=True, index=True)
+    # NULL = general (applies to every role at this level). Set = only that
+    # role sees this item, replacing the general list rather than adding to it.
+    role_id = Column(UUID(as_uuid=True), ForeignKey("delivery_roles.id", ondelete="RESTRICT"), nullable=True, index=True)
 
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)

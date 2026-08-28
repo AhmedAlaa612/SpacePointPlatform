@@ -286,7 +286,7 @@ async def register_cohort_interest(
     # just scoped to the cohort call instead of one session's interest row.
     accepted_at = None
     if responsibilities_version is not None:
-        text, current, _role_name = await get_responsibilities_for_role(db, role_id)
+        text, current, _role_name = await get_responsibilities_for_role(db, role_id, cohort_id)
         if text and responsibilities_version != current:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
