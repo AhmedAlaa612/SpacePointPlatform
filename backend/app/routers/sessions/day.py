@@ -39,6 +39,7 @@ from app.schemas.sessions.day import (
     DayDetailOut,
     DayReviewOut,
     ReturnDayIn,
+    SessionBoardOut,
     SetChecklistItemsIn,
     SubmitDayIn,
 )
@@ -243,3 +244,20 @@ async def return_day(
     )
     await db.commit()
     return DayActionOut(day_id=day.id, status=day.status, review_comment=day.review_comment)
+
+
+# ── ops: the session board ───────────────────────────────────────────────────
+
+@router.get("/board", response_model=SessionBoardOut)
+async def get_session_board(
+    done_offset: int = 0,
+    done_limit: int = 5,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    """Running / Upcoming / Done across every cohort, no date window.
+
+    Needs Review isn't here — it's `GET /sessions/day-reviews`, already its
+    own endpoint; the board page calls both rather than this one repeating it.
+    """
+    return await svc.session_board(db, done_offset=done_offset, done_limit=done_limit)

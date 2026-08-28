@@ -497,3 +497,42 @@ async def test_an_approved_absence_still_counts_as_reviewed(db):
     await svc.approve_day(db, day.id, ops.id)
 
     assert await svc.cohort_is_fully_reviewed(db, cohort.id) is True
+
+
+# ── the ops session board ───────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_session_board_buckets_by_lifecycle(db):
+    _p, _cohort, sessions = await _make(db, session_count=3)
+    running, upcoming, done = sessions
+    running.started_at = datetime.now(timezone.utc)
+    done.started_at = datetime.now(timezone.utc)
+    done.completed_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    board = await svc.session_board(db)
+
+    assert {r["session_id"] for r in board["running"]} == {running.id}
+    assert {r["session_id"] for r in board["upcoming"]} == {upcoming.id}
+    assert {r["session_id"] for r in board["done"]} == {done.id}
+    assert board["done_total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_session_board_done_is_paginated(db):
+    _p, _cohort, sessions = await _make(db, session_count=7)
+    for s in sessions:
+        s.started_at = datetime.now(timezone.utc)
+        s.completed_at = datetime.now(timezone.utc)
+    await db.flush()
+
+    page1 = await svc.session_board(db, done_offset=0, done_limit=5)
+    assert len(page1["done"]) == 5
+    assert page1["done_total"] == 7
+
+    page2 = await svc.session_board(db, done_offset=5, done_limit=5)
+    assert len(page2["done"]) == 2
+    assert page2["done_total"] == 7
+
+    seen = {r["session_id"] for r in page1["done"]} | {r["session_id"] for r in page2["done"]}
+    assert seen == {s.id for s in sessions}, "no overlap and nothing missing across pages"

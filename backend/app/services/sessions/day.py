@@ -583,3 +583,68 @@ async def maybe_complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id
     from app.services.sessions.journey import accrue_cohort_pay
     await accrue_cohort_pay(db, cohort_id)
     return True
+
+
+# ── the ops session board (2026-08-28) ──────────────────────────────────────
+#
+# "What needs review, what's running, what's upcoming, what's done" across
+# every cohort at once — the thing This Week only half answers (staffing
+# gaps for the next 7 days, plus the day-review queue, but nothing about
+# session lifecycle and nothing beyond a week). Needs Review is deliberately
+# not reproduced here: it's exactly `list_day_reviews(status_filter="submitted")`,
+# already its own endpoint, and the board's frontend calls that directly
+# rather than this function returning the same rows a second way.
+
+async def session_board(
+    db: AsyncSession, *, done_offset: int = 0, done_limit: int = 5,
+) -> dict:
+    """Running / Upcoming / Done, unbounded — every cohort, no date window.
+
+    A session's lifecycle here is exactly the three states `started_at`/
+    `completed_at` already encode, nothing new stored: `completed_at` set is
+    Done; `started_at` set and not completed is Running; neither set is
+    Upcoming, regardless of whether its date has technically already passed
+    — a session that was never started is still something ops needs to act
+    on, not something to quietly drop off the board.
+    """
+    from app.services.sessions.staffing import resolve_session_location_display
+
+    async def _rows(stmt) -> list[dict]:
+        rows = (await db.execute(stmt)).all()
+        out = []
+        for session, cohort, program in rows:
+            location = await resolve_session_location_display(db, session, cohort)
+            out.append({
+                "session_id": session.id, "cohort_id": cohort.id, "cohort_name": cohort.name,
+                "program_name": program.name, "title": session.title,
+                "location": location["name"],
+                "meeting_date": session.meeting_date, "starts_at": session.starts_at,
+                "staffing_status": session.staffing_status,
+                "started_at": session.started_at, "completed_at": session.completed_at,
+            })
+        return out
+
+    base = (
+        select(Session, Cohort, Program)
+        .join(Cohort, Cohort.id == Session.cohort_id)
+        .join(Program, Program.id == Cohort.program_id)
+    )
+
+    running = await _rows(
+        base.where(Session.started_at.isnot(None), Session.completed_at.is_(None))
+        .order_by(Session.started_at.asc())
+    )
+    upcoming = await _rows(
+        base.where(Session.started_at.is_(None), Session.completed_at.is_(None))
+        .order_by(Session.meeting_date.asc(), Session.starts_at.asc())
+    )
+    done_total = await db.scalar(
+        select(func.count()).select_from(Session).where(Session.completed_at.isnot(None))
+    ) or 0
+    done = await _rows(
+        base.where(Session.completed_at.isnot(None))
+        .order_by(Session.completed_at.desc())
+        .offset(done_offset).limit(done_limit)
+    )
+
+    return {"running": running, "upcoming": upcoming, "done": done, "done_total": done_total}

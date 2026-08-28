@@ -5,11 +5,13 @@ See `services/sessions/day.py` for the flow these describe.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
+
+from app.schemas.sessions.cohorts import StaffingStatus
 
 AttendanceStatus = Literal["present", "absent"]
 DayStatus = Literal["draft", "submitted", "changes_required", "approved"]
@@ -141,3 +143,28 @@ class DayActionOut(BaseModel):
     # Whether approving this day was the one that completed the cohort — lets
     # ops see the knock-on (certificates, payment drafts) without polling.
     cohort_completed: bool = False
+
+
+# ── the ops session board (2026-08-28) ──────────────────────────────────────
+
+class BoardSessionOut(BaseModel):
+    session_id: UUID
+    cohort_id: UUID
+    cohort_name: str
+    program_name: str
+    title: str | None = None
+    location: str | None = None
+    meeting_date: date
+    starts_at: time | None = None
+    staffing_status: StaffingStatus
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class SessionBoardOut(BaseModel):
+    running: list[BoardSessionOut]
+    upcoming: list[BoardSessionOut]
+    done: list[BoardSessionOut]
+    # Total Done sessions that exist, not just this page — the frontend's
+    # "load more" needs this to know when to stop offering it.
+    done_total: int
