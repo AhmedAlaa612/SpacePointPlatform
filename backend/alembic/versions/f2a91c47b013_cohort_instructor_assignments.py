@@ -37,7 +37,7 @@ a table ops already edits at /operations/delivery-settings, rather than a new
 table or a `portal_settings` string that would need parsing.
 
 Revision ID: f2a91c47b013
-Revises: b5d477e213ed
+Revises: c7d2e8a94f5b
 Create Date: 2026-08-24
 """
 
@@ -46,7 +46,7 @@ from alembic import op
 from sqlalchemy.dialects.postgresql import UUID
 
 revision = "f2a91c47b013"
-down_revision = "b5d477e213ed"
+down_revision = "c7d2e8a94f5b"
 branch_labels = None
 depends_on = None
 
