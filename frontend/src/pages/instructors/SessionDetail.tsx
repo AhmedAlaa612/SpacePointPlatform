@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { extractQrToken, useQrScanner } from "@/hooks/useQrScanner"
+import { UserProfileModal } from "@/components/UserProfileModal"
 import { cn, getErrorMessage } from "@/lib/utils"
 
 const STATUS_OPTIONS: { value: AttendanceStatus; label: string; activeClass: string }[] = [
@@ -47,6 +48,7 @@ export default function SessionDetail() {
   const [rosterSearch, setRosterSearch] = useState("")
   const [reportNotes, setReportNotes] = useState("")
   const [selectedStudent, setSelectedStudent] = useState<RosterEntry | null>(null)
+  const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const [doneError, setDoneError] = useState<string | null>(null)
   const [dayNotes, setDayNotes] = useState("")
   const [dayError, setDayError] = useState("")
@@ -316,7 +318,7 @@ export default function SessionDetail() {
           </Card>
 
           <SessionKitsPanel sessionId={sessionId} stage="pre" onChanged={invalidate} />
-          <SessionEquipmentPanel sessionId={sessionId} notes={s.notes} onChanged={invalidate} />
+          <SessionEquipmentPanel sessionId={sessionId} cohortId={s.cohort_id} notes={s.notes} onChanged={invalidate} />
 
           {/* Attendance */}
           <Card>
@@ -405,7 +407,7 @@ export default function SessionDetail() {
                           if (!isStarted) { setLockHint("Start the session first."); return }
                           mark.mutate({ registrationId: entry.registration_id, status })
                         }}
-                        onSelectStudent={() => setSelectedStudent(entry)}
+                        onSelectStudent={() => entry.student_user_id ? setProfileUserId(entry.student_user_id) : setSelectedStudent(entry)}
                       />
                     ))
                   )}
@@ -495,20 +497,20 @@ export default function SessionDetail() {
       {/* ── sticky finish bar — exactly one completing action ──────────── */}
       {d && d.status !== "approved" && d.status !== "submitted" && (
         <div className="fixed left-0 right-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur-xl">
-          <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
-            <div className="text-xs text-muted-foreground">
-              {d.can_submit
-                ? "Sends this session to ops for review — one step."
-                : d.missing.length > 0
-                  ? d.missing.length === 1 ? d.missing[0] : `${d.missing.length} things still need attention.`
-                  : ""}
-            </div>
-            {(doneError || dayError) && <p className="text-xs text-red-600 dark:text-red-400 w-full">{doneError || dayError}</p>}
+          <div className="max-w-5xl mx-auto px-4 py-3 flex flex-col items-center gap-1.5">
+            {!d.can_submit && d.missing.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {d.missing.length === 1 ? d.missing[0] : `${d.missing.length} things still need attention.`}
+              </p>
+            )}
+            {(doneError || dayError) && <p className="text-xs text-red-600 dark:text-red-400">{doneError || dayError}</p>}
             <Button
+              size="lg"
+              className="rounded-md px-8"
               disabled={!d.can_submit || complete.isPending}
               onClick={() => { setDoneError(null); setDayError(""); complete.mutate() }}
             >
-              <Send size={13} className="mr-1.5" />
+              <Send size={14} className="mr-1.5" />
               {complete.isPending ? "Completing…" : "Complete session"}
             </Button>
           </div>
@@ -518,10 +520,14 @@ export default function SessionDetail() {
         <div className="fixed left-0 right-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur-xl">
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-center">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 border border-emerald-500/20">
-              <CheckCircle2 size={13} /> {d.status === "approved" ? "Approved by ops" : "Submitted — waiting for ops to review it"}
+              <CheckCircle2 size={13} /> {d.status === "approved" ? "Approved by ops" : "Submitted — awaiting review"}
             </span>
           </div>
         </div>
+      )}
+
+      {profileUserId && (
+        <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />
       )}
 
       {selectedStudent && createPortal(
@@ -694,7 +700,7 @@ function RosterRow({ entry, locked, pending, onMark, onSelectStudent }: {
         {locked === "not_started" ? (
           <p className="text-xs text-muted-foreground">Attendance opens once the session starts.</p>
         ) : (
-          <div className="grid grid-cols-4 gap-1.5">
+          <div className="grid grid-cols-2 gap-1.5 max-w-[220px] mx-auto w-full">
             {STATUS_OPTIONS.map((opt) => {
               const active = entry.att_status === opt.value
               return (

@@ -29,6 +29,10 @@ class RosterEntryOut(BaseModel):
     student_date_of_birth: str | None = None
     student_grade: str | None = None
     student_organization_name: str | None = None
+    # The student's own account, when they have one (User.contact_id reverse
+    # lookup) — lets the instructor portal open a real profile instead of the
+    # static contact fields below. None for students never onboarded as users.
+    student_user_id: UUID | None = None
     att_status: AttendanceStatus | None = None
     att_method: Literal["manual", "qr"] | None = None
     recorded_at: datetime | None = None

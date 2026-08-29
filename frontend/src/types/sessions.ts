@@ -269,6 +269,7 @@ export interface RosterEntry {
   student_date_of_birth?: string | null;
   student_grade?: string | null;
   student_organization_name?: string | null;
+  student_user_id?: string | null;
   att_status?: AttendanceStatus | null;
   att_method?: "manual" | "qr" | null;
   recorded_at?: string | null;
