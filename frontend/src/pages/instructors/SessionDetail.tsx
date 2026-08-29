@@ -422,9 +422,12 @@ export default function SessionDetail() {
               <SessionKitsPanel sessionId={sessionId} stage="post" locked={isCompleted} onChanged={invalidate} />
               <Card>
                 <CardContent className="p-4 flex flex-col gap-3">
-                  <p className="text-sm font-semibold text-foreground">
-                    Session report{s.reports.length > 0 ? ` (${s.reports.length})` : ""}
-                  </p>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      File uploads{s.reports.length > 0 ? ` (${s.reports.length})` : ""}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Submit photos of the day and any relevant documents.</p>
+                  </div>
                   <Card>
                     <CardContent className="p-3 flex flex-col gap-2">
                       <input

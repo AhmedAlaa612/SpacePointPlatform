@@ -129,13 +129,12 @@ export function SessionEquipmentPanel({
           )}
         </div>
 
-        <SessionNotes sessionId={sessionId} notes={notes} onSaved={onChanged} />
+        <SessionNotes sessionId={sessionId} cohortId={cohortId} notes={notes} onSaved={onChanged} />
       </CardContent>
 
       {adding && (
         <TakeModal
           sessionId={sessionId}
-          cohortId={cohortId}
           warehouseId={data.warehouse_id}
           warehouseName={data.warehouse_name}
           onClose={() => setAdding(false)}
@@ -172,13 +171,20 @@ export function SessionEquipmentPanel({
  * simplicity. Saving on blur rather than per keystroke is the only mitigation
  * that costs nothing.
  */
-function SessionNotes({ sessionId, notes, onSaved }: {
+function SessionNotes({ sessionId, cohortId, notes, onSaved }: {
   sessionId: string
+  /** Needed to attach an optional proof photo as a session report. */
+  cohortId: string
   notes: string | null | undefined
   onSaved: () => void
 }) {
   const [error, setError] = useState("")
   const [saved, setSaved] = useState(false)
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [photoSaved, setPhotoSaved] = useState(false)
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const textRef = useRef<HTMLTextAreaElement>(null)
 
   const save = useMutation({
     mutationFn: (text: string) => updateSessionNotesApi(sessionId, text),
@@ -191,12 +197,26 @@ function SessionNotes({ sessionId, notes, onSaved }: {
       setError(e?.response?.data?.detail ?? "Could not save that note"),
   })
 
+  // Not every item taken is on the shelf — some instructors just write what
+  // they took here and attach a photo as proof, rather than going through
+  // the structured "I took something extra" flow.
+  const savePhoto = useMutation({
+    mutationFn: (file: File) =>
+      uploadSessionReportApi(cohortId, { file, sessionId, notes: textRef.current?.value || undefined }),
+    onSuccess: () => {
+      setPhotoSaved(true)
+      onSaved()
+    },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not upload that photo"),
+  })
+
   return (
-    <div className="flex flex-col gap-1 border-t border-border pt-3">
+    <div className="flex flex-col gap-1.5 border-t border-border pt-3">
       <label htmlFor={`notes-${sessionId}`} className="text-xs font-medium text-foreground">
         Comments
       </label>
       <textarea
+        ref={textRef}
         id={`notes-${sessionId}`}
         defaultValue={notes ?? ""}
         rows={3}
@@ -214,6 +234,47 @@ function SessionNotes({ sessionId, notes, onSaved }: {
             ? "Saved — operations will see this on the session."
             : "Operations reads this on the session."}
       </p>
+
+      <div className="flex items-center gap-2 mt-0.5">
+        {photoPreview ? (
+          <div className="relative w-16 h-16 shrink-0">
+            <img src={photoPreview} alt="Proof" className="w-16 h-16 object-cover rounded-lg border border-border" />
+            {!savePhoto.isPending && (
+              <button
+                type="button"
+                onClick={() => { setPhoto(null); setPhotoPreview(null); setPhotoSaved(false); if (photoInputRef.current) photoInputRef.current.value = "" }}
+                className="absolute -top-1.5 -right-1.5 w-4.5 h-4.5 rounded-full bg-background border border-border flex items-center justify-center text-muted-foreground hover:text-foreground"
+              >
+                <X size={10} />
+              </button>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => photoInputRef.current?.click()}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border rounded-xl px-3 py-2"
+          >
+            <Camera size={14} /> Attach a proof photo
+          </button>
+        )}
+        <input
+          ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0] ?? null
+            setPhoto(file)
+            setPhotoSaved(false)
+            setPhotoPreview(file ? URL.createObjectURL(file) : null)
+            if (file) { setError(""); savePhoto.mutate(file) }
+          }}
+        />
+        {photo && (
+          <span className="text-xs text-muted-foreground">
+            {savePhoto.isPending ? "Uploading…" : photoSaved ? "Attached — operations will see this." : ""}
+          </span>
+        )}
+      </div>
+
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
     </div>
   )
@@ -222,9 +283,8 @@ function SessionNotes({ sessionId, notes, onSaved }: {
 /** B3: the whole shelf at the pickup point, shown as a photo grid and
  *  narrowable by a search box (2026-08-01) — recognise it by sight, or type
  *  a few letters when the shelf runs long. */
-function TakeModal({ sessionId, cohortId, warehouseId, warehouseName, onClose, onDone }: {
+function TakeModal({ sessionId, warehouseId, warehouseName, onClose, onDone }: {
   sessionId: string
-  cohortId: string
   warehouseId: string | null
   warehouseName: string | null
   onClose: () => void
@@ -233,9 +293,6 @@ function TakeModal({ sessionId, cohortId, warehouseId, warehouseName, onClose, o
   const [picked, setPicked] = useState<Record<string, { row: EquipmentSearchResult; qty: number }>>({})
   const [chosenWarehouse, setChosenWarehouse] = useState("")
   const [search, setSearch] = useState("")
-  const [photo, setPhoto] = useState<File | null>(null)
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
-  const photoInputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState("")
 
   // Only asked when there was nothing to derive from — the uncommon path.
@@ -255,14 +312,7 @@ function TakeModal({ sessionId, cohortId, warehouseId, warehouseName, onClose, o
   })
 
   const submit = useMutation({
-    mutationFn: async (args: Parameters<typeof takeEquipmentApi>[0]) => {
-      const result = await takeEquipmentApi(args)
-      if (photo) {
-        const itemNames = chosen.map(({ row }) => row.item_name).join(", ")
-        await uploadSessionReportApi(cohortId, { file: photo, sessionId, notes: `Proof photo — took: ${itemNames}` })
-      }
-      return result
-    },
+    mutationFn: takeEquipmentApi,
     onSuccess: onDone,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not record that"),
   })
@@ -391,38 +441,6 @@ function TakeModal({ sessionId, cohortId, warehouseId, warehouseName, onClose, o
           </div>
         )
       )}
-
-      <div className="flex flex-col gap-1.5">
-        <p className="text-xs font-medium text-foreground">Proof photo (optional)</p>
-        {photoPreview ? (
-          <div className="relative w-24">
-            <img src={photoPreview} alt="Proof" className="w-24 h-24 object-cover rounded-xl border border-border" />
-            <button
-              type="button"
-              onClick={() => { setPhoto(null); setPhotoPreview(null); if (photoInputRef.current) photoInputRef.current.value = "" }}
-              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-background border border-border flex items-center justify-center text-muted-foreground hover:text-foreground"
-            >
-              <X size={11} />
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => photoInputRef.current?.click()}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border rounded-xl px-3 py-2 w-fit"
-          >
-            <Camera size={14} /> Attach a photo of what you took
-          </button>
-        )}
-        <input
-          ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0] ?? null
-            setPhoto(file)
-            setPhotoPreview(file ? URL.createObjectURL(file) : null)
-          }}
-        />
-      </div>
 
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 
