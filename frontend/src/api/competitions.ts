@@ -87,6 +87,23 @@ export interface CompetitionImportResult {
   rows: CompetitionImportRow[]
 }
 
+/** A parsed sheet row, before anything is written — `issues` is empty for a
+ * clean row, non-empty means it needs a fix (usually the email) before it
+ * can be confirmed. Every field here is editable in the preview table. */
+export interface CompetitionImportPreviewRow {
+  row_number: number
+  team_name: string | null
+  member_name: string | null
+  email: string | null
+  phone: string | null
+  school: string | null
+  issues: string[]
+}
+
+export interface CompetitionImportPreview {
+  rows: CompetitionImportPreviewRow[]
+}
+
 export interface CompetitionAdvanceResult {
   team_id: string
   team_name: string
@@ -172,14 +189,27 @@ export const publishCohortResultsApi = (cohortId: string) =>
 export const unpublishCohortResultsApi = (cohortId: string) =>
   api.post<void>(`/competitions/admin/cohorts/${cohortId}/unpublish`).then((r) => r.data)
 
-export const importCohortRegistrationsApi = (cohortId: string, file: File) => {
+/** Parses the sheet and flags per-row issues — writes nothing. Safe to call
+ * repeatedly while ops is still fixing flagged rows in the browser. */
+export const previewCohortRegistrationImportApi = (cohortId: string, file: File) => {
   const form = new FormData()
   form.append("file", file)
-  return api.post<CompetitionImportResult>(
-    `/competitions/admin/cohorts/${cohortId}/registration-import`, form,
+  return api.post<CompetitionImportPreview>(
+    `/competitions/admin/cohorts/${cohortId}/registration-import/preview`, form,
     { headers: { "Content-Type": "multipart/form-data" } },
   ).then((r) => r.data)
 }
+
+/** Actually commits the (possibly hand-edited) preview rows. The server
+ * re-validates on the way in — a row still missing a field or still
+ * carrying a malformed email comes back as an `error` row, not written. */
+export const confirmCohortRegistrationImportApi = (
+  cohortId: string,
+  rows: Omit<CompetitionImportPreviewRow, "issues">[],
+) =>
+  api.post<CompetitionImportResult>(
+    `/competitions/admin/cohorts/${cohortId}/registration-import/confirm`, { rows },
+  ).then((r) => r.data)
 
 export const advanceCohortTeamsApi = (cohortId: string, data: { team_ids: string[]; to_cohort_id: string }) =>
   api.post<CompetitionAdvanceResult[]>(`/competitions/admin/cohorts/${cohortId}/advance-teams`, data).then((r) => r.data)

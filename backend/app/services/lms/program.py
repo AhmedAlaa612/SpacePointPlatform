@@ -107,6 +107,25 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         )
 
 
+def guard_locked_submission_scope(item: LmsProgramItem, body: LmsProgramItemIn) -> None:
+    """A submission item's `scope` (individual vs. team) is locked at
+    creation — flipping it later silently orphans whatever's already been
+    submitted, since individual and team progress live in two entirely
+    separate tables keyed differently (`LmsProgramItemProgress` by
+    assignment, `LmsProgramTeamItemProgress` by team) with no migration
+    between them (2026-08-29 incident: a submission made before the flip
+    just stops being read anywhere, including the judge's team-detail
+    view — see `checklist_item_write_target`'s own docstring). Delete and
+    re-add the item instead of changing this once it might have anything
+    submitted against it."""
+    if item.item_type == "submission" and body.scope != item.scope:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="A submission item's scope (individual vs. team) can't be changed after it's created — "
+                   "delete and re-add it instead, so nothing already submitted gets silently orphaned.",
+        )
+
+
 async def validate_item_refs(db: AsyncSession, body: LmsProgramItemIn) -> None:
     if body.course_id is not None and await db.get(Course, body.course_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")

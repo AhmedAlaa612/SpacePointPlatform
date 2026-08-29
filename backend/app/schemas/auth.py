@@ -56,9 +56,17 @@ class SetPasswordRequest(BaseModel):
 
 
 class UserOut(BaseModel):
+    """`email` isn't re-validated as `EmailStr` on the way out — same
+    production incident as `app.schemas.user.UserReadBase` (2026-08-28):
+    a bulk-import artifact can carry a non-email value in that column, and
+    reading it back (here: `/auth/me`, `/auth/users/{id}`, the profile
+    modal) must never 500 just because the stored value isn't a real
+    address. This is a separate class from `app.schemas.user.UserOut` —
+    same shape, same fix needed twice because nothing shares them."""
+
     id: str
     full_name: str
-    email: EmailStr
+    email: str
     roles: list[str]
     status: str
     must_change_password: bool = False

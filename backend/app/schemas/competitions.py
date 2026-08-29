@@ -173,6 +173,40 @@ class CompetitionImportResultOut(BaseModel):
     rows: list[CompetitionImportRowOut]
 
 
+class CompetitionImportPreviewRowOut(BaseModel):
+    """One parsed sheet row, before anything is written. `issues` is empty
+    for a clean row; non-empty means ops needs to fix it (in the browser,
+    via the confirm payload below) before it can be committed."""
+    row_number: int
+    team_name: str | None = None
+    member_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    school: str | None = None
+    issues: list[str] = []
+
+
+class CompetitionImportPreviewOut(BaseModel):
+    rows: list[CompetitionImportPreviewRowOut]
+
+
+class CompetitionImportConfirmRowIn(BaseModel):
+    """The preview row, echoed back — possibly hand-edited (a fixed email,
+    typically) — to actually commit. Same fields as the preview row, minus
+    `issues`: the server re-validates on the way in rather than trusting
+    whatever the client last saw."""
+    row_number: int
+    team_name: str | None = None
+    member_name: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    school: str | None = None
+
+
+class CompetitionImportConfirmIn(BaseModel):
+    rows: list[CompetitionImportConfirmRowIn]
+
+
 class CompetitionAdvanceTeamsIn(BaseModel):
     team_ids: list[UUID]
     to_cohort_id: UUID

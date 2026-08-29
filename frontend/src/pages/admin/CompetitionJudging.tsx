@@ -9,12 +9,13 @@ import { UserProfileModal } from "@/components/UserProfileModal"
 import {
   advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
   getCohortExportTop20Api,
+  confirmCohortRegistrationImportApi,
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
-  importCohortRegistrationsApi,
+  previewCohortRegistrationImportApi,
   inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi, registerAndAddTeamMemberApi,
   removeTeamMemberApi, renameTeamApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
-  type CompetitionImportResult, type CompetitionJudgeProgress, type CompetitionLeaderboardRow,
-  type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
+  type CompetitionImportPreviewRow, type CompetitionImportResult, type CompetitionJudgeProgress,
+  type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
 } from "@/api/competitions"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 import { Field } from "@/pages/admin/components/common"
@@ -88,46 +89,184 @@ export default function CompetitionJudging() {
 /* ================================================================== */
 /* Roster (registration import)                                        */
 /* ================================================================== */
+const IMPORT_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+
+// A missing required field is the only thing that stops a row from being
+// written — mirrors registration_import.py's `_blocking_issues`. A
+// malformed-but-present email is a *warning*: ops can still confirm and
+// keep it (fix the address for that student later) rather than being
+// forced to invent one just to get past this screen.
+const BLOCKING_ISSUES = new Set(["Team name is required", "Member name is required", "Email is required"])
+const isBlockingIssue = (issue: string) => BLOCKING_ISSUES.has(issue)
+
+// Mirrors registration_import.py's `_row_issues` — for instant feedback as
+// ops edits a cell, before the real re-check happens server-side on confirm.
+function rowIssues(row: CompetitionImportPreviewRow): string[] {
+  const issues: string[] = []
+  if (!row.team_name?.trim()) issues.push("Team name is required")
+  if (!row.member_name?.trim()) issues.push("Member name is required")
+  if (!row.email?.trim()) issues.push("Email is required")
+  else if (!IMPORT_EMAIL_RE.test(row.email.trim())) issues.push("Email is not valid")
+  return issues
+}
+
 function RosterTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [previewRows, setPreviewRows] = useState<CompetitionImportPreviewRow[] | null>(null)
   const [result, setResult] = useState<CompetitionImportResult | null>(null)
 
-  const importMutation = useMutation({
-    mutationFn: (file: File) => importCohortRegistrationsApi(cohortId, file),
+  const previewMutation = useMutation({
+    mutationFn: (file: File) => previewCohortRegistrationImportApi(cohortId, file),
+    onSuccess: (res) => { setResult(null); setPreviewRows(res.rows) },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to read this file")),
+  })
+
+  const confirmMutation = useMutation({
+    mutationFn: (rows: CompetitionImportPreviewRow[]) =>
+      confirmCohortRegistrationImportApi(cohortId, rows.map(({ issues, ...rest }) => rest)),
     onSuccess: (res) => {
       setResult(res)
+      setPreviewRows(null)
       toast.success(`Imported: ${res.summary.created} created, ${res.summary.matched} matched, ${res.summary.error} errors`)
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to import roster")),
   })
 
+  const updateRow = (rowNumber: number, field: keyof CompetitionImportPreviewRow, value: string) => {
+    setPreviewRows((rows) =>
+      (rows ?? []).map((r) => {
+        if (r.row_number !== rowNumber) return r
+        const updated = { ...r, [field]: value || null }
+        return { ...updated, issues: rowIssues(updated) }
+      }),
+    )
+  }
+
+  const issueCount = previewRows?.filter((r) => r.issues.length > 0).length ?? 0
+  const blockingCount = previewRows?.filter((r) => r.issues.some(isBlockingIssue)).length ?? 0
+
   return (
-    <div className="flex flex-col gap-4 max-w-2xl">
-      <p className="text-sm text-muted-foreground">
-        Upload the final roster exported from the registration form — columns <code>team_name</code>,{" "}
-        <code>member_name</code>, <code>email</code>, and optionally <code>phone</code>/<code>school</code>.
-        Creates a student account, registration, and team per row; re-uploading the same sheet just matches
-        instead of duplicating.
-      </p>
-      <input
-        ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
-        onChange={(e) => { const file = e.target.files?.[0]; if (file) importMutation.mutate(file); e.target.value = "" }}
-      />
-      <button
-        onClick={() => fileInputRef.current?.click()}
-        disabled={importMutation.isPending}
-        className="self-start flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
-      >
-        <Upload size={14} /> {importMutation.isPending ? "Importing…" : "Upload roster"}
-      </button>
+    <div className="flex flex-col gap-4 max-w-4xl">
+      {!previewRows && (
+        <>
+          <p className="text-sm text-muted-foreground">
+            Upload the final roster exported from the registration form — columns <code>team_name</code>,{" "}
+            <code>member_name</code>, <code>email</code>, and optionally <code>phone</code>/<code>school</code>.
+            You'll get a preview to review before anything is created — a missing field blocks that row, a
+            malformed email is just flagged (fix it or leave it, your call). Re-uploading the same sheet later
+            just matches instead of duplicating.
+          </p>
+          <input
+            ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
+            onChange={(e) => { const file = e.target.files?.[0]; if (file) previewMutation.mutate(file); e.target.value = "" }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={previewMutation.isPending}
+            className="self-start flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+          >
+            <Upload size={14} /> {previewMutation.isPending ? "Reading…" : "Upload roster"}
+          </button>
+        </>
+      )}
+
+      {previewRows && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-foreground">
+              {previewRows.length} rows parsed
+              {blockingCount > 0 && (
+                <span className="text-red-600 dark:text-red-400"> · {blockingCount} won't import until fixed</span>
+              )}
+              {issueCount > blockingCount && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {" "}· {issueCount - blockingCount} flagged (email looks wrong) — importable as-is, or fix first
+                </span>
+              )}
+            </p>
+            <button
+              onClick={() => setPreviewRows(null)}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Start over
+            </button>
+          </div>
+
+          <div className="overflow-x-auto border border-border rounded-xl">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
+                  <th className="py-2 pl-3 pr-2">Row</th>
+                  <th className="py-2 pr-2">Team</th>
+                  <th className="py-2 pr-2">Member</th>
+                  <th className="py-2 pr-2">Email</th>
+                  <th className="py-2 pr-2">Phone</th>
+                  <th className="py-2 pr-3">School</th>
+                </tr>
+              </thead>
+              <tbody>
+                {previewRows.map((r) => {
+                  const blocked = r.issues.some(isBlockingIssue)
+                  return (
+                    <tr key={r.row_number} className={`border-b border-border/50 ${
+                      blocked ? "bg-red-50 dark:bg-red-950/20" : r.issues.length > 0 ? "bg-amber-50 dark:bg-amber-950/20" : ""
+                    }`}>
+                      <td className="py-1.5 pl-3 pr-2 text-muted-foreground align-top pt-3">{r.row_number}</td>
+                      {(["team_name", "member_name", "email", "phone", "school"] as const).map((field) => (
+                        <td key={field} className="py-1.5 pr-2">
+                          <input
+                            value={r[field] ?? ""}
+                            onChange={(e) => updateRow(r.row_number, field, e.target.value)}
+                            className={`w-full h-8 px-2 rounded-lg border bg-background text-sm ${
+                              (field === "team_name" || field === "member_name" || field === "email") &&
+                              r.issues.some((i) => i.toLowerCase().startsWith(field === "team_name" ? "team name" : field === "member_name" ? "member name" : "email"))
+                                ? (r.issues.some(isBlockingIssue) ? "border-red-400 dark:border-red-700" : "border-amber-400 dark:border-amber-700")
+                                : "border-border"
+                            }`}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {previewRows.some((r) => r.issues.length > 0) && (
+            <ul className="text-xs flex flex-col gap-0.5">
+              {previewRows.filter((r) => r.issues.length > 0).map((r) => (
+                <li key={r.row_number} className={r.issues.some(isBlockingIssue) ? "text-red-600 dark:text-red-400" : "text-amber-600 dark:text-amber-400"}>
+                  Row {r.row_number}: {r.issues.join("; ")}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <button
+            onClick={() => confirmMutation.mutate(previewRows)}
+            disabled={confirmMutation.isPending}
+            className="self-start flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+          >
+            <Check size={14} /> {confirmMutation.isPending ? "Importing…" : "Confirm import"}
+          </button>
+        </div>
+      )}
 
       {result && (
         <div className="flex flex-col gap-2">
-          <p className="text-sm font-medium text-foreground">
-            {result.summary.total} rows · {result.summary.created} created · {result.summary.matched} matched ·{" "}
-            {result.summary.error} errors
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-foreground">
+              {result.summary.total} rows · {result.summary.created} created · {result.summary.matched} matched ·{" "}
+              {result.summary.error} errors
+            </p>
+            <button
+              onClick={() => setResult(null)}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Import another file
+            </button>
+          </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
