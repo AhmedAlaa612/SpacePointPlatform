@@ -36,6 +36,7 @@ expect them to exist, and nothing here depends on them.)
 | [`HANDOFF_INTERNS.md`](./HANDOFF_INTERNS.md) | Projects, epics, tasks, kanban, teams |
 | [`HANDOFF_INTERNSHIP.md`](./HANDOFF_INTERNSHIP.md) | The HR-side intern pipeline: role request -> admin approval -> in-app-signed internship letter (not the kanban domain above, despite the name) |
 | [`MISSIONS_INTERN_SPEC.md`](./MISSIONS_INTERN_SPEC.md) | Intern-facing: how to propose a mission, what gets ported vs. rebuilt, lessons from the first real port (SatKit → Operate Your Satellite, Phase 2B) |
+| [`MENTORSHIP_BOOKING_PLAN.md`](./MENTORSHIP_BOOKING_PLAN.md) | **Plan only, not built** — AdPlist-style mentorship: any portal user opts in as a mentor (portfolio + availability), students browse and book a slot with notes |
 | [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions |
 | [`HANDOFF_VPS_DEPLOYMENT.md`](./HANDOFF_VPS_DEPLOYMENT.md) | What's actually running on the VPS, the deploy scripts' real behavior, storage layout |
 | [`OPS_BACKUPS.md`](./OPS_BACKUPS.md) | Database backup script — usage, cron, restore |
