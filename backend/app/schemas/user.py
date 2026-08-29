@@ -12,6 +12,19 @@ class UserBase(BaseModel):
     phone: str | None = None
 
 
+class UserReadBase(BaseModel):
+    """Same shape as `UserBase`, but `email` isn't re-validated as `EmailStr`
+    on the way out. A handful of rows in the live DB (bulk-import artifacts,
+    pre-dating stricter validation) don't parse as a real email address, and
+    that must never 500 the *entire* admin user list for every row along with
+    them — output schemas reflect what's stored, they don't gatekeep it.
+    `EmailStr` stays on `UserCreate`/`UserUpdate` below, where it belongs:
+    stopping a new bad value from ever being written."""
+    full_name: str
+    email: str
+    phone: str | None = None
+
+
 class UserCreate(UserBase):
     password: str
     roles: list[UserRole] = []
@@ -51,7 +64,7 @@ class UserSelfUpdate(BaseModel):
     phone: str | None = None
 
 
-class UserOut(UserBase):
+class UserOut(UserReadBase):
     id: UUID
     roles: list[UserRole] = []
     status: str | None = None
