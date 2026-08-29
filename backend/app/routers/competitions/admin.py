@@ -17,10 +17,11 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.schemas.competitions import (
-    CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionImportResultOut, CompetitionImportRowOut,
-    CompetitionJudgeInviteIn, CompetitionJudgeOut, CompetitionJudgeProgressOut, CompetitionLeaderboardRowOut,
-    CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut, CompetitionTeamCreateIn,
-    CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
+    CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionImportConfirmIn,
+    CompetitionImportPreviewOut, CompetitionImportPreviewRowOut, CompetitionImportResultOut,
+    CompetitionImportRowOut, CompetitionJudgeInviteIn, CompetitionJudgeOut, CompetitionJudgeProgressOut,
+    CompetitionLeaderboardRowOut, CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut,
+    CompetitionTeamCreateIn, CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
 )
 from app.services.competitions import export as export_service
 from app.services.competitions import judges as judges_service
@@ -170,13 +171,36 @@ async def _team_cohort_id(db: AsyncSession, team_id: uuid.UUID) -> uuid.UUID:
 
 # ── Registration import, progression ────────────────────────────────────
 
-@router.post("/cohorts/{cohort_id}/registration-import", response_model=CompetitionImportResultOut)
-async def post_cohort_registration_import(
+@router.post("/cohorts/{cohort_id}/registration-import/preview", response_model=CompetitionImportPreviewOut)
+async def post_cohort_registration_import_preview(
     cohort_id: uuid.UUID, file: UploadFile = File(...), db: AsyncSession = Depends(get_db),
 ):
+    """Parse the sheet and report every row's issues — writes nothing. Ops
+    reviews and fixes flagged rows (a malformed email, most often) in the
+    browser, then calls .../confirm with the corrected rows to actually
+    import. Safe to call as many times as needed on the same or a re-picked
+    file while ops is still fixing things."""
     await _get_cohort_or_404(db, cohort_id)
     file_bytes = await file.read()
-    rows = import_service.parse_registration_sheet(file_bytes, filename=file.filename)
+    rows = import_service.preview_registration_sheet(file_bytes, filename=file.filename)
+    return CompetitionImportPreviewOut(
+        rows=[CompetitionImportPreviewRowOut(**r) for r in import_service.preview_rows_as_dicts(rows)],
+    )
+
+
+@router.post("/cohorts/{cohort_id}/registration-import/confirm", response_model=CompetitionImportResultOut)
+async def post_cohort_registration_import_confirm(
+    cohort_id: uuid.UUID, body: CompetitionImportConfirmIn, db: AsyncSession = Depends(get_db),
+):
+    """Actually commits. Re-checks required fields (team/member/email
+    present) and refuses a row missing one of those — but a still-malformed
+    email is only ever a warning, so a row ops leaves flagged (a bad email
+    is fine to keep, fix later) still gets written."""
+    await _get_cohort_or_404(db, cohort_id)
+    rows = [
+        {"row_number": r.row_number, "raw": r.model_dump(exclude={"row_number"})}
+        for r in body.rows
+    ]
     results = await import_service.import_registrations(db, cohort_id=cohort_id, rows=rows)
     await db.commit()
     return CompetitionImportResultOut(

@@ -1,14 +1,29 @@
-"""Competition registration import (2026-08-24) — bulk-create teams from a
-Google Form export (Excel/CSV). Registration/filtering itself stays in
-Google Forms per the boss thread; the platform's job starts once ops has a
-final roster to import.
+"""Competition registration import (2026-08-24, preview/confirm added
+2026-08-28) — bulk-create teams from a Google Form export (Excel/CSV).
+Registration/filtering itself stays in Google Forms per the boss thread; the
+platform's job starts once ops has a final roster to import.
 
-Deliberately lighter than `services/sessions/importer.py`'s general sheet
-importer: no dry-run/`ImportBatch` two-phase flow, no contact-merge review
-queue — a competition roster is small (tens of rows, not hundreds), already
-hand-curated by ops before it gets here, and re-running the exact same sheet
-twice should just match instead of duplicating. One pass, immediately
-committed, is the right amount of machinery for that.
+Two phases now, not one: `preview_registration_sheet` parses the file and
+reports per-row issues (missing fields, a malformed email) **without writing
+anything** — ops reviews it, optionally fixes what's flagged in the browser,
+then calls `import_registrations` with the (possibly still-flagged) rows to
+commit. This replaced a one-pass immediately-committed design after a shifted
+spreadsheet column put a non-email value straight into a real account's
+`email` column undetected (2026-08-28) — a competition roster is ops-curated
+but not ops-*verified* per cell, and nothing caught it until the admin user
+list itself broke on the bad row (fixed separately: `UserOut` no longer
+re-validates `email` on the way out). No contact-merge review queue still;
+`services/sessions/importer.py`'s general importer is the one that needs that,
+this one's rosters stay small enough that ops fixing a flagged row by hand in
+the preview is the whole review step.
+
+A malformed email is a *warning*, not a blocker: `_blocking_issues` (missing
+team/member/email) is the only thing `_import_row` actually refuses to
+write — ops can knowingly import a row with a bad address (no working email
+for that student yet) rather than being forced to invent one to get past
+the preview. Nothing downstream chokes on it: the admin list reads `email`
+as a plain string, and the set-password email send below is best-effort and
+swallows its own failures.
 
 Reuses the same identity/registration/LMS primitives the desk and the bulk
 importer already use (`resolve_or_create_contact`, `register`,
@@ -21,6 +36,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import uuid
 from dataclasses import asdict, dataclass
 from typing import Literal
@@ -40,6 +56,13 @@ from app.services.teams import create_team, join_team, team_member_ids
 
 REQUIRED_COLUMNS = ["team_name", "member_name", "email"]
 OPTIONAL_COLUMNS = ["phone", "school"]
+
+# Deliberately loose — this only needs to catch "a column shifted and this
+# clearly isn't an email" (a bare number, a name, empty), not reject every
+# edge case a real RFC 5322 address could take. That's the same bar the
+# admin-side incident this whole preview step exists for was: `email='456'`,
+# not something borderline.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Ops's actual selection tracker (the sheet the roster gets exported from —
 # "Eligible" for the qualifier cohort, "Final Selection" for the finalist
@@ -62,6 +85,23 @@ class ImportRowResult:
     email: str | None
     disposition: Literal["created", "matched", "error"]
     reason: str | None = None
+
+
+@dataclass
+class ImportPreviewRow:
+    """One parsed sheet row, before anything is written — every field ops
+    can edit in the browser, plus what's wrong with it so far (empty when
+    the row is clean). `issues` is advisory here; `import_registrations`
+    re-runs the identical check and actually refuses to commit a row that
+    still has one, so a client skipping the preview step can't smuggle a
+    bad row through."""
+    row_number: int
+    team_name: str | None
+    member_name: str | None
+    email: str | None
+    phone: str | None
+    school: str | None
+    issues: list[str]
 
 
 def _normalize_header(raw: object) -> str:
@@ -147,19 +187,79 @@ def _clean_str(value: object) -> str | None:
     return s or None
 
 
-async def _import_row(db: AsyncSession, *, row_number: int, raw: dict, cohort: Cohort) -> ImportRowResult:
-    team_name = _clean_str(raw.get("team_name"))
-    member_name = _clean_str(raw.get("member_name"))
-    email = _clean_str(raw.get("email"))
-    phone = _clean_str(raw.get("phone"))
-    school = _clean_str(raw.get("school"))
+@dataclass
+class CleanedRow:
+    row_number: int
+    team_name: str | None
+    member_name: str | None
+    email: str | None
+    phone: str | None
+    school: str | None
 
-    if not team_name:
-        return ImportRowResult(row_number, team_name, email, "error", "team_name is required")
-    if not member_name:
-        return ImportRowResult(row_number, team_name, email, "error", "member_name is required")
-    if not email:
-        return ImportRowResult(row_number, team_name, email, "error", "email is required")
+
+def _clean_row(row_number: int, raw: dict) -> CleanedRow:
+    return CleanedRow(
+        row_number=row_number,
+        team_name=_clean_str(raw.get("team_name")),
+        member_name=_clean_str(raw.get("member_name")),
+        email=_clean_str(raw.get("email")),
+        phone=_clean_str(raw.get("phone")),
+        school=_clean_str(raw.get("school")),
+    )
+
+
+def _blocking_issues(row: CleanedRow) -> list[str]:
+    """Missing data the import can't proceed without at all — these are the
+    only issues that stop `_import_row` from writing a row."""
+    issues = []
+    if not row.team_name:
+        issues.append("Team name is required")
+    if not row.member_name:
+        issues.append("Member name is required")
+    if not row.email:
+        issues.append("Email is required")
+    return issues
+
+
+def _row_issues(row: CleanedRow) -> list[str]:
+    """Every note worth showing ops for this row — the blocking ones above,
+    plus a malformed-but-present email, which is a *warning* rather than a
+    blocker: ops sometimes knowingly imports a row with a bad email (no
+    working address for that student yet, fix it later) and confirm must
+    still let that through rather than silently dropping the row. A bad
+    address never crashes anything downstream — the admin list reads
+    `email` as a plain string (not re-validated), and the set-password
+    email send is best-effort and swallows its own failures. Preview shows
+    every issue at once, not just the first, so ops doesn't fix-and-reupload
+    one problem at a time."""
+    issues = _blocking_issues(row)
+    if row.email and not _EMAIL_RE.match(row.email):
+        issues.append("Email is not valid")
+    return issues
+
+
+def preview_registration_sheet(file_bytes: bytes, filename: str | None = None) -> list[ImportPreviewRow]:
+    """Parse the sheet and report every row's issues — no database access at
+    all, so calling this as many times as ops needs while fixing flagged
+    cells in the browser is always safe. `import_registrations` (further
+    down) is the only function that actually writes anything."""
+    parsed = parse_registration_sheet(file_bytes, filename)
+    out = []
+    for entry in parsed:
+        row = _clean_row(entry["row_number"], entry["raw"])
+        out.append(ImportPreviewRow(
+            row_number=row.row_number, team_name=row.team_name, member_name=row.member_name,
+            email=row.email, phone=row.phone, school=row.school, issues=_row_issues(row),
+        ))
+    return out
+
+
+async def _import_row(db: AsyncSession, *, row_number: int, raw: dict, cohort: Cohort) -> ImportRowResult:
+    row = _clean_row(row_number, raw)
+    issues = _blocking_issues(row)
+    if issues:
+        return ImportRowResult(row_number, row.team_name, row.email, "error", "; ".join(issues))
+    team_name, member_name, email, phone, school = row.team_name, row.member_name, row.email, row.phone, row.school
 
     contact, _evaluation = await resolve_or_create_contact(
         db, full_name=member_name, phone=phone, email=email, contact_roles=["student"],
@@ -225,3 +325,7 @@ def summarize(results: list[ImportRowResult]) -> dict:
 
 def results_as_dicts(results: list[ImportRowResult]) -> list[dict]:
     return [asdict(r) for r in results]
+
+
+def preview_rows_as_dicts(rows: list[ImportPreviewRow]) -> list[dict]:
+    return [asdict(r) for r in rows]

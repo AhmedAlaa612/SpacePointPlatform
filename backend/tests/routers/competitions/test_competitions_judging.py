@@ -433,7 +433,7 @@ async def test_export_workbook_has_a_scores_sheet_and_a_submissions_sheet(db, cl
 
 
 @pytest.mark.asyncio
-async def test_registration_import_via_multipart_upload_creates_teams(db, client):
+async def test_registration_import_preview_then_confirm_creates_teams(db, client):
     ops = await _ops(db)
     _program, cohort = await _program_and_cohort(db)
     await db.commit()
@@ -446,17 +446,89 @@ async def test_registration_import_via_multipart_upload_creates_teams(db, client
     buf = io.BytesIO()
     wb.save(buf)
 
-    resp = await client.post(
-        f"/competitions/admin/cohorts/{cohort.id}/registration-import",
+    preview_resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/preview",
         files={"file": ("roster.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
         headers=_headers(ops),
     )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
+    assert preview_resp.status_code == 200, preview_resp.text
+    preview_rows = preview_resp.json()["rows"]
+    assert len(preview_rows) == 2
+    assert all(r["issues"] == [] for r in preview_rows)
+
+    # Nothing written yet — preview never touches the database.
+    assert (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all() == []
+
+    confirm_resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/confirm",
+        json={"rows": [{k: v for k, v in r.items() if k != "issues"} for r in preview_rows]},
+        headers=_headers(ops),
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+    body = confirm_resp.json()
     assert body["summary"] == {"total": 2, "created": 2, "matched": 0, "error": 0}
 
     teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
     assert [t.name for t in teams] == ["Falcon Eye"]
+
+
+@pytest.mark.asyncio
+async def test_registration_import_preview_flags_a_malformed_email_but_confirm_can_still_keep_it(db, client):
+    """A malformed email (the exact 2026-08-28 prod-incident shape) is a
+    warning ops can act on, not a hard block — confirming it as-is still
+    creates the row, since nothing downstream chokes on a bad address."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet.append(["team_name", "member_name", "email", "phone", "school"])
+    sheet.append(["Falcon Eye", "Amir Salem", "456", "", ""])  # shifted-column garbage, the prod incident shape
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    preview_resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/preview",
+        files={"file": ("roster.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        headers=_headers(ops),
+    )
+    assert preview_resp.status_code == 200, preview_resp.text
+    [row] = preview_resp.json()["rows"]
+    assert row["issues"] == ["Email is not valid"]
+
+    # Confirming as-is (uncorrected) still writes the row — the note was
+    # advisory, and ops chose not to act on it.
+    confirm_resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/confirm",
+        json={"rows": [{k: v for k, v in row.items() if k != "issues"}]},
+        headers=_headers(ops),
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+    assert confirm_resp.json()["summary"] == {"total": 1, "created": 1, "matched": 0, "error": 0}
+
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert [t.name for t in teams] == ["Falcon Eye"]
+    bad_user = (await db.execute(select(User).where(User.email == "456"))).scalars().first()
+    assert bad_user is not None
+
+
+@pytest.mark.asyncio
+async def test_registration_import_confirm_still_refuses_a_row_missing_a_required_field(db, client):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+
+    row = {"row_number": 2, "team_name": "Falcon Eye", "member_name": "", "email": "amir@example.com", "phone": None, "school": None}
+    confirm_resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/confirm",
+        json={"rows": [row]},
+        headers=_headers(ops),
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+    body = confirm_resp.json()
+    assert body["summary"] == {"total": 1, "created": 0, "matched": 0, "error": 1}
+    assert "Member name is required" in body["rows"][0]["reason"]
 
 
 @pytest.mark.asyncio
