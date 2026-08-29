@@ -274,6 +274,17 @@ export interface RosterEntry {
   recorded_at?: string | null;
 }
 
+/** Another instructor/facilitator on this same session, and whether
+ *  they've checked in yet — the Session Portal's "who's here" strip. */
+export interface Teammate {
+  user_id: string;
+  full_name: string;
+  role_name: string;
+  is_me: boolean;
+  att_status?: AttendanceStatus | null;
+  checked_in_at?: string | null;
+}
+
 export interface SessionDelivery {
   id: string;
   cohort_id: string;
@@ -294,6 +305,7 @@ export interface SessionDelivery {
   notes?: string | null;
   roster: RosterEntry[];
   reports: SessionReport[];
+  teammates: Teammate[];
 }
 
 export interface AttendanceResult {

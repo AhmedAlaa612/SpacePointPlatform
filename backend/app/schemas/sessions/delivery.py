@@ -34,6 +34,19 @@ class RosterEntryOut(BaseModel):
     recorded_at: datetime | None = None
 
 
+class TeammateOut(BaseModel):
+    """Another instructor/facilitator assigned to this same session, and
+    whether they've checked in yet — the Session Portal's "who's here"
+    strip needs this alongside the caller's own day, not a separate
+    round trip per teammate."""
+    user_id: UUID
+    full_name: str
+    role_name: str
+    is_me: bool
+    att_status: AttendanceStatus | None = None
+    checked_in_at: datetime | None = None
+
+
 class SessionDeliveryOut(BaseModel):
     id: UUID
     cohort_id: UUID
@@ -53,6 +66,7 @@ class SessionDeliveryOut(BaseModel):
     notes: str | None = None
     roster: list[RosterEntryOut]
     reports: list[SessionReportOut] = []
+    teammates: list[TeammateOut] = []
 
 
 class UpdateSessionNotesRequest(BaseModel):

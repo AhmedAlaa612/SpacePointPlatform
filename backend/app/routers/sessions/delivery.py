@@ -15,7 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_session_delivery
 from app.db.session import get_db
+from app.models.sessions.checklist import InstructorSessionDay
+from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.program import Program
+from app.models.sessions.session import SessionInstructor
 from app.models.spine.organization import Organization
 from app.models.user import User
 from app.schemas.sessions.delivery import (
@@ -24,6 +27,7 @@ from app.schemas.sessions.delivery import (
     RosterEntryOut,
     ScanAttendanceRequest,
     SessionDeliveryOut,
+    TeammateOut,
     UpdateSessionNotesRequest,
 )
 from app.schemas.sessions.reports import SessionReportOut
@@ -54,6 +58,28 @@ async def _session_delivery_out(db: AsyncSession, session_id: uuid.UUID, user: U
         }
     report_rows = await reports_service.list_session_reports(db, session_id)
     location = await staffing_svc.resolve_session_location_display(db, session, cohort)
+
+    teammate_rows = (await db.execute(
+        select(SessionInstructor, User, DeliveryRole)
+        .join(User, User.id == SessionInstructor.user_id)
+        .join(DeliveryRole, DeliveryRole.id == SessionInstructor.role_id)
+        .where(SessionInstructor.session_id == session_id)
+    )).all()
+    days_by_user = {
+        d.user_id: d for d in (await db.execute(
+            select(InstructorSessionDay).where(InstructorSessionDay.session_id == session_id)
+        )).scalars().all()
+    }
+    teammates = [
+        TeammateOut(
+            user_id=si.user_id, full_name=teammate.full_name, role_name=role.name,
+            is_me=si.user_id == user.id,
+            att_status=days_by_user[si.user_id].att_status if si.user_id in days_by_user else None,
+            checked_in_at=days_by_user[si.user_id].checked_in_at if si.user_id in days_by_user else None,
+        )
+        for si, teammate, role in teammate_rows
+    ]
+
     return SessionDeliveryOut(
         id=session.id, cohort_id=cohort.id, cohort_name=cohort.name, program_name=program.name,
         location=location["name"],
@@ -86,6 +112,7 @@ async def _session_delivery_out(db: AsyncSession, session_id: uuid.UUID, user: U
             )
             for report, uploader_name in report_rows
         ],
+        teammates=teammates,
     )
 
 
