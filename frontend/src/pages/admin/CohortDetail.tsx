@@ -6,7 +6,7 @@ import {
   CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical,
 } from "lucide-react"
 import type {
-  Cohort, Program, Session,
+  Cohort, CohortStatus, Program, Session,
   Registration, EligibleInstructor,
   SessionReport,
 } from "@/types/sessions"
@@ -23,7 +23,7 @@ import {
   generateSessionsApi, addSessionApi,
   getRegistrationsApi, deskRegisterApi, resendTicketApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
   deleteRegistrationApi, downloadCohortCertificatesApi,
-  bulkAssignInstructorApi, type BulkActionResult,
+  bulkAssignInstructorApi, updateCohortApi, type BulkActionResult,
 } from "@/api/sessions/cohorts"
 import {
   listEligibleInstructorsApi, openCohortCallApi, type CohortCall,
@@ -33,7 +33,7 @@ import { listCohortReportsApi, uploadSessionReportApi, completeCohortApi } from 
 import { Modal, Field, ModalActions, ConfirmDialog, Spinner, PageHeader, EmptyState } from "@/pages/admin/components/common"
 import { ImportListModal } from "@/pages/admin/components/ImportList"
 import { listOrganizationsApi, updateContactApi } from "@/api/spine/contacts"
-import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR } from "@/pages/admin/Cohorts"
+import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR, STATUS_OPTIONS } from "@/pages/admin/Cohorts"
 import { ContactDetailModal } from "@/pages/admin/Contacts"
 import { useToast } from "@/components/ui/toast"
 import { Card } from "@/components/ui/card"
@@ -233,6 +233,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       invalidateCohort()
     },
   })
+  const statusMutation = useMutation({
+    mutationFn: (status: CohortStatus) => updateCohortApi(cohort.id, { status }),
+    onSuccess: () => { toast.success("Status updated"); invalidateCohort() },
+    onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to update status")),
+  })
   const unstaffedCount = sessions.filter((s) => s.staffing_status === "unstaffed").length
 
   return (
@@ -265,6 +270,15 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                 <Award size={14} /> Judging
               </Link>
             )}
+            <select
+              value={cohort.status}
+              onChange={(e) => statusMutation.mutate(e.target.value as CohortStatus)}
+              disabled={statusMutation.isPending}
+              title="Change cohort status"
+              className="h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-wait focus:outline-none"
+            >
+              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{COHORT_STATUS_LABEL[s]}</option>)}
+            </select>
             {cohort.status !== "completed" && cohort.status !== "cancelled" && (
               <button
                 onClick={() => setCompleteConfirmOpen(true)}

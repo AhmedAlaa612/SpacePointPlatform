@@ -13,7 +13,7 @@ import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
 import { getErrorMessage } from "@/lib/utils"
 
-const STATUS_OPTIONS: CohortStatus[] = ["planned", "registration_open", "running", "completed", "cancelled"]
+export const STATUS_OPTIONS: CohortStatus[] = ["planned", "registration_open", "running", "completed", "cancelled"]
 const VISIBILITY_OPTIONS: CohortVisibility[] = ["public", "private"]
 
 export const COHORT_STATUS_LABEL: Record<CohortStatus, string> = {
