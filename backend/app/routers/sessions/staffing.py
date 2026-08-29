@@ -550,6 +550,7 @@ async def list_my_sessions(
             location=location["name"],
             location_address=location["address"],
             location_maps_url=location["maps_url"],
+            location_city=location["city_name"],
             meeting_date=s.meeting_date, starts_at=s.starts_at,
             my_role=role, staffing_status=s.staffing_status,
             started_at=s.started_at, completed_at=s.completed_at,

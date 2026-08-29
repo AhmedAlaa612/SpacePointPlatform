@@ -190,6 +190,7 @@ class MySessionOut(BaseModel):
     # links out to the map, instead of a bare name.
     location_address: str | None = None
     location_maps_url: str | None = None
+    location_city: str | None = None
     meeting_date: date
     starts_at: time | None = None
     my_role: str

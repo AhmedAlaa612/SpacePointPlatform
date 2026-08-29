@@ -211,6 +211,7 @@ export interface MySession {
    *  resolved server-side through `Location`/`City`. */
   location_address?: string | null;
   location_maps_url?: string | null;
+  location_city?: string | null;
   meeting_date: string;
   starts_at?: string | null;
   my_role: string;

@@ -69,7 +69,9 @@ function LocationLine({ s }: { s: MySession }) {
   if (!s.location) return null
   return (
     <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-      <span className="flex items-center gap-1.5 font-medium"><MapPin size={13} /> {s.location}</span>
+      <span className="flex items-center gap-1.5 font-medium">
+        <MapPin size={13} /> {s.location}{s.location_city ? `, ${s.location_city}` : ""}
+      </span>
       {s.location_address && <span>{s.location_address}</span>}
       {s.location_maps_url && (
         <a href={s.location_maps_url} target="_blank" rel="noreferrer"
