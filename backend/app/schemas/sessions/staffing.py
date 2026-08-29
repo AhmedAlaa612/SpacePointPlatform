@@ -218,6 +218,7 @@ class CohortCallSessionOut(BaseModel):
     # Whether this instructor has already ticked it — lets the card come back
     # showing their previous answer instead of a blank form.
     selected: bool = False
+    open_role_ids: list[UUID] = []
 
 
 class AvailableCohortCallOut(BaseModel):
@@ -239,6 +240,7 @@ class AvailableCohortCallOut(BaseModel):
     ends_on: date
     session_count: int
     location: str | None = None
+    location_city: str | None = None
     location_address: str | None = None
     location_map_url: str | None = None
     interested_count: int

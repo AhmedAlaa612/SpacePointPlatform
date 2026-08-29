@@ -157,6 +157,38 @@ async def _instructor_role(db: AsyncSession, session_id: UUID, user_id: UUID) ->
     )
 
 
+DEFAULT_DELIVERY_CHECKLIST = [
+    {
+        "title": "Check in on arrival & verify venue setup",
+        "description": "Ensure room layout, AV, power, and tables are properly prepared before students arrive.",
+        "requires_proof": False,
+        "is_required": True,
+        "sort_order": 1,
+    },
+    {
+        "title": "Verify student attendance & safety guidelines",
+        "description": "Confirm student attendance roster and review safety procedures with participants.",
+        "requires_proof": False,
+        "is_required": True,
+        "sort_order": 2,
+    },
+    {
+        "title": "Conduct session activities, kits & materials",
+        "description": "Deliver planned curriculum activities using assigned kits and materials.",
+        "requires_proof": False,
+        "is_required": True,
+        "sort_order": 3,
+    },
+    {
+        "title": "Pack up equipment & upload photo evidence",
+        "description": "Clean up venue, return kits/inventory to storage, and upload photo proof of completion.",
+        "requires_proof": True,
+        "is_required": True,
+        "sort_order": 4,
+    },
+]
+
+
 async def resolve_checklist(
     db: AsyncSession, session: Session, role_id: UUID | None = None,
 ) -> list[DeliveryChecklistItem]:
@@ -171,10 +203,6 @@ async def resolve_checklist(
       exist there, else that level's general (role_id IS NULL) items. A role
       checklist replaces the general one for that role; it is never added on
       top of it.
-
-    Merging either axis would make it impossible to *remove* an item for one
-    cohort or one role, which is exactly what overridable has to mean (see
-    `materials.py` for the level half of this reasoning).
     """
     for kwargs in (
         {"session_id": session.id},
@@ -190,13 +218,28 @@ async def resolve_checklist(
         if general:
             return general
     cohort = await db.get(Cohort, session.cohort_id)
-    if cohort is None:
-        return []
-    items = await _items_at_level(db, program_id=cohort.program_id)
-    role_items = [i for i in items if i.role_id == role_id] if role_id is not None else []
-    if role_items:
-        return role_items
-    return [i for i in items if i.role_id is None]
+    if cohort is not None:
+        items = await _items_at_level(db, program_id=cohort.program_id)
+        role_items = [i for i in items if i.role_id == role_id] if role_id is not None else []
+        if role_items:
+            return role_items
+        general = [i for i in items if i.role_id is None]
+        if general:
+            return general
+
+    # System default operational checklist when no custom checklist is defined anywhere
+    return [
+        DeliveryChecklistItem(
+            id=UUID(int=idx + 1000),
+            session_id=session.id,
+            title=d["title"],
+            description=d["description"],
+            requires_proof=d["requires_proof"],
+            is_required=d["is_required"],
+            sort_order=d["sort_order"],
+        )
+        for idx, d in enumerate(DEFAULT_DELIVERY_CHECKLIST)
+    ]
 
 
 # ── the instructor's day ────────────────────────────────────────────────────

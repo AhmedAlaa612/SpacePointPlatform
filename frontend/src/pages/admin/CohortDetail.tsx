@@ -275,7 +275,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
               onChange={(e) => statusMutation.mutate(e.target.value as CohortStatus)}
               disabled={statusMutation.isPending}
               title="Change cohort status"
-              className="h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-wait focus:outline-none"
+              className="h-8 px-2.5 border border-border bg-background rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-wait focus:outline-none w-auto max-w-fit"
             >
               {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{COHORT_STATUS_LABEL[s]}</option>)}
             </select>

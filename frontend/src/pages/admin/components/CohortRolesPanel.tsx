@@ -31,15 +31,48 @@ function toDraftLines(items: ChecklistItem[]): ChecklistDraftLine[] {
   }))
 }
 
+async function fetchFallbackChecklistItems(
+  cohortId: string,
+  programId?: string,
+  roleId?: string | null,
+): Promise<ChecklistItem[]> {
+  if (roleId) {
+    try {
+      const cohortGeneral = await listChecklistItemsApi("cohorts", cohortId, null)
+      if (cohortGeneral.length > 0) return cohortGeneral
+    } catch {}
+
+    if (programId) {
+      try {
+        const progRole = await listChecklistItemsApi("programs", programId, roleId)
+        if (progRole.length > 0) return progRole
+      } catch {}
+
+      try {
+        const progGeneral = await listChecklistItemsApi("programs", programId, null)
+        if (progGeneral.length > 0) return progGeneral
+      } catch {}
+    }
+  } else if (programId) {
+    try {
+      const progGeneral = await listChecklistItemsApi("programs", programId, null)
+      if (progGeneral.length > 0) return progGeneral
+    } catch {}
+  }
+  return []
+}
+
 /** One checklist bucket's editor — general (roleId omitted) or one role's
  *  own list. Lazy: only fetches once expanded. */
 function ChecklistSection({
-  cohortId, roleId, label, hint,
-}: { cohortId: string; roleId: string | null; label: string; hint: string }) {
+  cohortId, programId, roleId, label, hint,
+}: { cohortId: string; programId?: string; roleId: string | null; label: string; hint: string }) {
   const qc = useQueryClient()
   const toast = useToast()
   const [open, setOpen] = useState(false)
   const [draft, setDraft] = useState<ChecklistDraftLine[] | null>(null)
+  const [isInherited, setIsInherited] = useState(false)
+  const [isLoadingFallback, setIsLoadingFallback] = useState(false)
   const [error, setError] = useState("")
 
   const queryKey = ["checklist-items", "cohorts", cohortId, roleId ?? "general"]
@@ -50,8 +83,25 @@ function ChecklistSection({
   })
 
   useEffect(() => {
-    if (open && draft === null && !isLoading) setDraft(toDraftLines(items))
-  }, [open, isLoading, items, draft])
+    if (!open || draft !== null || isLoading) return
+
+    if (items.length > 0) {
+      setDraft(toDraftLines(items))
+      setIsInherited(false)
+    } else {
+      setIsLoadingFallback(true)
+      fetchFallbackChecklistItems(cohortId, programId, roleId)
+        .then((fb) => {
+          setDraft(toDraftLines(fb))
+          setIsInherited(fb.length > 0)
+        })
+        .catch(() => {
+          setDraft([])
+          setIsInherited(false)
+        })
+        .finally(() => setIsLoadingFallback(false))
+    }
+  }, [open, isLoading, items, draft, cohortId, programId, roleId])
 
   const save = useMutation({
     mutationFn: () => setChecklistItemsApi(
@@ -64,13 +114,14 @@ function ChecklistSection({
     onSuccess: () => {
       toast.success(`${label} checklist saved`)
       setError("")
+      setIsInherited(false)
       qc.invalidateQueries({ queryKey })
     },
     onError: (e: any) => setError(getErrorMessage(e, "Could not save this checklist")),
   })
 
   const rows = draft ?? []
-  const savedCount = open ? items.length : undefined
+  const savedCount = open ? rows.length : undefined
 
   return (
     <div className="border border-dashed border-border rounded-lg">
@@ -91,10 +142,15 @@ function ChecklistSection({
 
       {open && (
         <div className="px-3 pb-3 flex flex-col gap-2 border-t border-dashed border-border pt-2">
-          {isLoading || draft === null ? (
+          {isLoading || isLoadingFallback || draft === null ? (
             <p className="text-xs text-muted-foreground">Loading…</p>
           ) : (
             <>
+              {isInherited && rows.length > 0 && (
+                <p className="text-[11px] text-muted-foreground italic">
+                  Showing default inherited items. Edit and save to set a custom override for this cohort.
+                </p>
+              )}
               {rows.length === 0 && (
                 <p className="text-xs text-muted-foreground">
                   Nothing set here yet — falls back to {roleId ? "the general checklist" : "the level above"}.
@@ -195,7 +251,7 @@ export function CohortRolesPanel({ cohort }: { cohort: Cohort }) {
         slots: o?.slots ?? 1,
         amount_aed: o?.amount_aed != null ? String(o.amount_aed) : "",
         notes: o?.notes ?? "",
-        responsibilities_override: o?.responsibilities_override ?? "",
+        responsibilities_override: o?.responsibilities_override ?? o?.role_description ?? r.description ?? "",
       }
     })
 
@@ -242,7 +298,7 @@ export function CohortRolesPanel({ cohort }: { cohort: Cohort }) {
       </div>
 
       <ChecklistSection
-        cohortId={cohort.id} roleId={null} label="General checklist"
+        cohortId={cohort.id} programId={cohort.program_id} roleId={null} label="General checklist"
         hint="Applies to any role without its own list"
       />
 
@@ -306,7 +362,7 @@ export function CohortRolesPanel({ cohort }: { cohort: Cohort }) {
               </label>
 
               <ChecklistSection
-                cohortId={cohort.id} roleId={role.id} label={`${role.name} checklist`}
+                cohortId={cohort.id} programId={cohort.program_id} roleId={role.id} label={`${role.name} checklist`}
                 hint="Replaces the general checklist for this role"
               />
             </div>

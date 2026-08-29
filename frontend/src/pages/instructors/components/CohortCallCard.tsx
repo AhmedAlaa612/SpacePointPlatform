@@ -10,7 +10,7 @@
  * UI makes the invalid state unrepresentable rather than validating it after
  * the fact. The backend enforces it too, with a 409 naming the clash.
  */
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Calendar, Clock, ExternalLink, MapPin, Users } from "lucide-react"
 import {
@@ -52,16 +52,14 @@ export default function CohortCallCard({ c }: { c: AvailableCohortCall }) {
   const [note, setNote] = useState(c.my_note ?? "")
   const [concerns, setConcerns] = useState(c.my_concerns ?? "")
   const [needsTransport, setNeedsTransport] = useState(c.my_needs_transport)
-  const [needsOpsSupport, setNeedsOpsSupport] = useState(c.my_needs_ops_support)
   const [travelling, setTravelling] = useState(c.my_travelling_from_other_city)
+  const [respOpen, setRespOpen] = useState(false)
   const [agreed, setAgreed] = useState(false)
   const [error, setError] = useState("")
 
   const responsibilities = useQuery({
-    queryKey: ["responsibilities", roleId ?? "general"],
-    // Wrapped, not passed bare: react-query hands the queryFn its own context
-    // object, which axios would serialize into bracket-notation junk.
-    queryFn: () => getResponsibilitiesApi(roleId),
+    queryKey: ["responsibilities", roleId ?? "general", c.cohort_id],
+    queryFn: () => getResponsibilitiesApi(roleId, c.cohort_id),
   })
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["available-work"] })
@@ -73,7 +71,7 @@ export default function CohortCallCard({ c }: { c: AvailableCohortCall }) {
         role_id: roleId,
         note: note || null,
         needs_transport: needsTransport,
-        needs_ops_support: needsOpsSupport,
+        needs_ops_support: false,
         travelling_from_other_city: travelling,
         concerns: concerns || null,
         responsibilities_version: responsibilities.data?.text
@@ -99,6 +97,37 @@ export default function CohortCallCard({ c }: { c: AvailableCohortCall }) {
       return next
     })
 
+  const handleApply = () => {
+    setError("")
+    if (c.openings.length > 0 && !roleId) {
+      setError("Please pick a role above before applying.")
+      return
+    }
+    if (picked.size === 0) {
+      setError("Please pick at least one session date.")
+      return
+    }
+    if (responsibilities.data?.text && !agreed) {
+      setError("Please view and agree to the Responsibilities to apply.")
+      setRespOpen(true)
+      return
+    }
+    register.mutate()
+  }
+
+  useEffect(() => {
+    if (c.my_interest || !roleId) return
+    const openForRole = c.sessions
+      .filter((s) => !s.open_role_ids || s.open_role_ids.length === 0 || s.open_role_ids.includes(roleId))
+      .map((s) => s.session_id)
+    setPicked(new Set(openForRole))
+  }, [roleId])
+
+  const isReady =
+    picked.size > 0 &&
+    (!c.openings.length || !!roleId) &&
+    (!responsibilities.data?.text || agreed)
+
   return (
     <Card>
       <CardContent className="p-5">
@@ -123,7 +152,7 @@ export default function CohortCallCard({ c }: { c: AvailableCohortCall }) {
           </span>
           {c.location && (
             <span className="flex items-center gap-1.5">
-              <MapPin size={14} /> {c.location}
+              <MapPin size={14} /> {c.location}{c.location_city ? `, ${c.location_city}` : ""}
               {c.location_map_url && (
                 <a href={c.location_map_url} target="_blank" rel="noreferrer"
                    className="inline-flex items-center gap-0.5 text-primary hover:underline">
@@ -182,28 +211,38 @@ export default function CohortCallCard({ c }: { c: AvailableCohortCall }) {
           </div>
         )}
 
-        <div className="mb-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
-            Which days can you do?
+        <div className="mb-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+            Program Sessions &mdash; Uncheck a session if you can't attend it
           </p>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2">
             {c.sessions.map((s) => {
-              const on = picked.has(s.session_id)
+              const on = c.my_interest ? s.selected : picked.has(s.session_id)
+              const isFullForRole =
+                !c.my_interest &&
+                !!roleId &&
+                !!s.open_role_ids &&
+                s.open_role_ids.length > 0 &&
+                !s.open_role_ids.includes(roleId)
+
               return (
                 <button
                   key={s.session_id}
                   type="button"
-                  disabled={c.my_interest}
+                  disabled={c.my_interest || isFullForRole}
                   onClick={() => toggleDay(s.session_id)}
-                  title={s.title ?? undefined}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-70 disabled:cursor-default ${
-                    on
-                      ? "bg-primary/10 text-primary border-primary/30"
-                      : "bg-transparent text-muted-foreground border-border hover:bg-muted"
+                  title={isFullForRole ? "This session is already fully staffed for this role" : (s.title ?? undefined)}
+                  className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-medium border transition-colors flex items-center gap-1.5 ${
+                    isFullForRole
+                      ? "bg-muted/40 text-muted-foreground/60 border-border/40 cursor-not-allowed opacity-75"
+                      : on
+                      ? "bg-primary/10 text-primary border-primary/30 font-semibold cursor-pointer"
+                      : "bg-transparent text-muted-foreground border-border hover:bg-muted cursor-pointer"
                   }`}
                 >
-                  {on ? "☑" : "☐"} {formatDay(s.meeting_date)}
+                  {isFullForRole ? "🔒" : on ? "☑" : "☐"} {formatDay(s.meeting_date)}
                   {s.starts_at ? ` · ${s.starts_at.slice(0, 5)}` : ""}
+                  {isFullForRole && <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">(Full)</span>}
                 </button>
               )
             })}
@@ -233,7 +272,6 @@ export default function CohortCallCard({ c }: { c: AvailableCohortCall }) {
               <div className="flex flex-col gap-1.5">
                 {([
                   ["I need transport", needsTransport, setNeedsTransport],
-                  ["I need operational support", needsOpsSupport, setNeedsOpsSupport],
                   ["I'm travelling from another city", travelling, setTravelling],
                 ] as const).map(([label, value, set]) => (
                   <label key={label} className="flex items-center gap-2 text-xs cursor-pointer select-none">
@@ -248,47 +286,56 @@ export default function CohortCallCard({ c }: { c: AvailableCohortCall }) {
               </div>
               <textarea
                 className="input min-h-[3rem] resize-y text-xs"
-                placeholder="Concerns or constraints ops should know about…"
+                placeholder="Clarify any constraints or support needed…"
                 value={concerns}
                 onChange={(e) => setConcerns(e.target.value)}
               />
             </div>
 
             {responsibilities.data?.text && (
-              <div className="rounded-xl border border-border bg-background/50 p-3 flex flex-col gap-2">
-                <p className="text-xs font-semibold text-foreground">
-                  Responsibilities{responsibilities.data.role_name ? ` — ${responsibilities.data.role_name}` : ""}
-                </p>
-                <p className="text-xs text-muted-foreground whitespace-pre-line max-h-32 overflow-y-auto">
-                  {responsibilities.data.text}
-                </p>
-                <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
-                  <input
-                    type="checkbox" checked={agreed}
-                    onChange={(e) => setAgreed(e.target.checked)}
-                    className="rounded text-primary focus:ring-primary border-border bg-background"
-                  />
-                  I have read and agree to these
-                </label>
-              </div>
+              <details
+                open={respOpen}
+                onToggle={(e) => setRespOpen(e.currentTarget.open)}
+                className={`rounded-xl border transition-colors group ${
+                  error && !agreed ? "border-amber-500/50 bg-amber-500/5" : "border-border bg-background/50"
+                }`}
+              >
+                <summary className="px-3 py-2.5 flex items-center justify-between text-xs font-semibold text-foreground cursor-pointer select-none list-none">
+                  <span>Responsibilities{responsibilities.data.role_name ? ` — ${responsibilities.data.role_name}` : ""}</span>
+                  <span className="text-[10px] text-primary group-open:hidden">View responsibilities ▾</span>
+                  <span className="text-[10px] text-muted-foreground hidden group-open:inline">Hide ▴</span>
+                </summary>
+                <div className="px-3 pb-3 pt-1 border-t border-border flex flex-col gap-2">
+                  <p className="text-xs text-muted-foreground whitespace-pre-line max-h-40 overflow-y-auto">
+                    {responsibilities.data.text}
+                  </p>
+                  <label className="flex items-center gap-2 text-xs text-foreground font-medium cursor-pointer select-none pt-1">
+                    <input
+                      type="checkbox" checked={agreed}
+                      onChange={(e) => { setAgreed(e.target.checked); if (e.target.checked) setError("") }}
+                      className="rounded text-primary focus:ring-primary border-border bg-background"
+                    />
+                    I agree to the Responsibilities
+                  </label>
+                </div>
+              </details>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-2">
+            <div className="flex flex-col sm:flex-row gap-3 items-center">
               <textarea
-                className="input flex-1 min-h-[4.5rem] resize-y"
+                className="input flex-1 min-h-[4.5rem] resize-y text-xs sm:text-sm"
                 placeholder="Optional cover letter (why you'd like this one)…"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
               />
               <Button
-                size="sm"
-                disabled={
-                  pending ||
-                  picked.size === 0 ||
-                  (!!responsibilities.data?.text && !agreed) ||
-                  (c.openings.length > 0 && !roleId)
-                }
-                onClick={() => { setError(""); register.mutate() }}
+                className={`h-11 px-6 rounded-xl text-sm font-semibold shrink-0 transition-all ${
+                  isReady
+                    ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
+                    : "bg-muted/80 text-muted-foreground border border-border/80 hover:bg-muted hover:text-foreground"
+                }`}
+                disabled={pending}
+                onClick={handleApply}
               >
                 {register.isPending ? "Registering…" : "Register interest"}
               </Button>

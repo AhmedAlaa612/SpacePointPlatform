@@ -439,6 +439,7 @@ export interface CohortCallSessionOption {
   /** Whether this instructor has already ticked it — the card comes back
    *  showing their previous answer rather than a blank form. */
   selected: boolean;
+  open_role_ids?: string[];
 }
 
 export interface AvailableCohortCall {
@@ -453,6 +454,7 @@ export interface AvailableCohortCall {
   ends_on: string;
   session_count: number;
   location?: string | null;
+  location_city?: string | null;
   location_address?: string | null;
   location_map_url?: string | null;
   interested_count: number;

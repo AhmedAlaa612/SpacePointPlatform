@@ -190,19 +190,24 @@ async def list_available_cohort_calls(db: AsyncSession, user: User) -> list[dict
                 )
             )).scalars().all())
 
-        # The offer is the same across the call's sessions in the ordinary
-        # case; showing the first session's resolved openings (which already
-        # inherit the cohort template and now the role default) is what the
-        # instructor is actually being offered. Slots left are summed across
-        # the call so "1 of 3 left" means something at cohort scale.
-        per_session_openings = [await openings_for_session(db, s.id, open_only=True) for s in sessions]
+        # The offer is for the role across the cohort run. For each role, the
+        # slot capacity is max(slots) and remaining is max(remaining) across
+        # sessions, so if ANY session in the call still has an opening for that
+        # role, the role has remaining > 0 and stays open for application.
+        per_session_openings = {
+            s.id: await openings_for_session(db, s.id, open_only=True)
+            for s in sessions
+        }
         merged: dict[UUID, dict] = {}
-        for openings in per_session_openings:
-            for o in openings:
-                agg = merged.setdefault(o["role_id"], {**o, "slots": 0, "filled": 0, "remaining": 0})
-                agg["slots"] += o["slots"]
-                agg["filled"] += o["filled"]
-                agg["remaining"] += o["remaining"]
+        for s_openings in per_session_openings.values():
+            for o in s_openings:
+                role_id = o["role_id"]
+                if role_id not in merged:
+                    merged[role_id] = {**o, "slots": o["slots"], "remaining": o["remaining"], "filled": o["filled"]}
+                else:
+                    merged[role_id]["slots"] = max(merged[role_id]["slots"], o["slots"])
+                    merged[role_id]["remaining"] = max(merged[role_id]["remaining"], o["remaining"])
+                    merged[role_id]["filled"] = merged[role_id]["slots"] - merged[role_id]["remaining"]
 
         location = await resolve_session_location_display(db, sessions[0], cohort)
         interested_count = await db.scalar(
@@ -222,6 +227,7 @@ async def list_available_cohort_calls(db: AsyncSession, user: User) -> list[dict
             "ends_on": cohort.ends_on or sessions[-1].meeting_date,
             "session_count": len(sessions),
             "location": location["name"],
+            "location_city": location["city_name"],
             "location_address": location["address"],
             "location_map_url": location["maps_url"],
             "interested_count": interested_count,
@@ -232,6 +238,11 @@ async def list_available_cohort_calls(db: AsyncSession, user: User) -> list[dict
                     "meeting_date": s.meeting_date,
                     "starts_at": s.starts_at,
                     "selected": s.id in my_session_ids,
+                    "open_role_ids": [
+                        o["role_id"]
+                        for o in per_session_openings.get(s.id, [])
+                        if o["remaining"] > 0
+                    ],
                 }
                 for s in sessions
             ],
