@@ -103,6 +103,33 @@ async def test_unassigned_instructor_gets_404(db, client):
 
 
 @pytest.mark.asyncio
+async def test_a_submission_items_scope_is_locked_on_the_instructor_side_override_endpoint_too(db, client):
+    """Ops/facilitator can reach this same cohort-override CRUD through the
+    instructor router (`_enforce_instructor_item_scope` only restricts a
+    plain, cohort-scoped instructor to mission_run items — staff pass
+    through unrestricted), and it's a genuinely separate endpoint
+    implementation from the ops-side one in routers/lms/admin.py — this
+    guards it independently rather than assuming the fix in one covers
+    the other."""
+    ops = await _user(db, roles=["operations"])
+    cohort, _manual_item = await _cohort_with_manual_item(db)
+    await db.commit()
+
+    added = await client.post(
+        f"/lms/instructor/cohorts/{cohort.id}/program-override/items", headers=_headers(ops),
+        json={"item_type": "submission", "title": "Poster", "submission_prompt": "Paste your link", "scope": "team"},
+    )
+    assert added.status_code == 201, added.text
+    item_id = added.json()["id"]
+
+    flipped = await client.patch(
+        f"/lms/instructor/cohorts/{cohort.id}/program-override/items/{item_id}", headers=_headers(ops),
+        json={"item_type": "submission", "title": "Poster", "submission_prompt": "Paste your link", "scope": "individual"},
+    )
+    assert flipped.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
 async def test_assigned_instructor_sees_the_roster(db, client):
     instructor = await _user(db)
     cohort, item = await _cohort_with_manual_item(db)

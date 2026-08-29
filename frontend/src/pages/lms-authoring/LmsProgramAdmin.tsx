@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, FileText, ClipboardCheck, ChevronDown, ChevronRight } from "lucide-react"
+import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight } from "lucide-react"
 import { isAxiosError } from "axios"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -361,6 +361,12 @@ function ChecklistItemsEditor({
   readOnly: boolean
 }) {
   const [addingType, setAddingType] = useState<LmsProgramItemType | null>(null)
+  // Individual vs. team is picked here, at add time, not toggled afterward —
+  // a submission item's scope is locked server-side once created (flipping
+  // it later silently orphans anything already submitted, since the two
+  // scopes read/write completely different tables). Only matters when
+  // addingType is "submission"; ItemForm ignores it for every other type.
+  const [addingSubmissionScope, setAddingSubmissionScope] = useState<"individual" | "team">("individual")
   const [dragId, setDragId] = useState<string | null>(null)
   // Optimistic id order while a drag is in flight (or just settled) so the
   // row doesn't visually snap back before the parent's refetch lands —
@@ -401,6 +407,7 @@ function ChecklistItemsEditor({
       {readOnly ? null : addingType ? (
         <ItemForm
           itemType={addingType}
+          initialScope={addingType === "submission" ? addingSubmissionScope : undefined}
           onCancel={() => setAddingType(null)}
           onSave={async (data) => { await onAdd(data); setAddingType(null) }}
         />
@@ -408,15 +415,37 @@ function ChecklistItemsEditor({
         <div className="flex flex-col gap-2 pt-2">
           <div className="text-xs font-semibold text-muted-foreground">Add a step</div>
           <div className="flex flex-wrap gap-2">
-            {ITEM_TYPES.map(({ value, label, icon: Icon }) => (
-              <button
-                key={value}
-                onClick={() => setAddingType(value)}
-                className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-dashed border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
-              >
-                <Icon size={13} /> {label}
-              </button>
-            ))}
+            {ITEM_TYPES.map(({ value, label, icon: Icon }) => {
+              const addStepButtonCls = "flex items-center gap-1.5 h-8 px-3 rounded-full border border-dashed border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
+              // Individual vs. team submission are two distinct buttons here
+              // (not one "Submission" button + a scope checkbox in the form)
+              // because the scope can't be changed once the item exists —
+              // picking wrong and fixing it later isn't possible, so the
+              // choice has to be explicit at this step.
+              if (value === "submission") {
+                return (
+                  <Fragment key={value}>
+                    <button
+                      onClick={() => { setAddingSubmissionScope("individual"); setAddingType("submission") }}
+                      className={addStepButtonCls}
+                    >
+                      <Icon size={13} /> Individual Submission
+                    </button>
+                    <button
+                      onClick={() => { setAddingSubmissionScope("team"); setAddingType("submission") }}
+                      className={addStepButtonCls}
+                    >
+                      <Users size={13} /> Team Submission
+                    </button>
+                  </Fragment>
+                )
+              }
+              return (
+                <button key={value} onClick={() => setAddingType(value)} className={addStepButtonCls}>
+                  <Icon size={13} /> {label}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
@@ -500,10 +529,14 @@ function ItemRow({
 }
 
 function ItemForm({
-  itemType, initial, onCancel, onSave,
+  itemType, initial, initialScope, onCancel, onSave,
 }: {
   itemType: LmsProgramItemType
   initial?: LmsProgramItem
+  // Only meaningful for a brand-new "submission" item (which button on the
+  // "Add a step" row was clicked) — ignored once `initial` is set, since an
+  // existing item's scope is locked and always comes from `initial.scope`.
+  initialScope?: "individual" | "team"
   onCancel: () => void
   onSave: (data: LmsProgramItemInput) => Promise<void>
 }) {
@@ -511,7 +544,11 @@ function ItemForm({
   const [description, setDescription] = useState(initial?.description ?? "")
   const [optional, setOptional] = useState(initial?.optional ?? false)
   const [requiresConfirmation, setRequiresConfirmation] = useState(initial?.requires_confirmation ?? false)
-  const [teamScoped, setTeamScoped] = useState(initial?.scope === "team")
+  const [teamScoped, setTeamScoped] = useState(initial ? initial.scope === "team" : initialScope === "team")
+  // Submission scope is locked at creation (server-side too — see
+  // guard_locked_submission_scope) so it never shows as an editable
+  // checkbox, only as a fixed label.
+  const submissionScopeLocked = itemType === "submission"
   const [courseId, setCourseId] = useState(initial?.course_id ?? "")
   const [missionId, setMissionId] = useState(initial?.mission_id ?? "")
   const [variantId, setVariantId] = useState(initial?.variant_id ?? "")
@@ -559,7 +596,9 @@ function ItemForm({
 
   return (
     <div className="flex flex-col gap-2.5 p-4 border border-primary/30 bg-primary/5 rounded-xl">
-      <div className="text-xs font-semibold text-primary">{ITEM_TYPE_META[itemType].label}</div>
+      <div className="text-xs font-semibold text-primary">
+        {submissionScopeLocked ? (teamScoped ? "Team Submission" : "Individual Submission") : ITEM_TYPE_META[itemType].label}
+      </div>
       <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className={inputCls} />
       <textarea
         value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional)"
@@ -614,11 +653,17 @@ function ItemForm({
           <input type="checkbox" checked={requiresConfirmation} onChange={(e) => setRequiresConfirmation(e.target.checked)} />
           Needs instructor/ops confirmation
         </label>
-        {TEAM_SCOPABLE_TYPES.has(itemType) && (
+        {TEAM_SCOPABLE_TYPES.has(itemType) && !submissionScopeLocked && (
           <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
             <input type="checkbox" checked={teamScoped} onChange={(e) => setTeamScoped(e.target.checked)} />
             Shared with the whole team (one submission per team)
           </label>
+        )}
+        {submissionScopeLocked && (
+          <span className="text-xs text-muted-foreground">
+            {teamScoped ? "Shared with the whole team — one submission per team." : "Each student submits their own."}
+            {initial && " Can't be changed — delete and re-add the item to switch."}
+          </span>
         )}
       </div>
 

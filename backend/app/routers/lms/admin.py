@@ -99,8 +99,8 @@ from app.services.lms.admin_progress import (
 from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
 from app.services.lms.program import (
-    check_item_conflicts, effective_cohort_program_items, fork_cohort_override, item_out, items_out,
-    next_position, reorder_program_items, resolve_cohort_program, sync_cohort_assignments,
+    check_item_conflicts, effective_cohort_program_items, fork_cohort_override, guard_locked_submission_scope,
+    item_out, items_out, next_position, reorder_program_items, resolve_cohort_program, sync_cohort_assignments,
     sync_program_assignments, validate_item_payload, validate_item_refs,
 )
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
@@ -1388,6 +1388,7 @@ async def update_lms_program_item(
     )).scalars().first()
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    guard_locked_submission_scope(item, body)
     validate_item_payload(body)
     await validate_item_refs(db, body)
     await check_item_conflicts(db, owner_type="program", owner_id=lms_program_id, body=body, exclude_item_id=item.id)
@@ -1526,6 +1527,7 @@ async def update_cohort_override_item(
     )).scalars().first()
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    guard_locked_submission_scope(item, body)
     validate_item_payload(body)
     await validate_item_refs(db, body)
     await check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body, exclude_item_id=item.id)
