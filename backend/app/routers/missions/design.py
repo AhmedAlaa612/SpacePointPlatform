@@ -359,6 +359,7 @@ async def list_library(
     rows = (await db.execute(query.order_by(DesignComponentLibrary.subsystem, DesignComponentLibrary.component_name))).scalars().all()
     out = []
     for c in rows:
+        has_file = bool(c.datasheet_bucket and c.datasheet_path)
         out.append(DesignLibraryComponentOut(
             id=c.id, component_name=c.component_name, subsystem=c.subsystem, tag=c.tag,
             example_role=c.example_role, scaled_description=c.scaled_description,
@@ -366,9 +367,29 @@ async def list_library(
             scaled_mass_g=c.scaled_mass_g, voltage_v=c.voltage_v, current_ma=c.current_ma,
             data_size=c.data_size, assumed_cost_usd=c.assumed_cost_usd, temperature_range=c.temperature_range,
             key_specs=c.key_specs, image_url=await storage.resolve_url(c.image_bucket, c.image_path),
-            component_code=c.component_code, datasheet_url=c.datasheet_url,
+            component_code=c.component_code,
+            # Never both: an uploaded file's URL is resolved on demand (see
+            # /library/{id}/datasheet-url), not embedded in this list.
+            datasheet_url=None if has_file else c.datasheet_url,
+            has_datasheet_file=has_file,
         ))
     return out
+
+
+@router.get("/library/{component_id}/datasheet-url")
+async def get_library_datasheet_url(
+    component_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+) -> dict[str, str]:
+    """Resolved only when someone actually opens the viewer — same posture
+    as the LMS attachment viewer and the instructor library's own datasheet
+    fix (routers/instructors/library.py), never embedded in the list above.
+    """
+    from app.models.missions.design import DesignComponentLibrary
+    component = await db.get(DesignComponentLibrary, component_id)
+    if component is None or not (component.datasheet_bucket and component.datasheet_path):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No datasheet file on this component")
+    url = await storage.get_signed_url(component.datasheet_bucket, component.datasheet_path, expires_in=3600)
+    return {"url": url}
 
 
 @router.get("/attempts/{attempt_id}", response_model=DesignStateOut)

@@ -12,3 +12,8 @@ export const markVideoCompleteApi = (videoId: string) =>
 
 export const listLibraryApi = () =>
   api.get<LibraryModule[]>("/instructors/library").then((r) => r.data)
+
+/** Resolved fresh per view, same posture as `streamVideoApi` — a hosted
+ *  PDF's `file_url` from `listLibraryApi` comes back blank on purpose. */
+export const getLibraryResourceUrlApi = (resourceId: string) =>
+  api.get<{ url: string }>(`/instructors/library/resources/${resourceId}/url`).then((r) => r.data.url)

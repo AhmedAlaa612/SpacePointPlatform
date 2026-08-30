@@ -72,6 +72,7 @@ async def _out(db: AsyncSession, row: DesignComponentLibrary) -> LibraryComponen
         component_code=row.component_code, datasheet_url=row.datasheet_url, notes=row.notes,
         is_active=row.is_active,
         image_url=await storage.resolve_url(row.image_bucket, row.image_path),
+        has_datasheet_file=bool(row.datasheet_bucket and row.datasheet_path),
         updated_at=row.updated_at, updated_by_name=editor.full_name if editor else None,
         used_in_designs=int(used_by or 0),
     )
@@ -187,6 +188,64 @@ async def upload_component_image(
     path = f"design-library/{component_id}.{suffix}"
     await storage.upload_to_path(IMAGE_BUCKET, path, data, file.content_type or "image/png")
     row.image_bucket, row.image_path = IMAGE_BUCKET, path
+    _touch(row, current)
+    await db.flush()
+    result = await _out(db, row)
+    await db.commit()
+    return result
+
+
+@router.post("/{component_id}/datasheet", response_model=LibraryComponentAdminOut)
+async def upload_component_datasheet(
+    component_id: uuid.UUID, file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """The org's own copy of a datasheet, uploaded once (2026-08-27 —
+    most of the 36 real components were seeded pointing at a Google Drive
+    share or a manufacturer's own site, files we neither host nor control
+    the download-ability of). Reuses `IMAGE_BUCKET` — same bucket the
+    component image already uploads to, under its own path prefix, rather
+    than provisioning a new storage bucket for this.
+
+    Superseding, not additive: a successful upload clears `datasheet_url`,
+    since a component only ever shows one "Datasheet" affordance at a time
+    (uploaded file → the no-download viewer; a bare link otherwise) — see
+    `DesignLibraryComponentOut`'s own docstring.
+    """
+    await require_design_library_editor(db, user=current)
+    row = await db.get(DesignComponentLibrary, component_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Component not found")
+
+    data = await file.read()
+    if len(data) > 20 * 1024 * 1024:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Datasheet must be under 20 MB")
+    if (file.content_type or "").lower() != "application/pdf" and not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Datasheet must be a PDF")
+
+    path = f"design-library/{component_id}/datasheet.pdf"
+    await storage.upload_to_path(IMAGE_BUCKET, path, data, "application/pdf")
+    row.datasheet_bucket, row.datasheet_path = IMAGE_BUCKET, path
+    row.datasheet_url = None
+    _touch(row, current)
+    await db.flush()
+    result = await _out(db, row)
+    await db.commit()
+    return result
+
+
+@router.delete("/{component_id}/datasheet", response_model=LibraryComponentAdminOut)
+async def delete_component_datasheet(
+    component_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    await require_design_library_editor(db, user=current)
+    row = await db.get(DesignComponentLibrary, component_id)
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Component not found")
+
+    if row.datasheet_bucket and row.datasheet_path:
+        await storage.delete_file(row.datasheet_bucket, row.datasheet_path)
+    row.datasheet_bucket, row.datasheet_path = None, None
     _touch(row, current)
     await db.flush()
     result = await _out(db, row)
