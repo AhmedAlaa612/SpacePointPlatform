@@ -8,11 +8,15 @@
  *  report in a cohort reports back that the cohort completed.
  *
  *  Three places render this: standalone on This Week and inside a cohort's
- *  own detail page (both the "panel" look, with its own header), embedded in
- *  the Reviews kanban's Need Review column (`embedded` — the column already
- *  has a title), and scoped to one session on that session's own Report tab
- *  (`sessionId` — every assigned instructor's report, whatever state it's
- *  in, not just submitted ones).
+ *  own detail page (both the "panel" look, with its own header, submitted
+ *  reports only — that's the actionable queue), embedded in the Reviews
+ *  kanban's Need Review column (`embedded` — the column already has a
+ *  title; shows every non-approved report, submitted or still in progress,
+ *  so ops sees the whole review picture from one kanban instead of having
+ *  to open a session's own Report tab to check on incomplete work), and
+ *  scoped to one session on that session's own Report tab (`sessionId` —
+ *  every assigned instructor's report, whatever state it's in, including
+ *  already-approved ones).
  */
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
@@ -218,11 +222,17 @@ export default function CohortDayReviewsPanel({ cohort, sessionId, embedded = fa
   const reviews = useQuery({
     queryKey: ["day-reviews", sessionId ?? cohort?.id ?? "all"],
     queryFn: () => listDayReviewsApi(
-      sessionId ? { sessionId, statusFilter: "" } : cohort ? { cohortId: cohort.id } : {},
+      sessionId ? { sessionId, statusFilter: "" }
+        : cohort ? { cohortId: cohort.id }
+        : embedded ? { statusFilter: "" }
+        : {},
     ),
   })
 
-  const rows = reviews.data ?? []
+  // The kanban column shows the whole review picture — submitted and still
+  // in-progress reports alike — minus anything already approved, which has
+  // nothing left to review.
+  const rows = embedded ? (reviews.data ?? []).filter((d) => d.status !== "approved") : reviews.data ?? []
 
   const showHeader = !embedded && !sessionId
 
@@ -249,7 +259,12 @@ export default function CohortDayReviewsPanel({ cohort, sessionId, embedded = fa
         <Spinner />
       ) : rows.length === 0 ? (
         <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-          <CircleAlert size={12} /> {sessionId ? "No instructor has started a report yet." : "Nothing waiting for review."}
+          <CircleAlert size={12} />{" "}
+          {sessionId
+            ? "No instructor has started a report yet."
+            : embedded
+              ? "Nothing here — no session days awaiting review."
+              : "Nothing waiting for review."}
         </p>
       ) : (
         <div className="space-y-2">

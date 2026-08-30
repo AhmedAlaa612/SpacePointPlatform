@@ -97,7 +97,8 @@ export const listDayReviewsApi = (opts: { statusFilter?: string; cohortId?: stri
 
 /** Signing a day off is what makes it a paid day. `cohort_completed` tells you
  *  whether this approval was the one that completed the cohort — which also
- *  issued its certificates and drafted its payment lines. */
+ *  issued its certificates. Payment letters are a separate, manual step from
+ *  the payments to-do list whenever ops is ready to bill. */
 export const approveDayApi = (dayId: string) =>
   api.post<{ day_id: string; status: string; cohort_completed: boolean }>(
     `/sessions/day-reviews/${dayId}/approve`,

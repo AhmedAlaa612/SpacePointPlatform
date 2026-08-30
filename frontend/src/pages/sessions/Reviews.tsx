@@ -114,10 +114,10 @@ function RunningCard({ s }: { s: BoardSession }) {
 
 /** A session can be marked done while an instructor's own report is still
  *  unfinished — session completion and report completion are tracked
- *  separately. Flagging that here is the only place it would otherwise be
- *  visible at all: Need Review only lists submitted reports, so a report
- *  nobody ever submitted has nowhere else to surface once its session
- *  leaves Running. */
+ *  separately. Need Review also surfaces these (it lists every non-approved
+ *  report, not just submitted ones), but flagging it here too means ops
+ *  doesn't have to cross-reference two columns to catch it while triaging
+ *  Done. */
 function unfinishedInstructors(s: BoardSession) {
   return s.instructors.filter((i) => i.day_status !== "submitted" && i.day_status !== "approved")
 }
@@ -186,11 +186,13 @@ export default function Reviews() {
     queryFn: () => getSessionBoardApi({ doneOffset: 0, doneLimit }),
   })
   // Shares its cache with the embedded CohortDayReviewsPanel below (same
-  // query key) — this fetch is just for the column's count.
+  // query key, same "all non-approved statuses" filter) — this fetch is
+  // just for the column's count.
   const needsReview = useQuery({
     queryKey: ["day-reviews", "all"],
-    queryFn: () => listDayReviewsApi(),
+    queryFn: () => listDayReviewsApi({ statusFilter: "" }),
   })
+  const needsReviewCount = (needsReview.data ?? []).filter((d) => d.status !== "approved").length
 
   if (board.isLoading || needsReview.isLoading) return <Spinner />
 
@@ -202,10 +204,10 @@ export default function Reviews() {
 
       <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory sm:snap-none">
         <Column
-          title="Need Review" count={needsReview.data?.length ?? 0}
+          title="Need Review" count={needsReviewCount}
           icon={<CircleAlert size={14} />} tone="text-red-600 dark:text-red-400"
         >
-          {(needsReview.data?.length ?? 0) === 0 ? (
+          {needsReviewCount === 0 ? (
             <p className="text-xs text-muted-foreground px-1 py-4">Nothing waiting on you.</p>
           ) : (
             <CohortDayReviewsPanel embedded />
