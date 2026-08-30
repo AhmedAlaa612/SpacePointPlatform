@@ -78,7 +78,18 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
         notes: d.notes || null,
       })),
     }),
-    onSuccess: () => { toast.success("Openings saved"); setError(""); setDraft(null); invalidate() },
+    onSuccess: (data) => {
+      toast.success("Openings saved")
+      setError("")
+      // Prime the cache with the mutation's own (authoritative) response
+      // *before* clearing the draft — invalidate()'s refetch is async, and
+      // without this the re-seeding effect below would fire first against
+      // the still-stale pre-save `openings`, resurrecting a row that was
+      // just removed.
+      qc.setQueryData(["session-openings", sessionId], data)
+      setDraft(null)
+      invalidate()
+    },
     onError,
   })
 
