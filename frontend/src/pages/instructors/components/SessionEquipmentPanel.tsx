@@ -124,7 +124,7 @@ export function SessionEquipmentPanel({
           </Button>
           {data.outstanding_count > 0 && (
             <Button size="sm" variant="outline" onClick={() => setReturning(true)}>
-              Bring it back
+              Mark returned
             </Button>
           )}
         </div>
