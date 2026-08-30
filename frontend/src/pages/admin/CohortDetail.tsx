@@ -1106,12 +1106,14 @@ function AddSessionModal({ cohort, onClose, onSuccess }: {
   const [startsAt, setStartsAt] = useState("")
   const [title, setTitle] = useState("")
   const [price, setPrice] = useState("")
+  const [durationHours, setDurationHours] = useState("")
   const [error, setError] = useState("")
 
   const mutation = useMutation({
     mutationFn: () => addSessionApi(cohort.id, {
       meeting_date: meetingDate, starts_at: startsAt || null, title: title.trim() || null,
       price: price.trim() ? Number(price) : null,
+      duration_hours: durationHours.trim() ? Number(durationHours) : null,
     }),
     onSuccess: () => { toast.success("Session added"); onSuccess() },
     onError: (e: any) => setError(getErrorMessage(e, "Failed to add session")),
@@ -1145,6 +1147,13 @@ function AddSessionModal({ cohort, onClose, onSuccess }: {
         <Field label="Price override (optional)">
           <input
             value={price} onChange={(e) => setPrice(e.target.value)} type="number" placeholder="Leave blank to use the program price"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+        </Field>
+        <Field label="Duration override, hours (optional)">
+          <input
+            value={durationHours} onChange={(e) => setDurationHours(e.target.value)} type="number" step="0.5"
+            placeholder="Leave blank to use the cohort/program duration"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </Field>

@@ -61,7 +61,12 @@ export const getSessionsApi = (cohortId: string) =>
 
 export const addSessionApi = (
   cohortId: string,
-  data: { meeting_date: string; starts_at?: string | null; title?: string | null; material_url?: string | null; price?: number | null }
+  data: {
+    meeting_date: string; starts_at?: string | null; title?: string | null
+    material_url?: string | null; price?: number | null
+    /** Leave unset to inherit the cohort's (then the program's) duration. */
+    duration_hours?: number | null
+  }
 ) => api.post<Session>(`/sessions/cohorts/${cohortId}/sessions`, data).then((r) => r.data)
 
 export const updateSessionApi = (
