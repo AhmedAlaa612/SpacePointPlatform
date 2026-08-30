@@ -164,14 +164,14 @@ function Column({
   title, icon, tone, count, children,
 }: { title: string; icon: React.ReactNode; tone: string; count: number; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-2.5 w-[85vw] max-w-[320px] sm:w-[300px] sm:min-w-[300px] shrink-0 snap-start">
+    <div className="flex flex-col gap-2.5 w-[85vw] max-w-[320px] shrink-0 snap-start sm:w-auto sm:max-w-none sm:flex-1 sm:min-w-[280px]">
       <div className="flex items-center justify-between px-1">
         <span className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide ${tone}`}>
           {icon} {title}
         </span>
         <span className="text-xs font-semibold text-muted-foreground tabular-nums">{count}</span>
       </div>
-      <div className="flex flex-col gap-2 max-h-[65vh] sm:max-h-[70vh] overflow-y-auto pr-0.5">
+      <div className="flex flex-col gap-2 max-h-[65vh] sm:max-h-[calc(100vh-220px)] overflow-y-auto pr-0.5">
         {children}
       </div>
     </div>
@@ -200,7 +200,7 @@ export default function Reviews() {
     <div className="space-y-4">
       <PageHeader title="Reviews" subtitle="Every cohort, one page — what needs review, what's running, what's done." />
 
-      <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
+      <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory sm:snap-none">
         <Column
           title="Need Review" count={needsReview.data?.length ?? 0}
           icon={<CircleAlert size={14} />} tone="text-red-600 dark:text-red-400"
