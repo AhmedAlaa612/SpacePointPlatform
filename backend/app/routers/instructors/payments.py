@@ -120,8 +120,8 @@ async def sign_letter(
                 "session_date": s.session_date, "workshop_description": s.workshop_description,
                 "role": s.role, "location": s.location, "duration_hours": s.duration_hours,
                 "compensation_aed": s.compensation_aed,
-                # Cohort lines print "5 x AED 500" in the units column instead
-                # of an hours figure — see `_units_label`.
+                # Falls back to "5 x AED 500" only when duration_hours is
+                # unset for the line — see `_units_label`.
                 "session_count": s.session_count, "rate_aed": s.rate_aed,
             } for s in sessions],
             addons=[{"description": a.description, "amount_aed": a.amount_aed, "notes": a.notes} for a in addons],

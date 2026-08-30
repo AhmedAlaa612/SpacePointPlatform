@@ -50,25 +50,28 @@ def _currency(v) -> str:
 
 
 def _units_label(line: dict) -> str:
-    """What goes in the fifth column.
+    """What goes in the fifth column: total hours worked, when ops has set
+    one — that number is what "Duration" in the column header actually
+    means, and it's the figure ops types into the editable table before
+    generating the document (2026-08-30).
 
-    A cohort line prints the breakdown the operator asked to see on the letter
-    — "5 x AED 500" — because the row's own dates are a *range* and the count
-    is the only thing showing how many days were actually delivered (an
-    absence reduces the count, never the range). Anything else keeps the
-    original hours label.
+    Falls back to the old "5 x AED 500" breakdown only when nobody set an
+    hours figure for the line — still useful for a line that predates ops
+    filling in hours, so the column is never blank for no reason.
 
     Deliberately reusing the existing column rather than adding one: the
     template's table is patched by hardcoded cell index, so a new column would
     mean editing the DOCX and renumbering every `_fill_cell` below it.
     """
+    hours = line.get("duration_hours")
+    if hours is not None:
+        return f"{hours} hrs"
     count, rate = line.get("session_count"), line.get("rate_aed")
     if count and rate:
         return f"{count} x {_currency(rate)}"
     if count and count > 1:
         return f"{count} sessions"
-    hours = line.get("duration_hours")
-    return f"{hours} hrs" if hours is not None else ""
+    return ""
 
 
 def _replace_aptos(doc: Document) -> None:
