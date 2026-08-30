@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { ArrowLeft, MapPin, Pencil, Trash2, Warehouse } from "lucide-react"
+import { ArrowLeft, ChevronDown, ChevronRight, Download, FileText, Gamepad2, MapPin, Pencil, Trash2, Warehouse } from "lucide-react"
 import type {
   Cohort, Session, StaffingStatus, EligibleInstructor, AttendanceStatus, SessionDelivery,
 } from "@/types/sessions"
@@ -21,6 +21,8 @@ import {
 } from "@/api/sessions/staffing"
 import { getDeliveryRolesApi, getOpeningsApi } from "@/api/sessions/openings"
 import { getSessionDeliveryApi, markAttendanceApi } from "@/api/sessions/delivery"
+import { listSessionGameRunsApi } from "@/api/sessions/day"
+import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPanel"
 import { Modal, ConfirmDialog, Spinner, PageHeader } from "@/pages/admin/components/common"
 import { InheritedFrom } from "@/pages/admin/components/InheritedFrom"
 import { UserProfileModal } from "@/components/UserProfileModal"
@@ -98,14 +100,14 @@ export default function SessionDetail() {
   )
 }
 
-type SessionTab = "setup" | "roles" | "staffing" | "attendance" | "history"
+type SessionTab = "setup" | "roles" | "staffing" | "attendance" | "report"
 
 const SESSION_TABS: { key: SessionTab; label: string }[] = [
   { key: "setup", label: "Setup" },
   { key: "roles", label: "Roles" },
   { key: "staffing", label: "Staffing" },
   { key: "attendance", label: "Attendance" },
-  { key: "history", label: "History" },
+  { key: "report", label: "Report" },
 ]
 
 function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
@@ -321,8 +323,8 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
         <SessionAttendanceRosterSection sessionId={session.id} />
       )}
 
-      {activeTab === "history" && (
-        <SessionHistoryPanel sessionId={session.id} />
+      {activeTab === "report" && (
+        <SessionReportTab sessionId={session.id} />
       )}
 
       {deleteConfirmOpen && (
@@ -1109,17 +1111,114 @@ function TargetedOpenCallModal({
   )
 }
 
-function SessionHistoryPanel({ sessionId }: { sessionId: string }) {
-  const { data: history, isLoading, error } = useQuery({
+/** The Report tab (renamed from History, 2026-08-30): instructor reports
+ *  lead, file uploads next, the old audit-only view now a secondary
+ *  collapsible strip underneath rather than the whole tab. */
+function SessionReportTab({ sessionId }: { sessionId: string }) {
+  const { data: history } = useQuery({
     queryKey: ["session-history", sessionId],
     queryFn: () => getSessionHistoryApi(sessionId),
   })
 
-  if (isLoading) return <Spinner />
-  if (error || !history) {
-    return <p className="text-xs text-muted-foreground p-4">Could not load session history.</p>
-  }
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold text-foreground">Instructor reports</h2>
+        <Card className="px-4">
+          <CohortDayReviewsPanel sessionId={sessionId} embedded />
+        </Card>
+      </div>
 
+      <div className="space-y-2">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">File uploads</h2>
+          <p className="text-xs text-muted-foreground">Photos of the day and any relevant documents instructors submitted.</p>
+        </div>
+        <Card className="p-4">
+          {!history ? (
+            <Spinner />
+          ) : history.post_session.reports.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic">Nothing uploaded yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {history.post_session.reports.map((r) => (
+                <div key={r.id} className="p-3 bg-muted/20 border border-border rounded-xl flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                      <FileText size={14} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-foreground">
+                        {r.actor_name} ({r.actor_role})
+                        {r.created_at && (
+                          <span className="text-muted-foreground font-normal">
+                            {" "}· {new Date(r.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        )}
+                      </p>
+                      {r.notes && <p className="text-muted-foreground italic truncate">&quot;{r.notes}&quot;</p>}
+                    </div>
+                  </div>
+                  <a
+                    href={r.file_url} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-1 text-primary font-medium shrink-0 hover:underline"
+                  >
+                    <Download size={12} /> Download
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      <SessionActivitySection sessionId={sessionId} />
+    </div>
+  )
+}
+
+/** Collapsed by default — the old dry audit log (equipment, kit counts,
+ *  attendance totals, live quiz runs), kept for oversight but no longer the
+ *  headline now that instructor reports lead the tab. */
+function SessionActivitySection({ sessionId }: { sessionId: string }) {
+  const [open, setOpen] = useState(false)
+  const { data: history, isLoading, error } = useQuery({
+    queryKey: ["session-history", sessionId],
+    queryFn: () => getSessionHistoryApi(sessionId),
+    enabled: open,
+  })
+  const { data: runs } = useQuery({
+    queryKey: ["session-game-runs", sessionId],
+    queryFn: () => listSessionGameRunsApi(sessionId),
+    enabled: open,
+  })
+
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+      >
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        Warehouse &amp; session activity
+      </button>
+
+      {open && (
+        isLoading || !history ? (
+          error ? <p className="text-xs text-muted-foreground">Could not load session activity.</p> : <Spinner />
+        ) : (
+          <SessionActivityDetail history={history} runs={runs ?? []} />
+        )
+      )}
+    </div>
+  )
+}
+
+function SessionActivityDetail({ history, runs }: {
+  history: Awaited<ReturnType<typeof getSessionHistoryApi>>
+  runs: Awaited<ReturnType<typeof listSessionGameRunsApi>>
+}) {
   const { pre_session, during_session, post_session, notes } = history
 
   return (
@@ -1261,31 +1360,46 @@ function SessionHistoryPanel({ sessionId }: { sessionId: string }) {
           )}
         </div>
 
-        <div className="space-y-3 pt-2">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Uploaded Reports &amp; Photos</p>
-          {post_session.reports.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">No session reports uploaded.</p>
-          ) : (
-            <div className="space-y-2">
-              {post_session.reports.map((r) => (
-                <div key={r.id} className="p-3 bg-muted/20 border border-border rounded-xl flex items-center justify-between gap-2 text-xs">
-                  <div>
-                    <span className="font-semibold text-foreground">{r.actor_name} ({r.actor_role})</span>
-                    {r.notes && <p className="text-muted-foreground italic mt-0.5">&quot;{r.notes}&quot;</p>}
-                  </div>
-                  <a
-                    href={r.file_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 bg-primary text-primary-foreground font-medium rounded-lg text-xs hover:opacity-90 transition-opacity shrink-0"
-                  >
-                    Download report
-                  </a>
-                </div>
-              ))}
-            </div>
-          )}
+      </Card>
+
+      {/* Live Quiz Runs */}
+      <Card className="p-5 space-y-3">
+        <div className="flex items-center gap-2 border-b border-border pb-3">
+          <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+          <h3 className="text-sm font-semibold text-foreground">Live Quiz Runs</h3>
         </div>
+        {runs.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">No live quiz was run for this session.</p>
+        ) : (
+          <div className="space-y-2">
+            {runs.map((run) => (
+              <div key={run.run_id} className="p-3 bg-muted/20 border border-border rounded-xl flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Gamepad2 size={13} className="text-indigo-500 shrink-0" />
+                  <span className="font-semibold text-foreground truncate">{run.game_name} — run {run.run_no}</span>
+                </div>
+                <div className="flex items-center gap-3 text-muted-foreground shrink-0">
+                  <span>{run.participant_count} participants</span>
+                  <span>
+                    {run.status === "live"
+                      ? `question ${run.current_question_position ?? "?"} of ${run.total_questions}`
+                      : `top score ${run.top_score}`}
+                  </span>
+                  <span className={cn(
+                    "px-2 py-0.5 rounded-full font-semibold",
+                    run.status === "ended"
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+                      : run.status === "live"
+                        ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400"
+                        : "bg-muted text-muted-foreground",
+                  )}>
+                    {run.status === "ended" ? "Ended" : run.status === "live" ? "Live" : "Lobby"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   )

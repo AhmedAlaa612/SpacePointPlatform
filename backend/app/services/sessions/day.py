@@ -334,7 +334,14 @@ async def _missing_requirements(
 
 
 async def submit_day(db: AsyncSession, session_id: UUID, user: User, *, notes: str | None = None):
-    """Send the day for ops review (§11)."""
+    """Send the day for ops review (§11).
+
+    An absence is the one exception: there's no checklist behind it to
+    review, so it's approved the moment it's submitted rather than sitting
+    in the ops queue asking for a rubber stamp with nothing behind it.
+    `reviewed_by` stays `None` to mark this as a system auto-approval, not
+    an ops decision.
+    """
     session = await _get_deliverable_session(db, session_id, user)
     day = await _get_or_create_day(db, session_id, user.id)
     _refuse_if_locked(day)
@@ -349,11 +356,16 @@ async def submit_day(db: AsyncSession, session_id: UUID, user: User, *, notes: s
             detail="This day isn't ready to submit: " + "; ".join(missing),
         )
 
-    day.status = "submitted"
     day.submitted_at = datetime.now(timezone.utc)
     # Clear the previous round's comment — leaving it would make a resubmitted
     # day still look like it had been rejected.
     day.review_comment = None
+    if day.att_status == "absent":
+        day.status = "approved"
+        day.reviewed_at = day.submitted_at
+        day.reviewed_by = None
+    else:
+        day.status = "submitted"
     await db.flush()
     return day
 
@@ -412,10 +424,13 @@ async def return_day(
 
 
 async def list_day_reviews(
-    db: AsyncSession, *, status_filter: str | None = "submitted", cohort_id: UUID | None = None,
+    db: AsyncSession, *, status_filter: str | None = "submitted",
+    cohort_id: UUID | None = None, session_id: UUID | None = None,
 ) -> list[dict]:
     """The ops queue. Defaults to what needs attention now (`submitted`);
-    pass `status_filter=None` for everything, or a cohort to scope it."""
+    pass `status_filter=None` for everything, a cohort or a session to
+    scope it (the latter is the session's own Report tab — every assigned
+    instructor's report, whatever state it's in)."""
     stmt = (
         select(InstructorSessionDay, User, Session, Cohort, Program)
         .join(User, User.id == InstructorSessionDay.user_id)
@@ -426,8 +441,17 @@ async def list_day_reviews(
     )
     if status_filter:
         stmt = stmt.where(InstructorSessionDay.status == status_filter)
+        if status_filter == "submitted":
+            # An absence is auto-approved on submit (see `submit_day`) and so
+            # should never reach this state going forward — excluded here as
+            # a defensive filter against any pre-existing row that predates
+            # that change, so it never shows up asking for review it doesn't
+            # need.
+            stmt = stmt.where(InstructorSessionDay.att_status != "absent")
     if cohort_id is not None:
         stmt = stmt.where(Session.cohort_id == cohort_id)
+    if session_id is not None:
+        stmt = stmt.where(Session.id == session_id)
     rows = (await db.execute(stmt)).all()
     if not rows:
         return []
@@ -591,31 +615,77 @@ async def maybe_complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id
     return True
 
 
+async def _instructor_breakdown(db: AsyncSession, session: Session) -> list[dict]:
+    """Every instructor assigned to this session and where they stand —
+    checked in or not, how much of their checklist is done, and whether
+    they've submitted — so a Running card on the board can show it without
+    anyone opening the session."""
+    rows = (await db.execute(
+        select(SessionInstructor, User)
+        .join(User, User.id == SessionInstructor.user_id)
+        .where(SessionInstructor.session_id == session.id)
+    )).all()
+    if not rows:
+        return []
+
+    days = {
+        d.user_id: d for d in (await db.execute(
+            select(InstructorSessionDay).where(InstructorSessionDay.session_id == session.id)
+        )).scalars().all()
+    }
+    done_counts = {}
+    day_ids = [d.id for d in days.values()]
+    if day_ids:
+        done_counts = dict((await db.execute(
+            select(InstructorChecklistProgress.day_id, func.count())
+            .where(
+                InstructorChecklistProgress.day_id.in_(day_ids),
+                InstructorChecklistProgress.is_done.is_(True),
+            )
+            .group_by(InstructorChecklistProgress.day_id)
+        )).all())
+
+    out = []
+    for si, user in rows:
+        day = days.get(user.id)
+        total = len(await resolve_checklist(db, session, si.role_id))
+        out.append({
+            "user_id": user.id,
+            "full_name": user.full_name,
+            "checklist_done": done_counts.get(day.id, 0) if day else 0,
+            "checklist_total": total,
+            "att_status": day.att_status if day else None,
+            "checked_in_at": day.checked_in_at if day else None,
+            "day_status": day.status if day else None,
+        })
+    return out
+
+
 # ── the ops session board (2026-08-28) ──────────────────────────────────────
 #
-# "What needs review, what's running, what's upcoming, what's done" across
-# every cohort at once — the thing This Week only half answers (staffing
-# gaps for the next 7 days, plus the day-review queue, but nothing about
-# session lifecycle and nothing beyond a week). Needs Review is deliberately
-# not reproduced here: it's exactly `list_day_reviews(status_filter="submitted")`,
-# already its own endpoint, and the board's frontend calls that directly
-# rather than this function returning the same rows a second way.
+# "What needs review, what's running, what's done" across every cohort at
+# once — the thing This Week only half answers (staffing gaps for the next
+# 7 days, plus the review queue, but nothing about session lifecycle and
+# nothing beyond a week). Needs Review is deliberately not reproduced here:
+# it's exactly `list_day_reviews(status_filter="submitted")`, already its
+# own endpoint, and the board's frontend calls that directly rather than
+# this function returning the same rows a second way. An "Upcoming" column
+# used to sit alongside these (2026-08-28) but never earned its keep — a
+# session that hasn't started needs nothing from ops — so it was dropped
+# (2026-08-30).
 
 async def session_board(
     db: AsyncSession, *, done_offset: int = 0, done_limit: int = 5,
 ) -> dict:
-    """Running / Upcoming / Done, unbounded — every cohort, no date window.
+    """Running / Done, unbounded — every cohort, no date window.
 
-    A session's lifecycle here is exactly the three states `started_at`/
-    `completed_at` already encode, nothing new stored: `completed_at` set is
-    Done; `started_at` set and not completed is Running; neither set is
-    Upcoming, regardless of whether its date has technically already passed
-    — a session that was never started is still something ops needs to act
-    on, not something to quietly drop off the board.
+    A session's lifecycle here is exactly the two states `started_at`/
+    `completed_at` already encode: `completed_at` set is Done; `started_at`
+    set and not completed is Running.
     """
     from app.services.sessions.staffing import resolve_session_location_display
 
-    async def _rows(stmt) -> list[dict]:
+    async def _rows(stmt, *, with_instructors: bool = False) -> list[dict]:
         rows = (await db.execute(stmt)).all()
         out = []
         for session, cohort, program in rows:
@@ -627,6 +697,7 @@ async def session_board(
                 "meeting_date": session.meeting_date, "starts_at": session.starts_at,
                 "staffing_status": session.staffing_status,
                 "started_at": session.started_at, "completed_at": session.completed_at,
+                "instructors": await _instructor_breakdown(db, session) if with_instructors else [],
             })
         return out
 
@@ -638,11 +709,8 @@ async def session_board(
 
     running = await _rows(
         base.where(Session.started_at.isnot(None), Session.completed_at.is_(None))
-        .order_by(Session.started_at.asc())
-    )
-    upcoming = await _rows(
-        base.where(Session.started_at.is_(None), Session.completed_at.is_(None))
-        .order_by(Session.meeting_date.asc(), Session.starts_at.asc())
+        .order_by(Session.started_at.asc()),
+        with_instructors=True,
     )
     done_total = await db.scalar(
         select(func.count()).select_from(Session).where(Session.completed_at.isnot(None))
@@ -653,4 +721,4 @@ async def session_board(
         .offset(done_offset).limit(done_limit)
     )
 
-    return {"running": running, "upcoming": upcoming, "done": done, "done_total": done_total}
+    return {"running": running, "done": done, "done_total": done_total}

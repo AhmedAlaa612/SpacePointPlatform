@@ -31,6 +31,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session
 from app.models.user import User
+from app.schemas.games_live import SessionGameRunOut
 from app.schemas.sessions.day import (
     ChecklistItemOut,
     CheckInIn,
@@ -43,6 +44,7 @@ from app.schemas.sessions.day import (
     SetChecklistItemsIn,
     SubmitDayIn,
 )
+from app.services.games import runs as games_runs_svc
 from app.services.notification import create_notification
 from app.services.sessions import day as svc
 
@@ -160,20 +162,30 @@ async def submit_day(
     current_user: User = Depends(require_session_delivery),
 ):
     """Send the day for ops review (§11). 409s listing everything outstanding
-    if a required item isn't ticked or a proof-required one has no file."""
-    await svc.submit_day(db, session_id, current_user, notes=body.notes if body else None)
+    if a required item isn't ticked or a proof-required one has no file.
+
+    An absence has nothing to review, so `submit_day` approves it directly —
+    here that means checking for cohort auto-completion instead of notifying
+    ops of a review that isn't needed.
+    """
+    day = await svc.submit_day(db, session_id, current_user, notes=body.notes if body else None)
 
     session = await db.get(Session, session_id)
     cohort = await db.get(Cohort, session.cohort_id) if session else None
-    ops_users = await _ops_users(db)
-    for ops in ops_users:
-        await create_notification(
-            db, ops.id, "A workshop day is ready for review",
-            body=f"{current_user.full_name} submitted "
-                 f"{session.meeting_date if session else 'a day'}"
-                 f"{f' — {cohort.name}' if cohort else ''}.",
-            type="session_day_review",
-        )
+
+    if day.status == "submitted":
+        ops_users = await _ops_users(db)
+        for ops in ops_users:
+            await create_notification(
+                db, ops.id, "A workshop day is ready for review",
+                body=f"{current_user.full_name} submitted "
+                     f"{session.meeting_date if session else 'a day'}"
+                     f"{f' — {cohort.name}' if cohort else ''}.",
+                type="session_day_review",
+            )
+    elif day.status == "approved" and cohort is not None:
+        await svc.maybe_complete_cohort(db, cohort.id, current_user.id)
+
     await db.commit()
     return await svc.get_day_detail(db, session_id, current_user)
 
@@ -191,12 +203,17 @@ async def _ops_users(db: AsyncSession) -> list[User]:
 async def list_day_reviews(
     status_filter: str | None = "submitted",
     cohort_id: uuid.UUID | None = None,
+    session_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operations),
 ):
     """The queue. Defaults to what needs attention now; pass
-    `status_filter=` (empty) for everything, or a cohort to scope it."""
-    return await svc.list_day_reviews(db, status_filter=status_filter or None, cohort_id=cohort_id)
+    `status_filter=` (empty) for everything, or a cohort/session to scope it
+    — a session scope with an empty status is the session's own Report tab,
+    every assigned instructor's report whatever state it's in."""
+    return await svc.list_day_reviews(
+        db, status_filter=status_filter or None, cohort_id=cohort_id, session_id=session_id,
+    )
 
 
 @router.post("/day-reviews/{day_id}/approve", response_model=DayActionOut)
@@ -255,9 +272,22 @@ async def get_session_board(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_operations),
 ):
-    """Running / Upcoming / Done across every cohort, no date window.
+    """Running / Done across every cohort, no date window.
 
     Needs Review isn't here — it's `GET /sessions/day-reviews`, already its
     own endpoint; the board page calls both rather than this one repeating it.
     """
     return await svc.session_board(db, done_offset=done_offset, done_limit=done_limit)
+
+
+# ── ops: one session's Report tab ───────────────────────────────────────────
+
+@router.get("/{session_id}/game-runs", response_model=list[SessionGameRunOut])
+async def list_session_game_runs(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    """Live-quiz runs on this session, most recent first — part of the
+    Report tab's "warehouse & session activity" strip."""
+    return await games_runs_svc.list_session_runs(db, session_id=session_id)

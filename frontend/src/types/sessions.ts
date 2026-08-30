@@ -630,8 +630,21 @@ export interface DayReview {
   checklist_total: number;
 }
 
-/** One session on the ops board (2026-08-28) — Running/Upcoming/Done, not
- *  Needs Review (that's DayReview, above, from the existing queue). */
+/** One assigned instructor's state on a Running card — checked in or not,
+ *  checklist progress, and whether they've submitted. `day_status` is
+ *  `null` for someone who hasn't touched anything yet. */
+export interface BoardInstructor {
+  user_id: string;
+  full_name: string;
+  checklist_done: number;
+  checklist_total: number;
+  att_status?: InstructorAttendance | null;
+  checked_in_at?: string | null;
+  day_status?: DayStatus | null;
+}
+
+/** One session on the ops board — Running/Done, not Needs Review (that's
+ *  DayReview, above, from the existing queue). */
 export interface BoardSession {
   session_id: string;
   cohort_id: string;
@@ -644,12 +657,25 @@ export interface BoardSession {
   staffing_status: StaffingStatus;
   started_at?: string | null;
   completed_at?: string | null;
+  /** Populated for Running cards only. */
+  instructors: BoardInstructor[];
 }
 
 export interface SessionBoard {
   running: BoardSession[];
-  upcoming: BoardSession[];
   done: BoardSession[];
   /** Total Done sessions that exist, not just this page. */
   done_total: number;
+}
+
+/** One live-quiz run's summary for the ops Report tab. */
+export interface SessionGameRun {
+  run_id: string;
+  game_name: string;
+  run_no: number;
+  status: "lobby" | "live" | "ended";
+  participant_count: number;
+  top_score: number;
+  current_question_position?: number | null;
+  total_questions: number;
 }

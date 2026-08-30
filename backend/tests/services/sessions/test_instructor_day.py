@@ -339,6 +339,8 @@ async def test_an_assigned_instructors_role_is_picked_up_automatically(db):
 
 @pytest.mark.asyncio
 async def test_an_absence_needs_nothing_else_to_submit(db):
+    """An absence has no checklist to review, so submitting it approves it
+    directly — there's nothing left for ops to do."""
     _p, cohort, sessions = await _make(db)
     user = await _instructor(db)
     ops = await _ops(db)
@@ -349,7 +351,8 @@ async def test_an_absence_needs_nothing_else_to_submit(db):
     )
     await svc.check_in(db, sessions[0].id, user, att_status="absent", reason="exam")
     day = await svc.submit_day(db, sessions[0].id, user)
-    assert day.status == "submitted"
+    assert day.status == "approved"
+    assert day.reviewed_by is None
 
 
 # ── review round trip ───────────────────────────────────────────────────────
@@ -484,7 +487,10 @@ async def test_an_undelivered_session_blocks_completion(db):
 
 @pytest.mark.asyncio
 async def test_an_approved_absence_still_counts_as_reviewed(db):
-    """An acknowledged absence is a reviewed day — it just isn't a paid one."""
+    """An absence is auto-approved on submit — it counts as a reviewed day
+    for cohort completion, it just isn't a paid one. `approve_day` staying
+    idempotent on an already-approved day means calling it again (e.g. from
+    a stale ops view) is harmless."""
     _p, cohort, sessions = await _make(db, session_count=1)
     user = await _instructor(db)
     ops = await _ops(db)
@@ -494,7 +500,8 @@ async def test_an_approved_absence_still_counts_as_reviewed(db):
 
     await svc.check_in(db, sessions[0].id, user, att_status="absent", reason="exam")
     day = await svc.submit_day(db, sessions[0].id, user)
-    await svc.approve_day(db, day.id, ops.id)
+    assert day.status == "approved"
+    await svc.approve_day(db, day.id, ops.id)  # idempotent no-op
 
     assert await svc.cohort_is_fully_reviewed(db, cohort.id) is True
 
@@ -503,8 +510,11 @@ async def test_an_approved_absence_still_counts_as_reviewed(db):
 
 @pytest.mark.asyncio
 async def test_session_board_buckets_by_lifecycle(db):
+    """Only Running and Done are on the board — a never-started session
+    (however far in the past its date) sits in neither, since there's
+    nothing for ops to act on until it's started."""
     _p, _cohort, sessions = await _make(db, session_count=3)
-    running, upcoming, done = sessions
+    running, never_started, done = sessions
     running.started_at = datetime.now(timezone.utc)
     done.started_at = datetime.now(timezone.utc)
     done.completed_at = datetime.now(timezone.utc)
@@ -512,10 +522,44 @@ async def test_session_board_buckets_by_lifecycle(db):
 
     board = await svc.session_board(db)
 
+    assert "upcoming" not in board
     assert {r["session_id"] for r in board["running"]} == {running.id}
-    assert {r["session_id"] for r in board["upcoming"]} == {upcoming.id}
     assert {r["session_id"] for r in board["done"]} == {done.id}
+    assert never_started.id not in {r["session_id"] for r in board["running"]} | {r["session_id"] for r in board["done"]}
     assert board["done_total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_session_board_running_shows_instructor_breakdown(db):
+    """The whole point of surfacing instructors on a Running card: someone
+    who hasn't checked in shows up distinctly from someone mid-checklist."""
+    _p, cohort, sessions = await _make(db, session_count=1)
+    session = sessions[0]
+    session.started_at = datetime.now(timezone.utc)
+    await db.flush()
+    ops = await _ops(db)
+    checked_in = await _instructor(db)
+    not_checked_in = await _instructor(db)
+    await _assign(db, session, checked_in)
+    await _assign(db, session, not_checked_in)
+    await svc.set_checklist_items(
+        db, actor_user_id=ops.id, cohort_id=cohort.id,
+        lines=[{"title": "Item one"}, {"title": "Item two"}],
+    )
+    await svc.check_in(db, session.id, checked_in, att_status="present")
+    items = await svc.list_checklist_items(db, cohort_id=cohort.id)
+    await svc.set_checklist_progress(
+        db, session.id, checked_in, checklist_item_id=items[0].id, is_done=True,
+    )
+
+    board = await svc.session_board(db)
+    breakdown = {i["user_id"]: i for i in board["running"][0]["instructors"]}
+
+    assert breakdown[checked_in.id]["checklist_done"] == 1
+    assert breakdown[checked_in.id]["checklist_total"] == 2
+    assert breakdown[checked_in.id]["att_status"] == "present"
+    assert breakdown[not_checked_in.id]["checked_in_at"] is None
+    assert breakdown[not_checked_in.id]["day_status"] is None
 
 
 @pytest.mark.asyncio

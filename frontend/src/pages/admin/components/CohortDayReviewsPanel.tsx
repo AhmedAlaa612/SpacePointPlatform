@@ -1,26 +1,38 @@
-/** Ops Day Reviews queue (operations process doc §11-§12, built 2026-08-24).
+/** Ops review queue for instructor reports (operations process doc
+ *  §11-§12, built 2026-08-24).
  *
- *  Each submitted day is one card: did the instructor check in, how much of
- *  the checklist is done, what they wrote, and the proof they attached.
+ *  Each submitted report is one card: did the instructor check in, how much
+ *  of the checklist is done, what they wrote, and the proof they attached.
  *  Approve locks it in — **and that approval is what later counts as a paid
- *  day**, which is why the button says so and why approving the last day of a
- *  cohort reports back that the cohort completed.
+ *  session**, which is why the button says so and why approving the last
+ *  report in a cohort reports back that the cohort completed.
  *
- *  Rendered inside a cohort (scoped to it) and standalone on This Week (the
- *  whole queue). `cohort` omitted means the latter.
+ *  Three places render this: standalone on This Week and inside a cohort's
+ *  own detail page (both the "panel" look, with its own header), embedded in
+ *  the Reviews kanban's Need Review column (`embedded` — the column already
+ *  has a title), and scoped to one session on that session's own Report tab
+ *  (`sessionId` — every assigned instructor's report, whatever state it's
+ *  in, not just submitted ones).
  */
 import { useState } from "react"
+import { Link } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { CalendarCheck, CircleAlert, ImageIcon } from "lucide-react"
+import { ArrowRight, CalendarCheck, CircleAlert, ImageIcon } from "lucide-react"
 import { approveDayApi, getDayApi, listDayReviewsApi, returnDayApi } from "@/api/sessions/day"
 import type { Cohort, DayReview } from "@/types/sessions"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/pages/admin/components/common"
 import { getErrorMessage } from "@/lib/utils"
 
-function DayCard({ d, onDone }: { d: DayReview; onDone: (msg: string) => void }) {
+function DayCard({ d, onDone, linkToSession, defaultOpen }: {
+  d: DayReview
+  onDone: (msg: string) => void
+  /** Suppressed when already rendered on that exact session's own page. */
+  linkToSession: boolean
+  defaultOpen: boolean
+}) {
   const qc = useQueryClient()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const [comment, setComment] = useState("")
   const [returning, setReturning] = useState(false)
   const [error, setError] = useState("")
@@ -44,24 +56,29 @@ function DayCard({ d, onDone }: { d: DayReview; onDone: (msg: string) => void })
       invalidate()
       onDone(
         res.cohort_completed
-          ? `Approved — that was the last day, so ${d.cohort_name} is now complete. Certificates and draft payment lines have gone out.`
-          : "Day approved.",
+          ? `Approved — that was the last report, so ${d.cohort_name} is now complete. Certificates and draft payment lines have gone out.`
+          : "Report approved.",
       )
     },
-    onError: (e) => setError(getErrorMessage(e, "Could not approve that day")),
+    onError: (e) => setError(getErrorMessage(e, "Could not approve that report")),
   })
 
   const sendBack = useMutation({
     mutationFn: () => returnDayApi(d.day_id, comment),
     onSuccess: () => { setReturning(false); setComment(""); invalidate(); onDone("Sent back to the instructor.") },
-    onError: (e) => setError(getErrorMessage(e, "Could not return that day")),
+    onError: (e) => setError(getErrorMessage(e, "Could not return that report")),
   })
 
   const absent = d.att_status === "absent"
+  const canReview = d.status === "submitted"
 
   return (
     <div className="border border-border rounded-xl p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex flex-wrap items-start justify-between gap-2 text-left"
+      >
         <div className="min-w-0">
           <p className="font-medium text-sm">
             {d.full_name} — {d.cohort_name}
@@ -80,22 +97,24 @@ function DayCard({ d, onDone }: { d: DayReview; onDone: (msg: string) => void })
                   ? `Checked in ${new Date(d.checked_in_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`
                   : "No check-in"}
                 {" · "}Checklist {d.checklist_done}/{d.checklist_total}
+                {!canReview && d.status !== "approved" && " · in progress"}
               </>
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <Button size="sm" variant="outline" onClick={() => setOpen((v) => !v)}>
-            {open ? "Hide" : "View"}
-          </Button>
-          <Button size="sm" variant="outline" onClick={() => setReturning((v) => !v)}>
-            Return
-          </Button>
-          <Button size="sm" disabled={approve.isPending} onClick={() => { setError(""); approve.mutate() }}>
-            {approve.isPending ? "Approving…" : absent ? "Acknowledge" : "Approve"}
-          </Button>
+        <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+          {canReview && (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setReturning((v) => !v)}>
+                Return
+              </Button>
+              <Button size="sm" disabled={approve.isPending} onClick={() => { setError(""); approve.mutate() }}>
+                {approve.isPending ? "Approving…" : "Approve"}
+              </Button>
+            </>
+          )}
         </div>
-      </div>
+      </button>
 
       {returning && (
         <div className="mt-3 flex flex-col sm:flex-row gap-2">
@@ -117,6 +136,11 @@ function DayCard({ d, onDone }: { d: DayReview; onDone: (msg: string) => void })
 
       {open && (
         <div className="mt-3 border-t border-border pt-3">
+          {!canReview && !absent && (
+            <p className="text-xs text-muted-foreground italic mb-2">
+              Still working through their checklist — nothing to review yet.
+            </p>
+          )}
           {detail.isLoading ? <Spinner /> : (
             <>
               {detail.data?.instructor_notes && (
@@ -157,29 +181,54 @@ function DayCard({ d, onDone }: { d: DayReview; onDone: (msg: string) => void })
         </div>
       )}
       {error && <p className="text-xs text-red-600 dark:text-red-400 mt-2">{error}</p>}
+      {linkToSession && (
+        <div className="flex justify-end border-t border-border mt-3 pt-2">
+          <Link
+            to="/operations/cohorts/$cohortId/sessions/$sessionId"
+            params={{ cohortId: d.cohort_id, sessionId: d.session_id }}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+          >
+            Open session <ArrowRight size={11} />
+          </Link>
+        </div>
+      )}
     </div>
   )
 }
 
-export default function CohortDayReviewsPanel({ cohort }: { cohort?: Cohort }) {
+export default function CohortDayReviewsPanel({ cohort, sessionId, embedded = false }: {
+  cohort?: Cohort
+  /** Scopes to one session's own Report tab — every assigned instructor's
+   *  report, whatever state it's in, not just submitted ones. */
+  sessionId?: string
+  /** Hides the internal header — used inside the Reviews kanban's Need
+   *  Review column, which already carries its own title. */
+  embedded?: boolean
+}) {
   const [flash, setFlash] = useState("")
   const reviews = useQuery({
-    queryKey: ["day-reviews", cohort?.id ?? "all"],
-    queryFn: () => listDayReviewsApi(cohort ? { cohortId: cohort.id } : {}),
+    queryKey: ["day-reviews", sessionId ?? cohort?.id ?? "all"],
+    queryFn: () => listDayReviewsApi(
+      sessionId ? { sessionId, statusFilter: "" } : cohort ? { cohortId: cohort.id } : {},
+    ),
   })
 
   const rows = reviews.data ?? []
 
+  const showHeader = !embedded && !sessionId
+
   return (
-    <div className="py-4">
-      <div className="mb-3">
-        <h3 className="font-semibold text-sm flex items-center gap-1.5">
-          <CalendarCheck size={14} /> Day reviews
-        </h3>
-        <p className="text-xs text-muted-foreground">
-          Approving a day is what makes it count on the instructor's payment letter.
-        </p>
-      </div>
+    <div className={showHeader ? "py-4" : ""}>
+      {showHeader && (
+        <div className="mb-3">
+          <h3 className="font-semibold text-sm flex items-center gap-1.5">
+            <CalendarCheck size={14} /> Needs review
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Approving a report is what makes that session count on the instructor's payment letter.
+          </p>
+        </div>
+      )}
 
       {flash && (
         <p className="text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 rounded-lg px-3 py-2 mb-3">
@@ -191,11 +240,17 @@ export default function CohortDayReviewsPanel({ cohort }: { cohort?: Cohort }) {
         <Spinner />
       ) : rows.length === 0 ? (
         <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-          <CircleAlert size={12} /> Nothing waiting for review.
+          <CircleAlert size={12} /> {sessionId ? "No instructor has started a report yet." : "Nothing waiting for review."}
         </p>
       ) : (
         <div className="space-y-2">
-          {rows.map((d) => <DayCard key={d.day_id} d={d} onDone={setFlash} />)}
+          {rows.map((d) => (
+            <DayCard
+              key={d.day_id} d={d} onDone={setFlash}
+              linkToSession={!sessionId}
+              defaultOpen={d.status === "submitted"}
+            />
+          ))}
         </div>
       )}
     </div>

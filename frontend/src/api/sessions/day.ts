@@ -13,6 +13,7 @@ import type {
   DayReview,
   InstructorAttendance,
   SessionBoard,
+  SessionGameRun,
 } from "@/types/sessions"
 
 // ── ops: checklist templates ────────────────────────────────────────────────
@@ -82,12 +83,15 @@ export const submitDayApi = (sessionId: string, notes?: string) =>
 // ── ops: the review queue ───────────────────────────────────────────────────
 
 /** Defaults to what needs attention now. Pass `statusFilter: ""` for
- *  everything, or a cohort id to scope it. */
-export const listDayReviewsApi = (opts: { statusFilter?: string; cohortId?: string } = {}) =>
+ *  everything, and a cohort id or a session id to scope it — the latter is
+ *  a session's own Report tab, every assigned instructor's report whatever
+ *  state it's in. */
+export const listDayReviewsApi = (opts: { statusFilter?: string; cohortId?: string; sessionId?: string } = {}) =>
   api.get<DayReview[]>("/sessions/day-reviews", {
     params: {
       status_filter: opts.statusFilter ?? "submitted",
       ...(opts.cohortId ? { cohort_id: opts.cohortId } : {}),
+      ...(opts.sessionId ? { session_id: opts.sessionId } : {}),
     },
   }).then((r) => r.data)
 
@@ -106,9 +110,14 @@ export const returnDayApi = (dayId: string, comment: string) =>
 
 // ── ops: the session board ──────────────────────────────────────────────────
 
-/** Running/Upcoming/Done across every cohort. Needs Review is
- *  `listDayReviewsApi` — the board page calls both. */
+/** Running/Done across every cohort. Needs Review is `listDayReviewsApi` —
+ *  the board page calls both. */
 export const getSessionBoardApi = (opts: { doneOffset?: number; doneLimit?: number } = {}) =>
   api.get<SessionBoard>("/sessions/board", {
     params: { done_offset: opts.doneOffset ?? 0, done_limit: opts.doneLimit ?? 5 },
   }).then((r) => r.data)
+
+/** Live-quiz runs on this session, most recent first — part of the Report
+ *  tab's "warehouse & session activity" strip. */
+export const listSessionGameRunsApi = (sessionId: string) =>
+  api.get<SessionGameRun[]>(`/sessions/${sessionId}/game-runs`).then((r) => r.data)

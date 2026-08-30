@@ -147,6 +147,20 @@ class DayActionOut(BaseModel):
 
 # ── the ops session board (2026-08-28) ──────────────────────────────────────
 
+class BoardInstructorOut(BaseModel):
+    """One assigned instructor's state on a Running session card — enough to
+    spot "hasn't checked in" or "still mid-checklist" without opening the
+    session. `day_status` is `None` for someone who hasn't touched anything
+    yet (no `InstructorSessionDay` row at all)."""
+    user_id: UUID
+    full_name: str
+    checklist_done: int
+    checklist_total: int
+    att_status: AttendanceStatus | None = None
+    checked_in_at: datetime | None = None
+    day_status: DayStatus | None = None
+
+
 class BoardSessionOut(BaseModel):
     session_id: UUID
     cohort_id: UUID
@@ -159,11 +173,13 @@ class BoardSessionOut(BaseModel):
     staffing_status: StaffingStatus
     started_at: datetime | None = None
     completed_at: datetime | None = None
+    # Populated for Running sessions only — Done and (were it still around)
+    # Upcoming cards don't need the per-instructor breakdown.
+    instructors: list[BoardInstructorOut] = []
 
 
 class SessionBoardOut(BaseModel):
     running: list[BoardSessionOut]
-    upcoming: list[BoardSessionOut]
     done: list[BoardSessionOut]
     # Total Done sessions that exist, not just this page — the frontend's
     # "load more" needs this to know when to stop offering it.
