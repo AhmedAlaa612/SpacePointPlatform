@@ -963,19 +963,49 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
     (operator ask, 2026-08-22): what a `submission`-item actually links to,
     which `mission_run` item's attempt to open, everything in one call.
     `None` means the assignment doesn't exist — the router turns that into
-    a 404 the same way `get_student_checklist` does."""
+    a 404 the same way `get_student_checklist` does.
+
+    A `scope="team"` item's real state lives on the shared
+    `LmsProgramTeamItemProgress` row, not this student's own individual
+    row (that row is never written once an item is team-scoped) — same
+    team-lookup `get_student_checklist` does, needed here too so ops sees
+    the same status the student's own checklist shows instead of a
+    permanently-"pending" individual row."""
     assignment = await db.get(LmsProgramAssignment, assignment_id)
     if assignment is None:
         return None
     pairs = await _assignment_items_and_progress(db, assignment_id)
+
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
+    team_item_ids = [item.id for item, _ in pairs if item.scope == "team"]
+    team_progress_by_item: dict[uuid.UUID, LmsProgramTeamItemProgress] = {}
+    if team is not None and team_item_ids:
+        rows = (await db.execute(
+            select(LmsProgramTeamItemProgress).where(
+                LmsProgramTeamItemProgress.team_id == team.id,
+                LmsProgramTeamItemProgress.item_id.in_(team_item_ids),
+            )
+        )).scalars().all()
+        team_progress_by_item = {r.item_id: r for r in rows}
+
     out = []
     for item, progress in pairs:
-        status = await refresh_item_progress(db, progress=progress, item=item, user_id=assignment.user_id)
+        team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
+        if team_progress is not None:
+            status = team_progress.status
+            submitted_url = team_progress.submitted_url
+            completed_at = team_progress.completed_at
+            confirmed_by_user_id = team_progress.confirmed_by_user_id
+        else:
+            status = await refresh_item_progress(db, progress=progress, item=item, user_id=assignment.user_id)
+            submitted_url = progress.submitted_url
+            completed_at = progress.completed_at
+            confirmed_by_user_id = progress.confirmed_by_user_id
         out.append({
             "item_id": item.id, "title": item.title, "item_type": item.item_type,
-            "status": status, "submitted_url": progress.submitted_url,
-            "completed_at": progress.completed_at, "mission_attempt_id": progress.mission_attempt_id,
-            "confirmed_by_user_id": progress.confirmed_by_user_id,
+            "status": status, "submitted_url": submitted_url,
+            "completed_at": completed_at, "mission_attempt_id": progress.mission_attempt_id,
+            "confirmed_by_user_id": confirmed_by_user_id,
         })
     return out
 
