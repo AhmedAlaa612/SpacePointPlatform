@@ -350,6 +350,15 @@ async def test_assignment_items_reads_team_scoped_status_from_the_shared_row(db,
     assert team_row["status"] == "done"
     assert team_row["submitted_url"] == "https://canva.com/design/team-poster"
 
+    # The roster's own items_done/pct summary must count it too — this is
+    # the same "0/9, still 0%" bug the drill-in view had, just one function
+    # over (_assignment_summary), so it needs its own coverage.
+    roster = await client.get(f"/lms/instructor/cohorts/{cohort.id}/program-progress", headers=_headers(instructor))
+    assert roster.status_code == 200, roster.text
+    row = next(r for r in roster.json() if r["assignment_id"] == str(assignment.id))
+    assert row["items_done"] == 1
+    assert row["items_total"] == 2
+
 
 # ── student profile mirrors ──────────────────────────────────────────────
 
