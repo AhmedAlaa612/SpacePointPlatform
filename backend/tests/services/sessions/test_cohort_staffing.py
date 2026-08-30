@@ -252,6 +252,34 @@ async def test_registering_with_no_valid_sessions_is_refused(db):
 
 
 @pytest.mark.asyncio
+async def test_registering_for_a_second_role_speaks_to_the_instructor_directly(db):
+    """The same 409 ops sees when assigning someone else says 'Ahmed is
+    already X — remove the existing assignment' — actionable for ops, but
+    an instructor hitting this about *themselves* can't remove anything and
+    shouldn't be told about themselves in third person (2026-08-30 fix)."""
+    cohort, sessions = await _make_cohort(db)
+    user = await _make_instructor(db)
+    lead, assistant = await _role_id(db, "Lead Facilitator"), await _role_id(db, "Assistant Facilitator")
+    call = await _open_cohort_call(db, cohort, sessions)
+
+    # A real assignment (ops already picked them for Lead), not just an
+    # application — _assert_single_role checks assignments, not interest.
+    await cohort_staffing.select_for_cohort(
+        db, cohort_id=cohort.id, user_ids=[user.id], role_id=lead, session_ids=[sessions[0].id],
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        await cohort_staffing.register_cohort_interest(
+            db, cohort_id=cohort.id, cohort_call_id=call.id, user=user,
+            session_ids=[sessions[0].id], role_id=assistant,
+        )
+    assert exc.value.status_code == 409
+    assert exc.value.detail.startswith("You're already Lead Facilitator")
+    assert "remove the existing assignment" not in exc.value.detail
+    assert user.full_name not in exc.value.detail
+
+
+@pytest.mark.asyncio
 async def test_withdrawing_clears_both_levels(db):
     cohort, sessions = await _make_cohort(db)
     user = await _make_instructor(db)

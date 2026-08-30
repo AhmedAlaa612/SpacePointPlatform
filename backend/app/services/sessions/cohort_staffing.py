@@ -95,7 +95,7 @@ async def _assert_visible(db: AsyncSession, call: CohortCall, user: User) -> Non
 
 
 async def _assert_single_role(
-    db: AsyncSession, *, cohort_id: UUID, user_id: UUID, role_id: UUID,
+    db: AsyncSession, *, cohort_id: UUID, user_id: UUID, role_id: UUID, speaking_to_self: bool = False,
 ) -> None:
     """One role per instructor per cohort (operator, 2026-08-24).
 
@@ -103,6 +103,15 @@ async def _assert_single_role(
     rows: someone put on a session through the pre-existing direct-assign path
     (routers/sessions/cohorts.py) has no assignment row, and picking them for a
     second role through the cohort flow would otherwise slip past.
+
+    `speaking_to_self` (2026-08-30) picks which audience the 409 talks to.
+    Two very different callers hit this: ops assigning *someone else*
+    (select_for_cohort, below) can actually act on "remove the existing
+    assignment first," so third person about the instructor is fine there.
+    An instructor registering their *own* interest (register_cohort_interest)
+    can't remove anything — telling them to, about themselves in third
+    person, is both useless and bizarre to read. That branch speaks to them
+    directly instead and points at ops rather than an action they can't take.
     """
     clash = (await db.execute(
         select(DeliveryRole.name)
@@ -128,6 +137,14 @@ async def _assert_single_role(
             .limit(1)
         )).scalars().first()
     if clash is not None:
+        if speaking_to_self:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail=(
+                    f"You're already {clash} in this cohort — an instructor can only hold one "
+                    "role per cohort. Ask ops if you need to switch roles."
+                ),
+            )
         user_name = await db.scalar(select(User.full_name).where(User.id == user_id))
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -290,7 +307,9 @@ async def register_cohort_interest(
     # The role has to be one this cohort is actually soliciting for, and it has
     # to be the same role they already hold here if they hold one.
     if role_id is not None:
-        await _assert_single_role(db, cohort_id=cohort_id, user_id=user.id, role_id=role_id)
+        await _assert_single_role(
+            db, cohort_id=cohort_id, user_id=user.id, role_id=role_id, speaking_to_self=True,
+        )
 
     # Responsibilities: recorded against the version that was on screen, and a
     # stale one is refused — identical contract to `journey.accept_responsibilities`,
