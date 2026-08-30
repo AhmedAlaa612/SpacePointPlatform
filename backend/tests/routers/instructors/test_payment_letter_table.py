@@ -352,3 +352,71 @@ async def test_billing_a_cohort_line_prefills_the_amount_and_records_coverage(db
         json={"line_ids": [str(cohort.id)]}, headers=admin_headers,
     )
     assert conflict.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_todo_preview_shows_pending_lines_without_creating_a_letter(db, client):
+    """The to-do card's Preview button — see what "Create letter" would pull
+    in without having to create anything first."""
+    import uuid as _uuid
+    from datetime import date as _date, datetime as _datetime, timezone as _timezone
+    from decimal import Decimal as _Decimal
+
+    from sqlalchemy import select
+
+    from app.models.sessions.cohort import Cohort
+    from app.models.sessions.cohort_assignment import CohortInstructorAssignment
+    from app.models.sessions.delivery_role import DeliveryRole
+    from app.models.sessions.program import Program
+    from app.models.sessions.session import Session, SessionInstructor
+
+    admin = await _user(db, "admin")
+    admin_headers = _headers(admin)
+    instructor = await _user(db, "instructor")
+    program = Program(
+        id=_uuid.uuid4(), code=f"PV-{_uuid.uuid4().hex[:8]}", name="Preview Program",
+        program_type="workshop", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(
+        id=_uuid.uuid4(), program_id=program.id, name="Preview Cohort",
+        status="running", visibility="public",
+    )
+    db.add(cohort)
+    await db.flush()
+
+    role_id = await db.scalar(select(DeliveryRole.id).where(DeliveryRole.name == "Lead Facilitator"))
+    session = Session(
+        id=_uuid.uuid4(), cohort_id=cohort.id, meeting_date=_date(2026, 11, 1),
+        completed_at=_datetime.now(_timezone.utc),
+    )
+    db.add(session)
+    await db.flush()
+    db.add(SessionInstructor(id=_uuid.uuid4(), session_id=session.id, user_id=instructor.id, role_id=role_id))
+    db.add(CohortInstructorAssignment(
+        id=_uuid.uuid4(), cohort_id=cohort.id, user_id=instructor.id, role_id=role_id,
+        rate_basis="per_session", rate_aed=_Decimal("500.00"), status="active",
+    ))
+    await db.commit()
+
+    resp = await client.get(f"/instructors/admin/payments/todo/{instructor.id}/preview", headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    lines = resp.json()
+    assert len(lines) == 1
+    assert lines[0]["cohort_id"] == str(cohort.id)
+    assert lines[0]["compensation_aed"] == 500.0
+
+    # No letter exists yet — this is a read-only preview.
+    from app.models.instructors.payment import PaymentLetter
+    letters = (await db.execute(select(PaymentLetter))).scalars().all()
+    assert letters == []
+
+
+@pytest.mark.asyncio
+async def test_todo_preview_requires_admin(db, client):
+    instructor = await _user(db, "instructor")
+    resp = await client.get(
+        f"/instructors/admin/payments/todo/{instructor.id}/preview", headers=_headers(instructor),
+    )
+    assert resp.status_code == 403

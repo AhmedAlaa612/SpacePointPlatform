@@ -122,6 +122,11 @@ export interface PendingPaymentInstructor {
 export const paymentsTodoApi = () =>
   api.get<PendingPaymentInstructor[]>("/instructors/admin/payments/todo").then((r) => r.data)
 
+/** Exactly what "Create letter" on this to-do card would pull in, before
+ *  committing to it — same lines `UnbilledSession` describes below. */
+export const previewPendingPaymentApi = (instructorUserId: string) =>
+  api.get<UnbilledSession[]>(`/instructors/admin/payments/todo/${instructorUserId}/preview`).then((r) => r.data)
+
 export const listCertificatesApi = () => api.get<Certificate[]>("/instructors/admin/payments/certificates").then((r) => r.data)
 
 export const createCertificateApi = (data: {

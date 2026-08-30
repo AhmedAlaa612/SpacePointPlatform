@@ -119,6 +119,18 @@ async def list_pending_payment_instructors(
     return [PendingPaymentInstructorOut(**r) for r in await pending_payment_instructors(db)]
 
 
+@router.get("/todo/{instructor_user_id}/preview", response_model=list[UnbilledSessionOut])
+async def preview_pending_payment_lines(
+    instructor_user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin),
+):
+    """Exactly what "Create letter" on this to-do card would pull in — every
+    cohort/session line, unbilled, before committing to actually creating
+    the letter. Same computation `unbilled_sessions` always was; this just
+    exposes it without requiring a letter to already exist."""
+    return [UnbilledSessionOut(**r) for r in await unbilled_sessions(db, instructor_user_id)]
+
+
 # ── Letters ────────────────────────────────────────────────────
 
 @router.get("/letters", response_model=list[PaymentLetterOut])

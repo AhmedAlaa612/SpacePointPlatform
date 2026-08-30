@@ -1,10 +1,11 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Download, Plus, Trash2 } from "lucide-react"
+import { Download, Eye, Plus, Trash2 } from "lucide-react"
 import {
   billSessionsApi, bulkImportConfirmApi, bulkImportPreviewApi, createBatchApi, createLetterApi,
   deleteBatchApi, deleteLetterApi, downloadBulkImportTemplateApi, generateLetterPdfApi, getBillableSessionsApi,
-  listAdminLettersApi, listBatchesApi, markPaidApi, paymentsInstructorDropdownApi, paymentsTodoApi, publishLetterApi,
+  listAdminLettersApi, listBatchesApi, markPaidApi, paymentsInstructorDropdownApi, paymentsTodoApi,
+  previewPendingPaymentApi, publishLetterApi,
 } from "@/api/instructors/payments_admin"
 import { PaymentLetterTable } from "@/pages/instructors/admin/components/PaymentLetterTable"
 import { Button } from "@/components/ui/button"
@@ -27,11 +28,17 @@ export default function InstructorsAdminPayments() {
   const [newBatchDesc, setNewBatchDesc] = useState("")
   const [manageLetterId, setManageLetterId] = useState<string | null>(null)
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
+  const [previewInstructor, setPreviewInstructor] = useState<{ id: string; name: string } | null>(null)
 
   const { data: letters, isLoading } = useQuery({ queryKey: ["admin-payment-letters"], queryFn: () => listAdminLettersApi() })
   const { data: instructorOptions } = useQuery({ queryKey: ["payments-instructor-options"], queryFn: paymentsInstructorDropdownApi })
   const { data: batches } = useQuery({ queryKey: ["admin-payment-batches"], queryFn: listBatchesApi })
   const { data: pendingInstructors } = useQuery({ queryKey: ["admin-payment-todo"], queryFn: paymentsTodoApi })
+  const { data: previewLines, isLoading: previewLoading } = useQuery({
+    queryKey: ["admin-payment-todo-preview", previewInstructor?.id],
+    queryFn: () => previewPendingPaymentApi(previewInstructor!.id),
+    enabled: !!previewInstructor,
+  })
 
   const createLetter = useMutation({
     mutationFn: () => createLetterApi({ instructor_user_id: selectedInstructor, batch_id: selectedBatch || undefined }),
@@ -173,14 +180,22 @@ export default function InstructorsAdminPayments() {
                     {p.earliest_date === p.latest_date ? ` · ${p.earliest_date}` : ` · ${p.earliest_date} – ${p.latest_date}`}
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => quickCreateFromTodo.mutate(p.instructor_user_id)}
-                  disabled={quickCreateFromTodo.isPending}
-                >
-                  {quickCreateFromTodo.isPending && quickCreateFromTodo.variables === p.instructor_user_id
-                    ? "Creating…" : "Create letter"}
-                </Button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm" variant="outline"
+                    onClick={() => setPreviewInstructor({ id: p.instructor_user_id, name: p.full_name })}
+                  >
+                    <Eye size={14} className="mr-1" /> Preview
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => quickCreateFromTodo.mutate(p.instructor_user_id)}
+                    disabled={quickCreateFromTodo.isPending}
+                  >
+                    {quickCreateFromTodo.isPending && quickCreateFromTodo.variables === p.instructor_user_id
+                      ? "Creating…" : "Create letter"}
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
@@ -345,6 +360,42 @@ export default function InstructorsAdminPayments() {
       {profileUserId && (
         <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />
       )}
+
+      {/* What "Create letter" on a to-do card would pull in, before
+          committing to it. */}
+      <Dialog open={!!previewInstructor} onOpenChange={(open) => !open && setPreviewInstructor(null)}>
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl max-h-[90vh] overflow-y-auto p-4 sm:p-6">
+          <DialogHeader><DialogTitle>{previewInstructor?.name} — pending lines</DialogTitle></DialogHeader>
+          {previewLoading ? (
+            <Spinner />
+          ) : (previewLines ?? []).length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nothing pending — they may have just been billed.</p>
+          ) : (
+            <div className="space-y-2">
+              {previewLines!.map((line) => (
+                <div key={line.line_id} className="p-3 rounded-lg border bg-card/50 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{line.workshop_description}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {line.role} · {line.session_count} session{line.session_count === 1 ? "" : "s"} · {line.session_date}
+                      {line.location ? ` · ${line.location}` : ""}
+                    </p>
+                  </div>
+                  <p className="text-sm font-semibold shrink-0">{line.compensation_aed.toLocaleString()} AED</p>
+                </div>
+              ))}
+              <div className="flex justify-end pt-2 border-t">
+                <Button
+                  onClick={() => { quickCreateFromTodo.mutate(previewInstructor!.id); setPreviewInstructor(null) }}
+                  disabled={quickCreateFromTodo.isPending}
+                >
+                  Create letter
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Wider than the default sm:max-w-sm — six editable columns don't fit
           in a small dialog, and the table is the point of this screen. */}
