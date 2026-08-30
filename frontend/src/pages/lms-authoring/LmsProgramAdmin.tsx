@@ -30,6 +30,7 @@ import {
   type InstructorCohort,
 } from "@/api/missionsInstructor"
 import { fetchMissionCatalog } from "@/api/missions"
+import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
 import type { Program } from "@/types/sessions"
 import type { ManagedAttempt } from "@/api/missions_manager"
 import { ensureAbsoluteUrl } from "@/lib/utils"
@@ -1123,6 +1124,11 @@ function ReviewAttemptRow({ attempt, cohortId, missionId }: { attempt: ManagedAt
   const [error, setError] = useState("")
   const [overriding, setOverriding] = useState(false)
   const [overrideReason, setOverrideReason] = useState("")
+  // Operator ask (2026-08-24) was "open the run and see everything there
+  // with read only, just like the student view" — that landed on the
+  // student profile's Mission runs list, but never here, where a reviewer
+  // actually needs it before deciding Pass/Fail on a just-submitted run.
+  const [showRun, setShowRun] = useState(false)
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["instructor-review-queue", cohortId, missionId] })
 
@@ -1145,6 +1151,18 @@ function ReviewAttemptRow({ attempt, cohortId, missionId }: { attempt: ManagedAt
         <p className="text-sm font-semibold text-foreground">{attempt.student_name ?? attempt.team_name ?? "Unknown"}</p>
         <span className="text-xs text-muted-foreground">Attempt {attempt.attempt_no} · {attempt.status}</span>
       </div>
+      <button
+        onClick={() => setShowRun((v) => !v)}
+        className="flex items-center gap-1 text-xs font-medium text-primary hover:opacity-80 transition-opacity w-fit cursor-pointer"
+      >
+        <ChevronDown size={13} className={`transition-transform ${showRun ? "rotate-180" : ""}`} />
+        {showRun ? "Hide" : "View"} their mission run
+      </button>
+      {showRun && (
+        <div className="border border-border rounded-lg bg-card">
+          <DesignRunDetail attemptId={attempt.id} />
+        </div>
+      )}
       <div className="flex gap-2">
         <input
           value={score} onChange={(e) => setScore(e.target.value)} placeholder="Score (0-100)"
