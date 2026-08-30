@@ -84,7 +84,6 @@ from app.services.notification import create_notification
 from app.services.inventory.cohort_kits import resolve_session_kits
 from app.services.sessions import day as day_service
 from app.services.sessions import delivery
-from app.services.sessions import journey as journey_service
 from app.services.sessions import materials as materials_service
 from app.services.sessions import staffing as staffing_service
 from app.services.sessions import reports as reports_service
@@ -320,11 +319,10 @@ async def complete_cohort(
     for the cohorts the daily loop doesn't cover — anything delivered before
     it existed, or a run that ends without every day being submitted.
 
-    Accrues the same draft payment lines the automatic path does (2026-08-24),
-    so which route completed a cohort makes no difference to what an
-    instructor gets paid. It is idempotent: the lines are derived from what is
-    still unbilled, so pressing this after the automatic path already fired
-    adds nothing.
+    Does not touch payment letters either way (2026-08-30) — completing a
+    cohort just makes its delivered sessions billable (they show up on the
+    payments to-do list); a letter only gets drafted when ops explicitly
+    clicks "Create letter" there.
     """
     warnings: list[str] = []
     if await reports_service.report_count_for_cohort(db, cohort_id) == 0:
@@ -336,7 +334,6 @@ async def complete_cohort(
             "those days won't be counted on anyone's payment letter."
         )
     cohort = await delivery.complete_cohort(db, cohort_id, current_user.id)
-    await journey_service.accrue_cohort_pay(db, cohort_id)
     await db.commit()
     return CompleteCohortResponse(cohort=cohort, warnings=warnings)
 

@@ -56,7 +56,7 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
       invalidate()
       onDone(
         res.cohort_completed
-          ? `Approved — that was the last report, so ${d.cohort_name} is now complete. Certificates and draft payment lines have gone out.`
+          ? `Approved — that was the last report, so ${d.cohort_name} is now complete. Certificates have gone out; it's now on the payments to-do list whenever you're ready to bill it.`
           : "Report approved.",
       )
     },

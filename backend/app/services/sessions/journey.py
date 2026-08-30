@@ -441,7 +441,7 @@ async def pending_payment_instructors(db: AsyncSession) -> list[dict]:
 
 # ── cohort completion accrues a draft payment line ──────────────────────────
 
-async def _draft_letter_for(db: AsyncSession, instructor_user_id: uuid.UUID) -> PaymentLetter:
+async def find_or_create_draft_letter(db: AsyncSession, instructor_user_id: uuid.UUID) -> PaymentLetter:
     """That instructor's open draft letter, or a new one.
 
     Appending to an existing draft is what makes monthly aggregation work: a
@@ -475,9 +475,14 @@ async def _draft_letter_for(db: AsyncSession, instructor_user_id: uuid.UUID) -> 
 async def accrue_cohort_pay(db: AsyncSession, cohort_id: uuid.UUID) -> list[PaymentSession]:
     """Write a draft payment line for everyone who delivered this cohort.
 
-    Called when a cohort completes. Idempotent by construction: the lines it
-    would write are derived from `unbilled_sessions`, which excludes anything
-    already covered, so running it twice adds nothing the second time.
+    No longer wired to fire when a cohort completes (2026-08-30) — that made
+    a letter exist before ops ever decided one should. A completed cohort's
+    sessions simply become billable (`unbilled_sessions` picks them up for
+    the payments to-do list); this function stays available for bulk-billing
+    a whole cohort at once, called explicitly rather than as a side effect.
+    Idempotent by construction: the lines it would write are derived from
+    `unbilled_sessions`, which excludes anything already covered, so running
+    it twice adds nothing the second time.
 
     Everything it writes is a **draft ops can edit** — the amount included.
     Nothing here publishes, signs or pays.
@@ -497,7 +502,7 @@ async def accrue_cohort_pay(db: AsyncSession, cohort_id: uuid.UUID) -> list[Paym
         ]
         if not lines:
             continue
-        letter = await _draft_letter_for(db, assignment.user_id)
+        letter = await find_or_create_draft_letter(db, assignment.user_id)
         highest = await db.scalar(
             select(func.max(PaymentSession.sort_order))
             .where(PaymentSession.payment_letter_id == letter.id)

@@ -351,9 +351,12 @@ async def test_a_published_letter_is_not_appended_to(db):
 
 
 @pytest.mark.asyncio
-async def test_completing_a_cohort_accrues_pay_automatically(db):
-    """The whole point: ops approves the last day and the draft line appears
-    without anyone opening the payments page."""
+async def test_completing_a_cohort_does_not_draft_pay_automatically(db):
+    """Reversed 2026-08-30: a completed cohort's work becomes billable — it
+    shows up on the payments to-do list — but nothing gets drafted until ops
+    explicitly clicks "Create letter". Auto-drafting the moment the last
+    report was approved meant a letter existed before anyone decided it
+    should."""
     cohort, sessions = await _cohort(db, days=2)
     user, ops = await _instructor(db), await _ops(db)
     await _staff(db, cohort, sessions, user)
@@ -364,9 +367,12 @@ async def test_completing_a_cohort_accrues_pay_automatically(db):
     await db.refresh(cohort)
     assert cohort.status == "completed"
 
-    rows = (await db.execute(select(PaymentSession))).scalars().all()
-    assert len(rows) == 1
-    assert rows[0].compensation_aed == 1000.0
+    assert (await db.execute(select(PaymentSession))).scalars().all() == []
+    assert (await db.execute(select(PaymentLetter))).scalars().all() == []
+
+    todo = await journey.pending_payment_instructors(db)
+    mine = next(r for r in todo if r["instructor_user_id"] == user.id)
+    assert mine["pending_cohort_count"] == 1
 
 
 @pytest.mark.asyncio

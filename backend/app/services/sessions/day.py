@@ -603,6 +603,14 @@ async def maybe_complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id
     certificate gate and student certificates all behave exactly as they do
     when ops presses the button today. The only new thing is who presses it.
     Returns whether it fired, so the caller can report it.
+
+    Does *not* touch payment letters (2026-08-30, reversing an earlier
+    decision): a completed cohort's delivered sessions simply become billable
+    — they show up on the payments to-do list via `unbilled_sessions` exactly
+    as before — but nothing gets drafted until ops actually clicks "Create
+    letter". Auto-drafting the moment the last report was approved meant a
+    letter existed before anyone decided it should, which is the opposite of
+    what "draft" is supposed to mean here.
     """
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None or cohort.status == "completed":
@@ -610,12 +618,6 @@ async def maybe_complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id
     if not await cohort_is_fully_reviewed(db, cohort_id):
         return False
     await complete_cohort(db, cohort_id, actor_user_id)
-    # The same event pays the instructors: a draft line per cohort assignment,
-    # amount pre-computed, on their open draft letter (or a new one). Imported
-    # here rather than at module scope — `journey` imports `openings`, which
-    # imports back into this domain, and a top-level import closes the cycle.
-    from app.services.sessions.journey import accrue_cohort_pay
-    await accrue_cohort_pay(db, cohort_id)
     return True
 
 

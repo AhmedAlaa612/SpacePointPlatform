@@ -420,3 +420,44 @@ async def test_todo_preview_requires_admin(db, client):
         f"/instructors/admin/payments/todo/{instructor.id}/preview", headers=_headers(instructor),
     )
     assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_create_letter_reuses_the_open_draft_instead_of_making_a_new_one(db, client):
+    """Clicking "Create letter" a second time (a new cohort just finished,
+    say) must land on the same document, not scatter one person's pay
+    across several drafts."""
+    admin = await _user(db, "admin")
+    admin_headers = _headers(admin)
+    instructor = await _user(db, "instructor")
+
+    first = await client.post(
+        "/instructors/admin/payments/letters",
+        json={"instructor_user_id": str(instructor.id)}, headers=admin_headers,
+    )
+    assert first.status_code == 201, first.text
+
+    second = await client.post(
+        "/instructors/admin/payments/letters",
+        json={"instructor_user_id": str(instructor.id)}, headers=admin_headers,
+    )
+    assert second.status_code == 201, second.text
+    assert second.json()["id"] == first.json()["id"], "same open draft, not a second letter"
+
+    letters = await client.get("/instructors/admin/payments/letters", headers=admin_headers)
+    mine = [l for l in letters.json() if l["instructor_user_id"] == str(instructor.id)]
+    assert len(mine) == 1
+
+    # Once published, the next click starts a fresh draft instead.
+    from app.models.enums import PaymentLetterStatus
+    from app.models.instructors.payment import PaymentLetter
+    letter = await db.get(PaymentLetter, uuid.UUID(first.json()["id"]))
+    letter.status = PaymentLetterStatus.published
+    await db.commit()
+
+    third = await client.post(
+        "/instructors/admin/payments/letters",
+        json={"instructor_user_id": str(instructor.id)}, headers=admin_headers,
+    )
+    assert third.status_code == 201, third.text
+    assert third.json()["id"] != first.json()["id"]

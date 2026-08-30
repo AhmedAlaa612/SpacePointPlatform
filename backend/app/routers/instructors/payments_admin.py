@@ -38,7 +38,7 @@ from app.schemas.instructors.payment import (
     PaymentSessionUpdate,
 )
 from app.schemas.sessions.journey import BillSessionsIn, PendingPaymentInstructorOut, UnbilledSessionOut
-from app.services.sessions.journey import pending_payment_instructors, unbilled_sessions
+from app.services.sessions.journey import find_or_create_draft_letter, pending_payment_instructors, unbilled_sessions
 from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.payment_letter import (
@@ -161,11 +161,15 @@ async def get_letter(
 async def create_letter(
     body: PaymentLetterCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
 ):
-    letter = PaymentLetter(
-        instructor_user_id=body.instructor_user_id, batch_id=body.batch_id,
-        letter_date=body.letter_date or datetime.now(timezone.utc).strftime("%d/%m/%Y"), reference=body.reference,
-    )
-    db.add(letter)
+    """Reuses that instructor's already-open draft rather than starting a new
+    one every time (2026-08-30) — same rule `accrue_cohort_pay` always used
+    internally: one open draft per instructor, appended to until it's
+    published or signed, so clicking "Create letter" from the to-do list
+    once a week doesn't scatter one person's pay across several documents.
+    """
+    letter = await find_or_create_draft_letter(db, body.instructor_user_id)
+    if body.batch_id and letter.batch_id is None:
+        letter.batch_id = body.batch_id
     await db.commit()
     await db.refresh(letter)
     return await _letter_with_children(db, letter)
