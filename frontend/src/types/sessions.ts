@@ -657,7 +657,8 @@ export interface BoardSession {
   staffing_status: StaffingStatus;
   started_at?: string | null;
   completed_at?: string | null;
-  /** Populated for Running cards only. */
+  /** Populated for Running and Done — a session can be marked done while an
+   *  instructor's own report is still unfinished. */
   instructors: BoardInstructor[];
 }
 

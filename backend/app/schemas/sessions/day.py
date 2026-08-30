@@ -173,8 +173,9 @@ class BoardSessionOut(BaseModel):
     staffing_status: StaffingStatus
     started_at: datetime | None = None
     completed_at: datetime | None = None
-    # Populated for Running sessions only — Done and (were it still around)
-    # Upcoming cards don't need the per-instructor breakdown.
+    # Populated for Running and Done — a session can be marked done while an
+    # instructor's own report is still unfinished, and that has to stay
+    # visible somewhere on the board rather than disappearing with the card.
     instructors: list[BoardInstructorOut] = []
 
 

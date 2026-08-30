@@ -112,23 +112,47 @@ function RunningCard({ s }: { s: BoardSession }) {
   )
 }
 
+/** A session can be marked done while an instructor's own report is still
+ *  unfinished — session completion and report completion are tracked
+ *  separately. Flagging that here is the only place it would otherwise be
+ *  visible at all: Need Review only lists submitted reports, so a report
+ *  nobody ever submitted has nowhere else to surface once its session
+ *  leaves Running. */
+function unfinishedInstructors(s: BoardSession) {
+  return s.instructors.filter((i) => i.day_status !== "submitted" && i.day_status !== "approved")
+}
+
 function DoneCard({ s }: { s: BoardSession }) {
+  const unfinished = unfinishedInstructors(s)
   return (
-    <Link
-      to="/operations/cohorts/$cohortId/sessions/$sessionId"
-      params={{ cohortId: s.cohort_id, sessionId: s.session_id }}
-    >
-      <Card className="transition-colors hover:border-primary/40 hover:bg-foreground/5">
-        <CardContent className="p-3 flex flex-col gap-1.5">
+    <Card className={unfinished.length > 0 ? "border-amber-500/40" : undefined}>
+      <CardContent className="p-3 flex flex-col gap-1.5">
+        <Link
+          to="/operations/cohorts/$cohortId/sessions/$sessionId"
+          params={{ cohortId: s.cohort_id, sessionId: s.session_id }}
+          className="hover:text-primary transition-colors"
+        >
           <p className="text-sm font-semibold text-foreground truncate">{s.title || s.program_name}</p>
-          <p className="text-xs text-muted-foreground truncate">{s.cohort_name}</p>
-          <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground pt-1">
-            <span className="flex items-center gap-1"><Calendar size={11} /> {fmtDate(s.meeting_date)}</span>
-            {s.location && <span className="flex items-center gap-1"><MapPin size={11} /> {s.location}</span>}
+        </Link>
+        <p className="text-xs text-muted-foreground truncate">{s.cohort_name}</p>
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground pt-1">
+          <span className="flex items-center gap-1"><Calendar size={11} /> {fmtDate(s.meeting_date)}</span>
+          {s.location && <span className="flex items-center gap-1"><MapPin size={11} /> {s.location}</span>}
+        </div>
+        {unfinished.length > 0 && (
+          <div className="flex flex-col gap-1 border-t border-border pt-2 mt-1">
+            {unfinished.map((i) => (
+              <p key={i.user_id} className="text-[11px] text-amber-700 dark:text-amber-400">
+                {i.full_name} hasn&apos;t submitted a report yet
+              </p>
+            ))}
           </div>
-        </CardContent>
-      </Card>
-    </Link>
+        )}
+        <div className="flex justify-end pt-1">
+          <OpenSessionLink s={s} />
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 

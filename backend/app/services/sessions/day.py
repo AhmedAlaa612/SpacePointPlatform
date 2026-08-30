@@ -718,7 +718,15 @@ async def session_board(
     done = await _rows(
         base.where(Session.completed_at.isnot(None))
         .order_by(Session.completed_at.desc())
-        .offset(done_offset).limit(done_limit)
+        .offset(done_offset).limit(done_limit),
+        # A session can be marked done while an instructor's own report is
+        # still unsubmitted or absent-unreviewed — session completion and
+        # instructor-report completion are tracked separately (only the
+        # cohort's own auto-completion gate requires every report approved).
+        # Without this, that instructor becomes invisible the moment the
+        # session leaves Running, since Need Review only lists submitted
+        # reports and a plain Done card carries no per-instructor detail.
+        with_instructors=True,
     )
 
     return {"running": running, "done": done, "done_total": done_total}
