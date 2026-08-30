@@ -1,0 +1,133 @@
+# Local development stack — Postgres, Redis, the API and the ARQ worker.
+#
+#   cp backend/.env.example backend/.env     # fill in SECRET_KEY + STORAGE_ENCRYPTION_KEY
+#   docker compose -f docker-compose.dev.yml up --build
+#   docker compose -f docker-compose.dev.yml exec api python seed.py
+#
+# API on http://localhost:8000 (docs at /docs). Run the frontend natively —
+# `cd frontend && npm install && npm run dev` — Vite is fast enough that
+# containerising it only costs you node_modules headaches.
+#
+# This is NOT how production runs. Production is three separately-managed
+# containers on a VPS behind nginx (see docs/HANDOFF_VPS_DEPLOYMENT.md); this
+# file exists so a new contributor can skip installing Postgres, LibreOffice,
+# Cairo and ffmpeg by hand. It reuses backend/Dockerfile — the same image CI
+# publishes — so what you run locally matches what ships, with two dev-only
+# changes: the source is bind-mounted and uvicorn runs with --reload.
+
+name: spacepoint-dev
+
+services:
+  # ── Postgres ───────────────────────────────────────────────────────────────
+  # Host port 5433, not 5432, so this never collides with a Postgres you already
+  # have installed. From your own machine that means port 5433; from inside any
+  # container here it is still `db:5432`.
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: spacepoint_dev
+    ports:
+      - "5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./ops/docker/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      # Deliberately not a plain `pg_isready`. During first-boot initialisation
+      # the image runs a temporary server on the same unix socket, so pg_isready
+      # answers "ready" while init-db.sql is still running — the API then starts
+      # against a database with no pgcrypto and the first migration dies.
+      # Instead, check the last thing init-db.sql does: pgcrypto registered in
+      # spacepoint_test. Neither that database nor that extension can exist
+      # before the script has run to completion.
+      test:
+        - CMD-SHELL
+        - psql -U postgres -d spacepoint_test -tAc "select 1 from pg_extension where extname='pgcrypto'" | grep -q 1
+      interval: 3s
+      timeout: 5s
+      retries: 30
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  # Only the job queue and live-games pub/sub need this. The API starts fine
+  # without it (logs a warning, skips enqueues), but having it here means the
+  # seven queue tests pass instead of erroring.
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  # ── API ────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: ./backend
+    env_file:
+      - backend/.env
+    # `environment` overrides `env_file`, so the connection URLs below always win
+    # over whatever is in backend/.env. That is deliberate: the .env is written
+    # for running natively (localhost), and those hostnames don't resolve in here.
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/spacepoint_dev
+      DATABASE_URL_TEST: postgresql+asyncpg://postgres:postgres@db:5432/spacepoint_test
+      REDIS_URL: redis://redis:6379/0
+      REDIS_URL_TEST: redis://redis:6379/1
+      STORAGE_BACKEND: local
+      STORAGE_ROOT: /data/storage
+      CORS_ORIGINS: http://localhost:5173
+      FRONTEND_URL: http://localhost:5173
+      BASE_URL: http://localhost:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      # Live code reload. The image's pip packages live in site-packages, not
+      # /app, so replacing /app with your working tree doesn't disturb them.
+      - ./backend:/app
+      # Keeps generated files (certificates, letters, tickets) out of your
+      # working tree — backend/storage/ is gitignored, but a named volume also
+      # survives a rebuild.
+      - api-storage:/data/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Overrides the image's production CMD to add --reload. Migrations still run
+    # first and still block startup on failure, same as production.
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  # ── ARQ worker ─────────────────────────────────────────────────────────────
+  # Same image, no migrations — the API already ran them. Only needed when you
+  # are working on something that sends email or processes an import batch;
+  # `docker compose -f docker-compose.dev.yml up db redis api` skips it.
+  worker:
+    build:
+      context: ./backend
+    env_file:
+      - backend/.env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/spacepoint_dev
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_BACKEND: local
+      STORAGE_ROOT: /data/storage
+    volumes:
+      - ./backend:/app
+      - api-storage:/data/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_started
+    command: arq app.workers.main.WorkerSettings
+
+volumes:
+  db-data:
+  api-storage:
