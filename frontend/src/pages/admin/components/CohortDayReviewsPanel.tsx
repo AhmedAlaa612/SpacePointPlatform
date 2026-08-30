@@ -17,12 +17,12 @@
 import { useState } from "react"
 import { Link } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowRight, CalendarCheck, CircleAlert, ImageIcon } from "lucide-react"
+import { ArrowRight, CalendarCheck, ChevronRight, CircleAlert, ImageIcon } from "lucide-react"
 import { approveDayApi, getDayApi, listDayReviewsApi, returnDayApi } from "@/api/sessions/day"
 import type { Cohort, DayReview } from "@/types/sessions"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/pages/admin/components/common"
-import { getErrorMessage } from "@/lib/utils"
+import { cn, getErrorMessage } from "@/lib/utils"
 
 function DayCard({ d, onDone, linkToSession, defaultOpen }: {
   d: DayReview
@@ -79,28 +79,34 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
         onClick={() => setOpen((v) => !v)}
         className="w-full flex flex-wrap items-start justify-between gap-2 text-left"
       >
-        <div className="min-w-0">
-          <p className="font-medium text-sm">
-            {d.full_name} — {d.cohort_name}
-            <span className="text-muted-foreground font-normal">
-              {" "}· {new Date(d.meeting_date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
-            </span>
-          </p>
-          <p className="text-[11px] text-muted-foreground">
-            {absent ? (
-              <span className="text-amber-600 dark:text-amber-400">
-                Declared absent{d.absence_reason ? ` — ${d.absence_reason}` : ""}
+        <div className="flex items-start gap-2 min-w-0">
+          <ChevronRight
+            size={14}
+            className={cn("text-muted-foreground shrink-0 mt-0.5 transition-transform", open && "rotate-90")}
+          />
+          <div className="min-w-0">
+            <p className="font-medium text-sm">
+              {d.full_name} — {d.cohort_name}
+              <span className="text-muted-foreground font-normal">
+                {" "}· {new Date(d.meeting_date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
               </span>
-            ) : (
-              <>
-                {d.checked_in_at
-                  ? `Checked in ${new Date(d.checked_in_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`
-                  : "No check-in"}
-                {" · "}Checklist {d.checklist_done}/{d.checklist_total}
-                {!canReview && d.status !== "approved" && " · in progress"}
-              </>
-            )}
-          </p>
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              {absent ? (
+                <span className="text-amber-600 dark:text-amber-400">
+                  Declared absent{d.absence_reason ? ` — ${d.absence_reason}` : ""}
+                </span>
+              ) : (
+                <>
+                  {d.checked_in_at
+                    ? `Checked in ${new Date(d.checked_in_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}`
+                    : "No check-in"}
+                  {" · "}Checklist {d.checklist_done}/{d.checklist_total}
+                  {!canReview && d.status !== "approved" && " · in progress"}
+                </>
+              )}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
           {canReview && (

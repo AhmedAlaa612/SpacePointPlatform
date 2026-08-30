@@ -1123,7 +1123,7 @@ function SessionReportTab({ sessionId }: { sessionId: string }) {
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <h2 className="text-sm font-semibold text-foreground">Instructor reports</h2>
+        <h2 className="text-sm font-semibold text-foreground">Instructor checklists</h2>
         <Card className="px-4">
           <CohortDayReviewsPanel sessionId={sessionId} embedded />
         </Card>
