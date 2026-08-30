@@ -1068,20 +1068,38 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
 
 async def confirm_program_item(
     db: AsyncSession, *, assignment_id: uuid.UUID, item_id: uuid.UUID, confirmed_by_user_id: uuid.UUID,
-) -> LmsProgramItemProgress | None:
+) -> LmsProgramItemProgress | LmsProgramTeamItemProgress | None:
     """Ops/instructor sign-off for a `requires_confirmation` item —
     the other half of the self-check flow (services/lms/program.py's
     `refresh_item_progress` never touches these, they're only ever
-    written here or by the student's own self-check)."""
-    progress = await db.scalar(
-        select(LmsProgramItemProgress).where(
-            LmsProgramItemProgress.assignment_id == assignment_id, LmsProgramItemProgress.item_id == item_id,
-        )
-    )
-    if progress is None:
+    written here or by the student's own self-check). A `scope="team"`
+    item signs off the shared `LmsProgramTeamItemProgress` row for the
+    assignment's own student's team — same row `checklist_item_write_target`
+    resolves for a student's own submit/complete — not the never-written
+    individual row; the confirming ops/instructor user has no team of
+    their own to resolve here."""
+    assignment = await db.get(LmsProgramAssignment, assignment_id)
+    item = await db.get(LmsProgramItem, item_id)
+    if assignment is None or item is None:
         return None
-    progress.status = "done"
-    progress.completed_at = datetime.now(timezone.utc)
-    progress.confirmed_by_user_id = confirmed_by_user_id
+    if item.scope == "team":
+        team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
+        if team is None:
+            return None
+        target: LmsProgramItemProgress | LmsProgramTeamItemProgress = await _get_or_create_team_progress(
+            db, item_id=item.id, team_id=team.id,
+        )
+    else:
+        row = await db.scalar(
+            select(LmsProgramItemProgress).where(
+                LmsProgramItemProgress.assignment_id == assignment_id, LmsProgramItemProgress.item_id == item_id,
+            )
+        )
+        if row is None:
+            return None
+        target = row
+    target.status = "done"
+    target.completed_at = datetime.now(timezone.utc)
+    target.confirmed_by_user_id = confirmed_by_user_id
     await db.flush()
-    return progress
+    return target
