@@ -410,17 +410,38 @@ async def test_an_approved_day_is_locked_against_instructor_edits(db):
 
 
 @pytest.mark.asyncio
-async def test_approving_an_unsubmitted_day_is_refused(db):
+async def test_ops_can_approve_an_unsubmitted_day(db):
+    """The checklist is a review aid, not a precondition for pay — ops can
+    sign off someone they know delivered without making them go back and
+    fill in a form for a session that's already over."""
     _p, _c, sessions = await _make(db)
     user = await _instructor(db)
     ops = await _ops(db)
     await _assign(db, sessions[0], user)
     await svc.check_in(db, sessions[0].id, user, att_status="present")
     day = (await db.execute(select(InstructorSessionDay))).scalars().first()
+    assert day.status == "draft"
 
-    with pytest.raises(HTTPException) as exc:
-        await svc.approve_day(db, day.id, ops.id)
-    assert exc.value.status_code == 409
+    approved = await svc.approve_day(db, day.id, ops.id)
+    assert approved.status == "approved"
+    assert approved.att_status == "present"
+    assert approved.reviewed_by == ops.id
+
+
+@pytest.mark.asyncio
+async def test_approving_a_never_checked_in_day_marks_it_present(db):
+    """Approving is ops vouching the person showed up — it fills in
+    `att_status` when nobody ever set it, since that's the other half of
+    what makes a day payable, but never overwrites an explicit absence."""
+    _p, _c, sessions = await _make(db)
+    user = await _instructor(db)
+    ops = await _ops(db)
+    await _assign(db, sessions[0], user)
+    day = await svc._get_or_create_day(db, sessions[0].id, user.id)
+    assert day.att_status is None
+
+    approved = await svc.approve_day(db, day.id, ops.id)
+    assert approved.att_status == "present"
 
 
 # ── cohort auto-completion ──────────────────────────────────────────────────

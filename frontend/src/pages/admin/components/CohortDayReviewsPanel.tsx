@@ -71,6 +71,7 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
 
   const absent = d.att_status === "absent"
   const canReview = d.status === "submitted"
+  const canApprove = d.status !== "approved"
 
   return (
     <div className="border border-border rounded-xl p-3 shrink-0">
@@ -112,14 +113,14 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
         </div>
         <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
           {canReview && (
-            <>
-              <Button size="sm" variant="outline" onClick={() => setReturning((v) => !v)}>
-                Return
-              </Button>
-              <Button size="sm" disabled={approve.isPending} onClick={() => { setError(""); approve.mutate() }}>
-                {approve.isPending ? "Approving…" : "Approve"}
-              </Button>
-            </>
+            <Button size="sm" variant="outline" onClick={() => setReturning((v) => !v)}>
+              Return
+            </Button>
+          )}
+          {canApprove && (
+            <Button size="sm" disabled={approve.isPending} onClick={() => { setError(""); approve.mutate() }}>
+              {approve.isPending ? "Approving…" : canReview ? "Approve" : "Approve anyway"}
+            </Button>
           )}
         </div>
       </div>
@@ -146,7 +147,7 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
         <div className="mt-3 border-t border-border pt-3">
           {!canReview && !absent && (
             <p className="text-xs text-muted-foreground italic mb-2">
-              Still working through their checklist — nothing to review yet.
+              Still working through their checklist and hasn't submitted — "Approve anyway" if you already know they delivered.
             </p>
           )}
           {detail.isLoading ? <Spinner /> : (

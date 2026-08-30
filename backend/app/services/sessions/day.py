@@ -382,18 +382,22 @@ async def _get_day(db: AsyncSession, day_id: UUID) -> InstructorSessionDay:
 async def approve_day(db: AsyncSession, day_id: UUID, actor_user_id: UUID) -> InstructorSessionDay:
     """Ops signs off a day (§12) — and this is what makes it a paid day.
 
-    Only a submitted day can be approved, with one deliberate exception: an
-    absence, which the instructor has nothing to submit for and ops simply
-    acknowledges.
+    Ops can approve at any stage, submitted or not (operator, 2026-08-30):
+    the checklist is there so ops has something to look at when reviewing,
+    not a precondition for paying someone ops already knows delivered —
+    chasing an instructor to retroactively fill in a form for a session
+    that's already over helps nobody. Approving before submission stamps
+    `att_status='present'` if it was never set at all, since that's the
+    other half of what actually makes a day payable
+    (`journey.py::_paid_day_session_ids`) and an ops approval here is ops
+    vouching that the person showed up. It never overwrites an explicit
+    "absent" — reversing that is a separate, deliberate action.
     """
     day = await _get_day(db, day_id)
     if day.status == "approved":
         return day  # idempotent — approving twice is not an error
-    if day.status != "submitted" and day.att_status != "absent":
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail="Only a submitted day can be approved",
-        )
+    if day.att_status is None:
+        day.att_status = "present"
     day.status = "approved"
     day.reviewed_at = datetime.now(timezone.utc)
     day.reviewed_by = actor_user_id
