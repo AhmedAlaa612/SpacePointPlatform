@@ -1071,18 +1071,45 @@ function ProgressRow({
       </div>
       {open && (
         <div className="p-3 border-t border-border bg-background flex flex-col gap-1.5">
-          {itemsLoading ? <Spinner /> : (items ?? []).map((item) => (
-            <div key={item.item_id} className="flex items-center gap-3 text-xs">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${item.status === "done" ? "bg-emerald-500" : item.status === "awaiting_confirmation" ? "bg-amber-500" : "bg-muted-foreground/30"}`} />
-              <span className="flex-1 text-foreground truncate">{item.title}</span>
-              <span className="text-muted-foreground shrink-0">{item.status.replace("_", " ")}</span>
-              {item.submitted_url && (
-                <a href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
-                  submission
-                </a>
-              )}
-            </div>
-          ))}
+          {itemsLoading ? <Spinner /> : (items ?? []).map((item) => <AssignmentItemRow key={item.item_id} item={item} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A single checklist item under a student's Progress row. A `mission_run`
+ * item carries `mission_attempt_id` once the student has an attempt, so it
+ * gets the same "view their run" toggle as the Review queue
+ * (`DesignRunDetail`, wired 2026-08-30) instead of leaving "done" as a dead
+ * end with nothing to click. */
+function AssignmentItemRow({ item }: { item: LmsAssignmentItemDetail }) {
+  const [showRun, setShowRun] = useState(false)
+  const canViewRun = item.item_type === "mission_run" && !!item.mission_attempt_id
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-3 text-xs">
+        <span className={`w-2 h-2 rounded-full shrink-0 ${item.status === "done" ? "bg-emerald-500" : item.status === "awaiting_confirmation" ? "bg-amber-500" : "bg-muted-foreground/30"}`} />
+        <span className="flex-1 text-foreground truncate">{item.title}</span>
+        <span className="text-muted-foreground shrink-0">{item.status.replace("_", " ")}</span>
+        {item.submitted_url && (
+          <a href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
+            submission
+          </a>
+        )}
+        {canViewRun && (
+          <button
+            onClick={() => setShowRun((v) => !v)}
+            className="text-primary underline shrink-0 cursor-pointer"
+          >
+            {showRun ? "hide run" : "view run"}
+          </button>
+        )}
+      </div>
+      {canViewRun && showRun && (
+        <div className="mt-1.5 border border-border rounded-lg bg-card">
+          <DesignRunDetail attemptId={item.mission_attempt_id as string} />
         </div>
       )}
     </div>
