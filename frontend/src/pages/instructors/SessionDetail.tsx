@@ -438,7 +438,7 @@ export default function SessionDetail() {
                       />
                       <input
                         value={reportNotes} onChange={(e) => setReportNotes(e.target.value)}
-                        placeholder="Optional notes about the session…"
+                        placeholder="Notes about the file…"
                         className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
                       />
                       {uploadReport.isPending && <p className="text-xs text-muted-foreground">Uploading…</p>}
