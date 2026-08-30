@@ -347,6 +347,10 @@ async def list_available_sessions(
             location=location["name"], meeting_date=s.meeting_date, starts_at=s.starts_at,
             interested_count=count, my_interest=interest is not None,
             my_note=interest.note if interest else None,
+            my_needs_transport=interest.needs_transport if interest else False,
+            my_needs_ops_support=interest.needs_ops_support if interest else False,
+            my_travelling_from_other_city=interest.travelling_from_other_city if interest else False,
+            my_concerns=interest.concerns if interest else None,
             program_type=p.program_type,
             description=p.description,
             location_address=location["address"],
@@ -572,6 +576,8 @@ async def register_interest(
 ):
     interest = await staffing.register_interest(
         db, session_id, current_user, note=body.note, role_id=body.role_id,
+        needs_transport=body.needs_transport, needs_ops_support=body.needs_ops_support,
+        travelling_from_other_city=body.travelling_from_other_city, concerns=body.concerns,
     )
     await db.commit()
     role_name = None
@@ -580,6 +586,8 @@ async def register_interest(
     return InterestOut(
         user_id=current_user.id, full_name=current_user.full_name, email=current_user.email,
         note=interest.note, role_id=interest.role_id, role_name=role_name,
+        needs_transport=interest.needs_transport, needs_ops_support=interest.needs_ops_support,
+        travelling_from_other_city=interest.travelling_from_other_city, concerns=interest.concerns,
         created_at=interest.created_at,
     )
 
@@ -670,6 +678,10 @@ async def list_eligible_instructors(
             interest_role_id=interest.role_id if interest else None,
             interest_role_name=role_name,
             available_in_city=available_in_city,
+            needs_transport=interest.needs_transport if interest else False,
+            needs_ops_support=interest.needs_ops_support if interest else False,
+            travelling_from_other_city=interest.travelling_from_other_city if interest else False,
+            concerns=interest.concerns if interest else None,
         )
         for u, interest, role_name, available_in_city in rows
     ]

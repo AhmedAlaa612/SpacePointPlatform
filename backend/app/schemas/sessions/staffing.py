@@ -19,6 +19,13 @@ class RegisterInterestRequest(BaseModel):
     # session with no configured openings, or an instructor who just wants
     # to flag interest generally.
     role_id: UUID | None = None
+    # Operations process doc §2 — same fields RegisterCohortInterestRequest
+    # asks, brought here 2026-08-30 so a standalone session's form isn't a
+    # lighter subset of a cohort call's.
+    needs_transport: bool = False
+    needs_ops_support: bool = False
+    travelling_from_other_city: bool = False
+    concerns: str | None = None
 
 
 class InterestOut(BaseModel):
@@ -28,6 +35,10 @@ class InterestOut(BaseModel):
     note: str | None = None
     role_id: UUID | None = None
     role_name: str | None = None
+    needs_transport: bool = False
+    needs_ops_support: bool = False
+    travelling_from_other_city: bool = False
+    concerns: str | None = None
     created_at: datetime
 
 
@@ -48,6 +59,12 @@ class EligibleInstructorOut(BaseModel):
     # (session.location_id, else its cohort's) as somewhere they're open to
     # work? Always False if the session has no resolvable location/city.
     available_in_city: bool = False
+    # Operations process doc §2 (2026-08-30) — same signal the cohort-call
+    # applicant table (CohortCallInterestOut) already shows ops.
+    needs_transport: bool = False
+    needs_ops_support: bool = False
+    travelling_from_other_city: bool = False
+    concerns: str | None = None
 
 
 class SelectInstructorsRequest(BaseModel):
@@ -144,6 +161,13 @@ class AvailableSessionOut(BaseModel):
     interested_count: int
     my_interest: bool
     my_note: str | None = None
+    # Operations process doc §2 (2026-08-30) — mirrors AvailableCohortCallOut's
+    # same-named fields, brought here so a standalone session's own card can
+    # ask (and remember) the same support questions a cohort call's does.
+    my_needs_transport: bool = False
+    my_needs_ops_support: bool = False
+    my_travelling_from_other_city: bool = False
+    my_concerns: str | None = None
 
     # I5-5 — everything below is what an instructor needs to decide, and none
     # of it reached them before: they got a cohort name, a date and a place.

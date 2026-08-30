@@ -120,8 +120,17 @@ export const closeOneCallApi = (sessionId: string, callId: string, clearInterest
 
 // ── Instructor/facilitator: register / withdraw interest ───────────────────
 
-export const registerInterestApi = (sessionId: string, note?: string, roleId?: string | null) =>
-  api.post<InstructorInterest>(`/sessions/${sessionId}/staffing/interest`, { note, role_id: roleId ?? null }).then((r) => r.data)
+/** Re-posting replaces the previous answer — same "changing your answer is
+ *  normal, not an error" contract `registerCohortInterestApi` uses below. */
+export const registerInterestApi = (sessionId: string, body: {
+  note?: string | null
+  role_id?: string | null
+  needs_transport?: boolean
+  needs_ops_support?: boolean
+  travelling_from_other_city?: boolean
+  concerns?: string | null
+}) =>
+  api.post<InstructorInterest>(`/sessions/${sessionId}/staffing/interest`, body).then((r) => r.data)
 
 export const withdrawInterestApi = (sessionId: string) =>
   api.delete(`/sessions/${sessionId}/staffing/interest`).then((r) => r.data)

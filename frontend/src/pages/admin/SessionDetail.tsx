@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ChevronDown, ChevronRight, Download, FileText, Gamepad2, MapPin, Pencil, Trash2, Warehouse } from "lucide-react"
+import { ArrowLeft, Bus, ChevronDown, ChevronRight, Download, FileText, Gamepad2, MapPin, Pencil, Plane, Trash2, Warehouse } from "lucide-react"
 import type {
   Cohort, Session, StaffingStatus, EligibleInstructor, AttendanceStatus, SessionDelivery,
 } from "@/types/sessions"
@@ -23,7 +23,7 @@ import { getDeliveryRolesApi, getOpeningsApi } from "@/api/sessions/openings"
 import { getSessionDeliveryApi, markAttendanceApi } from "@/api/sessions/delivery"
 import { listSessionGameRunsApi } from "@/api/sessions/day"
 import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPanel"
-import { Modal, ConfirmDialog, Spinner, PageHeader } from "@/pages/admin/components/common"
+import { Modal, ConfirmDialog, IconBadge, Spinner, PageHeader } from "@/pages/admin/components/common"
 import { InheritedFrom } from "@/pages/admin/components/InheritedFrom"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { useToast } from "@/components/ui/toast"
@@ -718,9 +718,20 @@ function StaffingSection({ cohort, session, onChanged }: {
                         {u.interest_role_name && (
                           <p className="text-[11px] text-primary/80 truncate">Applied for: {u.interest_role_name}</p>
                         )}
+                        {(u.needs_transport || u.travelling_from_other_city) && (
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {u.needs_transport && <IconBadge icon={Bus} label="needs transport" />}
+                            {u.travelling_from_other_city && <IconBadge icon={Plane} label="another city" />}
+                          </div>
+                        )}
                         {u.note && (
                           <p className="text-xs text-foreground/90 italic bg-muted/50 px-2.5 py-1 rounded-lg mt-1 border border-border/50">
                             "{u.note}"
+                          </p>
+                        )}
+                        {u.concerns && (
+                          <p className="text-xs text-foreground/90 whitespace-pre-line bg-muted/50 px-2.5 py-1 rounded-lg mt-1 border border-border/50">
+                            {u.concerns}
                           </p>
                         )}
                       </div>

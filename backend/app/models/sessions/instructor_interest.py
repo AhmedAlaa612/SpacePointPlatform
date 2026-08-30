@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -33,6 +33,14 @@ class InstructorInterest(Base):
     # existed, have nothing to point at. SET NULL, not CASCADE — a role
     # being retired must not erase the record of who applied for it.
     role_id = Column(UUID(as_uuid=True), ForeignKey("delivery_roles.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Operations process doc §2 (2026-08-30) — mirrors CohortCallInterest's
+    # same-named columns, brought here so a standalone session's interest
+    # form asks the same questions a cohort call's does instead of a lighter
+    # subset.
+    needs_transport = Column(Boolean, nullable=False, default=False, server_default="false")
+    needs_ops_support = Column(Boolean, nullable=False, default=False, server_default="false")
+    travelling_from_other_city = Column(Boolean, nullable=False, default=False, server_default="false")
+    concerns = Column(Text, nullable=True)
     # I5-5. "I have read and agree to the responsibilities." The text itself
     # is versioned in `portal_settings` (key `instructor.responsibilities`);
     # this records *when* they agreed and to *which* version, so a later edit

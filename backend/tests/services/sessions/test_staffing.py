@@ -203,6 +203,30 @@ async def test_register_interest_twice_updates_note_not_duplicates(db):
 
 
 @pytest.mark.asyncio
+async def test_register_interest_records_support_questions(db):
+    """Operations process doc §2, brought to single-session interest
+    2026-08-30 — mirrors what registering for a cohort call already asks."""
+    _, session = await _make_cohort_with_session(db, staffing_status="open_call")
+    instructor = await _make_user(db, ["instructor"])
+
+    interest = await staffing.register_interest(
+        db, session.id, instructor,
+        needs_transport=True, travelling_from_other_city=True, concerns="Need an early ride",
+    )
+    assert interest.needs_transport is True
+    assert interest.needs_ops_support is False
+    assert interest.travelling_from_other_city is True
+    assert interest.concerns == "Need an early ride"
+
+    # Re-registering fully replaces the previous answer, same contract as
+    # the note/role fields above.
+    updated = await staffing.register_interest(db, session.id, instructor)
+    assert updated.needs_transport is False
+    assert updated.travelling_from_other_city is False
+    assert updated.concerns is None
+
+
+@pytest.mark.asyncio
 async def test_withdraw_interest_removes_it(db):
     _, session = await _make_cohort_with_session(db, staffing_status="open_call")
     instructor = await _make_user(db, ["instructor"])

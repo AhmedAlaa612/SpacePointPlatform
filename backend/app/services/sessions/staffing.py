@@ -596,7 +596,8 @@ async def list_my_sessions(
 
 async def register_interest(
     db: AsyncSession, session_id: UUID, user: User, note: str | None = None,
-    role_id: UUID | None = None,
+    role_id: UUID | None = None, needs_transport: bool = False, needs_ops_support: bool = False,
+    travelling_from_other_city: bool = False, concerns: str | None = None,
 ) -> InstructorInterest:
     session = await _get_session(db, session_id)
     if session.staffing_status != "open_call":
@@ -645,10 +646,18 @@ async def register_interest(
             existing.note = note
         if role_id is not None:
             existing.role_id = role_id
+        existing.needs_transport = needs_transport
+        existing.needs_ops_support = needs_ops_support
+        existing.travelling_from_other_city = travelling_from_other_city
+        existing.concerns = concerns
         await db.flush()
         return existing
 
-    interest = InstructorInterest(id=uuid4(), session_id=session_id, user_id=user.id, note=note, role_id=role_id)
+    interest = InstructorInterest(
+        id=uuid4(), session_id=session_id, user_id=user.id, note=note, role_id=role_id,
+        needs_transport=needs_transport, needs_ops_support=needs_ops_support,
+        travelling_from_other_city=travelling_from_other_city, concerns=concerns,
+    )
     db.add(interest)
     await db.flush()
     return interest

@@ -11,23 +11,9 @@ import {
 } from "@/api/sessions/staffing"
 import type { Cohort, CohortCallApplicant } from "@/types/sessions"
 import { Button } from "@/components/ui/button"
-import { ConfirmDialog, Modal, Spinner } from "@/pages/admin/components/common"
+import { ConfirmDialog, IconBadge as Badge, Modal, Spinner } from "@/pages/admin/components/common"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { cn, getErrorMessage } from "@/lib/utils"
-
-function Badge({ icon: Icon, label, tone = "muted" }: {
-  icon: typeof Bus; label: string; tone?: "muted" | "good"
-}) {
-  const tones = {
-    muted: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/50",
-    good: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/50",
-  }
-  return (
-    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${tones[tone]}`}>
-      <Icon size={10} /> {label}
-    </span>
-  )
-}
 
 function ApplicantDetailModal({
   applicant,

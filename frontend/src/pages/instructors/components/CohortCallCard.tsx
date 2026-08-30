@@ -22,6 +22,12 @@ import type { AvailableCohortCall } from "@/types/sessions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { getErrorMessage } from "@/lib/utils"
+import {
+  ApplyFooter,
+  ResponsibilitiesDetails,
+  RoleOpeningsPicker,
+  SupportQuestionsPanel,
+} from "@/pages/instructors/components/CallFormParts"
 
 function formatDay(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -170,46 +176,10 @@ export default function CohortCallCard({ c }: { c: AvailableCohortCall }) {
 
         {/* One role for the whole cohort — the operator's rule, made
             structural rather than validated after the fact. */}
-        {c.openings.length > 0 && (
-          <div className="mb-3 flex flex-col gap-1.5">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Role</p>
-            {c.openings.map((o) => {
-              const full = o.remaining <= 0
-              return (
-                <label
-                  key={o.role_id}
-                  className={`flex items-start justify-between gap-3 text-sm rounded-lg px-2 py-1.5 -mx-2 transition-colors ${
-                    !c.my_interest && !full ? "cursor-pointer hover:bg-muted" : ""
-                  } ${!c.my_interest && roleId === o.role_id ? "bg-primary/5 ring-1 ring-primary/20" : ""}`}
-                >
-                  <div className="flex items-start gap-2 min-w-0">
-                    {!c.my_interest && (
-                      <input
-                        type="radio" name={`role-${c.cohort_call_id}`} className="mt-1 shrink-0"
-                        checked={roleId === o.role_id} disabled={full}
-                        onChange={() => setRoleId(o.role_id)}
-                      />
-                    )}
-                    <div className="min-w-0">
-                      <span className="text-foreground">
-                        {o.role_name}
-                        <span className="text-xs text-muted-foreground">
-                          {" "}&middot; {o.remaining > 0 ? `${o.remaining} of ${o.slots} left` : "full — waitlist"}
-                        </span>
-                      </span>
-                      {o.notes && <p className="text-xs text-muted-foreground italic">{o.notes}</p>}
-                    </div>
-                  </div>
-                  {o.amount_aed != null && (
-                    <span className="text-sm font-semibold tabular-nums shrink-0">
-                      AED {o.amount_aed.toLocaleString()}<span className="text-xs font-normal text-muted-foreground">/session</span>
-                    </span>
-                  )}
-                </label>
-              )
-            })}
-          </div>
-        )}
+        <RoleOpeningsPicker
+          openings={c.openings} myInterest={c.my_interest} roleId={roleId}
+          onSelect={setRoleId} groupName={`role-${c.cohort_call_id}`}
+        />
 
         <div className="mb-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
@@ -267,83 +237,33 @@ export default function CohortCallCard({ c }: { c: AvailableCohortCall }) {
           <div className="flex flex-col gap-2">
             {/* Operations process doc §2 — ops needs these before the workshop,
                 not on the morning somebody turns out to need a taxi. */}
-            <div className="rounded-xl border border-border bg-background/50 p-3 flex flex-col gap-2">
-              <p className="text-xs font-semibold text-foreground">Anything we should know?</p>
-              <div className="flex flex-col gap-1.5">
-                {([
-                  ["I need transport", needsTransport, setNeedsTransport],
-                  ["I'm travelling from another city", travelling, setTravelling],
-                ] as const).map(([label, value, set]) => (
-                  <label key={label} className="flex items-center gap-2 text-xs cursor-pointer select-none">
-                    <input
-                      type="checkbox" checked={value}
-                      onChange={(e) => set(e.target.checked)}
-                      className="rounded text-primary focus:ring-primary border-border bg-background"
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-              <textarea
-                className="input min-h-[3rem] resize-y text-xs"
-                placeholder="Clarify any constraints or support needed…"
-                value={concerns}
-                onChange={(e) => setConcerns(e.target.value)}
-              />
-            </div>
+            <SupportQuestionsPanel
+              needsTransport={needsTransport} onNeedsTransportChange={setNeedsTransport}
+              travelling={travelling} onTravellingChange={setTravelling}
+              concerns={concerns} onConcernsChange={setConcerns}
+            />
 
             {responsibilities.data?.text && (
-              <details
-                open={respOpen}
-                onToggle={(e) => setRespOpen(e.currentTarget.open)}
-                className={`rounded-xl border transition-colors group ${
-                  error && !agreed ? "border-amber-500/50 bg-amber-500/5" : "border-border bg-background/50"
-                }`}
-              >
-                <summary className="px-3 py-2.5 flex items-center justify-between text-xs font-semibold text-foreground cursor-pointer select-none list-none">
-                  <span>Responsibilities{responsibilities.data.role_name ? ` — ${responsibilities.data.role_name}` : ""}</span>
-                  <span className="text-[10px] text-primary group-open:hidden">View responsibilities ▾</span>
-                  <span className="text-[10px] text-muted-foreground hidden group-open:inline">Hide ▴</span>
-                </summary>
-                <div className="px-3 pb-3 pt-1 border-t border-border flex flex-col gap-2">
-                  <p className="text-xs text-muted-foreground whitespace-pre-line max-h-40 overflow-y-auto">
-                    {responsibilities.data.text}
-                  </p>
-                  <label className="flex items-center gap-2 text-xs text-foreground font-medium cursor-pointer select-none pt-1">
-                    <input
-                      type="checkbox" checked={agreed}
-                      onChange={(e) => { setAgreed(e.target.checked); if (e.target.checked) setError("") }}
-                      className="rounded text-primary focus:ring-primary border-border bg-background"
-                    />
-                    I agree to the Responsibilities
-                  </label>
-                </div>
-              </details>
+              <ResponsibilitiesDetails
+                text={responsibilities.data.text} roleName={responsibilities.data.role_name}
+                agreed={agreed}
+                onAgreedChange={(v) => { setAgreed(v); if (v) setError("") }}
+                open={respOpen} onOpenChange={setRespOpen}
+                hasError={!!error && !agreed}
+              />
             )}
 
-            <div className="flex flex-col sm:flex-row gap-3 items-center">
-              <textarea
-                className="input flex-1 min-h-[4.5rem] resize-y text-xs sm:text-sm"
-                placeholder="Optional cover letter (why you'd like this one)…"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-              />
-              <Button
-                className={`h-11 px-6 rounded-xl text-sm font-semibold shrink-0 transition-all ${
-                  isReady
-                    ? "bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm"
-                    : "bg-muted/80 text-muted-foreground border border-border/80 hover:bg-muted hover:text-foreground"
-                }`}
-                disabled={pending}
-                onClick={handleApply}
-              >
-                {register.isPending ? "Registering…" : "Register interest"}
-              </Button>
-            </div>
-            {c.openings.length > 0 && !roleId && (
-              <p className="text-xs text-muted-foreground">Pick a role above before applying.</p>
-            )}
-            {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+            <ApplyFooter
+              note={note} onNoteChange={setNote}
+              ready={isReady} pending={pending} pendingLabel="Registering…"
+              onApply={handleApply}
+              extra={<>
+                {c.openings.length > 0 && !roleId && (
+                  <p className="text-xs text-muted-foreground">Pick a role above before applying.</p>
+                )}
+                {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+              </>}
+            />
           </div>
         )}
       </CardContent>

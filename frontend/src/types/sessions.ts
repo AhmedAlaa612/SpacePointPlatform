@@ -141,6 +141,10 @@ export interface InstructorInterest {
   note?: string | null;
   role_id?: string | null;
   role_name?: string | null;
+  needs_transport?: boolean;
+  needs_ops_support?: boolean;
+  travelling_from_other_city?: boolean;
+  concerns?: string | null;
   created_at: string;
 }
 
@@ -160,6 +164,10 @@ export interface EligibleInstructor {
   /** 2026-08-08 — did this instructor mark the session's resolved city as
    * somewhere they're open to work? False if unresolvable. */
   available_in_city: boolean;
+  needs_transport?: boolean;
+  needs_ops_support?: boolean;
+  travelling_from_other_city?: boolean;
+  concerns?: string | null;
 }
 
 export interface SelectInstructorsResult {
@@ -182,6 +190,10 @@ export interface AvailableSession {
   interested_count: number;
   my_interest: boolean;
   my_note?: string | null;
+  my_needs_transport?: boolean;
+  my_needs_ops_support?: boolean;
+  my_travelling_from_other_city?: boolean;
+  my_concerns?: string | null;
 
   /** I5-5 — what an instructor needs to decide. None of this reached them
    *  before: they got a cohort name, a date and a place. */
