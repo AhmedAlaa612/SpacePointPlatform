@@ -19,7 +19,7 @@ Nothing here references `contacts`; everything keys on `users`, so
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
@@ -184,8 +184,10 @@ class VideoCheckpoint(Base):
     item_id = Column(
         UUID(as_uuid=True), ForeignKey("module_items.id", ondelete="CASCADE"), nullable=False, index=True,
     )
-    start_seconds = Column(Integer, nullable=False)
-    end_seconds = Column(Integer, nullable=True)
+    # Float, not Integer — checkpoints are authored to the millisecond
+    # (h:m:s:ms in the UI), not just the whole second.
+    start_seconds = Column(Float, nullable=False)
+    end_seconds = Column(Float, nullable=True)
     # note|quiz
     kind = Column(String(10), nullable=False)
     content = Column(JSONB, nullable=False, default=dict)
