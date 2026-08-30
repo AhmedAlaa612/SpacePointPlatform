@@ -238,11 +238,6 @@ function ChecklistItemRow({
                 {submitMutation.isPending && submitting ? "Submitting…" : item.submitted_url ? "Replace submission" : "Submit"}
               </Button>
             </div>
-            {item.submitted_url && item.status !== "done" && item.status !== "awaiting_confirmation" && (
-              <Button size="sm" variant="outline" disabled={completeMutation.isPending} onClick={() => completeMutation.mutate()}>
-                {completeMutation.isPending ? "Marking done…" : "Mark as done"}
-              </Button>
-            )}
           </div>
         )}
 
