@@ -311,7 +311,7 @@ export default function InstructorsAdminPayments() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1 break-words">
-                    {l.sessions.length} session(s) · AED {letterTotal(l).toLocaleString()} · {l.reference}
+                    {l.sessions.length} cohort{l.sessions.length === 1 ? "" : "s"} · AED {letterTotal(l).toLocaleString()} · {l.reference}
                   </p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap shrink-0 border-t border-border/50 pt-2.5 sm:border-0 sm:pt-0">

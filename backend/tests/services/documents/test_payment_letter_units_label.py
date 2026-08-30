@@ -1,8 +1,8 @@
-"""What prints in the payment letter's shared "Sessions / Duration" column
-(2026-08-30 — flipped to prefer the hours ops actually enters in the
-editable table over the old "count x rate" breakdown, which used to win
-whenever a line had both a session count and a rate, making the hours
-field silently ignored on the printed document)."""
+"""What prints in the payment letter's "Duration" column (2026-08-30 —
+flipped to prefer the hours ops actually enters in the editable table over
+the old "count x rate" breakdown, which used to win whenever a line had
+both a session count and a rate, making the hours field silently ignored
+on the printed document)."""
 
 from app.services.documents.payment_letter import _units_label
 

@@ -169,7 +169,7 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
       </div>
 
       <div>
-        <p className="text-xs font-semibold text-muted-foreground mb-2">Sessions</p>
+        <p className="text-xs font-semibold text-muted-foreground mb-2">Cohorts</p>
 
         {/* Mobile card layout */}
         <div className="block sm:hidden space-y-3">
@@ -290,7 +290,7 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
             </div>
           ))}
           {letter.sessions.length === 0 && (
-            <p className="text-sm text-muted-foreground py-2">No sessions on this letter yet.</p>
+            <p className="text-sm text-muted-foreground py-2">No cohorts on this letter yet.</p>
           )}
         </div>
 
@@ -391,7 +391,7 @@ export function PaymentLetterTable({ letter }: { letter: PaymentLetter }) {
               ))}
               {letter.sessions.length === 0 && (
                 <tr><td colSpan={7} className="py-2 text-sm text-muted-foreground">
-                  No sessions on this letter yet.
+                  No cohorts on this letter yet.
                 </td></tr>
               )}
             </tbody>
