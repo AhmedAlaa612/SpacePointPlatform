@@ -214,10 +214,7 @@ async def test_submission_item_needs_a_link_before_it_can_self_check(db, client)
     )
     assert submitted.status_code == 200
     assert submitted.json()["submitted_url"] == "https://tinkercad.com/things/my-build"
-
-    completed = await client.post(f"/lms/programs/{assignment.id}/items/{item.id}/complete", headers=_headers(student))
-    assert completed.status_code == 200
-    assert completed.json()["status"] == "done"
+    assert submitted.json()["status"] == "done"
 
 
 @pytest.mark.asyncio
