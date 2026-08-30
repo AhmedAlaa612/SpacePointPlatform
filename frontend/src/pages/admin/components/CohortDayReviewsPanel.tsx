@@ -86,7 +86,7 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
           />
           <div className="min-w-0">
             <p className="font-medium text-sm">
-              {d.full_name} — {d.cohort_name}
+              {d.full_name} — {d.session_title ? `${d.session_title} · ` : ""}{d.cohort_name}
               <span className="text-muted-foreground font-normal">
                 {" "}· {new Date(d.meeting_date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
               </span>
