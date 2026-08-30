@@ -26,6 +26,7 @@ export const createCohortApi = (data: {
   location_id?: string | null
   warehouse_id?: string | null
   capacity?: number
+  duration_hours?: number | null
   status?: CohortStatus
   visibility?: CohortVisibility
   notes?: string
@@ -42,6 +43,7 @@ export const updateCohortApi = (
     location_id: string | null
     warehouse_id: string | null
     capacity: number | null
+    duration_hours: number | null
     status: CohortStatus
     visibility: CohortVisibility
     notes: string | null
@@ -68,6 +70,9 @@ export const updateSessionApi = (
   data: Partial<{
     meeting_date: string; starts_at: string | null; title: string | null
     material_url: string | null; price: number | null
+    /** null clears the override back to "inherit the cohort's (then the
+     *  program's) duration". */
+    duration_hours: number | null
     /** null clears the override back to "inherit the cohort's location". */
     location_id: string | null
     /** null clears the override back to "inherit the cohort's warehouse". */

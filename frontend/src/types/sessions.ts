@@ -53,6 +53,9 @@ export interface Cohort {
   effective_warehouse_id?: string | null;
   effective_warehouse_name?: string | null;
   capacity?: number | null;
+  /** How long each session runs, in hours. Every session in the cohort
+   *  inherits this unless it has its own override (see Session.duration_hours). */
+  duration_hours?: number | null;
   /** Operational counters, populated only by the LIST endpoint (the cohorts
    *  worklist). Undefined on cohort detail — don't render them as 0 there. */
   sessions_count?: number | null;
@@ -120,6 +123,9 @@ export interface Session {
   kits_count?: number;
   started_at?: string | null;
   completed_at?: string | null;
+  /** This session's own override, if it has one — NULL inherits the
+   *  cohort's (then the program's) duration. */
+  duration_hours?: number | null;
 }
 
 export interface GenerateSessionsResult {
