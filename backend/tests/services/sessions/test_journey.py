@@ -171,6 +171,46 @@ async def test_a_roles_own_description_is_combined_and_gets_its_own_version(db):
 
 
 @pytest.mark.asyncio
+async def test_cohort_override_beats_the_roles_own_default_text(db):
+    """A cohort's own wording for a role takes over from that role's default
+    description — the tier `cohort_openings.responsibilities_override` adds
+    ahead of it, same override-not-merge shape as everything else here."""
+    from app.models.sessions.cohort_opening import CohortOpening
+
+    await svc.set_responsibilities(db, "Arrive 30 minutes early.")
+    _program, cohort, _session = await _chain(db)
+    lead = DeliveryRole(id=uuid.uuid4(), name="Lead", sort_order=1, description="Carry the kit.")
+    db.add(lead)
+    await db.flush()
+
+    default_text, default_version, _ = await svc.get_responsibilities_for_role(db, lead.id)
+    assert "Carry the kit." in default_text
+
+    without_cohort_text, without_cohort_version, _ = await svc.get_responsibilities_for_role(
+        db, lead.id, cohort.id
+    )
+    assert (without_cohort_text, without_cohort_version) == (default_text, default_version), \
+        "no override set for this cohort yet — must resolve identically to the plain default"
+
+    db.add(CohortOpening(
+        id=uuid.uuid4(), cohort_id=cohort.id, role_id=lead.id,
+        responsibilities_override="This cohort uses the MPKit — assemble before Day 1.",
+    ))
+    await db.flush()
+
+    overridden_text, overridden_version, _ = await svc.get_responsibilities_for_role(db, lead.id, cohort.id)
+    assert "MPKit" in overridden_text and "Carry the kit." not in overridden_text, \
+        "the cohort override replaces the role's default text, it doesn't add to it"
+    assert "Arrive 30 minutes early." in overridden_text, "the general text still follows, unchanged"
+    assert overridden_version != default_version
+
+    # A different cohort with no override for this role is unaffected.
+    _p2, other_cohort, _s2 = await _chain(db)
+    other_text, other_version, _ = await svc.get_responsibilities_for_role(db, lead.id, other_cohort.id)
+    assert (other_text, other_version) == (default_text, default_version)
+
+
+@pytest.mark.asyncio
 async def test_accepting_is_checked_against_the_interests_own_role(db):
     """The version an instructor submits has to match *their* role's combined
     text — not the general text, and not another role's."""

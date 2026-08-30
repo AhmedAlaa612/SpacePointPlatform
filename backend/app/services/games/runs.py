@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.games.game import Game
 from app.models.games.run import GameAnswer, GameParticipant, GameRun
 from app.models.games.session_assignment import GameSessionAssignment, GameSessionQuestion
 from app.models.user import User
@@ -442,3 +443,36 @@ async def question_results(db: AsyncSession, *, run: GameRun, question: GameSess
         }
         for i, opt in enumerate(question.options)
     ]
+
+
+async def list_session_runs(db: AsyncSession, *, session_id: uuid.UUID) -> list[dict]:
+    """Every live-quiz run on this session, most recent first — the ops
+    Report tab's "did they actually run the games?" glance. One extra
+    query per run for participant count and the leaderboard's top score;
+    a session normally carries at most a handful of runs, so this is
+    nowhere near a hot path."""
+    rows = (await db.execute(
+        select(GameRun, GameSessionAssignment, Game)
+        .join(GameSessionAssignment, GameSessionAssignment.id == GameRun.assignment_id)
+        .join(Game, Game.id == GameSessionAssignment.game_id)
+        .where(GameSessionAssignment.session_id == session_id)
+        .order_by(GameRun.created_at.desc())
+    )).all()
+
+    out = []
+    for run, assignment, game in rows:
+        participant_count = await db.scalar(
+            select(func.count()).select_from(GameParticipant).where(GameParticipant.run_id == run.id)
+        ) or 0
+        leaderboard = await run_leaderboard(db, run.id)
+        out.append({
+            "run_id": run.id,
+            "game_name": game.title,
+            "run_no": run.run_no,
+            "status": run.status,
+            "participant_count": participant_count,
+            "top_score": leaderboard[0]["score"] if leaderboard else 0,
+            "current_question_position": run.current_question_position,
+            "total_questions": await count_questions(db, assignment.id),
+        })
+    return out

@@ -12,6 +12,15 @@ from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.session_report import SessionReport
 from app.models.sessions.activity import Activity, ActivityVersion, ActivityAssignment
 from app.models.sessions.cohort_call import CohortCall, CohortCallTarget
+from app.models.sessions.cohort_call_interest import CohortCallInterest
+from app.models.sessions.cohort_assignment import CohortInstructorAssignment
+from app.models.sessions.cohort_opening import CohortOpening
+from app.models.sessions.payment_coverage import PaymentSessionCoverage
+from app.models.sessions.checklist import (
+    DeliveryChecklistItem,
+    InstructorChecklistProgress,
+    InstructorSessionDay,
+)
 from app.models.sessions.session_call import SessionCall
 
 __all__ = [
@@ -35,5 +44,12 @@ __all__ = [
     "ActivityAssignment",
     "CohortCall",
     "CohortCallTarget",
+    "CohortCallInterest",
+    "CohortInstructorAssignment",
+    "CohortOpening",
+    "PaymentSessionCoverage",
+    "DeliveryChecklistItem",
+    "InstructorSessionDay",
+    "InstructorChecklistProgress",
     "SessionCall",
 ]

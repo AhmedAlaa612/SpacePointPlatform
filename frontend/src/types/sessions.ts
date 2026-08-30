@@ -53,6 +53,9 @@ export interface Cohort {
   effective_warehouse_id?: string | null;
   effective_warehouse_name?: string | null;
   capacity?: number | null;
+  /** How long each session runs, in hours. Every session in the cohort
+   *  inherits this unless it has its own override (see Session.duration_hours). */
+  duration_hours?: number | null;
   /** Operational counters, populated only by the LIST endpoint (the cohorts
    *  worklist). Undefined on cohort detail — don't render them as 0 there. */
   sessions_count?: number | null;
@@ -86,8 +89,8 @@ export interface SessionInstructor {
 
 /** The actual teaching unit inside a cohort — not just a date. A single-day
  * workshop is a cohort with exactly one Session; a multi-week course has
- * several, each with its own title, instructor(s), and (optionally) its own
- * price override. */
+ * several, each with its own title and instructor(s). Registration always
+ * prices off the program, never a per-session override (2026-08-30). */
 export interface Session {
   id: string;
   cohort_id: string;
@@ -95,7 +98,6 @@ export interface Session {
   starts_at?: string | null;
   title?: string | null;
   material_url?: string | null;
-  price?: number | null;
   // unstaffed|open_call|staffed — the W4 staffing marketplace pipeline.
   // Session-scoped, not cohort-scoped (a cohort with several sessions can
   // be partly staffed).
@@ -120,6 +122,9 @@ export interface Session {
   kits_count?: number;
   started_at?: string | null;
   completed_at?: string | null;
+  /** This session's own override, if it has one — NULL inherits the
+   *  cohort's (then the program's) duration. */
+  duration_hours?: number | null;
 }
 
 export interface GenerateSessionsResult {
@@ -135,6 +140,10 @@ export interface InstructorInterest {
   note?: string | null;
   role_id?: string | null;
   role_name?: string | null;
+  needs_transport?: boolean;
+  needs_ops_support?: boolean;
+  travelling_from_other_city?: boolean;
+  concerns?: string | null;
   created_at: string;
 }
 
@@ -154,6 +163,10 @@ export interface EligibleInstructor {
   /** 2026-08-08 — did this instructor mark the session's resolved city as
    * somewhere they're open to work? False if unresolvable. */
   available_in_city: boolean;
+  needs_transport?: boolean;
+  needs_ops_support?: boolean;
+  travelling_from_other_city?: boolean;
+  concerns?: string | null;
 }
 
 export interface SelectInstructorsResult {
@@ -176,6 +189,10 @@ export interface AvailableSession {
   interested_count: number;
   my_interest: boolean;
   my_note?: string | null;
+  my_needs_transport?: boolean;
+  my_needs_ops_support?: boolean;
+  my_travelling_from_other_city?: boolean;
+  my_concerns?: string | null;
 
   /** I5-5 — what an instructor needs to decide. None of this reached them
    *  before: they got a cohort name, a date and a place. */
@@ -211,12 +228,18 @@ export interface MySession {
    *  resolved server-side through `Location`/`City`. */
   location_address?: string | null;
   location_maps_url?: string | null;
+  location_city?: string | null;
   meeting_date: string;
   starts_at?: string | null;
   my_role: string;
   staffing_status: StaffingStatus;
   started_at?: string | null;
   completed_at?: string | null;
+  /** This instructor's own day record (2026-08-28) — all null/undefined
+   *  means they haven't checked in yet, same as day_status="draft". */
+  att_status?: InstructorAttendance | null;
+  checked_in_at?: string | null;
+  day_status?: "draft" | "submitted" | "changes_required" | "approved" | null;
 }
 
 /** V2 W6 S6-1 — one read-only event in the unified calendar. */
@@ -263,9 +286,21 @@ export interface RosterEntry {
   student_date_of_birth?: string | null;
   student_grade?: string | null;
   student_organization_name?: string | null;
+  student_user_id?: string | null;
   att_status?: AttendanceStatus | null;
   att_method?: "manual" | "qr" | null;
   recorded_at?: string | null;
+}
+
+/** Another instructor/facilitator on this same session, and whether
+ *  they've checked in yet — the Session Portal's "who's here" strip. */
+export interface Teammate {
+  user_id: string;
+  full_name: string;
+  role_name: string;
+  is_me: boolean;
+  att_status?: AttendanceStatus | null;
+  checked_in_at?: string | null;
 }
 
 export interface SessionDelivery {
@@ -288,6 +323,7 @@ export interface SessionDelivery {
   notes?: string | null;
   roster: RosterEntry[];
   reports: SessionReport[];
+  teammates: Teammate[];
 }
 
 export interface AttendanceResult {
@@ -419,4 +455,245 @@ export interface PublicTicket {
   ticket_token: string;
   status: string;
   checked_in: boolean;
+}
+
+/* ── Cohort-level staffing (2026-08-24) ──────────────────────────────────────
+ * Ops opens one call across a set of a cohort's sessions; the instructor
+ * answers it once, ticking the days they can do and picking a single role for
+ * the whole cohort. See backend/app/services/sessions/cohort_staffing.py. */
+
+export interface CohortCallSessionOption {
+  session_id: string;
+  title?: string | null;
+  meeting_date: string;
+  starts_at?: string | null;
+  /** Whether this instructor has already ticked it — the card comes back
+   *  showing their previous answer rather than a blank form. */
+  selected: boolean;
+  open_role_ids?: string[];
+}
+
+export interface AvailableCohortCall {
+  cohort_call_id: string;
+  cohort_id: string;
+  cohort_name: string;
+  program_name: string;
+  program_type?: string | null;
+  description?: string | null;
+  label?: string | null;
+  starts_on: string;
+  ends_on: string;
+  session_count: number;
+  location?: string | null;
+  location_city?: string | null;
+  location_address?: string | null;
+  location_map_url?: string | null;
+  interested_count: number;
+  sessions: CohortCallSessionOption[];
+  /** Summed across the call's sessions, so "1 of 3 left" is a cohort-scale
+   *  statement. `amount_aed` is the per-session rate. */
+  openings: {
+    role_id: string;
+    role_name: string;
+    role_description?: string | null;
+    slots: number;
+    remaining: number;
+    amount_aed?: number | null;
+    notes?: string | null;
+  }[];
+
+  my_interest: boolean;
+  my_role_id?: string | null;
+  my_note?: string | null;
+  my_needs_transport: boolean;
+  my_needs_ops_support: boolean;
+  my_travelling_from_other_city: boolean;
+  my_concerns?: string | null;
+}
+
+/** Two lists on purpose: a cohort call is one decision about a run of days,
+ *  while a session opened on its own is still a standalone offer. A session
+ *  never appears in both. */
+export interface AvailableWork {
+  cohort_calls: AvailableCohortCall[];
+  single_sessions: AvailableSession[];
+}
+
+export interface RegisterCohortInterestBody {
+  session_ids: string[];
+  role_id?: string | null;
+  note?: string | null;
+  needs_transport?: boolean;
+  needs_ops_support?: boolean;
+  travelling_from_other_city?: boolean;
+  concerns?: string | null;
+  responsibilities_version?: string | null;
+}
+
+/** One row of the ops applicant table — one instructor, not one session. */
+export interface CohortCallApplicant {
+  user_id: string;
+  full_name: string;
+  email: string;
+  role_id?: string | null;
+  role_name?: string | null;
+  session_ids: string[];
+  session_count: number;
+  note?: string | null;
+  needs_transport: boolean;
+  needs_ops_support: boolean;
+  travelling_from_other_city: boolean;
+  concerns?: string | null;
+  responsibilities_accepted_at?: string | null;
+  /** The cohort's city is one they already said they'd travel to. */
+  available_in_city: boolean;
+  status: string;
+  already_assigned: boolean;
+  created_at?: string | null;
+}
+
+export interface CohortAssignment {
+  id: string;
+  cohort_id: string;
+  user_id: string;
+  full_name: string;
+  email: string;
+  role_id: string;
+  role_name: string;
+  rate_basis: "per_session" | "flat";
+  rate_aed?: number | null;
+  flat_amount_aed?: number | null;
+  status: "active" | "withdrawn";
+  source: "call" | "direct";
+  session_count: number;
+  created_at?: string | null;
+}
+
+/* ── Instructor daily loop (2026-08-24) ──────────────────────────────────────
+ * Operations process doc §4-§12. See backend/app/services/sessions/day.py. */
+
+export type InstructorAttendance = "present" | "absent";
+export type DayStatus = "draft" | "submitted" | "changes_required" | "approved";
+
+export interface ChecklistItem {
+  id: string;
+  program_id?: string | null;
+  cohort_id?: string | null;
+  session_id?: string | null;
+  /** null = general (every role); set = only that role sees this item,
+   *  replacing the general list at this level rather than adding to it. */
+  role_id?: string | null;
+  title: string;
+  description?: string | null;
+  /** Can't be ticked off without a photo attached. */
+  requires_proof: boolean;
+  /** A non-required item is a prompt, not a gate. */
+  is_required: boolean;
+  sort_order: number;
+}
+
+export interface ChecklistLine {
+  item_id: string;
+  title: string;
+  description?: string | null;
+  requires_proof: boolean;
+  is_required: boolean;
+  sort_order: number;
+  is_done: boolean;
+  note?: string | null;
+  proof_report_id?: string | null;
+  /** Signed URL, minted per request — never stored. */
+  proof_url?: string | null;
+}
+
+export interface DayDetail {
+  day_id: string;
+  session_id: string;
+  user_id: string;
+  att_status?: InstructorAttendance | null;
+  absence_reason?: string | null;
+  checked_in_at?: string | null;
+  status: DayStatus;
+  submitted_at?: string | null;
+  reviewed_at?: string | null;
+  review_comment?: string | null;
+  instructor_notes?: string | null;
+  checklist: ChecklistLine[];
+  can_submit: boolean;
+  /** Everything still outstanding, so it can be shown at once rather than one
+   *  failed submit at a time. */
+  missing: string[];
+}
+
+/** One card in the ops Day Reviews queue. */
+export interface DayReview {
+  day_id: string;
+  session_id: string;
+  cohort_id: string;
+  cohort_name: string;
+  program_name: string;
+  session_title?: string | null;
+  meeting_date: string;
+  user_id: string;
+  full_name: string;
+  att_status?: InstructorAttendance | null;
+  absence_reason?: string | null;
+  checked_in_at?: string | null;
+  status: DayStatus;
+  submitted_at?: string | null;
+  review_comment?: string | null;
+  instructor_notes?: string | null;
+  checklist_done: number;
+  checklist_total: number;
+}
+
+/** One assigned instructor's state on a Running card — checked in or not,
+ *  checklist progress, and whether they've submitted. `day_status` is
+ *  `null` for someone who hasn't touched anything yet. */
+export interface BoardInstructor {
+  user_id: string;
+  full_name: string;
+  checklist_done: number;
+  checklist_total: number;
+  att_status?: InstructorAttendance | null;
+  checked_in_at?: string | null;
+  day_status?: DayStatus | null;
+}
+
+/** One session on the ops board — Running/Done, not Needs Review (that's
+ *  DayReview, above, from the existing queue). */
+export interface BoardSession {
+  session_id: string;
+  cohort_id: string;
+  cohort_name: string;
+  program_name: string;
+  title?: string | null;
+  location?: string | null;
+  meeting_date: string;
+  starts_at?: string | null;
+  staffing_status: StaffingStatus;
+  started_at?: string | null;
+  completed_at?: string | null;
+  /** Populated for Running and Done — a session can be marked done while an
+   *  instructor's own report is still unfinished. */
+  instructors: BoardInstructor[];
+}
+
+export interface SessionBoard {
+  running: BoardSession[];
+  done: BoardSession[];
+  /** Total Done sessions that exist, not just this page. */
+  done_total: number;
+}
+
+/** One live-quiz run's summary for the ops Report tab. */
+export interface SessionGameRun {
+  run_id: string;
+  game_name: string;
+  run_no: number;
+  status: "lobby" | "live" | "ended";
+  participant_count: number;
+  top_score: number;
+  current_question_position?: number | null;
+  total_questions: number;
 }

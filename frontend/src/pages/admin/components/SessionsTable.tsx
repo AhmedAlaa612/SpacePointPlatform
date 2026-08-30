@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { ArrowDown, ArrowUp, CheckCircle2 } from "lucide-react"
+import { ArrowDown, ArrowUp, CheckCircle2, Pencil } from "lucide-react"
 import type { Session, StaffingStatus } from "@/types/sessions"
 import { EmptyState } from "@/pages/admin/components/common"
+import { EditSessionModal } from "@/pages/admin/components/EditSessionModal"
 import { cn } from "@/lib/utils"
 
 const STAFFING_STATUS_LABEL: Record<StaffingStatus, string> = {
@@ -70,6 +71,7 @@ export function SessionsTable({
   const navigate = useNavigate()
   const [sortKey, setSortKey] = useState<SortKey>("date")
   const [sortDir, setSortDir] = useState<SortDir>("asc")
+  const [editingSession, setEditingSession] = useState<Session | null>(null)
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -123,6 +125,7 @@ export function SessionsTable({
               Kits
             </th>
             <SortHeader label="Location / warehouse" k="location" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            <th className="w-10 px-2 py-2" />
           </tr>
         </thead>
         <tbody>
@@ -149,7 +152,7 @@ export function SessionsTable({
                 </td>
                 <td className="px-3 py-2 min-w-[10rem] text-foreground">
                   <div className="flex flex-col gap-0.5">
-                    <span>{s.title || "—"}</span>
+                    <span className="font-medium">{s.title || "—"}</span>
                     {s.instructors.length > 0 && (
                       <span className="text-xs text-muted-foreground">
                         {s.instructors.map((i) => `${i.full_name} (${i.role})`).join(", ")}
@@ -205,11 +208,29 @@ export function SessionsTable({
                     </span>
                   ) : null}
                 </td>
+                <td className="px-2 py-2 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => setEditingSession(s)}
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                    title="Edit session details & title"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                </td>
               </tr>
             )
           })}
         </tbody>
       </table>
+
+      {editingSession && (
+        <EditSessionModal
+          cohortId={cohortId}
+          session={editingSession}
+          onClose={() => setEditingSession(null)}
+        />
+      )}
     </div>
   )
 }

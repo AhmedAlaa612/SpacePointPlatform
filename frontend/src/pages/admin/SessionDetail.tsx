@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { ArrowLeft, MapPin, Trash2, Warehouse } from "lucide-react"
+import { ArrowLeft, Bus, ChevronDown, ChevronRight, Download, FileText, Gamepad2, MapPin, Pencil, Plane, Trash2, Warehouse } from "lucide-react"
 import type {
   Cohort, Session, StaffingStatus, EligibleInstructor, AttendanceStatus, SessionDelivery,
 } from "@/types/sessions"
@@ -10,6 +10,7 @@ import { SessionKitAssignment } from "@/pages/admin/components/SessionKitAssignm
 import { SessionOpeningsPanel } from "@/pages/admin/components/SessionOpeningsPanel"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { GameAssignmentPanel } from "@/pages/admin/components/GameAssignmentPanel"
+import { EditSessionModal } from "@/pages/admin/components/EditSessionModal"
 import {
   getCohortApi, getSessionsApi, updateSessionApi, assignInstructorApi, unassignInstructorApi, deleteSessionApi,
   getSessionHistoryApi,
@@ -20,12 +21,16 @@ import {
 } from "@/api/sessions/staffing"
 import { getDeliveryRolesApi, getOpeningsApi } from "@/api/sessions/openings"
 import { getSessionDeliveryApi, markAttendanceApi } from "@/api/sessions/delivery"
-import { Modal, Field, ConfirmDialog, Spinner, PageHeader } from "@/pages/admin/components/common"
+import { listSessionGameRunsApi } from "@/api/sessions/day"
+import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPanel"
+import { Modal, ConfirmDialog, IconBadge, Spinner, PageHeader } from "@/pages/admin/components/common"
 import { InheritedFrom } from "@/pages/admin/components/InheritedFrom"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { useToast } from "@/components/ui/toast"
 import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+
+import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
 
 const STAFFING_STATUS_LABEL: Record<StaffingStatus, string> = {
   unstaffed: "Unstaffed",
@@ -95,16 +100,25 @@ export default function SessionDetail() {
   )
 }
 
+type SessionTab = "setup" | "roles" | "staffing" | "attendance" | "report"
+
+const SESSION_TABS: { key: SessionTab; label: string }[] = [
+  { key: "setup", label: "Setup" },
+  { key: "roles", label: "Roles" },
+  { key: "staffing", label: "Staffing" },
+  { key: "attendance", label: "Attendance" },
+  { key: "report", label: "Report" },
+]
+
 function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
   cohort: Cohort; session: Session; onChanged: () => void; onDeleted: () => void
 }) {
   const toast = useToast()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<"setup" | "attendance" | "history">("setup")
+  const [activeTab, setActiveTab] = useState<SessionTab>("setup")
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const [title, setTitle] = useState(session.title ?? "")
-  const [price, setPrice] = useState(session.price != null ? String(session.price) : "")
+  const [editModalOpen, setEditModalOpen] = useState(false)
   const [locationId, setLocationId] = useState(session.location_id ?? "")
   const [warehouseId, setWarehouseId] = useState(session.warehouse_id ?? "")
   const { data: locations = [] } = useQuery({ queryKey: ["inv-locations"], queryFn: () => getLocationsApi() })
@@ -120,13 +134,11 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
 
   const saveMutation = useMutation({
     mutationFn: () => updateSessionApi(cohort.id, session.id, {
-      title: title.trim() || null,
-      price: price.trim() ? Number(price) : null,
       location_id: locationId || null,
       warehouse_id: warehouseId || null,
     }),
-    onSuccess: () => { setError(""); toast.success("Session saved"); onChanged() },
-    onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to save session"),
+    onSuccess: () => { setError(""); toast.success("Location & warehouse saved"); onChanged() },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to save location & warehouse"),
   })
 
   const deleteMutation = useMutation({
@@ -154,51 +166,47 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
       </Link>
 
       <PageHeader
-        title={`Session — ${session.meeting_date}`}
-        subtitle={`${cohort.name}${session.starts_at ? ` · ${session.starts_at.slice(0, 5)}` : ""}`}
+        title={session.title ? session.title : `Session — ${session.meeting_date}`}
+        subtitle={`${cohort.name} · ${session.meeting_date}${session.starts_at ? ` · ${session.starts_at.slice(0, 5)}` : ""}`}
+        action={
+          <button
+            onClick={() => setEditModalOpen(true)}
+            className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
+          >
+            <Pencil size={14} /> Edit session
+          </button>
+        }
       />
 
+      {editModalOpen && (
+        <EditSessionModal
+          cohortId={cohort.id}
+          session={session}
+          onClose={() => setEditModalOpen(false)}
+          onSaved={onChanged}
+        />
+      )}
+
       {/* Tabs Navigation */}
-      <div className="flex border-b border-border gap-2">
-        <button
-          onClick={() => setActiveTab("setup")}
-          className={cn(
-            "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",
-            activeTab === "setup"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Setup &amp; Staffing
-        </button>
-        <button
-          onClick={() => setActiveTab("attendance")}
-          className={cn(
-            "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",
-            activeTab === "attendance"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Attendance
-        </button>
-        <button
-          onClick={() => setActiveTab("history")}
-          className={cn(
-            "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px",
-            activeTab === "history"
-              ? "border-primary text-primary"
-              : "border-transparent text-muted-foreground hover:text-foreground"
-          )}
-        >
-          Session History
-        </button>
+      <div className="flex border-b border-border gap-2 overflow-x-auto">
+        {SESSION_TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setActiveTab(t.key)}
+            className={cn(
+              "px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px whitespace-nowrap",
+              activeTab === t.key
+                ? "border-primary text-primary font-semibold"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
 
       {activeTab === "setup" && (
-        <>
-          <StaffingSection cohort={cohort} session={session} onChanged={onChanged} />
-
+        <div className="flex flex-col gap-4">
           <Card className="px-4">
             <SessionKitAssignment
               sessionId={session.id}
@@ -221,85 +229,68 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
             <GameAssignmentPanel sessionId={session.id} />
           </Card>
 
-          <details className="rounded-2xl border border-border bg-card group">
-            <summary className="flex items-center justify-between gap-2 px-4 py-3 cursor-pointer select-none list-none">
-              <span className="text-sm font-semibold text-foreground">Session details &amp; overrides</span>
-              <span className="text-xs text-muted-foreground">Title, price, location, what it offers</span>
-            </summary>
-            <div className="flex flex-col gap-3 px-4 pb-4 pt-1 border-t border-border">
-              <Field label="Title (optional)">
-                <input
-                  value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Intro to Orbits"
-                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-                />
-              </Field>
-              <Field label="Price override (optional)">
-                <input
-                  value={price} onChange={(e) => setPrice(e.target.value)} type="number" placeholder="Leave blank to use the program price"
-                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-                />
-              </Field>
-
-              <div className="rounded-2xl border border-border bg-card p-4 flex flex-col gap-4">
-                <p className="text-sm font-semibold text-foreground">Location &amp; warehouse</p>
-
-                <div className="flex flex-col gap-1.5">
-                  <InheritedFrom
-                    label="Location"
-                    icon={<MapPin size={12} />}
-                    overridden={!!locationId}
-                    using={session.effective_location_name ?? "No location set"}
-                    onRevert={() => { setLocationId(""); setWarehouseId("") }}
-                    hint="Only set this when this specific session meets somewhere other than usual."
-                  />
-                  <select
-                    value={locationId}
-                    onChange={(e) => { setLocationId(e.target.value); setWarehouseId("") }}
-                    className="h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
-                  >
-                    <option value="">
-                      {cohort.location_name ? `Use cohort default (${cohort.location_name})` : "Use cohort default (none set)"}
-                    </option>
-                    {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                  </select>
-                </div>
-
-                {warehousePickerLocationId && (
-                  <div className="flex flex-col gap-1.5 border-t border-border pt-4">
-                    <InheritedFrom
-                      label="Warehouse"
-                      icon={<Warehouse size={12} />}
-                      overridden={!!warehouseId}
-                      autoResolved={!!locationId}
-                      using={session.effective_warehouse_name ?? "Not resolved yet"}
-                      onRevert={() => setWarehouseId("")}
-                      hint="Which warehouse this session's equipment comes from — only set it when that differs from the cohort's."
-                    />
-                    <select
-                      value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}
-                      className="h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
-                    >
-                      <option value="">
-                        {cohort.effective_warehouse_name && !locationId
-                          ? `Inherit (${cohort.effective_warehouse_name})` : "Resolve automatically"}
-                      </option>
-                      {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-                    </select>
-                  </div>
-                )}
-              </div>
-              {error && <p className="text-xs text-red-500">{error}</p>}
-              <button
-                onClick={() => saveMutation.mutate()}
-                disabled={saveMutation.isPending}
-                className="w-fit h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
-              >
-                {saveMutation.isPending ? "Saving…" : "Save details"}
-              </button>
-
-              <SessionOpeningsPanel sessionId={session.id} />
+          <Card className="p-4 flex flex-col gap-4">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Location &amp; warehouse</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Set location or warehouse overrides for this specific session. Leave blank to inherit from cohort defaults.
+              </p>
             </div>
-          </details>
+
+            <div className="flex flex-col gap-1.5">
+              <InheritedFrom
+                label="Location"
+                icon={<MapPin size={12} />}
+                overridden={!!locationId}
+                using={session.effective_location_name ?? "No location set"}
+                onRevert={() => { setLocationId(""); setWarehouseId("") }}
+                hint="Only set this when this specific session meets somewhere other than usual."
+              />
+              <select
+                value={locationId}
+                onChange={(e) => { setLocationId(e.target.value); setWarehouseId("") }}
+                className="h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+              >
+                <option value="">
+                  {cohort.location_name ? `Use cohort default (${cohort.location_name})` : "Use cohort default (none set)"}
+                </option>
+                {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </div>
+
+            {warehousePickerLocationId && (
+              <div className="flex flex-col gap-1.5 border-t border-border pt-4">
+                <InheritedFrom
+                  label="Warehouse"
+                  icon={<Warehouse size={12} />}
+                  overridden={!!warehouseId}
+                  autoResolved={!!locationId}
+                  using={session.effective_warehouse_name ?? "Not resolved yet"}
+                  onRevert={() => setWarehouseId("")}
+                  hint="Which warehouse this session's equipment comes from — only set it when that differs from the cohort's."
+                />
+                <select
+                  value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)}
+                  className="h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+                >
+                  <option value="">
+                    {cohort.effective_warehouse_name && !locationId
+                      ? `Inherit (${cohort.effective_warehouse_name})` : "Resolve automatically"}
+                  </option>
+                  {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            {error && <p className="text-xs text-red-500">{error}</p>}
+            <button
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending}
+              className="w-fit h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+            >
+              {saveMutation.isPending ? "Saving…" : "Save location & warehouse"}
+            </button>
+          </Card>
 
           <div className="border-t border-border pt-3 mt-1 flex justify-end">
             <button
@@ -310,15 +301,30 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
               <Trash2 size={13} /> Delete this session
             </button>
           </div>
-        </>
+        </div>
+      )}
+
+      {activeTab === "roles" && (
+        <div className="flex flex-col gap-4">
+          <Card className="p-4">
+            <SessionOpeningsPanel sessionId={session.id} />
+          </Card>
+          <Card className="p-4">
+            <CohortRolesPanel cohort={cohort} sessionId={session.id} />
+          </Card>
+        </div>
+      )}
+
+      {activeTab === "staffing" && (
+        <StaffingSection cohort={cohort} session={session} onChanged={onChanged} />
       )}
 
       {activeTab === "attendance" && (
         <SessionAttendanceRosterSection sessionId={session.id} />
       )}
 
-      {activeTab === "history" && (
-        <SessionHistoryPanel sessionId={session.id} />
+      {activeTab === "report" && (
+        <SessionReportTab sessionId={session.id} />
       )}
 
       {deleteConfirmOpen && (
@@ -712,9 +718,20 @@ function StaffingSection({ cohort, session, onChanged }: {
                         {u.interest_role_name && (
                           <p className="text-[11px] text-primary/80 truncate">Applied for: {u.interest_role_name}</p>
                         )}
+                        {(u.needs_transport || u.travelling_from_other_city) && (
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {u.needs_transport && <IconBadge icon={Bus} label="needs transport" />}
+                            {u.travelling_from_other_city && <IconBadge icon={Plane} label="another city" />}
+                          </div>
+                        )}
                         {u.note && (
                           <p className="text-xs text-foreground/90 italic bg-muted/50 px-2.5 py-1 rounded-lg mt-1 border border-border/50">
                             "{u.note}"
+                          </p>
+                        )}
+                        {u.concerns && (
+                          <p className="text-xs text-foreground/90 whitespace-pre-line bg-muted/50 px-2.5 py-1 rounded-lg mt-1 border border-border/50">
+                            {u.concerns}
                           </p>
                         )}
                       </div>
@@ -1105,17 +1122,114 @@ function TargetedOpenCallModal({
   )
 }
 
-function SessionHistoryPanel({ sessionId }: { sessionId: string }) {
-  const { data: history, isLoading, error } = useQuery({
+/** The Report tab (renamed from History, 2026-08-30): instructor reports
+ *  lead, file uploads next, the old audit-only view now a secondary
+ *  collapsible strip underneath rather than the whole tab. */
+function SessionReportTab({ sessionId }: { sessionId: string }) {
+  const { data: history } = useQuery({
     queryKey: ["session-history", sessionId],
     queryFn: () => getSessionHistoryApi(sessionId),
   })
 
-  if (isLoading) return <Spinner />
-  if (error || !history) {
-    return <p className="text-xs text-muted-foreground p-4">Could not load session history.</p>
-  }
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <h2 className="text-sm font-semibold text-foreground">Instructor checklists</h2>
+        <Card className="px-4">
+          <CohortDayReviewsPanel sessionId={sessionId} embedded />
+        </Card>
+      </div>
 
+      <div className="space-y-2">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">File uploads</h2>
+          <p className="text-xs text-muted-foreground">Photos of the day and any relevant documents instructors submitted.</p>
+        </div>
+        <Card className="p-4">
+          {!history ? (
+            <Spinner />
+          ) : history.post_session.reports.length === 0 ? (
+            <p className="text-xs text-muted-foreground italic">Nothing uploaded yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {history.post_session.reports.map((r) => (
+                <div key={r.id} className="p-3 bg-muted/20 border border-border rounded-xl flex items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                      <FileText size={14} />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-foreground">
+                        {r.actor_name} ({r.actor_role})
+                        {r.created_at && (
+                          <span className="text-muted-foreground font-normal">
+                            {" "}· {new Date(r.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                          </span>
+                        )}
+                      </p>
+                      {r.notes && <p className="text-muted-foreground italic truncate">&quot;{r.notes}&quot;</p>}
+                    </div>
+                  </div>
+                  <a
+                    href={r.file_url} target="_blank" rel="noreferrer"
+                    className="flex items-center gap-1 text-primary font-medium shrink-0 hover:underline"
+                  >
+                    <Download size={12} /> Download
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      <SessionActivitySection sessionId={sessionId} />
+    </div>
+  )
+}
+
+/** Collapsed by default — the old dry audit log (equipment, kit counts,
+ *  attendance totals, live quiz runs), kept for oversight but no longer the
+ *  headline now that instructor reports lead the tab. */
+function SessionActivitySection({ sessionId }: { sessionId: string }) {
+  const [open, setOpen] = useState(false)
+  const { data: history, isLoading, error } = useQuery({
+    queryKey: ["session-history", sessionId],
+    queryFn: () => getSessionHistoryApi(sessionId),
+    enabled: open,
+  })
+  const { data: runs } = useQuery({
+    queryKey: ["session-game-runs", sessionId],
+    queryFn: () => listSessionGameRunsApi(sessionId),
+    enabled: open,
+  })
+
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+      >
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        Warehouse &amp; session activity
+      </button>
+
+      {open && (
+        isLoading || !history ? (
+          error ? <p className="text-xs text-muted-foreground">Could not load session activity.</p> : <Spinner />
+        ) : (
+          <SessionActivityDetail history={history} runs={runs ?? []} />
+        )
+      )}
+    </div>
+  )
+}
+
+function SessionActivityDetail({ history, runs }: {
+  history: Awaited<ReturnType<typeof getSessionHistoryApi>>
+  runs: Awaited<ReturnType<typeof listSessionGameRunsApi>>
+}) {
   const { pre_session, during_session, post_session, notes } = history
 
   return (
@@ -1257,31 +1371,46 @@ function SessionHistoryPanel({ sessionId }: { sessionId: string }) {
           )}
         </div>
 
-        <div className="space-y-3 pt-2">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Uploaded Reports &amp; Photos</p>
-          {post_session.reports.length === 0 ? (
-            <p className="text-xs text-muted-foreground italic">No session reports uploaded.</p>
-          ) : (
-            <div className="space-y-2">
-              {post_session.reports.map((r) => (
-                <div key={r.id} className="p-3 bg-muted/20 border border-border rounded-xl flex items-center justify-between gap-2 text-xs">
-                  <div>
-                    <span className="font-semibold text-foreground">{r.actor_name} ({r.actor_role})</span>
-                    {r.notes && <p className="text-muted-foreground italic mt-0.5">&quot;{r.notes}&quot;</p>}
-                  </div>
-                  <a
-                    href={r.file_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="px-3 py-1.5 bg-primary text-primary-foreground font-medium rounded-lg text-xs hover:opacity-90 transition-opacity shrink-0"
-                  >
-                    Download report
-                  </a>
-                </div>
-              ))}
-            </div>
-          )}
+      </Card>
+
+      {/* Live Quiz Runs */}
+      <Card className="p-5 space-y-3">
+        <div className="flex items-center gap-2 border-b border-border pb-3">
+          <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" />
+          <h3 className="text-sm font-semibold text-foreground">Live Quiz Runs</h3>
         </div>
+        {runs.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">No live quiz was run for this session.</p>
+        ) : (
+          <div className="space-y-2">
+            {runs.map((run) => (
+              <div key={run.run_id} className="p-3 bg-muted/20 border border-border rounded-xl flex items-center justify-between gap-2 text-xs">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Gamepad2 size={13} className="text-indigo-500 shrink-0" />
+                  <span className="font-semibold text-foreground truncate">{run.game_name} — run {run.run_no}</span>
+                </div>
+                <div className="flex items-center gap-3 text-muted-foreground shrink-0">
+                  <span>{run.participant_count} participants</span>
+                  <span>
+                    {run.status === "live"
+                      ? `question ${run.current_question_position ?? "?"} of ${run.total_questions}`
+                      : `top score ${run.top_score}`}
+                  </span>
+                  <span className={cn(
+                    "px-2 py-0.5 rounded-full font-semibold",
+                    run.status === "ended"
+                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400"
+                      : run.status === "live"
+                        ? "bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-400"
+                        : "bg-muted text-muted-foreground",
+                  )}>
+                    {run.status === "ended" ? "Ended" : run.status === "live" ? "Live" : "Lobby"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Card>
     </div>
   )

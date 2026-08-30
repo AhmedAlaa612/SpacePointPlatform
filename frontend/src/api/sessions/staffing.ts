@@ -8,7 +8,11 @@ import type {
   EligibleInstructor,
   SelectInstructorsResult,
   AvailableSession,
+  AvailableWork,
+  CohortAssignment,
+  CohortCallApplicant,
   MySession,
+  RegisterCohortInterestBody,
   StaffingStatus,
 } from "@/types/sessions"
 import type { BulkActionResult } from "@/api/sessions/cohorts"
@@ -116,8 +120,17 @@ export const closeOneCallApi = (sessionId: string, callId: string, clearInterest
 
 // ── Instructor/facilitator: register / withdraw interest ───────────────────
 
-export const registerInterestApi = (sessionId: string, note?: string, roleId?: string | null) =>
-  api.post<InstructorInterest>(`/sessions/${sessionId}/staffing/interest`, { note, role_id: roleId ?? null }).then((r) => r.data)
+/** Re-posting replaces the previous answer — same "changing your answer is
+ *  normal, not an error" contract `registerCohortInterestApi` uses below. */
+export const registerInterestApi = (sessionId: string, body: {
+  note?: string | null
+  role_id?: string | null
+  needs_transport?: boolean
+  needs_ops_support?: boolean
+  travelling_from_other_city?: boolean
+  concerns?: string | null
+}) =>
+  api.post<InstructorInterest>(`/sessions/${sessionId}/staffing/interest`, body).then((r) => r.data)
 
 export const withdrawInterestApi = (sessionId: string) =>
   api.delete(`/sessions/${sessionId}/staffing/interest`).then((r) => r.data)
@@ -137,3 +150,66 @@ export const listEligibleInstructorsApi = (sessionId: string) =>
  *  still register interest while ops assigns people one at a time. */
 export const selectInstructorsApi = (sessionId: string, userIds: string[], roleId?: string, closeCall = true) =>
   api.post<SelectInstructorsResult>(`/sessions/${sessionId}/staffing/select`, { user_ids: userIds, role_id: roleId ?? null, close_call: closeCall }).then((r) => r.data)
+
+/* ── Cohort-level staffing (2026-08-24) ──────────────────────────────────────
+ * The cohort layer over the session-scoped marketplace above: ops opens one
+ * call across a set of sessions, the instructor answers it once, and ops picks
+ * from one table instead of N. Mirrors the routes added in
+ * backend/app/routers/sessions/staffing.py. */
+
+/** Everything this instructor can apply for: cohort cards plus any session
+ *  opened on its own. A session never appears in both lists.
+ *  `listAvailableSessionsApi` above still works and is unchanged — this is
+ *  additive, so nothing breaks mid-release. */
+export const listAvailableWorkApi = () =>
+  api.get<AvailableWork>("/sessions/available-work").then((r) => r.data)
+
+/** One answer to a cohort call. Re-posting replaces the previous answer —
+ *  changing which days you can do is the normal case, not an error. */
+export const registerCohortInterestApi = (
+  cohortId: string, cohortCallId: string, body: RegisterCohortInterestBody,
+) =>
+  api.post<CohortCallApplicant>(
+    `/sessions/cohorts/${cohortId}/staffing/calls/${cohortCallId}/interest`, body,
+  ).then((r) => r.data)
+
+export const withdrawCohortInterestApi = (cohortId: string, cohortCallId: string) =>
+  api.delete(
+    `/sessions/cohorts/${cohortId}/staffing/calls/${cohortCallId}/interest`,
+  ).then((r) => r.data)
+
+/** The ops applicant table — one row per instructor, with the days they
+ *  ticked and their support requirements. */
+export const listCohortApplicantsApi = (cohortId: string, cohortCallId: string) =>
+  api.get<CohortCallApplicant[]>(
+    `/sessions/cohorts/${cohortId}/staffing/calls/${cohortCallId}/interest`,
+  ).then((r) => r.data)
+
+/** Assign people to a cohort in one action. Omit `role_id` to use whichever
+ *  role each applicant asked for; omit `session_ids` to give each of them
+ *  exactly the days they ticked. 409s (naming the clash) if somebody already
+ *  holds a different role in this cohort. */
+export const selectForCohortApi = (cohortId: string, body: {
+  user_ids: string[]
+  role_id?: string | null
+  session_ids?: string[] | null
+  cohort_call_id?: string | null
+  close_call?: boolean
+  rate_basis?: "per_session" | "flat"
+  flat_amount_aed?: number | null
+}) => api.post<{
+  user_id: string; role_id: string; session_ids: string[]
+  rate_aed: number | null; rate_basis: string; flat_amount_aed: number | null
+}[]>(`/sessions/cohorts/${cohortId}/staffing/select`, body).then((r) => r.data)
+
+export const listCohortAssignmentsApi = (cohortId: string) =>
+  api.get<CohortAssignment[]>(
+    `/sessions/cohorts/${cohortId}/staffing/assignments`,
+  ).then((r) => r.data)
+
+/** Marks the assignment withdrawn (never deletes it — that they were staffed
+ *  is part of the record) and drops their session rows. */
+export const removeCohortAssignmentApi = (cohortId: string, userId: string) =>
+  api.delete(
+    `/sessions/cohorts/${cohortId}/staffing/assignments/${userId}`,
+  ).then((r) => r.data)

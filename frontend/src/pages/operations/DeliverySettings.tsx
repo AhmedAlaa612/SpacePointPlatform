@@ -137,6 +137,33 @@ export default function DeliverySettings() {
                   update.mutate({ id: r.id, description: e.target.value || null })}
                 className="w-full px-2 py-1.5 border border-border bg-background text-foreground rounded-lg text-xs resize-y"
               />
+              {/* The global tier of the rate hierarchy (2026-08-24): a cohort
+                  or a single session can still override it, but this is what
+                  applies when neither does. Clearing the box sends an explicit
+                  clear rather than an omitted field — "" and "untouched" are
+                  otherwise indistinguishable to the API. */}
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="shrink-0">Default rate</span>
+                <span className="shrink-0 text-[11px]">AED</span>
+                <input
+                  type="number" min={0} step="1"
+                  defaultValue={r.default_rate_aed ?? ""}
+                  placeholder="not set"
+                  onBlur={(e) => {
+                    const raw = e.target.value.trim()
+                    const current = r.default_rate_aed ?? null
+                    const next = raw === "" ? null : Number(raw)
+                    if (next === current) return
+                    update.mutate(
+                      next === null
+                        ? { id: r.id, clear_default_rate: true }
+                        : { id: r.id, default_rate_aed: next },
+                    )
+                  }}
+                  className="w-28 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-xs tabular-nums"
+                />
+                <span className="text-[11px]">per session</span>
+              </label>
             </div>
           ))}
         </div>

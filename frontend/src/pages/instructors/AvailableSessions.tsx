@@ -1,29 +1,66 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Calendar, Clock, ExternalLink, MapPin, Users } from "lucide-react"
-import { listAvailableSessionsApi, registerInterestApi, withdrawInterestApi } from "@/api/sessions/staffing"
+import { listAvailableWorkApi, registerInterestApi, withdrawInterestApi } from "@/api/sessions/staffing"
 import { acceptResponsibilitiesApi, getResponsibilitiesApi } from "@/api/sessions/openings"
 import type { AvailableSession } from "@/types/sessions"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { SessionsSubNav } from "@/components/layout/SessionsSubNav"
+import { getErrorMessage } from "@/lib/utils"
+import CohortCallCard from "@/pages/instructors/components/CohortCallCard"
+import {
+  ApplyFooter,
+  ResponsibilitiesDetails,
+  RoleOpeningsPicker,
+  SupportQuestionsPanel,
+} from "@/pages/instructors/components/CallFormParts"
 
+/**
+ * Two groups, not one flat list (2026-08-24). A cohort call is a single
+ * decision about a run of days — one role, the days you can do — so it gets a
+ * card of its own. A session opened on its own is still a standalone offer and
+ * keeps the original card. The server guarantees a session appears in exactly
+ * one of the two lists, so nothing is offered twice.
+ */
 export default function AvailableSessions() {
-  const sessions = useQuery({ queryKey: ["staffing-available-sessions"], queryFn: listAvailableSessionsApi })
+  const work = useQuery({ queryKey: ["available-work"], queryFn: listAvailableWorkApi })
 
-  if (sessions.isLoading) return <Spinner />
+  if (work.isLoading) return <Spinner />
+
+  const cohortCalls = work.data?.cohort_calls ?? []
+  const singles = work.data?.single_sessions ?? []
+  const nothing = cohortCalls.length === 0 && singles.length === 0
 
   return (
     <div>
       <SessionsSubNav activeTab="available" />
-      <PageHeader title="Available Sessions" subtitle="Sessions open for interest — register for the ones you'd like to teach." />
+      <PageHeader
+        title="Available Work"
+        subtitle="Open calls you can register for — pick a role and the days you can deliver."
+      />
 
-      {(sessions.data ?? []).length === 0 ? (
-        <EmptyState title="No sessions open right now" hint="Check back once ops opens a call for a session." />
+      {nothing ? (
+        <EmptyState title="Nothing open right now" hint="Check back once ops opens a call." />
       ) : (
-        <div className="space-y-3">
-          {sessions.data!.map((s) => <SessionCard key={s.session_id} s={s} />)}
+        <div className="space-y-6">
+          {cohortCalls.length > 0 && (
+            <div className="space-y-3">
+              {cohortCalls.map((c) => <CohortCallCard key={c.cohort_call_id} c={c} />)}
+            </div>
+          )}
+
+          {singles.length > 0 && (
+            <div className="space-y-3">
+              {cohortCalls.length > 0 && (
+                <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Single sessions
+                </h2>
+              )}
+              {singles.map((s) => <SessionCard key={s.session_id} s={s} />)}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -33,10 +70,19 @@ export default function AvailableSessions() {
 /** One session's offer, own its own role selection and responsibilities —
  *  each pulls the combined text for whichever role is currently picked
  *  (general text + that role's own description), not one generic block
- *  shared across every role a session offers. */
+ *  shared across every role a session offers.
+ *
+ *  Shares its form parts with CohortCallCard (2026-08-30) — this used to be
+ *  a lighter, older design that never got the operations process doc §2
+ *  support questions or the collapsible responsibilities block the cohort
+ *  form gained on 2026-08-24. */
 function SessionCard({ s }: { s: AvailableSession }) {
   const qc = useQueryClient()
-  const [note, setNote] = useState("")
+  const [note, setNote] = useState(s.my_note ?? "")
+  const [concerns, setConcerns] = useState(s.my_concerns ?? "")
+  const [needsTransport, setNeedsTransport] = useState(s.my_needs_transport ?? false)
+  const [travelling, setTravelling] = useState(s.my_travelling_from_other_city ?? false)
+  const [respOpen, setRespOpen] = useState(false)
   const [agreed, setAgreed] = useState(false)
   const [error, setError] = useState("")
   // B1: which opening they're applying for. Defaults to the first role a
@@ -52,7 +98,11 @@ function SessionCard({ s }: { s: AvailableSession }) {
 
   const register = useMutation({
     mutationFn: async () => {
-      await registerInterestApi(s.session_id, note, roleId)
+      await registerInterestApi(s.session_id, {
+        note: note || null, role_id: roleId,
+        needs_transport: needsTransport, needs_ops_support: false,
+        travelling_from_other_city: travelling, concerns: concerns || null,
+      })
       // Recorded against the version that was on screen — the server refuses
       // a stale one rather than accepting agreement to unread wording.
       if (responsibilities.data?.text) {
@@ -61,17 +111,32 @@ function SessionCard({ s }: { s: AvailableSession }) {
     },
     onSuccess: () => {
       setError("")
-      qc.invalidateQueries({ queryKey: ["staffing-available-sessions"] })
+      qc.invalidateQueries({ queryKey: ["available-work"] })
     },
-    onError: (e: any) =>
-      setError(e?.response?.data?.detail ?? "Could not register your interest"),
+    onError: (e) => setError(getErrorMessage(e, "Could not register your interest")),
   })
   const withdraw = useMutation({
     mutationFn: () => withdrawInterestApi(s.session_id),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["staffing-available-sessions"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["available-work"] }),
   })
 
   const pending = register.isPending || withdraw.isPending
+
+  const handleApply = () => {
+    setError("")
+    if (s.openings.length > 0 && !roleId) {
+      setError("Please pick a role above before applying.")
+      return
+    }
+    if (responsibilities.data?.text && !agreed) {
+      setError("Please view and agree to the Responsibilities to apply.")
+      setRespOpen(true)
+      return
+    }
+    register.mutate()
+  }
+
+  const isReady = (!s.openings.length || !!roleId) && (!responsibilities.data?.text || agreed)
 
   return (
     <Card>
@@ -122,48 +187,12 @@ function SessionCard({ s }: { s: AvailableSession }) {
             they've applied, it doubles as the role picker: what they're
             applying for, not something ops guesses afterward from a
             hardcoded Lead/Co-instructor split. */}
-        {s.openings.length > 0 && (
+        <RoleOpeningsPicker
+          openings={s.openings} myInterest={s.my_interest} roleId={roleId}
+          onSelect={setRoleId} groupName={`role-${s.session_id}`}
+        />
+        {s.addons.length > 0 && (
           <div className="mb-3 flex flex-col gap-1.5">
-            {s.openings.map((o) => {
-              const full = o.remaining <= 0
-              return (
-                <label
-                  key={o.role_id}
-                  className={`flex items-start justify-between gap-3 text-sm rounded-lg px-2 py-1.5 -mx-2 transition-colors ${
-                    !s.my_interest && !full ? "cursor-pointer hover:bg-muted" : ""
-                  } ${!s.my_interest && roleId === o.role_id ? "bg-primary/5 ring-1 ring-primary/20" : ""}`}
-                >
-                  <div className="flex items-start gap-2 min-w-0">
-                    {!s.my_interest && (
-                      <input
-                        type="radio"
-                        name={`role-${s.session_id}`}
-                        className="mt-1 shrink-0"
-                        checked={roleId === o.role_id}
-                        disabled={full}
-                        onChange={() => setRoleId(o.role_id)}
-                      />
-                    )}
-                    <div className="min-w-0">
-                      <span className="text-foreground">
-                        {o.role_name}
-                        <span className="text-xs text-muted-foreground">
-                          {" "}&middot; {o.remaining > 0 ? `${o.remaining} of ${o.slots} left` : "full — waitlist"}
-                        </span>
-                      </span>
-                      {o.notes && (
-                        <p className="text-xs text-muted-foreground italic">{o.notes}</p>
-                      )}
-                    </div>
-                  </div>
-                  {o.amount_aed != null && (
-                    <span className="text-sm font-semibold tabular-nums shrink-0">
-                      AED {o.amount_aed.toLocaleString()}
-                    </span>
-                  )}
-                </label>
-              )
-            })}
             {s.addons.map((a, i) => (
               <div key={i} className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                 <span>+ {a.description}</span>
@@ -182,51 +211,38 @@ function SessionCard({ s }: { s: AvailableSession }) {
           </div>
         ) : (
           <div className="flex flex-col gap-2">
+            {/* Operations process doc §2 — same questions a cohort call's
+                form asks, brought here 2026-08-30. */}
+            <SupportQuestionsPanel
+              needsTransport={needsTransport} onNeedsTransportChange={setNeedsTransport}
+              travelling={travelling} onTravellingChange={setTravelling}
+              concerns={concerns} onConcernsChange={setConcerns}
+            />
+
             {/* B1: scoped to the role picked above — a role's own wording
                 (e.g. "carry the kit") is part of what's being agreed to, not
                 a separate blurb next to a generic agreement that ignores it. */}
             {responsibilities.data?.text && (
-              <div className="rounded-xl border border-border bg-background/50 p-3 flex flex-col gap-2">
-                <p className="text-xs font-semibold text-foreground">
-                  Responsibilities{responsibilities.data.role_name ? ` — ${responsibilities.data.role_name}` : ""}
-                </p>
-                <p className="text-xs text-muted-foreground whitespace-pre-line max-h-32 overflow-y-auto">
-                  {responsibilities.data.text}
-                </p>
-                <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={agreed}
-                    onChange={(e) => setAgreed(e.target.checked)}
-                    className="rounded text-primary focus:ring-primary border-border bg-background"
-                  />
-                  I have read and agree to these
-                </label>
-              </div>
-            )}
-            <div className="flex flex-col sm:flex-row gap-2">
-              <textarea
-                className="input flex-1 min-h-[4.5rem] resize-y"
-                placeholder="Optional cover letter (why you'd like this one)…"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
+              <ResponsibilitiesDetails
+                text={responsibilities.data.text} roleName={responsibilities.data.role_name}
+                agreed={agreed}
+                onAgreedChange={(v) => { setAgreed(v); if (v) setError("") }}
+                open={respOpen} onOpenChange={setRespOpen}
+                hasError={!!error && !agreed}
               />
-              <Button
-                size="sm"
-                disabled={
-                  pending ||
-                  (!!responsibilities.data?.text && !agreed) ||
-                  (s.openings.length > 0 && !roleId)
-                }
-                onClick={() => { setError(""); register.mutate() }}
-              >
-                {register.isPending ? "Registering…" : "Register interest"}
-              </Button>
-            </div>
-            {s.openings.length > 0 && !roleId && (
-              <p className="text-xs text-muted-foreground">Pick a role above before applying.</p>
             )}
-            {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+
+            <ApplyFooter
+              note={note} onNoteChange={setNote}
+              ready={isReady} pending={pending} pendingLabel="Registering…"
+              onApply={handleApply}
+              extra={<>
+                {s.openings.length > 0 && !roleId && (
+                  <p className="text-xs text-muted-foreground">Pick a role above before applying.</p>
+                )}
+                {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+              </>}
+            />
           </div>
         )}
       </CardContent>

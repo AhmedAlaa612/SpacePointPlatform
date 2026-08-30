@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.inventory.city import City
 from app.models.inventory.location import Location
+from app.models.sessions.checklist import InstructorSessionDay
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.cohort_call import CohortCall, CohortCallTarget
 from app.models.sessions.cohort_opening import CohortOpening
@@ -162,6 +163,49 @@ async def set_call_targets(db: AsyncSession, session_id: UUID, target_user_ids: 
     return await _get_session(db, session_id)
 
 
+async def _find_or_create_open_cohort_call(
+    db: AsyncSession, *, cohort_id: UUID, target_user_ids: list[UUID] | None,
+    actor_user_id: UUID | None, label: str | None = None,
+) -> CohortCall:
+    """Opening a single session's call now always lands it inside a standing
+    `CohortCall` (2026-08-30) instead of leaving it ungrouped — the operator
+    ask being "it should just show the normal cohort card, but with this
+    session only, and if I open another single session it should be added
+    to the same card." Reuses this cohort's currently-open call with the
+    *same audience* rather than creating a new one every time, so opening
+    session after session one at a time still reads as one growing card
+    instead of a pile of separate ones.
+
+    Audience has to match exactly (same target set, or both public) before
+    reusing a call — `CohortCall` visibility (`_assert_visible` in
+    cohort_staffing.py) is checked once for the *whole* call, not per
+    session, so folding a public session into an already-targeted call
+    would hide it from everyone except that targeted list, and folding a
+    targeted session into a public call would expose it to everyone. A
+    mismatch always gets its own fresh call instead, exactly like opening
+    two independent calls on the same cohort already works today.
+    """
+    wanted = set(target_user_ids or [])
+    candidates = (await db.execute(
+        select(CohortCall).where(CohortCall.cohort_id == cohort_id, CohortCall.status == "open")
+        .order_by(CohortCall.created_at.desc())
+    )).scalars().all()
+    for call in candidates:
+        existing = set((await db.execute(
+            select(CohortCallTarget.user_id).where(CohortCallTarget.cohort_call_id == call.id)
+        )).scalars().all())
+        if existing == wanted:
+            return call
+
+    call = CohortCall(id=uuid4(), cohort_id=cohort_id, status="open", label=label, created_by=actor_user_id)
+    db.add(call)
+    await db.flush()
+    for user_id in dict.fromkeys(target_user_ids or []):  # de-dupe, keep order
+        db.add(CohortCallTarget(id=uuid4(), cohort_call_id=call.id, cohort_id=cohort_id, user_id=user_id))
+    await db.flush()
+    return call
+
+
 async def open_call(
     db: AsyncSession, session_id: UUID, target_user_ids: list[UUID] | None = None,
     role_ids: list[UUID] | None = None, actor_user_id: UUID | None = None, label: str | None = None,
@@ -181,11 +225,19 @@ async def open_call(
     open every configured opening, today's exact behaviour.
 
     `cohort_call_id` (2026-08-01) tags the new call as belonging to a
-    standing `CohortCall` — used internally by `open_cohort_call`. Every
-    existing caller omits it, unaffected."""
+    standing `CohortCall`. Explicit callers (`open_cohort_call`) pass their
+    own; every other caller omits it, in which case one is found-or-created
+    automatically (2026-08-30) so a plain single-session open call still
+    ends up grouped the same way — see `_find_or_create_open_cohort_call`."""
     session = await _get_session(db, session_id)
     if session.staffing_status == "staffed":
         raise HTTPException(status.HTTP_409_CONFLICT, detail="Session is already staffed — use reopen instead")
+    if cohort_call_id is None:
+        cohort_call = await _find_or_create_open_cohort_call(
+            db, cohort_id=session.cohort_id, target_user_ids=target_user_ids,
+            actor_user_id=actor_user_id, label=label,
+        )
+        cohort_call_id = cohort_call.id
     session.staffing_status = "open_call"
     await _create_call(
         db, session_id=session_id, target_user_ids=target_user_ids, actor_user_id=actor_user_id, label=label,
@@ -438,6 +490,15 @@ async def close_call(
         )
 
     await _sync_staffing_status(db, session)
+    # A single session's own call almost always belongs to a standing
+    # CohortCall now (2026-08-30's open_call auto-attach) — closing it here,
+    # the ordinary per-session path rather than close_cohort_call, must
+    # still recompute the parent's derived status, or a card whose last
+    # session just closed would keep showing "open" to instructors forever.
+    if call.cohort_call_id is not None:
+        cohort_call = await db.get(CohortCall, call.cohort_call_id)
+        if cohort_call is not None:
+            await _sync_cohort_call_status(db, cohort_call)
     await db.flush()
     return session
 
@@ -451,14 +512,22 @@ async def close_all_calls(db: AsyncSession, session_id: UUID, clear_interest: bo
     )).scalars().all()
 
     now = datetime.now(timezone.utc)
+    cohort_call_ids = set()
     for call in open_calls:
         call.status = "closed"
         call.closed_at = now
+        if call.cohort_call_id is not None:
+            cohort_call_ids.add(call.cohort_call_id)
     if clear_interest:
         await db.execute(
             delete(InstructorInterest).where(InstructorInterest.session_id == session_id)
         )
     await _sync_staffing_status(db, session)
+    # See close_call's comment above — same reason.
+    for cohort_call_id in cohort_call_ids:
+        cohort_call = await db.get(CohortCall, cohort_call_id)
+        if cohort_call is not None:
+            await _sync_cohort_call_status(db, cohort_call)
     await db.flush()
     return session
 
@@ -495,8 +564,14 @@ async def reopen(
             select(SessionCallTarget.user_id).where(SessionCallTarget.call_id == last_call_id)
         )).scalars().all()) if last_call_id else []
 
+    cohort_call = await _find_or_create_open_cohort_call(
+        db, cohort_id=session.cohort_id, target_user_ids=target_user_ids, actor_user_id=actor_user_id,
+    )
     session.staffing_status = "open_call"
-    await _create_call(db, session_id=session_id, target_user_ids=target_user_ids, actor_user_id=actor_user_id)
+    await _create_call(
+        db, session_id=session_id, target_user_ids=target_user_ids, actor_user_id=actor_user_id,
+        cohort_call_id=cohort_call.id,
+    )
     await set_openings_open(db, session_id=session_id, role_ids=role_ids)
     await db.flush()
     return session
@@ -560,10 +635,18 @@ async def list_available_sessions(
     return [(s, c, p, counts.get(s.id, 0), my_interests.get(s.id)) for s, c, p in rows]
 
 
-async def list_my_sessions(db: AsyncSession, user: User) -> list[tuple[Session, Cohort, Program, str]]:
+async def list_my_sessions(
+    db: AsyncSession, user: User,
+) -> list[tuple[Session, Cohort, Program, str, InstructorSessionDay | None]]:
     """Every session this user is assigned to (via either the marketplace's
     select_instructors or the pre-existing direct-assign path — both write
-    the same SessionInstructor row) — the S4-3 "My sessions" instructor page."""
+    the same SessionInstructor row) — the S4-3 "My sessions" instructor page.
+
+    Carries this instructor's own `InstructorSessionDay` alongside each row
+    (2026-08-28), None when they haven't checked in yet — the redesigned page
+    needs check-in/submission state to show Today's cards without a second
+    round trip per session.
+    """
     rows = (await db.execute(
         select(Session, Cohort, Program, DeliveryRole.name)
         .join(Cohort, Cohort.id == Session.cohort_id)
@@ -573,12 +656,22 @@ async def list_my_sessions(db: AsyncSession, user: User) -> list[tuple[Session, 
         .where(SessionInstructor.user_id == user.id)
         .order_by(Session.meeting_date.asc())
     )).all()
-    return [(s, c, p, role) for s, c, p, role in rows]
+    session_ids = [s.id for s, _c, _p, _role in rows]
+    days = {
+        d.session_id: d for d in (await db.execute(
+            select(InstructorSessionDay).where(
+                InstructorSessionDay.session_id.in_(session_ids or [None]),
+                InstructorSessionDay.user_id == user.id,
+            )
+        )).scalars().all()
+    } if session_ids else {}
+    return [(s, c, p, role, days.get(s.id)) for s, c, p, role in rows]
 
 
 async def register_interest(
     db: AsyncSession, session_id: UUID, user: User, note: str | None = None,
-    role_id: UUID | None = None,
+    role_id: UUID | None = None, needs_transport: bool = False, needs_ops_support: bool = False,
+    travelling_from_other_city: bool = False, concerns: str | None = None,
 ) -> InstructorInterest:
     session = await _get_session(db, session_id)
     if session.staffing_status != "open_call":
@@ -627,10 +720,18 @@ async def register_interest(
             existing.note = note
         if role_id is not None:
             existing.role_id = role_id
+        existing.needs_transport = needs_transport
+        existing.needs_ops_support = needs_ops_support
+        existing.travelling_from_other_city = travelling_from_other_city
+        existing.concerns = concerns
         await db.flush()
         return existing
 
-    interest = InstructorInterest(id=uuid4(), session_id=session_id, user_id=user.id, note=note, role_id=role_id)
+    interest = InstructorInterest(
+        id=uuid4(), session_id=session_id, user_id=user.id, note=note, role_id=role_id,
+        needs_transport=needs_transport, needs_ops_support=needs_ops_support,
+        travelling_from_other_city=travelling_from_other_city, concerns=concerns,
+    )
     db.add(interest)
     await db.flush()
     return interest
@@ -814,11 +915,25 @@ async def select_instructors(
         # for any of them to solicit (2026-08-01).
         if await fully_staffed(db, session_id):
             session.staffing_status = "staffed"
+            cohort_call_ids = set((await db.execute(
+                select(SessionCall.cohort_call_id).where(
+                    SessionCall.session_id == session_id, SessionCall.status == "open",
+                    SessionCall.cohort_call_id.isnot(None),
+                )
+            )).scalars().all())
             await db.execute(
                 SessionCall.__table__.update()
                 .where(SessionCall.session_id == session_id, SessionCall.status == "open")
                 .values(status="closed", closed_at=datetime.now(timezone.utc))
             )
+            # Same reason as close_call/close_all_calls above: becoming
+            # staffed here closes this session's call(s) via a raw bulk
+            # update rather than close_call, so the parent CohortCall's
+            # derived status needs its own resync too.
+            for cohort_call_id in cohort_call_ids:
+                cohort_call = await db.get(CohortCall, cohort_call_id)
+                if cohort_call is not None:
+                    await _sync_cohort_call_status(db, cohort_call)
         else:
             session.staffing_status = "open_call"
     await db.flush()

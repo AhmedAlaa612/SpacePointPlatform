@@ -99,6 +99,7 @@ import AdminCheckIn from "@/pages/admin/CheckIn";
 import SessionsCalendar from "@/pages/sessions/Calendar";
 import OpsDashboard from "@/pages/sessions/OpsDashboard";
 import ThisWeek from "@/pages/sessions/ThisWeek";
+import Reviews from "@/pages/sessions/Reviews";
 
 // Inventory (I1-4)
 import InventoryKits from "@/pages/operations/inventory/Kits";
@@ -684,6 +685,7 @@ const po = () => operationsLayoutRoute;
 const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/dashboard", component: OpsDashboard }),
   createRoute({ getParentRoute: po, path: "/this-week", component: ThisWeek }),
+  createRoute({ getParentRoute: po, path: "/reviews", component: Reviews }),
   createRoute({ getParentRoute: po, path: "/programs", component: AdminPrograms }),
   createRoute({ getParentRoute: po, path: "/cohorts", component: AdminCohorts }),
   createRoute({ getParentRoute: po, path: "/cohorts/$cohortId", component: AdminCohortDetail }),

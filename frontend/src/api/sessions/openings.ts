@@ -11,6 +11,11 @@ export interface DeliveryRole {
   /** Seniority, lowest first. "The lead" is the lowest sort_order, never a
    *  name match — so renaming or inserting a role doesn't break who's boss. */
   sort_order: number
+  /** The global tier of the rate hierarchy (2026-08-24): what this role is
+   *  normally paid per session, before any cohort or session override.
+   *  null = not set, which stays null rather than guessing a number onto a
+   *  document somebody signs. */
+  default_rate_aed: number | null
   is_active: boolean
 }
 
@@ -43,6 +48,13 @@ export interface CohortOpening {
   slots: number
   amount_aed: string | number | null
   notes: string | null
+  /** What a blank amount_aed here falls back to (the global tier). */
+  role_default_rate_aed?: number | null
+  /** This cohort's own wording for the role, replacing its default
+   *  description entirely — not added on top of it (2026-08-28). */
+  responsibilities_override: string | null
+  /** What a blank responsibilities_override falls back to. */
+  role_description?: string | null
 }
 
 export type AddonSource = "offer" | "interest" | "invite" | "survey" | "payment"
@@ -82,6 +94,11 @@ export const updateDeliveryRoleApi = ({ id, ...body }: {
   description?: string | null
   sort_order?: number
   is_active?: boolean
+  /** The global tier of the rate hierarchy (2026-08-24). Omitted leaves it
+   *  alone; pass `clear_default_rate` to unset it, since `null` here is
+   *  indistinguishable from an untouched field. */
+  default_rate_aed?: number
+  clear_default_rate?: boolean
 }) => api.patch<DeliveryRole>(`/sessions/delivery-roles/${id}`, body).then((r) => r.data)
 
 /* ── openings ──────────────────────────────────────────────────────────── */
@@ -102,7 +119,13 @@ export const getCohortOpeningsApi = (cohortId: string) =>
 
 export const setCohortOpeningsApi = ({ cohortId, openings }: {
   cohortId: string
-  openings: { role_id: string; slots: number; amount_aed?: number | null; notes?: string | null }[]
+  openings: {
+    role_id: string
+    slots: number
+    amount_aed?: number | null
+    notes?: string | null
+    responsibilities_override?: string | null
+  }[]
 }) => api.put<CohortOpening[]>(`/sessions/cohorts/${cohortId}/openings-defaults`, { openings }).then((r) => r.data)
 
 /* ── add-ons ───────────────────────────────────────────────────────────── */
@@ -207,10 +230,11 @@ export interface Responsibilities {
  *  the combined block — that role's own description, then the general text
  *  ops maintains — an instructor actually reads and agrees to for the role
  *  they're applying for, rather than a generic agreement that says nothing
- *  about the job. */
-export const getResponsibilitiesApi = (roleId?: string | null) =>
+ *  about the job. Add cohortId to preview it with that cohort's
+ *  responsibilities override applied, if one is set. */
+export const getResponsibilitiesApi = (roleId?: string | null, cohortId?: string | null) =>
   api.get<Responsibilities>("/sessions/responsibilities", {
-    params: roleId ? { role_id: roleId } : {},
+    params: { ...(roleId ? { role_id: roleId } : {}), ...(cohortId ? { cohort_id: cohortId } : {}) },
   }).then((r) => r.data)
 
 export const setResponsibilitiesApi = (text: string) =>

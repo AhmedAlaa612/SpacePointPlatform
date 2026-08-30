@@ -156,6 +156,83 @@ async def test_open_call_for_cohort_only_opens_unstaffed_sessions(db):
     assert s2.staffing_status == "staffed"  # untouched
 
 
+# ── single-session open_call auto-groups into a standing CohortCall
+#    (2026-08-30 — "opening a single session should just show the normal
+#    cohort card, but with this session only; another single session opened
+#    later should be added to the same card") ────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_opening_a_single_session_creates_a_cohort_call_around_it(db):
+    from app.models.sessions.cohort_call import CohortCall
+
+    _, session = await _make_cohort_with_session(db)
+    await staffing.open_call(db, session.id)
+    await db.refresh(session)
+
+    from app.models.sessions.session_call import SessionCall
+    call = (await db.execute(
+        select(SessionCall).where(SessionCall.session_id == session.id, SessionCall.status == "open")
+    )).scalars().first()
+    assert call.cohort_call_id is not None
+    cohort_call = await db.get(CohortCall, call.cohort_call_id)
+    assert cohort_call.status == "open"
+
+
+@pytest.mark.asyncio
+async def test_two_single_sessions_with_the_same_public_audience_share_one_cohort_call(db):
+    from app.models.sessions.session_call import SessionCall
+
+    cohort, s1 = await _make_cohort_with_session(db, meeting_date=date(2026, 8, 10))
+    s2 = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 8, 17))
+    db.add(s2)
+    await db.flush()
+
+    await staffing.open_call(db, s1.id)
+    await staffing.open_call(db, s2.id)
+
+    call1 = (await db.execute(select(SessionCall).where(SessionCall.session_id == s1.id))).scalars().first()
+    call2 = (await db.execute(select(SessionCall).where(SessionCall.session_id == s2.id))).scalars().first()
+    assert call1.cohort_call_id == call2.cohort_call_id
+
+
+@pytest.mark.asyncio
+async def test_a_targeted_single_session_does_not_merge_into_a_public_cohort_call(db):
+    """CohortCall visibility is checked once for the whole card
+    (_assert_visible), not per session — merging a targeted session into a
+    public call would expose it to everyone; merging a public one into a
+    targeted call would hide it from everyone else. Neither is safe, so a
+    mismatched audience always gets its own call."""
+    from app.models.sessions.session_call import SessionCall
+
+    cohort, s1 = await _make_cohort_with_session(db, meeting_date=date(2026, 8, 10))
+    s2 = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 8, 17))
+    db.add(s2)
+    await db.flush()
+    targeted_instructor = await _make_user(db, ["instructor"])
+
+    await staffing.open_call(db, s1.id)  # public
+    await staffing.open_call(db, s2.id, target_user_ids=[targeted_instructor.id])  # targeted
+
+    call1 = (await db.execute(select(SessionCall).where(SessionCall.session_id == s1.id))).scalars().first()
+    call2 = (await db.execute(select(SessionCall).where(SessionCall.session_id == s2.id))).scalars().first()
+    assert call1.cohort_call_id != call2.cohort_call_id
+
+
+@pytest.mark.asyncio
+async def test_closing_a_solo_grouped_sessions_call_also_closes_its_cohort_call(db):
+    from app.models.sessions.cohort_call import CohortCall
+    from app.models.sessions.session_call import SessionCall
+
+    _, session = await _make_cohort_with_session(db)
+    await staffing.open_call(db, session.id)
+    call = (await db.execute(select(SessionCall).where(SessionCall.session_id == session.id))).scalars().first()
+
+    await staffing.close_all_calls(db, session.id)
+
+    cohort_call = await db.get(CohortCall, call.cohort_call_id)
+    assert cohort_call.status == "closed"
+
+
 # ── register_interest / withdraw_interest ───────────────────────────────────
 
 @pytest.mark.asyncio
@@ -200,6 +277,30 @@ async def test_register_interest_twice_updates_note_not_duplicates(db):
     interests = await staffing.list_interest(db, session.id)
     assert len(interests) == 1
     assert interests[0][0].note == "updated note"
+
+
+@pytest.mark.asyncio
+async def test_register_interest_records_support_questions(db):
+    """Operations process doc §2, brought to single-session interest
+    2026-08-30 — mirrors what registering for a cohort call already asks."""
+    _, session = await _make_cohort_with_session(db, staffing_status="open_call")
+    instructor = await _make_user(db, ["instructor"])
+
+    interest = await staffing.register_interest(
+        db, session.id, instructor,
+        needs_transport=True, travelling_from_other_city=True, concerns="Need an early ride",
+    )
+    assert interest.needs_transport is True
+    assert interest.needs_ops_support is False
+    assert interest.travelling_from_other_city is True
+    assert interest.concerns == "Need an early ride"
+
+    # Re-registering fully replaces the previous answer, same contract as
+    # the note/role fields above.
+    updated = await staffing.register_interest(db, session.id, instructor)
+    assert updated.needs_transport is False
+    assert updated.travelling_from_other_city is False
+    assert updated.concerns is None
 
 
 @pytest.mark.asyncio
@@ -274,6 +375,27 @@ async def test_select_instructors_writes_assignment_and_flips_to_staffed(db):
     assert without_interest == []
     await db.refresh(session)
     assert session.staffing_status == "staffed"
+
+
+@pytest.mark.asyncio
+async def test_select_instructors_reaching_staffed_also_closes_its_cohort_call(db):
+    """select_instructors closes the session's own call(s) via a raw bulk
+    update rather than close_call/close_all_calls, so it needs its own
+    resync of the parent CohortCall — otherwise a lone auto-grouped session
+    reaching 'staffed' would leave a phantom 'open' card behind."""
+    from app.models.sessions.cohort_call import CohortCall
+    from app.models.sessions.session_call import SessionCall
+
+    _, session = await _make_cohort_with_session(db)
+    await staffing.open_call(db, session.id)
+    call = (await db.execute(select(SessionCall).where(SessionCall.session_id == session.id))).scalars().first()
+    instructor = await _make_user(db, ["instructor"])
+    await staffing.register_interest(db, session.id, instructor)
+
+    await staffing.select_instructors(db, session.id, [instructor.id], await _role_id(db))
+
+    cohort_call = await db.get(CohortCall, call.cohort_call_id)
+    assert cohort_call.status == "closed"
 
 
 @pytest.mark.asyncio
@@ -407,10 +529,36 @@ async def test_list_my_sessions_only_shows_assigned(db):
     rows = await staffing.list_my_sessions(db, instructor)
 
     assert len(rows) == 1
-    s, _, _, role = rows[0]
+    s, _, _, role, day = rows[0]
     assert s.id == assigned_session.id
     assert role == "Facilitator"
+    assert day is None, "no check-in has happened yet — no InstructorSessionDay row exists"
     assert other_session.id not in {r[0].id for r in rows}
+
+
+@pytest.mark.asyncio
+async def test_list_my_sessions_carries_the_days_check_in_state(db):
+    """The My Sessions redesign (2026-08-28) needs check-in/day status without
+    a second round trip per session — list_my_sessions carries it directly."""
+    from app.services.sessions import day as day_svc
+
+    _, session = await _make_cohort_with_session(db, staffing_status="staffed")
+    instructor = await _make_user(db, ["instructor"])
+    db.add(SessionInstructor(
+        id=uuid.uuid4(), session_id=session.id, user_id=instructor.id,
+        role_id=await _role_id(db, "Facilitator"),
+    ))
+    await db.flush()
+
+    await day_svc.check_in(db, session.id, instructor, att_status="present")
+
+    rows = await staffing.list_my_sessions(db, instructor)
+    assert len(rows) == 1
+    _s, _c, _p, _role, day = rows[0]
+    assert day is not None
+    assert day.att_status == "present"
+    assert day.status == "draft"
+    assert day.checked_in_at is not None
 
 
 # ── close_call is a choice, not automatic (operator 2026-07-26) ──────────────

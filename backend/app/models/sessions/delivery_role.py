@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -36,5 +36,13 @@ class DeliveryRole(Base):
     # invite — shown on the application flow, not just the name.
     description = Column(Text, nullable=True)
     sort_order = Column(Integer, nullable=False, default=1)
+    # The global tier of the rate hierarchy (2026-08-24): what this role is
+    # normally paid per session, before any cohort or session override.
+    # Resolution is session opening -> cohort opening -> here, first non-NULL
+    # wins — the same override-not-merge shape `resolve_duration` already uses
+    # for hours. NULL means "no default set", which stays honest: the payment
+    # line is left for ops to type rather than guessing a number onto a
+    # document somebody signs.
+    default_rate_aed = Column(Numeric(10, 2), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

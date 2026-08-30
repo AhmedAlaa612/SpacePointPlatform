@@ -6,22 +6,24 @@ import {
   CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical,
 } from "lucide-react"
 import type {
-  Cohort, Program, Session,
+  Cohort, CohortStatus, Program, Session,
   Registration, EligibleInstructor,
   SessionReport,
 } from "@/types/sessions"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { CohortCallsPanel } from "@/pages/admin/components/CohortCallsPanel"
+import CohortStaffingPanel from "@/pages/admin/components/CohortStaffingPanel"
+import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPanel"
 import { CohortKitsPanel } from "@/pages/admin/components/CohortKitsPanel"
-import { CohortOpeningsPanel } from "@/pages/admin/components/CohortOpeningsPanel"
+import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
 import { SessionsTable } from "@/pages/admin/components/SessionsTable"
 import {
   getCohortApi, getSessionsApi,
   generateSessionsApi, addSessionApi,
   getRegistrationsApi, deskRegisterApi, resendTicketApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
   deleteRegistrationApi, downloadCohortCertificatesApi,
-  bulkAssignInstructorApi, type BulkActionResult,
+  bulkAssignInstructorApi, updateCohortApi, type BulkActionResult,
 } from "@/api/sessions/cohorts"
 import {
   listEligibleInstructorsApi, openCohortCallApi, type CohortCall,
@@ -31,7 +33,7 @@ import { listCohortReportsApi, uploadSessionReportApi, completeCohortApi } from 
 import { Modal, Field, ModalActions, ConfirmDialog, Spinner, PageHeader, EmptyState } from "@/pages/admin/components/common"
 import { ImportListModal } from "@/pages/admin/components/ImportList"
 import { listOrganizationsApi, updateContactApi } from "@/api/spine/contacts"
-import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR } from "@/pages/admin/Cohorts"
+import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR, STATUS_OPTIONS } from "@/pages/admin/Cohorts"
 import { ContactDetailModal } from "@/pages/admin/Contacts"
 import { useToast } from "@/components/ui/toast"
 import { Card } from "@/components/ui/card"
@@ -47,9 +49,17 @@ const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 /** Sessions and Students are the daily work; Setup is the stuff you touch
  *  once when the cohort is created (2026-08-02). Setup used to sit *between*
  *  the two daily ones, which is what made the page feel endless. */
-type CohortTab = "sessions" | "students" | "setup"
+type CohortTab = "sessions" | "roles" | "staffing" | "students" | "setup"
 const TABS: { key: CohortTab; label: string }[] = [
   { key: "sessions", label: "Sessions" },
+  // Roles moved out of Staffing (2026-08-28): rate, responsibilities and the
+  // checklist are all "what does this role mean here", one thing ops sets up
+  // before opening a call — separate from running the call itself.
+  { key: "roles", label: "Roles" },
+  // Staffing moved out of the Sessions tab (2026-08-24): opening a call,
+  // reading the applicant table and seeing who ended up staffed are one job,
+  // and they were buried under a table that had grown to own the whole tab.
+  { key: "staffing", label: "Staffing" },
   { key: "students", label: "Students" },
   { key: "setup", label: "Setup" },
 ]
@@ -223,6 +233,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       invalidateCohort()
     },
   })
+  const statusMutation = useMutation({
+    mutationFn: (status: CohortStatus) => updateCohortApi(cohort.id, { status }),
+    onSuccess: () => { toast.success("Status updated"); invalidateCohort() },
+    onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to update status")),
+  })
   const unstaffedCount = sessions.filter((s) => s.staffing_status === "unstaffed").length
 
   return (
@@ -255,6 +270,15 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                 <Award size={14} /> Judging
               </Link>
             )}
+            <select
+              value={cohort.status}
+              onChange={(e) => statusMutation.mutate(e.target.value as CohortStatus)}
+              disabled={statusMutation.isPending}
+              title="Change cohort status"
+              className="h-8 px-2.5 border border-border bg-background rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-wait focus:outline-none w-auto max-w-fit"
+            >
+              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{COHORT_STATUS_LABEL[s]}</option>)}
+            </select>
             {cohort.status !== "completed" && cohort.status !== "cancelled" && (
               <button
                 onClick={() => setCompleteConfirmOpen(true)}
@@ -419,16 +443,32 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           onToggleSession={(id) =>
             setSelectedSessionIds((prev) => prev.includes(id) ? prev.filter((sid) => sid !== id) : [...prev, id])}
         />
-        <Card className="px-4 mt-5">
-          <CohortOpeningsPanel cohort={cohort} />
+      </div>
+      )}
+
+      {tab === "roles" && (
+      <div className="space-y-5">
+        <Card className="px-4">
+          <CohortRolesPanel cohort={cohort} />
         </Card>
-        {/* Staffing lives with the sessions it staffs — one "Open a call"
-            entry point, managed and closed as one entity. The old ungrouped
-            "Open call for all" quick action is gone: it wrote to a model this
-            panel couldn't see, so calls opened that way could never be closed
-            as a group. */}
-        <Card className="px-4 mt-5">
+      </div>
+      )}
+
+      {tab === "staffing" && (
+      <div className="space-y-5">
+        {/* One "Open a call" entry point, managed and closed as one entity.
+            The old ungrouped "Open call for all" quick action is gone: it
+            wrote to a model this panel couldn't see, so calls opened that way
+            could never be closed as a group. */}
+        <Card className="px-4">
           <CohortCallsPanel cohort={cohort} sessions={sessions} />
+        </Card>
+        {/* One row per applicant, not per session — see the panel's docstring. */}
+        <Card className="px-4">
+          <CohortStaffingPanel cohort={cohort} />
+        </Card>
+        <Card className="px-4">
+          <CohortDayReviewsPanel cohort={cohort} />
         </Card>
       </div>
       )}
@@ -1065,13 +1105,13 @@ function AddSessionModal({ cohort, onClose, onSuccess }: {
   const [meetingDate, setMeetingDate] = useState(cohort.starts_on ?? "")
   const [startsAt, setStartsAt] = useState("")
   const [title, setTitle] = useState("")
-  const [price, setPrice] = useState("")
+  const [durationHours, setDurationHours] = useState("")
   const [error, setError] = useState("")
 
   const mutation = useMutation({
     mutationFn: () => addSessionApi(cohort.id, {
       meeting_date: meetingDate, starts_at: startsAt || null, title: title.trim() || null,
-      price: price.trim() ? Number(price) : null,
+      duration_hours: durationHours.trim() ? Number(durationHours) : null,
     }),
     onSuccess: () => { toast.success("Session added"); onSuccess() },
     onError: (e: any) => setError(getErrorMessage(e, "Failed to add session")),
@@ -1102,9 +1142,10 @@ function AddSessionModal({ cohort, onClose, onSuccess }: {
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </Field>
-        <Field label="Price override (optional)">
+        <Field label="Duration override, hours (optional)">
           <input
-            value={price} onChange={(e) => setPrice(e.target.value)} type="number" placeholder="Leave blank to use the program price"
+            value={durationHours} onChange={(e) => setDurationHours(e.target.value)} type="number" step="0.5"
+            placeholder="Leave blank to use the cohort/program duration"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </Field>

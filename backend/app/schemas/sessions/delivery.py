@@ -29,9 +29,26 @@ class RosterEntryOut(BaseModel):
     student_date_of_birth: str | None = None
     student_grade: str | None = None
     student_organization_name: str | None = None
+    # The student's own account, when they have one (User.contact_id reverse
+    # lookup) — lets the instructor portal open a real profile instead of the
+    # static contact fields below. None for students never onboarded as users.
+    student_user_id: UUID | None = None
     att_status: AttendanceStatus | None = None
     att_method: Literal["manual", "qr"] | None = None
     recorded_at: datetime | None = None
+
+
+class TeammateOut(BaseModel):
+    """Another instructor/facilitator assigned to this same session, and
+    whether they've checked in yet — the Session Portal's "who's here"
+    strip needs this alongside the caller's own day, not a separate
+    round trip per teammate."""
+    user_id: UUID
+    full_name: str
+    role_name: str
+    is_me: bool
+    att_status: AttendanceStatus | None = None
+    checked_in_at: datetime | None = None
 
 
 class SessionDeliveryOut(BaseModel):
@@ -53,6 +70,7 @@ class SessionDeliveryOut(BaseModel):
     notes: str | None = None
     roster: list[RosterEntryOut]
     reports: list[SessionReportOut] = []
+    teammates: list[TeammateOut] = []
 
 
 class UpdateSessionNotesRequest(BaseModel):

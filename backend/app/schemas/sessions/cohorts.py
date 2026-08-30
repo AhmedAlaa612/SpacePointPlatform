@@ -30,6 +30,12 @@ class CohortBase(BaseModel):
     # than one warehouse.
     warehouse_id: UUID | None = None
     capacity: int | None = None
+    # How long each session runs. Session → cohort → program, first non-NULL
+    # wins (see services/sessions/openings.py::resolve_duration) — set once
+    # here and every session in the cohort inherits it unless a specific one
+    # overrides it. Feeds the payment letter's hours column and what an
+    # instructor sees before applying to work a session.
+    duration_hours: Decimal | None = None
     lead_instructor_user_id: UUID | None = None
     madar_invitation_batch: str | None = None
     notes: str | None = None
@@ -53,6 +59,7 @@ class CohortUpdate(BaseModel):
     location_id: UUID | None = None
     warehouse_id: UUID | None = None
     capacity: int | None = None
+    duration_hours: Decimal | None = None
     lead_instructor_user_id: UUID | None = None
     status: CohortStatus | None = None
     madar_invitation_batch: str | None = None
@@ -123,7 +130,11 @@ class SessionOut(BaseModel):
     starts_at: time | None = None
     title: str | None = None
     material_url: str | None = None
-    price: Decimal | None = None
+    # NULL = inherits the cohort's (then the program's) duration — see
+    # services/sessions/openings.py::resolve_duration. This is the session's
+    # own override, if it has one; the resolved value an instructor sees
+    # before applying is computed there, not read off this field directly.
+    duration_hours: Decimal | None = None
     staffing_status: StaffingStatus
     created_at: datetime
     # Populated only by the list endpoint — the instructor(s) assigned to
@@ -170,19 +181,17 @@ class AddSessionRequest(BaseModel):
     starts_at: time | None = None
     title: str | None = None
     material_url: str | None = None
-    price: Decimal | None = None
     duration_hours: Decimal | None = None
 
 
 class UpdateSessionRequest(BaseModel):
     """PATCH — only the fields present are applied. Lets ops fill in a
-    title/material link/price override after a session was bulk-generated
-    with just a bare date."""
+    title/material link after a session was bulk-generated with just a bare
+    date."""
     meeting_date: date | None = None
     starts_at: time | None = None
     title: str | None = None
     material_url: str | None = None
-    price: Decimal | None = None
     duration_hours: Decimal | None = None
     # Explicit null clears the override back to "inherit the cohort's
     # location" — same convention as every other inherit-unless-set field

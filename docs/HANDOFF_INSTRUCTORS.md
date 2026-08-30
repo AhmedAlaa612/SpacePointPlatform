@@ -35,11 +35,44 @@ On approval, `generate_contract_pdf` (`app/services/documents/contract.py`) rend
 
 A `PaymentBatch` optionally groups several `PaymentLetter`s (e.g. one cohort). Each `PaymentLetter` (per instructor) has child `PaymentSession` rows (date, workshop, role, location, hours, compensation) and `PaymentAddon` rows (extra line items), with `status`: `draft` → `published` → `signed` → `paid`.
 
+**2026-08-24 — a line is normally a whole cohort, and the amount arrives filled in.**
+
+- A `PaymentSession` row now usually stands for a cohort: `cohort_id` set, `session_id` NULL,
+  `session_count` and `rate_aed` filled, and `session_date` holding a **date range**
+  (`10/10/2026 - 14/10/2026`). Work delivered outside any cohort assignment still bills one row
+  per session, unchanged. The driver is the bank's per-transaction fee past ten a month, so
+  several cohorts are settled on one letter and an itemised day list would make it unreadable.
+- **The printed range is always the cohort's**, never the days actually delivered. An absence
+  shows up only as a smaller `session_count`. Shrinking the dates would leak which specific days
+  somebody missed onto a document that deliberately does not itemise attendance.
+- `payment_session_coverage` says which sessions a line covers. It is the anti-double-billing key
+  generalised from one to N: a session is billed iff `payment_sessions.session_id` names it **or**
+  a coverage row under *that instructor's own* letters covers it. The instructor-scoping is what
+  stops paying the lead from hiding a session from the assistant.
+- **`compensation_aed` is pre-computed** (agreed rate × ops-approved days), reversing the earlier
+  "the money is a decision" choice — but keeping the decision: ops sees every figure, can edit any
+  cell, and `_refuse_if_signed` still blocks edits once signed. What went away is retyping a number
+  the system already agreed at staffing time.
+- "Delivered" means a day ops approved with the instructor present (`instructor_session_days`, see
+  `HANDOFF_SESSIONS.md`). Cohorts delivered before the daily loop existed have no day rows and fall
+  back to `completed_at`, so nothing that used to be billable stopped being so.
+- **`bill-sessions` takes `line_ids`**, not `session_ids` — a cohort id, or a session id for a
+  single line.
+- Cohort completion accrues the draft line automatically (both the auto path and the ops button),
+  appending to that instructor's open `draft` letter or starting a new one if theirs has moved past
+  `draft`. Idempotent: the lines are derived from what is still unbilled.
+- The DOCX needs no new column — the fifth cell prints `5 x 500` for a cohort row and the old hours
+  figure otherwise, and its header switches to "Sessions / Duration" when any cohort row is present.
+  The template is patched by hardcoded cell index, so a real new column would mean renumbering
+  everything below it.
+
 Admin flow (`app/services/documents/payment_letter.py`, `routers/instructors/payments_admin.py`): create batch → create letter → add sessions/addons (individually, or via Excel bulk-import matched to instructors by email) → generate the unsigned draft PDF → publish (emails the instructor) → instructor signs (regenerates the PDF with both signatures, stores it, auto-issues one `workshop_delivery` certificate per session, emails certs, notifies admin) → admin marks paid.
 
 ### Certificate issuance
 
-`Certificate` (`app/models/certificate.py`, shared/top-level model) has `type`: `workshop_delivery` | `internship_completion` | `instructor_completion`. `instructor_completion` fires automatically on applicant→instructor approval. `workshop_delivery` fires automatically per session on payment-letter signing, or can be issued manually by admin (freeform workshop name/date/location). All certificates render through the same `generate_completion_certificate_pdf` generator used by the interns domain.
+`Certificate` (`app/models/certificate.py`, shared/top-level model) has `type`: `workshop_delivery` | `internship_completion` | `instructor_completion`. `instructor_completion` fires automatically on applicant→instructor approval. `workshop_delivery` fires automatically **per `PaymentSession` row** on payment-letter signing, or can be issued manually by admin (freeform workshop name/date/location).
+
+> Since 2026-08-24 that per-row rule means **one certificate per cohort** with no code change, because a cohort line is one row — `{workshop_date}` simply renders the date range. Two things to know before relying on it: certs stay per-cohort even when one letter aggregates several (never merged), and **`certificates.payment_session_id` is only a natural key, not an enforced unique index** — `models/certificate.py:50-56` is explicit that the enforced ones are the LMS pair. Nothing re-issues today because `_refuse_if_signed` makes signing once-only, so it is safe as-is; just don't build a retry path on a guarantee the database isn't making. All certificates render through the same `generate_completion_certificate_pdf` generator used by the interns domain.
 
 ## Main DB tables
 
