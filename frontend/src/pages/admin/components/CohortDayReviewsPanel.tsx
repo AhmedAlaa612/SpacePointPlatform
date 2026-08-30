@@ -74,10 +74,12 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
 
   return (
     <div className="border border-border rounded-xl p-3">
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex flex-wrap items-start justify-between gap-2 text-left"
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((v) => !v) } }}
+        className="w-full flex flex-wrap items-start justify-between gap-2 text-left cursor-pointer"
       >
         <div className="flex items-start gap-2 min-w-0">
           <ChevronRight
@@ -120,7 +122,7 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
             </>
           )}
         </div>
-      </button>
+      </div>
 
       {returning && (
         <div className="mt-3 flex flex-col sm:flex-row gap-2">
