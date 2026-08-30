@@ -237,6 +237,44 @@ async def test_slots_cannot_drop_below_the_number_already_assigned(db):
     assert exc.value.status_code == 409
 
 
+@pytest.mark.asyncio
+async def test_a_customized_session_still_falls_back_to_the_cohort_rate(db):
+    """A session's own opening rows used to skip the cohort tier entirely
+    once it had *any* of its own — so removing one role from a session (a
+    whole-set-replace) could silently reset every *other* role's pay on
+    that session to the role's bare platform default the moment its own
+    amount was left unset, even though the cohort had its own rate
+    configured (2026-08-30 fix). No per-session rate is exposed in the UI
+    at all now — every session-level opening always carries a NULL amount —
+    so this fallback is what keeps a session's pay matching the cohort's
+    whenever ops merely changes which roles it offers."""
+    ops = await _user(db, "operations")
+    lead_role = await _role(db, "Lead", 1)
+    assist_role = await _role(db, "Assistant", 2)
+    _p, cohort, session = await _chain(db)
+
+    await svc.set_cohort_openings(
+        db, cohort_id=cohort.id, actor_user_id=ops.id,
+        lines=[
+            {"role_id": lead_role.id, "slots": 1, "amount_aed": Decimal("500")},
+            {"role_id": assist_role.id, "slots": 1, "amount_aed": Decimal("300")},
+        ],
+    )
+
+    # Customize the session for an unrelated reason (drop the Assistant
+    # role) — Lead's own opening row is written with no amount, exactly
+    # what the frontend now always sends.
+    await svc.set_openings(
+        db, session_id=session.id, actor_user_id=ops.id,
+        lines=[{"role_id": lead_role.id, "slots": 1, "amount_aed": None, "notes": None}],
+    )
+
+    [row] = await svc.openings_for_session(db, session.id)
+    assert row["amount_aed"] == Decimal("500.00"), \
+        "should still be the cohort's own rate, not the role's bare platform default"
+    assert row["rate_source"] == "cohort"
+
+
 # ── cohort-level rate/responsibilities override (2026-08-28) ────────────────
 
 @pytest.mark.asyncio

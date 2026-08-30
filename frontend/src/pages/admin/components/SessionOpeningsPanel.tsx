@@ -20,8 +20,16 @@ import { InheritedBadge } from "@/pages/admin/components/InheritedFrom"
  * view.
  *
  * An offer is not one number on a session: this session needs 1 Lead
- * Facilitator at 2000 and 2 Assistants at 400. Slots remaining falls out of
- * assignments, so nothing here is stored twice.
+ * Facilitator and 2 Assistants. Slots remaining falls out of assignments, so
+ * nothing here is stored twice.
+ *
+ * No per-session rate here (2026-08-30, removed by request): a role's pay
+ * always comes from the cohort's Roles tab (or the role's own platform
+ * default when the cohort hasn't set one) — never something typed on one
+ * session. Removing the field from this form isn't enough on its own, since
+ * saving still snapshots every visible role's line: `amount_aed` is always
+ * sent as `null` below so a session's own opening rows never carry a rate of
+ * their own, whatever role composition ops saves here.
  *
  * Add-ons sit underneath because they are the same conversation. Anything ops
  * adds here is `agreed` on arrival; anything an instructor raised shows as
@@ -33,7 +41,7 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
   const toast = useToast()
   const [error, setError] = useState("")
   const [draft, setDraft] = useState<
-    { role_id: string; slots: number; amount_aed: string; notes: string }[] | null
+    { role_id: string; slots: number; notes: string }[] | null
   >(null)
 
   const { data: roles = [] } = useQuery({
@@ -52,7 +60,6 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
       setDraft(openings.map((o) => ({
         role_id: o.role_id,
         slots: o.slots,
-        amount_aed: o.amount_aed != null ? String(o.amount_aed) : "",
         notes: o.notes ?? "",
       })))
     }
@@ -74,7 +81,9 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
       openings: rows.map((d) => ({
         role_id: d.role_id,
         slots: d.slots,
-        amount_aed: d.amount_aed === "" ? null : Number(d.amount_aed),
+        // Never a session-specific rate (2026-08-30) — pay always comes from
+        // the cohort's Roles tab or the role's own platform default.
+        amount_aed: null,
         notes: d.notes || null,
       })),
     }),
@@ -141,7 +150,8 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
           <InheritedBadge overridden={!inherited && openings.length > 0} />
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Per role — slots and the amount. Slots left is worked out from who&apos;s assigned.
+          Which roles this session needs and how many slots — pay follows the cohort's Roles tab, not set
+          here. Slots left is worked out from who&apos;s assigned.
           {inherited && " Saving customizes just this session — the cohort default stays as-is for the others."}
         </p>
       </div>
@@ -162,15 +172,6 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
                   className="!w-16 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
                 />
               </label>
-              <label className="flex flex-col gap-0.5">
-                <span className="text-[10px] text-muted-foreground leading-none">Amount (AED)</span>
-                <input
-                  type="number" min={0} value={d.amount_aed}
-                  onChange={(e) => setDraft(rows.map((x, j) =>
-                    j === i ? { ...x, amount_aed: e.target.value } : x))}
-                  className="!w-24 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
-                />
-              </label>
               <label className="flex-1 min-w-[8rem] flex flex-col gap-0.5">
                 <span className="text-[10px] text-muted-foreground leading-none">Notes</span>
                 <input
@@ -181,8 +182,9 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
                 />
               </label>
               {live && (
-                <span className="text-xs text-muted-foreground tabular-nums h-9 flex items-center">
-                  {live.filled}/{live.slots} filled
+                <span className="text-xs text-muted-foreground tabular-nums h-9 flex items-center gap-2">
+                  {live.amount_aed != null && <span>AED {Number(live.amount_aed).toLocaleString()}</span>}
+                  <span>{live.filled}/{live.slots} filled</span>
                 </span>
               )}
               <button
@@ -204,7 +206,7 @@ export function SessionOpeningsPanel({ sessionId }: { sessionId: string }) {
         {unusedRoles.length > 0 && (
           <select
             value="" onChange={(e) => e.target.value && setDraft([
-              ...rows, { role_id: e.target.value, slots: 1, amount_aed: "", notes: "" },
+              ...rows, { role_id: e.target.value, slots: 1, notes: "" },
             ])}
             className="h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
           >

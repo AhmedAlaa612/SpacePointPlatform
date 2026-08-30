@@ -268,15 +268,27 @@ async def openings_for_session(
     moment ops saves real openings for this one session, those win from then
     on; every other session in the cohort keeps inheriting the template.
 
-    **`amount_aed` resolves one level further** (2026-08-24): whichever
-    opening row won above, a NULL amount falls back to the role's own
-    `DeliveryRole.default_rate_aed` — the global tier ops sets once at
-    /operations/delivery-settings. `rate_source` on each row says which tier
-    the number actually came from ("session" | "cohort" | "role" | None) so
-    the UI can grey an inherited figure instead of making ops guess whether a
-    rate was typed here or handed down. NULL at every tier stays NULL: an
-    unset rate prints blank rather than guessing a number onto a document
-    somebody signs, exactly as `resolve_duration` already behaves for hours.
+    **`amount_aed` resolves through the rest of the hierarchy** (2026-08-24,
+    revised 2026-08-30 to always consult the cohort tier — see below): a NULL
+    session-level amount used to fall straight to the role's own
+    `DeliveryRole.default_rate_aed`, skipping the cohort's own rate entirely
+    the moment a session had *any* customized opening rows of its own — so
+    removing an unrelated role from one session (which snapshots the whole
+    set) could silently reset every remaining role's pay on that session to
+    the bare platform default. Now a NULL session amount checks the cohort's
+    own `CohortOpening.amount_aed` for that role before falling to the role's
+    global default, same three tiers as a purely inherited session. Per-session
+    rate overrides are no longer offered in the UI at all (2026-08-30) — this
+    is what keeps a session's pay matching the cohort's whenever ops merely
+    changes which roles it offers, without ever exposing a way to type a
+    session-specific number.
+
+    `rate_source` on each row says which tier the number actually came from
+    ("session" | "cohort" | "role" | None) so the UI can grey an inherited
+    figure instead of making ops guess whether a rate was typed here or
+    handed down. NULL at every tier stays NULL: an unset rate prints blank
+    rather than guessing a number onto a document somebody signs, exactly as
+    `resolve_duration` already behaves for hours.
     """
     stmt = (
         select(SessionOpening, DeliveryRole)
@@ -289,6 +301,7 @@ async def openings_for_session(
     rows = (await db.execute(stmt)).all()
 
     inherited = False
+    session = None
     if not rows:
         session = await db.get(Session, session_id)
         if session is not None:
@@ -302,6 +315,19 @@ async def openings_for_session(
 
     if not rows:
         return []
+
+    # The cohort's own rate per role — the middle fallback tier for a
+    # session with its own opening rows (not needed when `inherited`, since
+    # those rows already *are* the cohort's own).
+    cohort_amounts: dict[uuid.UUID, object] = {}
+    if not inherited:
+        if session is None:
+            session = await db.get(Session, session_id)
+        if session is not None:
+            cohort_amounts = dict((await db.execute(
+                select(CohortOpening.role_id, CohortOpening.amount_aed)
+                .where(CohortOpening.cohort_id == session.cohort_id)
+            )).all())
 
     assigned = dict((await db.execute(
         select(SessionInstructor.role_id, func.count())
@@ -320,6 +346,10 @@ async def openings_for_session(
         # Which tier this session's opening row came from, before the rate
         # fallback below can push it one level further down.
         amount, rate_source = opening.amount_aed, ("cohort" if inherited else "session")
+        if amount is None and not inherited:
+            amount = cohort_amounts.get(opening.role_id)
+            if amount is not None:
+                rate_source = "cohort"
         if amount is None:
             amount, rate_source = role.default_rate_aed, "role"
         if amount is None:
