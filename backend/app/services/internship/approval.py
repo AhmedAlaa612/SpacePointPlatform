@@ -22,7 +22,7 @@ from app.models.user import User
 from app.schemas.internship import InternshipApprove
 from app.services import storage
 from app.services.documents.internship_letter import generate_internship_letter_pdf
-from app.services.email import send_internship_letter_ready_email
+from app.services.email_templates import send_internship_letter_ready_email
 from app.services.internship.ref_number import next_ref_number
 
 
@@ -146,6 +146,6 @@ async def approve_internship(
 
     await db.flush()
 
-    await send_internship_letter_ready_email(user.email, user.full_name)
+    await send_internship_letter_ready_email(db, user.email, user.full_name)
 
     return profile

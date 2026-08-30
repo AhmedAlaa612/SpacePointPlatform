@@ -23,6 +23,7 @@ from app.models.sessions.registration import Registration, RegistrationSession
 from app.models.sessions.session import Session
 from app.models.spine.contact import Contact
 from app.models.user import User
+from app.services import email_templates as email_templates_service
 from app.services.sessions import delivery
 from app.services.sessions.registration import register
 
@@ -33,7 +34,7 @@ def _stub_email(monkeypatch):
     the test DB never needs SMTP — and so we can assert it fires."""
     async def _noop(*args, **kwargs):
         return True
-    monkeypatch.setattr(delivery, "try_send_email", _noop)
+    monkeypatch.setattr(email_templates_service, "try_send_email", _noop)
 
 
 async def _make_cohort_with_sessions(db, n: int, **program_overrides) -> tuple[Cohort, Program, list[Session]]:

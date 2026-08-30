@@ -11,7 +11,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session
 from app.models.user import User
-from app.services.email import send_call_invite_email, send_session_assignment_email
+from app.services.email_templates import send_call_invite_email, send_session_assignment_email
 from app.services.sessions import staffing
 
 logger = logging.getLogger("workers.staffing")
@@ -30,6 +30,7 @@ async def send_assignment_email(ctx, session_id: str, user_id: str) -> bool:
         location = await staffing.resolve_session_location_display(db, session, cohort)
 
         sent = await send_session_assignment_email(
+            db,
             to_email=user.email,
             name=user.full_name,
             program_name=program.name if program else "your session",
@@ -64,6 +65,7 @@ async def send_call_invite_emails(ctx, session_id: str, user_ids: list[str]) -> 
                 logger.warning("Call invite email skipped: user=%s not found", user_id)
                 continue
             sent = await send_call_invite_email(
+                db,
                 to_email=user.email, name=user.full_name,
                 program_name=program_name, meeting_date=session.meeting_date.isoformat(),
                 location=location["name"],

@@ -45,7 +45,7 @@ from app.services.documents.payment_letter import (
     generate_payment_letter_pdf,
     parse_excel_bulk_import,
 )
-from app.services.email import send_payment_letter_ready_email, send_workshop_certificate_ready_email
+from app.services.email_templates import send_payment_letter_ready_email, send_workshop_certificate_ready_email
 
 router = APIRouter(prefix="/admin/payments", tags=["instructors-payments-admin"])
 
@@ -445,7 +445,7 @@ async def publish_letter(
     letter.is_published = True
     letter.status = PaymentLetterStatus.published
     instructor = (await db.execute(select(User).where(User.id == letter.instructor_user_id))).scalars().first()
-    await send_payment_letter_ready_email(instructor.email, instructor.full_name)
+    await send_payment_letter_ready_email(db, instructor.email, instructor.full_name)
     await db.commit()
     return await _letter_with_children(db, letter)
 
@@ -571,7 +571,7 @@ async def create_certificate(
 
     if body.send_email:
         await send_workshop_certificate_ready_email(
-            instructor.email, instructor.full_name, body.workshop_name, cert_bytes
+            db, instructor.email, instructor.full_name, body.workshop_name, cert_bytes
         )
 
     return CertificateOut(
@@ -602,7 +602,7 @@ async def email_certificate(
     cert_bytes = await storage.download_file(certificate.bucket, certificate.file_path)
 
     sent = await send_workshop_certificate_ready_email(
-        instructor.email, instructor.full_name,
+        db, instructor.email, instructor.full_name,
         certificate.workshop_name or "SpacePoint Workshop", cert_bytes,
     )
     if not sent:

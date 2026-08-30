@@ -20,6 +20,7 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
+from app.services import email_templates as email_templates_service
 from app.services.sessions import registration as registration_service
 from app.workers import settings as worker_settings
 
@@ -158,7 +159,7 @@ def sent_emails(monkeypatch):
         sends.append(to)
         return True
 
-    monkeypatch.setattr(registration_service, "try_send_email", _fake_send)
+    monkeypatch.setattr(email_templates_service, "try_send_email", _fake_send)
     return sends
 
 

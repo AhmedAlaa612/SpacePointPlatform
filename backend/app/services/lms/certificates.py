@@ -43,7 +43,7 @@ from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.user import User
 from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
-from app.services.email import try_send_email
+from app.services.email_templates import render_and_send
 from app.services.lms.progress import course_completion
 
 CERTIFICATE_BUCKET = "certificates"
@@ -85,17 +85,7 @@ def _today() -> str:
     return date.today().strftime("%d %B %Y").lstrip("0")
 
 
-def _email_body(name: str, what: str, kind: str) -> str:
-    return (
-        f"<p>Hi {escape(name)},</p>"
-        f"<p>Congratulations on completing the {kind} <strong>{escape(what)}</strong>!</p>"
-        "<p>Your certificate is attached to this email as a PDF. You can also download it any time "
-        "from your profile.</p>"
-        "<p>— SpacePoint</p>"
-    )
-
-
-async def _notify(user: User, *, what: str, kind: str, pdf: bytes) -> None:
+async def _notify(db: AsyncSession, user: User, *, what: str, kind: str, pdf: bytes) -> None:
     """Best-effort — a certificate is earned whether or not SMTP is up, and
     the row is already committed by the caller. Mirrors
     `_issue_student_certificate`'s posture (services/sessions/delivery.py):
@@ -103,11 +93,9 @@ async def _notify(user: User, *, what: str, kind: str, pdf: bytes) -> None:
     if not user.email:
         return
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in what).strip("_") or "certificate"
-    await try_send_email(
-        user.email,
-        f"Your SpacePoint certificate — {what}",
-        _email_body(user.full_name, what, kind),
-        html=True,
+    await render_and_send(
+        db, key="lms_certificate_ready", to=user.email,
+        placeholders={"name": user.full_name, "what": what, "kind": kind},
         attachments=[(f"SpacePoint_Certificate_{safe}.pdf", pdf, "pdf")],
     )
 
@@ -162,7 +150,7 @@ async def issue_course_certificate(
         )).scalars().first()
 
     if notify:
-        await _notify(user, what=course.title, kind="course", pdf=pdf)
+        await _notify(db, user, what=course.title, kind="course", pdf=pdf)
     return certificate
 
 
@@ -204,7 +192,7 @@ async def issue_path_certificate(
         )).scalars().first()
 
     if notify:
-        await _notify(user, what=path.title, kind="learning path", pdf=pdf)
+        await _notify(db, user, what=path.title, kind="learning path", pdf=pdf)
     return certificate
 
 

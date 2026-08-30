@@ -88,7 +88,7 @@ from app.models.enums import UserRole
 from app.models.internship import InternProfile
 from app.models.user import User
 from app.services.documents.id_card import ensure_card_number
-from app.services.email import send_intern_welcome_email
+from app.services.email_templates import send_intern_welcome_email
 from app.services.spine.identity import ensure_user_contact
 
 DEFAULT_FILE = r"C:\Users\ahmed\Downloads\Untitled spreadsheet (4).xlsx"
@@ -300,7 +300,7 @@ async def run(args) -> Report:
                 token = create_password_set_token(user.id, expires_delta=timedelta(days=3))
                 link = f"{settings.FRONTEND_URL}/set-password?token={token}"
                 set_password_links.append((row.name, row.email, link))
-                sent = await send_intern_welcome_email(user.email, user.full_name, link)
+                sent = await send_intern_welcome_email(db, user.email, user.full_name, link)
                 if sent:
                     report.emails_sent += 1
                 else:

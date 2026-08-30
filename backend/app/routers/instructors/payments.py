@@ -22,7 +22,7 @@ from app.models.document_template import DocumentTemplate
 from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.documents.payment_letter import generate_payment_letter_pdf
-from app.services.email import (
+from app.services.email_templates import (
     send_certificates_email,
     send_payment_signed_notification_email,
 )
@@ -173,13 +173,13 @@ async def sign_letter(
         cert_pdfs.append((f"Certificate_{s.workshop_description}.pdf", cert_bytes))
 
     if cert_pdfs:
-        await send_certificates_email(current_user.email, current_user.full_name, cert_pdfs)
+        await send_certificates_email(db, current_user.email, current_user.full_name, cert_pdfs)
 
     admins = (await db.execute(select(User).where(User.roles.any("admin")))).scalars().all()
     for admin in admins:
         await notify(db, admin.id, "Payment Letter Signed",
                      f"{current_user.full_name} signed their payment letter — review it in Payments.", type="instructor")
-        await send_payment_signed_notification_email(admin.email, current_user.full_name)
+        await send_payment_signed_notification_email(db, admin.email, current_user.full_name)
 
     await db.commit()
     return await _letter_with_children(db, letter)

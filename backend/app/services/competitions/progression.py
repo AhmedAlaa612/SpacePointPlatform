@@ -22,16 +22,15 @@ from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.email_template import EmailTemplate
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.team import Team
 from app.models.user import User
-from app.services.email import try_send_email
+from app.services.email_templates import fetch_template, render_and_send
 from app.services.lms.program import assign_lms_program
 from app.services.sessions.registration import register
 from app.services.teams import create_team, join_team, team_member_ids
-
-CONGRATS_SUBJECT = "You're through to the next stage!"
 
 
 @dataclass
@@ -42,16 +41,13 @@ class TeamAdvanceResult:
     members_advanced: int
 
 
-async def _congrats_email(user: User, *, team_name: str, to_cohort_name: str) -> None:
-    await try_send_email(
-        user.email, CONGRATS_SUBJECT,
-        (
-            f"<p>Hi {user.full_name},</p>"
-            f"<p>Congratulations — <b>{team_name}</b> has advanced to <b>{to_cohort_name}</b>! "
-            "Log in to see what's next on your checklist.</p>"
-            "<p>— SpacePoint</p>"
-        ),
-        html=True,
+async def _congrats_email(
+    db: AsyncSession, user: User, *, team_name: str, to_cohort_name: str, template: EmailTemplate | None,
+) -> None:
+    await render_and_send(
+        db, key="competition_team_advanced", to=user.email,
+        placeholders={"name": user.full_name, "team_name": team_name, "to_cohort_name": to_cohort_name},
+        template=template,
     )
 
 
@@ -66,6 +62,7 @@ async def advance_teams(
     if to_cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Target cohort not found")
 
+    congrats_template = await fetch_template(db, "competition_team_advanced")
     results = []
     for team_id in team_ids:
         team = await db.get(Team, team_id)
@@ -107,7 +104,7 @@ async def advance_teams(
             elif user.id not in await team_member_ids(db, team_id=to_team.id):
                 await join_team(db, team_id=to_team.id, user_id=user.id)
 
-            await _congrats_email(user, team_name=team.name, to_cohort_name=to_cohort.name)
+            await _congrats_email(db, user, team_name=team.name, to_cohort_name=to_cohort.name, template=congrats_template)
             advanced += 1
 
         if to_team is None:

@@ -65,7 +65,7 @@ async def test_notifies_each_unnotified_interested_contact_once(db, use_fixture_
     cohort, interest, contact = await _cohort_with_interest(db)
     sent: list[tuple[str, str, str]] = []
 
-    async def _fake_send(to_email, name, program_name):
+    async def _fake_send(db, to_email, name, program_name):
         sent.append((to_email, name, program_name))
         return True
 
@@ -84,7 +84,7 @@ async def test_already_notified_rows_are_skipped_on_a_rerun(db, use_fixture_db_i
     cohort, interest, contact = await _cohort_with_interest(db, notified=True)
     sent: list[str] = []
 
-    async def _fake_send(to_email, name, program_name):
+    async def _fake_send(db, to_email, name, program_name):
         sent.append(to_email)
         return True
 
@@ -103,7 +103,7 @@ async def test_failed_send_leaves_notified_at_null_for_a_future_retry(db, use_fi
     transient outage means that contact is never emailed, ever."""
     cohort, interest, contact = await _cohort_with_interest(db)
 
-    async def _failing_send(to_email, name, program_name):
+    async def _failing_send(db, to_email, name, program_name):
         return False
 
     monkeypatch.setattr(cohort_interest_task, "send_cohort_interest_notification_email", _failing_send)
