@@ -524,7 +524,7 @@ export default function SessionDetail() {
         <div className="fixed left-0 right-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur-xl">
           <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-center">
             <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400 border border-emerald-500/20">
-              <CheckCircle2 size={13} /> {d.status === "approved" ? "Approved by ops" : "Submitted — awaiting review"}
+              <CheckCircle2 size={13} /> {d.status === "approved" ? "Completed" : "Submitted — awaiting review"}
             </span>
           </div>
         </div>
