@@ -73,7 +73,7 @@ function DayCard({ d, onDone, linkToSession, defaultOpen }: {
   const canReview = d.status === "submitted"
 
   return (
-    <div className="border border-border rounded-xl p-3">
+    <div className="border border-border rounded-xl p-3 shrink-0">
       <div
         role="button"
         tabIndex={0}

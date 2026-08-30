@@ -91,7 +91,7 @@ function OpenSessionLink({ s }: { s: BoardSession }) {
 function RunningCard({ s }: { s: BoardSession }) {
   const flagged = s.instructors.some((i) => (i.day_status === null && i.att_status === null) || i.att_status === "absent")
   return (
-    <Card className={flagged ? "border-amber-500/40" : undefined}>
+    <Card className={cn("shrink-0 py-0", flagged && "border-amber-500/40")}>
       <CardContent className="p-3 flex flex-col gap-2.5">
         <div>
           <p className="text-sm font-semibold text-foreground truncate">{s.title || s.program_name}</p>
@@ -125,7 +125,7 @@ function unfinishedInstructors(s: BoardSession) {
 function DoneCard({ s }: { s: BoardSession }) {
   const unfinished = unfinishedInstructors(s)
   return (
-    <Card className={unfinished.length > 0 ? "border-amber-500/40" : undefined}>
+    <Card className={cn("shrink-0 py-0", unfinished.length > 0 && "border-amber-500/40")}>
       <CardContent className="p-3 flex flex-col gap-1.5">
         <Link
           to="/operations/cohorts/$cohortId/sessions/$sessionId"
@@ -142,10 +142,12 @@ function DoneCard({ s }: { s: BoardSession }) {
         {unfinished.length > 0 && (
           <div className="flex flex-col gap-1 border-t border-border pt-2 mt-1">
             {unfinished.map((i) => (
-              <div key={i.user_id} className="flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400">
-                <CircleAlert size={11} className="shrink-0" />
-                <span className="font-semibold shrink-0">Not submitted:</span>
-                <span className="truncate min-w-0" title={i.full_name}>{i.full_name}</span>
+              <div key={i.user_id} className="flex flex-wrap items-center gap-1 text-[11px] text-amber-700 dark:text-amber-400">
+                <span className="flex items-center gap-1 shrink-0 font-semibold">
+                  <CircleAlert size={11} className="shrink-0" />
+                  Not submitted:
+                </span>
+                <span className="break-words min-w-0 flex-1" title={i.full_name}>{i.full_name}</span>
               </div>
             ))}
           </div>
@@ -162,14 +164,14 @@ function Column({
   title, icon, tone, count, children,
 }: { title: string; icon: React.ReactNode; tone: string; count: number; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-2.5 min-w-[300px] w-[300px] shrink-0">
+    <div className="flex flex-col gap-2.5 w-[85vw] max-w-[320px] sm:w-[300px] sm:min-w-[300px] shrink-0 snap-start">
       <div className="flex items-center justify-between px-1">
         <span className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide ${tone}`}>
           {icon} {title}
         </span>
         <span className="text-xs font-semibold text-muted-foreground tabular-nums">{count}</span>
       </div>
-      <div className="flex flex-col gap-2 max-h-[70vh] overflow-y-auto pr-0.5">
+      <div className="flex flex-col gap-2 max-h-[65vh] sm:max-h-[70vh] overflow-y-auto pr-0.5">
         {children}
       </div>
     </div>
@@ -198,7 +200,7 @@ export default function Reviews() {
     <div className="space-y-4">
       <PageHeader title="Reviews" subtitle="Every cohort, one page — what needs review, what's running, what's done." />
 
-      <div className="flex gap-4 overflow-x-auto pb-2">
+      <div className="flex gap-4 overflow-x-auto pb-2 snap-x snap-mandatory">
         <Column
           title="Need Review" count={needsReview.data?.length ?? 0}
           icon={<CircleAlert size={14} />} tone="text-red-600 dark:text-red-400"
