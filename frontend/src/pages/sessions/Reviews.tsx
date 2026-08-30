@@ -142,7 +142,7 @@ function DoneCard({ s }: { s: BoardSession }) {
         {unfinished.length > 0 && (
           <div className="flex flex-col gap-1 border-t border-border pt-2 mt-1">
             {unfinished.map((i) => (
-              <p key={i.user_id} className="text-[11px] text-amber-700 dark:text-amber-400">
+              <p key={i.user_id} className="text-[11px] text-amber-700 dark:text-amber-400 truncate" title={i.full_name}>
                 {i.full_name} hasn&apos;t submitted a report yet
               </p>
             ))}
