@@ -26,7 +26,7 @@ import {
 import {
   myInstructorCohortsApi, instructorStepGatesApi, setInstructorStepGateApi,
   instructorStepSelectionApi, setInstructorStepSelectionApi, clearInstructorStepSelectionApi,
-  instructorReviewQueueApi, instructorReviewAttemptApi, instructorOverrideAttemptApi,
+  instructorReviewQueueApi, instructorOverrideAttemptApi,
   type InstructorCohort,
 } from "@/api/missionsInstructor"
 import { fetchMissionCatalog } from "@/api/missions"
@@ -1146,8 +1146,6 @@ function ReviewScopePanel({ cohortId }: { cohortId: string }) {
 
 function ReviewAttemptRow({ attempt, cohortId, missionId }: { attempt: ManagedAttempt; cohortId: string; missionId: string }) {
   const queryClient = useQueryClient()
-  const [score, setScore] = useState("")
-  const [notes, setNotes] = useState("")
   const [error, setError] = useState("")
   const [overriding, setOverriding] = useState(false)
   const [overrideReason, setOverrideReason] = useState("")
@@ -1158,13 +1156,6 @@ function ReviewAttemptRow({ attempt, cohortId, missionId }: { attempt: ManagedAt
   const [showRun, setShowRun] = useState(false)
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["instructor-review-queue", cohortId, missionId] })
-
-  const reviewMutation = useMutation({
-    mutationFn: (passed: boolean) =>
-      instructorReviewAttemptApi(attempt.id, { passed, score: score ? Number(score) : null, review_comment: notes || null }),
-    onSuccess: () => { setError(""); invalidate() },
-    onError: (e) => setError(errorDetail(e, "Couldn't submit this review")),
-  })
 
   const overrideMutation = useMutation({
     mutationFn: (passed: boolean) => instructorOverrideAttemptApi(attempt.id, { passed, reason: overrideReason.trim() }),
@@ -1190,19 +1181,13 @@ function ReviewAttemptRow({ attempt, cohortId, missionId }: { attempt: ManagedAt
           <DesignRunDetail attemptId={attempt.id} />
         </div>
       )}
+      {/* Plain Pass/Fail hidden (2026-08-30 operator ask) — this mission
+          kind has no instructor-decided pass/fail; a Design run grades
+          itself once every step is valid (see the empty-state hint
+          above). "Force pass/fail" stays as the one legitimate manual
+          path — unblocking a student stuck on a mistake, not routine
+          grading. */}
       <div className="flex gap-2">
-        <input
-          value={score} onChange={(e) => setScore(e.target.value)} placeholder="Score (0-100)"
-          className="h-8 w-28 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
-        />
-        <input
-          value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes (optional)"
-          className="h-8 flex-1 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
-        />
-      </div>
-      <div className="flex gap-2">
-        <Button size="sm" onClick={() => reviewMutation.mutate(true)} disabled={reviewMutation.isPending}>Pass</Button>
-        <Button size="sm" variant="destructive" onClick={() => reviewMutation.mutate(false)} disabled={reviewMutation.isPending}>Fail</Button>
         <Button size="sm" variant="outline" onClick={() => setOverriding((v) => !v)}>
           {overriding ? "Cancel override" : "Force pass/fail…"}
         </Button>
