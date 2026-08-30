@@ -261,6 +261,15 @@ export function CohortRolesPanel({ cohort, sessionId }: {
     enabled: !!sessionId,
   })
   const sessionRoleIds = sessionId ? new Set((sessionOpenings ?? []).map((o) => o.role_id)) : null
+  // A role that's only visible here because *this session* added it as a
+  // one-off — the cohort's own template (`openings`) has no row for it.
+  // Saving anything on its card must never create one: that would silently
+  // hand the role to every other session that's still inheriting the
+  // cohort template wholesale, turning a single session's extra into a
+  // cohort-wide default nobody asked for.
+  const cohortRoleIds = new Set(openings.map((o) => o.role_id))
+  const isSessionOnlyExtra = (roleId: string) =>
+    !!sessionRoleIds && sessionRoleIds.has(roleId) && !cohortRoleIds.has(roleId)
 
   // Deliberately unfiltered by session — saving is a whole-cohort replace
   // (setCohortOpeningsApi deletes any role not present in the payload), so
@@ -291,6 +300,7 @@ export function CohortRolesPanel({ cohort, sessionId }: {
     mutationFn: () => setCohortOpeningsApi({
       cohortId: cohort.id,
       openings: rows
+        .filter((d) => !isSessionOnlyExtra(d.role_id))
         .filter((d) => d.amount_aed !== "" || d.notes || d.responsibilities_override || d.slots !== 1)
         .map((d) => ({
           role_id: d.role_id,
@@ -337,6 +347,21 @@ export function CohortRolesPanel({ cohort, sessionId }: {
           if (sessionRoleIds && !sessionRoleIds.has(d.role_id)) return null
           const role = roles.find((r) => r.id === d.role_id)
           if (!role) return null
+
+          if (isSessionOnlyExtra(d.role_id)) {
+            return (
+              <div key={d.role_id} className="border border-dashed border-border rounded-xl p-3">
+                <span className="text-sm font-semibold text-foreground">{role.name}</span>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Added just for this session — its rate and slots are set on the session's own offer
+                  above. It isn't part of the cohort's shared roles, so there's no shared responsibilities
+                  override or checklist to set for it here; add it on the cohort's own Roles tab first if
+                  you want that.
+                </p>
+              </div>
+            )
+          }
+
           return (
             <div key={d.role_id} className="border border-border rounded-xl p-3 flex flex-col gap-2.5">
               <div className="flex items-center justify-between">
