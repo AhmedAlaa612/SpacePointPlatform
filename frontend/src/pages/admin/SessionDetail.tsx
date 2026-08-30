@@ -310,7 +310,7 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
             <SessionOpeningsPanel sessionId={session.id} />
           </Card>
           <Card className="p-4">
-            <CohortRolesPanel cohort={cohort} />
+            <CohortRolesPanel cohort={cohort} sessionId={session.id} />
           </Card>
         </div>
       )}

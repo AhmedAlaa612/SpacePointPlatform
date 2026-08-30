@@ -13,7 +13,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ChevronDown, ChevronRight, ImageIcon, Plus, Trash2 } from "lucide-react"
 import type { Cohort } from "@/types/sessions"
 import type { ChecklistItem } from "@/types/sessions"
-import { getDeliveryRolesApi, getCohortOpeningsApi, setCohortOpeningsApi } from "@/api/sessions/openings"
+import { getDeliveryRolesApi, getCohortOpeningsApi, getOpeningsApi, setCohortOpeningsApi } from "@/api/sessions/openings"
 import { listChecklistItemsApi, setChecklistItemsApi } from "@/api/sessions/day"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
@@ -227,7 +227,19 @@ interface RoleDraft {
   responsibilities_override: string
 }
 
-export function CohortRolesPanel({ cohort }: { cohort: Cohort }) {
+export function CohortRolesPanel({ cohort, sessionId }: {
+  cohort: Cohort
+  /** Scopes the role list to what this one session actually offers (its own
+   *  openings, inherited from the cohort template when it hasn't overridden
+   *  them) instead of every active role on the platform — used when this
+   *  panel sits under a specific session's own "What this session is
+   *  offering" editor, so removing a role there also drops its rate/
+   *  responsibilities/checklist card from view here. Omitted on the plain
+   *  cohort-wide Roles tab, where showing every role (even ones this cohort
+   *  hasn't used yet) is the point — it's where defaults get set up ahead
+   *  of time. */
+  sessionId?: string
+}) {
   const qc = useQueryClient()
   const toast = useToast()
   const [error, setError] = useState("")
@@ -241,7 +253,20 @@ export function CohortRolesPanel({ cohort }: { cohort: Cohort }) {
     queryKey: ["cohort-openings-defaults", cohort.id],
     queryFn: () => getCohortOpeningsApi(cohort.id),
   })
+  // Shares its cache with SessionOpeningsPanel (same query key) when scoped
+  // to a session — same reasoning as Reviews.tsx's shared "day-reviews" key.
+  const { data: sessionOpenings, isLoading: sessionLoading } = useQuery({
+    queryKey: ["session-openings", sessionId],
+    queryFn: () => getOpeningsApi(sessionId!),
+    enabled: !!sessionId,
+  })
+  const sessionRoleIds = sessionId ? new Set((sessionOpenings ?? []).map((o) => o.role_id)) : null
 
+  // Deliberately unfiltered by session — saving is a whole-cohort replace
+  // (setCohortOpeningsApi deletes any role not present in the payload), so
+  // the draft must carry every active role even when the render below only
+  // *shows* the ones this session offers. Filtering here would silently
+  // wipe out another session's role configuration on save.
   const toDraft = () => roles
     .filter((r) => r.is_active)
     .map((r) => {
@@ -256,9 +281,9 @@ export function CohortRolesPanel({ cohort }: { cohort: Cohort }) {
     })
 
   useEffect(() => {
-    if (roles.length && !isLoading) setDraft(toDraft())
+    if (roles.length && !isLoading && !sessionLoading) setDraft(toDraft())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roles, openings, isLoading])
+  }, [roles, openings, isLoading, sessionOpenings, sessionLoading])
 
   const rows = draft ?? []
 
@@ -283,7 +308,7 @@ export function CohortRolesPanel({ cohort }: { cohort: Cohort }) {
     onError: (e: any) => setError(getErrorMessage(e, "Could not save roles")),
   })
 
-  if (isLoading || draft === null) {
+  if (isLoading || sessionLoading || draft === null) {
     return <p className="text-xs text-muted-foreground py-1">Loading roles…</p>
   }
 
@@ -294,6 +319,7 @@ export function CohortRolesPanel({ cohort }: { cohort: Cohort }) {
         <p className="text-xs text-muted-foreground mt-0.5">
           Rate and responsibilities default from Delivery Settings — override either here, per role, for this cohort only.
           A role's own checklist replaces the general one for that role; leave it empty to keep using the general list.
+          {sessionId && " Only showing roles this session is currently offering — remove one above and it drops from here too."}
         </p>
       </div>
 
@@ -304,6 +330,11 @@ export function CohortRolesPanel({ cohort }: { cohort: Cohort }) {
 
       <div className="flex flex-col gap-3">
         {rows.map((d, i) => {
+          // `i` stays the true index into `rows` (the full, unfiltered
+          // draft) even though a session-scoped view skips rendering some
+          // of them — every onChange below writes back through that same
+          // index, so a hidden role's draft entry is never touched.
+          if (sessionRoleIds && !sessionRoleIds.has(d.role_id)) return null
           const role = roles.find((r) => r.id === d.role_id)
           if (!role) return null
           return (
