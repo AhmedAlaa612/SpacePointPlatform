@@ -552,17 +552,20 @@ async def submit_program_item(
     db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
 ):
     """Paste-back for a `submission` item — same shape as the Poster tab.
-    Recorded, not auto-completed: still needs the student's own
-    `.../complete` call (or ops confirmation, if `requires_confirmation`)
-    to actually mark the step done, same two-step flow the Poster tab
-    established (paste link, then it counts once the deadline/step logic
-    is happy). A `scope="team"` item writes to the shared team row — any
-    teammate submitting overrides whatever was there before, on purpose."""
+    Auto-completes on submit: marks the item `done` right away, or
+    `awaiting_confirmation` if the item requires ops sign-off. A
+    `scope="team"` item writes to the shared team row — any teammate
+    submitting overrides whatever was there before, on purpose."""
     assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     if item.item_type != "submission":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item does not take a submission")
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
     target.submitted_url = body.url
+    if item.requires_confirmation:
+        target.status = "awaiting_confirmation"
+    else:
+        target.status = "done"
+        target.completed_at = datetime.now(timezone.utc)
     if isinstance(target, LmsProgramTeamItemProgress):
         target.updated_by_user_id = current.id
     target.updated_at = datetime.now(timezone.utc)
