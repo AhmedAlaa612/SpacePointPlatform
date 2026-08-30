@@ -721,6 +721,42 @@ async def team_for_cohort_member(db: AsyncSession, *, cohort_id: uuid.UUID | Non
     )
 
 
+def _effective_status(
+    item: LmsProgramItem, progress: LmsProgramItemProgress,
+    team_progress_by_item: dict[uuid.UUID, LmsProgramTeamItemProgress],
+) -> str:
+    """The status that's actually true for this item — the shared team row
+    for a team-scoped item, the individual row otherwise. Doesn't refresh
+    course/mission_run status against live Enrollment/MissionAttempt state
+    (see `refresh_item_progress`); callers that need that still call it
+    themselves, this is only for callers (the roster's pending-confirmations
+    filter) that just need to know if the stored status is
+    `awaiting_confirmation`, which auto-tracked items never set anyway."""
+    team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
+    return team_progress.status if team_progress is not None else progress.status
+
+
+async def _team_progress_by_item(
+    db: AsyncSession, *, pairs: list[tuple[LmsProgramItem, LmsProgramItemProgress]],
+    cohort_id: uuid.UUID | None, user_id: uuid.UUID,
+) -> dict[uuid.UUID, LmsProgramTeamItemProgress]:
+    """Every team-scoped item's shared progress row for this cohort
+    member's team, keyed by item_id — the one lookup any reader of an
+    assignment's items needs before trusting an item's status/submitted_url:
+    a team-scoped item's real state never lives on the individual row."""
+    team = await team_for_cohort_member(db, cohort_id=cohort_id, user_id=user_id)
+    team_item_ids = [item.id for item, _ in pairs if item.scope == "team"]
+    if team is None or not team_item_ids:
+        return {}
+    rows = (await db.execute(
+        select(LmsProgramTeamItemProgress).where(
+            LmsProgramTeamItemProgress.team_id == team.id,
+            LmsProgramTeamItemProgress.item_id.in_(team_item_ids),
+        )
+    )).scalars().all()
+    return {r.item_id: r for r in rows}
+
+
 async def _get_or_create_team_progress(
     db: AsyncSession, *, item_id: uuid.UUID, team_id: uuid.UUID,
 ) -> LmsProgramTeamItemProgress:
@@ -852,14 +888,23 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
         return None
     cohort = await db.get(Cohort, assignment.cohort_id) if assignment.cohort_id else None
 
+    pairs = await _assignment_items_and_progress(db, assignment.id)
+    team_progress_by_item = await _team_progress_by_item(
+        db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
+    )
+
     done = 0
     required_total = 0
     next_item_title: str | None = None
-    for item, progress in await _assignment_items_and_progress(db, assignment.id):
+    for item, progress in pairs:
         if item.optional:
             continue
         required_total += 1
-        status = await refresh_item_progress(db, progress=progress, item=item, user_id=assignment.user_id)
+        team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
+        status = (
+            team_progress.status if team_progress is not None
+            else await refresh_item_progress(db, progress=progress, item=item, user_id=assignment.user_id)
+        )
         if status == "done":
             done += 1
         elif next_item_title is None:
@@ -910,10 +955,20 @@ async def cohort_program_roster(
         if summary is None:
             continue
         user = await db.get(User, assignment.user_id)
+        pairs = await _assignment_items_and_progress(db, assignment.id)
+        team_progress_by_item = await _team_progress_by_item(
+            db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
+        )
         pending = [
-            {"item_id": item.id, "title": item.title, "submitted_url": progress.submitted_url}
-            for item, progress in await _assignment_items_and_progress(db, assignment.id)
-            if progress.status == "awaiting_confirmation"
+            {
+                "item_id": item.id, "title": item.title,
+                "submitted_url": (
+                    team_progress_by_item[item.id].submitted_url if item.id in team_progress_by_item
+                    else progress.submitted_url
+                ),
+            }
+            for item, progress in pairs
+            if _effective_status(item, progress, team_progress_by_item) == "awaiting_confirmation"
         ]
         out.append({
             **summary, "user_id": assignment.user_id, "student_name": user.full_name if user else "?",
@@ -944,10 +999,20 @@ async def program_roster(
         if summary is None:
             continue
         user = await db.get(User, assignment.user_id)
+        pairs = await _assignment_items_and_progress(db, assignment.id)
+        team_progress_by_item = await _team_progress_by_item(
+            db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
+        )
         pending = [
-            {"item_id": item.id, "title": item.title, "submitted_url": progress.submitted_url}
-            for item, progress in await _assignment_items_and_progress(db, assignment.id)
-            if progress.status == "awaiting_confirmation"
+            {
+                "item_id": item.id, "title": item.title,
+                "submitted_url": (
+                    team_progress_by_item[item.id].submitted_url if item.id in team_progress_by_item
+                    else progress.submitted_url
+                ),
+            }
+            for item, progress in pairs
+            if _effective_status(item, progress, team_progress_by_item) == "awaiting_confirmation"
         ]
         out.append({
             **summary, "user_id": assignment.user_id, "student_name": user.full_name if user else "?",
@@ -975,18 +1040,9 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
     if assignment is None:
         return None
     pairs = await _assignment_items_and_progress(db, assignment_id)
-
-    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
-    team_item_ids = [item.id for item, _ in pairs if item.scope == "team"]
-    team_progress_by_item: dict[uuid.UUID, LmsProgramTeamItemProgress] = {}
-    if team is not None and team_item_ids:
-        rows = (await db.execute(
-            select(LmsProgramTeamItemProgress).where(
-                LmsProgramTeamItemProgress.team_id == team.id,
-                LmsProgramTeamItemProgress.item_id.in_(team_item_ids),
-            )
-        )).scalars().all()
-        team_progress_by_item = {r.item_id: r for r in rows}
+    team_progress_by_item = await _team_progress_by_item(
+        db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
+    )
 
     out = []
     for item, progress in pairs:
@@ -1012,20 +1068,38 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
 
 async def confirm_program_item(
     db: AsyncSession, *, assignment_id: uuid.UUID, item_id: uuid.UUID, confirmed_by_user_id: uuid.UUID,
-) -> LmsProgramItemProgress | None:
+) -> LmsProgramItemProgress | LmsProgramTeamItemProgress | None:
     """Ops/instructor sign-off for a `requires_confirmation` item —
     the other half of the self-check flow (services/lms/program.py's
     `refresh_item_progress` never touches these, they're only ever
-    written here or by the student's own self-check)."""
-    progress = await db.scalar(
-        select(LmsProgramItemProgress).where(
-            LmsProgramItemProgress.assignment_id == assignment_id, LmsProgramItemProgress.item_id == item_id,
-        )
-    )
-    if progress is None:
+    written here or by the student's own self-check). A `scope="team"`
+    item signs off the shared `LmsProgramTeamItemProgress` row for the
+    assignment's own student's team — same row `checklist_item_write_target`
+    resolves for a student's own submit/complete — not the never-written
+    individual row; the confirming ops/instructor user has no team of
+    their own to resolve here."""
+    assignment = await db.get(LmsProgramAssignment, assignment_id)
+    item = await db.get(LmsProgramItem, item_id)
+    if assignment is None or item is None:
         return None
-    progress.status = "done"
-    progress.completed_at = datetime.now(timezone.utc)
-    progress.confirmed_by_user_id = confirmed_by_user_id
+    if item.scope == "team":
+        team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
+        if team is None:
+            return None
+        target: LmsProgramItemProgress | LmsProgramTeamItemProgress = await _get_or_create_team_progress(
+            db, item_id=item.id, team_id=team.id,
+        )
+    else:
+        row = await db.scalar(
+            select(LmsProgramItemProgress).where(
+                LmsProgramItemProgress.assignment_id == assignment_id, LmsProgramItemProgress.item_id == item_id,
+            )
+        )
+        if row is None:
+            return None
+        target = row
+    target.status = "done"
+    target.completed_at = datetime.now(timezone.utc)
+    target.confirmed_by_user_id = confirmed_by_user_id
     await db.flush()
-    return progress
+    return target

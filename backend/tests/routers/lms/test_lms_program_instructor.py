@@ -350,6 +350,65 @@ async def test_assignment_items_reads_team_scoped_status_from_the_shared_row(db,
     assert team_row["status"] == "done"
     assert team_row["submitted_url"] == "https://canva.com/design/team-poster"
 
+    # The roster's own items_done/pct summary must count it too — this is
+    # the same "0/9, still 0%" bug the drill-in view had, just one function
+    # over (_assignment_summary), so it needs its own coverage.
+    roster = await client.get(f"/lms/instructor/cohorts/{cohort.id}/program-progress", headers=_headers(instructor))
+    assert roster.status_code == 200, roster.text
+    row = next(r for r in roster.json() if r["assignment_id"] == str(assignment.id))
+    assert row["items_done"] == 1
+    assert row["items_total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_confirming_a_team_item_writes_the_shared_team_row_not_the_individual_one(db, client):
+    """requires_confirmation + scope=team item: the student's submit puts
+    it in awaiting_confirmation on the *team* row. Ops confirming it must
+    resolve to that same team row (regression: confirm_program_item used
+    to always write the never-touched individual row, so the item stayed
+    stuck at awaiting_confirmation forever no matter how many times ops
+    hit Confirm)."""
+    instructor = await _user(db)
+    cohort, _manual_item = await _cohort_with_manual_item(db)
+    await _assign_instructor(db, instructor=instructor, cohort=cohort)
+    lms_program_id = (await db.scalar(select(LmsProgram.id).where(LmsProgram.program_id == cohort.program_id)))
+    team_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program_id, position=2,
+        item_type="submission", title="Team Poster", submission_prompt="Paste your link",
+        scope="team", requires_confirmation=True,
+    )
+    db.add(team_item)
+    student = await _student(db)
+    await db.commit()
+    await create_team(db, name="Confirm Flow Team", created_by=student.id, cohort_id=cohort.id, member_ids=[])
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    submitted = await client.post(
+        f"/lms/programs/{assignment.id}/items/{team_item.id}/submit", headers=_headers(student),
+        json={"url": "https://canva.com/design/team-poster"},
+    )
+    assert submitted.status_code == 200, submitted.text
+    assert submitted.json()["status"] == "awaiting_confirmation"
+
+    roster = await client.get(f"/lms/instructor/cohorts/{cohort.id}/program-progress", headers=_headers(instructor))
+    row = next(r for r in roster.json() if r["assignment_id"] == str(assignment.id))
+    assert [p["item_id"] for p in row["pending_confirmations"]] == [str(team_item.id)]
+
+    confirmed = await client.post(
+        f"/lms/instructor/cohorts/{cohort.id}/program-progress/{assignment.id}/items/{team_item.id}/confirm",
+        headers=_headers(instructor),
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["pending_confirmations"] == []
+    assert confirmed.json()["items_done"] == 1
+
+    detail = await client.get(
+        f"/lms/instructor/cohorts/{cohort.id}/program-progress/{assignment.id}/items", headers=_headers(instructor),
+    )
+    team_row = next(r for r in detail.json() if r["item_id"] == str(team_item.id))
+    assert team_row["status"] == "done"
+
 
 # ── student profile mirrors ──────────────────────────────────────────────
 
