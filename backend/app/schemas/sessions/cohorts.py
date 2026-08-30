@@ -130,7 +130,6 @@ class SessionOut(BaseModel):
     starts_at: time | None = None
     title: str | None = None
     material_url: str | None = None
-    price: Decimal | None = None
     # NULL = inherits the cohort's (then the program's) duration — see
     # services/sessions/openings.py::resolve_duration. This is the session's
     # own override, if it has one; the resolved value an instructor sees
@@ -182,19 +181,17 @@ class AddSessionRequest(BaseModel):
     starts_at: time | None = None
     title: str | None = None
     material_url: str | None = None
-    price: Decimal | None = None
     duration_hours: Decimal | None = None
 
 
 class UpdateSessionRequest(BaseModel):
     """PATCH — only the fields present are applied. Lets ops fill in a
-    title/material link/price override after a session was bulk-generated
-    with just a bare date."""
+    title/material link after a session was bulk-generated with just a bare
+    date."""
     meeting_date: date | None = None
     starts_at: time | None = None
     title: str | None = None
     material_url: str | None = None
-    price: Decimal | None = None
     duration_hours: Decimal | None = None
     # Explicit null clears the override back to "inherit the cohort's
     # location" — same convention as every other inherit-unless-set field

@@ -21,7 +21,6 @@ export function EditSessionModal({
   const [title, setTitle] = useState(session.title ?? "")
   const [meetingDate, setMeetingDate] = useState(session.meeting_date ?? "")
   const [startsAt, setStartsAt] = useState(session.starts_at ? session.starts_at.slice(0, 5) : "")
-  const [price, setPrice] = useState(session.price != null ? String(session.price) : "")
   const [durationHours, setDurationHours] = useState(session.duration_hours != null ? String(session.duration_hours) : "")
   const [error, setError] = useState("")
 
@@ -31,7 +30,6 @@ export function EditSessionModal({
         title: title.trim() || null,
         meeting_date: meetingDate,
         starts_at: startsAt || null,
-        price: price.trim() ? Number(price) : null,
         duration_hours: durationHours.trim() ? Number(durationHours) : null,
       }),
     onSuccess: () => {
@@ -81,16 +79,6 @@ export function EditSessionModal({
             />
           </Field>
         </div>
-
-        <Field label="Price Override (AED, optional)">
-          <input
-            type="number"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            placeholder="Leave blank to use program price"
-            className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-          />
-        </Field>
 
         <Field label="Duration Override (hours, optional)">
           <input

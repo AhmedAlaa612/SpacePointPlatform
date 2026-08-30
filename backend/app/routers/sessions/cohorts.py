@@ -482,7 +482,7 @@ async def add_session(
 
     session = Session(
         id=uuid.uuid4(), cohort_id=cohort_id, meeting_date=body.meeting_date,
-        starts_at=body.starts_at, title=body.title, material_url=body.material_url, price=body.price,
+        starts_at=body.starts_at, title=body.title, material_url=body.material_url,
         duration_hours=body.duration_hours,
     )
     db.add(session)

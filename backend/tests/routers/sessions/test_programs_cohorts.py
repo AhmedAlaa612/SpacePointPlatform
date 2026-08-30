@@ -391,14 +391,13 @@ async def test_add_single_session_creates_a_one_off_date(db, client, operations_
 
     resp = await client.post(
         f"/sessions/cohorts/{cohort.id}/sessions",
-        json={"meeting_date": "2026-08-15", "starts_at": "14:00:00", "title": "Make-up session", "price": "50.00"},
+        json={"meeting_date": "2026-08-15", "starts_at": "14:00:00", "title": "Make-up session"},
         headers=operations_headers,
     )
     assert resp.status_code == 201, resp.text
     body = resp.json()
     assert body["meeting_date"] == "2026-08-15"
     assert body["title"] == "Make-up session"
-    assert body["price"] == "50.00"
 
     rows = (await db.execute(select(Session).where(Session.cohort_id == cohort.id))).scalars().all()
     assert len(rows) == 1
@@ -420,7 +419,7 @@ async def test_add_single_session_conflict_on_duplicate_slot(db, client, operati
 
 
 @pytest.mark.asyncio
-async def test_update_session_edits_title_and_price(db, client, operations_headers):
+async def test_update_session_edits_title(db, client, operations_headers):
     program = await _make_program(db)
     cohort = await _make_cohort(db, program, starts_on=date(2026, 8, 3))
     session = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 8, 3))
@@ -429,13 +428,12 @@ async def test_update_session_edits_title_and_price(db, client, operations_heade
 
     resp = await client.patch(
         f"/sessions/cohorts/{cohort.id}/sessions/{session.id}",
-        json={"title": "Intro to Orbits", "price": "75.00"},
+        json={"title": "Intro to Orbits"},
         headers=operations_headers,
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["title"] == "Intro to Orbits"
-    assert body["price"] == "75.00"
 
 
 # ── Per-session instructor assignment ───────────────────────────────────────

@@ -1105,14 +1105,12 @@ function AddSessionModal({ cohort, onClose, onSuccess }: {
   const [meetingDate, setMeetingDate] = useState(cohort.starts_on ?? "")
   const [startsAt, setStartsAt] = useState("")
   const [title, setTitle] = useState("")
-  const [price, setPrice] = useState("")
   const [durationHours, setDurationHours] = useState("")
   const [error, setError] = useState("")
 
   const mutation = useMutation({
     mutationFn: () => addSessionApi(cohort.id, {
       meeting_date: meetingDate, starts_at: startsAt || null, title: title.trim() || null,
-      price: price.trim() ? Number(price) : null,
       duration_hours: durationHours.trim() ? Number(durationHours) : null,
     }),
     onSuccess: () => { toast.success("Session added"); onSuccess() },
@@ -1141,12 +1139,6 @@ function AddSessionModal({ cohort, onClose, onSuccess }: {
         <Field label="Title (optional)">
           <input
             value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Make-up session"
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-          />
-        </Field>
-        <Field label="Price override (optional)">
-          <input
-            value={price} onChange={(e) => setPrice(e.target.value)} type="number" placeholder="Leave blank to use the program price"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </Field>

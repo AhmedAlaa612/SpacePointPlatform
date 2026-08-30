@@ -89,8 +89,8 @@ export interface SessionInstructor {
 
 /** The actual teaching unit inside a cohort — not just a date. A single-day
  * workshop is a cohort with exactly one Session; a multi-week course has
- * several, each with its own title, instructor(s), and (optionally) its own
- * price override. */
+ * several, each with its own title and instructor(s). Registration always
+ * prices off the program, never a per-session override (2026-08-30). */
 export interface Session {
   id: string;
   cohort_id: string;
@@ -98,7 +98,6 @@ export interface Session {
   starts_at?: string | null;
   title?: string | null;
   material_url?: string | null;
-  price?: number | null;
   // unstaffed|open_call|staffed — the W4 staffing marketplace pipeline.
   // Session-scoped, not cohort-scoped (a cohort with several sessions can
   // be partly staffed).

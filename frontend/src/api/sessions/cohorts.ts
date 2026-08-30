@@ -63,7 +63,7 @@ export const addSessionApi = (
   cohortId: string,
   data: {
     meeting_date: string; starts_at?: string | null; title?: string | null
-    material_url?: string | null; price?: number | null
+    material_url?: string | null
     /** Leave unset to inherit the cohort's (then the program's) duration. */
     duration_hours?: number | null
   }
@@ -74,7 +74,7 @@ export const updateSessionApi = (
   sessionId: string,
   data: Partial<{
     meeting_date: string; starts_at: string | null; title: string | null
-    material_url: string | null; price: number | null
+    material_url: string | null
     /** null clears the override back to "inherit the cohort's (then the
      *  program's) duration". */
     duration_hours: number | null
