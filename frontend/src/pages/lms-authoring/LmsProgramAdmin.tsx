@@ -26,10 +26,11 @@ import {
 import {
   myInstructorCohortsApi, instructorStepGatesApi, setInstructorStepGateApi,
   instructorStepSelectionApi, setInstructorStepSelectionApi, clearInstructorStepSelectionApi,
-  instructorReviewQueueApi, instructorReviewAttemptApi, instructorOverrideAttemptApi,
+  instructorReviewQueueApi, instructorOverrideAttemptApi,
   type InstructorCohort,
 } from "@/api/missionsInstructor"
 import { fetchMissionCatalog } from "@/api/missions"
+import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
 import type { Program } from "@/types/sessions"
 import type { ManagedAttempt } from "@/api/missions_manager"
 import { ensureAbsoluteUrl } from "@/lib/utils"
@@ -1070,18 +1071,45 @@ function ProgressRow({
       </div>
       {open && (
         <div className="p-3 border-t border-border bg-background flex flex-col gap-1.5">
-          {itemsLoading ? <Spinner /> : (items ?? []).map((item) => (
-            <div key={item.item_id} className="flex items-center gap-3 text-xs">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${item.status === "done" ? "bg-emerald-500" : item.status === "awaiting_confirmation" ? "bg-amber-500" : "bg-muted-foreground/30"}`} />
-              <span className="flex-1 text-foreground truncate">{item.title}</span>
-              <span className="text-muted-foreground shrink-0">{item.status.replace("_", " ")}</span>
-              {item.submitted_url && (
-                <a href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
-                  submission
-                </a>
-              )}
-            </div>
-          ))}
+          {itemsLoading ? <Spinner /> : (items ?? []).map((item) => <AssignmentItemRow key={item.item_id} item={item} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A single checklist item under a student's Progress row. A `mission_run`
+ * item carries `mission_attempt_id` once the student has an attempt, so it
+ * gets the same "view their run" toggle as the Review queue
+ * (`DesignRunDetail`, wired 2026-08-30) instead of leaving "done" as a dead
+ * end with nothing to click. */
+function AssignmentItemRow({ item }: { item: LmsAssignmentItemDetail }) {
+  const [showRun, setShowRun] = useState(false)
+  const canViewRun = item.item_type === "mission_run" && !!item.mission_attempt_id
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-3 text-xs">
+        <span className={`w-2 h-2 rounded-full shrink-0 ${item.status === "done" ? "bg-emerald-500" : item.status === "awaiting_confirmation" ? "bg-amber-500" : "bg-muted-foreground/30"}`} />
+        <span className="flex-1 text-foreground truncate">{item.title}</span>
+        <span className="text-muted-foreground shrink-0">{item.status.replace("_", " ")}</span>
+        {item.submitted_url && (
+          <a href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
+            submission
+          </a>
+        )}
+        {canViewRun && (
+          <button
+            onClick={() => setShowRun((v) => !v)}
+            className="text-primary underline shrink-0 cursor-pointer"
+          >
+            {showRun ? "hide run" : "view run"}
+          </button>
+        )}
+      </div>
+      {canViewRun && showRun && (
+        <div className="mt-1.5 border border-border rounded-lg bg-card">
+          <DesignRunDetail attemptId={item.mission_attempt_id as string} />
         </div>
       )}
     </div>
@@ -1118,20 +1146,16 @@ function ReviewScopePanel({ cohortId }: { cohortId: string }) {
 
 function ReviewAttemptRow({ attempt, cohortId, missionId }: { attempt: ManagedAttempt; cohortId: string; missionId: string }) {
   const queryClient = useQueryClient()
-  const [score, setScore] = useState("")
-  const [notes, setNotes] = useState("")
   const [error, setError] = useState("")
   const [overriding, setOverriding] = useState(false)
   const [overrideReason, setOverrideReason] = useState("")
+  // Operator ask (2026-08-24) was "open the run and see everything there
+  // with read only, just like the student view" — that landed on the
+  // student profile's Mission runs list, but never here, where a reviewer
+  // actually needs it before deciding Pass/Fail on a just-submitted run.
+  const [showRun, setShowRun] = useState(false)
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["instructor-review-queue", cohortId, missionId] })
-
-  const reviewMutation = useMutation({
-    mutationFn: (passed: boolean) =>
-      instructorReviewAttemptApi(attempt.id, { passed, score: score ? Number(score) : null, review_comment: notes || null }),
-    onSuccess: () => { setError(""); invalidate() },
-    onError: (e) => setError(errorDetail(e, "Couldn't submit this review")),
-  })
 
   const overrideMutation = useMutation({
     mutationFn: (passed: boolean) => instructorOverrideAttemptApi(attempt.id, { passed, reason: overrideReason.trim() }),
@@ -1145,19 +1169,25 @@ function ReviewAttemptRow({ attempt, cohortId, missionId }: { attempt: ManagedAt
         <p className="text-sm font-semibold text-foreground">{attempt.student_name ?? attempt.team_name ?? "Unknown"}</p>
         <span className="text-xs text-muted-foreground">Attempt {attempt.attempt_no} · {attempt.status}</span>
       </div>
+      <button
+        onClick={() => setShowRun((v) => !v)}
+        className="flex items-center gap-1 text-xs font-medium text-primary hover:opacity-80 transition-opacity w-fit cursor-pointer"
+      >
+        <ChevronDown size={13} className={`transition-transform ${showRun ? "rotate-180" : ""}`} />
+        {showRun ? "Hide" : "View"} their mission run
+      </button>
+      {showRun && (
+        <div className="border border-border rounded-lg bg-card">
+          <DesignRunDetail attemptId={attempt.id} />
+        </div>
+      )}
+      {/* Plain Pass/Fail hidden (2026-08-30 operator ask) — this mission
+          kind has no instructor-decided pass/fail; a Design run grades
+          itself once every step is valid (see the empty-state hint
+          above). "Force pass/fail" stays as the one legitimate manual
+          path — unblocking a student stuck on a mistake, not routine
+          grading. */}
       <div className="flex gap-2">
-        <input
-          value={score} onChange={(e) => setScore(e.target.value)} placeholder="Score (0-100)"
-          className="h-8 w-28 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
-        />
-        <input
-          value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes (optional)"
-          className="h-8 flex-1 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
-        />
-      </div>
-      <div className="flex gap-2">
-        <Button size="sm" onClick={() => reviewMutation.mutate(true)} disabled={reviewMutation.isPending}>Pass</Button>
-        <Button size="sm" variant="destructive" onClick={() => reviewMutation.mutate(false)} disabled={reviewMutation.isPending}>Fail</Button>
         <Button size="sm" variant="outline" onClick={() => setOverriding((v) => !v)}>
           {overriding ? "Cancel override" : "Force pass/fail…"}
         </Button>
