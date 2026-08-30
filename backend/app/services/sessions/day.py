@@ -533,6 +533,7 @@ async def get_day_detail(db: AsyncSession, session_id: UUID, user: User, *, for_
             "proof_url": proof_url,
         })
 
+    missing = await _missing_requirements(db, session, day)
     return {
         "day_id": day.id,
         "session_id": session_id,
@@ -546,8 +547,8 @@ async def get_day_detail(db: AsyncSession, session_id: UUID, user: User, *, for_
         "review_comment": day.review_comment,
         "instructor_notes": day.instructor_notes,
         "checklist": checklist,
-        "can_submit": not await _missing_requirements(db, session, day),
-        "missing": await _missing_requirements(db, session, day),
+        "can_submit": not missing,
+        "missing": missing,
     }
 
 

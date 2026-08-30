@@ -197,11 +197,19 @@ async def test_registering_once_writes_per_session_interest_for_ticked_days(db):
         db, cohort_id=cohort.id, cohort_call_id=call.id, user=user,
         session_ids=[sessions[0].id, sessions[2].id],
         note="I'd like this one", needs_transport=True, travelling_from_other_city=True,
+        concerns="Need an early ride",
     )
-    per_session = (await db.execute(
-        select(InstructorInterest.session_id).where(InstructorInterest.user_id == user.id)
+    per_session_rows = (await db.execute(
+        select(InstructorInterest).where(InstructorInterest.user_id == user.id)
     )).scalars().all()
-    assert set(per_session) == {sessions[0].id, sessions[2].id}
+    assert {r.session_id for r in per_session_rows} == {sessions[0].id, sessions[2].id}
+    # The session-scoped Staffing tab reads support answers off these rows,
+    # not the cohort-level one — they must carry the same answers
+    # (2026-08-30 fix: register_cohort_interest used to drop them here).
+    for r in per_session_rows:
+        assert r.needs_transport is True
+        assert r.travelling_from_other_city is True
+        assert r.concerns == "Need an early ride"
 
     cohort_row = (await db.execute(
         select(CohortCallInterest).where(CohortCallInterest.cohort_call_id == call.id)

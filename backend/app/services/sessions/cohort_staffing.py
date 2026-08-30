@@ -349,9 +349,16 @@ async def register_cohort_interest(
 
     # Reconcile the per-session rows through the existing service, so every
     # per-session gate (open_call state, targeting, role-is-offered) still runs
-    # exactly as it does for a single-session application.
+    # exactly as it does for a single-session application. Support answers
+    # forwarded too (2026-08-30 fix) — a session's own Staffing tab reads
+    # them off this per-session row, not the cohort-level one, so leaving
+    # them out meant ops never saw "needs transport"/concerns from there.
     for session_id in wanted:
-        await staffing.register_interest(db, session_id, user, note=note, role_id=role_id)
+        await staffing.register_interest(
+            db, session_id, user, note=note, role_id=role_id,
+            needs_transport=needs_transport, needs_ops_support=needs_ops_support,
+            travelling_from_other_city=travelling_from_other_city, concerns=concerns,
+        )
     for session_id in offered:
         if session_id not in wanted:
             await staffing.withdraw_interest(db, session_id, user)
