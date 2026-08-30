@@ -329,10 +329,11 @@ export default function SessionDetail() {
                 </p>
                 {isStarted ? (
                   <Button
-                    size="sm" variant="outline"
+                    variant="outline"
                     onClick={() => setScannerOpen((v) => !v)}
+                    className="h-16 w-16 shrink-0 flex-col gap-1 px-1 text-[11px] leading-tight whitespace-normal"
                   >
-                    <QrCode size={14} className="mr-1.5" /> {scannerOpen ? "Close scanner" : "Scan QR"}
+                    <QrCode size={22} /> {scannerOpen ? "Close" : "Scan QR"}
                   </Button>
                 ) : (
                   <Button disabled={start.isPending} onClick={() => start.mutate()}>
