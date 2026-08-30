@@ -219,6 +219,39 @@ async def test_add_item_rejects_a_duplicate_course_and_a_taken_position(db, clie
 
 
 @pytest.mark.asyncio
+async def test_a_submission_items_scope_is_locked_after_creation(db, client):
+    """Individual vs. team is picked once, at creation — flipping it later
+    (2026-08-29 incident) silently orphans anything already submitted,
+    since the two scopes read/write entirely separate progress tables.
+    Editing anything else on the same item is still fine."""
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Checklist"},
+    )).json()["id"]
+    item = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "submission", "title": "Poster", "submission_prompt": "Paste your link", "scope": "individual"},
+    )
+    item_id = item.json()["id"]
+
+    flipped = await client.patch(
+        f"/lms/admin/programs/{lms_program_id}/items/{item_id}", headers=_headers(ops),
+        json={"item_type": "submission", "title": "Poster", "submission_prompt": "Paste your link", "scope": "team"},
+    )
+    assert flipped.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    renamed = await client.patch(
+        f"/lms/admin/programs/{lms_program_id}/items/{item_id}", headers=_headers(ops),
+        json={"item_type": "submission", "title": "Poster (renamed)", "submission_prompt": "Paste your link", "scope": "individual"},
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["title"] == "Poster (renamed)"
+    assert renamed.json()["scope"] == "individual"
+
+
+@pytest.mark.asyncio
 async def test_delete_item_removes_it(db, client):
     ops = await _user(db)
     program = await _program(db)
@@ -337,6 +370,32 @@ async def test_editing_an_inherited_item_by_its_program_item_id_forks_and_transl
     override = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
     assert override.json()["is_inherited"] is False
     assert [i["title"] for i in override.json()["items"]] == ["Renamed for this cohort"]
+
+
+@pytest.mark.asyncio
+async def test_a_submission_items_scope_is_also_locked_on_a_cohort_override(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    cohort = await _cohort(db, program)
+    await db.commit()
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Base"},
+    )).json()["id"]
+    await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "placeholder"},  # give the program a checklist to override
+    )
+    added = await client.post(
+        f"/lms/admin/cohorts/{cohort.id}/program-override/items", headers=_headers(ops),
+        json={"item_type": "submission", "title": "Poster", "submission_prompt": "Paste your link", "scope": "team"},
+    )
+    item_id = added.json()["id"]
+
+    flipped = await client.patch(
+        f"/lms/admin/cohorts/{cohort.id}/program-override/items/{item_id}", headers=_headers(ops),
+        json={"item_type": "submission", "title": "Poster", "submission_prompt": "Paste your link", "scope": "individual"},
+    )
+    assert flipped.status_code == http_status.HTTP_400_BAD_REQUEST
 
 
 async def test_deleting_an_inherited_item_forks_everything_else_in(db, client):

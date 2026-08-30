@@ -1,15 +1,19 @@
 """Locations, item catalogue and kit templates (I1-3).
 
 Straightforward CRUD, so it lives in the router rather than a service module —
-matching routers/sessions/programs.py. Everything here is `require_operations`
-(admin passes automatically): the storekeeper restocks, they don't redefine
-what a kit is.
+matching routers/sessions/programs.py.
 
-**One exception: `GET /locations` is `require_storekeeper`.** Naming a
-warehouse is a precondition of every job a storekeeper has — recording a
-count, fulfilling a kit, receiving goods — so withholding the list of
-warehouses made all three unusable while leaving the writes correctly shut.
-Creating and editing locations remain `require_operations`.
+Every write here is `require_inventory_manage` (operations or coo; admin
+passes automatically) — a storekeeper restocks, they don't redefine what a
+kit is. Every read is `require_storekeeper` (storekeeper, operations, or
+coo) — 2026-08-27: originally only `GET /locations` was open this way
+("naming a warehouse is a precondition of every job a storekeeper has —
+recording a count, fulfilling a kit, receiving goods"), but the same logic
+turned out to apply to the whole catalogue: a storekeeper counting a kit
+needs to see what's actually supposed to be in it, which means reading
+`/items` and `/templates` too. Operator directive, same incident: "if I can
+see a page with my role, I can use it" — no read a storekeeper's own pages
+depend on can be walled off from them.
 
 No `/api` prefix — nginx strips it before the app sees the request.
 """
@@ -20,7 +24,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import require_operations, require_storekeeper
+from app.core.dependencies import require_inventory_manage, require_storekeeper
 from app.db.session import get_db
 from app.models.inventory.city import City
 from app.models.inventory.item import Item
@@ -90,8 +94,8 @@ async def _location_out(db: AsyncSession, location: Location) -> LocationOut:
 async def list_locations(
     include_inactive: bool = False,
     db: AsyncSession = Depends(get_db),
-    # Read-only, and `require_storekeeper` admits storekeeper *or* operations.
-    # Every write below stays `require_operations`. A storekeeper cannot record
+    # Read-only, and `require_storekeeper` admits storekeeper, operations, or
+    # coo. Every write below stays `require_inventory_manage`. A storekeeper cannot record
     # a count, fulfil a kit or receive goods without naming a warehouse, so
     # withholding the *list* of warehouses made all three unusable.
     _: User = Depends(require_storekeeper),
@@ -107,7 +111,7 @@ async def list_locations(
 async def create_location(
     body: LocationCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     """No warehouse is created here (decoupled 2026-08-08, operator
     request) — a location is just a place; `POST /inventory/warehouses`
@@ -132,7 +136,7 @@ async def update_location(
     location_id: uuid.UUID,
     body: LocationUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     location = await db.get(Location, location_id)
     if location is None:
@@ -182,7 +186,7 @@ async def list_cities(
 async def create_city(
     body: CityCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     city = City(id=uuid.uuid4(), **body.model_dump())
     city.country = city.country.upper()
@@ -197,7 +201,7 @@ async def update_city(
     city_id: uuid.UUID,
     body: CityUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     city = await db.get(City, city_id)
     if city is None:
@@ -245,7 +249,7 @@ async def list_warehouses(
 async def create_warehouse(
     body: WarehouseCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     location = await db.get(Location, body.location_id)
     if not location:
@@ -266,7 +270,7 @@ async def update_warehouse(
     warehouse_id: uuid.UUID,
     body: WarehouseUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     wh = await db.get(Warehouse, warehouse_id)
     if not wh:
@@ -310,7 +314,7 @@ async def list_categories(
 async def create_category(
     body: ItemCategoryCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     name = body.name.strip().lower()
     clash = (await db.execute(
@@ -332,7 +336,7 @@ async def update_category(
     category_id: uuid.UUID,
     body: ItemCategoryUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     category = await db.get(ItemCategory, category_id)
     if category is None:
@@ -371,7 +375,7 @@ async def update_category(
 async def delete_category(
     category_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     """Only ever deletes a category nothing uses — same reasoning as
     `delete_item`. Renaming, not deactivation, is how an unwanted category
@@ -399,7 +403,9 @@ async def delete_category(
 async def list_items(
     category: str | None = None,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    # Read-only — widened 2026-08-27, same reasoning as GET /locations above:
+    # a storekeeper counting a kit needs to know what's actually in it.
+    _: User = Depends(require_storekeeper),
 ):
     stmt = select(Item).order_by(Item.category, Item.name)
     if category:
@@ -434,7 +440,7 @@ async def _require_known_category(db: AsyncSession, category: str) -> None:
 async def create_item(
     body: ItemCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     clash = (await db.execute(select(Item.id).where(func.lower(Item.name) == body.name.lower()))).first()
     if clash:
@@ -455,7 +461,7 @@ async def set_item_image(
     item_id: uuid.UUID,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     """Optional photo shown to instructors picking this item off the shelf
     (B3) — same bucket/path pattern as session materials, just a different
@@ -481,7 +487,7 @@ async def set_item_image(
 async def remove_item_image(
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     item = await db.get(Item, item_id)
     if item is None:
@@ -499,7 +505,7 @@ async def update_item(
     item_id: uuid.UUID,
     body: ItemUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     item = await db.get(Item, item_id)
     if item is None:
@@ -527,7 +533,7 @@ async def update_item(
 async def delete_item(
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     """Only ever deletes an item nothing uses.
 
@@ -563,7 +569,8 @@ async def delete_item(
 @router.get("/templates", response_model=list[TemplateOut])
 async def list_templates(
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    # Read-only — widened 2026-08-27, same reasoning as GET /items above.
+    _: User = Depends(require_storekeeper),
 ):
     return (await db.execute(select(KitTemplate).order_by(KitTemplate.code))).scalars().all()
 
@@ -572,7 +579,7 @@ async def list_templates(
 async def create_template(
     body: TemplateCreate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     code = body.code.upper()
     clash = (await db.execute(select(KitTemplate.id).where(KitTemplate.code == code))).first()
@@ -590,7 +597,8 @@ async def create_template(
 async def get_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    # Read-only — widened 2026-08-27, same reasoning as GET /items above.
+    _: User = Depends(require_storekeeper),
 ):
     template = await db.get(KitTemplate, template_id)
     if template is None:
@@ -619,7 +627,7 @@ async def update_template(
     template_id: uuid.UUID,
     body: TemplateUpdate,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     template = await db.get(KitTemplate, template_id)
     if template is None:
@@ -647,7 +655,7 @@ async def update_template(
 async def delete_template(
     template_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     """Only ever deletes a template no physical kit was ever built from —
     same reasoning as `delete_item`. Its bill-of-materials lines cascade with
@@ -672,7 +680,7 @@ async def set_template_items(
     template_id: uuid.UUID,
     body: list[TemplateLineIn],
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_operations),
+    _: User = Depends(require_inventory_manage),
 ):
     """Replace the whole bill of materials in one call.
 

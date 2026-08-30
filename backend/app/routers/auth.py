@@ -50,8 +50,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 # generous — a whole school shares one IP), useless against password
 # guessing. This is the real defence: a per-account counter, checked before
 # the password itself so a locked account can't be probed during its window.
-_MAX_FAILED_LOGIN_ATTEMPTS = 10
-_LOCKOUT_MINUTES = 15
+_MAX_FAILED_LOGIN_ATTEMPTS = 100
+_LOCKOUT_MINUTES = 5
 
 
 async def _user_out(db: AsyncSession, user: User, profile: ApplicantProfile | None = None) -> dict:
@@ -161,7 +161,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     roles = user.role_values
     if "admin" not in roles and user.status != "active":
         await db.commit()
-        raise HTTPException(status_code=403, detail="Account is not active")
+        raise HTTPException(status_code=403, detail="Account deactivated, contact admin")
 
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()

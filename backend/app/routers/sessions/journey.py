@@ -144,14 +144,18 @@ async def session_materials(
 @router.get("/responsibilities", response_model=ResponsibilitiesOut)
 async def get_responsibilities(
     role_id: uuid.UUID | None = None,
+    cohort_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_session_delivery),
 ):
     """The general text alone when `role_id` is omitted (the admin editor,
     and sessions with no configured openings). With `role_id`, the combined
-    block an instructor actually reads and agrees to for that specific role."""
+    block an instructor actually reads and agrees to for that specific role.
+    Add `cohort_id` to preview it with that cohort's responsibilities
+    override applied, if one is set — what the Roles tab uses to show ops
+    what an instructor will actually see."""
     if role_id is not None:
-        text, version, role_name = await svc.get_responsibilities_for_role(db, role_id)
+        text, version, role_name = await svc.get_responsibilities_for_role(db, role_id, cohort_id)
         return ResponsibilitiesOut(text=text, version=version, role_name=role_name)
     text, version = await svc.get_responsibilities(db)
     return ResponsibilitiesOut(text=text, version=version)

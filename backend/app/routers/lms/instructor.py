@@ -42,8 +42,8 @@ from app.services.lms.instructor_progress import student_course_progress
 from app.services.lms.my_programs import my_programs
 from app.services.lms.program import (
     assignment_item_detail, check_item_conflicts, cohort_program_roster, confirm_program_item,
-    effective_cohort_program_items, fork_cohort_override, item_out, items_out, next_position, program_roster,
-    validate_item_payload, validate_item_refs,
+    effective_cohort_program_items, fork_cohort_override, guard_locked_submission_scope, item_out, items_out,
+    next_position, program_roster, sync_cohort_assignments, validate_item_payload, validate_item_refs,
 )
 from app.services.missions.cohort_access import instructor_cohort_ids, require_cohort_access
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
@@ -193,6 +193,8 @@ async def add_cohort_override_item(
         **body.model_dump(exclude={"position"}),
     )
     db.add(item)
+    await db.flush()
+    await sync_cohort_assignments(db, cohort_id=cohort_id)
     await db.commit()
     await db.refresh(item)
     return await item_out(db, item)
@@ -223,6 +225,7 @@ async def update_cohort_override_item(
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
     await _enforce_instructor_item_scope(db, current=current, item_type=item.item_type)
+    guard_locked_submission_scope(item, body)
     validate_item_payload(body)
     await validate_item_refs(db, body)
     await check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body, exclude_item_id=item.id)

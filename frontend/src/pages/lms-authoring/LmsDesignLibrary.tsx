@@ -19,13 +19,13 @@
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { isAxiosError } from "axios";
-import { AlertTriangle, Plus, Search, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ExternalLink, Plus, Search, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-  bulkImportLibrary, createLibraryComponent, listLibrary,
-  setLibraryRetired, updateLibraryComponent, uploadLibraryImage, SUBSYSTEMS,
+  bulkImportLibrary, createLibraryComponent, deleteLibraryDatasheet, listLibrary,
+  setLibraryRetired, updateLibraryComponent, uploadLibraryDatasheet, uploadLibraryImage, SUBSYSTEMS,
   type LibraryComponentAdmin, type LibraryComponentInput,
 } from "@/api/missionsLibrary";
 
@@ -77,9 +77,39 @@ const EDITABLE: {
   { key: "temperature_range", label: "Temp range", group: "electrical" },
 
   { key: "assumed_cost_usd", label: "Cost (USD)", group: "sourcing" },
-  { key: "datasheet_url", label: "Datasheet URL", group: "sourcing", wide: true, hint: "Linked from the component card — this is where a student goes to check a number." },
+  { key: "datasheet_url", label: "Datasheet URL (external link only)", group: "sourcing", wide: true, hint: "Only used if there's no uploaded PDF — see \"Upload datasheet\" on the row below. Most of these are Google Drive links or a manufacturer's own site, i.e. files we don't host and can't protect from being downloaded; upload the org's own copy instead wherever you have one." },
   { key: "notes", label: "Notes", group: "sourcing", wide: true },
 ];
+
+/** At-a-glance migration status for the datasheet-hosting pass (2026-08-27)
+ *  — most of the 36 real components were seeded pointing at a Google Drive
+ *  share or a manufacturer's site, files that still need someone to open,
+ *  verify, and re-upload through "Upload datasheet" above. This is purely
+ *  a worklist marker; it changes nothing about which link a student sees. */
+function DatasheetBadge({ hasFile, hasLink }: { hasFile: boolean; hasLink: boolean }) {
+  if (hasFile) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded-md">
+        <CheckCircle2 className="size-3" /> PDF uploaded
+      </span>
+    );
+  }
+  if (hasLink) {
+    return (
+      <span
+        title="Still an external link (e.g. Google Drive) — not something we host or can protect. Upload the org's own copy to migrate it."
+        className="inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded-md"
+      >
+        <ExternalLink className="size-3" /> External link
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center text-[10px] font-semibold uppercase tracking-wide text-muted-foreground bg-muted px-1.5 py-0.5 rounded-md">
+      No datasheet
+    </span>
+  );
+}
 
 function Editor({ initial, onSave, onCancel, saving }: {
   initial: Partial<LibraryComponentAdmin>;
@@ -153,6 +183,7 @@ export default function LmsDesignLibrary() {
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const datasheetRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // react-query, matching the rest of `/lms-authoring` — and it keeps the
   // fetch out of an effect, which this repo's lint rules disallow.
@@ -195,6 +226,26 @@ export default function LmsDesignLibrary() {
       load();
     } catch (err) {
       setError(errorDetail(err, "Couldn't upload that image."));
+    }
+  };
+
+  const handleDatasheet = async (id: string, file: File) => {
+    setError("");
+    try {
+      await uploadLibraryDatasheet(id, file);
+      load();
+    } catch (err) {
+      setError(errorDetail(err, "Couldn't upload that datasheet."));
+    }
+  };
+
+  const handleRemoveDatasheet = async (id: string) => {
+    setError("");
+    try {
+      await deleteLibraryDatasheet(id);
+      load();
+    } catch (err) {
+      setError(errorDetail(err, "Couldn't remove that datasheet."));
     }
   };
 
@@ -291,9 +342,10 @@ export default function LmsDesignLibrary() {
                     ? <img src={row.image_url} alt="" className="size-11 rounded-lg object-cover ring-1 ring-border shrink-0" />
                     : <div className="size-11 rounded-lg ring-1 ring-border bg-muted shrink-0" />}
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold">
+                    <p className="text-sm font-semibold flex items-center gap-2">
                       {row.component_name}
-                      {!row.is_active && <span className="ml-2 text-[10px] uppercase tracking-wide text-muted-foreground">retired</span>}
+                      {!row.is_active && <span className="text-[10px] uppercase tracking-wide text-muted-foreground">retired</span>}
+                      <DatasheetBadge hasFile={row.has_datasheet_file} hasLink={!!row.datasheet_url} />
                     </p>
                     <p className="text-[11px] text-muted-foreground">
                       {row.subsystem}
@@ -315,6 +367,20 @@ export default function LmsDesignLibrary() {
                     onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleImage(row.id, f); e.target.value = ""; }}
                   />
                   <Button size="sm" variant="outline" onClick={() => imageRefs.current[row.id]?.click()}>Upload image</Button>
+                  <input
+                    ref={(el) => { datasheetRefs.current[row.id] = el; }}
+                    type="file" accept="application/pdf" className="hidden"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleDatasheet(row.id, f); e.target.value = ""; }}
+                  />
+                  {row.has_datasheet_file ? (
+                    <Button size="sm" variant="outline" onClick={() => void handleRemoveDatasheet(row.id)}>
+                      Remove datasheet
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => datasheetRefs.current[row.id]?.click()}>
+                      Upload datasheet
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline"
                     onClick={() => { setEditingId(editingId === row.id ? null : row.id); setCreating(false); }}>
                     {editingId === row.id ? "Close" : "Edit"}

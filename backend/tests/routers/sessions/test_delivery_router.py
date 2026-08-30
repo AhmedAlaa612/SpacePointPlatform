@@ -135,6 +135,39 @@ async def test_delivery_returns_roster_with_program_and_cohort_names(db, client,
     assert body["roster"][0]["att_status"] is None
 
 
+@pytest.mark.asyncio
+async def test_delivery_lists_teammates_and_their_checked_in_status(
+    db, client, operations_headers, instructor_user, instructor_headers, facilitator_user,
+):
+    """The Session Portal's "who's here" strip — every instructor assigned to
+    this session, not just the caller, each with their own check-in state."""
+    _, session = await _make_cohort_with_session(db)
+    await _assign(db, session, instructor_user.id)
+    await _assign(db, session, facilitator_user.id)
+
+    # Neither has checked in yet.
+    before = await client.get(f"/sessions/{session.id}/delivery", headers=operations_headers)
+    assert before.status_code == 200, before.text
+    teammates = {t["user_id"]: t for t in before.json()["teammates"]}
+    assert set(teammates) == {str(instructor_user.id), str(facilitator_user.id)}
+    assert all(t["att_status"] is None for t in teammates.values())
+    assert all(t["is_me"] is False for t in teammates.values())  # ops isn't assigned
+
+    # The instructor checks themselves in.
+    checked_in = await client.post(
+        f"/sessions/{session.id}/delivery/check-in", headers=instructor_headers, json={"att_status": "present"},
+    )
+    assert checked_in.status_code == 200, checked_in.text
+
+    after = await client.get(f"/sessions/{session.id}/delivery", headers=instructor_headers)
+    teammates_after = {t["user_id"]: t for t in after.json()["teammates"]}
+    assert teammates_after[str(instructor_user.id)]["att_status"] == "present"
+    assert teammates_after[str(instructor_user.id)]["is_me"] is True
+    assert teammates_after[str(instructor_user.id)]["checked_in_at"] is not None
+    assert teammates_after[str(facilitator_user.id)]["att_status"] is None
+    assert teammates_after[str(facilitator_user.id)]["is_me"] is False
+
+
 # ── start / mark done ────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

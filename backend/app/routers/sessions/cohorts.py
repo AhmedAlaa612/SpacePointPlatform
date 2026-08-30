@@ -82,6 +82,7 @@ from app.schemas.sessions.reports import SessionReportOut
 from app.services import storage
 from app.services.notification import create_notification
 from app.services.inventory.cohort_kits import resolve_session_kits
+from app.services.sessions import day as day_service
 from app.services.sessions import delivery
 from app.services.sessions import materials as materials_service
 from app.services.sessions import staffing as staffing_service
@@ -116,10 +117,12 @@ async def _resolve_effective_warehouse(
 async def _cohort_out(
     db: AsyncSession, cohort: Cohort, program_name: str | None = None, program_code: str | None = None,
     location: Location | None = None, counts: tuple[int, int, int, date | None] | None = None,
+    program_is_competition: bool = False,
 ) -> CohortOut:
     out = CohortOut.model_validate(cohort)
     out.program_name = program_name
     out.program_code = program_code
+    out.program_is_competition = program_is_competition
     if counts is not None:
         out.sessions_count, out.registrations_count, out.unstaffed_count, out.next_session_date = counts
     if location is not None:
@@ -168,7 +171,7 @@ async def list_cohorts(
     stmt = (
         select(
             Cohort, Program.name, Program.code, Location,
-            sessions_count, registrations_count, unstaffed_count, next_session_date,
+            sessions_count, registrations_count, unstaffed_count, next_session_date, Program.program_type,
         )
         .join(Program, Program.id == Cohort.program_id)
         .outerjoin(Location, Location.id == Cohort.location_id)
@@ -179,8 +182,11 @@ async def list_cohorts(
 
     rows = (await db.execute(stmt)).all()
     return [
-        await _cohort_out(db, cohort, program_name, program_code, location, (sessions, regs, unstaffed, next_date))
-        for cohort, program_name, program_code, location, sessions, regs, unstaffed, next_date in rows
+        await _cohort_out(
+            db, cohort, program_name, program_code, location, (sessions, regs, unstaffed, next_date),
+            program_is_competition=(program_type == "competition"),
+        )
+        for cohort, program_name, program_code, location, sessions, regs, unstaffed, next_date, program_type in rows
     ]
 
 
@@ -203,7 +209,7 @@ async def create_cohort(
     db.add(cohort)
     await db.commit()
     await db.refresh(cohort)
-    return await _cohort_out(db, cohort, program.name, program.code, location)
+    return await _cohort_out(db, cohort, program.name, program.code, location, program_is_competition=program.is_competition)
 
 
 @router.get("/cohorts/{cohort_id}", response_model=CohortOut)
@@ -217,7 +223,10 @@ async def get_cohort(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
     program = await db.get(Program, cohort.program_id)
     location = await db.get(Location, cohort.location_id) if cohort.location_id else None
-    return await _cohort_out(db, cohort, program.name if program else None, program.code if program else None, location)
+    return await _cohort_out(
+        db, cohort, program.name if program else None, program.code if program else None, location,
+        program_is_competition=program.is_competition if program else False,
+    )
 
 
 @router.patch("/cohorts/{cohort_id}", response_model=CohortOut)
@@ -302,10 +311,28 @@ async def complete_cohort(
 ):
     """Ops/admin only (W5 S5-1). S5-2 adds the zero-reports warning below —
     it never blocks completion, just rides along in the response; S5-3 will
-    add the attendance-rate/certificate logic on top of this same function."""
+    add the attendance-rate/certificate logic on top of this same function.
+
+    Still here, and still manual, even though completing a cohort is now also
+    triggered automatically once every instructor-day is approved
+    (`services/sessions/day.py::maybe_complete_cohort`). Ops needs the button
+    for the cohorts the daily loop doesn't cover — anything delivered before
+    it existed, or a run that ends without every day being submitted.
+
+    Does not touch payment letters either way (2026-08-30) — completing a
+    cohort just makes its delivered sessions billable (they show up on the
+    payments to-do list); a letter only gets drafted when ops explicitly
+    clicks "Create letter" there.
+    """
     warnings: list[str] = []
     if await reports_service.report_count_for_cohort(db, cohort_id) == 0:
         warnings.append("No session reports were uploaded for this cohort.")
+    unreviewed = await day_service.list_day_reviews(db, status_filter="submitted", cohort_id=cohort_id)
+    if unreviewed:
+        warnings.append(
+            f"{len(unreviewed)} workshop day(s) are still awaiting review — "
+            "those days won't be counted on anyone's payment letter."
+        )
     cohort = await delivery.complete_cohort(db, cohort_id, current_user.id)
     await db.commit()
     return CompleteCohortResponse(cohort=cohort, warnings=warnings)
@@ -455,7 +482,7 @@ async def add_session(
 
     session = Session(
         id=uuid.uuid4(), cohort_id=cohort_id, meeting_date=body.meeting_date,
-        starts_at=body.starts_at, title=body.title, material_url=body.material_url, price=body.price,
+        starts_at=body.starts_at, title=body.title, material_url=body.material_url,
         duration_hours=body.duration_hours,
     )
     db.add(session)

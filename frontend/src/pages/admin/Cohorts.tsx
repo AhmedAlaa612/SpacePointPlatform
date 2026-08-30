@@ -13,7 +13,7 @@ import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
 import { getErrorMessage } from "@/lib/utils"
 
-const STATUS_OPTIONS: CohortStatus[] = ["planned", "registration_open", "running", "completed", "cancelled"]
+export const STATUS_OPTIONS: CohortStatus[] = ["planned", "registration_open", "running", "completed", "cancelled"]
 const VISIBILITY_OPTIONS: CohortVisibility[] = ["public", "private"]
 
 export const COHORT_STATUS_LABEL: Record<CohortStatus, string> = {
@@ -317,6 +317,7 @@ export function CohortModal({ programs, cohort, onClose, onSuccess }: {
   const [locationId, setLocationId] = useState(cohort?.location_id ?? "")
   const [warehouseId, setWarehouseId] = useState(cohort?.warehouse_id ?? "")
   const [capacity, setCapacity] = useState(cohort?.capacity != null ? String(cohort.capacity) : "")
+  const [durationHours, setDurationHours] = useState(cohort?.duration_hours != null ? String(cohort.duration_hours) : "")
   const { data: locations = [] } = useQuery({ queryKey: ["inv-locations"], queryFn: () => getLocationsApi() })
 const { data: warehouses = [] } = useQuery({
     queryKey: ["inv-warehouses"],
@@ -371,6 +372,7 @@ const { data: warehouses = [] } = useQuery({
           location_id: locationId || null,
           warehouse_id: warehouseId || null,
           capacity: capacity.trim() ? Number(capacity) : null,
+          duration_hours: durationHours.trim() ? Number(durationHours) : null,
           visibility,
           status,
           notes: notes.trim() || null,
@@ -385,6 +387,7 @@ const { data: warehouses = [] } = useQuery({
         location_id: locationId || undefined,
         warehouse_id: warehouseId || undefined,
         capacity: capacity.trim() ? Number(capacity) : undefined,
+        duration_hours: durationHours.trim() ? Number(durationHours) : undefined,
         visibility,
         notes: notes.trim() || undefined,
         poster_template_url: posterTemplateUrl.trim() || undefined,
@@ -514,10 +517,17 @@ const { data: warehouses = [] } = useQuery({
             </p>
           </Field>
         )}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <Field label="Capacity (optional)">
             <input
               value={capacity} onChange={(e) => setCapacity(e.target.value)} type="number" placeholder="20"
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+          </Field>
+          <Field label="Session duration (hrs)">
+            <input
+              value={durationHours} onChange={(e) => setDurationHours(e.target.value)}
+              type="number" step="0.5" min="0" placeholder="e.g. 2"
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
             />
           </Field>
@@ -530,6 +540,9 @@ const { data: warehouses = [] } = useQuery({
             </select>
           </Field>
         </div>
+        <p className="text-xs text-muted-foreground -mt-2">
+          Every session in this cohort uses this duration unless it has its own override. Shown to instructors before they apply, and feeds the payment letter's hours.
+        </p>
         {isEdit && (
           <Field label="Status">
             <select

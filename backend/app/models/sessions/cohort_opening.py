@@ -21,6 +21,12 @@ class CohortOpening(Base):
     have no meaning at the template level. `openings_for_session` computes
     them against *that session's* SessionInstructor rows even when the shape
     (role/slots/amount) comes from here.
+
+    `responsibilities_override` (2026-08-28) rides along on the same row for
+    a different reason: this is already the one row per (cohort, role), so
+    it's the natural cohort tier for the responsibilities-text override chain
+    `get_responsibilities_for_role` walks (role.description -> general text).
+    NULL means "use the default," same as `amount_aed`.
     """
 
     __tablename__ = "cohort_openings"
@@ -34,5 +40,6 @@ class CohortOpening(Base):
     slots = Column(Integer, nullable=False, default=1)
     amount_aed = Column(Numeric(10, 2), nullable=True)
     notes = Column(Text, nullable=True)
+    responsibilities_override = Column(Text, nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

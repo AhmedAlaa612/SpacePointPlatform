@@ -14,6 +14,9 @@
 - `invitation_code_grants` — a standing "this invite-code batch gets these
   courses/paths free" rule (2026-08-21), applied to new and existing code
   holders alike.
+- `lms_program_team_item_progress` — the Competition domain's team-scoped
+  twin of `lms_program_item_progress` (2026-08-24), for `LmsProgramItem`
+  rows with `scope="team"`. See `HANDOFF_COMPETITIONS.md`.
 
 Nothing here references `contacts`; everything keys on `users`, so
 `MERGE_FK_REGISTRY` is untouched. A student is a `users` row with the
@@ -27,6 +30,7 @@ from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.lms.points import PointEvent
 from app.models.lms.program import (
     LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem, LmsProgramItemProgress,
+    LmsProgramTeamItemProgress,
 )
 from app.models.lms.purchase import Purchase
 
@@ -47,5 +51,6 @@ __all__ = [
     "LmsProgramItem",
     "LmsProgramAssignment",
     "LmsProgramItemProgress",
+    "LmsProgramTeamItemProgress",
     "Purchase",
 ]

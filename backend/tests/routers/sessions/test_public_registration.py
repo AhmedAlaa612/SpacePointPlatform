@@ -305,10 +305,12 @@ async def test_paid_program_snapshots_its_price_on_the_registration(db, client):
 
 
 @pytest.mark.asyncio
-async def test_session_scoped_registration_sums_selected_session_prices(db, client):
-    """I5-2's fallback chain: a session with its own price override wins over
-    the program's; one without inherits it. Attending 2 of a multi-session
-    program's priced sessions costs 2 session fees, not the whole program."""
+async def test_session_scoped_registration_always_charges_the_program_price(db, client):
+    """A per-session price override used to let attending N sessions of a
+    multi-session program cost N session fees instead of the whole program.
+    Retired 2026-08-30 — people pay for the program/cohort, never a specific
+    session, so scoping a registration to particular sessions no longer
+    changes what gets charged."""
     program = Program(
         id=uuid.uuid4(), code=f"MULTI-{uuid.uuid4().hex[:8]}", name="Multi-Session Course",
         program_type="course", pricing_model="paid", price=Decimal("100.00"), active=True,
@@ -321,11 +323,9 @@ async def test_session_scoped_registration_sums_selected_session_prices(db, clie
     )
     db.add(cohort)
     await db.flush()
-    # Own override (150) + inherits the program's 100 (no override) — 3 total sessions exist.
-    priced_session = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 9, 1), price=Decimal("150.00"))
-    inherited_session = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 9, 8))
-    unselected_session = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 9, 15), price=Decimal("999.00"))
-    db.add_all([priced_session, inherited_session, unselected_session])
+    s1 = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 9, 1))
+    s2 = Session(id=uuid.uuid4(), cohort_id=cohort.id, meeting_date=date(2026, 9, 8))
+    db.add_all([s1, s2])
     await db.commit()
     headers = _unique_ip_headers("session_scoped_price")
 
@@ -333,7 +333,7 @@ async def test_session_scoped_registration_sums_selected_session_prices(db, clie
         f"/public/register/{cohort.id}",
         json={
             "student_name": "Partial Student", "email": "partial.student@example.com", "phone": "050 444 5555",
-            "session_ids": [str(priced_session.id), str(inherited_session.id)],
+            "session_ids": [str(s1.id), str(s2.id)],
         },
         headers=headers,
     )
@@ -342,7 +342,7 @@ async def test_session_scoped_registration_sums_selected_session_prices(db, clie
     registration = (await db.execute(
         select(Registration).where(Registration.cohort_id == cohort.id)
     )).scalars().first()
-    assert registration.price_charged == Decimal("250.00")  # 150 + 100, not 999
+    assert registration.price_charged == Decimal("100.00")  # the program's price, not a per-session sum
 
 
 @pytest.mark.asyncio

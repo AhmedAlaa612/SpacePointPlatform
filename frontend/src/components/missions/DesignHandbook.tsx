@@ -177,9 +177,12 @@ export default function DesignHandbookDrawer({ handbook }: { handbook: Handbook 
 
   return (
     <>
+      {/* bottom-24 on mobile clears LearnNav.tsx's fixed bottom tab bar
+          (md:hidden, so no longer in the way from md: up) — this button
+          didn't know the nav bar existed and sat on top of it. */}
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-2.5 rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90 transition-opacity text-xs font-semibold"
+        className="fixed bottom-24 md:bottom-6 right-6 z-40 flex items-center gap-2 px-4 py-2.5 rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90 transition-opacity text-xs font-semibold"
       >
         <BookOpen className="size-4" />
         Design Handbook

@@ -6,6 +6,16 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** A pasted-back link ("test.com", "www.test.com") has no scheme, so a
+ * plain `href` treats it as a path relative to the current page instead
+ * of an external site (e.g. `/judge/teams/test.com`). Submission/external
+ * links are free text typed by students and judges, never validated as
+ * full URLs — this is the one place that decides what "open it" means,
+ * rather than every `<a href>` site guessing differently. */
+export function ensureAbsoluteUrl(url: string): string {
+  return /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`;
+}
+
 /** Locale-friendly date formatting. */
 export function formatDate(value: string | Date, opts?: Intl.DateTimeFormatOptions) {
   const d = typeof value === "string" ? new Date(value) : value;

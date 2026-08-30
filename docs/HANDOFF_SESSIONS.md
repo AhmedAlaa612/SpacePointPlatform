@@ -4,6 +4,49 @@ Back to [`HANDOFF.md`](./HANDOFF.md).
 
 **Status: LIVE in production, and since 2026-08-01 the staffing and session model underneath it has evolved further — see `HANDOFF.md` §7 for the current tables.** Schema head (as of 2026-08-04) is `d1e4c73f0038`, not `b3e8a41d0014`. Registration, bulk import, check-in, the staffing marketplace, instructor delivery + payment letters, certificates, calendar and the ops dashboard are all shipped. The status paragraphs below (weeks 2 and the 07-26 cutover) are kept for their history — read them for the *design decisions and gotchas*, not as a current inventory. Current test count: see `HANDOFF.md` §1 rather than duplicating a number here that will drift again.
 
+**2026-08-24 — staffing became cohort-shaped, and the instructor's day is now recorded.**
+Read this before touching anything below that says staffing is session-scoped; that framing is
+now only half true.
+
+- **A call can cover a whole cohort, and an instructor applies to it once.** `cohort_calls`
+  already grouped per-session `SessionCall` rows; what was missing was the instructor's side.
+  `cohort_call_interests` holds one answer per person per call — the role they want, the cover
+  letter, and the operations-doc §2 support questions (transport, ops support, travelling from
+  another city, free-text concerns). Registering still writes the per-session
+  `InstructorInterest` rows for the days they ticked, so `list_eligible_instructors`, the
+  openings waitlist count and `select_instructors`' without-interest flag are untouched.
+- **`cohort_instructor_assignments` brings back a table that was deliberately dropped.**
+  `cohort_instructors` went in `e5a2c93f0005` for never being wired up. This is not that table
+  returning by accident — see the model docstring for the three reasons (the one-role rule needs
+  somewhere to live; the rate must be snapshotted at selection so a later edit can't reprice an
+  agreed assignment; a withdrawal needs a record). **It is not a second source of truth for
+  staffing state**: `Session.staffing_status`, `fully_staffed()` and `SessionInstructor` still
+  decide who teaches which day.
+- **One role per instructor per cohort** (operator's rule). Enforced in
+  `services/sessions/cohort_staffing.py::_assert_single_role`, which checks live
+  `SessionInstructor` rows too — somebody added through the direct-assign path has no assignment
+  row and would otherwise slip past. The unique key is `(cohort_id, user_id, role_id)`, looser
+  than the rule, so the backfill could represent legacy mixed-role cohorts honestly instead of
+  failing or collapsing them.
+- **Rates resolve session opening → cohort opening → `DeliveryRole.default_rate_aed`** (the new
+  global tier, edited at `/operations/delivery-settings`). `openings_for_session` returns
+  `rate_source` so the UI can grey an inherited figure.
+- **The instructor's day is a real record now** (`instructor_session_days`): check-in or a
+  declared absence with a reason, a checklist resolved program → cohort → session
+  (override-not-merge, exactly like `session_materials`), per-item photo proof pointing at an
+  existing `session_reports` row, then submit → ops approve or return with a comment.
+  **`status='approved'` AND `att_status='present'` is the definition of a paid day** — nothing
+  else decides what counts as delivered.
+- **Cohorts complete themselves.** Once every session has `completed_at` and every day row is
+  approved, `services/sessions/day.py::maybe_complete_cohort` calls the existing
+  `complete_cohort()` and accrues draft payment lines. `cohort_is_fully_reviewed` also requires
+  somebody to have been staffed — without that guard a cohort nobody taught has zero day rows,
+  "all approved" is vacuously true, and it would complete itself. The manual ops button stays and
+  accrues the same lines.
+- **`/sessions/day-reviews` and `/sessions/available-work` are literal paths.** The day router is
+  mounted ahead of the `{session_id}` routers for the same reason openings and journey already
+  are; a test asserts it 200s rather than 422ing on "day-reviews" not parsing as a UUID.
+
 **2026-07-26 changes (operator decisions during and after the cutover):**
 - **Attendance is `present|absent`.** `late` and `excused` are gone (migration `a1d7f36c0013` remaps existing rows). They were also inconsistent: the registrations list counted `late` as attended while the completion rule counted only `present`.
 - **Delete exists** for programs, cohorts, sessions and registrations. Programs/cohorts/sessions refuse while dependents exist (the schema cascades hard). **Registration delete deliberately does not refuse** — it erases the sign-up, its attendance and its certificate. `?delete_contact=true` also removes the person, but refuses for a contact with a staff account or registrations in other cohorts.
@@ -49,7 +92,7 @@ This domain is being built to replace SpacePoint's current registration process,
 | `registrations` | The commercial record — **the ticket IS this row**, not a separate table. `ticket_token` is a long random credential (never a guessable sequential id); the QR code encodes a URL built from it. `payment_status` is recorded from day one even though the actual payment gate is deferred. `UNIQUE(contact_id, cohort_id)` — one registration per person per cohort. `ticket_sent_at` only gets set if the registration opted in via `send_ticket_email` (default true, but not forced). |
 | `registration_sessions` | Which of a cohort's sessions a registration actually covers. **No rows for a registration = covers every session** (the default) — a caller only writes rows here to explicitly restrict to a subset. `check_in()` checks this before accepting a scan. |
 | `attendance_records` | One student's attendance for one session (`session_id`, not `session_meeting_id`); `method` distinguishes a door QR scan from a manual mark. |
-| `instructor_interests` | An instructor's "I'd like to give this" signal on an open-call cohort — the pre-selection marketplace step. |
+| `instructor_interests` | An instructor's "I'd like to give this" signal on one open-call **session** (session-scoped since `b8d4f02a0008`, despite the wording elsewhere in this file). Since 2026-08-24 these are normally written as a side effect of one cohort-level answer in `cohort_call_interests`. |
 | `session_reports` | A file an instructor/ops uploads after delivering a session. Not required to complete a cohort, just tracked. |
 | `import_batches` | One upload of a bulk student sheet (a B2B client's roster, or a historical backfill). Always dry-run first; `counts` JSONB holds the preview/result. |
 | `activities`, `activity_versions`, `activity_assignments` | Schema for the Kahoot-style live quiz facilitators will build — **schema only**, the engine that runs it live doesn't exist until weeks 13-14. `activity_assignments` has a CHECK constraint: exactly one of `program_id`/`cohort_id`, never both, never neither. |

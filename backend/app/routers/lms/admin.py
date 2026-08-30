@@ -99,8 +99,9 @@ from app.services.lms.admin_progress import (
 from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
 from app.services.lms.program import (
-    check_item_conflicts, effective_cohort_program_items, fork_cohort_override, item_out, items_out,
-    next_position, reorder_program_items, resolve_cohort_program, validate_item_payload, validate_item_refs,
+    check_item_conflicts, effective_cohort_program_items, fork_cohort_override, guard_locked_submission_scope,
+    item_out, items_out, next_position, reorder_program_items, resolve_cohort_program, sync_cohort_assignments,
+    sync_program_assignments, validate_item_payload, validate_item_refs,
 )
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
@@ -1368,6 +1369,8 @@ async def add_lms_program_item(
         **body.model_dump(exclude={"position"}),
     )
     db.add(item)
+    await db.flush()
+    await sync_program_assignments(db, lms_program_id=program.id)
     await db.commit()
     await db.refresh(item)
     return await item_out(db, item)
@@ -1385,6 +1388,7 @@ async def update_lms_program_item(
     )).scalars().first()
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    guard_locked_submission_scope(item, body)
     validate_item_payload(body)
     await validate_item_refs(db, body)
     await check_item_conflicts(db, owner_type="program", owner_id=lms_program_id, body=body, exclude_item_id=item.id)
@@ -1447,6 +1451,23 @@ async def get_cohort_program_override(
     )
 
 
+@router.post("/cohorts/{cohort_id}/program-override/resync")
+async def resync_cohort_program_assignments(
+    cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    """One-off catch-up for a cohort whose checklist was edited before
+    2026-08-27, or whose checklist didn't exist yet when a team advanced
+    into it — both now backfill automatically going forward (see
+    `sync_cohort_assignments`'s own docstring), but this catches up
+    whatever already happened before either fix shipped. Safe to call
+    any time; a cohort with nothing missing just reports 0."""
+    if await db.get(Cohort, cohort_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    added = await sync_cohort_assignments(db, cohort_id=cohort_id)
+    await db.commit()
+    return {"items_added": added}
+
+
 @router.post(
     "/cohorts/{cohort_id}/program-override/items", response_model=LmsProgramItemOut, status_code=status.HTTP_201_CREATED,
 )
@@ -1475,6 +1496,8 @@ async def add_cohort_override_item(
         **body.model_dump(exclude={"position"}),
     )
     db.add(item)
+    await db.flush()
+    await sync_cohort_assignments(db, cohort_id=cohort_id)
     await db.commit()
     await db.refresh(item)
     return await item_out(db, item)
@@ -1504,6 +1527,7 @@ async def update_cohort_override_item(
     )).scalars().first()
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    guard_locked_submission_scope(item, body)
     validate_item_payload(body)
     await validate_item_refs(db, body)
     await check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body, exclude_item_id=item.id)

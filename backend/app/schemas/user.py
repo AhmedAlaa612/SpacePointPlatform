@@ -12,6 +12,19 @@ class UserBase(BaseModel):
     phone: str | None = None
 
 
+class UserReadBase(BaseModel):
+    """Same shape as `UserBase`, but `email` isn't re-validated as `EmailStr`
+    on the way out. A handful of rows in the live DB (bulk-import artifacts,
+    pre-dating stricter validation) don't parse as a real email address, and
+    that must never 500 the *entire* admin user list for every row along with
+    them — output schemas reflect what's stored, they don't gatekeep it.
+    `EmailStr` stays on `UserCreate`/`UserUpdate` below, where it belongs:
+    stopping a new bad value from ever being written."""
+    full_name: str
+    email: str
+    phone: str | None = None
+
+
 class UserCreate(UserBase):
     password: str
     roles: list[UserRole] = []
@@ -28,6 +41,13 @@ class UserUpdate(BaseModel):
     # class, and there was previously no way to change it for someone else.
     nickname: str | None = None
     avatar: str | None = None
+    # "active" | "inactive" — already enforced everywhere (auth.py's login
+    # checks, dependencies.py's per-request check), but had no admin-facing
+    # way to set it. Judge accounts (competition domain, 2026-08-24) are
+    # meant to be temporary; deactivating one blocks login/access instantly
+    # without touching their historical CompetitionScore rows the way a
+    # hard delete would (see delete_user's guard below).
+    status: str | None = None
 
 
 class UserSelfUpdate(BaseModel):
@@ -44,7 +64,7 @@ class UserSelfUpdate(BaseModel):
     phone: str | None = None
 
 
-class UserOut(UserBase):
+class UserOut(UserReadBase):
     id: UUID
     roles: list[UserRole] = []
     status: str | None = None

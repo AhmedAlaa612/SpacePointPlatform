@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react"
+import { useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Backpack, Package, Plus, Search } from "lucide-react"
+import { Backpack, Camera, Package, Plus, Search, X } from "lucide-react"
 import {
   getWarehousesApi,
   getSessionEquipmentApi,
@@ -9,10 +9,16 @@ import {
   takeEquipmentApi,
   type EquipmentSearchResult,
 } from "@/api/inventory"
-import { updateSessionNotesApi } from "@/api/sessions/delivery"
+import { updateSessionNotesApi, uploadSessionReportApi } from "@/api/sessions/delivery"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Modal, Field, ModalActions } from "@/pages/admin/components/common"
+
+/** Quick-pick suggestions shown above the shelf search — the handful of
+ *  things instructors take most often, one tap to jump straight to it
+ *  instead of typing. Purely a search shortcut: it narrows the same shelf
+ *  the search box does, it doesn't add anything that isn't real stock. */
+const COMMON_ITEM_SUGGESTIONS = ["Speaker", "Charger", "Stickers", "T-shirts", "Extension cord"]
 
 /**
  * Non-kit equipment an instructor takes to a session (I2-7) — a mic speaker,
@@ -39,10 +45,13 @@ import { Modal, Field, ModalActions } from "@/pages/admin/components/common"
  */
 export function SessionEquipmentPanel({
   sessionId,
+  cohortId,
   notes,
   onChanged,
 }: {
   sessionId: string
+  /** Needed to attach an optional proof photo as a session report. */
+  cohortId: string
   notes: string | null | undefined
   onChanged: () => void
 }) {
@@ -67,18 +76,18 @@ export function SessionEquipmentPanel({
       <CardContent className="p-4 flex flex-col gap-3">
         <div className="flex items-center justify-between gap-2">
           <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <Backpack size={15} /> Anything else you took?
+            <Backpack size={15} /> Extra equipment
           </p>
           {data.outstanding_count > 0 && (
             <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
-              {data.outstanding_count} still out
+              {data.outstanding_count} still out with you
             </span>
           )}
         </div>
 
         {data.lines.length === 0 ? (
           <p className="text-xs text-muted-foreground -mt-1">
-            Stickers, a speaker, a charger, T-shirts — anything that isn&apos;t a kit.
+            Besides your kit — did you take anything else, like a speaker, a charger, or stickers?
             {data.warehouse_name && ` Picked up from ${data.warehouse_name}.`}
           </p>
         ) : (
@@ -111,16 +120,16 @@ export function SessionEquipmentPanel({
 
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
-            <Plus size={14} className="mr-1.5" /> Add something
+            <Plus size={14} className="mr-1.5" /> I took something extra
           </Button>
           {data.outstanding_count > 0 && (
             <Button size="sm" variant="outline" onClick={() => setReturning(true)}>
-              Bring it back
+              Mark returned
             </Button>
           )}
         </div>
 
-        <SessionNotes sessionId={sessionId} notes={notes} onSaved={onChanged} />
+        <SessionNotes sessionId={sessionId} cohortId={cohortId} notes={notes} onSaved={onChanged} />
       </CardContent>
 
       {adding && (
@@ -162,13 +171,20 @@ export function SessionEquipmentPanel({
  * simplicity. Saving on blur rather than per keystroke is the only mitigation
  * that costs nothing.
  */
-function SessionNotes({ sessionId, notes, onSaved }: {
+function SessionNotes({ sessionId, cohortId, notes, onSaved }: {
   sessionId: string
+  /** Needed to attach an optional proof photo as a session report. */
+  cohortId: string
   notes: string | null | undefined
   onSaved: () => void
 }) {
   const [error, setError] = useState("")
   const [saved, setSaved] = useState(false)
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [photoSaved, setPhotoSaved] = useState(false)
+  const photoInputRef = useRef<HTMLInputElement>(null)
+  const textRef = useRef<HTMLTextAreaElement>(null)
 
   const save = useMutation({
     mutationFn: (text: string) => updateSessionNotesApi(sessionId, text),
@@ -181,12 +197,26 @@ function SessionNotes({ sessionId, notes, onSaved }: {
       setError(e?.response?.data?.detail ?? "Could not save that note"),
   })
 
+  // Not every item taken is on the shelf — some instructors just write what
+  // they took here and attach a photo as proof, rather than going through
+  // the structured "I took something extra" flow.
+  const savePhoto = useMutation({
+    mutationFn: (file: File) =>
+      uploadSessionReportApi(cohortId, { file, sessionId, notes: textRef.current?.value || undefined }),
+    onSuccess: () => {
+      setPhotoSaved(true)
+      onSaved()
+    },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not upload that photo"),
+  })
+
   return (
-    <div className="flex flex-col gap-1 border-t border-border pt-3">
+    <div className="flex flex-col gap-1.5 border-t border-border pt-3">
       <label htmlFor={`notes-${sessionId}`} className="text-xs font-medium text-foreground">
         Comments
       </label>
       <textarea
+        ref={textRef}
         id={`notes-${sessionId}`}
         defaultValue={notes ?? ""}
         rows={3}
@@ -204,6 +234,47 @@ function SessionNotes({ sessionId, notes, onSaved }: {
             ? "Saved — operations will see this on the session."
             : "Operations reads this on the session."}
       </p>
+
+      <div className="flex items-center gap-2 mt-0.5">
+        {photoPreview ? (
+          <div className="relative w-16 h-16 shrink-0">
+            <img src={photoPreview} alt="Proof" className="w-16 h-16 object-cover rounded-lg border border-border" />
+            {!savePhoto.isPending && (
+              <button
+                type="button"
+                onClick={() => { setPhoto(null); setPhotoPreview(null); setPhotoSaved(false); if (photoInputRef.current) photoInputRef.current.value = "" }}
+                className="absolute -top-1.5 -right-1.5 w-4.5 h-4.5 rounded-full bg-background border border-border flex items-center justify-center text-muted-foreground hover:text-foreground"
+              >
+                <X size={10} />
+              </button>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => photoInputRef.current?.click()}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border rounded-xl px-3 py-2"
+          >
+            <Camera size={14} /> Attach a proof photo
+          </button>
+        )}
+        <input
+          ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0] ?? null
+            setPhoto(file)
+            setPhotoSaved(false)
+            setPhotoPreview(file ? URL.createObjectURL(file) : null)
+            if (file) { setError(""); savePhoto.mutate(file) }
+          }}
+        />
+        {photo && (
+          <span className="text-xs text-muted-foreground">
+            {savePhoto.isPending ? "Uploading…" : photoSaved ? "Attached — operations will see this." : ""}
+          </span>
+        )}
+      </div>
+
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
     </div>
   )
@@ -284,14 +355,35 @@ function TakeModal({ sessionId, warehouseId, warehouseName, onClose, onDone }: {
       )}
 
       {effectiveWarehouse && shelf.length > 0 && (
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={search} onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search this shelf…"
-            className="w-full h-9 pl-8 pr-3 border border-border bg-background text-foreground rounded-xl text-sm"
-          />
-        </div>
+        <>
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search this shelf…"
+              className="w-full h-9 pl-8 pr-3 border border-border bg-background text-foreground rounded-xl text-sm"
+            />
+          </div>
+          {(() => {
+            const suggestions = COMMON_ITEM_SUGGESTIONS.filter((s) =>
+              shelf.some((row) => row.item_name.toLowerCase().includes(s.toLowerCase())))
+            return suggestions.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 -mt-1">
+                {suggestions.map((s) => (
+                  <button
+                    key={s} type="button"
+                    onClick={() => setSearch((cur) => (cur === s ? "" : s))}
+                    className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors ${
+                      search === s ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                    }`}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            ) : null
+          })()}
+        </>
       )}
 
       {effectiveWarehouse && (

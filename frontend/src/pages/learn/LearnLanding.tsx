@@ -1,9 +1,10 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, PlayCircle, Route as RouteIcon } from "lucide-react";
+import { ArrowRight, PlayCircle, Route as RouteIcon, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { fetchCatalog, fetchLearningPaths, fetchMyCourses, fetchUpcomingPrograms } from "@/api/lms";
+import { fetchCatalog, fetchLearningPaths, fetchMyChecklists, fetchMyCourses, fetchUpcomingPrograms } from "@/api/lms";
+import { fetchMyTeams } from "@/api/missions";
 import { SatkitAssembly } from "@/components/satkit/SatkitAssembly";
 import { CourseProgress } from "./CourseProgress";
 import { UpcomingProgramRow } from "./UpcomingProgramRow";
@@ -23,8 +24,13 @@ export default function LearnLanding() {
   const { data: catalog } = useQuery({ queryKey: ["lms-catalog"], queryFn: () => fetchCatalog() });
   const { data: paths } = useQuery({ queryKey: ["lms-learning-paths"], queryFn: fetchLearningPaths });
   const { data: programs } = useQuery({ queryKey: ["lms-upcoming-programs"], queryFn: fetchUpcomingPrograms });
+  const { data: myTeams } = useQuery({ queryKey: ["my-teams"], queryFn: fetchMyTeams });
+  const { data: myChecklists } = useQuery({ queryKey: ["lms-my-checklists"], queryFn: fetchMyChecklists });
 
   const resume = dashboard?.resume;
+  // Self-formed teams (cohort_id null) have no program checklist to open —
+  // only a cohort-scoped team (e.g. a competition team) gets a card here.
+  const cohortTeams = (myTeams ?? []).filter((t) => t.cohort_id != null);
   const myPaths = paths?.filter((p) => p.enrolled) ?? [];
   const otherPaths = paths?.filter((p) => !p.enrolled) ?? [];
   const myCourses = dashboard?.courses ?? [];
@@ -70,6 +76,43 @@ export default function LearnLanding() {
             Resume
           </Button>
         </Card>
+      )}
+
+      {cohortTeams.length > 0 && (
+        <div className="flex flex-col gap-3">
+          {/* A team from each phase/cohort a student has ever been on shows up
+              here (advancing to the next stage doesn't remove the old team) —
+              the phase name is what tells two same-named "edos" cards apart. */}
+          {cohortTeams.map((team) => {
+            const checklist = myChecklists?.find((c) => c.cohort_id === team.cohort_id);
+            return (
+              <Card key={team.id} className="flex-row items-center gap-6 p-5 sm:p-6">
+                <div className="w-12 h-12 rounded-full shrink-0 bg-primary/10 text-primary flex items-center justify-center">
+                  <Users className="size-5" />
+                </div>
+                <div className="flex-1 min-w-0 flex flex-col gap-1">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+                    My Team{checklist?.cohort_name ? ` · ${checklist.cohort_name}` : ""}
+                  </div>
+                  <div className="font-display text-lg font-semibold truncate">{team.name}</div>
+                  <div className="text-sm text-muted-foreground truncate">{team.member_names.join(", ")}</div>
+                </div>
+                {checklist ? (
+                  <Button
+                    size="xl" variant="outline" className="shrink-0"
+                    onClick={() => void navigate({ to: `/learn/checklists/${checklist.assignment_id}` })}
+                  >
+                    Open checklist
+                  </Button>
+                ) : (
+                  <div className="text-xs text-muted-foreground text-right shrink-0 max-w-[160px]">
+                    No checklist yet — check back soon
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
       )}
 
       {myPaths.length > 0 && (

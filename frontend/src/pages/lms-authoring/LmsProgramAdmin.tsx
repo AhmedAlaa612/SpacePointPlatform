@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react"
+import { Fragment, useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, FileText, ClipboardCheck, ChevronDown, ChevronRight } from "lucide-react"
+import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight } from "lucide-react"
 import { isAxiosError } from "axios"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -19,19 +19,22 @@ import {
   getCohortProgramOverrideInstructorApi, addCohortOverrideItemInstructorApi,
   updateCohortOverrideItemInstructorApi, deleteCohortOverrideItemInstructorApi,
   getMyReachableProgramsApi, getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi,
-  getAssignmentItemsApi,
+  getAssignmentItemsApi, resyncCohortProgramAssignmentsApi,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType,
   type LmsProgramRosterRow, type LmsAssignmentItemDetail,
 } from "@/api/lms_admin"
 import {
   myInstructorCohortsApi, instructorStepGatesApi, setInstructorStepGateApi,
   instructorStepSelectionApi, setInstructorStepSelectionApi, clearInstructorStepSelectionApi,
-  instructorReviewQueueApi, instructorReviewAttemptApi, instructorOverrideAttemptApi,
+  instructorReviewQueueApi, instructorOverrideAttemptApi,
   type InstructorCohort,
 } from "@/api/missionsInstructor"
 import { fetchMissionCatalog } from "@/api/missions"
+import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
 import type { Program } from "@/types/sessions"
 import type { ManagedAttempt } from "@/api/missions_manager"
+import { ensureAbsoluteUrl } from "@/lib/utils"
+import { useToast } from "@/components/ui/toast"
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -41,11 +44,16 @@ function errorDetail(err: unknown, fallback: string): string {
 const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookOpen }[] = [
   { value: "course", label: "Course", icon: BookOpen },
   { value: "mission_run", label: "Mission run", icon: Rocket },
-  { value: "external_link", label: "Meeting / link", icon: Link2 },
+  { value: "external_link", label: "Link", icon: Link2 },
   { value: "submission", label: "Submission", icon: Upload },
   { value: "article", label: "Article", icon: FileText },
   { value: "manual", label: "Manual check-off", icon: ClipboardCheck },
 ]
+
+// Mirrors the server-side rule in services/lms/program.py: only a
+// link-only deliverable (nothing auto-tracked like course/mission_run)
+// can be shared as one team-wide submission.
+const TEAM_SCOPABLE_TYPES = new Set<LmsProgramItemType>(["submission", "external_link", "manual"])
 
 type Scope = "program" | { cohortId: string; cohortName: string }
 type SubTab = "checklist" | "missions" | "progress" | "review"
@@ -291,12 +299,21 @@ function ProgramTemplateEditor({
 
 function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: string; isStaff: boolean; readOnly: boolean }) {
   const queryClient = useQueryClient()
+  const toast = useToast()
   const { data: override, isLoading } = useQuery({
     queryKey: ["lms-cohort-override", cohortId],
     queryFn: () => (isStaff ? getCohortProgramOverrideApi(cohortId) : getCohortProgramOverrideInstructorApi(cohortId)),
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-cohort-override", cohortId] })
+
+  const resyncMutation = useMutation({
+    mutationFn: () => resyncCohortProgramAssignmentsApi(cohortId),
+    onSuccess: (r) => toast.success(
+      r.items_added === 0 ? "Every assigned student is already caught up." : `Caught up ${r.items_added} missing checklist item${r.items_added === 1 ? "" : "s"} for already-assigned students.`,
+    ),
+    onError: () => toast.error("Couldn't resync students — try again."),
+  })
 
   if (isLoading) return <Spinner />
   if (!override) return <EmptyState title="This cohort's program has no checklist yet" />
@@ -306,6 +323,20 @@ function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: strin
       {override.is_inherited && (
         <div className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-xl px-3 py-2">
           Showing the program's own checklist — {readOnly ? "nothing has been overridden for this cohort yet." : "edit anything below to start this cohort's own override."}
+        </div>
+      )}
+      {isStaff && !readOnly && (
+        <div className="flex items-center justify-between gap-3 text-xs bg-muted/30 border border-border rounded-xl px-3 py-2">
+          <span className="text-muted-foreground">
+            Added a step and an already-assigned student isn't seeing it? New items backfill automatically now — this catches up anything added before that.
+          </span>
+          <button
+            onClick={() => resyncMutation.mutate()}
+            disabled={resyncMutation.isPending}
+            className="shrink-0 h-7 px-3 rounded-full border border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {resyncMutation.isPending ? "Resyncing…" : "Resync students"}
+          </button>
         </div>
       )}
       <ChecklistItemsEditor
@@ -331,6 +362,12 @@ function ChecklistItemsEditor({
   readOnly: boolean
 }) {
   const [addingType, setAddingType] = useState<LmsProgramItemType | null>(null)
+  // Individual vs. team is picked here, at add time, not toggled afterward —
+  // a submission item's scope is locked server-side once created (flipping
+  // it later silently orphans anything already submitted, since the two
+  // scopes read/write completely different tables). Only matters when
+  // addingType is "submission"; ItemForm ignores it for every other type.
+  const [addingSubmissionScope, setAddingSubmissionScope] = useState<"individual" | "team">("individual")
   const [dragId, setDragId] = useState<string | null>(null)
   // Optimistic id order while a drag is in flight (or just settled) so the
   // row doesn't visually snap back before the parent's refetch lands —
@@ -371,6 +408,7 @@ function ChecklistItemsEditor({
       {readOnly ? null : addingType ? (
         <ItemForm
           itemType={addingType}
+          initialScope={addingType === "submission" ? addingSubmissionScope : undefined}
           onCancel={() => setAddingType(null)}
           onSave={async (data) => { await onAdd(data); setAddingType(null) }}
         />
@@ -378,15 +416,37 @@ function ChecklistItemsEditor({
         <div className="flex flex-col gap-2 pt-2">
           <div className="text-xs font-semibold text-muted-foreground">Add a step</div>
           <div className="flex flex-wrap gap-2">
-            {ITEM_TYPES.map(({ value, label, icon: Icon }) => (
-              <button
-                key={value}
-                onClick={() => setAddingType(value)}
-                className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-dashed border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
-              >
-                <Icon size={13} /> {label}
-              </button>
-            ))}
+            {ITEM_TYPES.map(({ value, label, icon: Icon }) => {
+              const addStepButtonCls = "flex items-center gap-1.5 h-8 px-3 rounded-full border border-dashed border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
+              // Individual vs. team submission are two distinct buttons here
+              // (not one "Submission" button + a scope checkbox in the form)
+              // because the scope can't be changed once the item exists —
+              // picking wrong and fixing it later isn't possible, so the
+              // choice has to be explicit at this step.
+              if (value === "submission") {
+                return (
+                  <Fragment key={value}>
+                    <button
+                      onClick={() => { setAddingSubmissionScope("individual"); setAddingType("submission") }}
+                      className={addStepButtonCls}
+                    >
+                      <Icon size={13} /> Individual Submission
+                    </button>
+                    <button
+                      onClick={() => { setAddingSubmissionScope("team"); setAddingType("submission") }}
+                      className={addStepButtonCls}
+                    >
+                      <Users size={13} /> Team Submission
+                    </button>
+                  </Fragment>
+                )
+              }
+              return (
+                <button key={value} onClick={() => setAddingType(value)} className={addStepButtonCls}>
+                  <Icon size={13} /> {label}
+                </button>
+              )
+            })}
           </div>
         </div>
       )}
@@ -446,6 +506,7 @@ function ItemRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-sm font-medium truncate">{item.title}</span>
+          {item.scope === "team" && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">team</span>}
           {item.optional && <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">optional</span>}
           {item.requires_confirmation && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 rounded px-1.5 py-0.5">needs confirmation</span>}
         </div>
@@ -469,10 +530,14 @@ function ItemRow({
 }
 
 function ItemForm({
-  itemType, initial, onCancel, onSave,
+  itemType, initial, initialScope, onCancel, onSave,
 }: {
   itemType: LmsProgramItemType
   initial?: LmsProgramItem
+  // Only meaningful for a brand-new "submission" item (which button on the
+  // "Add a step" row was clicked) — ignored once `initial` is set, since an
+  // existing item's scope is locked and always comes from `initial.scope`.
+  initialScope?: "individual" | "team"
   onCancel: () => void
   onSave: (data: LmsProgramItemInput) => Promise<void>
 }) {
@@ -480,6 +545,11 @@ function ItemForm({
   const [description, setDescription] = useState(initial?.description ?? "")
   const [optional, setOptional] = useState(initial?.optional ?? false)
   const [requiresConfirmation, setRequiresConfirmation] = useState(initial?.requires_confirmation ?? false)
+  const [teamScoped, setTeamScoped] = useState(initial ? initial.scope === "team" : initialScope === "team")
+  // Submission scope is locked at creation (server-side too — see
+  // guard_locked_submission_scope) so it never shows as an editable
+  // checkbox, only as a fixed label.
+  const submissionScopeLocked = itemType === "submission"
   const [courseId, setCourseId] = useState(initial?.course_id ?? "")
   const [missionId, setMissionId] = useState(initial?.mission_id ?? "")
   const [variantId, setVariantId] = useState(initial?.variant_id ?? "")
@@ -508,6 +578,7 @@ function ItemForm({
         description: description.trim() || null,
         optional,
         requires_confirmation: requiresConfirmation,
+        scope: TEAM_SCOPABLE_TYPES.has(itemType) && teamScoped ? "team" : "individual",
         course_id: itemType === "course" ? courseId : null,
         mission_id: itemType === "mission_run" ? missionId : null,
         variant_id: itemType === "mission_run" ? (variantId || null) : null,
@@ -526,7 +597,9 @@ function ItemForm({
 
   return (
     <div className="flex flex-col gap-2.5 p-4 border border-primary/30 bg-primary/5 rounded-xl">
-      <div className="text-xs font-semibold text-primary">{ITEM_TYPE_META[itemType].label}</div>
+      <div className="text-xs font-semibold text-primary">
+        {submissionScopeLocked ? (teamScoped ? "Team Submission" : "Individual Submission") : ITEM_TYPE_META[itemType].label}
+      </div>
       <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className={inputCls} />
       <textarea
         value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional)"
@@ -572,7 +645,7 @@ function ItemForm({
         </>
       )}
 
-      <div className="flex items-center gap-4 pt-1">
+      <div className="flex items-center gap-4 pt-1 flex-wrap">
         <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
           <input type="checkbox" checked={optional} onChange={(e) => setOptional(e.target.checked)} />
           Optional
@@ -581,6 +654,18 @@ function ItemForm({
           <input type="checkbox" checked={requiresConfirmation} onChange={(e) => setRequiresConfirmation(e.target.checked)} />
           Needs instructor/ops confirmation
         </label>
+        {TEAM_SCOPABLE_TYPES.has(itemType) && !submissionScopeLocked && (
+          <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
+            <input type="checkbox" checked={teamScoped} onChange={(e) => setTeamScoped(e.target.checked)} />
+            Shared with the whole team (one submission per team)
+          </label>
+        )}
+        {submissionScopeLocked && (
+          <span className="text-xs text-muted-foreground">
+            {teamScoped ? "Shared with the whole team — one submission per team." : "Each student submits their own."}
+            {initial && " Can't be changed — delete and re-add the item to switch."}
+          </span>
+        )}
       </div>
 
       {error && <p className="text-xs text-red-500">{error}</p>}
@@ -986,18 +1071,45 @@ function ProgressRow({
       </div>
       {open && (
         <div className="p-3 border-t border-border bg-background flex flex-col gap-1.5">
-          {itemsLoading ? <Spinner /> : (items ?? []).map((item) => (
-            <div key={item.item_id} className="flex items-center gap-3 text-xs">
-              <span className={`w-2 h-2 rounded-full shrink-0 ${item.status === "done" ? "bg-emerald-500" : item.status === "awaiting_confirmation" ? "bg-amber-500" : "bg-muted-foreground/30"}`} />
-              <span className="flex-1 text-foreground truncate">{item.title}</span>
-              <span className="text-muted-foreground shrink-0">{item.status.replace("_", " ")}</span>
-              {item.submitted_url && (
-                <a href={item.submitted_url} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
-                  submission
-                </a>
-              )}
-            </div>
-          ))}
+          {itemsLoading ? <Spinner /> : (items ?? []).map((item) => <AssignmentItemRow key={item.item_id} item={item} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** A single checklist item under a student's Progress row. A `mission_run`
+ * item carries `mission_attempt_id` once the student has an attempt, so it
+ * gets the same "view their run" toggle as the Review queue
+ * (`DesignRunDetail`, wired 2026-08-30) instead of leaving "done" as a dead
+ * end with nothing to click. */
+function AssignmentItemRow({ item }: { item: LmsAssignmentItemDetail }) {
+  const [showRun, setShowRun] = useState(false)
+  const canViewRun = item.item_type === "mission_run" && !!item.mission_attempt_id
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-3 text-xs">
+        <span className={`w-2 h-2 rounded-full shrink-0 ${item.status === "done" ? "bg-emerald-500" : item.status === "awaiting_confirmation" ? "bg-amber-500" : "bg-muted-foreground/30"}`} />
+        <span className="flex-1 text-foreground truncate">{item.title}</span>
+        <span className="text-muted-foreground shrink-0">{item.status.replace("_", " ")}</span>
+        {item.submitted_url && (
+          <a href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
+            submission
+          </a>
+        )}
+        {canViewRun && (
+          <button
+            onClick={() => setShowRun((v) => !v)}
+            className="text-primary underline shrink-0 cursor-pointer"
+          >
+            {showRun ? "hide run" : "view run"}
+          </button>
+        )}
+      </div>
+      {canViewRun && showRun && (
+        <div className="mt-1.5 border border-border rounded-lg bg-card">
+          <DesignRunDetail attemptId={item.mission_attempt_id as string} />
         </div>
       )}
     </div>
@@ -1034,20 +1146,16 @@ function ReviewScopePanel({ cohortId }: { cohortId: string }) {
 
 function ReviewAttemptRow({ attempt, cohortId, missionId }: { attempt: ManagedAttempt; cohortId: string; missionId: string }) {
   const queryClient = useQueryClient()
-  const [score, setScore] = useState("")
-  const [notes, setNotes] = useState("")
   const [error, setError] = useState("")
   const [overriding, setOverriding] = useState(false)
   const [overrideReason, setOverrideReason] = useState("")
+  // Operator ask (2026-08-24) was "open the run and see everything there
+  // with read only, just like the student view" — that landed on the
+  // student profile's Mission runs list, but never here, where a reviewer
+  // actually needs it before deciding Pass/Fail on a just-submitted run.
+  const [showRun, setShowRun] = useState(false)
 
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: ["instructor-review-queue", cohortId, missionId] })
-
-  const reviewMutation = useMutation({
-    mutationFn: (passed: boolean) =>
-      instructorReviewAttemptApi(attempt.id, { passed, score: score ? Number(score) : null, review_comment: notes || null }),
-    onSuccess: () => { setError(""); invalidate() },
-    onError: (e) => setError(errorDetail(e, "Couldn't submit this review")),
-  })
 
   const overrideMutation = useMutation({
     mutationFn: (passed: boolean) => instructorOverrideAttemptApi(attempt.id, { passed, reason: overrideReason.trim() }),
@@ -1061,19 +1169,25 @@ function ReviewAttemptRow({ attempt, cohortId, missionId }: { attempt: ManagedAt
         <p className="text-sm font-semibold text-foreground">{attempt.student_name ?? attempt.team_name ?? "Unknown"}</p>
         <span className="text-xs text-muted-foreground">Attempt {attempt.attempt_no} · {attempt.status}</span>
       </div>
+      <button
+        onClick={() => setShowRun((v) => !v)}
+        className="flex items-center gap-1 text-xs font-medium text-primary hover:opacity-80 transition-opacity w-fit cursor-pointer"
+      >
+        <ChevronDown size={13} className={`transition-transform ${showRun ? "rotate-180" : ""}`} />
+        {showRun ? "Hide" : "View"} their mission run
+      </button>
+      {showRun && (
+        <div className="border border-border rounded-lg bg-card">
+          <DesignRunDetail attemptId={attempt.id} />
+        </div>
+      )}
+      {/* Plain Pass/Fail hidden (2026-08-30 operator ask) — this mission
+          kind has no instructor-decided pass/fail; a Design run grades
+          itself once every step is valid (see the empty-state hint
+          above). "Force pass/fail" stays as the one legitimate manual
+          path — unblocking a student stuck on a mistake, not routine
+          grading. */}
       <div className="flex gap-2">
-        <input
-          value={score} onChange={(e) => setScore(e.target.value)} placeholder="Score (0-100)"
-          className="h-8 w-28 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
-        />
-        <input
-          value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Notes (optional)"
-          className="h-8 flex-1 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary"
-        />
-      </div>
-      <div className="flex gap-2">
-        <Button size="sm" onClick={() => reviewMutation.mutate(true)} disabled={reviewMutation.isPending}>Pass</Button>
-        <Button size="sm" variant="destructive" onClick={() => reviewMutation.mutate(false)} disabled={reviewMutation.isPending}>Fail</Button>
         <Button size="sm" variant="outline" onClick={() => setOverriding((v) => !v)}>
           {overriding ? "Cancel override" : "Force pass/fail…"}
         </Button>

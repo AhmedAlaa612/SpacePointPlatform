@@ -6,6 +6,7 @@ import { getCalendarApi } from "@/api/sessions/calendar"
 import type { CalendarEvent, StaffingStatus } from "@/types/sessions"
 import { Card, CardContent } from "@/components/ui/card"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
+import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPanel"
 import { cn } from "@/lib/utils"
 
 /**
@@ -115,6 +116,14 @@ export default function ThisWeek() {
           </div>
         </div>
       )}
+
+      {/* Days waiting on ops (operations doc §11-§12). Lives here because it
+          is the same "what needs me today" question the rest of this page
+          answers — approving a day is what makes it count on the instructor's
+          payment letter, so a backlog here delays people being paid. */}
+      <Card className="px-4 mt-6">
+        <CohortDayReviewsPanel />
+      </Card>
     </div>
   )
 }

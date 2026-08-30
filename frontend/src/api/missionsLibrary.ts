@@ -29,6 +29,10 @@ export interface LibraryComponentAdmin {
   notes: string | null;
   is_active: boolean;
   image_url: string | null;
+  /** Whether the org's own copy is uploaded (served through the no-download
+   *  viewer) — as opposed to `datasheet_url` alone, an external link
+   *  (Google Drive, a manufacturer's site) we don't host and can't protect. */
+  has_datasheet_file: boolean;
   updated_at: string | null;
   updated_by_name: string | null;
   /** How many designs have ever added this — the blast radius of a spec edit. */
@@ -36,7 +40,7 @@ export interface LibraryComponentAdmin {
 }
 
 export type LibraryComponentInput = Partial<Omit<LibraryComponentAdmin,
-  "id" | "is_active" | "image_url" | "updated_at" | "updated_by_name" | "used_in_designs">> & {
+  "id" | "is_active" | "image_url" | "has_datasheet_file" | "updated_at" | "updated_by_name" | "used_in_designs">> & {
   component_name: string;
   subsystem: string;
 };
@@ -72,6 +76,20 @@ export async function uploadLibraryImage(id: string, file: File): Promise<Librar
   const form = new FormData();
   form.append("file", file);
   const { data } = await api.post<LibraryComponentAdmin>(`/missions/library/${id}/image`, form);
+  return data;
+}
+
+/** Uploads the org's own PDF — supersedes `datasheet_url` server-side, since
+ *  a component only ever shows one "Datasheet" affordance at a time. */
+export async function uploadLibraryDatasheet(id: string, file: File): Promise<LibraryComponentAdmin> {
+  const form = new FormData();
+  form.append("file", file);
+  const { data } = await api.post<LibraryComponentAdmin>(`/missions/library/${id}/datasheet`, form);
+  return data;
+}
+
+export async function deleteLibraryDatasheet(id: string): Promise<LibraryComponentAdmin> {
+  const { data } = await api.delete<LibraryComponentAdmin>(`/missions/library/${id}/datasheet`);
   return data;
 }
 

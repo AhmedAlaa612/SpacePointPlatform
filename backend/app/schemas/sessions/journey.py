@@ -62,20 +62,50 @@ class AcceptResponsibilitiesIn(BaseModel):
 # ── payment bridge (I5-8) ───────────────────────────────────────────────────
 
 class UnbilledSessionOut(BaseModel):
-    session_id: UUID
+    """One draft payment line for work this instructor hasn't been paid for.
+
+    Since 2026-08-24 a line is normally a whole *cohort* — `cohort_id` set,
+    `session_id` null, `session_count`/`rate_aed` filled, and `session_date`
+    holding the cohort's date range rather than one date. A session delivered
+    outside any cohort assignment still produces the original one-row-per-
+    session shape, with `session_id` set and `cohort_id` null.
+
+    `line_id` is what the client sends back to bill it: the cohort id for a
+    cohort line, the session id for a single one. Callers should use it rather
+    than reconstructing the distinction themselves.
+    """
+
+    # Exactly one of these two is set; `line_id` is whichever it is.
+    cohort_id: UUID | None = None
+    session_id: UUID | None = None
+    line_id: UUID
+    # Every session this line pays for — one entry for a single-session line.
+    session_ids: list[UUID] = []
     session_date: str
     workshop_description: str
     role: str
     location: str | None = None
     duration_hours: float | None = None
     cohort_name: str | None = None
+    session_count: int = 1
+    rate_aed: float | None = None
+    # Pre-computed from the agreed rate x approved days. Still a draft: ops
+    # edits it on the letter before publishing.
+    compensation_aed: float = 0.0
+    rate_basis: str = "per_session"
 
 
 class BillSessionsIn(BaseModel):
-    """Turn chosen completed sessions into payment lines. Amount is still
-    typed by ops afterwards — nothing here invents money."""
+    """Turn chosen billable lines into payment lines.
 
-    session_ids: list[UUID]
+    `line_ids` are `UnbilledSessionOut.line_id` values — a cohort id for a
+    cohort line, a session id for a single one. The amount arrives
+    pre-computed from the rate agreed at staffing time and stays editable on
+    the letter until it is published, so ops still decides the money; they
+    just no longer type a number the system already knows.
+    """
+
+    line_ids: list[UUID]
 
 
 class PendingPaymentInstructorOut(BaseModel):
@@ -85,6 +115,9 @@ class PendingPaymentInstructorOut(BaseModel):
     instructor_user_id: UUID
     full_name: str
     email: str
+    # How many letter rows this would produce — normally one per cohort.
+    pending_cohort_count: int = 0
+    # The days behind those rows.
     pending_session_count: int
     earliest_date: date
     latest_date: date

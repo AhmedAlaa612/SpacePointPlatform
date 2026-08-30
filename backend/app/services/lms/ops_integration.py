@@ -93,11 +93,16 @@ async def send_set_password_email(user: User, *, purpose: str = "welcome") -> bo
     reads wrong for a reset on an account that already existed."""
     from app.core.config import settings
     token = create_password_set_token(user.id)
-    link = f"{settings.FRONTEND_URL}/learn/set-password?token={token}"
+    # LearnSetPassword is mounted at both paths for exactly this reason (see
+    # its own docstring) — a student's link should log them back in at
+    # /learn/login, everyone else's at the portal /login, so `roleHomePath`
+    # sends them somewhere real afterward instead of the LMS shell.
+    set_password_path = "/learn/set-password" if "student" in user.role_values else "/set-password"
+    link = f"{settings.FRONTEND_URL}{set_password_path}?token={token}"
     intro = (
-        "An account was created for you on the SpacePoint LMS."
+        "An account was created for you on SpacePoint."
         if purpose == "welcome" else
-        "Here's the link to reset your SpacePoint LMS password."
+        "Here's the link to reset your SpacePoint password."
     )
     return await try_send_email(
         user.email,

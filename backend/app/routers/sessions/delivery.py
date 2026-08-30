@@ -15,7 +15,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_session_delivery
 from app.db.session import get_db
+from app.models.sessions.checklist import InstructorSessionDay
+from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.program import Program
+from app.models.sessions.session import SessionInstructor
 from app.models.spine.organization import Organization
 from app.models.user import User
 from app.schemas.sessions.delivery import (
@@ -24,6 +27,7 @@ from app.schemas.sessions.delivery import (
     RosterEntryOut,
     ScanAttendanceRequest,
     SessionDeliveryOut,
+    TeammateOut,
     UpdateSessionNotesRequest,
 )
 from app.schemas.sessions.reports import SessionReportOut
@@ -54,6 +58,40 @@ async def _session_delivery_out(db: AsyncSession, session_id: uuid.UUID, user: U
         }
     report_rows = await reports_service.list_session_reports(db, session_id)
     location = await staffing_svc.resolve_session_location_display(db, session, cohort)
+
+    # Reverse-lookup: which of these students already has a user account
+    # (User.contact_id), so the portal can link to a real profile.
+    contact_ids = {c.id for _, c, _ in roster}
+    user_id_by_contact: dict[uuid.UUID, uuid.UUID] = {}
+    if contact_ids:
+        user_id_by_contact = {
+            contact_id: user_id
+            for user_id, contact_id in (await db.execute(
+                select(User.id, User.contact_id).where(User.contact_id.in_(contact_ids))
+            )).all()
+        }
+
+    teammate_rows = (await db.execute(
+        select(SessionInstructor, User, DeliveryRole)
+        .join(User, User.id == SessionInstructor.user_id)
+        .join(DeliveryRole, DeliveryRole.id == SessionInstructor.role_id)
+        .where(SessionInstructor.session_id == session_id)
+    )).all()
+    days_by_user = {
+        d.user_id: d for d in (await db.execute(
+            select(InstructorSessionDay).where(InstructorSessionDay.session_id == session_id)
+        )).scalars().all()
+    }
+    teammates = [
+        TeammateOut(
+            user_id=si.user_id, full_name=teammate.full_name, role_name=role.name,
+            is_me=si.user_id == user.id,
+            att_status=days_by_user[si.user_id].att_status if si.user_id in days_by_user else None,
+            checked_in_at=days_by_user[si.user_id].checked_in_at if si.user_id in days_by_user else None,
+        )
+        for si, teammate, role in teammate_rows
+    ]
+
     return SessionDeliveryOut(
         id=session.id, cohort_id=cohort.id, cohort_name=cohort.name, program_name=program.name,
         location=location["name"],
@@ -70,6 +108,7 @@ async def _session_delivery_out(db: AsyncSession, session_id: uuid.UUID, user: U
                 student_date_of_birth=contact.date_of_birth.isoformat() if contact.date_of_birth else None,
                 student_grade=contact.grade,
                 student_organization_name=org_names.get(contact.organization_id),
+                student_user_id=user_id_by_contact.get(contact.id),
                 att_status=att.att_status if att else None,
                 att_method=att.method if att else None,
                 recorded_at=att.recorded_at if att else None,
@@ -86,6 +125,7 @@ async def _session_delivery_out(db: AsyncSession, session_id: uuid.UUID, user: U
             )
             for report, uploader_name in report_rows
         ],
+        teammates=teammates,
     )
 
 

@@ -15,6 +15,9 @@ class DeliveryRoleOut(BaseModel):
     name: str
     description: str | None = None
     sort_order: int
+    # The global tier of the rate hierarchy — what this role is normally paid
+    # per session before any cohort/session override (2026-08-24).
+    default_rate_aed: Decimal | None = None
     is_active: bool
 
     class Config:
@@ -26,6 +29,7 @@ class DeliveryRoleCreate(BaseModel):
     description: str | None = None
     # Omitted appends to the end. Sort order is seniority, lowest first.
     sort_order: int | None = None
+    default_rate_aed: Decimal | None = None
 
 
 class DeliveryRoleUpdate(BaseModel):
@@ -33,6 +37,10 @@ class DeliveryRoleUpdate(BaseModel):
     description: str | None = None
     sort_order: int | None = None
     is_active: bool | None = None
+    default_rate_aed: Decimal | None = None
+    # Explicit, because `default_rate_aed: None` is indistinguishable from an
+    # untouched field — see update_role's comment.
+    clear_default_rate: bool = False
 
 
 # ── openings (I5-4) ─────────────────────────────────────────────────────────
@@ -42,6 +50,9 @@ class OpeningIn(BaseModel):
     slots: int = Field(default=1, ge=1)
     amount_aed: Decimal | None = None
     notes: str | None = None
+    # Cohort-level only (2026-08-28) — ignored by the session-level endpoint
+    # that shares this schema. See CohortOpening.responsibilities_override.
+    responsibilities_override: str | None = None
 
 
 class SetOpeningsIn(BaseModel):
@@ -63,6 +74,9 @@ class OpeningOut(BaseModel):
     remaining: int
     waitlist: int
     amount_aed: Decimal | None = None
+    # Which tier `amount_aed` came from: "session" | "cohort" | "role", or
+    # None when no rate is set anywhere. Lets the UI grey an inherited figure.
+    rate_source: str | None = None
     notes: str | None = None
     # B2: whether this role is currently being solicited. A role-scoped open
     # call sets this per opening rather than the whole session at once.
@@ -83,6 +97,13 @@ class CohortOpeningOut(BaseModel):
     slots: int
     amount_aed: Decimal | None = None
     notes: str | None = None
+    # What a blank amount_aed here would fall back to, so the cohort editor
+    # can show the effective rate without a second lookup.
+    role_default_rate_aed: Decimal | None = None
+    responsibilities_override: str | None = None
+    # Same reasoning as role_default_rate_aed, for the other override — what
+    # a blank responsibilities_override falls back to (2026-08-28).
+    role_description: str | None = None
 
 
 # ── add-ons (§G-addons) ─────────────────────────────────────────────────────

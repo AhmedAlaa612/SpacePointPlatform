@@ -297,6 +297,10 @@ export const deleteCheckpointApi = (id: string) => api.delete<void>(`/lms/admin/
 // see backend/app/models/lms/program.py's module docstring for the full shape.
 
 export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "article" | "manual";
+/** individual (default): per-student progress. team: the whole Team shares
+ * one progress row — only valid for submission/external_link/manual items
+ * (enforced server-side in services/lms/program.py). */
+export type LmsProgramItemScope = "individual" | "team";
 
 export interface LmsProgramItem {
   id: string;
@@ -306,6 +310,7 @@ export interface LmsProgramItem {
   description: string | null;
   optional: boolean;
   requires_confirmation: boolean;
+  scope: LmsProgramItemScope;
   course_id: string | null;
   mission_id: string | null;
   /** `Mission.kind` for a mission_run item — null otherwise. Only
@@ -323,6 +328,7 @@ export interface LmsProgramItemInput {
   description?: string | null;
   optional?: boolean;
   requires_confirmation?: boolean;
+  scope?: LmsProgramItemScope;
   course_id?: string | null;
   mission_id?: string | null;
   variant_id?: string | null;
@@ -381,6 +387,11 @@ export const deleteCohortOverrideItemApi = (cohortId: string, itemId: string) =>
   api.delete<void>(`/lms/admin/cohorts/${cohortId}/program-override/items/${itemId}`).then((r) => r.data);
 export const reorderCohortOverrideItemsApi = (cohortId: string, itemIds: string[]) =>
   api.post<LmsProgramItem[]>(`/lms/admin/cohorts/${cohortId}/program-override/items/reorder`, { item_ids: itemIds }).then((r) => r.data);
+/** One-off catch-up for a cohort edited before 2026-08-27 — every add now
+ * backfills already-assigned students automatically, but this fixes
+ * cohorts a checklist step was added to before that shipped. */
+export const resyncCohortProgramAssignmentsApi = (cohortId: string) =>
+  api.post<{ items_added: number }>(`/lms/admin/cohorts/${cohortId}/program-override/resync`).then((r) => r.data);
 
 // Instructor mirrors (2026-08-23, fixes a real 403 — instructors had no way
 // to even read their own cohort's checklist). Same shape, cohort-scoped;

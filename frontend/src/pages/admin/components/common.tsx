@@ -1,8 +1,26 @@
+import type { LucideIcon } from "lucide-react"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Dialog, DialogClose, DialogContent, DialogTitle } from "@/components/ui/dialog"
 
 export { Spinner, PageHeader, EmptyState } from "@/components/ui/primitives"
+
+/** A small icon + label pill for a fact about someone (needs transport,
+ *  already assigned, works in this city, …) — shared so applicant lists
+ *  (cohort calls and single sessions alike) read the same way. */
+export function IconBadge({ icon: Icon, label, tone = "muted" }: {
+  icon: LucideIcon; label: string; tone?: "muted" | "good"
+}) {
+  const tones = {
+    muted: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/50",
+    good: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-900/50",
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded border ${tones[tone]}`}>
+      <Icon size={10} /> {label}
+    </span>
+  )
+}
 
 export function Modal({ title, onClose, children, maxWidth = "sm:max-w-lg max-w-lg" }: { title: string; onClose: () => void; children: React.ReactNode; maxWidth?: string }) {
   // Radix Dialog underneath (previously a hand-rolled portal): gets us

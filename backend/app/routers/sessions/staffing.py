@@ -29,6 +29,13 @@ from app.schemas.sessions.cohorts import BulkActionError, SessionInstructorOut, 
 from app.services.sessions import openings as openings_svc
 from app.schemas.sessions.staffing import (
     AddonSummary,
+    AvailableCohortCallOut,
+    AvailableWorkOut,
+    CohortAssignmentOut,
+    CohortCallInterestOut,
+    CohortSelectionOut,
+    RegisterCohortInterestRequest,
+    SelectForCohortRequest,
     OpeningSummary,
     AvailableSessionOut,
     CloseCohortCallRequest,
@@ -44,7 +51,7 @@ from app.schemas.sessions.staffing import (
     SessionCallOut,
 )
 from app.services.notification import create_notification
-from app.services.sessions import staffing
+from app.services.sessions import cohort_staffing, staffing
 from app.workers.settings import get_arq_redis, safe_enqueue
 
 router = APIRouter(prefix="/sessions", tags=["sessions-staffing"])
@@ -340,6 +347,10 @@ async def list_available_sessions(
             location=location["name"], meeting_date=s.meeting_date, starts_at=s.starts_at,
             interested_count=count, my_interest=interest is not None,
             my_note=interest.note if interest else None,
+            my_needs_transport=interest.needs_transport if interest else False,
+            my_needs_ops_support=interest.needs_ops_support if interest else False,
+            my_travelling_from_other_city=interest.travelling_from_other_city if interest else False,
+            my_concerns=interest.concerns if interest else None,
             program_type=p.program_type,
             description=p.description,
             location_address=location["address"],
@@ -368,6 +379,166 @@ async def list_available_sessions(
     return out
 
 
+# ── Cohort-level staffing (2026-08-24) ──────────────────────────────────────
+
+@router.get("/available-work", response_model=AvailableWorkOut)
+async def list_available_work(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_instructor_or_facilitator),
+):
+    """Everything this instructor can apply for, split into cohort cards and
+    standalone sessions.
+
+    Additive on purpose: `GET /sessions/available` above keeps its exact shape
+    so the current page doesn't break mid-release. The single-sessions half is
+    that same list with anything already covered by a cohort card filtered
+    out, so nothing appears twice.
+    """
+    cohort_calls = await cohort_staffing.list_available_cohort_calls(db, current_user)
+    grouped_session_ids = {
+        s["session_id"] for card in cohort_calls for s in card["sessions"]
+    }
+    singles = [
+        s for s in await list_available_sessions(db=db, current_user=current_user)
+        if s.session_id not in grouped_session_ids
+    ]
+    return AvailableWorkOut(
+        cohort_calls=[AvailableCohortCallOut(**card) for card in cohort_calls],
+        single_sessions=singles,
+    )
+
+
+@router.post(
+    "/cohorts/{cohort_id}/staffing/calls/{cohort_call_id}/interest",
+    response_model=CohortCallInterestOut, status_code=status.HTTP_201_CREATED,
+)
+async def register_cohort_interest(
+    cohort_id: uuid.UUID,
+    cohort_call_id: uuid.UUID,
+    body: RegisterCohortInterestRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_instructor_or_facilitator),
+):
+    """One answer to a cohort call: a role, the days they can do, and the
+    support questions. Re-posting replaces the previous answer — changing
+    which days you can do is the normal case, not an error."""
+    await cohort_staffing.register_cohort_interest(
+        db, cohort_id=cohort_id, cohort_call_id=cohort_call_id, user=current_user,
+        session_ids=body.session_ids, role_id=body.role_id, note=body.note,
+        needs_transport=body.needs_transport, needs_ops_support=body.needs_ops_support,
+        travelling_from_other_city=body.travelling_from_other_city, concerns=body.concerns,
+        responsibilities_version=body.responsibilities_version,
+    )
+    await db.commit()
+    rows = await cohort_staffing.list_cohort_call_interest(
+        db, cohort_id=cohort_id, cohort_call_id=cohort_call_id
+    )
+    mine = next(r for r in rows if r["user_id"] == current_user.id)
+    return CohortCallInterestOut(**mine)
+
+
+@router.delete(
+    "/cohorts/{cohort_id}/staffing/calls/{cohort_call_id}/interest",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def withdraw_cohort_interest(
+    cohort_id: uuid.UUID,
+    cohort_call_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_instructor_or_facilitator),
+):
+    await cohort_staffing.withdraw_cohort_interest(
+        db, cohort_id=cohort_id, cohort_call_id=cohort_call_id, user=current_user
+    )
+    await db.commit()
+
+
+@router.get(
+    "/cohorts/{cohort_id}/staffing/calls/{cohort_call_id}/interest",
+    response_model=list[CohortCallInterestOut],
+)
+async def list_cohort_call_interest(
+    cohort_id: uuid.UUID,
+    cohort_call_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    """The ops applicant table — one row per instructor, with the days they
+    ticked and their support requirements."""
+    rows = await cohort_staffing.list_cohort_call_interest(
+        db, cohort_id=cohort_id, cohort_call_id=cohort_call_id
+    )
+    return [CohortCallInterestOut(**r) for r in rows]
+
+
+@router.post("/cohorts/{cohort_id}/staffing/select", response_model=list[CohortSelectionOut])
+async def select_for_cohort(
+    cohort_id: uuid.UUID,
+    body: SelectForCohortRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
+):
+    """Assign people to a cohort in one action — each gets the days they
+    ticked, in one role, with the agreed rate snapshotted.
+
+    Refuses with a 409 naming the clash if somebody already holds a different
+    role in this cohort (operator rule, 2026-08-24)."""
+    picked = await cohort_staffing.select_for_cohort(
+        db, cohort_id=cohort_id, user_ids=body.user_ids, role_id=body.role_id,
+        session_ids=body.session_ids, cohort_call_id=body.cohort_call_id,
+        close_call=body.close_call, actor_user_id=current_user.id,
+        rate_basis=body.rate_basis,
+        flat_amount_aed=body.flat_amount_aed,
+    )
+    cohort = await db.get(Cohort, cohort_id)
+    for row in picked:
+        await create_notification(
+            db, row["user_id"], "You've been assigned to a cohort",
+            body=f"You're staffed on {cohort.name if cohort else 'a cohort'} "
+                 f"for {len(row['session_ids'])} session(s).",
+            type="staffing_assignment",
+        )
+    await db.commit()
+
+    # Reuse the existing per-session assignment email rather than inventing a
+    # second one — an instructor gets the same message they always did, once
+    # per session they were actually given.
+    for row in picked:
+        for session_id in row["session_ids"]:
+            await safe_enqueue(arq_redis, "send_assignment_email", str(session_id), str(row["user_id"]))
+    return [CohortSelectionOut(**r) for r in picked]
+
+
+@router.get("/cohorts/{cohort_id}/staffing/assignments", response_model=list[CohortAssignmentOut])
+async def list_cohort_assignments(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    rows = await cohort_staffing.list_cohort_assignments(db, cohort_id)
+    return [CohortAssignmentOut(**r) for r in rows]
+
+
+@router.delete(
+    "/cohorts/{cohort_id}/staffing/assignments/{user_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+async def remove_cohort_assignment(
+    cohort_id: uuid.UUID,
+    user_id: uuid.UUID,
+    drop_sessions: bool = True,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    """Withdraws somebody from a cohort. The assignment row is marked
+    `withdrawn`, not deleted — that they were once staffed is part of the
+    record."""
+    await cohort_staffing.remove_cohort_assignment(
+        db, cohort_id=cohort_id, user_id=user_id, drop_sessions=drop_sessions
+    )
+    await db.commit()
+
+
 @router.get("/mine", response_model=list[MySessionOut])
 async def list_my_sessions(
     db: AsyncSession = Depends(get_db),
@@ -375,7 +546,7 @@ async def list_my_sessions(
 ):
     rows = await staffing.list_my_sessions(db, current_user)
     out = []
-    for s, c, p, role in rows:
+    for s, c, p, role, day in rows:
         location = await staffing.resolve_session_location_display(db, s, c)
         out.append(MySessionOut(
             session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,
@@ -383,9 +554,13 @@ async def list_my_sessions(
             location=location["name"],
             location_address=location["address"],
             location_maps_url=location["maps_url"],
+            location_city=location["city_name"],
             meeting_date=s.meeting_date, starts_at=s.starts_at,
             my_role=role, staffing_status=s.staffing_status,
             started_at=s.started_at, completed_at=s.completed_at,
+            att_status=day.att_status if day else None,
+            checked_in_at=day.checked_in_at if day else None,
+            day_status=day.status if day else None,
         ))
     return out
 
@@ -401,6 +576,8 @@ async def register_interest(
 ):
     interest = await staffing.register_interest(
         db, session_id, current_user, note=body.note, role_id=body.role_id,
+        needs_transport=body.needs_transport, needs_ops_support=body.needs_ops_support,
+        travelling_from_other_city=body.travelling_from_other_city, concerns=body.concerns,
     )
     await db.commit()
     role_name = None
@@ -409,6 +586,8 @@ async def register_interest(
     return InterestOut(
         user_id=current_user.id, full_name=current_user.full_name, email=current_user.email,
         note=interest.note, role_id=interest.role_id, role_name=role_name,
+        needs_transport=interest.needs_transport, needs_ops_support=interest.needs_ops_support,
+        travelling_from_other_city=interest.travelling_from_other_city, concerns=interest.concerns,
         created_at=interest.created_at,
     )
 
@@ -499,6 +678,10 @@ async def list_eligible_instructors(
             interest_role_id=interest.role_id if interest else None,
             interest_role_name=role_name,
             available_in_city=available_in_city,
+            needs_transport=interest.needs_transport if interest else False,
+            needs_ops_support=interest.needs_ops_support if interest else False,
+            travelling_from_other_city=interest.travelling_from_other_city if interest else False,
+            concerns=interest.concerns if interest else None,
         )
         for u, interest, role_name, available_in_city in rows
     ]

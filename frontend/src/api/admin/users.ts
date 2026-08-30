@@ -16,7 +16,7 @@ export const updateUserApi = (
   id: string,
   data: Partial<{
     full_name: string; email: string; password: string; phone: string; roles: string[];
-    nickname: string; avatar: string;
+    nickname: string; avatar: string; status: string;
   }>
 ) => api.patch<User>(`/admin/users/${id}`, data).then((r) => r.data)
 

@@ -88,6 +88,9 @@ import Settings from "@/pages/admin/Settings";
 import AdminPrograms from "@/pages/admin/Programs";
 import AdminCohorts from "@/pages/admin/Cohorts";
 import AdminCohortDetail from "@/pages/admin/CohortDetail";
+import CompetitionJudging from "@/pages/admin/CompetitionJudging";
+import JudgeTeams from "@/pages/judge/JudgeTeams";
+import JudgeTeamDetail from "@/pages/judge/JudgeTeamDetail";
 import AdminSessionDetail from "@/pages/admin/SessionDetail";
 import SessionGameAssignmentDetail from "@/pages/admin/SessionGameAssignmentDetail";
 import AdminContacts from "@/pages/admin/Contacts";
@@ -96,6 +99,7 @@ import AdminCheckIn from "@/pages/admin/CheckIn";
 import SessionsCalendar from "@/pages/sessions/Calendar";
 import OpsDashboard from "@/pages/sessions/OpsDashboard";
 import ThisWeek from "@/pages/sessions/ThisWeek";
+import Reviews from "@/pages/sessions/Reviews";
 
 // Inventory (I1-4)
 import InventoryKits from "@/pages/operations/inventory/Kits";
@@ -681,9 +685,11 @@ const po = () => operationsLayoutRoute;
 const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/dashboard", component: OpsDashboard }),
   createRoute({ getParentRoute: po, path: "/this-week", component: ThisWeek }),
+  createRoute({ getParentRoute: po, path: "/reviews", component: Reviews }),
   createRoute({ getParentRoute: po, path: "/programs", component: AdminPrograms }),
   createRoute({ getParentRoute: po, path: "/cohorts", component: AdminCohorts }),
   createRoute({ getParentRoute: po, path: "/cohorts/$cohortId", component: AdminCohortDetail }),
+  createRoute({ getParentRoute: po, path: "/cohorts/$cohortId/judging", component: CompetitionJudging }),
   createRoute({ getParentRoute: po, path: "/cohorts/$cohortId/sessions/$sessionId", component: AdminSessionDetail }),
   createRoute({ getParentRoute: po, path: "/game-assignments/$assignmentId", component: SessionGameAssignmentDetail }),
   createRoute({ getParentRoute: po, path: "/contacts", component: AdminContacts }),
@@ -699,6 +705,30 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/inventory/catalog", component: InventoryCatalog }),
   createRoute({ getParentRoute: po, path: "/inventory/fulfilment", component: InventoryFulfilment }),
   createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),
+];
+
+// Judge surface (Competition domain, 2026-08-24) — a temporary, cohort-scoped
+// account with zero ops access, same "own separate surface" treatment as
+// /learn for students (see roleHome.ts). Nested under authLayoutRoute (not a
+// standalone shell like /learn) since a judge otherwise uses the ordinary
+// portal chrome (AppShell/Sidebar) — it just has one page and no other role
+// may see it.
+const judgeLayoutRoute = createRoute({
+  getParentRoute: () => authLayoutRoute,
+  path: "/judge",
+  beforeLoad: () => {
+    const role = localStorage.getItem("active_role");
+    if (role !== "judge" && role !== "admin") {
+      throw redirect({ to: "/" });
+    }
+  },
+  component: () => <Outlet />,
+});
+
+const pj = () => judgeLayoutRoute;
+const judgeRoutes = [
+  createRoute({ getParentRoute: pj, path: "/", component: JudgeTeams }),
+  createRoute({ getParentRoute: pj, path: "/teams/$teamId", component: JudgeTeamDetail }),
 ];
 
 // LMS authoring (LM1-13) — own top-level layout, not nested under /operations
@@ -1060,6 +1090,7 @@ const routeTree = rootRoute.addChildren([
     sessionsCalendarRoute,
     adminProfileRoute,
     operationsLayoutRoute.addChildren(operationsRoutes),
+    judgeLayoutRoute.addChildren(judgeRoutes),
     lmsAuthoringLayoutRoute.addChildren(lmsAuthoringRoutes),
     internsLayoutRoute.addChildren(internsRoutes),
     ambassadorsLayoutRoute.addChildren(ambassadorsRoutes),

@@ -82,3 +82,16 @@ class QuestionResultOut(BaseModel):
 class RevealNameOut(BaseModel):
     participant_id: UUID
     real_name: str
+
+
+class SessionGameRunOut(BaseModel):
+    """One run's summary for the ops Report tab — not the live console's own
+    detail, just enough to see whether a game actually got played."""
+    run_id: UUID
+    game_name: str
+    run_no: int
+    status: str
+    participant_count: int
+    top_score: int
+    current_question_position: int | None
+    total_questions: int

@@ -176,6 +176,12 @@ export interface PaymentSession {
   location: string | null
   duration_hours: number | null
   compensation_aed: number
+  /** Cohort lines (2026-08-24): one row standing for a whole cohort, with
+   *  `session_date` holding its date range and the units column printing
+   *  "n x rate". Null on a single-session or manual line. */
+  cohort_id?: string | null
+  session_count?: number | null
+  rate_aed?: number | null
   /** The order the document prints these in (I5-1). */
   sort_order: number
 }

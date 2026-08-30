@@ -11,10 +11,11 @@ class Session(Base):
     """The actual teaching unit inside a cohort — not just a calendar date.
     A single-day workshop is a cohort with exactly one Session; a multi-week
     course has one row per meeting. Each Session can carry its own title,
-    instructor(s) (via SessionInstructor below), attendance, and — since
-    pricing can be per-session instead of per-program — its own price
-    override (falls back to Program.price when NULL). `material_url` is
-    reserved for the future LMS/teacher-side link; nothing reads it yet."""
+    instructor(s) (via SessionInstructor below), and attendance.
+    `material_url` is reserved for the future LMS/teacher-side link; nothing
+    reads it yet. Registration always prices off the program, never a
+    per-session override — that field existed briefly but was removed
+    2026-08-30 (see resolve_registration_price)."""
 
     __tablename__ = "sessions"
     __table_args__ = (
@@ -27,7 +28,6 @@ class Session(Base):
     starts_at = Column(Time, nullable=True)
     title = Column(String(256), nullable=True)
     material_url = Column(Text, nullable=True)
-    price = Column(Numeric(10, 2), nullable=True)
     # I5-2. NULL = inherit from the cohort, then the program.
     duration_hours = Column(Numeric(5, 2), nullable=True)
     # Free-text comments from whoever delivered the session (I2-7, operator
@@ -38,7 +38,7 @@ class Session(Base):
     # it. Ops reads it on the session; nothing notifies them (operator's call).
     notes = Column(Text, nullable=True)
     # NULL = inherit the cohort's location (2026-08-01) — same absent-means-
-    # inherit pattern as duration_hours/price above. Only set when a specific
+    # inherit pattern as duration_hours above. Only set when a specific
     # session genuinely meets somewhere other than the cohort's usual place.
     location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="SET NULL"), nullable=True)
     # NULL = inherit the cohort's warehouse, same pattern as location_id —

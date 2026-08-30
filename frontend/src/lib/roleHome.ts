@@ -18,6 +18,9 @@ export function roleHomePath(role: Role | null): string {
     // role (intern, leader, null) falls back to the interns landing, same
     // as the index redirect's final `else`.
     case "student": return "/learn";
+    // Competition domain (2026-08-24) — judges have no portal home either,
+    // same reasoning as students: /judge is a separate surface.
+    case "judge": return "/judge";
     default: return "/interns";
   }
 }

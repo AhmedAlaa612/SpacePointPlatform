@@ -184,7 +184,7 @@ export default function Contacts() {
    custom panel (same visual language, matching the existing
    UserProfileModal pattern for wide detail views elsewhere in admin/).      */
 /* ================================================================== */
-function ContactDetailModal({
+export function ContactDetailModal({
   contactId, onClose, onChanged,
 }: { contactId: string; onClose: () => void; onChanged: () => void }) {
   const queryClient = useQueryClient()

@@ -19,6 +19,7 @@ from app.routers.instructors import router as instructors_router
 from app.routers.inventory import router as inventory_router
 from app.routers.games import router as games_router
 from app.services.games.realtime import get_realtime_redis
+from app.routers.competitions import router as competitions_router
 from app.routers.lms import router as lms_router
 from app.routers.missions import router as missions_router
 from app.routers.sessions import router as sessions_router
@@ -133,6 +134,9 @@ app.include_router(teams_router)
 
 # Live games domain (Live Games Phase 2C): /games/*
 app.include_router(games_router)
+
+# Competition judging domain (2026-08-24): /competitions/*
+app.include_router(competitions_router)
 
 
 @app.get("/health", tags=["health"])

@@ -20,6 +20,13 @@ class PaymentSessionOut(BaseModel):
     location: Optional[str] = None
     duration_hours: Optional[float] = None
     compensation_aed: float
+    # Cohort rows (2026-08-24). `session_date` holds the cohort's date range
+    # rather than one date, and these two print as "n x rate" in the
+    # document's units column. Null on a single-session or manual row, which
+    # still prints hours.
+    cohort_id: Optional[UUID] = None
+    session_count: Optional[int] = None
+    rate_aed: Optional[float] = None
     # I5-1: exposed so the editable table can render rows in the order the
     # document prints them, and reorder without inventing its own.
     sort_order: int = 1
@@ -117,6 +124,11 @@ class PaymentSessionUpdate(BaseModel):
     location: Optional[str] = None
     duration_hours: Optional[float] = None
     compensation_aed: Optional[float] = None
+    # Cohort rows (2026-08-24): the number of ops-approved days and the
+    # per-session rate behind the total. Editable like every other cell —
+    # the computed figures are a draft, not a verdict.
+    session_count: Optional[int] = None
+    rate_aed: Optional[float] = None
     sort_order: Optional[int] = None
 
 

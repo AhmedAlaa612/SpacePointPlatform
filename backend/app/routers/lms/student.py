@@ -36,7 +36,9 @@ from app.core.dependencies import get_current_active_user, require_lms_student
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, ModuleVideo, VideoCheckpoint
 from app.models.lms.learning_path import LearningPath, LearningPathStep
-from app.models.lms.program import LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress
+from app.models.lms.program import (
+    LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress, LmsProgramTeamItemProgress,
+)
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.user import User
 from app.schemas.curriculum import PrerequisiteItemOut
@@ -90,7 +92,7 @@ from app.services.lms.certificates import award_for_course_completion
 from app.services.lms.dashboard import my_courses_dashboard, recent_activity
 from app.services.lms.leaderboard import leaderboard
 from app.services.lms.my_programs import my_programs
-from app.services.lms.program import get_student_checklist, list_student_assignments
+from app.services.lms.program import checklist_item_write_target, get_student_checklist, list_student_assignments
 from app.services import storage
 from app.models.certificate import Certificate
 from app.models.enums import CertificateType
@@ -487,6 +489,33 @@ async def _own_progress_row(
     return assignment, item, progress
 
 
+async def _checklist_item_out(
+    db: AsyncSession, *, item: LmsProgramItem, target: LmsProgramItemProgress | LmsProgramTeamItemProgress,
+) -> LmsProgramChecklistItemOut:
+    """Serializes whichever row `checklist_item_write_target` returned —
+    individual or the shared team row — into the one response shape the
+    frontend renders either way."""
+    is_team = isinstance(target, LmsProgramTeamItemProgress)
+    updated_by_name = None
+    if is_team and target.updated_by_user_id:
+        updater = await db.get(User, target.updated_by_user_id)
+        updated_by_name = updater.full_name if updater else None
+    elif not is_team:
+        assignment = await db.get(LmsProgramAssignment, target.assignment_id)
+        submitter = await db.get(User, assignment.user_id) if assignment else None
+        updated_by_name = submitter.full_name if submitter else None
+    return LmsProgramChecklistItemOut(
+        id=item.id, position=item.position, item_type=item.item_type, title=item.title,
+        description=item.description, optional=item.optional, requires_confirmation=item.requires_confirmation,
+        status=target.status, course_id=item.course_id,
+        mission_attempt_id=target.mission_attempt_id if not is_team else None,
+        external_url=item.external_url, submission_prompt=item.submission_prompt,
+        submitted_url=target.submitted_url,
+        scope=item.scope, updated_by_name=updated_by_name,
+        updated_at=target.updated_at,
+    )
+
+
 @router.post("/programs/{assignment_id}/items/{item_id}/complete", response_model=LmsProgramChecklistItemOut)
 async def complete_program_item(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
@@ -495,26 +524,26 @@ async def complete_program_item(
     """Self-check — for external_link/article/manual items with no
     `requires_confirmation`, and for `submission` items only after a link
     has already been submitted. `course`/`mission_run` are auto-tracked
-    and rejected here; use the course player / mission attempt directly."""
-    _, item, progress = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    and rejected here; use the course player / mission attempt directly.
+    A `scope="team"` item writes to the shared team row (any teammate can
+    call this), not the caller's own individual row."""
+    assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     if item.item_type in ("course", "mission_run"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is tracked automatically")
-    if item.item_type == "submission" and not progress.submitted_url:
+    target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
+    if item.item_type == "submission" and not target.submitted_url:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit a link first")
     if item.requires_confirmation:
-        progress.status = "awaiting_confirmation"
+        target.status = "awaiting_confirmation"
     else:
-        progress.status = "done"
-        progress.completed_at = datetime.now(timezone.utc)
+        target.status = "done"
+        target.completed_at = datetime.now(timezone.utc)
+    if isinstance(target, LmsProgramTeamItemProgress):
+        target.updated_by_user_id = current.id
+    target.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    await db.refresh(progress)
-    return LmsProgramChecklistItemOut(
-        id=item.id, position=item.position, item_type=item.item_type, title=item.title,
-        description=item.description, optional=item.optional, requires_confirmation=item.requires_confirmation,
-        status=progress.status, course_id=item.course_id, mission_attempt_id=progress.mission_attempt_id,
-        external_url=item.external_url, submission_prompt=item.submission_prompt,
-        submitted_url=progress.submitted_url,
-    )
+    await db.refresh(target)
+    return await _checklist_item_out(db, item=item, target=target)
 
 
 @router.post("/programs/{assignment_id}/items/{item_id}/submit", response_model=LmsProgramChecklistItemOut)
@@ -523,24 +552,26 @@ async def submit_program_item(
     db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
 ):
     """Paste-back for a `submission` item — same shape as the Poster tab.
-    Recorded, not auto-completed: still needs the student's own
-    `.../complete` call (or ops confirmation, if `requires_confirmation`)
-    to actually mark the step done, same two-step flow the Poster tab
-    established (paste link, then it counts once the deadline/step logic
-    is happy)."""
-    _, item, progress = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    Auto-completes on submit: marks the item `done` right away, or
+    `awaiting_confirmation` if the item requires ops sign-off. A
+    `scope="team"` item writes to the shared team row — any teammate
+    submitting overrides whatever was there before, on purpose."""
+    assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     if item.item_type != "submission":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item does not take a submission")
-    progress.submitted_url = body.url
+    target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
+    target.submitted_url = body.url
+    if item.requires_confirmation:
+        target.status = "awaiting_confirmation"
+    else:
+        target.status = "done"
+        target.completed_at = datetime.now(timezone.utc)
+    if isinstance(target, LmsProgramTeamItemProgress):
+        target.updated_by_user_id = current.id
+    target.updated_at = datetime.now(timezone.utc)
     await db.commit()
-    await db.refresh(progress)
-    return LmsProgramChecklistItemOut(
-        id=item.id, position=item.position, item_type=item.item_type, title=item.title,
-        description=item.description, optional=item.optional, requires_confirmation=item.requires_confirmation,
-        status=progress.status, course_id=item.course_id, mission_attempt_id=progress.mission_attempt_id,
-        external_url=item.external_url, submission_prompt=item.submission_prompt,
-        submitted_url=progress.submitted_url,
-    )
+    await db.refresh(target)
+    return await _checklist_item_out(db, item=item, target=target)
 
 
 @router.get("/my-activity", response_model=list[ActivityItemOut])

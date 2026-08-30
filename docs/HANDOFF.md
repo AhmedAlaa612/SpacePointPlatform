@@ -13,10 +13,10 @@ grant, and Stripe promo codes — the operator's three access/pricing requests).
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `56fd3d6a9560` — single Alembic head. Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
+| **Schema head** | `d4e81f3a06c5` — single Alembic head. Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
 | **Branch** | `main` = production. `v2-dev` tracks it |
 | **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan), plus the pre-existing interns / ambassadors / instructors domains, **the internship request/letter domain** (an existing account requests the intern role, admin approves, an in-app-signed internship letter is generated — see `HANDOFF_INTERNSHIP.md`) — **and the LMS/Missions/Games domain**: student accounts, courses + encrypted-HLS video (Stripe Checkout for paid courses and learning-path bundles, both with promo-code support), learning paths (now with a one-shot cohort/role bulk grant), the CubeSat design + Flight Operations missions with a real 36-part component library, Live Quiz games, cohort-scoped instructor progress/gating/review, the **LMS Program checklist** (mixed-item-type program tracks replacing the old flat course-list curriculum), and **invite-code course/path grants** — a school/cohort batch code can carry a standing free-access list applied to every holder, old or new. See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) |
-| **Tests** | 1476 collected, `pytest` from `backend/`. A handful need a live Redis and error without one — everything else is broker-free. Nine (`test_applicant_role_promotion.py`, `test_intern_application_letter.py`, `test_internship.py`) need a working LibreOffice headless PDF conversion — unrelated to LMS, pre-existing in any environment where `soffice --headless --convert-to pdf` doesn't produce output |
+| **Tests** | 1591 collected, `pytest` from `backend/`. A handful need a live Redis and error without one — everything else is broker-free. Nine (`test_applicant_role_promotion.py`, `test_intern_application_letter.py`, `test_internship.py`) need a working LibreOffice headless PDF conversion — unrelated to LMS, pre-existing in any environment where `soffice --headless --convert-to pdf` doesn't produce output |
 
 ## 2. Read next
 
@@ -29,6 +29,7 @@ expect them to exist, and nothing here depends on them.)
 | Read | For |
 |---|---|
 | [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) | Student accounts, courses, learning paths, the CubeSat design + Flight Operations missions, the component library, Live Quiz games — the whole `/learn` + `/lms-authoring` surface |
+| [`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md) | In progress — a competition is a flagged `Program` with team-scoped checklist items, built on top of the LMS Program domain above, not a new one |
 | [`HANDOFF_SPINE.md`](./HANDOFF_SPINE.md) | Contacts / identity matching / merge review |
 | [`HANDOFF_SESSIONS.md`](./HANDOFF_SESSIONS.md) | Programs, cohorts, sessions, registration, staffing, delivery |
 | [`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md) | Applicant pipeline, contracts, payments, certificates |
@@ -126,9 +127,9 @@ Public, no auth: `/login`, `/apply/*`, `/t/{ticketToken}`.
 
 ## 6. Roles
 
-12 roles (`backend/app/models/enums.py::UserRole`): `admin`, `intern`, `leader`, `applicant`,
+13 roles (`backend/app/models/enums.py::UserRole`): `admin`, `intern`, `leader`, `applicant`,
 `instructor`, `facilitator`, `ambassador`, `teacher`, `operations`, `coo`, `storekeeper`,
-`student`.
+`student`, `judge`.
 
 A user holds an **array** of roles (`users.roles`) — there is no single role column. The
 "active role" is a client-side choice only (`localStorage`); the backend authorizes purely on
@@ -145,6 +146,7 @@ the array.
 | `intern` / `leader` | `/interns` | |
 | `ambassador` / `teacher` | `/ambassadors` | |
 | `student` | `/learn` | **Not a portal role.** A separate learner surface, own shell/auth, no sidebar, no role switcher. Has no portal home — `roleHomePath()` sends it to `/learn`, same function the `"/"` index redirect uses. See `HANDOFF_LMS.md` §1 |
+| `judge` | `/judge` | Temporary, cohort-scoped Competition domain account (2026-08-24), zero ops access — invited by ops per cohort, not self-applied. Uses the ordinary portal shell (unlike `student`), but only one page. See `HANDOFF_COMPETITIONS.md` §2 |
 
 ---
 
@@ -156,16 +158,22 @@ Alembic is the source of truth for the exact schema — this is orientation, not
 |---|---|
 | **Shared** | `users`, `notifications`, `documents`, `document_requests`, `document_templates` (now with `student_completion` and `workshop_delivery` system templates seeded — `d8a2c94e0035` / `e1b3d05f0036`), `certificates`, `applications`, `application_questions`, `id_cards`, `portal_settings` |
 | **Spine** | `contacts`, `contact_relationships`, `organizations`, `identity_aliases`, `merge_reviews`, `touchpoints`, `contact_role_events`, `consent_records` *(schema only — nothing writes to it)* |
-| **Sessions** | `programs`, `cohorts`, `sessions`, `session_instructors` (`role_id` → `delivery_roles`, not a `lead\|co` string since I5-3), `delivery_roles`, `session_openings`, `session_addons`, `session_materials`, `session_call_targets`, `session_calls` (multiple concurrent calls per session — `c4e7a39f0028`), `cohort_openings` (cohort-level opening defaults — `b3d6f28e0027`), `cohort_calls` (grouped cohort-wide staffing campaigns — `e7c4a92d0036`), `registrations`, `registration_sessions`, `attendance_records`, `instructor_interests`, `session_reports`, `import_batches`, `activities` / `activity_versions` / `activity_assignments` *(quiz — schema only until the LMS games phase)*. Cohorts and sessions now have `location_id` → `locations` (`a2c5e17d0026`; `locations.address`/`maps_url` live on the entity); `locations.city_id` → `cities` (8 seeded UAE cities) is the anchor — `locations.country` is legacy/derived-only and nullable, never entered directly (see §8) |
+| **Sessions** | `programs`, `cohorts`, `sessions`, `session_instructors` (`role_id` → `delivery_roles`, not a `lead\|co` string since I5-3), `delivery_roles`, `session_openings`, `session_addons`, `session_materials`, `session_call_targets`, `session_calls` (multiple concurrent calls per session — `c4e7a39f0028`), `cohort_openings` (cohort-level opening defaults — `b3d6f28e0027`), `cohort_calls` (grouped cohort-wide staffing campaigns — `e7c4a92d0036`), `cohort_instructor_assignments` + `cohort_call_interests` (**cohort-level staffing**, 2026-08-24 — see below), `delivery_checklist_items` / `instructor_session_days` / `instructor_checklist_progress` (the **instructor daily loop**), `payment_session_coverage` (which sessions one payment line covers), `registrations`, `registration_sessions`, `attendance_records`, `instructor_interests`, `session_reports`, `import_batches`, `activities` / `activity_versions` / `activity_assignments` *(quiz — schema only until the LMS games phase)*. Cohorts and sessions now have `location_id` → `locations` (`a2c5e17d0026`; `locations.address`/`maps_url` live on the entity); `locations.city_id` → `cities` (8 seeded UAE cities) is the anchor — `locations.country` is legacy/derived-only and nullable, never entered directly (see §8) |
 | **Inventory** | `locations`, `items`, `kit_templates`, `kit_template_items`, `kits`, `kit_items`, `stock_levels`, `movements`, plus `session_kits` / `kit_checks` (I2-1/I2-2) — and, since 2026-08-01: `item_categories` (`d2e6f81a0029`), `warehouses` (`f8d9e21a0033`, `c4f1a83b0034` — **stock and kits now key on `warehouse_id`; a location is the union of its warehouses**), `cohort_kits` (cohort-level kit defaults, `a3c7f95e0037`), and `items.variant_group`/`variant_label` (T-shirt-style size grouping, `d1e4c73f0038`). **`items.is_consumable` is gone** (`a7c9e15f0032` — everything now counts toward kit completeness). **Kit custody legs were replaced** (`e3f8b04c0030`): there is no issue/collected/return movement flow; `session_kits` carries `received_at` / `return_status` / `returned_at` / `ops_confirmed_at` instead, and moving a kit to a shelf is an ordinary `movements` row. Equipment pickup (I2-7) adds no tables — it is a form over `items` + `stock_levels` + `movements` with a persisted "returning later" flag (`f4a1c65d0031`). `movements` is the single ledger every physical thing passes through — issue, return, transfer, refill, receive, write-off, adjust — and either side of it can be a location, a person or a kit. Custody keys on `users`, so nothing here touches `MERGE_FK_REGISTRY`. `POST /inventory/stock/adjust-bulk` writes one item across every warehouse in one transaction (`StockCountModal.tsx`); `POST /inventory/kits/{kit_id}/count` (`require_storekeeper`, a deliberate narrow exception to this router's usual `require_operations`) lets a storekeeper count a kit's contents directly instead of going through individual stock rows |
 | **LMS / Missions / Games** | `courses`, `course_modules`, `module_items`, `module_videos`, `video_checkpoints`, `enrollments`, `item_progress`, `learning_paths`, `learning_path_steps`, `point_events`, `program_curriculum`, `cohort_curriculum`; `missions`, `mission_variants`, `mission_attempts` (now with `cohort_id`, resolved eagerly at attempt-start for every kind), `mission_attempt_members`, `mission_teams`, `mission_team_members`, `mission_managers`, `mission_assignments`, `mission_proposals`, `mission_step_gates` (per-cohort Design-mission step gating), `design_component_library` + the design-mission budget tables; `games`, `game_questions`, `game_runs`, `game_participants`, `game_answers`, `game_session_assignments`, `game_session_questions`; plus the shared `curriculum.prerequisites` DAG (courses and missions as interchangeable items). Full detail in `HANDOFF_LMS.md` |
+| **Competitions** | A competition is a `Program` with `program_type="competition"` — no new column there. `lms_program_items.scope` is a new column on the existing LMS Program tables; `lms_program_team_item_progress` is the team-scoped twin of `lms_program_item_progress`. Judging adds `competition_rubrics`/`competition_rubric_criteria`/`competition_scores`/`competition_result_publications`/`competition_judges`, plus a `judge` role. Registration import + progression reuse existing Session/LMS tables, no schema of their own. Full detail in `HANDOFF_COMPETITIONS.md` |
 | **Instructors** | `applicant_profiles`, `application_reviews`, `video_submissions`, `checklist_*`, `module_submissions`, `presentation_submissions`, `assessment_submissions`, `invitation_codes`, `instructor_profiles`, `instructor_documents`, `training_*`, `library_*`, `payment_batches`, `payment_letters`, `payment_sessions`, `payment_addons`, `instructor_bank_details` |
 | **Interns** | `projects`, `teams`, `epics`, `modules`, `tasks`, `task_submissions`, `proposals`, `mind_map_layouts` + join tables |
 | **Ambassadors** | `leads`, `lead_comments`, `points_transactions`, `titles`, `badge_definitions`, `achievements`, `teacher_sessions`, `ambassador_tasks`, `materials`, `system_settings` |
 
-> **`payment_sessions` is not a sessions-domain table.** It's a hand-typed line on a payment
-> letter (`session_date` is a `String`), with no FK to `sessions.id`. Delivered sessions and
-> payments are **not** connected today.
+> **`payment_sessions` is not a sessions-domain table**, but it is no longer disconnected from
+> delivery. `session_date` is still a `String` (it holds a *range* like `10/10/2026 - 14/10/2026`
+> on a cohort line), and `session_id` is still a nullable FK used by single-session and manual
+> lines — but since 2026-08-24 a line normally stands for a whole cohort, and which sessions it
+> covers lives in `payment_session_coverage`. That table is the anti-double-billing key: a session
+> is billed iff `payment_sessions.session_id` names it **or** a coverage row under that
+> instructor's own letters covers it. `compensation_aed` is now pre-computed from the rate agreed
+> at staffing time × the days ops approved, and stays editable until the letter is published.
 
 ---
 

@@ -66,6 +66,7 @@ async def list_roles(db: AsyncSession, *, include_inactive: bool = False) -> lis
 
 async def create_role(
     db: AsyncSession, *, name: str, description: str | None = None, sort_order: int | None = None,
+    default_rate_aed: Decimal | None = None,
 ) -> DeliveryRole:
     name = (name or "").strip()
     if not name:
@@ -83,6 +84,7 @@ async def create_role(
 
     role = DeliveryRole(
         id=uuid.uuid4(), name=name, description=description, sort_order=sort_order, is_active=True,
+        default_rate_aed=default_rate_aed,
     )
     db.add(role)
     await db.flush()
@@ -93,6 +95,7 @@ async def update_role(
     db: AsyncSession, *, role: DeliveryRole,
     name: str | None = None, description: str | None = None,
     sort_order: int | None = None, is_active: bool | None = None,
+    default_rate_aed: Decimal | None = None, clear_default_rate: bool = False,
 ) -> DeliveryRole:
     """Renaming is safe by design: `payment_sessions.role` snapshots the name
     at the time, so a signed letter keeps saying what it said."""
@@ -113,6 +116,16 @@ async def update_role(
 
     if sort_order is not None:
         role.sort_order = sort_order
+
+    # Explicit clear rather than "None means clear": None is also what an
+    # untouched field looks like, and silently wiping a rate ops set last
+    # month because a rename request didn't mention it would be a real bug.
+    if clear_default_rate:
+        role.default_rate_aed = None
+    elif default_rate_aed is not None:
+        if Decimal(str(default_rate_aed)) < 0:
+            raise HTTPException(400, detail="A rate can't be negative")
+        role.default_rate_aed = Decimal(str(default_rate_aed))
 
     if is_active is False:
         in_use = await db.scalar(
@@ -254,6 +267,28 @@ async def openings_for_session(
     same shape as materials' program -> cohort -> session resolution. The
     moment ops saves real openings for this one session, those win from then
     on; every other session in the cohort keeps inheriting the template.
+
+    **`amount_aed` resolves through the rest of the hierarchy** (2026-08-24,
+    revised 2026-08-30 to always consult the cohort tier — see below): a NULL
+    session-level amount used to fall straight to the role's own
+    `DeliveryRole.default_rate_aed`, skipping the cohort's own rate entirely
+    the moment a session had *any* customized opening rows of its own — so
+    removing an unrelated role from one session (which snapshots the whole
+    set) could silently reset every remaining role's pay on that session to
+    the bare platform default. Now a NULL session amount checks the cohort's
+    own `CohortOpening.amount_aed` for that role before falling to the role's
+    global default, same three tiers as a purely inherited session. Per-session
+    rate overrides are no longer offered in the UI at all (2026-08-30) — this
+    is what keeps a session's pay matching the cohort's whenever ops merely
+    changes which roles it offers, without ever exposing a way to type a
+    session-specific number.
+
+    `rate_source` on each row says which tier the number actually came from
+    ("session" | "cohort" | "role" | None) so the UI can grey an inherited
+    figure instead of making ops guess whether a rate was typed here or
+    handed down. NULL at every tier stays NULL: an unset rate prints blank
+    rather than guessing a number onto a document somebody signs, exactly as
+    `resolve_duration` already behaves for hours.
     """
     stmt = (
         select(SessionOpening, DeliveryRole)
@@ -266,6 +301,7 @@ async def openings_for_session(
     rows = (await db.execute(stmt)).all()
 
     inherited = False
+    session = None
     if not rows:
         session = await db.get(Session, session_id)
         if session is not None:
@@ -279,6 +315,19 @@ async def openings_for_session(
 
     if not rows:
         return []
+
+    # The cohort's own rate per role — the middle fallback tier for a
+    # session with its own opening rows (not needed when `inherited`, since
+    # those rows already *are* the cohort's own).
+    cohort_amounts: dict[uuid.UUID, object] = {}
+    if not inherited:
+        if session is None:
+            session = await db.get(Session, session_id)
+        if session is not None:
+            cohort_amounts = dict((await db.execute(
+                select(CohortOpening.role_id, CohortOpening.amount_aed)
+                .where(CohortOpening.cohort_id == session.cohort_id)
+            )).all())
 
     assigned = dict((await db.execute(
         select(SessionInstructor.role_id, func.count())
@@ -294,6 +343,17 @@ async def openings_for_session(
     for opening, role in rows:
         taken = assigned.get(opening.role_id, 0)
         remaining = max(0, opening.slots - taken)
+        # Which tier this session's opening row came from, before the rate
+        # fallback below can push it one level further down.
+        amount, rate_source = opening.amount_aed, ("cohort" if inherited else "session")
+        if amount is None and not inherited:
+            amount = cohort_amounts.get(opening.role_id)
+            if amount is not None:
+                rate_source = "cohort"
+        if amount is None:
+            amount, rate_source = role.default_rate_aed, "role"
+        if amount is None:
+            rate_source = None
         out.append({
             "id": opening.id,
             "session_id": session_id,
@@ -303,7 +363,8 @@ async def openings_for_session(
             "slots": opening.slots,
             "filled": taken,
             "remaining": remaining,
-            "amount_aed": opening.amount_aed,
+            "amount_aed": amount,
+            "rate_source": rate_source,
             "notes": opening.notes,
             # A template row has no is_open of its own — inherited rows are
             # never individually closed, only the whole session's call is.
@@ -357,6 +418,7 @@ async def set_cohort_openings(
         opening.slots = slots
         opening.amount_aed = line.get("amount_aed")
         opening.notes = line.get("notes")
+        opening.responsibilities_override = line.get("responsibilities_override")
         out.append(opening)
 
     await db.flush()
@@ -374,6 +436,12 @@ async def cohort_openings(db: AsyncSession, cohort_id: uuid.UUID) -> list[dict]:
         {
             "id": o.id, "cohort_id": o.cohort_id, "role_id": role.id, "role_name": role.name,
             "slots": o.slots, "amount_aed": o.amount_aed, "notes": o.notes,
+            # The tier below this one, so the cohort editor can show what a
+            # blank amount would actually fall back to instead of ops having
+            # to open another page to find out.
+            "role_default_rate_aed": role.default_rate_aed,
+            "responsibilities_override": o.responsibilities_override,
+            "role_description": role.description,
         }
         for o, role in rows
     ]

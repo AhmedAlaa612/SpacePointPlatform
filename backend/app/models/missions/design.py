@@ -85,7 +85,18 @@ class DesignComponentLibrary(Base):
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
     notes = Column(Text, nullable=True)
     component_code = Column(String(40), nullable=True)
+    # `datasheet_url` is legacy/external — most of the 36 real components
+    # were seeded pointing at Google Drive shares or a manufacturer's own
+    # site (2026-08-27 audit), i.e. files we don't host and can't protect.
+    # `datasheet_bucket`/`datasheet_path` (same shape as image_bucket/
+    # image_path above) are for the org's own PDF, uploaded once and served
+    # through the same no-download viewer the LMS/instructor-library
+    # attachments use — see routers/missions/library.py's upload endpoint.
+    # An uploaded file supersedes the link: uploading clears datasheet_url
+    # rather than the two ever being read together.
     datasheet_url = Column(String(512), nullable=True)
+    datasheet_bucket = Column(String(64), nullable=True)
+    datasheet_path = Column(String(512), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), nullable=True)
     # Design v2 (7D-7) — the audit trail that bounds D7's decision to let
