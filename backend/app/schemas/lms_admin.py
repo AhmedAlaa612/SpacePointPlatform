@@ -266,18 +266,18 @@ class AdminCheckpointQuizContent(BaseModel):
 
 
 class VideoCheckpointCreate(BaseModel):
-    start_seconds: int = Field(ge=0)
+    start_seconds: float = Field(ge=0)
     # Required for notes (a banner has a window); ignored for quizzes (a
     # quiz is a single moment) — enforced in the router, not here, since it
     # depends on `kind`.
-    end_seconds: int | None = Field(default=None, ge=0)
+    end_seconds: float | None = Field(default=None, ge=0)
     kind: CheckpointKind
     content: dict = Field(default_factory=dict)
 
 
 class VideoCheckpointUpdate(BaseModel):
-    start_seconds: int | None = Field(default=None, ge=0)
-    end_seconds: int | None = Field(default=None, ge=0)
+    start_seconds: float | None = Field(default=None, ge=0)
+    end_seconds: float | None = Field(default=None, ge=0)
     content: dict | None = None
 
 
@@ -285,8 +285,8 @@ class VideoCheckpointAdminOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     item_id: UUID
-    start_seconds: int
-    end_seconds: int | None
+    start_seconds: float
+    end_seconds: float | None
     kind: str
     content: dict
 

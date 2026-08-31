@@ -25,6 +25,16 @@ function formatClock(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/** h:m:s:ms — checkpoints are authored to the millisecond, unlike the player's own m:ss clock. */
+function formatCheckpointClock(seconds: number): string {
+  const t = Math.max(0, seconds);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const s = Math.floor(t % 60);
+  const ms = Math.round((t - Math.floor(t)) * 1000);
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}:${String(ms).padStart(3, "0")}`;
+}
+
 /**
  * hls.js wrapper for the token-gated AES-128 stream (LM1-6, D2) with a custom
  * control bar (design 1h) and video checkpoints (2026-08-07): notes render as
@@ -353,7 +363,7 @@ function CheckpointQuizOverlay({
       <div className="w-full max-w-md rounded-2xl bg-card ring-1 ring-primary/25 shadow-2xl p-6 flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-amber-500">
-            <AlertCircle className="size-3.5" /> Checkpoint · paused at {formatClock(checkpoint.start_seconds)}
+            <AlertCircle className="size-3.5" /> Checkpoint · paused at {formatCheckpointClock(checkpoint.start_seconds)}
           </div>
         </div>
         <p className="font-display text-lg font-semibold leading-snug">{content.prompt}</p>

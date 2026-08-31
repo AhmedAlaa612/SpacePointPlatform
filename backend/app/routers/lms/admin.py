@@ -1166,8 +1166,8 @@ async def _video_item(db: AsyncSession, item_id: uuid.UUID) -> ModuleItem:
 
 
 def _apply_checkpoint_content_rules(
-    kind: str, start_seconds: int, end_seconds: int | None, content: dict,
-) -> tuple[int | None, dict]:
+    kind: str, start_seconds: float, end_seconds: float | None, content: dict,
+) -> tuple[float | None, dict]:
     validated = _validated_checkpoint_content(kind=kind, content=content)
     if kind == "note":
         if end_seconds is None or end_seconds <= start_seconds:
