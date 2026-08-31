@@ -26,7 +26,7 @@ from app.models.instructors.checklist import ModuleSection
 from app.models.instructors.instructor_profile import InstructorProfile
 from app.models.instructors.invitation_code import InvitationCode
 from app.models.instructors.module_submission import ModuleSubmission
-from app.models.instructors.payment import PaymentLetter, PortalSetting
+from app.models.instructors.payment import InstructorBankDetails, PaymentLetter, PortalSetting
 from app.models.instructors.assessment_submission import AssessmentSubmission
 from app.models.instructors.presentation_submission import PresentationSubmission
 from app.models.instructors.video_submission import VideoSubmission
@@ -41,6 +41,7 @@ from app.schemas.instructors.admin import (
     ModuleSubmissionDecision,
     PortalSettingUpdate,
 )
+from app.schemas.instructors.instructor import BankDetailsOut
 from app.models.enums import CertificateType, PaymentLetterStatus
 from app.routers.instructors.instructor import _resolve_living_area
 from app.services import storage
@@ -628,6 +629,15 @@ async def list_instructors(db: AsyncSession = Depends(get_db), current_user: Use
         found = (await db.execute(select(City).where(City.id.in_(needed)))).scalars().all()
         city_names = {c.id: c.name for c in found}
 
+    # One lookup for every instructor's bank row, rather than per-row — same
+    # batching precedent as city_names above. Only completeness is exposed
+    # here; the actual account/IBAN values are fetched on demand via the
+    # dedicated bank-details endpoint below, not handed out in bulk.
+    bank_rows = (await db.execute(
+        select(InstructorBankDetails).where(InstructorBankDetails.user_id.in_([u.id for u, _ in rows]))
+    )).scalars().all()
+    bank_complete = {b.user_id: b.is_complete for b in bank_rows}
+
     out = []
     for u, p in rows:
         deliver_ids = list(p.deliver_city_ids or []) if p else []
@@ -642,6 +652,7 @@ async def list_instructors(db: AsyncSession = Depends(get_db), current_user: Use
             "city_name": city_names.get(city_id) if city_id else u.city_other,
             "deliver_city_ids": [str(i) for i in deliver_ids if i in city_names],
             "deliver_city_names": [city_names[i] for i in deliver_ids if i in city_names],
+            "bank_details_complete": bank_complete.get(u.id, False),
         })
     return out
 
@@ -659,6 +670,19 @@ async def instructor_detail(
         "id": str(user.id), "full_name": user.full_name, "email": user.email, "status": user.status,
         "profile": profile, "documents": documents,
     }
+
+
+@router.get("/instructors/{user_id}/bank-details", response_model=BankDetailsOut)
+async def instructor_bank_details(
+    user_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_admin)
+):
+    user = (await db.execute(select(User.id).where(User.id == user_id, User.roles.any("instructor")))).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Instructor not found")
+    bank = (await db.execute(
+        select(InstructorBankDetails).where(InstructorBankDetails.user_id == user_id)
+    )).scalars().first()
+    return bank or BankDetailsOut()
 
 
 # Settings moved to app.routers.admin.settings

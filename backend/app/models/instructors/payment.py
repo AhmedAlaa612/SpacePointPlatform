@@ -130,6 +130,13 @@ class InstructorBankDetails(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
+    @property
+    def is_complete(self) -> bool:
+        return all(
+            (getattr(self, f) or "").strip()
+            for f in ("account_holder_name", "bank_name", "iban", "swift_bic")
+        )
+
 
 class PortalSetting(Base):
     """Key/value store — signatory defaults, admin signature image path, etc."""
