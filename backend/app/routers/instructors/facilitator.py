@@ -103,6 +103,13 @@ class AppModuleOut(BaseModel):
 
 router = APIRouter(prefix="/facilitator", tags=["instructors-facilitator"])
 
+# A generic library resource upload has no content-type restriction (a PDF,
+# a slide deck, or now a video all go through the same endpoint) — this is
+# purely a fail-fast guard so a stray multi-GB file 413s immediately rather
+# than getting read fully into memory first. Not a real ceiling on video
+# length; just big enough for a typical workshop recording.
+MAX_LIBRARY_FILE_BYTES = 500 * 1024 * 1024  # 500MB
+
 # Reuses the training_modules/training_videos/library_modules/library_resources
 # models from the instructor portal (3.3) — this is purely the write side,
 # guarded by require_facilitator (not the source app's inline
@@ -294,6 +301,8 @@ async def upload_library_resource(
     current_user: User = Depends(require_facilitator),
 ):
     data = await file.read()
+    if len(data) > MAX_LIBRARY_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds the 500MB limit")
     fmt = (file.filename or "").rsplit(".", 1)[-1].upper() if "." in (file.filename or "") else "FILE"
     path = f"{int(time.time())}_{file.filename}"
     stored_path = await storage.upload_to_path("library-resources", path, data, file.content_type or "application/octet-stream")
@@ -347,6 +356,8 @@ async def replace_library_file(
         raise HTTPException(status_code=400, detail="Resource is not a file")
     old_path = _lib_storage_path(resource.file_url)
     data = await file.read()
+    if len(data) > MAX_LIBRARY_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds the 500MB limit")
     fmt = (file.filename or "").rsplit(".", 1)[-1].upper() if "." in (file.filename or "") else resource.format
     new_path = f"{int(time.time())}_{file.filename}"
     stored_path = await storage.upload_to_path("library-resources", new_path, data, file.content_type or "application/octet-stream")

@@ -99,9 +99,10 @@ from app.services.lms.admin_progress import (
 from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
 from app.services.lms.program import (
-    check_item_conflicts, effective_cohort_program_items, fork_cohort_override, guard_locked_submission_scope,
-    item_out, items_out, next_position, reorder_program_items, resolve_cohort_program, sync_cohort_assignments,
-    sync_program_assignments, validate_item_payload, validate_item_refs,
+    PROGRAM_ITEM_PDF_BUCKET, check_item_conflicts, effective_cohort_program_items, fork_cohort_override,
+    guard_locked_submission_scope, item_out, items_out, next_position, reorder_program_items,
+    resolve_cohort_program, sync_cohort_assignments, sync_program_assignments, validate_item_payload,
+    validate_item_refs,
 )
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 
@@ -1413,8 +1414,73 @@ async def delete_lms_program_item(
     )).scalars().first()
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    if item.pdf_path:
+        await storage.delete_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
     await db.delete(item)
     await db.commit()
+
+
+# ── pdf items (2026-08-31) — same two-step create-then-upload shape as a
+# module `attachment` item: the item itself (title/description/etc.) is
+# created through the generic item endpoints above like any other type,
+# then the file is attached here, flat by item_id since it's the same
+# LmsProgramItem row regardless of whether it's program- or
+# cohort-override-owned. ────────────────────────────────────────────────────
+
+@router.post("/items/{item_id}/pdf", response_model=LmsProgramItemOut)
+async def upload_program_item_pdf(
+    item_id: uuid.UUID, file: UploadFile,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    item = await db.get(LmsProgramItem, item_id)
+    if item is None or item.item_type != "pdf":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="PDF item not found")
+
+    if file.content_type != "application/pdf":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Only PDF files are supported")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Empty upload")
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="PDF exceeds the 25MB limit")
+
+    if item.pdf_path:
+        await storage.delete_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
+    filename = Path(file.filename or "document.pdf").name
+    path = f"program-items/{item_id}/{filename}"
+    item.pdf_path = await storage.upload_to_path(PROGRAM_ITEM_PDF_BUCKET, path, data, "application/pdf")
+    await db.commit()
+    await db.refresh(item)
+    return await item_out(db, item)
+
+
+@router.delete("/items/{item_id}/pdf", response_model=LmsProgramItemOut)
+async def delete_program_item_pdf(
+    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    item = await db.get(LmsProgramItem, item_id)
+    if item is None or item.item_type != "pdf":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="PDF item not found")
+    if item.pdf_path:
+        await storage.delete_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
+        item.pdf_path = None
+        await db.commit()
+        await db.refresh(item)
+    return await item_out(db, item)
+
+
+@router.get("/items/{item_id}/pdf-url")
+async def get_program_item_pdf_url(
+    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+) -> dict[str, str]:
+    """Authoring-side preview — same resolve-fresh posture as the student
+    endpoint (routers/lms/student.py::program_item_pdf_url)."""
+    item = await db.get(LmsProgramItem, item_id)
+    if item is None or item.item_type != "pdf" or not item.pdf_path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No PDF uploaded for this item yet")
+    url = await storage.get_signed_url(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
+    return {"url": url}
 
 
 @router.post("/programs/{lms_program_id}/items/reorder", response_model=list[LmsProgramItemOut])
@@ -1563,6 +1629,8 @@ async def delete_cohort_override_item(
     )).scalars().first()
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    if item.pdf_path:
+        await storage.delete_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
     await db.delete(item)
     await db.commit()
 

@@ -41,9 +41,15 @@ from app.models.sessions.registration import Registration
 from app.models.team import Team, TeamMember
 from app.models.user import User
 from app.schemas.lms_admin import LmsProgramItemIn, LmsProgramItemOut
+from app.services import storage
 from app.services.lms.enrollment import enroll
 from app.services.lms.progress import course_completion
 from app.services.missions import assign_mission_run
+
+# Same bucket routers/lms/admin.py's module-attachment upload already uses —
+# a `pdf` program item is just another hosted-PDF-behind-a-checklist-item,
+# no reason for a second bucket.
+PROGRAM_ITEM_PDF_BUCKET = "lms-attachments"
 
 AUTO_TRACKED_TYPES = {"course", "mission_run"}
 
@@ -53,6 +59,7 @@ async def item_out(db: AsyncSession, item: LmsProgramItem) -> LmsProgramItemOut:
     lookup for a `mission_run` item — see the schema's own docstring for
     why the Missions tab needs this (design-only Steps/Gates)."""
     out = LmsProgramItemOut.model_validate(item)
+    out.has_pdf = item.pdf_path is not None
     if item.mission_id is not None:
         mission = await db.get(Mission, item.mission_id)
         out.mission_kind = mission.kind if mission is not None else None
@@ -70,6 +77,7 @@ async def items_out(db: AsyncSession, items: list[LmsProgramItem]) -> list[LmsPr
     out = []
     for item in items:
         o = LmsProgramItemOut.model_validate(item)
+        o.has_pdf = item.pdf_path is not None
         if item.mission_id is not None:
             o.mission_kind = kinds.get(item.mission_id)
         out.append(o)
@@ -87,7 +95,10 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         "mission_run": body.mission_id is not None,
         "external_link": bool(body.external_url),
         "submission": bool(body.external_url) or bool(body.submission_prompt),
-        "article": bool(body.external_url),
+        # No required field at creation — the file itself is attached
+        # afterward via a separate multipart upload (routers/lms/admin.py),
+        # same two-step shape a module `attachment` item already follows.
+        "pdf": True,
         "manual": True,
     }
     if not required[body.item_type]:
@@ -97,7 +108,7 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         )
     # Competition domain (2026-08-24) — team scope is for the link-only
     # deliverables a team submits once together. Learning content
-    # (course/mission_run/article) stays individual on purpose: each
+    # (course/mission_run/pdf) stays individual on purpose: each
     # teammate's own course progress and Design mission attempt are
     # genuinely personal, not something one submission speaks for.
     if body.scope == "team" and body.item_type not in ("submission", "external_link", "manual"):
@@ -366,12 +377,25 @@ async def fork_cohort_override(
 
     id_map: dict[uuid.UUID, uuid.UUID] = {}
     for item in program_items:
+        copy_id = uuid.uuid4()
+        # A real duplicate, not a shared reference — the program's own item
+        # and the cohort's fork must be independently deletable/replaceable
+        # afterward, so each gets its own storage object at its own id
+        # rather than both pointing at the program item's path.
+        copy_pdf_path = None
+        if item.pdf_path:
+            data = await storage.download_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
+            filename = item.pdf_path.rsplit("/", 1)[-1]
+            copy_pdf_path = await storage.upload_to_path(
+                PROGRAM_ITEM_PDF_BUCKET, f"program-items/{copy_id}/{filename}", data, "application/pdf",
+            )
         copy = LmsProgramItem(
-            id=uuid.uuid4(), owner_type="cohort_override", owner_id=override.id, position=item.position,
+            id=copy_id, owner_type="cohort_override", owner_id=override.id, position=item.position,
             item_type=item.item_type, title=item.title, description=item.description,
             optional=item.optional, requires_confirmation=item.requires_confirmation, scope=item.scope,
             course_id=item.course_id, mission_id=item.mission_id, variant_id=item.variant_id,
             external_url=item.external_url, submission_prompt=item.submission_prompt,
+            pdf_path=copy_pdf_path,
         )
         db.add(copy)
         id_map[item.id] = copy.id
@@ -861,6 +885,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "mission_attempt_id": progress.mission_attempt_id,
             "mission_id": item.mission_id, "mission_kind": mission_kinds.get(item.mission_id),
             "external_url": item.external_url, "submission_prompt": item.submission_prompt,
+            "has_pdf": item.pdf_path is not None,
             "submitted_url": submitted_url,
             "scope": item.scope,
             "updated_by_name": updated_by_name,

@@ -535,7 +535,7 @@ async def test_gate_ignores_optional_items(db):
     await db.flush()
     db.add(LmsProgramItem(
         id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
-        item_type="article", title="Read this", optional=True, external_url="https://example.com/read",
+        item_type="pdf", title="Read this", optional=True,
     ))
     student = await _student(db)
     await db.commit()

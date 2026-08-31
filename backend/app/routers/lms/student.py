@@ -92,7 +92,9 @@ from app.services.lms.certificates import award_for_course_completion
 from app.services.lms.dashboard import my_courses_dashboard, recent_activity
 from app.services.lms.leaderboard import leaderboard
 from app.services.lms.my_programs import my_programs
-from app.services.lms.program import checklist_item_write_target, get_student_checklist, list_student_assignments
+from app.services.lms.program import (
+    PROGRAM_ITEM_PDF_BUCKET, checklist_item_write_target, get_student_checklist, list_student_assignments,
+)
 from app.services import storage
 from app.models.certificate import Certificate
 from app.models.enums import CertificateType
@@ -510,10 +512,26 @@ async def _checklist_item_out(
         status=target.status, course_id=item.course_id,
         mission_attempt_id=target.mission_attempt_id if not is_team else None,
         external_url=item.external_url, submission_prompt=item.submission_prompt,
+        has_pdf=item.pdf_path is not None,
         submitted_url=target.submitted_url,
         scope=item.scope, updated_by_name=updated_by_name,
         updated_at=target.updated_at,
     )
+
+
+@router.get("/programs/{assignment_id}/items/{item_id}/pdf-url")
+async def program_item_pdf_url(
+    assignment_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+) -> dict[str, str]:
+    """Resolved only when a student actually opens a `pdf` item's document
+    — same posture as `attachment_url`/the Curriculum Library's resolve
+    endpoint, never baked into the checklist read payload."""
+    _, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    if item.item_type != "pdf" or not item.pdf_path:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No PDF uploaded for this item yet")
+    url = await storage.get_signed_url(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
+    return {"url": url}
 
 
 @router.post("/programs/{assignment_id}/items/{item_id}/complete", response_model=LmsProgramChecklistItemOut)
@@ -521,7 +539,7 @@ async def complete_program_item(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
 ):
-    """Self-check — for external_link/article/manual items with no
+    """Self-check — for external_link/pdf/manual items with no
     `requires_confirmation`, and for `submission` items only after a link
     has already been submitted. `course`/`mission_run` are auto-tracked
     and rejected here; use the course player / mission attempt directly.

@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight } from "lucide-react"
@@ -20,6 +20,7 @@ import {
   updateCohortOverrideItemInstructorApi, deleteCohortOverrideItemInstructorApi,
   getMyReachableProgramsApi, getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi,
   getAssignmentItemsApi, resyncCohortProgramAssignmentsApi,
+  uploadLmsProgramItemPdfApi, deleteLmsProgramItemPdfApi,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType,
   type LmsProgramRosterRow, type LmsAssignmentItemDetail,
 } from "@/api/lms_admin"
@@ -46,7 +47,7 @@ const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookO
   { value: "mission_run", label: "Mission run", icon: Rocket },
   { value: "external_link", label: "Link", icon: Link2 },
   { value: "submission", label: "Submission", icon: Upload },
-  { value: "article", label: "Article", icon: FileText },
+  { value: "pdf", label: "PDF", icon: FileText },
   { value: "manual", label: "Manual check-off", icon: ClipboardCheck },
 ]
 
@@ -291,6 +292,8 @@ function ProgramTemplateEditor({
         onAdd={(data) => addLmsProgramItemApi(program.id, data).then(onChanged)}
         onUpdate={(itemId, data) => updateLmsProgramItemApi(program.id, itemId, data).then(onChanged)}
         onDelete={(itemId) => deleteLmsProgramItemApi(program.id, itemId).then(onChanged)}
+        onUploadPdf={(itemId, file) => uploadLmsProgramItemPdfApi(itemId, file).then(onChanged)}
+        onRemovePdf={(itemId) => deleteLmsProgramItemPdfApi(itemId).then(onChanged)}
         onReorder={(itemIds) => reorderLmsProgramItemsApi(program.id, itemIds).then(onChanged)}
       />
     </div>
@@ -345,6 +348,8 @@ function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: strin
         onAdd={(data) => addCohortOverrideItemApi(cohortId, data).then(invalidate)}
         onUpdate={(itemId, data) => updateCohortOverrideItemApi(cohortId, itemId, data).then(invalidate)}
         onDelete={(itemId) => deleteCohortOverrideItemApi(cohortId, itemId).then(invalidate)}
+        onUploadPdf={(itemId, file) => uploadLmsProgramItemPdfApi(itemId, file).then(invalidate)}
+        onRemovePdf={(itemId) => deleteLmsProgramItemPdfApi(itemId).then(invalidate)}
         onReorder={(itemIds) => reorderCohortOverrideItemsApi(cohortId, itemIds).then(invalidate)}
       />
     </div>
@@ -352,12 +357,14 @@ function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: strin
 }
 
 function ChecklistItemsEditor({
-  items, onAdd, onUpdate, onDelete, onReorder, readOnly,
+  items, onAdd, onUpdate, onDelete, onUploadPdf, onRemovePdf, onReorder, readOnly,
 }: {
   items: LmsProgramItem[]
   onAdd: (data: LmsProgramItemInput) => Promise<unknown>
   onUpdate: (itemId: string, data: LmsProgramItemInput) => Promise<unknown>
   onDelete: (itemId: string) => Promise<unknown>
+  onUploadPdf: (itemId: string, file: File) => Promise<unknown>
+  onRemovePdf: (itemId: string) => Promise<unknown>
   onReorder: (itemIds: string[]) => Promise<unknown>
   readOnly: boolean
 }) {
@@ -396,7 +403,8 @@ function ChecklistItemsEditor({
 
       {displayItems.map((item) => (
         <ItemRow
-          key={item.id} item={item} onUpdate={onUpdate} onDelete={onDelete} readOnly={readOnly}
+          key={item.id} item={item} onUpdate={onUpdate} onDelete={onDelete}
+          onUploadPdf={onUploadPdf} onRemovePdf={onRemovePdf} readOnly={readOnly}
           draggable={!readOnly}
           isDragging={dragId === item.id}
           onDragStartRow={() => setDragId(item.id)}
@@ -459,12 +467,16 @@ const ITEM_TYPE_META: Record<LmsProgramItemType, { label: string; icon: typeof B
 ) as Record<LmsProgramItemType, { label: string; icon: typeof BookOpen }>
 
 function ItemRow({
-  item, onUpdate, onDelete, readOnly,
+  item, onUpdate, onDelete, onUploadPdf, onRemovePdf, readOnly,
   draggable, isDragging, onDragStartRow, onDropRow, onDragEndRow,
 }: {
   item: LmsProgramItem
   onUpdate: (itemId: string, data: LmsProgramItemInput) => Promise<unknown>
   onDelete: (itemId: string) => Promise<unknown>
+  // Optional — the mission-run-only list (ProgramMissionsPanel) never
+  // renders a `pdf` item, so it has nothing to wire these to.
+  onUploadPdf?: (itemId: string, file: File) => Promise<unknown>
+  onRemovePdf?: (itemId: string) => Promise<unknown>
   readOnly: boolean
   draggable?: boolean
   isDragging?: boolean
@@ -473,6 +485,8 @@ function ItemRow({
   onDragEndRow?: () => void
 }) {
   const [editing, setEditing] = useState(false)
+  const [pdfBusy, setPdfBusy] = useState(false)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
   const meta = ITEM_TYPE_META[item.item_type]
   const Icon = meta.icon
 
@@ -509,11 +523,44 @@ function ItemRow({
           {item.scope === "team" && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">team</span>}
           {item.optional && <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">optional</span>}
           {item.requires_confirmation && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 rounded px-1.5 py-0.5">needs confirmation</span>}
+          {item.item_type === "pdf" && !item.has_pdf && (
+            <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-500 border border-amber-500/30 rounded px-1.5 py-0.5">no PDF uploaded</span>
+          )}
         </div>
         <div className="text-xs text-muted-foreground">{meta.label}</div>
       </div>
       {!readOnly && (
         <>
+          {item.item_type === "pdf" && (
+            <>
+              <input
+                ref={pdfInputRef} type="file" accept="application/pdf" className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ""
+                  if (!file) return
+                  setPdfBusy(true)
+                  try { await onUploadPdf?.(item.id, file) } finally { setPdfBusy(false) }
+                }}
+              />
+              <button
+                onClick={() => pdfInputRef.current?.click()}
+                disabled={pdfBusy}
+                className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                {pdfBusy ? "Uploading…" : item.has_pdf ? "Replace PDF" : "Upload PDF"}
+              </button>
+              {item.has_pdf && (
+                <button
+                  onClick={async () => { setPdfBusy(true); try { await onRemovePdf?.(item.id) } finally { setPdfBusy(false) } }}
+                  disabled={pdfBusy}
+                  className="text-xs font-medium text-muted-foreground hover:text-red-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  Remove PDF
+                </button>
+              )}
+            </>
+          )}
           <button onClick={() => setEditing(true)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">
             Edit
           </button>
@@ -567,7 +614,7 @@ function ItemForm({
     if (!title.trim()) { setError("Title is required"); return }
     if (itemType === "course" && !courseId) { setError("Pick a course"); return }
     if (itemType === "mission_run" && !missionId) { setError("Pick a mission"); return }
-    if ((itemType === "external_link" || itemType === "article") && !externalUrl.trim()) { setError("A link is required"); return }
+    if (itemType === "external_link" && !externalUrl.trim()) { setError("A link is required"); return }
     if (itemType === "submission" && !externalUrl.trim() && !submissionPrompt.trim()) { setError("Add a link or a submission prompt"); return }
 
     setSaving(true)
@@ -582,7 +629,7 @@ function ItemForm({
         course_id: itemType === "course" ? courseId : null,
         mission_id: itemType === "mission_run" ? missionId : null,
         variant_id: itemType === "mission_run" ? (variantId || null) : null,
-        external_url: (itemType === "external_link" || itemType === "article" || itemType === "submission") ? (externalUrl.trim() || null) : null,
+        external_url: (itemType === "external_link" || itemType === "submission") ? (externalUrl.trim() || null) : null,
         submission_prompt: itemType === "submission" ? (submissionPrompt.trim() || null) : null,
       })
     } catch (e: unknown) {
@@ -631,8 +678,12 @@ function ItemForm({
         </>
       )}
 
-      {(itemType === "external_link" || itemType === "article") && (
+      {itemType === "external_link" && (
         <input value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="https://…" className={inputCls} />
+      )}
+
+      {itemType === "pdf" && !initial && (
+        <p className="text-xs text-muted-foreground">Upload the PDF after saving this step — see the "Upload PDF" button on its row.</p>
       )}
 
       {itemType === "submission" && (

@@ -296,7 +296,7 @@ export const deleteCheckpointApi = (id: string) => api.delete<void>(`/lms/admin/
 // Replaces the old program_curriculum flat course list (above, removed) —
 // see backend/app/models/lms/program.py's module docstring for the full shape.
 
-export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "article" | "manual";
+export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual";
 /** individual (default): per-student progress. team: the whole Team shares
  * one progress row — only valid for submission/external_link/manual items
  * (enforced server-side in services/lms/program.py). */
@@ -320,6 +320,9 @@ export interface LmsProgramItem {
   variant_id: string | null;
   external_url: string | null;
   submission_prompt: string | null;
+  /** True once a `pdf` item has a file uploaded — fetch the actual URL
+   * on demand via `getLmsProgramItemPdfUrlApi`, never baked in here. */
+  has_pdf: boolean;
 }
 
 export interface LmsProgramItemInput {
@@ -376,6 +379,19 @@ export const deleteLmsProgramItemApi = (lmsProgramId: string, itemId: string) =>
   api.delete<void>(`/lms/admin/programs/${lmsProgramId}/items/${itemId}`).then((r) => r.data);
 export const reorderLmsProgramItemsApi = (lmsProgramId: string, itemIds: string[]) =>
   api.post<LmsProgramItem[]>(`/lms/admin/programs/${lmsProgramId}/items/reorder`, { item_ids: itemIds }).then((r) => r.data);
+
+// Flat by item_id — same LmsProgramItem row regardless of whether it's
+// program- or cohort-override-owned, so no need for a separate owner-scoped
+// path (mirrors routers/lms/admin.py's own item_id-only routes).
+export const uploadLmsProgramItemPdfApi = (itemId: string, file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post<LmsProgramItem>(`/lms/admin/items/${itemId}/pdf`, form).then((r) => r.data);
+};
+export const deleteLmsProgramItemPdfApi = (itemId: string) =>
+  api.delete<LmsProgramItem>(`/lms/admin/items/${itemId}/pdf`).then((r) => r.data);
+export const getLmsProgramItemPdfUrlApi = (itemId: string) =>
+  api.get<{ url: string }>(`/lms/admin/items/${itemId}/pdf-url`).then((r) => r.data.url);
 
 export const getCohortProgramOverrideApi = (cohortId: string) =>
   api.get<LmsProgramCohortEffective>(`/lms/admin/cohorts/${cohortId}/program-override`).then((r) => r.data);

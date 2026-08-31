@@ -497,7 +497,7 @@ export async function submitCheckpointAnswer(
 // new checklist entity, `lms_program_assignments`. Mounted at
 // /learn/checklists to keep well clear of that existing route.
 
-export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "article" | "manual";
+export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual";
 export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
 
 export type LmsProgramItemScope = "individual" | "team";
@@ -517,6 +517,9 @@ export interface LmsProgramChecklistItem {
   mission_kind: string | null;
   external_url: string | null;
   submission_prompt: string | null;
+  /** True once a `pdf` item has a file uploaded — fetch the actual URL
+   * on demand via `getChecklistItemPdfUrlApi`, never baked in here. */
+  has_pdf: boolean;
   submitted_url: string | null;
   // Competition domain (2026-08-24) — "individual" (the default, every
   // item before this existed) means the fields above are this student's
@@ -573,4 +576,9 @@ export async function completeChecklistItem(assignmentId: string, itemId: string
 export async function submitChecklistItem(assignmentId: string, itemId: string, url: string): Promise<LmsProgramChecklistItem> {
   const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/submit`, { url });
   return data;
+}
+
+export async function getChecklistItemPdfUrlApi(assignmentId: string, itemId: string): Promise<string> {
+  const { data } = await api.get<{ url: string }>(`/lms/programs/${assignmentId}/items/${itemId}/pdf-url`);
+  return data.url;
 }

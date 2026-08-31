@@ -1,12 +1,13 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { ExternalLink, FileText } from "lucide-react"
+import { ExternalLink, FileText, Video } from "lucide-react"
 import { getLibraryResourceUrlApi, listLibraryApi } from "@/api/instructors/training"
 import type { LibraryResource } from "@/types/instructors"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { PdfViewer } from "@/components/documents/PdfViewer"
+import { isVideoFormat } from "@/lib/utils"
 
 /** A hosted PDF opens in the no-download inline viewer instead of a
  *  clickable/downloadable link — everything else (a PPTX upload, a `link`
@@ -14,6 +15,11 @@ import { PdfViewer } from "@/components/documents/PdfViewer"
  *  no inline viewer for those. See `routers/instructors/library.py`'s own
  *  docstring for why a hosted PDF's `file_url` already comes back blank. */
 const isInlinePdf = (r: LibraryResource) => r.resource_type === "file" && r.format.toUpperCase() === "PDF"
+
+/** A hosted video plays inline instead of downloading — its `file_url` is
+ * already a resolved signed URL in the list response (only a hosted PDF's
+ * is blanked out), so this doesn't need its own resolve-on-open fetch. */
+const isInlineVideo = (r: LibraryResource) => r.resource_type === "file" && isVideoFormat(r.format)
 
 export default function Library() {
   const { data: modules, isLoading } = useQuery({ queryKey: ["instructor-library"], queryFn: listLibraryApi })
@@ -37,14 +43,14 @@ export default function Library() {
               </CardHeader>
               <CardContent className="space-y-2">
                 {m.resources.map((r) =>
-                  isInlinePdf(r) ? (
+                  isInlinePdf(r) || isInlineVideo(r) ? (
                     <button
                       key={r.id}
                       type="button"
                       onClick={() => setViewing(r)}
                       className="w-full flex items-center gap-3 p-3 rounded-lg border bg-background hover:bg-muted transition-colors text-left cursor-pointer"
                     >
-                      <FileText className="text-primary shrink-0" size={20} />
+                      {isInlineVideo(r) ? <Video className="text-primary shrink-0" size={20} /> : <FileText className="text-primary shrink-0" size={20} />}
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium truncate">{r.title}</p>
                         <p className="text-xs text-muted-foreground">{r.format}</p>
@@ -84,9 +90,16 @@ export default function Library() {
 }
 
 function ResourceViewer({ resource }: { resource: LibraryResource }) {
+  if (isInlineVideo(resource)) {
+    return <video src={resource.file_url} controls autoPlay className="w-full max-h-[70vh] rounded-lg bg-black" />
+  }
+  return <PdfResourceViewer resourceId={resource.id} />
+}
+
+function PdfResourceViewer({ resourceId }: { resourceId: string }) {
   const { data: url, isLoading, isError } = useQuery({
-    queryKey: ["library-resource-url", resource.id],
-    queryFn: () => getLibraryResourceUrlApi(resource.id),
+    queryKey: ["library-resource-url", resourceId],
+    queryFn: () => getLibraryResourceUrlApi(resourceId),
   })
 
   if (isLoading) return <p className="text-sm text-muted-foreground py-6">Loading document...</p>
