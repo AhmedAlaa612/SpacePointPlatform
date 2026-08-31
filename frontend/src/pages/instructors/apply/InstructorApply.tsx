@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect"
 import { SiteFooter } from "@/components/layout/SiteFooter"
+import { PasswordInput } from "@/components/ui/PasswordInput"
 import { BODY_BACKGROUND } from "@/lib/theme"
 
 /**
@@ -277,7 +278,7 @@ export default function InstructorApplyPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">Password</label>
-                <input className="input" type="password" placeholder="Password" value={form.password} onChange={set("password")} required minLength={6} />
+                <PasswordInput className="input" placeholder="Password" value={form.password} onChange={set("password")} required minLength={6} />
               </div>
             </div>
 

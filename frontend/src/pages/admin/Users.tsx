@@ -12,6 +12,7 @@ import { listAdminTemplatesApi, adminGenerateDocumentApi } from "@/api/documents
 import { getSettingsApi } from "@/api/admin/settings"
 import { cn } from "@/lib/utils"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
+import { PasswordInput } from "@/components/ui/PasswordInput"
 
 const ALL_ROLES: Role[] = ["admin", "intern", "leader", "applicant", "instructor", "facilitator", "ambassador", "teacher", "operations", "coo", "storekeeper", "judge"]
 
@@ -318,7 +319,7 @@ function CreateUserModal({ onClose, onSuccess }: { onClose: () => void; onSucces
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
         <Field label="Password">
-          <input value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" type="password"
+          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors" />
         </Field>
         <Field label="Roles">
@@ -385,16 +386,16 @@ function ChangePasswordModal({ user, onClose, onSuccess }: {
     <Modal title={`Change password — ${user.full_name}`} onClose={onClose}>
       <div className="flex flex-col gap-3">
         <Field label="New password">
-          <input
+          <PasswordInput
             value={password} onChange={(e) => { setPassword(e.target.value); setError("") }}
-            type="password" placeholder="••••••••" autoFocus
+            placeholder="••••••••" autoFocus
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </Field>
         <Field label="Confirm password">
-          <input
+          <PasswordInput
             value={confirm} onChange={(e) => setConfirm(e.target.value)}
-            type="password" placeholder="••••••••"
+            placeholder="••••••••"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
           {mismatch && <p className="text-xs text-red-500 mt-1">Passwords do not match</p>}
