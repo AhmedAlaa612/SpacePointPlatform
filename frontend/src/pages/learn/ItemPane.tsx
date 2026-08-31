@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { CheckCircle2, ChevronLeft, ChevronRight, FileWarning, Rocket, XCircle } from "lucide-react";
+import { CheckCircle2, ChevronLeft, ChevronRight, FileText, FileWarning, Rocket, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PdfViewer } from "@/components/documents/PdfViewer";
 import {
   checkQuizAnswer, getAttachmentUrl, recordProgress, submitQuiz,
@@ -127,6 +128,7 @@ function AttachmentBlock({ itemId, onDone }: { itemId: string; onDone: () => voi
     queryKey: ["attachment-url", itemId],
     queryFn: () => getAttachmentUrl(itemId),
   });
+  const [open, setOpen] = useState(false);
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading document...</p>;
@@ -141,13 +143,32 @@ function AttachmentBlock({ itemId, onDone }: { itemId: string; onDone: () => voi
 
   return (
     <div className="flex flex-col gap-4">
-      {data.filename && (
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-primary">{data.filename}</p>
-      )}
-      <PdfViewer url={data.url} />
+      {/* Opens in a near-fullscreen viewer instead of rendering inline in
+          this narrow reading column — "fit width" scales to whatever
+          container it's in, and this one is much narrower than a modal,
+          so text came out visibly smaller/softer than everywhere else the
+          same PdfViewer renders. */}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-3 p-4 rounded-2xl ring-1 ring-border bg-card/60 hover:bg-card transition-colors text-left cursor-pointer"
+      >
+        <FileText className="text-primary shrink-0" size={22} />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{data.filename ?? "Document"}</p>
+          <p className="text-xs text-muted-foreground">Tap to open</p>
+        </div>
+      </button>
       <Button size="xl" onClick={onDone} className="w-fit">
         Mark as read <ChevronRight className="size-4" />
       </Button>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] flex flex-col">
+          <DialogHeader><DialogTitle>{data.filename ?? "Document"}</DialogTitle></DialogHeader>
+          <PdfViewer url={data.url} className="flex flex-col gap-3 flex-1 min-h-0" />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
