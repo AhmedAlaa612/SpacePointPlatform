@@ -10,27 +10,43 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
+import { PdfViewer } from "@/components/documents/PdfViewer"
 import { isVideoFormat } from "@/lib/utils"
 
-function ResourceRow({ r, onEdit, onDelete }: { r: LibraryResource; onEdit: () => void; onDelete: () => void }) {
+const isPdf = (r: LibraryResource) => r.resource_type === "file" && r.format.toUpperCase() === "PDF"
+
+function ResourceRow({ r, onEdit, onDelete, onPreviewPdf }: {
+  r: LibraryResource; onEdit: () => void; onDelete: () => void; onPreviewPdf: () => void
+}) {
   const isVideo = r.resource_type === "file" && isVideoFormat(r.format)
 
   return (
     <div className="flex flex-col gap-2 p-3 rounded-lg border bg-background">
       <div className="flex items-center gap-3">
         {isVideo ? <Video className="text-primary shrink-0" size={18} /> : <FileText className="text-primary shrink-0" size={18} />}
-        <a
-          href={r.file_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0"
-        >
-          <span className="truncate">{r.title}</span>
-          {r.resource_type !== "link" && (
+        {isPdf(r) ? (
+          <button
+            type="button"
+            onClick={onPreviewPdf}
+            className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0 text-left cursor-pointer"
+          >
+            <span className="truncate">{r.title}</span>
             <span className="text-muted-foreground shrink-0 text-xs">({r.format})</span>
-          )}
-          <ExternalLink size={12} className="shrink-0 text-muted-foreground" />
-        </a>
+          </button>
+        ) : (
+          <a
+            href={r.file_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0"
+          >
+            <span className="truncate">{r.title}</span>
+            {r.resource_type !== "link" && (
+              <span className="text-muted-foreground shrink-0 text-xs">({r.format})</span>
+            )}
+            <ExternalLink size={12} className="shrink-0 text-muted-foreground" />
+          </a>
+        )}
         <button onClick={onEdit} className="p-1 text-muted-foreground hover:text-primary">
           <Pencil size={14} />
         </button>
@@ -59,6 +75,8 @@ export default function FacilitatorLibrary() {
   const [editResource, setEditResource] = useState<LibraryResource | null>(null)
   const [editTitle, setEditTitle] = useState("")
   const [editUrl, setEditUrl] = useState("")
+
+  const [previewResource, setPreviewResource] = useState<LibraryResource | null>(null)
 
   const { data: modules, isLoading } = useQuery({ queryKey: ["facilitator-library"], queryFn: facilitatorListLibraryApi })
 
@@ -161,6 +179,7 @@ export default function FacilitatorLibrary() {
                     r={r}
                     onEdit={() => openEditDialog(r)}
                     onDelete={() => deleteResource.mutate(r.id)}
+                    onPreviewPdf={() => setPreviewResource(r)}
                   />
                 ))}
               </CardContent>
@@ -283,6 +302,16 @@ export default function FacilitatorLibrary() {
           >
             {updateResource.isPending ? "Saving…" : "Save changes"}
           </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* PDF preview — file_url is already a resolved signed URL in this
+          list (unlike the read-only instructor Curriculum Library, this
+          management page doesn't blank it out), so no extra fetch needed. */}
+      <Dialog open={!!previewResource} onOpenChange={(open) => !open && setPreviewResource(null)}>
+        <DialogContent className="sm:max-w-3xl max-w-3xl">
+          <DialogHeader><DialogTitle>{previewResource?.title}</DialogTitle></DialogHeader>
+          {previewResource && <PdfViewer url={previewResource.file_url} />}
         </DialogContent>
       </Dialog>
     </div>
