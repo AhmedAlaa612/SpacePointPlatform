@@ -1,15 +1,17 @@
-"""The instructor Curriculum Library's inline PDF viewer (2026-08-27).
+"""The instructor Curriculum Library's inline PDF/video viewers (2026-08-27,
+extended 2026-08-31 to cover hosted video the same way).
 
-A hosted PDF resource's `file_url` used to be embedded directly in the list
-response and rendered as a plain `<a href target=_blank>` — a one-click
-download of material the org considers copyrighted. Now the list never
-carries that URL for a hosted PDF; the frontend resolves it on demand via
+A hosted PDF or video resource's `file_url` used to be embedded directly in
+the list response and rendered as a plain `<a href target=_blank>` (PDF) or
+a `<video>` with its native download control intact — a one-click download
+of material the org considers copyrighted. Now the list never carries that
+URL for either; the frontend resolves it on demand via
 `GET /resources/{id}/url` only once someone actually opens the document, the
 same posture the LMS attachment viewer already uses for its own signed URL.
 
-Everything that *isn't* a hosted PDF (a PPTX upload, a `link`-type resource
-pointing off-site) is unaffected — there's no inline viewer for those, so
-hiding their URL would just break them.
+Everything that *isn't* a hosted PDF or video (a PPTX upload, a `link`-type
+resource pointing off-site) is unaffected — there's no inline viewer for
+those, so hiding their URL would just break them.
 """
 
 import uuid
@@ -59,6 +61,40 @@ async def test_a_hosted_pdf_has_no_url_in_the_list(client, db):
     [listed] = resp.json()[0]["resources"]
     assert listed["file_url"] == ""
     assert listed["format"] == "PDF"
+
+
+@pytest.mark.asyncio
+async def test_a_hosted_video_has_no_url_in_the_list(client, db):
+    instructor = await _instructor(db)
+    module = await _module(db)
+    resource = LibraryResource(
+        id=uuid.uuid4(), title="Orientation Video", format="MP4", resource_type="file",
+        file_url="library-resources/some/orientation.mp4", module_id=module.id,
+    )
+    db.add(resource)
+    await db.commit()
+
+    resp = await client.get("/instructors/library", headers=_headers(instructor))
+    assert resp.status_code == 200
+    [listed] = resp.json()[0]["resources"]
+    assert listed["file_url"] == ""
+    assert listed["format"] == "MP4"
+
+
+@pytest.mark.asyncio
+async def test_resolving_a_hosted_videos_url_on_demand(client, db):
+    instructor = await _instructor(db)
+    module = await _module(db)
+    resource = LibraryResource(
+        id=uuid.uuid4(), title="Orientation Video", format="MP4", resource_type="file",
+        file_url="library-resources/some/orientation.mp4", module_id=module.id,
+    )
+    db.add(resource)
+    await db.commit()
+
+    resp = await client.get(f"/instructors/library/resources/{resource.id}/url", headers=_headers(instructor))
+    assert resp.status_code == 200
+    assert resp.json()["url"]
 
 
 @pytest.mark.asyncio

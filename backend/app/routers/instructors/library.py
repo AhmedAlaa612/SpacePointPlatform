@@ -28,15 +28,32 @@ def _is_inline_pdf(resource: LibraryResource) -> bool:
     return resource.resource_type == "file" and resource.format.upper() == "PDF"
 
 
+# Same extension set frontend/src/lib/utils.ts's isVideoFormat() checks —
+# duplicated rather than shared, same convention _is_inline_pdf's PDF check
+# already follows (format is a plain string column, not an enum either side
+# can import from).
+_VIDEO_FORMATS = {"MP4", "MOV", "WEBM", "M4V", "AVI", "MKV", "OGG", "OGV"}
+
+
+def _is_inline_video(resource: LibraryResource) -> bool:
+    """A hosted video — plays inline via the frontend's <video> element,
+    which needs a resolved URL exactly like a hosted PDF does, for the same
+    reason: never bake a downloadable link into a list payload the browser
+    holds onto for the whole page visit."""
+    return resource.resource_type == "file" and resource.format.upper() in _VIDEO_FORMATS
+
+
 @router.get("", response_model=list[LibraryModuleOut])
 async def list_library(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)):
-    """Every hosted PDF's `file_url` comes back blank here — deliberately.
-    Same posture as the LMS attachment viewer's signed URL (see
-    `routers/lms/student.py::attachment_url`): never bake a downloadable
-    link into a list payload an instructor's browser holds onto for the
-    whole page visit. The frontend calls `GET /resources/{id}/url` instead,
-    only once someone actually opens that document, and renders it through
-    the same no-download canvas viewer rather than a clickable link.
+    """Every hosted PDF's or video's `file_url` comes back blank here —
+    deliberately. Same posture as the LMS attachment viewer's signed URL
+    (see `routers/lms/student.py::attachment_url`): never bake a
+    downloadable link into a list payload an instructor's browser holds
+    onto for the whole page visit. The frontend calls
+    `GET /resources/{id}/url` instead, only once someone actually opens
+    that document, and renders it inline (the no-download canvas PDF
+    viewer, or a <video> with its own download affordances stripped)
+    rather than a clickable link.
     """
     modules = (await db.execute(select(LibraryModule).order_by(LibraryModule.created_at))).scalars().all()
     resources = (await db.execute(
@@ -51,7 +68,7 @@ async def list_library(db: AsyncSession = Depends(get_db), current_user: User = 
     for m in modules:
         module_resources = []
         for r in by_module.get(m.id, []):
-            if _is_inline_pdf(r):
+            if _is_inline_pdf(r) or _is_inline_video(r):
                 url = ""
             else:
                 path = _lib_storage_path(r.file_url)
@@ -71,7 +88,7 @@ async def get_library_resource_url(
 ) -> dict[str, str]:
     """Resolved only when someone actually opens a document — same posture
     as `streamVideoApi`/the LMS attachment viewer, never embedded in the
-    list above for a hosted PDF."""
+    list above for a hosted PDF or video."""
     resource = (await db.execute(select(LibraryResource).where(LibraryResource.id == resource_id))).scalars().first()
     if resource is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Resource not found")

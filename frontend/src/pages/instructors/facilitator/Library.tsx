@@ -54,7 +54,16 @@ function ResourceRow({ r, onEdit, onDelete, onPreviewPdf }: {
           <Trash2 size={14} />
         </button>
       </div>
-      {isVideo && <video src={r.file_url} controls className="w-full max-h-64 rounded-lg bg-black" />}
+      {isVideo && (
+        <video
+          src={r.file_url}
+          controls
+          controlsList="nodownload noremoteplayback"
+          disablePictureInPicture
+          onContextMenu={(e) => e.preventDefault()}
+          className="w-full max-h-64 rounded-lg bg-black"
+        />
+      )}
     </div>
   )
 }

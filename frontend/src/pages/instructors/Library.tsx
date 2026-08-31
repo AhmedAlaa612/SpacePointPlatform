@@ -16,9 +16,10 @@ import { isVideoFormat } from "@/lib/utils"
  *  docstring for why a hosted PDF's `file_url` already comes back blank. */
 const isInlinePdf = (r: LibraryResource) => r.resource_type === "file" && r.format.toUpperCase() === "PDF"
 
-/** A hosted video plays inline instead of downloading — its `file_url` is
- * already a resolved signed URL in the list response (only a hosted PDF's
- * is blanked out), so this doesn't need its own resolve-on-open fetch. */
+/** A hosted video plays inline instead of downloading — same resolve-on-open
+ * posture as a hosted PDF (see routers/instructors/library.py's own
+ * docstring): its `file_url` comes back blank in the list too, resolved
+ * only once someone actually opens it. */
 const isInlineVideo = (r: LibraryResource) => r.resource_type === "file" && isVideoFormat(r.format)
 
 export default function Library() {
@@ -90,21 +91,28 @@ export default function Library() {
 }
 
 function ResourceViewer({ resource }: { resource: LibraryResource }) {
-  if (isInlineVideo(resource)) {
-    return <video src={resource.file_url} controls autoPlay className="w-full flex-1 min-h-0 rounded-lg bg-black" />
-  }
-  return <PdfResourceViewer resourceId={resource.id} />
-}
-
-function PdfResourceViewer({ resourceId }: { resourceId: string }) {
   const { data: url, isLoading, isError } = useQuery({
-    queryKey: ["library-resource-url", resourceId],
-    queryFn: () => getLibraryResourceUrlApi(resourceId),
+    queryKey: ["library-resource-url", resource.id],
+    queryFn: () => getLibraryResourceUrlApi(resource.id),
   })
 
   if (isLoading) return <p className="text-sm text-muted-foreground py-6">Loading document...</p>
   if (isError || !url) {
     return <p className="text-sm text-destructive py-6">Couldn't load this document.</p>
+  }
+
+  if (isInlineVideo(resource)) {
+    return (
+      <video
+        src={url}
+        controls
+        controlsList="nodownload noremoteplayback"
+        disablePictureInPicture
+        onContextMenu={(e) => e.preventDefault()}
+        autoPlay
+        className="w-full flex-1 min-h-0 rounded-lg bg-black"
+      />
+    )
   }
   return <PdfViewer url={url} className="flex flex-col gap-3 flex-1 min-h-0" />
 }
