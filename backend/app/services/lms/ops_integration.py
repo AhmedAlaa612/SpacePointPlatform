@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import secrets
 import uuid
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -84,15 +85,24 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
     return user, True
 
 
+# Students open these later than staff do — a link that dies overnight strands
+# whoever read the email the next evening, and re-inviting is a manual ops step.
+# 3 days matches the bulk intern import (scripts/bulk_import_interns.py) for the
+# same reason; the token stays stateless, so this is also how long a leaked link
+# stays usable. Keep `_LINK_VALIDITY_COPY` saying what `_LINK_VALIDITY` does.
+_LINK_VALIDITY = timedelta(days=3)
+_LINK_VALIDITY_COPY = "3 days"
+
+
 async def send_set_password_email(user: User, *, purpose: str = "welcome") -> bool:
     """Public (P3-3, 2026-08-10) — was module-private until the student
     panel's "create account & invite" and "password reset" actions needed
     to call it directly, not just via `sync_registration_lms`. Same token
-    mechanism either way (`create_password_set_token`, 24h, stateless) —
+    mechanism either way (`create_password_set_token`, stateless) —
     `purpose` only changes the copy, since "an account was created for you"
     reads wrong for a reset on an account that already existed."""
     from app.core.config import settings
-    token = create_password_set_token(user.id)
+    token = create_password_set_token(user.id, expires_delta=_LINK_VALIDITY)
     # LearnSetPassword is mounted at both paths for exactly this reason (see
     # its own docstring) — a student's link should log them back in at
     # /learn/login, everyone else's at the portal /login, so `roleHomePath`
@@ -110,7 +120,7 @@ async def send_set_password_email(user: User, *, purpose: str = "welcome") -> bo
         (
             f"<p>Hi {user.full_name},</p>"
             f'<p>{intro} Set your password here: <a href="{link}">{link}</a></p>'
-            "<p>This link is valid for 24 hours.</p>"
+            f"<p>This link is valid for {_LINK_VALIDITY_COPY}.</p>"
             "<p>— SpacePoint</p>"
         ),
         html=True,
