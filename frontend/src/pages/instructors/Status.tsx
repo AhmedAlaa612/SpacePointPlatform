@@ -1,46 +1,157 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { CheckCircle2, Circle, Clock, FileVideo, FlaskConical, ListChecks, XCircle } from "lucide-react"
+import { CheckCircle2, ChevronRight, FileVideo, FlaskConical, ListChecks, Lock, Send, XCircle } from "lucide-react"
 import {
   getApplicationStatusApi,
   getAssessmentQuestionsApi,
   listVideosApi,
   listModulesApi,
   reopenApplicationApi,
+  submitApplicationApi,
   submitAssessmentApi,
   submitPresentationApi,
 } from "@/api/instructors/applicant"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader, Spinner } from "@/pages/instructors/components/common"
+import { getErrorMessage } from "@/lib/utils"
 
-function ProgressRow({
+function ProgressRing({ percent }: { percent: number }) {
+  const r = 15
+  const c = 2 * Math.PI * r
+  const dash = (Math.min(100, Math.max(0, percent)) / 100) * c
+  return (
+    <svg width="28" height="28" viewBox="0 0 36 36" style={{ transform: "rotate(-90deg)" }}>
+      <circle cx="18" cy="18" r={r} fill="none" stroke="currentColor" strokeOpacity={0.15} strokeWidth={3} />
+      <circle
+        cx="18" cy="18" r={r} fill="none" stroke="currentColor" strokeWidth={3}
+        strokeLinecap="round" strokeDasharray={`${dash} ${c}`}
+      />
+    </svg>
+  )
+}
+
+type StepState = "locked" | "progress" | "complete"
+
+function StepCard({
+  title,
+  description,
+  lockedHint,
   done,
   total,
-  label,
+  state,
   to,
 }: {
+  title: string
+  description: string
+  lockedHint?: string
   done: number
   total: number
-  label: string
+  state: StepState
   to: string
 }) {
-  const complete = done === total && total > 0
+  const percent = total > 0 ? Math.round((done / total) * 100) : 0
+
+  const icon =
+    state === "complete" ? (
+      <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-green-500/10 ring-1 ring-green-500/30 text-green-500">
+        <CheckCircle2 size={22} />
+      </div>
+    ) : state === "locked" ? (
+      <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted ring-1 ring-border text-muted-foreground">
+        <Lock size={18} />
+      </div>
+    ) : (
+      <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/30 text-primary">
+        <ProgressRing percent={percent} />
+      </div>
+    )
+
+  const cta =
+    state === "complete" ? (
+      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-green-500/30 bg-green-500/10 px-3.5 py-1.5 text-xs font-semibold text-green-500">
+        <CheckCircle2 size={13} /> Completed
+      </span>
+    ) : state === "locked" ? (
+      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-muted/50 px-3.5 py-1.5 text-xs font-semibold text-muted-foreground">
+        <Lock size={13} /> Locked
+      </span>
+    ) : (
+      <Button size="sm" className="shrink-0 gap-1">
+        {done === 0 ? "Start" : "Continue"} <ChevronRight size={14} />
+      </Button>
+    )
+
+  const card = (
+    <Card
+      className={
+        state === "locked"
+          ? "border-dashed opacity-80"
+          : "transition-all hover:-translate-y-0.5 hover:border-primary/40 cursor-pointer"
+      }
+    >
+      <CardContent className="flex items-center gap-4 p-5">
+        {icon}
+        <div className="min-w-0 flex-1 flex flex-col gap-1.5">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold">{title}</h3>
+            <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+              {done}/{total}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground">{state === "locked" && lockedHint ? lockedHint : description}</p>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={`h-full rounded-full transition-all ${state === "complete" ? "bg-green-500" : "bg-primary"}`}
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+        </div>
+        {cta}
+      </CardContent>
+    </Card>
+  )
+
+  if (state === "locked") return card
+  return <Link to={to as any} className="block">{card}</Link>
+}
+
+function SubmitApplicationCard({
+  ready,
+  pending,
+  error,
+  onSubmit,
+}: {
+  ready: boolean
+  pending: boolean
+  error: string | null
+  onSubmit: () => void
+}) {
   return (
-    <Link to={to as any} className="flex items-center gap-3 group">
-      {complete ? (
-        <CheckCircle2 size={18} className="text-green-600 shrink-0" />
-      ) : (
-        <Circle size={18} className="text-muted-foreground shrink-0" />
-      )}
-      <span className={`text-sm flex-1 group-hover:text-foreground ${complete ? "text-foreground" : "text-muted-foreground"}`}>
-        {label}
-      </span>
-      <span className={`text-xs font-semibold tabular-nums ${complete ? "text-green-600" : "text-muted-foreground"}`}>
-        {done}/{total}
-      </span>
-    </Link>
+    <Card className={ready ? "border-primary/40" : "border-dashed opacity-80"}>
+      <CardContent className="flex items-center gap-4 p-5">
+        <div
+          className={`flex size-11 shrink-0 items-center justify-center rounded-full ${
+            ready ? "bg-primary/10 ring-1 ring-primary/30 text-primary" : "bg-muted ring-1 ring-border text-muted-foreground"
+          }`}
+        >
+          <Send size={18} />
+        </div>
+        <div className="min-w-0 flex-1 flex flex-col gap-1">
+          <h3 className="text-sm font-semibold">Submit Application</h3>
+          <p className="text-xs text-muted-foreground">
+            {ready
+              ? "Both steps above are complete — submit your application for review."
+              : "Complete both steps above to submit your application for review."}
+          </p>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+        <Button size="sm" className="shrink-0" disabled={!ready || pending} onClick={onSubmit}>
+          {pending ? "Submitting…" : "Submit Application"}
+        </Button>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -59,12 +170,12 @@ export default function Status() {
   const { data: videos } = useQuery({
     queryKey: ["instructor-videos"],
     queryFn: listVideosApi,
-    enabled: status?.status === "in_progress",
+    enabled: status?.status === "in_progress" || status?.status === "under_review",
   })
   const { data: modules } = useQuery({
     queryKey: ["instructor-modules"],
     queryFn: listModulesApi,
-    enabled: status?.status === "in_progress",
+    enabled: status?.status === "in_progress" || status?.status === "under_review",
   })
   const { data: assessmentQuestions } = useQuery({
     queryKey: ["instructor-assessment-questions"],
@@ -74,6 +185,11 @@ export default function Status() {
 
   const reopen = useMutation({
     mutationFn: reopenApplicationApi,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-status"] }),
+  })
+
+  const submitApp = useMutation({
+    mutationFn: submitApplicationApi,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-status"] }),
   })
 
@@ -113,37 +229,67 @@ export default function Status() {
 
   const videosSubmitted = videos?.filter((v) => v.status === "submitted").length ?? 0
   const modulesUploaded = modules?.filter((m) => m.submission_status && m.submission_status !== "rejected").length ?? 0
+  const videosDone = videosSubmitted === 3
+  const modulesTotal = modules?.length ?? 0
+  const modulesDone = modulesTotal > 0 && modulesUploaded === modulesTotal
+
+  // "under_review" is reused for later review rounds too (after the
+  // presentation, after the assessment) — only show the Phase 1 step cards
+  // for the round that's actually about videos/modules, not stale ones for
+  // someone whose presentation or assessment is what's actually under review.
+  const isPhase1 =
+    status.status === "in_progress" ||
+    (status.status === "under_review" && !status.assessment && !status.presentation_video_link)
 
   return (
     <div>
       <PageHeader title="Application Status" subtitle="Track your progress through the instructor pipeline." />
 
+      {isPhase1 ? (
+        <div className="flex flex-col gap-4">
+          {status.status === "under_review" && (
+            <Card>
+              <CardContent className="p-6 flex items-start gap-3">
+                <ListChecks className="text-primary shrink-0 mt-0.5" size={20} />
+                <div>
+                  <p className="font-semibold">Under review</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Our team is reviewing your video summaries and checklist modules. You can still
+                    view or update your submissions below until they're approved.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          <StepCard
+            title="Video Summaries"
+            description="Watch 3 short videos and write a 200+ word summary of each."
+            done={videosSubmitted}
+            total={3}
+            state={videosDone ? "complete" : "progress"}
+            to="/instructors/videos"
+          />
+          <StepCard
+            title="Checklist Modules"
+            description="Upload the required research PDFs for each module."
+            lockedHint="Locked — submit all 3 video summaries above to unlock."
+            done={modulesUploaded}
+            total={modulesTotal}
+            state={!videosDone ? "locked" : modulesDone ? "complete" : "progress"}
+            to="/instructors/modules"
+          />
+          {status.status === "in_progress" && (
+            <SubmitApplicationCard
+              ready={videosDone && modulesDone}
+              pending={submitApp.isPending}
+              error={submitApp.isError ? getErrorMessage(submitApp.error, "Could not submit application.") : null}
+              onSubmit={() => submitApp.mutate()}
+            />
+          )}
+        </div>
+      ) : (
       <Card>
         <CardContent className="p-6 space-y-5">
-
-          {status.status === "in_progress" && (
-            <>
-              <div className="flex items-center gap-3">
-                <Clock className="text-primary shrink-0" size={20} />
-                <p className="font-semibold">In progress</p>
-              </div>
-
-              <div className="border-t border-border pt-4 flex flex-col gap-3">
-                <ProgressRow
-                  done={videosSubmitted}
-                  total={3}
-                  label="Video summaries"
-                  to="/instructors/videos"
-                />
-                <ProgressRow
-                  done={modulesUploaded}
-                  total={modules?.length ?? 0}
-                  label="Checklist modules"
-                  to="/instructors/modules"
-                />
-              </div>
-            </>
-          )}
 
           {status.status === "under_review" && (
             <div className="flex items-start gap-3">
@@ -151,7 +297,11 @@ export default function Status() {
               <div>
                 <p className="font-semibold">Under review</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Our team is reviewing your submission. We'll notify you once a decision is made.
+                  {status.assessment
+                    ? "Our team is reviewing your assessment. We'll notify you once a decision is made."
+                    : status.presentation_video_link
+                    ? "Our team is reviewing your presentation. We'll notify you once a decision is made."
+                    : "Our team is reviewing your video summaries and checklist modules. We'll notify you once a decision is made."}
                 </p>
               </div>
             </div>
@@ -277,7 +427,12 @@ export default function Status() {
                       />
                     </div>
                     {assessmentError && <p className="text-sm text-destructive">{assessmentError}</p>}
-                    <Button type="submit" disabled={submitAssessment.isPending} className="self-start">
+                    <Button
+                      type="submit"
+                      size="xl"
+                      disabled={submitAssessment.isPending}
+                      className="self-start rounded-md px-10"
+                    >
                       {submitAssessment.isPending ? "Submitting…" : "Submit assessment"}
                     </Button>
                   </form>
@@ -317,6 +472,7 @@ export default function Status() {
 
         </CardContent>
       </Card>
+      )}
     </div>
   )
 }

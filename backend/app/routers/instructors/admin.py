@@ -297,6 +297,27 @@ async def review_applicant(
     if review.status in (ApplicationStatus.approved, ApplicationStatus.rejected):
         raise HTTPException(status_code=400, detail="Application is already finalized")
 
+    # Safety net for the module-vs-whole-application reject mix-up: don't let
+    # an application advance while one of its modules is still sitting on an
+    # unresolved rejection (rejecting/reopening the whole app never touches
+    # per-module status, so this can otherwise be advanced right past it).
+    if body.status in (
+        ApplicationStatus.phase_1_approved,
+        ApplicationStatus.research_approved,
+        ApplicationStatus.approved,
+    ):
+        rejected_module = (await db.execute(
+            select(ModuleSubmission.id).where(
+                ModuleSubmission.user_id == user_id,
+                ModuleSubmission.status == ModuleSubmissionStatus.rejected,
+            )
+        )).scalars().first()
+        if rejected_module:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot advance this application while a module submission is still rejected and unresolved.",
+            )
+
     review.status = body.status
     review.admin_id = current_user.id
     review.feedback = body.feedback

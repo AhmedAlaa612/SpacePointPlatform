@@ -65,7 +65,7 @@ export default function ModuleDetail() {
 
   const videosDone = videos.length === 3 && videos.every((v) => v.status === "submitted")
 
-  const uploadLocked = module.submission_status === "submitted" || module.submission_status === "approved"
+  const uploadLocked = module.submission_status === "approved"
 
   return (
     <div>
@@ -130,8 +130,7 @@ export default function ModuleDetail() {
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground pt-1">
-                  Your submission has been {module.submission_status === "approved" ? "approved" : "received"} and can
-                  no longer be edited.
+                  Your submission has been approved and can no longer be edited.
                 </p>
               )}
             </CardContent>
