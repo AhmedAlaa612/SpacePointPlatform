@@ -2,13 +2,13 @@ import { useState } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  BookOpen, CheckCircle2, ChevronRight, ClipboardCheck, ExternalLink, FileText, Link2,
-  Rocket, Upload, Users,
+  BookOpen, Calendar, CheckCircle2, ChevronRight, ClipboardCheck, ExternalLink, FileText, Link2,
+  MapPin, Rocket, Upload, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PdfViewer } from "@/components/documents/PdfViewer";
-import { cn, ensureAbsoluteUrl } from "@/lib/utils";
+import { cn, ensureAbsoluteUrl, formatDate } from "@/lib/utils";
 import {
   fetchChecklist, completeChecklistItem, submitChecklistItem, getChecklistItemPdfUrlApi,
   type LmsProgramChecklistItem, type LmsProgramItemType,
@@ -21,7 +21,17 @@ const ITEM_ICON: Record<LmsProgramItemType, typeof BookOpen> = {
   submission: Upload,
   pdf: FileText,
   manual: ClipboardCheck,
+  session: Calendar,
 };
+
+/** `session_starts_at` is a bare `HH:MM:SS` time string, not a full
+ * datetime — format it by hand rather than routing it through `formatDate`. */
+function formatSessionTime(value: string): string {
+  const [h, m] = value.split(":").map(Number);
+  const d = new Date();
+  d.setHours(h, m, 0, 0);
+  return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
 
 const ITEM_LABEL: Record<LmsProgramItemType, string> = {
   course: "Course",
@@ -30,6 +40,7 @@ const ITEM_LABEL: Record<LmsProgramItemType, string> = {
   submission: "Submission",
   pdf: "PDF",
   manual: "Manual check-off",
+  session: "Session",
 };
 
 /** /learn/checklists/$assignmentId — the LMS Program redesign's student
@@ -138,6 +149,7 @@ function ChecklistItemRow({
 }) {
   const Icon = ITEM_ICON[item.item_type];
   const clickable = item.item_type === "course" || (item.item_type === "mission_run" && !!item.mission_attempt_id);
+  const pastDeadline = !!item.deadline_at && new Date(item.deadline_at) < new Date();
   const [submitUrl, setSubmitUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [viewingPdf, setViewingPdf] = useState(false);
@@ -224,9 +236,40 @@ function ChecklistItemRow({
           )
         )}
 
+        {item.item_type === "session" && (
+          <div className="flex flex-col gap-1 mt-0.5 text-sm text-muted-foreground">
+            {(item.session_date || item.session_starts_at) && (
+              <span className="flex items-center gap-1.5">
+                <Calendar className="size-3.5 shrink-0" />
+                {item.session_date && formatDate(item.session_date, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                {item.session_starts_at && ` · ${formatSessionTime(item.session_starts_at)}`}
+              </span>
+            )}
+            {item.session_location && (
+              <span className="flex items-center gap-1.5">
+                <MapPin className="size-3.5 shrink-0" /> {item.session_location}
+              </span>
+            )}
+            {item.session_meeting_url && (
+              <a
+                href={ensureAbsoluteUrl(item.session_meeting_url)} target="_blank" rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="text-primary hover:underline w-fit flex items-center gap-1.5"
+              >
+                Join the meeting <ExternalLink className="size-3" />
+              </a>
+            )}
+          </div>
+        )}
+
         {item.item_type === "submission" && (
           <div className="flex flex-col gap-2 mt-1 w-full sm:max-w-lg" onClick={(e) => e.stopPropagation()}>
             {item.submission_prompt && <p className="text-xs text-muted-foreground">{item.submission_prompt}</p>}
+            {item.deadline_at && !pastDeadline && (
+              <p className="text-xs text-muted-foreground">
+                Due {new Date(item.deadline_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              </p>
+            )}
 
             {/* Always visible once something's been submitted — done or not —
                 so "which submission actually went through" never has to be
@@ -251,27 +294,37 @@ function ChecklistItemRow({
               </div>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                value={submitUrl || item.submitted_url || ""}
-                onChange={(e) => setSubmitUrl(e.target.value)}
-                placeholder="Paste your link…"
-                inputMode="url"
-                className="w-full sm:flex-1 min-w-0 h-10 sm:h-9 px-3 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
-              />
-              <Button
-                size="sm"
-                className="w-full sm:w-auto shrink-0"
-                disabled={!(submitUrl || item.submitted_url) || submitMutation.isPending}
-                onClick={() => { setSubmitting(true); submitMutation.mutate(submitUrl || item.submitted_url || ""); }}
-              >
-                {submitMutation.isPending && submitting ? "Submitting…" : item.submitted_url ? "Replace submission" : "Submit"}
-              </Button>
-            </div>
+            {/* Once the deadline passes, the paste-link form is hidden —
+                already-submitted content above stays visible/reviewable,
+                and an ops/instructor confirmation is a separate endpoint
+                that's never deadline-gated. */}
+            {pastDeadline ? (
+              <p className="text-xs font-medium text-amber-600 dark:text-amber-500">
+                Deadline passed — no longer accepting submissions
+              </p>
+            ) : (
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  value={submitUrl || item.submitted_url || ""}
+                  onChange={(e) => setSubmitUrl(e.target.value)}
+                  placeholder="Paste your link…"
+                  inputMode="url"
+                  className="w-full sm:flex-1 min-w-0 h-10 sm:h-9 px-3 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
+                />
+                <Button
+                  size="sm"
+                  className="w-full sm:w-auto shrink-0"
+                  disabled={!(submitUrl || item.submitted_url) || submitMutation.isPending}
+                  onClick={() => { setSubmitting(true); submitMutation.mutate(submitUrl || item.submitted_url || ""); }}
+                >
+                  {submitMutation.isPending && submitting ? "Submitting…" : item.submitted_url ? "Replace submission" : "Submit"}
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
-        {(item.item_type === "external_link" || item.item_type === "pdf" || item.item_type === "manual")
+        {(item.item_type === "external_link" || item.item_type === "pdf" || item.item_type === "manual" || item.item_type === "session")
           && item.status !== "done" && item.status !== "awaiting_confirmation" && (
           <Button
             size="sm" className="w-fit mt-1"

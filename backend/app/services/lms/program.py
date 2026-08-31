@@ -100,6 +100,9 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         # same two-step shape a module `attachment` item already follows.
         "pdf": True,
         "manual": True,
+        # Every field is optional — an admin can leave date/location/link
+        # blank and just have a titled placeholder, same posture as manual.
+        "session": True,
     }
     if not required[body.item_type]:
         raise HTTPException(
@@ -111,10 +114,17 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
     # (course/mission_run/pdf) stays individual on purpose: each
     # teammate's own course progress and Design mission attempt are
     # genuinely personal, not something one submission speaks for.
+    # `session` also stays individual — it's an informational/self-check
+    # step, not a deliverable, so there's nothing for a team to share.
     if body.scope == "team" and body.item_type not in ("submission", "external_link", "manual"):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             detail=f"A '{body.item_type}' item can't be team-scoped — only submission, external_link, or manual items can be",
+        )
+    if body.deadline_at is not None and body.item_type != "submission":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail="Only a submission item can have a deadline",
         )
 
 
@@ -395,7 +405,9 @@ async def fork_cohort_override(
             optional=item.optional, requires_confirmation=item.requires_confirmation, scope=item.scope,
             course_id=item.course_id, mission_id=item.mission_id, variant_id=item.variant_id,
             external_url=item.external_url, submission_prompt=item.submission_prompt,
-            pdf_path=copy_pdf_path,
+            pdf_path=copy_pdf_path, deadline_at=item.deadline_at,
+            session_date=item.session_date, session_starts_at=item.session_starts_at,
+            session_location=item.session_location, session_meeting_url=item.session_meeting_url,
         )
         db.add(copy)
         id_map[item.id] = copy.id
@@ -887,6 +899,9 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "external_url": item.external_url, "submission_prompt": item.submission_prompt,
             "has_pdf": item.pdf_path is not None,
             "submitted_url": submitted_url,
+            "deadline_at": item.deadline_at,
+            "session_date": item.session_date, "session_starts_at": item.session_starts_at,
+            "session_location": item.session_location, "session_meeting_url": item.session_meeting_url,
             "scope": item.scope,
             "updated_by_name": updated_by_name,
             "updated_at": updated_at,

@@ -497,7 +497,7 @@ export async function submitCheckpointAnswer(
 // new checklist entity, `lms_program_assignments`. Mounted at
 // /learn/checklists to keep well clear of that existing route.
 
-export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual";
+export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session";
 export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
 
 export type LmsProgramItemScope = "individual" | "team";
@@ -521,6 +521,15 @@ export interface LmsProgramChecklistItem {
    * on demand via `getChecklistItemPdfUrlApi`, never baked in here. */
   has_pdf: boolean;
   submitted_url: string | null;
+  /** submission-only cutoff — can no longer submit/replace past this;
+   * already-submitted content and its confirmation are unaffected. */
+  deadline_at: string | null;
+  /** session-only fields — always self-contained, never a live link to a
+   * real Sessions-domain row. */
+  session_date: string | null;
+  session_starts_at: string | null;
+  session_location: string | null;
+  session_meeting_url: string | null;
   // Competition domain (2026-08-24) — "individual" (the default, every
   // item before this existed) means the fields above are this student's
   // own. "team" means they're the whole team's shared fact: any member

@@ -296,7 +296,7 @@ export const deleteCheckpointApi = (id: string) => api.delete<void>(`/lms/admin/
 // Replaces the old program_curriculum flat course list (above, removed) —
 // see backend/app/models/lms/program.py's module docstring for the full shape.
 
-export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual";
+export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session";
 /** individual (default): per-student progress. team: the whole Team shares
  * one progress row — only valid for submission/external_link/manual items
  * (enforced server-side in services/lms/program.py). */
@@ -323,6 +323,15 @@ export interface LmsProgramItem {
   /** True once a `pdf` item has a file uploaded — fetch the actual URL
    * on demand via `getLmsProgramItemPdfUrlApi`, never baked in here. */
   has_pdf: boolean;
+  /** submission-only cutoff — the backend rejects a new/replaced
+   * submission past this, but never blocks confirming one already in. */
+  deadline_at: string | null;
+  /** session-only fields — always self-contained, never a live link to a
+   * real Sessions-domain row (see the model's own comment). */
+  session_date: string | null;
+  session_starts_at: string | null;
+  session_location: string | null;
+  session_meeting_url: string | null;
 }
 
 export interface LmsProgramItemInput {
@@ -337,6 +346,11 @@ export interface LmsProgramItemInput {
   variant_id?: string | null;
   external_url?: string | null;
   submission_prompt?: string | null;
+  deadline_at?: string | null;
+  session_date?: string | null;
+  session_starts_at?: string | null;
+  session_location?: string | null;
+  session_meeting_url?: string | null;
   position?: number | null;
 }
 

@@ -514,6 +514,9 @@ async def _checklist_item_out(
         external_url=item.external_url, submission_prompt=item.submission_prompt,
         has_pdf=item.pdf_path is not None,
         submitted_url=target.submitted_url,
+        deadline_at=item.deadline_at,
+        session_date=item.session_date, session_starts_at=item.session_starts_at,
+        session_location=item.session_location, session_meeting_url=item.session_meeting_url,
         scope=item.scope, updated_by_name=updated_by_name,
         updated_at=target.updated_at,
     )
@@ -577,6 +580,8 @@ async def submit_program_item(
     assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     if item.item_type != "submission":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item does not take a submission")
+    if item.deadline_at is not None and datetime.now(timezone.utc) > item.deadline_at:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The deadline for this submission has passed")
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
     target.submitted_url = body.url
     if item.requires_confirmation:
