@@ -4,7 +4,7 @@ warning. Redis-free — nothing here touches ARQ.
 """
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 
 import httpx
 import pytest
@@ -14,6 +14,7 @@ from app.main import app
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
+from app.services.games.realtime import get_realtime_redis_dep
 from app.services.sessions import reports as reports_service
 
 
@@ -45,7 +46,14 @@ async def client(db):
     async def _override_get_db():
         yield db
 
+    async def _override_get_realtime_redis():
+        return None
+
     app.dependency_overrides[get_db] = _override_get_db
+    # Completing a cohort closes any live quiz its newly-completed sessions
+    # left open (2026-08-31), so this local client needs the same Redis-free
+    # override the shared `client` fixture in tests/conftest.py already has.
+    app.dependency_overrides[get_realtime_redis_dep] = _override_get_realtime_redis
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         yield c
@@ -166,12 +174,16 @@ async def test_complete_cohort_warns_when_zero_reports(db, client, operations_he
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["cohort"]["status"] == "completed"
-    assert len(body["warnings"]) == 1
+    # The cohort's one session was never marked done, so the session-cascade
+    # warning (2026-08-31) rides along with the zero-reports one.
+    assert any("No session reports" in w for w in body["warnings"])
 
 
 @pytest.mark.asyncio
 async def test_complete_cohort_no_warning_when_report_exists(db, client, operations_headers):
     cohort, session = await _make_cohort_with_session(db)
+    session.completed_at = datetime(2026, 9, 8, 15, 0, tzinfo=timezone.utc)
+    await db.flush()
     await client.post(
         f"/sessions/cohorts/{cohort.id}/reports",
         data={"session_id": str(session.id)},
@@ -182,3 +194,17 @@ async def test_complete_cohort_no_warning_when_report_exists(db, client, operati
     resp = await client.post(f"/sessions/cohorts/{cohort.id}/complete", headers=operations_headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["warnings"] == []
+
+
+@pytest.mark.asyncio
+async def test_complete_cohort_completes_sessions_and_says_so(db, client, operations_headers):
+    """Operator ask (2026-08-31): completing the cohort completes its days.
+    The response says how many it took over, so ops isn't guessing."""
+    cohort, session = await _make_cohort_with_session(db)
+
+    resp = await client.post(f"/sessions/cohorts/{cohort.id}/complete", headers=operations_headers)
+
+    assert resp.status_code == 200, resp.text
+    assert any("had not been marked done" in w for w in resp.json()["warnings"])
+    await db.refresh(session)
+    assert session.completed_at is not None

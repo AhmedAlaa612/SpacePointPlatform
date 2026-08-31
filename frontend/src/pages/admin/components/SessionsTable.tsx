@@ -1,10 +1,13 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ArrowDown, ArrowUp, CheckCircle2, Pencil } from "lucide-react"
 import type { Session, StaffingStatus } from "@/types/sessions"
-import { EmptyState } from "@/pages/admin/components/common"
+import { markSessionDoneApi } from "@/api/sessions/delivery"
+import { ConfirmDialog, EmptyState } from "@/pages/admin/components/common"
 import { EditSessionModal } from "@/pages/admin/components/EditSessionModal"
-import { cn } from "@/lib/utils"
+import { useToast } from "@/components/ui/toast"
+import { cn, getErrorMessage } from "@/lib/utils"
 
 const STAFFING_STATUS_LABEL: Record<StaffingStatus, string> = {
   unstaffed: "Unstaffed",
@@ -69,9 +72,25 @@ export function SessionsTable({
   onToggleSession: (id: string) => void
 }) {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const toast = useToast()
   const [sortKey, setSortKey] = useState<SortKey>("date")
   const [sortDir, setSortDir] = useState<SortDir>("asc")
   const [editingSession, setEditingSession] = useState<Session | null>(null)
+  // Ops-side "this day happened" (2026-08-31). The same endpoint the
+  // instructor's own Mark done button calls — ops passes its assignment check
+  // — so a session nobody closed out doesn't need the instructor to come back
+  // and do it. Confirmed rather than one-click: there is no un-complete.
+  const [completingSession, setCompletingSession] = useState<Session | null>(null)
+  const markDoneMutation = useMutation({
+    mutationFn: (sessionId: string) => markSessionDoneApi(sessionId),
+    onSuccess: () => {
+      toast.success("Session marked completed")
+      queryClient.invalidateQueries({ queryKey: ["sessions-sessions", cohortId] })
+      setCompletingSession(null)
+    },
+    onError: (e: unknown) => toast.error(getErrorMessage(e, "Could not complete this session")),
+  })
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -125,7 +144,7 @@ export function SessionsTable({
               Kits
             </th>
             <SortHeader label="Location / warehouse" k="location" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-            <th className="w-10 px-2 py-2" />
+            <th className="w-16 px-2 py-2" />
           </tr>
         </thead>
         <tbody>
@@ -209,6 +228,16 @@ export function SessionsTable({
                   ) : null}
                 </td>
                 <td className="px-2 py-2 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                  {!s.completed_at && (
+                    <button
+                      type="button"
+                      onClick={() => setCompletingSession(s)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-muted transition-colors"
+                      title="Mark this session completed"
+                    >
+                      <CheckCircle2 size={14} />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setEditingSession(s)}
@@ -229,6 +258,17 @@ export function SessionsTable({
           cohortId={cohortId}
           session={editingSession}
           onClose={() => setEditingSession(null)}
+        />
+      )}
+
+      {completingSession && (
+        <ConfirmDialog
+          title="Mark this session completed?"
+          description={`${completingSession.meeting_date}${completingSession.title ? ` · ${completingSession.title}` : ""} will be recorded as delivered. This can't be undone.`}
+          confirmLabel="Mark completed"
+          pending={markDoneMutation.isPending}
+          onCancel={() => setCompletingSession(null)}
+          onConfirm={() => markDoneMutation.mutate(completingSession.id)}
         />
       )}
     </div>
