@@ -196,7 +196,7 @@ export default function Status() {
         <div className="flex flex-col gap-4">
           <StepCard
             title="Video Summaries"
-            description="Record and submit 3 short intro-video summaries."
+            description="Watch 3 short videos and write a 200+ word summary of each."
             done={videosSubmitted}
             total={3}
             state={videosDone ? "complete" : "progress"}
