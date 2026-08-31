@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader, Spinner } from "@/pages/instructors/components/common"
-import { getErrorMessage } from "@/lib/utils"
+import { ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 
 function ProgressRing({ percent }: { percent: number }) {
   const r = 15
@@ -371,7 +371,7 @@ export default function Status() {
                   {status.assessment.google_drive_link && (
                     <p className="text-muted-foreground">
                       Google Drive link:{" "}
-                      <a href={status.assessment.google_drive_link} target="_blank" rel="noreferrer" className="text-primary underline break-all">
+                      <a href={ensureAbsoluteUrl(status.assessment.google_drive_link)} target="_blank" rel="noreferrer" className="text-primary underline break-all">
                         {status.assessment.google_drive_link}
                       </a>
                     </p>
