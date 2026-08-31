@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Banknote, Calendar, Download, MapPin } from "lucide-react"
+import { AlertTriangle, Banknote, Calendar, Download, MapPin } from "lucide-react"
 import {
   getBankDetailsApi, updateBankDetailsApi,
 } from "@/api/instructors/instructor"
@@ -36,6 +36,13 @@ export default function Payments() {
     mutationFn: () => updateBankDetailsApi(bank),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-bank-details"] }),
   })
+
+  const bankComplete = !!(
+    bank.account_holder_name.trim() &&
+    bank.bank_name.trim() &&
+    bank.iban.trim() &&
+    bank.swift_bic.trim()
+  )
 
   const sign = useMutation({
     mutationFn: (signature: string) => signPaymentLetterApi(signingLetter!.id, signature),
@@ -73,6 +80,12 @@ export default function Payments() {
           <Button onClick={() => saveBank.mutate()} disabled={saveBank.isPending} className="sm:col-span-2 w-fit">
             {saveBank.isPending ? "Saving…" : "Save bank details"}
           </Button>
+          {!bankComplete && (
+            <p className="sm:col-span-2 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <AlertTriangle size={14} className="shrink-0" />
+              Complete all four fields to unlock signing your payment letters.
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -99,9 +112,16 @@ export default function Payments() {
                     </div>
                   ))}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2">
                   {l.status === "published" && (
-                    <Button size="sm" onClick={() => setSigningLetter(l)}>Sign letter</Button>
+                    bankComplete ? (
+                      <Button size="sm" onClick={() => setSigningLetter(l)}>Sign letter</Button>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                        <AlertTriangle size={14} className="shrink-0" />
+                        Add your bank details above to sign this letter.
+                      </div>
+                    )
                   )}
                   {(l.pdf_url || l.signed_pdf_url) && (
                     <a href={l.signed_pdf_url ?? l.pdf_url ?? "#"} target="_blank" rel="noreferrer">
@@ -121,6 +141,11 @@ export default function Payments() {
           <p className="text-sm text-muted-foreground mb-3">
             By signing, you confirm agreement to the terms of this payment letter.
           </p>
+          {sign.isError && (
+            <p className="text-sm text-destructive mb-3">
+              {sign.error instanceof Error ? sign.error.message : "Could not sign this letter. Please try again."}
+            </p>
+          )}
           <SignaturePad onSign={(sig) => sign.mutate(sig)} signing={sign.isPending} />
         </DialogContent>
       </Dialog>

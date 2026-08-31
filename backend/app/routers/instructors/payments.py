@@ -31,6 +31,15 @@ from app.services.notification import create_notification as notify
 router = APIRouter(prefix="/payments", tags=["instructors-payments"])
 
 
+def _bank_details_complete(bank: InstructorBankDetails | None) -> bool:
+    if not bank:
+        return False
+    return all(
+        (getattr(bank, f) or "").strip()
+        for f in ("account_holder_name", "bank_name", "iban", "swift_bic")
+    )
+
+
 async def _letter_with_children(db: AsyncSession, letter: PaymentLetter) -> PaymentLetterOut:
     sessions = (await db.execute(
         select(PaymentSession).where(PaymentSession.payment_letter_id == letter.id).order_by(PaymentSession.sort_order)
@@ -96,6 +105,11 @@ async def sign_letter(
     bank = (await db.execute(
         select(InstructorBankDetails).where(InstructorBankDetails.user_id == current_user.id)
     )).scalars().first()
+    if not _bank_details_complete(bank):
+        raise HTTPException(
+            status_code=400,
+            detail="Please complete your bank details before signing a payment letter.",
+        )
 
     now = datetime.now(timezone.utc)
     letter.instructor_signature_data = body.signature
