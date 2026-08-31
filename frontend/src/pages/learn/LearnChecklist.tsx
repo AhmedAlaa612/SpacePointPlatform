@@ -166,14 +166,14 @@ function ChecklistItemRow({
     <div
       onClick={clickable ? onOpen : undefined}
       className={cn(
-        "grid grid-cols-[44px_1fr_auto] items-start gap-4 py-5 border-b border-border/70",
+        "grid grid-cols-[36px_1fr_auto] sm:grid-cols-[44px_1fr_auto] items-start gap-3 sm:gap-4 py-5 border-b border-border/70",
         item.status === "done" && "opacity-70",
         current && "-mx-3 px-3 rounded-xl bg-primary/5",
         clickable && "cursor-pointer hover:bg-foreground/5 transition-colors",
       )}
     >
       <div className={cn(
-        "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+        "w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center shrink-0",
         item.status === "done" ? "bg-muted text-muted-foreground" : "bg-primary/10 border border-primary/25 text-primary",
       )}>
         <Icon className="size-4" />
@@ -194,6 +194,7 @@ function ChecklistItemRow({
             </span>
           )}
           {item.optional && <span className="text-[10px] font-medium italic text-muted-foreground">optional</span>}
+          {statusBadge && <span className="sm:hidden">{statusBadge}</span>}
         </div>
         {item.description && <p className="text-sm text-muted-foreground max-w-lg">{item.description}</p>}
 
@@ -217,7 +218,7 @@ function ChecklistItemRow({
         )}
 
         {item.item_type === "submission" && (
-          <div className="flex flex-col gap-2 mt-1 max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div className="flex flex-col gap-2 mt-1 w-full sm:max-w-lg" onClick={(e) => e.stopPropagation()}>
             {item.submission_prompt && <p className="text-xs text-muted-foreground">{item.submission_prompt}</p>}
 
             {/* Always visible once something's been submitted — done or not —
@@ -226,15 +227,15 @@ function ChecklistItemRow({
                 this). Editing stays open after done too: every submission
                 item is overridable at any time, individual or team-scoped. */}
             {item.submitted_url && (
-              <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-lg px-2.5 py-1.5">
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground bg-muted/50 rounded-lg px-2.5 py-1.5">
                 <CheckCircle2 className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
                 <a
                   href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-                  className="text-primary hover:underline truncate"
+                  className="text-primary hover:underline truncate max-w-full min-w-0"
                 >
                   {item.submitted_url}
                 </a>
-                <span className="shrink-0">
+                <span className="min-w-0">
                   · Submitted
                   {item.updated_at &&
                     ` ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
@@ -243,15 +244,17 @@ function ChecklistItemRow({
               </div>
             )}
 
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 value={submitUrl || item.submitted_url || ""}
                 onChange={(e) => setSubmitUrl(e.target.value)}
                 placeholder="Paste your link…"
-                className="flex-1 h-9 px-3 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
+                inputMode="url"
+                className="w-full sm:flex-1 min-w-0 h-10 sm:h-9 px-3 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
               />
               <Button
                 size="sm"
+                className="w-full sm:w-auto shrink-0"
                 disabled={!(submitUrl || item.submitted_url) || submitMutation.isPending}
                 onClick={() => { setSubmitting(true); submitMutation.mutate(submitUrl || item.submitted_url || ""); }}
               >
@@ -274,7 +277,7 @@ function ChecklistItemRow({
       </div>
 
       <div className="flex items-center gap-2 justify-self-end whitespace-nowrap">
-        {statusBadge}
+        <span className="hidden sm:flex">{statusBadge}</span>
         {clickable && <ChevronRight className="size-4 text-muted-foreground" />}
       </div>
 
