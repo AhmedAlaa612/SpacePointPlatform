@@ -31,7 +31,7 @@ stored fact alone — same instinct as `compute_dashboard`'s `all_valid`.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text, Time, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -50,6 +50,11 @@ class LmsProgram(Base):
     )
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    # Header/cover image shown on the student checklist page. Same
+    # bucket/path-only shape as Course.image_bucket/image_path — the URL is
+    # never stored, only resolved fresh at read time via storage.resolve_url.
+    image_bucket = Column(String(64), nullable=True)
+    image_path = Column(String(512), nullable=True)
     # Gates the cohort's existing student_completion certificate on full
     # checklist completion (non-optional items only) when true. No new
     # certificate type — see services/sessions/delivery.py's
@@ -101,7 +106,7 @@ class LmsProgramItem(Base):
     owner_type = Column(String(16), nullable=False)
     owner_id = Column(UUID(as_uuid=True), nullable=False)
     position = Column(Integer, nullable=False)
-    # course|mission_run|external_link|submission|pdf|manual
+    # course|mission_run|external_link|submission|pdf|manual|session
     item_type = Column(String(16), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -143,6 +148,21 @@ class LmsProgramItem(Base):
     # — see routers/lms/student.py's resolve-url endpoint for why the
     # signed URL is never baked into the checklist read payload.
     pdf_path = Column(String(512), nullable=True)
+    # A `submission` item's optional cutoff — enforced only at submit time
+    # (routers/lms/student.py's submit_program_item), not a DB constraint.
+    # Confirming an already-submitted item past the deadline is untouched.
+    deadline_at = Column(DateTime(timezone=True), nullable=True)
+    # A `session` item's own typed fields — always self-contained, never a
+    # live FK to the Sessions domain's `Session` table: a program-level
+    # checklist can span many cohorts with different session dates, so a
+    # live link would be ambiguous, and `Session` itself has no
+    # meeting-link field anyway. The authoring UI may optionally prefill
+    # these from a real Session as a one-time copy (see LmsProgramAdmin's
+    # ItemForm), but nothing here ever points back at that row.
+    session_date = Column(Date, nullable=True)
+    session_starts_at = Column(Time, nullable=True)
+    session_location = Column(String(255), nullable=True)
+    session_meeting_url = Column(String(512), nullable=True)
 
 
 class LmsProgramAssignment(Base):

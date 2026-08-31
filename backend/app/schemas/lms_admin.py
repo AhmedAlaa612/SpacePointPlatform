@@ -9,7 +9,7 @@ these into a student-facing route.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal, Union
 from uuid import UUID
 
@@ -417,7 +417,7 @@ class ItemReorderIn(BaseModel):
 
 # ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
 
-LmsProgramItemType = Literal["course", "mission_run", "external_link", "submission", "pdf", "manual"]
+LmsProgramItemType = Literal["course", "mission_run", "external_link", "submission", "pdf", "manual", "session"]
 # individual (default) tracks per-student, exactly as every item did before
 # this existed. team means the whole `Team` shares one progress row — a
 # competition's link-only deliverables. See LmsProgramItem.scope's docstring.
@@ -436,6 +436,14 @@ class LmsProgramItemIn(BaseModel):
     variant_id: UUID | None = None
     external_url: str | None = None
     submission_prompt: str | None = None
+    # submission-only cutoff — validated against item_type in validate_item_payload.
+    deadline_at: datetime | None = None
+    # session-only fields — always self-contained, never a live FK (see
+    # LmsProgramItem.session_date's own comment).
+    session_date: date | None = None
+    session_starts_at: time | None = None
+    session_location: str | None = None
+    session_meeting_url: str | None = None
     position: int | None = None
 
 
@@ -465,6 +473,11 @@ class LmsProgramItemOut(BaseModel):
     # separate upload endpoint) — never the file itself or a URL, same
     # no-baked-in-signed-url posture the Curriculum Library list follows.
     has_pdf: bool = False
+    deadline_at: datetime | None = None
+    session_date: date | None = None
+    session_starts_at: time | None = None
+    session_location: str | None = None
+    session_meeting_url: str | None = None
 
 
 class LmsProgramItemReorderIn(BaseModel):
@@ -494,6 +507,7 @@ class LmsProgramOut(BaseModel):
     name: str
     description: str | None
     certificate_required: bool
+    image_url: str | None = None
     items: list[LmsProgramItemOut] = []
 
 

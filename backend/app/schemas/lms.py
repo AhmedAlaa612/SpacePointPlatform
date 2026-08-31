@@ -8,7 +8,7 @@ again at the response boundary (plan: "Pydantic response models on the student
 routes enforce it a second time").
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Literal, Union
 from uuid import UUID
 
@@ -444,6 +444,15 @@ class LmsProgramChecklistItemOut(BaseModel):
     has_pdf: bool = False
     # What the student themself submitted back, for a `submission` item.
     submitted_url: str | None = None
+    # submission-only cutoff — students can no longer submit/replace once
+    # past; already-submitted content and its confirmation are unaffected.
+    deadline_at: datetime | None = None
+    # session-only fields — always self-contained, never a live link to a
+    # real Sessions-domain row (see LmsProgramItem.session_date's comment).
+    session_date: date | None = None
+    session_starts_at: time | None = None
+    session_location: str | None = None
+    session_meeting_url: str | None = None
     # Competition domain (2026-08-24) — individual (default) means
     # submitted_url/status above are this student's own, same as always.
     # team means they're the whole Team's shared fact: any member wrote
@@ -473,6 +482,7 @@ class LmsProgramChecklistOut(BaseModel):
     lms_program_id: UUID
     name: str
     description: str | None = None
+    image_url: str | None = None
     cohort_id: UUID | None = None
     cohort_name: str | None = None
     # Competition domain — the student's own team in this cohort, if any

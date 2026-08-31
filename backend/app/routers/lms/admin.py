@@ -110,6 +110,7 @@ router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
 
 COURSE_IMAGE_BUCKET = "lms-course-images"
 LEARNING_PATH_IMAGE_BUCKET = "lms-learning-path-images"
+PROGRAM_IMAGE_BUCKET = "lms-program-images"
 MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8MB — a cover image, not a dataset
 ATTACHMENT_BUCKET = "lms-attachments"
 MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024  # 25MB — a reading, not a video
@@ -1276,6 +1277,7 @@ async def program_out(db: AsyncSession, program: LmsProgram) -> LmsProgramOut:
     return LmsProgramOut(
         id=program.id, program_id=program.program_id, name=program.name,
         description=program.description, certificate_required=program.certificate_required,
+        image_url=await storage.resolve_url(program.image_bucket, program.image_path),
         items=await items_out(db, items),
     )
 
@@ -1351,6 +1353,34 @@ async def delete_lms_program(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
     await db.delete(entry)
     await db.commit()
+
+
+@router.post("/programs/{lms_program_id}/image", response_model=LmsProgramOut)
+async def upload_lms_program_image(
+    lms_program_id: uuid.UUID,
+    file: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    program = await db.get(LmsProgram, lms_program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Empty upload")
+    if len(data) > MAX_IMAGE_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image exceeds the 8MB limit")
+
+    suffix = Path(file.filename or "cover.jpg").suffix or ".jpg"
+    image_path = f"{lms_program_id}/cover{suffix}"
+    await storage.upload_to_path(PROGRAM_IMAGE_BUCKET, image_path, data, file.content_type or "image/jpeg")
+
+    program.image_bucket = PROGRAM_IMAGE_BUCKET
+    program.image_path = image_path
+    await db.commit()
+    await db.refresh(program)
+    return await program_out(db, program)
 
 
 @router.post("/programs/{lms_program_id}/items", response_model=LmsProgramItemOut, status_code=status.HTTP_201_CREATED)

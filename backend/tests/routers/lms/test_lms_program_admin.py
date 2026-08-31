@@ -108,6 +108,45 @@ async def test_create_get_update_delete_lms_program(db, client):
 
 
 @pytest.mark.asyncio
+async def test_upload_program_image_sets_image_url(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Checklist"},
+    )).json()["id"]
+
+    get_before = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
+    assert get_before.json()["image_url"] is None
+
+    resp = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/image", headers=_headers(ops),
+        files={"file": ("cover.jpg", b"\xff\xd8\xff\xe0fakejpegbytes", "image/jpeg")},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["image_url"] is not None
+
+    get_after = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
+    assert get_after.json()["image_url"] is not None
+
+
+@pytest.mark.asyncio
+async def test_upload_program_image_rejects_empty_file(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Checklist"},
+    )).json()["id"]
+
+    resp = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/image", headers=_headers(ops),
+        files={"file": ("cover.jpg", b"", "image/jpeg")},
+    )
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
 async def test_student_cannot_create_a_program(db, client):
     student = await _user(db, roles=["student"])
     await db.commit()
@@ -153,6 +192,100 @@ async def test_add_items_of_every_type_in_order(db, client):
 
     listed = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
     assert [i["item_type"] for i in listed.json()["items"]] == ["course", "mission_run", "manual"]
+
+
+@pytest.mark.asyncio
+async def test_add_session_item_with_all_fields(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Checklist"},
+    )).json()["id"]
+
+    resp = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={
+            "item_type": "session", "title": "Kickoff call",
+            "session_date": "2026-09-15", "session_starts_at": "17:00:00",
+            "session_location": "Building 4, Room 210", "session_meeting_url": "https://meet.example.com/kickoff",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["session_date"] == "2026-09-15"
+    assert body["session_starts_at"] == "17:00:00"
+    assert body["session_location"] == "Building 4, Room 210"
+    assert body["session_meeting_url"] == "https://meet.example.com/kickoff"
+
+
+@pytest.mark.asyncio
+async def test_add_session_item_with_no_fields_succeeds(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Checklist"},
+    )).json()["id"]
+
+    resp = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "session", "title": "Placeholder session"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["session_date"] is None
+
+
+@pytest.mark.asyncio
+async def test_session_item_cannot_be_team_scoped(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Checklist"},
+    )).json()["id"]
+
+    resp = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "session", "title": "Kickoff call", "scope": "team"},
+    )
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_add_submission_item_with_deadline(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Checklist"},
+    )).json()["id"]
+
+    resp = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={
+            "item_type": "submission", "title": "Final poster", "submission_prompt": "Paste your link",
+            "deadline_at": "2026-09-15T17:00:00Z",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["deadline_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_deadline_rejected_on_a_non_submission_item(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Checklist"},
+    )).json()["id"]
+
+    resp = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "Attend", "deadline_at": "2026-09-15T17:00:00Z"},
+    )
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.asyncio
@@ -330,6 +463,50 @@ async def test_cohort_override_created_on_first_item_and_lists_separately(db, cl
     # The program-level checklist itself is untouched by the fork.
     program_after = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
     assert [i["course_id"] for i in program_after.json()["items"]] == [str(program_course.id)]
+
+
+@pytest.mark.asyncio
+async def test_fork_cohort_override_copies_deadline_and_session_fields(db, client):
+    """Regression guard: fork_cohort_override's copy constructor must carry
+    the new deadline/session_* columns, or forking a cohort override
+    silently drops that data."""
+    ops = await _user(db)
+    program = await _program(db)
+    cohort = await _cohort(db, program)
+    await db.commit()
+
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Base"},
+    )).json()["id"]
+    await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={
+            "item_type": "submission", "title": "Poster", "submission_prompt": "Paste your link",
+            "deadline_at": "2026-09-15T17:00:00Z",
+        },
+    )
+    await client.post(
+        f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+        json={
+            "item_type": "session", "title": "Kickoff call",
+            "session_date": "2026-09-15", "session_starts_at": "17:00:00",
+            "session_location": "Building 4, Room 210", "session_meeting_url": "https://meet.example.com/kickoff",
+        },
+    )
+
+    # Triggers fork_cohort_override via the first cohort-override write.
+    await client.post(
+        f"/lms/admin/cohorts/{cohort.id}/program-override/items", headers=_headers(ops),
+        json={"item_type": "manual", "title": "Extra step"},
+    )
+
+    override = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
+    items_by_type = {i["item_type"]: i for i in override.json()["items"]}
+    assert items_by_type["submission"]["deadline_at"] is not None
+    assert items_by_type["session"]["session_date"] == "2026-09-15"
+    assert items_by_type["session"]["session_starts_at"] == "17:00:00"
+    assert items_by_type["session"]["session_location"] == "Building 4, Room 210"
+    assert items_by_type["session"]["session_meeting_url"] == "https://meet.example.com/kickoff"
 
 
 async def test_editing_an_inherited_item_by_its_program_item_id_forks_and_translates(db, client):

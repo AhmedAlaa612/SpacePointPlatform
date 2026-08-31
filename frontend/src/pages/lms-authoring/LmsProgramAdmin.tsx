@@ -1,18 +1,18 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight } from "lucide-react"
+import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight, ImagePlus, Calendar } from "lucide-react"
 import { isAxiosError } from "axios"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/pages/admin/components/common"
 import { useAuth } from "@/context/AuthContext"
 import { getProgramsApi } from "@/api/sessions/programs"
-import { getCohortsApi } from "@/api/sessions/cohorts"
+import { getCohortsApi, getSessionsApi } from "@/api/sessions/cohorts"
 import { listCoursesApi } from "@/api/lms_admin"
 import { listMissionsAdminFullApi } from "@/api/missions_admin"
 import {
-  listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, updateLmsProgramApi,
+  listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, updateLmsProgramApi, uploadLmsProgramImageApi,
   addLmsProgramItemApi, updateLmsProgramItemApi, deleteLmsProgramItemApi, reorderLmsProgramItemsApi,
   getCohortProgramOverrideApi, addCohortOverrideItemApi, updateCohortOverrideItemApi, deleteCohortOverrideItemApi,
   reorderCohortOverrideItemsApi,
@@ -42,6 +42,18 @@ function errorDetail(err: unknown, fallback: string): string {
   return fallback
 }
 
+/** Stored deadline is a UTC ISO string — render it into a `datetime-local`
+ * input's local-time value, same conversion direction TeacherPortal's own
+ * `datetime-local` field uses in reverse (`new Date(value).toISOString()`
+ * going back out on save). */
+function toDatetimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ""
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookOpen }[] = [
   { value: "course", label: "Course", icon: BookOpen },
   { value: "mission_run", label: "Mission run", icon: Rocket },
@@ -49,6 +61,7 @@ const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookO
   { value: "submission", label: "Submission", icon: Upload },
   { value: "pdf", label: "PDF", icon: FileText },
   { value: "manual", label: "Manual check-off", icon: ClipboardCheck },
+  { value: "session", label: "Session", icon: Calendar },
 ]
 
 // Mirrors the server-side rule in services/lms/program.py: only a
@@ -269,9 +282,48 @@ function ProgramTemplateEditor({
     mutationFn: (value: boolean) => updateLmsProgramApi(program.id, { certificate_required: value }),
     onSuccess: onChanged,
   })
+  const [imageError, setImageError] = useState("")
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const imageMutation = useMutation({
+    mutationFn: (file: File) => uploadLmsProgramImageApi(program.id, file),
+    onSuccess: () => { setImageError(""); onChanged() },
+    onError: (e: unknown) => setImageError(errorDetail(e, "Failed to upload image")),
+  })
 
   return (
     <div className="flex flex-col gap-5">
+      <div className="flex items-start gap-4">
+        <button
+          onClick={() => !readOnly && fileInputRef.current?.click()}
+          disabled={readOnly}
+          className="group relative w-24 h-24 shrink-0 rounded-2xl bg-muted overflow-hidden ring-1 ring-border disabled:cursor-not-allowed cursor-pointer"
+          title="Upload header image"
+        >
+          {program.image_url ? (
+            <img src={program.image_url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-muted-foreground">
+              <ImagePlus size={16} />
+              <span className="text-[10px]">Add header</span>
+            </div>
+          )}
+          {!readOnly && (
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-medium">
+              {imageMutation.isPending ? "Uploading..." : "Change"}
+            </div>
+          )}
+        </button>
+        <input
+          ref={fileInputRef} type="file" accept="image/*" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) imageMutation.mutate(f) }}
+        />
+        <div className="flex flex-col gap-1 pt-1">
+          <div className="text-sm font-medium">Checklist header image</div>
+          <div className="text-xs text-muted-foreground">Shown behind the title on the student checklist page</div>
+          {imageError && <p className="text-xs text-red-500">{imageError}</p>}
+        </div>
+      </div>
+
       <div className="flex items-center justify-between p-3 bg-card border border-border rounded-xl">
         <div>
           <div className="text-sm font-medium">Gate certificate on this checklist</div>
@@ -345,6 +397,7 @@ function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: strin
       <ChecklistItemsEditor
         items={override.items}
         readOnly={readOnly}
+        cohortId={cohortId}
         onAdd={(data) => addCohortOverrideItemApi(cohortId, data).then(invalidate)}
         onUpdate={(itemId, data) => updateCohortOverrideItemApi(cohortId, itemId, data).then(invalidate)}
         onDelete={(itemId) => deleteCohortOverrideItemApi(cohortId, itemId).then(invalidate)}
@@ -357,7 +410,7 @@ function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: strin
 }
 
 function ChecklistItemsEditor({
-  items, onAdd, onUpdate, onDelete, onUploadPdf, onRemovePdf, onReorder, readOnly,
+  items, onAdd, onUpdate, onDelete, onUploadPdf, onRemovePdf, onReorder, readOnly, cohortId,
 }: {
   items: LmsProgramItem[]
   onAdd: (data: LmsProgramItemInput) => Promise<unknown>
@@ -367,6 +420,11 @@ function ChecklistItemsEditor({
   onRemovePdf: (itemId: string) => Promise<unknown>
   onReorder: (itemIds: string[]) => Promise<unknown>
   readOnly: boolean
+  // Present only when this editor is scoped to one concrete cohort (the
+  // cohort-override editor) — lets ItemForm offer a "prefill from an
+  // existing session" picker for a `session` item. A program template can
+  // span many cohorts with different session dates, so it's omitted there.
+  cohortId?: string
 }) {
   const [addingType, setAddingType] = useState<LmsProgramItemType | null>(null)
   // Individual vs. team is picked here, at add time, not toggled afterward —
@@ -405,6 +463,7 @@ function ChecklistItemsEditor({
         <ItemRow
           key={item.id} item={item} onUpdate={onUpdate} onDelete={onDelete}
           onUploadPdf={onUploadPdf} onRemovePdf={onRemovePdf} readOnly={readOnly}
+          cohortId={cohortId}
           draggable={!readOnly}
           isDragging={dragId === item.id}
           onDragStartRow={() => setDragId(item.id)}
@@ -417,6 +476,7 @@ function ChecklistItemsEditor({
         <ItemForm
           itemType={addingType}
           initialScope={addingType === "submission" ? addingSubmissionScope : undefined}
+          cohortId={cohortId}
           onCancel={() => setAddingType(null)}
           onSave={async (data) => { await onAdd(data); setAddingType(null) }}
         />
@@ -467,7 +527,7 @@ const ITEM_TYPE_META: Record<LmsProgramItemType, { label: string; icon: typeof B
 ) as Record<LmsProgramItemType, { label: string; icon: typeof BookOpen }>
 
 function ItemRow({
-  item, onUpdate, onDelete, onUploadPdf, onRemovePdf, readOnly,
+  item, onUpdate, onDelete, onUploadPdf, onRemovePdf, readOnly, cohortId,
   draggable, isDragging, onDragStartRow, onDropRow, onDragEndRow,
 }: {
   item: LmsProgramItem
@@ -478,6 +538,7 @@ function ItemRow({
   onUploadPdf?: (itemId: string, file: File) => Promise<unknown>
   onRemovePdf?: (itemId: string) => Promise<unknown>
   readOnly: boolean
+  cohortId?: string
   draggable?: boolean
   isDragging?: boolean
   onDragStartRow?: () => void
@@ -495,6 +556,7 @@ function ItemRow({
       <ItemForm
         itemType={item.item_type}
         initial={item}
+        cohortId={cohortId}
         onCancel={() => setEditing(false)}
         onSave={async (data) => { await onUpdate(item.id, data); setEditing(false) }}
       />
@@ -577,7 +639,7 @@ function ItemRow({
 }
 
 function ItemForm({
-  itemType, initial, initialScope, onCancel, onSave,
+  itemType, initial, initialScope, cohortId, onCancel, onSave,
 }: {
   itemType: LmsProgramItemType
   initial?: LmsProgramItem
@@ -585,6 +647,11 @@ function ItemForm({
   // "Add a step" row was clicked) — ignored once `initial` is set, since an
   // existing item's scope is locked and always comes from `initial.scope`.
   initialScope?: "individual" | "team"
+  // Present only when authoring on one concrete cohort's checklist —
+  // powers the "prefill from an existing session" picker for a `session`
+  // item. See ChecklistItemsEditor's own comment on why a program
+  // template never passes this.
+  cohortId?: string
   onCancel: () => void
   onSave: (data: LmsProgramItemInput) => Promise<void>
 }) {
@@ -602,12 +669,33 @@ function ItemForm({
   const [variantId, setVariantId] = useState(initial?.variant_id ?? "")
   const [externalUrl, setExternalUrl] = useState(initial?.external_url ?? "")
   const [submissionPrompt, setSubmissionPrompt] = useState(initial?.submission_prompt ?? "")
+  const [deadlineAt, setDeadlineAt] = useState(toDatetimeLocalValue(initial?.deadline_at))
+  const [sessionDate, setSessionDate] = useState(initial?.session_date ?? "")
+  const [sessionStartsAt, setSessionStartsAt] = useState(initial?.session_starts_at?.slice(0, 5) ?? "")
+  const [sessionLocation, setSessionLocation] = useState(initial?.session_location ?? "")
+  const [sessionMeetingUrl, setSessionMeetingUrl] = useState(initial?.session_meeting_url ?? "")
+  const [prefillSessionId, setPrefillSessionId] = useState("")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
   const { data: courses = [] } = useQuery({ queryKey: ["lms-admin-courses"], queryFn: listCoursesApi, enabled: itemType === "course" })
   const { data: missions = [] } = useQuery({ queryKey: ["missions-admin-full"], queryFn: listMissionsAdminFullApi, enabled: itemType === "mission_run" })
   const selectedMission = missions.find((m) => m.id === missionId)
+  const { data: cohortSessions = [] } = useQuery({
+    queryKey: ["cohort-sessions-for-prefill", cohortId],
+    queryFn: () => getSessionsApi(cohortId as string),
+    enabled: itemType === "session" && !!cohortId,
+  })
+
+  const applySessionPrefill = (sessionId: string) => {
+    setPrefillSessionId(sessionId)
+    const session = cohortSessions.find((s) => s.id === sessionId)
+    if (!session) return
+    if (!title.trim() && session.title) setTitle(session.title)
+    setSessionDate(session.meeting_date)
+    setSessionStartsAt(session.starts_at?.slice(0, 5) ?? "")
+    setSessionLocation(session.effective_location_name ?? "")
+  }
 
   const save = async () => {
     setError("")
@@ -631,6 +719,11 @@ function ItemForm({
         variant_id: itemType === "mission_run" ? (variantId || null) : null,
         external_url: (itemType === "external_link" || itemType === "submission") ? (externalUrl.trim() || null) : null,
         submission_prompt: itemType === "submission" ? (submissionPrompt.trim() || null) : null,
+        deadline_at: itemType === "submission" && deadlineAt ? new Date(deadlineAt).toISOString() : null,
+        session_date: itemType === "session" ? (sessionDate || null) : null,
+        session_starts_at: itemType === "session" ? (sessionStartsAt || null) : null,
+        session_location: itemType === "session" ? (sessionLocation.trim() || null) : null,
+        session_meeting_url: itemType === "session" ? (sessionMeetingUrl.trim() || null) : null,
       })
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -686,6 +779,42 @@ function ItemForm({
         <p className="text-xs text-muted-foreground">Upload the PDF after saving this step — see the "Upload PDF" button on its row.</p>
       )}
 
+      {itemType === "session" && (
+        <>
+          {!!cohortId && cohortSessions.length > 0 && (
+            <select
+              value={prefillSessionId} onChange={(e) => applySessionPrefill(e.target.value)}
+              className={`${inputCls} cursor-pointer`}
+            >
+              <option value="">Prefill from an existing session…</option>
+              {cohortSessions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.title || "Untitled session"} — {s.meeting_date}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="flex gap-2.5">
+            <input
+              type="date" value={sessionDate} onChange={(e) => setSessionDate(e.target.value)}
+              className={inputCls}
+            />
+            <input
+              type="time" value={sessionStartsAt} onChange={(e) => setSessionStartsAt(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+          <input
+            value={sessionLocation} onChange={(e) => setSessionLocation(e.target.value)}
+            placeholder="Location" className={inputCls}
+          />
+          <input
+            value={sessionMeetingUrl} onChange={(e) => setSessionMeetingUrl(e.target.value)}
+            placeholder="Meeting link (optional) — https://…" className={inputCls}
+          />
+        </>
+      )}
+
       {itemType === "submission" && (
         <>
           <input value={externalUrl} onChange={(e) => setExternalUrl(e.target.value)} placeholder="Reference link (optional)" className={inputCls} />
@@ -693,6 +822,16 @@ function ItemForm({
             value={submissionPrompt} onChange={(e) => setSubmissionPrompt(e.target.value)} placeholder="What should the student submit back?"
             rows={2} className={`${inputCls} h-auto py-2 resize-none`}
           />
+          <div className="flex flex-col gap-1">
+            <input
+              type="datetime-local" value={deadlineAt} onChange={(e) => setDeadlineAt(e.target.value)}
+              className={inputCls}
+            />
+            <span className="text-[11px] text-muted-foreground">
+              Deadline (optional). Leave blank for no deadline. After it passes, students can no longer submit or
+              replace a link; already-submitted content and confirmation are unaffected.
+            </span>
+          </div>
         </>
       )}
 

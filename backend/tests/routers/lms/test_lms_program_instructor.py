@@ -5,7 +5,7 @@ uses). Redis-free (uses the `client` fixture).
 """
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 from fastapi import status as http_status
@@ -77,6 +77,29 @@ async def _cohort_with_manual_item(db) -> tuple[Cohort, LmsProgramItem]:
     item = LmsProgramItem(
         id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
         item_type="manual", title="Attend the closing ceremony", requires_confirmation=True,
+    )
+    db.add(item)
+    await db.flush()
+    return cohort, item
+
+
+async def _cohort_with_submission_item(db, **item_kwargs) -> tuple[Cohort, LmsProgramItem]:
+    program = Program(
+        id=uuid.uuid4(), code=f"CKI-{uuid.uuid4().hex[:8]}", name="Checklist Instructor Program",
+        program_type="workshop", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Checklist Instructor Cohort", status="running")
+    db.add(cohort)
+    await db.flush()
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Instructor Test Checklist")
+    db.add(lms_program)
+    await db.flush()
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Final Poster", submission_prompt="Paste your link",
+        requires_confirmation=True, **item_kwargs,
     )
     db.add(item)
     await db.flush()
@@ -194,6 +217,40 @@ async def test_an_unassigned_instructor_cannot_confirm_either(db, client):
         headers=_headers(instructor),
     )
     assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_confirm_works_after_a_submission_deadline_has_passed(db, client):
+    """Confirming an already-submitted item is never deadline-gated — only
+    a new/replaced submission (routers/lms/student.py's submit endpoint)
+    is blocked once the deadline passes."""
+    instructor = await _user(db)
+    cohort, item = await _cohort_with_submission_item(
+        db, deadline_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    await _assign_instructor(db, instructor=instructor, cohort=cohort)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    submitted = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"url": "https://example.com/poster"},
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["status"] == "awaiting_confirmation"
+
+    # The deadline passes after the student already submitted.
+    item.deadline_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/instructor/cohorts/{cohort.id}/program-progress/{assignment.id}/items/{item.id}/confirm",
+        headers=_headers(instructor),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["items_done"] == 1
 
 
 # ── reachable programs picker ────────────────────────────────────────────

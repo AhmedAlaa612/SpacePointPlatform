@@ -8,6 +8,7 @@ caller's `Team` in that cohort instead of their own individual row.
 """
 
 import uuid
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 from fastapi import status as http_status
@@ -238,6 +239,159 @@ async def test_cannot_submit_a_link_to_a_non_submission_item(db, client):
     assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
 
 
+# ── Submission deadlines ─────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_submit_allowed_before_deadline(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Final Poster", submission_prompt="Paste your link",
+        deadline_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"url": "https://example.com/poster"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_submit_blocked_after_deadline(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Final Poster", submission_prompt="Paste your link",
+        deadline_at=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"url": "https://example.com/poster"},
+    )
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_replace_submission_blocked_after_deadline(db, client):
+    """Not just the first submit — replacing an already-submitted link is
+    blocked too once the deadline has passed."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Final Poster", submission_prompt="Paste your link",
+        deadline_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    first = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"url": "https://example.com/poster-v1"},
+    )
+    assert first.status_code == 200
+
+    # The deadline passes.
+    item.deadline_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    await db.commit()
+
+    replace = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"url": "https://example.com/poster-v2"},
+    )
+    assert replace.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+# ── Session item type ────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_session_item_self_check(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="session", title="Kickoff call",
+        session_location="Building 4, Room 210", session_meeting_url="https://meet.example.com/kickoff",
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(f"/lms/programs/{assignment.id}/items/{item.id}/complete", headers=_headers(student))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_session_item_requires_confirmation(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="session", title="Kickoff call", requires_confirmation=True,
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(f"/lms/programs/{assignment.id}/items/{item.id}/complete", headers=_headers(student))
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "awaiting_confirmation"
+
+
+@pytest.mark.asyncio
+async def test_get_checklist_returns_session_and_deadline_fields(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    session_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="session", title="Kickoff call",
+        session_date=date(2026, 9, 15), session_starts_at=time(17, 0, 0),
+        session_location="Building 4, Room 210", session_meeting_url="https://meet.example.com/kickoff",
+    )
+    submission_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="submission", title="Final Poster", submission_prompt="Paste your link",
+        deadline_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    db.add_all([session_item, submission_item])
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    assert resp.status_code == 200
+    items_by_type = {i["item_type"]: i for i in resp.json()["items"]}
+    assert items_by_type["session"]["session_date"] == "2026-09-15"
+    assert items_by_type["session"]["session_starts_at"] == "17:00:00"
+    assert items_by_type["session"]["session_location"] == "Building 4, Room 210"
+    assert items_by_type["session"]["session_meeting_url"] == "https://meet.example.com/kickoff"
+    assert items_by_type["submission"]["deadline_at"] is not None
+
+
 # ── Team-scoped items (Competition domain, 2026-08-24) ──────────────────────
 
 @pytest.mark.asyncio
@@ -291,6 +445,33 @@ async def test_a_team_scoped_item_is_shared_and_any_teammate_can_override(db, cl
     )).scalars().all()
     assert len(rows) == 1
     assert rows[0].team_id == team.id
+
+
+@pytest.mark.asyncio
+async def test_team_scoped_submission_blocked_after_deadline(db, client):
+    """The single deadline check in submit_program_item covers a
+    team-scoped item too — checklist_item_write_target's fan-out happens
+    after the guard, so no separate scope branch is needed."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Mission Poster", submission_prompt="Paste your poster link",
+        scope="team", deadline_at=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    db.add(item)
+    student_a = await _student(db)
+    student_b = await _student(db)
+    await db.commit()
+    await create_team(db, name="Deadline Team", created_by=student_a.id, cohort_id=cohort.id, member_ids=[student_b.id])
+    assignment_a = await assign_lms_program(db, user_id=student_a.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment_a.id}/items/{item.id}/submit", headers=_headers(student_a),
+        json={"url": "https://canva.com/design/poster"},
+    )
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.asyncio
