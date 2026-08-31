@@ -1,15 +1,16 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useParams, useNavigate } from "@tanstack/react-router"
 import {
-  ArrowLeft, ArrowUp, ArrowDown, ArrowRight, Plus, Pencil, Copy, Trash2, Sparkle, Timer, CheckCircle2, SlidersHorizontal, Eye,
+  ArrowLeft, ArrowUp, ArrowDown, ArrowRight, Plus, Pencil, Copy, Trash2, Sparkle, Timer, CheckCircle2,
+  SlidersHorizontal, Eye, FileUp,
 } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
 import {
   getGameApi, updateGameApi, createGameQuestionApi, updateGameQuestionApi, duplicateGameQuestionApi,
-  deleteGameQuestionApi, reorderGameQuestionsApi,
-  type GameDetail, type GameQuestion, type GameQuestionOption, type PointsMode,
+  deleteGameQuestionApi, reorderGameQuestionsApi, importGameQuestionsApi, downloadGameQuestionsTemplateApi,
+  type GameDetail, type GameQuestion, type GameQuestionOption, type GameQuestionImportResult, type PointsMode,
 } from "@/api/games_admin"
 
 function QuestionEditor({
@@ -261,6 +262,78 @@ function GameDefaultsPanel({ game, gameId }: { game: GameDetail; gameId: string 
   )
 }
 
+/** Bulk-add questions from a filled-in Excel template (mirrors the Payments
+ * page's "download template / upload / show per-row errors" bulk-import
+ * flow) — a bad row is skipped and reported, not fatal, so the rest of the
+ * sheet still gets added. */
+function ImportQuestionsModal({ gameId, onClose }: { gameId: string; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [file, setFile] = useState<File | null>(null)
+  const [result, setResult] = useState<GameQuestionImportResult | null>(null)
+
+  const importMutation = useMutation({
+    mutationFn: (f: File) => importGameQuestionsApi(gameId, f),
+    onSuccess: (res) => {
+      setResult(res)
+      queryClient.invalidateQueries({ queryKey: ["games-admin", gameId] })
+    },
+  })
+
+  return (
+    <Modal title="Import questions from Excel" onClose={onClose} maxWidth="sm:max-w-lg max-w-lg">
+      <div className="flex flex-col gap-4">
+        <p className="text-xs text-muted-foreground">
+          Download the template, fill in one row per question, then upload it here. Rows with a problem are
+          skipped and listed below — everything else still gets added.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void downloadGameQuestionsTemplateApi()}
+            className="h-9 px-3 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            Download template
+          </button>
+          <input
+            ref={fileInputRef} type="file" accept=".xlsx" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) { setFile(f); setResult(null) } }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="h-9 px-3 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors"
+          >
+            Choose file…
+          </button>
+          {file && <span className="text-xs text-muted-foreground truncate">{file.name}</span>}
+        </div>
+
+        {result && (
+          <div className="text-xs p-3 rounded-xl border border-border bg-muted/40 flex flex-col gap-1.5">
+            <p className="font-medium text-foreground">
+              {result.created} question{result.created === 1 ? "" : "s"} added.
+            </p>
+            {result.errors.length > 0 && (
+              <ul className="list-disc pl-4 text-destructive space-y-0.5">
+                {result.errors.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+
+        <ModalActions
+          onCancel={onClose}
+          onConfirm={() => file && importMutation.mutate(file)}
+          loading={importMutation.isPending}
+          disabled={!file}
+          label="Import"
+        />
+      </div>
+    </Modal>
+  )
+}
+
 /** Live Quiz question editor — Claude Design spec Frame 01, rebuilt inside
  * this app's real /lms-authoring shell and component conventions (Modal
  * for add/edit, up/down arrows for reorder — same pattern
@@ -273,6 +346,7 @@ export default function LmsGameDetail() {
   const [editing, setEditing] = useState<GameQuestion | "new" | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<GameQuestion | null>(null)
   const [previewing, setPreviewing] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   const { data: game, isLoading } = useQuery<GameDetail>({
     queryKey: ["games-admin", gameId],
@@ -392,12 +466,20 @@ export default function LmsGameDetail() {
         </div>
       )}
 
-      <button
-        onClick={() => setEditing("new")}
-        className="h-10 px-4 border border-dashed border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-fit flex items-center gap-1.5"
-      >
-        <Plus size={14} /> Add question
-      </button>
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setEditing("new")}
+          className="h-10 px-4 border border-dashed border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-fit flex items-center gap-1.5"
+        >
+          <Plus size={14} /> Add question
+        </button>
+        <button
+          onClick={() => setImporting(true)}
+          className="h-10 px-4 border border-dashed border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-fit flex items-center gap-1.5"
+        >
+          <FileUp size={14} /> Import from Excel
+        </button>
+      </div>
 
       {previewing && game.questions.length > 0 && (
         <PreviewModal game={game} onClose={() => setPreviewing(false)} />
@@ -409,6 +491,10 @@ export default function LmsGameDetail() {
           question={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
         />
+      )}
+
+      {importing && (
+        <ImportQuestionsModal gameId={gameId} onClose={() => setImporting(false)} />
       )}
 
       {deleteTarget && (
