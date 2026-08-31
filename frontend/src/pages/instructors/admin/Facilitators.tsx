@@ -4,6 +4,7 @@ import { CheckCircle2, ClipboardList, FileEdit, Plus, Ticket, XCircle } from "lu
 import { createFacilitatorApi, listAdminFacilitatorsApi, listApplicantsApi, listInvitationsApi } from "@/api/instructors/admin"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { Button } from "@/components/ui/button"
+import { PasswordInput } from "@/components/ui/PasswordInput"
 import { EmptyState, Spinner, StatCard } from "@/pages/instructors/components/common"
 
 /**
@@ -166,9 +167,8 @@ export default function InstructorsAdminFacilitators() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">Password</label>
-                <input
+                <PasswordInput
                   className="input"
-                  type="password"
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

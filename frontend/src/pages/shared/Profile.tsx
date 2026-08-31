@@ -8,6 +8,7 @@ import { ROLE_LABEL } from "@/types/shared"
 import { Button } from "@/components/ui/button"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect"
+import { PasswordInput } from "@/components/ui/PasswordInput"
 import {
   Dialog,
   DialogContent,
@@ -380,23 +381,20 @@ function ChangePasswordDialog({
         </DialogHeader>
         <div className="flex flex-col gap-3 py-2">
           {!mustChange && (
-            <input
-              type="password"
+            <PasswordInput
               value={current}
               onChange={(e) => setCurrent(e.target.value)}
               placeholder="Current password"
               className={inputCls}
             />
           )}
-          <input
-            type="password"
+          <PasswordInput
             value={next}
             onChange={(e) => setNext(e.target.value)}
             placeholder="New password"
             className={inputCls}
           />
-          <input
-            type="password"
+          <PasswordInput
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             placeholder="Confirm new password"
