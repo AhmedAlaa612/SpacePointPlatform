@@ -256,31 +256,41 @@ function LearnProfileMenu() {
   );
 }
 
+/** Two rows of 3 on mobile, with Home centered in the second row instead of
+ * leading the first (2026-08-30: Home used to be the top-left tab). */
+const MOBILE_TAB_ROWS: LearnNavActive[][] = [
+  ["my-courses", "checklists", "missions"],
+  ["games", "home", "leaderboard"],
+];
+
 function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
   const { currentUser } = useAuth();
   const isStaff = !!currentUser?.role && currentUser.role !== "student";
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 flex flex-col md:hidden border-t border-border bg-background/95 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
-      <div className="flex items-stretch">
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const isActive = item.key === active;
-          return (
-            <Link
-              key={item.key}
-              to={item.to}
-              className={cn(
-                "flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors",
-                isActive ? "text-primary" : "text-muted-foreground",
-              )}
-            >
-              <Icon className="h-5 w-5" />
-              {item.label}
-            </Link>
-          );
-        })}
-      </div>
+      {MOBILE_TAB_ROWS.map((row, i) => (
+        <div key={i} className="flex items-stretch">
+          {row.map((key) => {
+            const item = NAV_ITEMS.find((navItem) => navItem.key === key)!;
+            const Icon = item.icon;
+            const isActive = item.key === active;
+            return (
+              <Link
+                key={item.key}
+                to={item.to}
+                className={cn(
+                  "flex flex-1 flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors",
+                  isActive ? "text-primary" : "text-muted-foreground",
+                )}
+              >
+                <Icon className="h-5 w-5" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+      ))}
       <div className="flex items-center justify-between border-t border-border/50 px-2 py-1.5">
         {isStaff ? (
           <Link
