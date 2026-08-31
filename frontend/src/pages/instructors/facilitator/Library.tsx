@@ -309,9 +309,9 @@ export default function FacilitatorLibrary() {
           list (unlike the read-only instructor Curriculum Library, this
           management page doesn't blank it out), so no extra fetch needed. */}
       <Dialog open={!!previewResource} onOpenChange={(open) => !open && setPreviewResource(null)}>
-        <DialogContent className="sm:max-w-3xl max-w-3xl">
+        <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] flex flex-col">
           <DialogHeader><DialogTitle>{previewResource?.title}</DialogTitle></DialogHeader>
-          {previewResource && <PdfViewer url={previewResource.file_url} />}
+          {previewResource && <PdfViewer url={previewResource.file_url} className="flex flex-col gap-3 flex-1 min-h-0" />}
         </DialogContent>
       </Dialog>
     </div>

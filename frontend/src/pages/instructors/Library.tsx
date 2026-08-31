@@ -80,7 +80,7 @@ export default function Library() {
       )}
 
       <Dialog open={!!viewing} onOpenChange={(open) => !open && setViewing(null)}>
-        <DialogContent className="sm:max-w-3xl max-w-3xl">
+        <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] flex flex-col">
           <DialogHeader><DialogTitle>{viewing?.title}</DialogTitle></DialogHeader>
           {viewing && <ResourceViewer resource={viewing} />}
         </DialogContent>
@@ -91,7 +91,7 @@ export default function Library() {
 
 function ResourceViewer({ resource }: { resource: LibraryResource }) {
   if (isInlineVideo(resource)) {
-    return <video src={resource.file_url} controls autoPlay className="w-full max-h-[70vh] rounded-lg bg-black" />
+    return <video src={resource.file_url} controls autoPlay className="w-full flex-1 min-h-0 rounded-lg bg-black" />
   }
   return <PdfResourceViewer resourceId={resource.id} />
 }
@@ -106,5 +106,5 @@ function PdfResourceViewer({ resourceId }: { resourceId: string }) {
   if (isError || !url) {
     return <p className="text-sm text-destructive py-6">Couldn't load this document.</p>
   }
-  return <PdfViewer url={url} />
+  return <PdfViewer url={url} className="flex flex-col gap-3 flex-1 min-h-0" />
 }

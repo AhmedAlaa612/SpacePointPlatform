@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, FileWarning } from "lucide-react"
+import { ChevronLeft, ChevronRight, FileWarning, Maximize2, ZoomIn, ZoomOut } from "lucide-react"
 import * as pdfjsLib from "pdfjs-dist"
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist"
 // ?url: served as a raw asset, bypassing Vite's dev-mode JS transform (which
@@ -24,12 +24,36 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
  * callers) rather than fetching one itself, so it stays reusable regardless
  * of where that URL comes from.
  */
+const MIN_ZOOM = 0.5
+const MAX_ZOOM = 3
+const ZOOM_STEP = 0.25
+
 export function PdfViewer({ url, className }: { url: string; className?: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
   const [pageNum, setPageNum] = useState(1)
   const [pdfError, setPdfError] = useState(false)
+  // The "fit width" baseline — how wide the container actually is right now,
+  // not a one-time read at mount. Tracked live via ResizeObserver so the
+  // page re-fits correctly whether the container was still animating open
+  // (a Dialog's enter transition) when the doc first loaded, or the window
+  // is resized afterward.
+  const [containerWidth, setContainerWidth] = useState(800)
+  // Multiplies the fit-width scale — 1 means "fit width" exactly, same as
+  // before zoom controls existed.
+  const [zoom, setZoom] = useState(1)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width
+      if (width) setContainerWidth(width)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   useEffect(() => {
     if (!url) return
@@ -37,6 +61,7 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
     let loadedDoc: PDFDocumentProxy | null = null
     setPdfError(false)
     setDoc(null)
+    setZoom(1)
     const loadingTask = pdfjsLib.getDocument(url)
     loadingTask.promise.then((loaded) => {
       if (cancelled) { loaded.destroy(); return }
@@ -63,9 +88,8 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
     let renderTask: RenderTask | null = null
     doc.getPage(pageNum).then((page) => {
       if (cancelled) return
-      const containerWidth = containerRef.current?.clientWidth ?? 800
       const unscaled = page.getViewport({ scale: 1 })
-      const viewport = page.getViewport({ scale: containerWidth / unscaled.width })
+      const viewport = page.getViewport({ scale: (containerWidth / unscaled.width) * zoom })
       canvas.width = viewport.width
       canvas.height = viewport.height
       renderTask = page.render({ canvas, viewport })
@@ -77,7 +101,7 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
       cancelled = true
       renderTask?.cancel()
     }
-  }, [doc, pageNum])
+  }, [doc, pageNum, containerWidth, zoom])
 
   if (pdfError) {
     return (
@@ -88,33 +112,67 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
   }
 
   return (
-    <div className={className ?? "flex flex-col gap-4"}>
+    <div className={className ?? "flex flex-col gap-3 h-full min-h-0"}>
       <div
         ref={containerRef}
-        className="w-full max-h-[70vh] overflow-auto rounded-2xl ring-1 ring-border bg-card flex justify-center p-3"
+        className="w-full flex-1 min-h-0 overflow-auto rounded-2xl ring-1 ring-border bg-card flex justify-center p-3"
       >
         {!doc && <p className="text-sm text-muted-foreground py-16">Loading document...</p>}
-        <canvas ref={canvasRef} className={doc ? "max-w-full h-auto" : "hidden"} />
+        <canvas ref={canvasRef} className={doc ? "h-fit" : "hidden"} />
       </div>
-      {doc && doc.numPages > 1 && (
-        <div className="flex items-center justify-between gap-2">
-          <button
-            type="button"
-            disabled={pageNum <= 1}
-            onClick={() => setPageNum((p) => p - 1)}
-            className="inline-flex items-center gap-1.5 h-9 px-3 border border-border text-foreground text-sm font-medium rounded-xl hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
-          >
-            <ChevronLeft className="size-4" /> Previous page
-          </button>
-          <p className="text-xs text-muted-foreground">Page {pageNum} of {doc.numPages}</p>
-          <button
-            type="button"
-            disabled={pageNum >= doc.numPages}
-            onClick={() => setPageNum((p) => p + 1)}
-            className="inline-flex items-center gap-1.5 h-9 px-3 border border-border text-foreground text-sm font-medium rounded-xl hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
-          >
-            Next page <ChevronRight className="size-4" />
-          </button>
+      {doc && (
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              disabled={zoom <= MIN_ZOOM}
+              onClick={() => setZoom((z) => Math.max(MIN_ZOOM, +(z - ZOOM_STEP).toFixed(2)))}
+              className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+              title="Zoom out"
+            >
+              <ZoomOut className="size-4" />
+            </button>
+            <span className="text-xs text-muted-foreground w-11 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+            <button
+              type="button"
+              disabled={zoom >= MAX_ZOOM}
+              onClick={() => setZoom((z) => Math.min(MAX_ZOOM, +(z + ZOOM_STEP).toFixed(2)))}
+              className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+              title="Zoom in"
+            >
+              <ZoomIn className="size-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setZoom(1)}
+              disabled={zoom === 1}
+              className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+              title="Fit width"
+            >
+              <Maximize2 className="size-4" />
+            </button>
+          </div>
+          {doc.numPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={pageNum <= 1}
+                onClick={() => setPageNum((p) => p - 1)}
+                className="inline-flex items-center gap-1.5 h-9 px-3 border border-border text-foreground text-sm font-medium rounded-xl hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+              >
+                <ChevronLeft className="size-4" /> Previous page
+              </button>
+              <p className="text-xs text-muted-foreground whitespace-nowrap">Page {pageNum} of {doc.numPages}</p>
+              <button
+                type="button"
+                disabled={pageNum >= doc.numPages}
+                onClick={() => setPageNum((p) => p + 1)}
+                className="inline-flex items-center gap-1.5 h-9 px-3 border border-border text-foreground text-sm font-medium rounded-xl hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+              >
+                Next page <ChevronRight className="size-4" />
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
