@@ -11,3 +11,8 @@
 *.woff binary
 *.woff2 binary
 *.ttf binary
+
+# Word/Excel/PowerPoint documents are binary too.
+*.docx binary
+*.xlsx binary
+*.pptx binary

@@ -302,3 +302,33 @@ changes; the third and fourth just confirm existing design decisions with no cod
 - **The dashboard deliverable has no platform template** — teams build it themselves (vibecoded) and
   submit a link, same as poster/video/circuit/CAD. Ops gives guides, not a builder. Also already
   exactly how `scope="team"` + `submission`/`external_link` items work; no new mechanism needed.
+
+---
+
+## 5. Operator-facing guides (2026-08-31)
+
+Three Word documents under [`docs/competitions/`](./competitions/), one per audience:
+
+- `Competitions - Operations Guide.docx` — the full run-book: program type → one cohort per phase →
+  LMS program → per-cohort checklists → roster import → rubric → judges → progress tracking →
+  publish → advance.
+- `Competitions - Judge Guide.docx` — set password, find teams, read submissions, draft vs.
+  **Submit score**, what closes when results publish.
+- `Competitions - Student Guide.docx` — invite email → checklist → team submissions → courses and
+  missions → next stage.
+
+They are **generated**, not hand-edited: `build_ops_guide.py` / `build_judge_guide.py` /
+`build_student_guide.py`, all on top of `guide_kit.py`. Run any of them from inside
+`docs/competitions/` (needs `python-docx`) and it rewrites its own `.docx` in place.
+
+`guide_kit.py` opens `backend/app/static/templates/docx/payment_letter.docx`, throws away its body
+and keeps the section properties — so the guides carry the *same* branded header/footer parts the
+platform's generated letters do (see `services/documents/letterhead.py` for the ReportLab twin)
+rather than a second copy of the letterhead that can drift. Screenshots are deliberately left as
+labelled placeholder boxes naming what to capture and what to annotate; whoever takes them pastes
+the image into the box.
+
+Content is written against the UI as it stands at this commit — the tab names, button labels and
+statuses in the guides are the literal ones in `CompetitionJudging.tsx`, `LmsProgramAdmin.tsx`,
+`JudgeTeams.tsx`/`JudgeTeamDetail.tsx` and `LearnChecklist.tsx`. If any of those change, update the
+matching builder and regenerate.
