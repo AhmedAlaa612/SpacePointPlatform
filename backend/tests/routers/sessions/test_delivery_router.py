@@ -17,6 +17,7 @@ from app.models.sessions.attendance import AttendanceRecord
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
+from app.services.games.realtime import get_realtime_redis_dep
 from app.services.sessions.registration import register
 from app.models.spine.contact import Contact
 
@@ -37,7 +38,14 @@ async def client(db):
     async def _override_get_db():
         yield db
 
+    async def _override_get_realtime_redis():
+        return None
+
     app.dependency_overrides[get_db] = _override_get_db
+    # Mark-done and (since 2026-08-31) cohort completion both close any live
+    # quiz the session left open, so this local client needs the Redis-free
+    # override the shared `client` fixture in tests/conftest.py already has.
+    app.dependency_overrides[get_realtime_redis_dep] = _override_get_realtime_redis
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as c:
         yield c

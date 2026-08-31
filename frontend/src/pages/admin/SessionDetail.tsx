@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate, useParams } from "@tanstack/react-router"
-import { ArrowLeft, Bus, ChevronDown, ChevronRight, Download, FileText, Gamepad2, MapPin, Pencil, Plane, Trash2, Warehouse } from "lucide-react"
+import { ArrowLeft, Bus, CheckCircle2, ChevronDown, ChevronRight, Download, FileText, Gamepad2, MapPin, Pencil, Plane, Trash2, Warehouse } from "lucide-react"
 import type {
   Cohort, Session, StaffingStatus, EligibleInstructor, AttendanceStatus, SessionDelivery,
 } from "@/types/sessions"
@@ -20,7 +20,7 @@ import {
   listSessionCallsApi, closeOneCallApi,
 } from "@/api/sessions/staffing"
 import { getDeliveryRolesApi, getOpeningsApi } from "@/api/sessions/openings"
-import { getSessionDeliveryApi, markAttendanceApi } from "@/api/sessions/delivery"
+import { getSessionDeliveryApi, markAttendanceApi, markSessionDoneApi } from "@/api/sessions/delivery"
 import { listSessionGameRunsApi } from "@/api/sessions/day"
 import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPanel"
 import { Modal, ConfirmDialog, IconBadge, Spinner, PageHeader } from "@/pages/admin/components/common"
@@ -28,7 +28,7 @@ import { InheritedFrom } from "@/pages/admin/components/InheritedFrom"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { useToast } from "@/components/ui/toast"
 import { Card } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import { cn, getErrorMessage } from "@/lib/utils"
 
 import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
 
@@ -118,6 +118,7 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<SessionTab>("setup")
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [completeConfirmOpen, setCompleteConfirmOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [locationId, setLocationId] = useState(session.location_id ?? "")
   const [warehouseId, setWarehouseId] = useState(session.warehouse_id ?? "")
@@ -139,6 +140,21 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
     }),
     onSuccess: () => { setError(""); toast.success("Location & warehouse saved"); onChanged() },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to save location & warehouse"),
+  })
+
+  // Ops closing out a day the instructor never marked done (2026-08-31) —
+  // the instructor's own endpoint, which already accepts ops.
+  const markDoneMutation = useMutation({
+    mutationFn: () => markSessionDoneApi(session.id),
+    onSuccess: () => {
+      toast.success("Session marked completed")
+      setCompleteConfirmOpen(false)
+      onChanged()
+    },
+    onError: (e: unknown) => {
+      setError(getErrorMessage(e, "Could not complete this session"))
+      setCompleteConfirmOpen(false)
+    },
   })
 
   const deleteMutation = useMutation({
@@ -169,12 +185,24 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
         title={session.title ? session.title : `Session — ${session.meeting_date}`}
         subtitle={`${cohort.name} · ${session.meeting_date}${session.starts_at ? ` · ${session.starts_at.slice(0, 5)}` : ""}`}
         action={
-          <button
-            onClick={() => setEditModalOpen(true)}
-            className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
-          >
-            <Pencil size={14} /> Edit session
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {!session.completed_at && (
+              <button
+                onClick={() => setCompleteConfirmOpen(true)}
+                disabled={markDoneMutation.isPending}
+                className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 disabled:opacity-50"
+              >
+                <CheckCircle2 size={14} className="text-emerald-600 dark:text-emerald-400" />
+                {markDoneMutation.isPending ? "Completing…" : "Mark completed"}
+              </button>
+            )}
+            <button
+              onClick={() => setEditModalOpen(true)}
+              className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
+            >
+              <Pencil size={14} /> Edit session
+            </button>
+          </div>
         }
       />
 
@@ -184,6 +212,17 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
           session={session}
           onClose={() => setEditModalOpen(false)}
           onSaved={onChanged}
+        />
+      )}
+
+      {completeConfirmOpen && (
+        <ConfirmDialog
+          title="Mark this session completed?"
+          description="It will be recorded as delivered, which is what makes it billable for whoever taught it. This can't be undone."
+          confirmLabel="Mark completed"
+          pending={markDoneMutation.isPending}
+          onCancel={() => setCompleteConfirmOpen(false)}
+          onConfirm={() => markDoneMutation.mutate()}
         />
       )}
 

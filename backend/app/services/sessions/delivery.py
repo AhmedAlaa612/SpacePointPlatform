@@ -17,7 +17,7 @@ from html import escape
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import exists, func, select
+from sqlalchemy import exists, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.certificate import Certificate
@@ -258,7 +258,18 @@ async def complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id: UUID
     which deliberately bypasses the checklist gate too, same as it already
     bypasses the completion rule). Then the cohort itself flips to
     completed. S5-2's zero-reports warning is layered on top of this by
-    the router, not here."""
+    the router, not here.
+
+    Every session that was never marked done is completed too (2026-08-31,
+    operator: "when I mark a cohort completed shouldn't all sessions just
+    auto be completed"). Ops saying the cohort is finished is a statement
+    that its days happened; leaving them Scheduled forever contradicted the
+    cohort's own status and left `cohort_is_fully_reviewed` permanently
+    false. A session that already has `completed_at` keeps its original
+    timestamp — that stamp is the delivery record, not a flag. This lives
+    here rather than in the router so `day.py::maybe_complete_cohort`
+    inherits it; on that path it is a no-op, since it only fires once every
+    session is already done."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
@@ -280,6 +291,12 @@ async def complete_cohort(db: AsyncSession, cohort_id: UUID, actor_user_id: UUID
             await _issue_student_certificate(db, registration, contact, cohort, program, actor_user_id)
         else:
             registration.status = "attended"
+
+    await db.execute(
+        update(Session)
+        .where(Session.cohort_id == cohort_id, Session.completed_at.is_(None))
+        .values(completed_at=datetime.now(timezone.utc))
+    )
 
     cohort.status = "completed"
     await db.flush()

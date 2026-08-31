@@ -9,7 +9,7 @@ storage.upload_file is monkeypatched so nothing touches disk.
 """
 
 import uuid
-from datetime import date
+from datetime import date, datetime, timezone
 
 import pytest
 from sqlalchemy import select
@@ -362,3 +362,54 @@ async def test_manual_override_unknown_registration_404(db):
     with pytest.raises(HTTPException) as exc:
         await delivery.issue_certificate_override(db, uuid.uuid4(), actor)
     assert exc.value.status_code == 404
+
+
+# ── session cascade (2026-08-31) ─────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_completing_a_cohort_completes_its_open_sessions(db):
+    """The operator's ask: marking the cohort completed shouldn't leave its
+    sessions sitting on Scheduled forever."""
+    cohort, program, sessions = await _make_cohort_with_sessions(db, 3)
+    actor = (await _make_actor(db)).id
+    assert all(s.completed_at is None for s in sessions)
+
+    await delivery.complete_cohort(db, cohort.id, actor)
+
+    for s in sessions:
+        await db.refresh(s)
+        assert s.completed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_already_completed_session_keeps_its_original_timestamp(db):
+    """`completed_at` is the delivery record, not a flag — a day the
+    instructor actually closed out keeps the time they closed it."""
+    cohort, program, sessions = await _make_cohort_with_sessions(db, 2)
+    actor = (await _make_actor(db)).id
+    delivered_at = datetime(2026, 9, 1, 12, 30, tzinfo=timezone.utc)
+    sessions[0].completed_at = delivered_at
+    await db.flush()
+
+    await delivery.complete_cohort(db, cohort.id, actor)
+
+    await db.refresh(sessions[0])
+    await db.refresh(sessions[1])
+    assert sessions[0].completed_at == delivered_at
+    assert sessions[1].completed_at is not None
+    assert sessions[1].completed_at != delivered_at
+
+
+@pytest.mark.asyncio
+async def test_cascade_is_idempotent_across_two_completions(db):
+    cohort, program, sessions = await _make_cohort_with_sessions(db, 2)
+    actor = (await _make_actor(db)).id
+
+    await delivery.complete_cohort(db, cohort.id, actor)
+    await db.refresh(sessions[0])
+    first_stamp = sessions[0].completed_at
+
+    await delivery.complete_cohort(db, cohort.id, actor)
+
+    await db.refresh(sessions[0])
+    assert sessions[0].completed_at == first_stamp
