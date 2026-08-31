@@ -451,7 +451,7 @@ async def generate_pdf(
                        "session_count": s.session_count, "rate_aed": s.rate_aed} for s in sessions],
             addons=[{"description": a.description, "amount_aed": a.amount_aed, "notes": a.notes} for a in addons],
             bank={"account_holder_name": bank.account_holder_name, "bank_name": bank.bank_name, "iban": bank.iban,
-                  "swift_bic": bank.swift_bic} if bank else None,
+                  "swift_bic": bank.swift_bic, "bank_location": bank.bank_location} if bank else None,
             admin_signatory_name=await _get_setting(db, "admin_signatory_name", settings.DEFAULT_SIGNATORY_NAME),
             admin_signatory_title=await _get_setting(db, "admin_signatory_title", settings.DEFAULT_SIGNATORY_TITLE),
             admin_signature_bytes=admin_signature_bytes,

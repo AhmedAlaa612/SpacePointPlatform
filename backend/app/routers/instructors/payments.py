@@ -133,6 +133,7 @@ async def sign_letter(
             bank={
                 "account_holder_name": bank.account_holder_name, "bank_name": bank.bank_name,
                 "iban": bank.iban, "swift_bic": bank.swift_bic,
+                "bank_location": bank.bank_location,
             } if bank else None,
             admin_signatory_name=await _get_setting(db, "admin_signatory_name", settings.DEFAULT_SIGNATORY_NAME),
             admin_signatory_title=await _get_setting(db, "admin_signatory_title", settings.DEFAULT_SIGNATORY_TITLE),

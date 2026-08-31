@@ -18,6 +18,7 @@ def _bank(**overrides) -> InstructorBankDetails:
         "bank_name": "Emirates NBD Bank PJSC",
         "iban": "AE070331234567890123456",
         "swift_bic": "EBILAEAD",
+        "bank_location": "Dubai",
     }
     fields.update(overrides)
     return InstructorBankDetails(**fields)
@@ -33,6 +34,14 @@ def test_swift_is_optional_so_its_absence_does_not_block_signing():
     blocked instructors who already had everything the payout needs."""
     assert _bank(swift_bic=None).is_complete is True
     assert _bank(swift_bic="").is_complete is True
+
+
+def test_bank_location_is_optional_too():
+    """It was added long after instructors started saving bank details, so every
+    existing row has it empty. Putting it in the required set would mark all of
+    them incomplete at once and stop them signing until they revisited the form."""
+    assert _bank(bank_location=None).is_complete is True
+    assert _bank(bank_location="").is_complete is True
 
 
 def test_each_of_the_three_required_fields_is_actually_required():

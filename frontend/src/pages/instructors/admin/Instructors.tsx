@@ -17,6 +17,7 @@ function BankDetailsDialog({ userId, name, onClose }: { userId: string; name: st
     ["Bank name", data?.bank_name ?? null],
     ["IBAN", data?.iban ?? null],
     ["SWIFT/BIC", data?.swift_bic ?? null],
+    ["Bank location", data?.bank_location ?? null],
   ]
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>

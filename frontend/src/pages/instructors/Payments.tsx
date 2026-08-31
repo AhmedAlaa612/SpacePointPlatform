@@ -16,7 +16,9 @@ import { SignaturePad } from "@/pages/instructors/components/SignaturePad"
 export default function Payments() {
   const qc = useQueryClient()
   const [signingLetter, setSigningLetter] = useState<PaymentLetter | null>(null)
-  const [bank, setBank] = useState({ account_holder_name: "", bank_name: "", iban: "", swift_bic: "" })
+  const [bank, setBank] = useState({
+    account_holder_name: "", bank_name: "", iban: "", swift_bic: "", bank_location: "",
+  })
   const [bankLoaded, setBankLoaded] = useState(false)
 
   const summary = useQuery({ queryKey: ["instructor-payment-summary"], queryFn: getPaymentSummaryApi })
@@ -29,6 +31,7 @@ export default function Payments() {
       bank_name: bankDetails.data.bank_name ?? "",
       iban: bankDetails.data.iban ?? "",
       swift_bic: bankDetails.data.swift_bic ?? "",
+      bank_location: bankDetails.data.bank_location ?? "",
     })
     setBankLoaded(true)
   }
@@ -92,6 +95,8 @@ export default function Payments() {
             onChange={(e) => setBank({ ...bank, iban: e.target.value })} />
           <input className="input" placeholder="SWIFT/BIC (optional)" value={bank.swift_bic}
             onChange={(e) => setBank({ ...bank, swift_bic: e.target.value })} />
+          <input className="input" placeholder="Bank location (city/emirate, optional)" value={bank.bank_location}
+            onChange={(e) => setBank({ ...bank, bank_location: e.target.value })} />
           <Button onClick={() => saveBank.mutate()} disabled={saveBank.isPending} className="sm:col-span-2 w-fit">
             {saveBank.isPending ? "Saving…" : "Save bank details"}
           </Button>

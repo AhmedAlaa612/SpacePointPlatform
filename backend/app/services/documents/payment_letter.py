@@ -192,7 +192,8 @@ def generate_payment_letter_pdf(
 ) -> bytes:
     """Each session dict: {session_date, workshop_description, role, location,
     duration_hours, compensation_aed}. Each addon dict: {description,
-    amount_aed, notes}. `bank`: {account_holder_name, bank_name, iban, swift_bic} or None.
+    amount_aed, notes}. `bank`: {account_holder_name, bank_name, iban, swift_bic,
+    bank_location} or None.
     """
     doc = Document(str(_TEMPLATE))
     _replace_aptos(doc)
@@ -223,16 +224,17 @@ def generate_payment_letter_pdf(
         f" + optional add-ons of AED {_currency(addons_total)}."
     )
 
-    # P[21-24]: bank details — each has run[0]=bold label, run[1]=value
+    # P[21-25]: bank details — each has run[0]=bold label, run[1]=value
     # `or ''` rather than a .get default: the callers always pass every key, with
     # the nullable ORM value, so a NULL column reaches here as None and the
     # default never fires — which printed the literal text "None" onto the
-    # letter. SWIFT is optional, so its line renders as a bare label, which is
-    # what the template's "(if applicable)" wording is there to cover.
+    # letter. SWIFT and location are optional, so their lines render as bare
+    # labels — which is what the template's "(if applicable)" wording covers.
     paras[21].runs[1].text = f": {bank.get('account_holder_name') or ''}"
     paras[22].runs[1].text = f": {bank.get('bank_name') or ''}"
     paras[23].runs[1].text = f": {bank.get('iban') or ''}"
     paras[24].runs[1].text = f" (if applicable): {bank.get('swift_bic') or ''}"
+    paras[25].runs[1].text = f": {bank.get('bank_location') or ''}"
 
     # --- Table 0: Sessions ---
     tbl0 = doc.tables[0]
