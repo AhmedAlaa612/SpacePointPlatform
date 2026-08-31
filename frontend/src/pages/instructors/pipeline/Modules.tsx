@@ -9,7 +9,7 @@ import {
 } from "@/api/instructors/applicant"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
-import { PageHeader, Spinner } from "@/pages/instructors/components/common"
+import { PageHeader, Spinner, StatusPill } from "@/pages/instructors/components/common"
 
 export default function Modules() {
   const qc = useQueryClient()
@@ -66,11 +66,16 @@ export default function Modules() {
             {modules.map((m) => {
               const percent = m.item_count > 0 ? Math.round((m.completed_count / m.item_count) * 100) : 100
               const isComplete = percent === 100
+              const isRejected = m.submission_status === "rejected"
               return (
                 <Link key={m.id} to="/instructors/modules/$moduleId" params={{ moduleId: m.id }}>
                   <Card
                     className={`h-full transition-all hover:-translate-y-1 ${
-                      isComplete ? "border-primary/50 bg-primary/5" : "hover:border-primary/40"
+                      isRejected
+                        ? "border-destructive/50 bg-destructive/5 hover:border-destructive/70"
+                        : isComplete
+                        ? "border-primary/50 bg-primary/5"
+                        : "hover:border-primary/40"
                     }`}
                   >
                     <CardContent className="p-6">
@@ -79,10 +84,19 @@ export default function Modules() {
                           <p className="text-sm text-muted-foreground">Module {m.sort_order}</p>
                           <h3 className="text-lg font-bold text-foreground">{m.title}</h3>
                         </div>
-                        <div className={`p-2 rounded-full shrink-0 ${isComplete ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
-                          <CheckCircle2 size={20} />
+                        <div className="flex items-center gap-2 shrink-0">
+                          {m.submission_status && <StatusPill status={m.submission_status} />}
+                          <div className={`p-2 rounded-full ${isComplete ? "bg-primary/20 text-primary" : "bg-muted text-muted-foreground"}`}>
+                            <CheckCircle2 size={20} />
+                          </div>
                         </div>
                       </div>
+                      {isRejected && m.submission_feedback && (
+                        <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                          <p className="font-semibold mb-0.5">Needs changes</p>
+                          <p className="line-clamp-2">{m.submission_feedback}</p>
+                        </div>
+                      )}
                       <div>
                         <div className="flex justify-between text-sm mb-1">
                           <span className="text-muted-foreground">Progress</span>
