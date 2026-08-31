@@ -16,6 +16,13 @@ export function ensureAbsoluteUrl(url: string): string {
   return /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`;
 }
 
+/** A library resource's `format` (extension-derived, e.g. "MP4") is a
+ * recognized video container — used to render an inline `<video>` player
+ * instead of a plain outbound link. */
+export function isVideoFormat(format: string): boolean {
+  return ["MP4", "MOV", "WEBM", "M4V", "AVI", "MKV", "OGG", "OGV"].includes(format.toUpperCase());
+}
+
 /** Locale-friendly date formatting. */
 export function formatDate(value: string | Date, opts?: Intl.DateTimeFormatOptions) {
   const d = typeof value === "string" ? new Date(value) : value;

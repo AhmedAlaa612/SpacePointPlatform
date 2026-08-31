@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ExternalLink, FileText, Link2, Pencil, Plus, Trash2, Upload } from "lucide-react"
+import { ExternalLink, FileText, Link2, Pencil, Plus, Trash2, Upload, Video } from "lucide-react"
 import {
   addLibraryLinkApi, createLibraryModuleApi, deleteLibraryModuleApi, deleteLibraryResourceApi,
   facilitatorListLibraryApi, replaceLibraryFileApi, updateLibraryResourceApi, uploadLibraryResourceApi,
@@ -10,29 +10,35 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
+import { isVideoFormat } from "@/lib/utils"
 
 function ResourceRow({ r, onEdit, onDelete }: { r: LibraryResource; onEdit: () => void; onDelete: () => void }) {
+  const isVideo = r.resource_type === "file" && isVideoFormat(r.format)
+
   return (
-    <div className="flex items-center gap-3 p-3 rounded-lg border bg-background">
-      <FileText className="text-primary shrink-0" size={18} />
-      <a
-        href={r.file_url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0"
-      >
-        <span className="truncate">{r.title}</span>
-        {r.resource_type !== "link" && (
-          <span className="text-muted-foreground shrink-0 text-xs">({r.format})</span>
-        )}
-        <ExternalLink size={12} className="shrink-0 text-muted-foreground" />
-      </a>
-      <button onClick={onEdit} className="p-1 text-muted-foreground hover:text-primary">
-        <Pencil size={14} />
-      </button>
-      <button onClick={onDelete} className="p-1 text-muted-foreground hover:text-destructive">
-        <Trash2 size={14} />
-      </button>
+    <div className="flex flex-col gap-2 p-3 rounded-lg border bg-background">
+      <div className="flex items-center gap-3">
+        {isVideo ? <Video className="text-primary shrink-0" size={18} /> : <FileText className="text-primary shrink-0" size={18} />}
+        <a
+          href={r.file_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0"
+        >
+          <span className="truncate">{r.title}</span>
+          {r.resource_type !== "link" && (
+            <span className="text-muted-foreground shrink-0 text-xs">({r.format})</span>
+          )}
+          <ExternalLink size={12} className="shrink-0 text-muted-foreground" />
+        </a>
+        <button onClick={onEdit} className="p-1 text-muted-foreground hover:text-primary">
+          <Pencil size={14} />
+        </button>
+        <button onClick={onDelete} className="p-1 text-muted-foreground hover:text-destructive">
+          <Trash2 size={14} />
+        </button>
+      </div>
+      {isVideo && <video src={r.file_url} controls className="w-full max-h-64 rounded-lg bg-black" />}
     </div>
   )
 }
@@ -46,7 +52,7 @@ export default function FacilitatorLibrary() {
   const [newModuleName, setNewModuleName] = useState("")
 
   const [addResourceModuleId, setAddResourceModuleId] = useState<string | null>(null)
-  const [addMode, setAddMode] = useState<"link" | "file">("link")
+  const [addMode, setAddMode] = useState<"link" | "file" | "video">("link")
   const [resourceTitle, setResourceTitle] = useState("")
   const [linkUrl, setLinkUrl] = useState("")
 
@@ -200,6 +206,16 @@ export default function FacilitatorLibrary() {
             >
               <Upload size={14} /> File upload
             </button>
+            <button
+              onClick={() => setAddMode("video")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                addMode === "video"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <Video size={14} /> Video
+            </button>
           </div>
 
           <input
@@ -217,7 +233,7 @@ export default function FacilitatorLibrary() {
               onChange={(e) => setLinkUrl(e.target.value)}
             />
           ) : (
-            <input ref={fileRef} type="file" className="input mb-3" />
+            <input ref={fileRef} type="file" accept={addMode === "video" ? "video/*" : undefined} className="input mb-3" />
           )}
 
           <Button
@@ -227,7 +243,7 @@ export default function FacilitatorLibrary() {
             }}
             disabled={!resourceTitle || (addMode === "link" ? !linkUrl : false) || isPending}
           >
-            {isPending ? "Adding…" : addMode === "link" ? "Add link" : "Upload file"}
+            {isPending ? "Adding…" : addMode === "link" ? "Add link" : addMode === "video" ? "Upload video" : "Upload file"}
           </Button>
         </DialogContent>
       </Dialog>
@@ -254,7 +270,10 @@ export default function FacilitatorLibrary() {
           ) : (
             <div className="mb-3">
               <p className="text-xs text-muted-foreground mb-1.5">Replace file (leave empty to keep current)</p>
-              <input ref={editFileRef} type="file" className="input" />
+              <input
+                ref={editFileRef} type="file" className="input"
+                accept={editResource && isVideoFormat(editResource.format) ? "video/*" : undefined}
+              />
             </div>
           )}
 
