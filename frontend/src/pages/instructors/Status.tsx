@@ -1,19 +1,21 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { CheckCircle2, ChevronRight, FileVideo, FlaskConical, ListChecks, Lock, XCircle } from "lucide-react"
+import { CheckCircle2, ChevronRight, FileVideo, FlaskConical, ListChecks, Lock, Send, XCircle } from "lucide-react"
 import {
   getApplicationStatusApi,
   getAssessmentQuestionsApi,
   listVideosApi,
   listModulesApi,
   reopenApplicationApi,
+  submitApplicationApi,
   submitAssessmentApi,
   submitPresentationApi,
 } from "@/api/instructors/applicant"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader, Spinner } from "@/pages/instructors/components/common"
+import { getErrorMessage } from "@/lib/utils"
 
 function ProgressRing({ percent }: { percent: number }) {
   const r = 15
@@ -115,6 +117,44 @@ function StepCard({
   return <Link to={to as any} className="block">{card}</Link>
 }
 
+function SubmitApplicationCard({
+  ready,
+  pending,
+  error,
+  onSubmit,
+}: {
+  ready: boolean
+  pending: boolean
+  error: string | null
+  onSubmit: () => void
+}) {
+  return (
+    <Card className={ready ? "border-primary/40" : "border-dashed opacity-80"}>
+      <CardContent className="flex items-center gap-4 p-5">
+        <div
+          className={`flex size-11 shrink-0 items-center justify-center rounded-full ${
+            ready ? "bg-primary/10 ring-1 ring-primary/30 text-primary" : "bg-muted ring-1 ring-border text-muted-foreground"
+          }`}
+        >
+          <Send size={18} />
+        </div>
+        <div className="min-w-0 flex-1 flex flex-col gap-1">
+          <h3 className="text-sm font-semibold">Submit Application</h3>
+          <p className="text-xs text-muted-foreground">
+            {ready
+              ? "Both steps above are complete — submit your application for review."
+              : "Complete both steps above to submit your application for review."}
+          </p>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+        </div>
+        <Button size="sm" className="shrink-0" disabled={!ready || pending} onClick={onSubmit}>
+          {pending ? "Submitting…" : "Submit Application"}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function Status() {
   const qc = useQueryClient()
   const [videoLink, setVideoLink] = useState("")
@@ -145,6 +185,11 @@ export default function Status() {
 
   const reopen = useMutation({
     mutationFn: reopenApplicationApi,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-status"] }),
+  })
+
+  const submitApp = useMutation({
+    mutationFn: submitApplicationApi,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-status"] }),
   })
 
@@ -211,6 +256,12 @@ export default function Status() {
             state={!videosDone ? "locked" : modulesDone ? "complete" : "progress"}
             to="/instructors/modules"
           />
+          <SubmitApplicationCard
+            ready={videosDone && modulesDone}
+            pending={submitApp.isPending}
+            error={submitApp.isError ? getErrorMessage(submitApp.error, "Could not submit application.") : null}
+            onSubmit={() => submitApp.mutate()}
+          />
         </div>
       ) : (
       <Card>
@@ -222,7 +273,11 @@ export default function Status() {
               <div>
                 <p className="font-semibold">Under review</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  Our team is reviewing your submission. We'll notify you once a decision is made.
+                  {status.assessment
+                    ? "Our team is reviewing your assessment. We'll notify you once a decision is made."
+                    : status.presentation_video_link
+                    ? "Our team is reviewing your presentation. We'll notify you once a decision is made."
+                    : "Our team is reviewing your video summaries and checklist modules. We'll notify you once a decision is made."}
                 </p>
               </div>
             </div>
@@ -348,7 +403,12 @@ export default function Status() {
                       />
                     </div>
                     {assessmentError && <p className="text-sm text-destructive">{assessmentError}</p>}
-                    <Button type="submit" disabled={submitAssessment.isPending} className="self-start">
+                    <Button
+                      type="submit"
+                      size="xl"
+                      disabled={submitAssessment.isPending}
+                      className="self-start rounded-md px-10"
+                    >
                       {submitAssessment.isPending ? "Submitting…" : "Submit assessment"}
                     </Button>
                   </form>
