@@ -80,9 +80,9 @@ class LmsProgramItem(Base):
     `owner_id` points at the matching `lms_programs.id` or
     `lms_program_cohort_overrides.id` — polymorphic, not DB-enforced (see
     module docstring). Exactly one of `course_id`/`mission_id`/
-    `external_url`/`submission_prompt` is populated, matching `item_type`;
-    the service layer enforces this, not a CHECK constraint, same
-    convention `module_items.content` already follows for its own
+    `external_url`/`submission_prompt`/`pdf_path` is populated, matching
+    `item_type`; the service layer enforces this, not a CHECK constraint,
+    same convention `module_items.content` already follows for its own
     type-keyed payload.
     """
 
@@ -101,7 +101,7 @@ class LmsProgramItem(Base):
     owner_type = Column(String(16), nullable=False)
     owner_id = Column(UUID(as_uuid=True), nullable=False)
     position = Column(Integer, nullable=False)
-    # course|mission_run|external_link|submission|article|manual
+    # course|mission_run|external_link|submission|pdf|manual
     item_type = Column(String(16), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
@@ -134,6 +134,15 @@ class LmsProgramItem(Base):
     # What a `submission`-type item asks the student to paste back — same
     # shape as the Poster tab's link-paste-back flow.
     submission_prompt = Column(Text, nullable=True)
+    # A `pdf` item's hosted file — same two-step shape as a module
+    # `attachment` item (create the item, then a separate multipart upload
+    # attaches the file): stored path in the `lms-attachments` bucket, NULL
+    # until someone uploads one (routers/lms/admin.py's own item list shows
+    # "no PDF uploaded" until then). Rendered through the same no-download
+    # `PdfViewer` the Curriculum Library and module attachments already use
+    # — see routers/lms/student.py's resolve-url endpoint for why the
+    # signed URL is never baked into the checklist read payload.
+    pdf_path = Column(String(512), nullable=True)
 
 
 class LmsProgramAssignment(Base):
@@ -168,7 +177,7 @@ class LmsProgramItemProgress(Base):
     """Per-student, per-item completion. For `course`/`mission_run` items
     `status` is reconciled from the real Enrollment/MissionAttempt state
     on read (services/lms/program.py) rather than trusted as stored fact
-    alone; for the manual/external/submission/article types it's the
+    alone; for the manual/external/submission/pdf types it's the
     literal record of a self-check or an ops/instructor confirmation."""
 
     __tablename__ = "lms_program_item_progress"

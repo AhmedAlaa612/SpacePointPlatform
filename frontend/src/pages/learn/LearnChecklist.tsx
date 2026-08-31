@@ -6,9 +6,11 @@ import {
   Rocket, Upload, Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PdfViewer } from "@/components/documents/PdfViewer";
 import { cn, ensureAbsoluteUrl } from "@/lib/utils";
 import {
-  fetchChecklist, completeChecklistItem, submitChecklistItem,
+  fetchChecklist, completeChecklistItem, submitChecklistItem, getChecklistItemPdfUrlApi,
   type LmsProgramChecklistItem, type LmsProgramItemType,
 } from "@/api/lms";
 
@@ -17,7 +19,7 @@ const ITEM_ICON: Record<LmsProgramItemType, typeof BookOpen> = {
   mission_run: Rocket,
   external_link: Link2,
   submission: Upload,
-  article: FileText,
+  pdf: FileText,
   manual: ClipboardCheck,
 };
 
@@ -26,7 +28,7 @@ const ITEM_LABEL: Record<LmsProgramItemType, string> = {
   mission_run: "Mission run",
   external_link: "Link",
   submission: "Submission",
-  article: "Article",
+  pdf: "PDF",
   manual: "Manual check-off",
 };
 
@@ -131,6 +133,16 @@ function ChecklistItemRow({
   const clickable = item.item_type === "course" || (item.item_type === "mission_run" && !!item.mission_attempt_id);
   const [submitUrl, setSubmitUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [viewingPdf, setViewingPdf] = useState(false);
+
+  // Resolved fresh only once someone actually opens the document — never
+  // baked into the checklist read payload, same no-download posture as
+  // the Curriculum Library and module attachments.
+  const { data: pdfUrl, isLoading: pdfLoading, isError: pdfError } = useQuery({
+    queryKey: ["lms-checklist-item-pdf-url", assignmentId, item.id],
+    queryFn: () => getChecklistItemPdfUrlApi(assignmentId, item.id),
+    enabled: viewingPdf,
+  });
 
   const completeMutation = useMutation({
     mutationFn: () => completeChecklistItem(assignmentId, item.id),
@@ -190,10 +202,18 @@ function ChecklistItemRow({
             {item.external_url} <ExternalLink className="size-3" />
           </a>
         )}
-        {item.item_type === "article" && item.external_url && (
-          <a href={ensureAbsoluteUrl(item.external_url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-sm text-primary hover:underline w-fit flex items-center gap-1">
-            Read the article <ExternalLink className="size-3" />
-          </a>
+        {item.item_type === "pdf" && (
+          item.has_pdf ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setViewingPdf(true); }}
+              className="text-sm text-primary hover:underline w-fit flex items-center gap-1 cursor-pointer"
+            >
+              Open the PDF <FileText className="size-3" />
+            </button>
+          ) : (
+            <p className="text-xs text-muted-foreground italic">No PDF uploaded yet</p>
+          )
         )}
 
         {item.item_type === "submission" && (
@@ -241,7 +261,7 @@ function ChecklistItemRow({
           </div>
         )}
 
-        {(item.item_type === "external_link" || item.item_type === "article" || item.item_type === "manual")
+        {(item.item_type === "external_link" || item.item_type === "pdf" || item.item_type === "manual")
           && item.status !== "done" && item.status !== "awaiting_confirmation" && (
           <Button
             size="sm" className="w-fit mt-1"
@@ -257,6 +277,17 @@ function ChecklistItemRow({
         {statusBadge}
         {clickable && <ChevronRight className="size-4 text-muted-foreground" />}
       </div>
+
+      {item.item_type === "pdf" && (
+        <Dialog open={viewingPdf} onOpenChange={setViewingPdf}>
+          <DialogContent className="sm:max-w-3xl max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            <DialogHeader><DialogTitle>{item.title}</DialogTitle></DialogHeader>
+            {pdfLoading && <p className="text-sm text-muted-foreground py-6">Loading document...</p>}
+            {pdfError && <p className="text-sm text-destructive py-6">Couldn't load this document.</p>}
+            {pdfUrl && <PdfViewer url={pdfUrl} />}
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

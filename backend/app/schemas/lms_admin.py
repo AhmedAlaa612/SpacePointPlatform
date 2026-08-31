@@ -417,7 +417,7 @@ class ItemReorderIn(BaseModel):
 
 # ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
 
-LmsProgramItemType = Literal["course", "mission_run", "external_link", "submission", "article", "manual"]
+LmsProgramItemType = Literal["course", "mission_run", "external_link", "submission", "pdf", "manual"]
 # individual (default) tracks per-student, exactly as every item did before
 # this existed. team means the whole `Team` shares one progress row — a
 # competition's link-only deliverables. See LmsProgramItem.scope's docstring.
@@ -461,6 +461,10 @@ class LmsProgramItemOut(BaseModel):
     variant_id: UUID | None
     external_url: str | None
     submission_prompt: str | None
+    # True once a `pdf` item has a file uploaded (routers/lms/admin.py's
+    # separate upload endpoint) — never the file itself or a URL, same
+    # no-baked-in-signed-url posture the Curriculum Library list follows.
+    has_pdf: bool = False
 
 
 class LmsProgramItemReorderIn(BaseModel):

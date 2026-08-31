@@ -438,6 +438,10 @@ class LmsProgramChecklistItemOut(BaseModel):
     mission_kind: str | None = None
     external_url: str | None = None
     submission_prompt: str | None = None
+    # True once a `pdf` item has a file uploaded — the student calls the
+    # separate resolve-url endpoint to actually view it (never baked in
+    # here), same posture as the Curriculum Library's list payload.
+    has_pdf: bool = False
     # What the student themself submitted back, for a `submission` item.
     submitted_url: str | None = None
     # Competition domain (2026-08-24) — individual (default) means
