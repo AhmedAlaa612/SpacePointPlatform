@@ -73,7 +73,14 @@ export default function LearnChecklist() {
 
   return (
     <div className="flex flex-col">
-      <div className="relative h-[220px] sm:h-[280px] bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.09)_0px,hsl(var(--primary)/0.09)_11px,hsl(var(--foreground)/0.014)_11px,hsl(var(--foreground)/0.014)_22px)] flex items-end">
+      <div
+        className={cn(
+          "relative h-[220px] sm:h-[280px] flex items-end bg-cover bg-center",
+          !checklist.image_url &&
+            "bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.09)_0px,hsl(var(--primary)/0.09)_11px,hsl(var(--foreground)/0.014)_11px,hsl(var(--foreground)/0.014)_22px)]",
+        )}
+        style={checklist.image_url ? { backgroundImage: `url(${checklist.image_url})` } : undefined}
+      >
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/55 to-background/10" />
         <div className="relative px-5 sm:px-8 lg:px-14 pb-8 sm:pb-10 flex flex-col gap-2 max-w-2xl">
           <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-primary">

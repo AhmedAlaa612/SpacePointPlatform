@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight } from "lucide-react"
+import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight, ImagePlus } from "lucide-react"
 import { isAxiosError } from "axios"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,7 @@ import { getCohortsApi } from "@/api/sessions/cohorts"
 import { listCoursesApi } from "@/api/lms_admin"
 import { listMissionsAdminFullApi } from "@/api/missions_admin"
 import {
-  listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, updateLmsProgramApi,
+  listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, updateLmsProgramApi, uploadLmsProgramImageApi,
   addLmsProgramItemApi, updateLmsProgramItemApi, deleteLmsProgramItemApi, reorderLmsProgramItemsApi,
   getCohortProgramOverrideApi, addCohortOverrideItemApi, updateCohortOverrideItemApi, deleteCohortOverrideItemApi,
   reorderCohortOverrideItemsApi,
@@ -269,9 +269,48 @@ function ProgramTemplateEditor({
     mutationFn: (value: boolean) => updateLmsProgramApi(program.id, { certificate_required: value }),
     onSuccess: onChanged,
   })
+  const [imageError, setImageError] = useState("")
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const imageMutation = useMutation({
+    mutationFn: (file: File) => uploadLmsProgramImageApi(program.id, file),
+    onSuccess: () => { setImageError(""); onChanged() },
+    onError: (e: unknown) => setImageError(errorDetail(e, "Failed to upload image")),
+  })
 
   return (
     <div className="flex flex-col gap-5">
+      <div className="flex items-start gap-4">
+        <button
+          onClick={() => !readOnly && fileInputRef.current?.click()}
+          disabled={readOnly}
+          className="group relative w-24 h-24 shrink-0 rounded-2xl bg-muted overflow-hidden ring-1 ring-border disabled:cursor-not-allowed cursor-pointer"
+          title="Upload header image"
+        >
+          {program.image_url ? (
+            <img src={program.image_url} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-muted-foreground">
+              <ImagePlus size={16} />
+              <span className="text-[10px]">Add header</span>
+            </div>
+          )}
+          {!readOnly && (
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-medium">
+              {imageMutation.isPending ? "Uploading..." : "Change"}
+            </div>
+          )}
+        </button>
+        <input
+          ref={fileInputRef} type="file" accept="image/*" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) imageMutation.mutate(f) }}
+        />
+        <div className="flex flex-col gap-1 pt-1">
+          <div className="text-sm font-medium">Checklist header image</div>
+          <div className="text-xs text-muted-foreground">Shown behind the title on the student checklist page</div>
+          {imageError && <p className="text-xs text-red-500">{imageError}</p>}
+        </div>
+      </div>
+
       <div className="flex items-center justify-between p-3 bg-card border border-border rounded-xl">
         <div>
           <div className="text-sm font-medium">Gate certificate on this checklist</div>

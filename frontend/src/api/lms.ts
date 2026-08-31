@@ -550,6 +550,7 @@ export interface LmsProgramChecklist {
   lms_program_id: string;
   name: string;
   description: string | null;
+  image_url: string | null;
   cohort_id: string | null;
   cohort_name: string | null;
   team_name: string | null;

@@ -108,6 +108,45 @@ async def test_create_get_update_delete_lms_program(db, client):
 
 
 @pytest.mark.asyncio
+async def test_upload_program_image_sets_image_url(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Checklist"},
+    )).json()["id"]
+
+    get_before = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
+    assert get_before.json()["image_url"] is None
+
+    resp = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/image", headers=_headers(ops),
+        files={"file": ("cover.jpg", b"\xff\xd8\xff\xe0fakejpegbytes", "image/jpeg")},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["image_url"] is not None
+
+    get_after = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
+    assert get_after.json()["image_url"] is not None
+
+
+@pytest.mark.asyncio
+async def test_upload_program_image_rejects_empty_file(db, client):
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Checklist"},
+    )).json()["id"]
+
+    resp = await client.post(
+        f"/lms/admin/programs/{lms_program_id}/image", headers=_headers(ops),
+        files={"file": ("cover.jpg", b"", "image/jpeg")},
+    )
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
 async def test_student_cannot_create_a_program(db, client):
     student = await _user(db, roles=["student"])
     await db.commit()

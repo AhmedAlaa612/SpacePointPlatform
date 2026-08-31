@@ -473,6 +473,7 @@ class LmsProgramChecklistOut(BaseModel):
     lms_program_id: UUID
     name: str
     description: str | None = None
+    image_url: str | None = None
     cohort_id: UUID | None = None
     cohort_name: str | None = None
     # Competition domain — the student's own team in this cohort, if any

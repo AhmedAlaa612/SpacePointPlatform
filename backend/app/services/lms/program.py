@@ -894,7 +894,9 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
 
     return {
         "assignment_id": assignment.id, "lms_program_id": program.id, "name": program.name,
-        "description": program.description, "cohort_id": assignment.cohort_id,
+        "description": program.description,
+        "image_url": await storage.resolve_url(program.image_bucket, program.image_path),
+        "cohort_id": assignment.cohort_id,
         "cohort_name": cohort.name if cohort else None,
         # Only meaningful once any item is team-scoped — resolved from the
         # same `team` lookup above rather than a second query. A student

@@ -50,6 +50,11 @@ class LmsProgram(Base):
     )
     name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    # Header/cover image shown on the student checklist page. Same
+    # bucket/path-only shape as Course.image_bucket/image_path — the URL is
+    # never stored, only resolved fresh at read time via storage.resolve_url.
+    image_bucket = Column(String(64), nullable=True)
+    image_path = Column(String(512), nullable=True)
     # Gates the cohort's existing student_completion certificate on full
     # checklist completion (non-optional items only) when true. No new
     # certificate type — see services/sessions/delivery.py's

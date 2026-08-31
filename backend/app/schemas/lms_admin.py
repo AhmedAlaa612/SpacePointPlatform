@@ -494,6 +494,7 @@ class LmsProgramOut(BaseModel):
     name: str
     description: str | None
     certificate_required: bool
+    image_url: str | None = None
     items: list[LmsProgramItemOut] = []
 
 

@@ -346,6 +346,7 @@ export interface LmsProgram {
   name: string;
   description: string | null;
   certificate_required: boolean;
+  image_url: string | null;
   items: LmsProgramItem[];
 }
 
@@ -370,6 +371,11 @@ export const updateLmsProgramApi = (id: string, data: Partial<{ name: string; de
   api.patch<LmsProgram>(`/lms/admin/programs/${id}`, data).then((r) => r.data);
 export const deleteLmsProgramApi = (id: string) =>
   api.delete<void>(`/lms/admin/programs/${id}`).then((r) => r.data);
+export const uploadLmsProgramImageApi = (id: string, file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post<LmsProgram>(`/lms/admin/programs/${id}/image`, form).then((r) => r.data);
+};
 
 export const addLmsProgramItemApi = (lmsProgramId: string, data: LmsProgramItemInput) =>
   api.post<LmsProgramItem>(`/lms/admin/programs/${lmsProgramId}/items`, data).then((r) => r.data);
