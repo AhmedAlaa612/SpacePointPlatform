@@ -583,7 +583,7 @@ function DatasheetViewerButton({ componentId, componentName }: { componentId: st
         Datasheet ↗
       </button>
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setUrl(null); setError(false); } }}>
-        <DialogContent className="sm:max-w-3xl max-w-3xl">
+        <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw]">
           <DialogHeader><DialogTitle>{componentName}</DialogTitle></DialogHeader>
           {loading && <p className="text-sm text-muted-foreground py-6">Loading document...</p>}
           {error && <p className="text-sm text-destructive py-6">Couldn't load this document.</p>}

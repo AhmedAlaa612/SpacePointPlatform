@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight, FileWarning, Maximize2, ZoomIn, ZoomOut } from "lucide-react"
+import { FileWarning, Maximize2, ZoomIn, ZoomOut } from "lucide-react"
 import * as pdfjsLib from "pdfjs-dist"
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist"
 // ?url: served as a raw asset, bypassing Vite's dev-mode JS transform (which
@@ -14,11 +14,19 @@ import pdfjsWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url"
 // Set once at module load, shared by every PdfViewer instance.
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
 
-/** A no-download inline PDF viewer: canvas-rendered, paginated, no link to
- * the underlying file anywhere in the DOM. This is friction, not DRM — the
+/** A no-download inline PDF viewer: canvas-rendered, no link to the
+ * underlying file anywhere in the DOM. This is friction, not DRM — the
  * browser's own screenshot/devtools/print-to-PDF still work, and nothing
  * here stops that. What it removes is the one-click "Download" a plain
  * `<a href=pdfUrl>` or a native `<iframe>` viewer would otherwise offer.
+ *
+ * Every page renders into its own canvas, stacked vertically in one
+ * scrollable pane — a continuous scroll like a normal PDF reader, not a
+ * page-at-a-time flip. The pane caps its own height at a viewport-relative
+ * max (not a `flex-1`/`h-full` chain a plain, non-flex ancestor won't
+ * supply) so it's self-contained: it never grows taller than the visible
+ * browser window, on desktop or on a phone, regardless of what it's
+ * embedded in.
  *
  * Takes an already-resolved URL (a short-lived signed one, ideally — see
  * callers) rather than fetching one itself, so it stays reusable regardless
@@ -30,15 +38,14 @@ const ZOOM_STEP = 0.25
 
 export function PdfViewer({ url, className }: { url: string; className?: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const canvasRefs = useRef<(HTMLCanvasElement | null)[]>([])
   const [doc, setDoc] = useState<PDFDocumentProxy | null>(null)
-  const [pageNum, setPageNum] = useState(1)
   const [pdfError, setPdfError] = useState(false)
   // The "fit width" baseline — how wide the container actually is right now,
-  // not a one-time read at mount. Tracked live via ResizeObserver so the
-  // page re-fits correctly whether the container was still animating open
-  // (a Dialog's enter transition) when the doc first loaded, or the window
-  // is resized afterward.
+  // not a one-time read at mount. Tracked live via ResizeObserver so pages
+  // re-fit correctly whether the container was still animating open (a
+  // Dialog's enter transition) when the doc first loaded, or the window is
+  // resized afterward.
   const [containerWidth, setContainerWidth] = useState(800)
   // Multiplies the fit-width scale — 1 means "fit width" exactly, same as
   // before zoom controls existed.
@@ -62,12 +69,12 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
     setPdfError(false)
     setDoc(null)
     setZoom(1)
+    canvasRefs.current = []
     const loadingTask = pdfjsLib.getDocument(url)
     loadingTask.promise.then((loaded) => {
       if (cancelled) { loaded.destroy(); return }
       loadedDoc = loaded
       setDoc(loaded)
-      setPageNum(1)
     }).catch(() => { if (!cancelled) setPdfError(true) })
     return () => {
       cancelled = true
@@ -75,33 +82,44 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
     }
   }, [url])
 
-  // The RenderTask must be explicitly .cancel()'d in cleanup (not just
-  // ignored via a `cancelled` flag) — pdfjs only auto-supersedes a prior
-  // render on the same canvas if the earlier task is properly cancelled
-  // first; otherwise a second render() on the same canvas (e.g. React
-  // StrictMode's double-invoke in dev) leaves the worker's queue stuck and
-  // the new task never resolves.
+  // Renders every page in order into its own canvas. Sequential (each
+  // await'd before the next starts) rather than firing numPages renders at
+  // once — pdf.js handles one in-flight render fine, a couple dozen
+  // concurrent ones on the same worker is the kind of thing that's fine
+  // until it isn't. RenderTasks are still tracked and .cancel()'d on
+  // cleanup — same reasoning as before: pdf.js only auto-supersedes a
+  // properly-cancelled prior task, so an uncancelled one (e.g. React
+  // StrictMode's double-invoke in dev, or zoom changing mid-render) leaves
+  // the worker's queue stuck.
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!doc || !canvas) return
+    if (!doc) return
     let cancelled = false
-    let renderTask: RenderTask | null = null
-    doc.getPage(pageNum).then((page) => {
-      if (cancelled) return
-      const unscaled = page.getViewport({ scale: 1 })
-      const viewport = page.getViewport({ scale: (containerWidth / unscaled.width) * zoom })
-      canvas.width = viewport.width
-      canvas.height = viewport.height
-      renderTask = page.render({ canvas, viewport })
-      renderTask.promise.catch((err) => {
-        if (!cancelled && err?.name !== "RenderingCancelledException") setPdfError(true)
-      })
-    }).catch(() => { if (!cancelled) setPdfError(true) })
+    const renderTasks: RenderTask[] = []
+    ;(async () => {
+      for (let i = 1; i <= doc.numPages; i++) {
+        if (cancelled) return
+        const canvas = canvasRefs.current[i - 1]
+        if (!canvas) continue
+        try {
+          const page = await doc.getPage(i)
+          if (cancelled) return
+          const unscaled = page.getViewport({ scale: 1 })
+          const viewport = page.getViewport({ scale: (containerWidth / unscaled.width) * zoom })
+          canvas.width = viewport.width
+          canvas.height = viewport.height
+          const task = page.render({ canvas, viewport })
+          renderTasks.push(task)
+          await task.promise
+        } catch (err: unknown) {
+          if (!cancelled && (err as { name?: string })?.name !== "RenderingCancelledException") setPdfError(true)
+        }
+      }
+    })()
     return () => {
       cancelled = true
-      renderTask?.cancel()
+      renderTasks.forEach((t) => t.cancel())
     }
-  }, [doc, pageNum, containerWidth, zoom])
+  }, [doc, containerWidth, zoom])
 
   if (pdfError) {
     return (
@@ -112,69 +130,55 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
   }
 
   return (
-    <div className={className ?? "flex flex-col gap-3 h-full min-h-0"}>
+    <div className={className ?? "flex flex-col gap-3"}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            disabled={zoom <= MIN_ZOOM}
+            onClick={() => setZoom((z) => Math.max(MIN_ZOOM, +(z - ZOOM_STEP).toFixed(2)))}
+            className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+            title="Zoom out"
+          >
+            <ZoomOut className="size-4" />
+          </button>
+          <span className="text-xs text-muted-foreground w-11 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
+          <button
+            type="button"
+            disabled={zoom >= MAX_ZOOM}
+            onClick={() => setZoom((z) => Math.min(MAX_ZOOM, +(z + ZOOM_STEP).toFixed(2)))}
+            className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+            title="Zoom in"
+          >
+            <ZoomIn className="size-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setZoom(1)}
+            disabled={zoom === 1}
+            className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+            title="Fit width"
+          >
+            <Maximize2 className="size-4" />
+          </button>
+        </div>
+        {doc && doc.numPages > 1 && (
+          <p className="text-xs text-muted-foreground whitespace-nowrap">{doc.numPages} pages</p>
+        )}
+      </div>
       <div
         ref={containerRef}
-        className="w-full flex-1 min-h-0 overflow-auto rounded-2xl ring-1 ring-border bg-card flex justify-center p-3"
+        className="w-full flex-1 min-h-0 max-h-[80vh] overflow-y-auto rounded-2xl ring-1 ring-border bg-card flex flex-col items-center gap-3 p-3"
       >
         {!doc && <p className="text-sm text-muted-foreground py-16">Loading document...</p>}
-        <canvas ref={canvasRef} className={doc ? "h-fit" : "hidden"} />
+        {doc && Array.from({ length: doc.numPages }, (_, i) => (
+          <canvas
+            key={i}
+            ref={(el) => { canvasRefs.current[i] = el }}
+            className="max-w-full h-auto shadow-sm"
+          />
+        ))}
       </div>
-      {doc && (
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled={zoom <= MIN_ZOOM}
-              onClick={() => setZoom((z) => Math.max(MIN_ZOOM, +(z - ZOOM_STEP).toFixed(2)))}
-              className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
-              title="Zoom out"
-            >
-              <ZoomOut className="size-4" />
-            </button>
-            <span className="text-xs text-muted-foreground w-11 text-center tabular-nums">{Math.round(zoom * 100)}%</span>
-            <button
-              type="button"
-              disabled={zoom >= MAX_ZOOM}
-              onClick={() => setZoom((z) => Math.min(MAX_ZOOM, +(z + ZOOM_STEP).toFixed(2)))}
-              className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
-              title="Zoom in"
-            >
-              <ZoomIn className="size-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setZoom(1)}
-              disabled={zoom === 1}
-              className="inline-flex items-center justify-center size-8 border border-border text-foreground rounded-lg hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
-              title="Fit width"
-            >
-              <Maximize2 className="size-4" />
-            </button>
-          </div>
-          {doc.numPages > 1 && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                disabled={pageNum <= 1}
-                onClick={() => setPageNum((p) => p - 1)}
-                className="inline-flex items-center gap-1.5 h-9 px-3 border border-border text-foreground text-sm font-medium rounded-xl hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
-              >
-                <ChevronLeft className="size-4" /> Previous page
-              </button>
-              <p className="text-xs text-muted-foreground whitespace-nowrap">Page {pageNum} of {doc.numPages}</p>
-              <button
-                type="button"
-                disabled={pageNum >= doc.numPages}
-                onClick={() => setPageNum((p) => p + 1)}
-                className="inline-flex items-center gap-1.5 h-9 px-3 border border-border text-foreground text-sm font-medium rounded-xl hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
-              >
-                Next page <ChevronRight className="size-4" />
-              </button>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }

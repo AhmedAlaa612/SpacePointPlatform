@@ -280,7 +280,7 @@ function ChecklistItemRow({
 
       {item.item_type === "pdf" && (
         <Dialog open={viewingPdf} onOpenChange={setViewingPdf}>
-          <DialogContent className="sm:max-w-3xl max-w-3xl" onClick={(e) => e.stopPropagation()}>
+          <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw]" onClick={(e) => e.stopPropagation()}>
             <DialogHeader><DialogTitle>{item.title}</DialogTitle></DialogHeader>
             {pdfLoading && <p className="text-sm text-muted-foreground py-6">Loading document...</p>}
             {pdfError && <p className="text-sm text-destructive py-6">Couldn't load this document.</p>}
