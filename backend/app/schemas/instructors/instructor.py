@@ -41,6 +41,7 @@ class BankDetailsOut(BaseModel):
     bank_name: Optional[str] = None
     iban: Optional[str] = None
     swift_bic: Optional[str] = None
+    bank_location: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -51,6 +52,7 @@ class BankDetailsUpdate(BaseModel):
     bank_name: Optional[str] = None
     iban: Optional[str] = None
     swift_bic: Optional[str] = None
+    bank_location: Optional[str] = None
 
 
 class InstructorDocumentOut(BaseModel):

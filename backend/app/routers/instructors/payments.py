@@ -96,6 +96,11 @@ async def sign_letter(
     bank = (await db.execute(
         select(InstructorBankDetails).where(InstructorBankDetails.user_id == current_user.id)
     )).scalars().first()
+    if not (bank and bank.is_complete):
+        raise HTTPException(
+            status_code=400,
+            detail="Please complete your bank details before signing a payment letter.",
+        )
 
     now = datetime.now(timezone.utc)
     letter.instructor_signature_data = body.signature
@@ -128,6 +133,7 @@ async def sign_letter(
             bank={
                 "account_holder_name": bank.account_holder_name, "bank_name": bank.bank_name,
                 "iban": bank.iban, "swift_bic": bank.swift_bic,
+                "bank_location": bank.bank_location,
             } if bank else None,
             admin_signatory_name=await _get_setting(db, "admin_signatory_name", settings.DEFAULT_SIGNATORY_NAME),
             admin_signatory_title=await _get_setting(db, "admin_signatory_title", settings.DEFAULT_SIGNATORY_TITLE),

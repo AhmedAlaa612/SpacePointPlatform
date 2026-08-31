@@ -91,6 +91,7 @@ export interface BankDetails {
   bank_name: string | null
   iban: string | null
   swift_bic: string | null
+  bank_location: string | null
 }
 
 export interface InstructorDocument {

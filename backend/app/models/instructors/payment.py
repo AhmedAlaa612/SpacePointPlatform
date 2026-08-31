@@ -124,11 +124,32 @@ class InstructorBankDetails(Base):
     bank_name = Column(String(255), nullable=True)
     iban = Column(String(50), nullable=True)
     swift_bic = Column(String(20), nullable=True)
+    # City/emirate of the account's branch — free text, matching the letter
+    # template's own "City/Emirate" wording, so a branch city that isn't an
+    # emirate (Al Ain) or a non-UAE bank still fits.
+    bank_location = Column(String(120), nullable=True)
     updated_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+    # SWIFT/BIC and bank_location are deliberately NOT required: a domestic AED
+    # transfer to a UAE IBAN doesn't need a BIC, and the payment-letter template
+    # agrees — its label reads "SWIFT/BIC (if applicable)". Requiring either only
+    # blocked instructors who had everything the payout actually needs; adding a
+    # new field to this tuple marks every already-saved row incomplete and stops
+    # those instructors signing until they revisit the form.
+    #
+    # The frontend re-implements this same rule in Payments.tsx (`bankComplete`)
+    # against local form state, so the gate lifts as the instructor types. The
+    # two must be changed together.
+    @property
+    def is_complete(self) -> bool:
+        return all(
+            (getattr(self, f) or "").strip()
+            for f in ("account_holder_name", "bank_name", "iban")
+        )
 
 
 class PortalSetting(Base):

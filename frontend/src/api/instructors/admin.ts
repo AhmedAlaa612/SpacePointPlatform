@@ -1,4 +1,5 @@
 import { api } from "@/api/client"
+import type { BankDetails } from "@/types/instructors"
 
 export interface DistributionEntry {
   name: string
@@ -63,6 +64,9 @@ export interface InstructorListItem {
   // here — the backend drops deleted cities from BOTH.
   deliver_city_ids: string[]
   deliver_city_names: string[]
+  // Whether all four bank fields are filled in — not the values themselves,
+  // those are fetched on demand via getAdminInstructorBankDetailsApi.
+  bank_details_complete: boolean
 }
 
 export const getAdminOverviewApi = () => api.get<AdminOverview>("/instructors/admin/overview").then((r) => r.data)
@@ -132,6 +136,9 @@ export const listAdminInstructorsApi = () =>
 
 export const getAdminInstructorDetailApi = (userId: string) =>
   api.get(`/instructors/admin/instructors/${userId}`).then((r) => r.data)
+
+export const getAdminInstructorBankDetailsApi = (userId: string) =>
+  api.get<BankDetails>(`/instructors/admin/instructors/${userId}/bank-details`).then((r) => r.data)
 
 export const getSettingsApi = () => api.get<Record<string, string>>("/instructors/admin/settings").then((r) => r.data)
 
