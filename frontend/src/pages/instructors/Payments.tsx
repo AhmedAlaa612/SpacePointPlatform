@@ -6,6 +6,7 @@ import {
 } from "@/api/instructors/instructor"
 import { getPaymentSummaryApi, listPaymentLettersApi, signPaymentLetterApi } from "@/api/instructors/payments"
 import type { PaymentLetter } from "@/types/instructors"
+import { BankSelect } from "@/components/ui/BankSelect"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -37,11 +38,13 @@ export default function Payments() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["instructor-bank-details"] }),
   })
 
+  // Mirrors InstructorBankDetails.is_complete on the backend — SWIFT/BIC is
+  // optional, so it is deliberately not checked here. Computed from local form
+  // state rather than the query, so the gate lifts as the instructor types.
   const bankComplete = !!(
     bank.account_holder_name.trim() &&
     bank.bank_name.trim() &&
-    bank.iban.trim() &&
-    bank.swift_bic.trim()
+    bank.iban.trim()
   )
 
   const sign = useMutation({
@@ -53,7 +56,10 @@ export default function Payments() {
     },
   })
 
-  if (letters.isLoading || summary.isLoading) return <Spinner />
+  // Waits on the bank query too: the form is hydrated by the `bankLoaded` latch
+  // above, and BankSelect reads its dropdown-vs-free-text mode once at mount —
+  // mounting before the data lands would strand a saved custom bank name.
+  if (letters.isLoading || summary.isLoading || bankDetails.isLoading) return <Spinner />
 
   return (
     <div>
@@ -71,11 +77,20 @@ export default function Payments() {
         <CardContent className="grid sm:grid-cols-2 gap-3">
           <input className="input" placeholder="Account holder name" value={bank.account_holder_name}
             onChange={(e) => setBank({ ...bank, account_holder_name: e.target.value })} />
-          <input className="input" placeholder="Bank name" value={bank.bank_name}
-            onChange={(e) => setBank({ ...bank, bank_name: e.target.value })} />
+          <BankSelect
+            className="input"
+            value={bank.bank_name}
+            onChange={(next) => setBank({
+              ...bank,
+              bank_name: next.bank_name,
+              // Only a listed bank carries a code; picking "Other" leaves
+              // whatever the instructor typed alone.
+              swift_bic: next.swift_bic ?? bank.swift_bic,
+            })}
+          />
           <input className="input" placeholder="IBAN" value={bank.iban}
             onChange={(e) => setBank({ ...bank, iban: e.target.value })} />
-          <input className="input" placeholder="SWIFT/BIC" value={bank.swift_bic}
+          <input className="input" placeholder="SWIFT/BIC (optional)" value={bank.swift_bic}
             onChange={(e) => setBank({ ...bank, swift_bic: e.target.value })} />
           <Button onClick={() => saveBank.mutate()} disabled={saveBank.isPending} className="sm:col-span-2 w-fit">
             {saveBank.isPending ? "Saving…" : "Save bank details"}
@@ -83,7 +98,8 @@ export default function Payments() {
           {!bankComplete && (
             <p className="sm:col-span-2 flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
               <AlertTriangle size={14} className="shrink-0" />
-              Complete all four fields to unlock signing your payment letters.
+              Add your account holder name, bank, and IBAN to unlock signing your payment
+              letters. SWIFT/BIC is optional.
             </p>
           )}
         </CardContent>

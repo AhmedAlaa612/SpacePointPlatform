@@ -130,11 +130,19 @@ class InstructorBankDetails(Base):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
+    # SWIFT/BIC is deliberately NOT required: a domestic AED transfer to a UAE
+    # IBAN doesn't need one, and the payment-letter template agrees — its label
+    # reads "SWIFT/BIC (if applicable)". Requiring it only blocked instructors
+    # who had everything the payout actually needs.
+    #
+    # The frontend re-implements this same rule in Payments.tsx (`bankComplete`)
+    # against local form state, so the gate lifts as the instructor types. The
+    # two must be changed together.
     @property
     def is_complete(self) -> bool:
         return all(
             (getattr(self, f) or "").strip()
-            for f in ("account_holder_name", "bank_name", "iban", "swift_bic")
+            for f in ("account_holder_name", "bank_name", "iban")
         )
 
 

@@ -224,10 +224,15 @@ def generate_payment_letter_pdf(
     )
 
     # P[21-24]: bank details — each has run[0]=bold label, run[1]=value
-    paras[21].runs[1].text = f": {bank.get('account_holder_name', '')}"
-    paras[22].runs[1].text = f": {bank.get('bank_name', '')}"
-    paras[23].runs[1].text = f": {bank.get('iban', '')}"
-    paras[24].runs[1].text = f" (if applicable): {bank.get('swift_bic', '')}"
+    # `or ''` rather than a .get default: the callers always pass every key, with
+    # the nullable ORM value, so a NULL column reaches here as None and the
+    # default never fires — which printed the literal text "None" onto the
+    # letter. SWIFT is optional, so its line renders as a bare label, which is
+    # what the template's "(if applicable)" wording is there to cover.
+    paras[21].runs[1].text = f": {bank.get('account_holder_name') or ''}"
+    paras[22].runs[1].text = f": {bank.get('bank_name') or ''}"
+    paras[23].runs[1].text = f": {bank.get('iban') or ''}"
+    paras[24].runs[1].text = f" (if applicable): {bank.get('swift_bic') or ''}"
 
     # --- Table 0: Sessions ---
     tbl0 = doc.tables[0]
