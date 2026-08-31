@@ -6,7 +6,7 @@ import { getApplicantDetailApi, reviewApplicantApi, reviewModuleSubmissionApi, d
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState, Spinner, StatusPill } from "@/pages/instructors/components/common"
-import { cn } from "@/lib/utils"
+import { cn, ensureAbsoluteUrl } from "@/lib/utils"
 import { getCountries } from "@/lib/countries"
 
 const countryName = (code: string) => getCountries().find((c) => c.code === code)?.name ?? code
@@ -499,7 +499,7 @@ export default function ApplicantReviewPage() {
                     <p className="text-xs break-all">
                       <span className="text-muted-foreground">Google Drive:</span>{" "}
                       <a
-                        href={detail.assessment.google_drive_link}
+                        href={ensureAbsoluteUrl(detail.assessment.google_drive_link)}
                         target="_blank"
                         rel="noreferrer"
                         className="text-primary underline font-medium inline-flex items-center gap-0.5"
@@ -545,7 +545,7 @@ export default function ApplicantReviewPage() {
                   </div>
                   <p className="text-xs text-muted-foreground">The applicant has uploaded their presentation video link:</p>
                   <a
-                    href={detail.presentation_link}
+                    href={ensureAbsoluteUrl(detail.presentation_link)}
                     target="_blank"
                     rel="noreferrer"
                     className="text-primary underline font-medium text-xs break-all inline-flex items-center gap-1"
