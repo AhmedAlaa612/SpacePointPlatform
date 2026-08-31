@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { CitySelect } from "@/components/ui/CitySelect"
+import { PasswordInput } from "@/components/ui/PasswordInput"
 
 const ROLE_LABEL: Record<string, string> = {
   ambassador: "Ambassador",
@@ -203,7 +204,7 @@ export default function ApplyFlow({ role, prefillCode }: Props) {
                 </Field>
               )}
               <Field label="Password" required>
-                <input className="input" type="password" placeholder="Min. 6 characters" value={password}
+                <PasswordInput className="input" placeholder="Min. 6 characters" value={password}
                   onChange={(e) => setPassword(e.target.value)} />
               </Field>
 

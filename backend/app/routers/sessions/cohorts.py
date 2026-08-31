@@ -22,6 +22,7 @@ import uuid
 from datetime import date, timedelta
 from html import escape
 
+import redis.asyncio as redis
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy import delete as sa_delete, func, select
@@ -35,6 +36,8 @@ from app.models.certificate import Certificate
 from app.models.document_template import DocumentTemplate
 from app.models.sessions.delivery_role import DeliveryRole
 from app.services.documents.certificate import generate_completion_certificate_pdf, merge_certificate_pdfs
+from app.services.games.realtime import get_realtime_redis_dep, safe_publish_to_run
+from app.services.games.runs import close_open_runs_for_session
 from app.services.sessions.openings import fully_staffed, lead_role_id
 from app.services.sessions.staffing import resolve_session_location_display
 from app.models.inventory.location import Location
@@ -238,15 +241,32 @@ async def update_cohort(
     arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     """Covers open/close registration too — just set `status` (planned|
-    registration_open|running|completed|cancelled). A planned->registration_open
+    registration_open|running|cancelled). A planned->registration_open
     transition also notifies everyone who registered interest (2026-08-07,
     cohort_interest) — the "we said we'd tell you" half of the Notify-me /
-    Register-now pair."""
+    Register-now pair.
+
+    `completed` is deliberately NOT settable here (2026-08-31). This endpoint
+    only ever wrote the column, so picking "Completed" from the ops status
+    dropdown produced a cohort that looked finished while its registrations
+    were unsettled, its certificates unissued and its sessions still
+    Scheduled — a silent second door next to POST /cohorts/{id}/complete,
+    which does all of that. Only a transition *into* completed is refused:
+    the cohort edit modal always sends `status`, so editing an
+    already-completed cohort must still work."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
 
     changes = body.model_dump(exclude_unset=True)
+    if changes.get("status") == "completed" and cohort.status != "completed":
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                "Use \"Complete cohort\" to finish this cohort — it settles the "
+                "registrations, issues certificates and completes the sessions."
+            ),
+        )
     if changes.get("location_id") and await db.get(Location, changes["location_id"]) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Location not found")
     if changes.get("warehouse_id") and await db.get(Warehouse, changes["warehouse_id"]) is None:
@@ -308,6 +328,7 @@ async def complete_cohort(
     cohort_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_operations),
+    rt: redis.Redis | None = Depends(get_realtime_redis_dep),
 ):
     """Ops/admin only (W5 S5-1). S5-2 adds the zero-reports warning below —
     it never blocks completion, just rides along in the response; S5-3 will
@@ -323,8 +344,16 @@ async def complete_cohort(
     cohort just makes its delivered sessions billable (they show up on the
     payments to-do list); a letter only gets drafted when ops explicitly
     clicks "Create letter" there.
+
+    Since 2026-08-31 the service also completes any session nobody marked
+    done. That is reported as a warning rather than silently — ops should
+    see which days the system took its word for — and those sessions get the
+    same live-quiz cleanup the instructor's own "mark done" performs below.
     """
     warnings: list[str] = []
+    unfinished_session_ids = list((await db.execute(
+        select(Session.id).where(Session.cohort_id == cohort_id, Session.completed_at.is_(None))
+    )).scalars().all())
     if await reports_service.report_count_for_cohort(db, cohort_id) == 0:
         warnings.append("No session reports were uploaded for this cohort.")
     unreviewed = await day_service.list_day_reviews(db, status_filter="submitted", cohort_id=cohort_id)
@@ -333,8 +362,23 @@ async def complete_cohort(
             f"{len(unreviewed)} workshop day(s) are still awaiting review — "
             "those days won't be counted on anyone's payment letter."
         )
+    if unfinished_session_ids:
+        warnings.append(
+            f"{len(unfinished_session_ids)} session(s) had not been marked done — "
+            "they have been completed now."
+        )
+
     cohort = await delivery.complete_cohort(db, cohort_id, current_user.id)
+    # A session that just went from Scheduled to Completed can still have a
+    # quiz sitting in a lobby, and nobody is going back to press End on a
+    # class that went home weeks ago — same reasoning as the instructor's
+    # mark-done path in routers/sessions/delivery.py.
+    closed: list[uuid.UUID] = []
+    for session_id in unfinished_session_ids:
+        closed.extend(await close_open_runs_for_session(db, session_id=session_id))
     await db.commit()
+    for run_id in closed:
+        await safe_publish_to_run(rt, str(run_id), "game_ended", {})
     return CompleteCohortResponse(cohort=cohort, warnings=warnings)
 
 

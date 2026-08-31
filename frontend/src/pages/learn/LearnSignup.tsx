@@ -10,6 +10,7 @@ import { Card } from "@/components/ui/card";
 import { CountrySelect } from "@/components/ui/CountrySelect";
 import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect";
 import { DomainIcon } from "@/components/ui/DomainIcon";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 /**
  * Student signup — mounted on rootRoute, outside the portal auth shell.
@@ -167,8 +168,7 @@ export default function LearnSignup() {
                 Ask your instructor for your class's invite code.
               </span>
             </div>
-            <input
-              type="password"
+            <PasswordInput
               placeholder="Password"
               required
               value={password}

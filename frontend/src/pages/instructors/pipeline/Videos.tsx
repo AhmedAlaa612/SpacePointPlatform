@@ -25,7 +25,6 @@ function VideoCard({ video }: { video: VideoSubmission }) {
   const [summary, setSummary] = useState<string | null>(null)
   const text = summary ?? video.summary_text ?? ""
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0
-  const locked = video.status === "submitted"
 
   const save = useMutation({
     mutationFn: (submit: boolean) =>
@@ -40,7 +39,7 @@ function VideoCard({ video }: { video: VideoSubmission }) {
   const embedSrc = embedId ? `https://www.youtube.com/embed/${embedId}` : null
 
   return (
-    <Card className={locked ? "border-l-4 border-l-green-500" : ""}>
+    <Card className={video.status === "submitted" ? "border-l-4 border-l-green-500" : ""}>
       <CardContent className="p-4 flex flex-col md:flex-row gap-6">
         <div className="w-full md:w-1/2 shrink-0">
           {embedSrc ? (
@@ -69,7 +68,6 @@ function VideoCard({ video }: { video: VideoSubmission }) {
             className="input flex-1 min-h-40 w-full resize-none"
             placeholder={`Write at least ${MIN_WORDS} words…`}
             value={text}
-            disabled={locked}
             onChange={(e) => setSummary(e.target.value)}
           />
           <div className="flex items-center justify-between mt-2">
@@ -77,16 +75,14 @@ function VideoCard({ video }: { video: VideoSubmission }) {
               {wordCount} words
             </p>
           </div>
-          {!locked && (
-            <div className="flex gap-2 mt-3">
-              <Button size="sm" variant="outline" className="flex-1" onClick={() => save.mutate(false)} disabled={save.isPending}>
-                Save draft
-              </Button>
-              <Button size="sm" className="flex-1" onClick={() => save.mutate(true)} disabled={save.isPending || wordCount < MIN_WORDS}>
-                Submit
-              </Button>
-            </div>
-          )}
+          <div className="flex gap-2 mt-3">
+            <Button size="sm" variant="outline" className="flex-1" onClick={() => save.mutate(false)} disabled={save.isPending}>
+              Save draft
+            </Button>
+            <Button size="sm" className="flex-1" onClick={() => save.mutate(true)} disabled={save.isPending || wordCount < MIN_WORDS}>
+              {video.status === "submitted" ? "Update Summary" : "Submit"}
+            </Button>
+          </div>
           {save.isError && (
             <p className="text-sm text-destructive mt-2">{(save.error as any)?.response?.data?.detail || "Save failed."}</p>
           )}

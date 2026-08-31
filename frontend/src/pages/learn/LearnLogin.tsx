@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DomainIcon } from "@/components/ui/DomainIcon";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { getErrorMessage } from "@/lib/utils";
 
 /**
@@ -64,8 +65,7 @@ export default function LearnLogin() {
               onChange={(e) => setEmail(e.target.value)}
               className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
             />
-            <input
-              type="password"
+            <PasswordInput
               placeholder="Password"
               required
               value={password}

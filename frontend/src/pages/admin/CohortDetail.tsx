@@ -33,7 +33,7 @@ import { listCohortReportsApi, uploadSessionReportApi, completeCohortApi } from 
 import { Modal, Field, ModalActions, ConfirmDialog, Spinner, PageHeader, EmptyState } from "@/pages/admin/components/common"
 import { ImportListModal } from "@/pages/admin/components/ImportList"
 import { listOrganizationsApi, updateContactApi } from "@/api/spine/contacts"
-import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR, STATUS_OPTIONS } from "@/pages/admin/Cohorts"
+import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR, statusOptionsFor } from "@/pages/admin/Cohorts"
 import { ContactDetailModal } from "@/pages/admin/Contacts"
 import { useToast } from "@/components/ui/toast"
 import { Card } from "@/components/ui/card"
@@ -239,6 +239,9 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
     onError: (e: unknown) => toast.error(getErrorMessage(e, "Failed to update status")),
   })
   const unstaffedCount = sessions.filter((s) => s.staffing_status === "unstaffed").length
+  // Completing the cohort completes these too (backend, 2026-08-31) — the
+  // confirm dialog says so rather than letting it happen quietly.
+  const unfinishedSessionCount = sessions.filter((s) => !s.completed_at).length
 
   return (
     <div className="flex flex-col gap-5">
@@ -277,7 +280,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
               title="Change cohort status"
               className="h-8 px-2.5 border border-border bg-background rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-wait focus:outline-none w-auto max-w-fit"
             >
-              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{COHORT_STATUS_LABEL[s]}</option>)}
+              {statusOptionsFor(cohort.status).map((s) => <option key={s} value={s}>{COHORT_STATUS_LABEL[s]}</option>)}
             </select>
             {cohort.status !== "completed" && cohort.status !== "cancelled" && (
               <button
@@ -770,6 +773,11 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       {completeConfirmOpen && (
         <ConfirmDialog
           title={`Mark "${cohort.name}" as completed?`}
+          description={
+            unfinishedSessionCount > 0
+              ? `This settles every registration, issues the student certificates, and marks the ${unfinishedSessionCount} session(s) nobody completed as done.`
+              : "This settles every registration and issues the student certificates."
+          }
           confirmLabel="Complete cohort"
           pending={completeCohortMutation.isPending}
           onCancel={() => setCompleteConfirmOpen(false)}

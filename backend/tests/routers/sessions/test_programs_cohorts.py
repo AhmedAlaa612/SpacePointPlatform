@@ -189,6 +189,42 @@ async def test_update_cohort_opens_registration(db, client, operations_headers):
 
 
 @pytest.mark.asyncio
+async def test_update_cohort_refuses_to_set_completed(db, client, operations_headers):
+    """2026-08-31: PATCH only ever wrote the column, so this was a silent
+    second door next to POST /complete — cohort looks finished, nothing
+    settled. Ops has to go through the button now."""
+    program = await _make_program(db)
+    cohort = await _make_cohort(db, program, status="running")
+
+    resp = await client.patch(
+        f"/sessions/cohorts/{cohort.id}", json={"status": "completed"}, headers=operations_headers
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert "Complete cohort" in resp.json()["detail"]
+    await db.refresh(cohort)
+    assert cohort.status == "running"
+
+
+@pytest.mark.asyncio
+async def test_update_cohort_can_still_edit_an_already_completed_cohort(db, client, operations_headers):
+    """The edit modal always sends `status`, so re-sending the cohort's own
+    `completed` is not a transition and must not 409."""
+    program = await _make_program(db)
+    cohort = await _make_cohort(db, program, status="completed")
+
+    resp = await client.patch(
+        f"/sessions/cohorts/{cohort.id}",
+        json={"status": "completed", "name": "Renamed After Completion"},
+        headers=operations_headers,
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["name"] == "Renamed After Completion"
+    assert resp.json()["status"] == "completed"
+
+
+@pytest.mark.asyncio
 async def test_update_cohort_planned_to_open_enqueues_interest_notifications(
     db, arq_client, arq_redis, operations_headers,
 ):

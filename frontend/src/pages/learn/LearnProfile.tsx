@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { CountrySelect } from "@/components/ui/CountrySelect";
 import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 import { getCountries } from "@/lib/countries";
 import { EmptyState } from "@/components/ui/primitives";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -480,9 +481,9 @@ function ChangePasswordDialog({ open, onOpenChange }: { open: boolean; onOpenCha
           <DialogTitle className="font-display">Change password</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3 py-2">
-          <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="Current password" className={inputCls} />
-          <input type="password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="New password" className={inputCls} />
-          <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Confirm new password" className={inputCls} />
+          <PasswordInput value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="Current password" className={inputCls} />
+          <PasswordInput value={next} onChange={(e) => setNext(e.target.value)} placeholder="New password" className={inputCls} />
+          <PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Confirm new password" className={inputCls} />
           {error && <p className="text-xs text-destructive">{error}</p>}
           {done && <p className="text-xs text-emerald-500 flex items-center gap-1.5"><CheckCircle2 size={14} /> Password updated</p>}
         </div>

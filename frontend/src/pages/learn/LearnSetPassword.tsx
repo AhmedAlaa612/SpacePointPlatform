@@ -4,6 +4,7 @@ import { setPassword } from "@/api/auth";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DomainIcon } from "@/components/ui/DomainIcon";
+import { PasswordInput } from "@/components/ui/PasswordInput";
 
 /**
  * The "invite sent" link an ops-created account follows (LM1-7 / §8 Q5,
@@ -78,16 +79,14 @@ export default function LearnSetPassword() {
                 </div>
               )}
               <form onSubmit={(e) => void handleSubmit(e)} className="flex flex-col gap-3">
-                <input
-                  type="password"
+                <PasswordInput
                   placeholder="New password"
                   required
                   value={password}
                   onChange={(e) => setPasswordValue(e.target.value)}
                   className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
                 />
-                <input
-                  type="password"
+                <PasswordInput
                   placeholder="Confirm password"
                   required
                   value={confirm}

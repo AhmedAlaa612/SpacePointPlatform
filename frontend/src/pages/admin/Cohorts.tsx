@@ -14,6 +14,21 @@ import { useAuth } from "@/context/AuthContext"
 import { getErrorMessage } from "@/lib/utils"
 
 export const STATUS_OPTIONS: CohortStatus[] = ["planned", "registration_open", "running", "completed", "cancelled"]
+
+/** The statuses a cohort can be *moved to* by hand. "completed" is missing on
+ *  purpose (2026-08-31): finishing a cohort settles its registrations, issues
+ *  the student certificates and completes its sessions, and only
+ *  POST /sessions/cohorts/{id}/complete — the "Complete cohort" button — does
+ *  that. The plain status write used to look identical to ops and did none of
+ *  it. The backend refuses the transition too; this just stops offering it.
+ *  Filters still use STATUS_OPTIONS: ops must be able to filter by completed. */
+const EDITABLE_STATUS_OPTIONS: CohortStatus[] = ["planned", "registration_open", "running", "cancelled"]
+
+/** Options for a select bound to `current` — an already-completed cohort keeps
+ *  "Completed" in its own list, or the select would render blank against a
+ *  value it doesn't offer. */
+export const statusOptionsFor = (current: CohortStatus): CohortStatus[] =>
+  EDITABLE_STATUS_OPTIONS.includes(current) ? EDITABLE_STATUS_OPTIONS : [...EDITABLE_STATUS_OPTIONS, current]
 const VISIBILITY_OPTIONS: CohortVisibility[] = ["public", "private"]
 
 export const COHORT_STATUS_LABEL: Record<CohortStatus, string> = {
@@ -549,7 +564,7 @@ const { data: warehouses = [] } = useQuery({
               value={status} onChange={(e) => setStatus(e.target.value as CohortStatus)}
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
             >
-              {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{COHORT_STATUS_LABEL[s]}</option>)}
+              {statusOptionsFor(cohort?.status ?? "planned").map((s) => <option key={s} value={s}>{COHORT_STATUS_LABEL[s]}</option>)}
             </select>
           </Field>
         )}
