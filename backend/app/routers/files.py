@@ -13,6 +13,7 @@ URLs never point here.
 """
 
 import mimetypes
+from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
@@ -37,8 +38,15 @@ async def serve_file(bucket: str, path: str, exp: int = Query(...), sig: str = Q
 
     media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
     filename = path.rsplit("/", 1)[-1]
+    # HTTP header values must be Latin-1-encodable — a filename with a smart
+    # quote, em-dash, or any other non-Latin-1 character (common in uploaded
+    # originals) would otherwise crash Response's header encoding. RFC 6266:
+    # an ASCII-sanitized `filename` fallback for old clients, alongside the
+    # real name percent-encoded in `filename*` for everything modern.
+    ascii_fallback = filename.encode("ascii", "ignore").decode("ascii").replace('"', "").replace("\\", "") or "file"
+    content_disposition = f"inline; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename)}"
     return Response(
         content=data,
         media_type=media_type,
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition},
     )
