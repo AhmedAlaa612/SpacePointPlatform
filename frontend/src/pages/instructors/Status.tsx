@@ -170,12 +170,12 @@ export default function Status() {
   const { data: videos } = useQuery({
     queryKey: ["instructor-videos"],
     queryFn: listVideosApi,
-    enabled: status?.status === "in_progress",
+    enabled: status?.status === "in_progress" || status?.status === "under_review",
   })
   const { data: modules } = useQuery({
     queryKey: ["instructor-modules"],
     queryFn: listModulesApi,
-    enabled: status?.status === "in_progress",
+    enabled: status?.status === "in_progress" || status?.status === "under_review",
   })
   const { data: assessmentQuestions } = useQuery({
     queryKey: ["instructor-assessment-questions"],
@@ -233,12 +233,34 @@ export default function Status() {
   const modulesTotal = modules?.length ?? 0
   const modulesDone = modulesTotal > 0 && modulesUploaded === modulesTotal
 
+  // "under_review" is reused for later review rounds too (after the
+  // presentation, after the assessment) — only show the Phase 1 step cards
+  // for the round that's actually about videos/modules, not stale ones for
+  // someone whose presentation or assessment is what's actually under review.
+  const isPhase1 =
+    status.status === "in_progress" ||
+    (status.status === "under_review" && !status.assessment && !status.presentation_video_link)
+
   return (
     <div>
       <PageHeader title="Application Status" subtitle="Track your progress through the instructor pipeline." />
 
-      {status.status === "in_progress" ? (
+      {isPhase1 ? (
         <div className="flex flex-col gap-4">
+          {status.status === "under_review" && (
+            <Card>
+              <CardContent className="p-6 flex items-start gap-3">
+                <ListChecks className="text-primary shrink-0 mt-0.5" size={20} />
+                <div>
+                  <p className="font-semibold">Under review</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Our team is reviewing your video summaries and checklist modules. You can still
+                    view or update your submissions below until they're approved.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
           <StepCard
             title="Video Summaries"
             description="Watch 3 short videos and write a 200+ word summary of each."
@@ -256,12 +278,14 @@ export default function Status() {
             state={!videosDone ? "locked" : modulesDone ? "complete" : "progress"}
             to="/instructors/modules"
           />
-          <SubmitApplicationCard
-            ready={videosDone && modulesDone}
-            pending={submitApp.isPending}
-            error={submitApp.isError ? getErrorMessage(submitApp.error, "Could not submit application.") : null}
-            onSubmit={() => submitApp.mutate()}
-          />
+          {status.status === "in_progress" && (
+            <SubmitApplicationCard
+              ready={videosDone && modulesDone}
+              pending={submitApp.isPending}
+              error={submitApp.isError ? getErrorMessage(submitApp.error, "Could not submit application.") : null}
+              onSubmit={() => submitApp.mutate()}
+            />
+          )}
         </div>
       ) : (
       <Card>

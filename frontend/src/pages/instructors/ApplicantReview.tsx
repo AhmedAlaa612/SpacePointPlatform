@@ -51,6 +51,14 @@ export default function ApplicantReviewPage() {
       setDecisionError("Feedback is required for rejections to help applicants improve.")
       return
     }
+    if (status === "rejected") {
+      const confirmed = window.confirm(
+        "This will reject the ENTIRE application, not a single module. If you only meant to flag " +
+        'one module\'s PDF, use that module\'s own "Reject PDF" button instead. Continue rejecting ' +
+        "the whole application?"
+      )
+      if (!confirmed) return
+    }
     setDecisionError(null)
     review.mutate(status)
   }
@@ -585,7 +593,7 @@ export default function ApplicantReviewPage() {
                         <option value="research_approved">Research Approved (Unlock Assessment)</option>
                         <option value="phase_1_approved">Phase 1 Approved (Unlock Presentation)</option>
                         <option value="approved">Final Approval</option>
-                        <option value="rejected">Reject</option>
+                        <option value="rejected">Reject Application</option>
                       </select>
                     </div>
 
