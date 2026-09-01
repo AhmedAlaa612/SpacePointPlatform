@@ -151,7 +151,7 @@ async def start_path_checkout(
     path = await db.get(LearningPath, path_id)
     if path is None or not path.is_published:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
-    if not path.price_cents or path.price_cents <= 0:
+    if path.access_mode != "paid" or not path.price_cents or path.price_cents <= 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This path isn't set up for purchase")
 
     step_course_ids = (await db.execute(

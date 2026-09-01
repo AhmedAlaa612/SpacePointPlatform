@@ -114,19 +114,26 @@ async def test_catalog_lists_only_published_courses(db, client):
 
 
 @pytest.mark.asyncio
-async def test_catalog_lists_invite_courses_locked_not_hidden(db, client):
-    """P1-7: invite courses stay in the catalog with access_mode='invite' —
-    the lock is client-rendered, never a server-side hide."""
+async def test_catalog_hides_invite_courses_for_non_enrolled_caller(db, client):
+    """Invite courses are fully hidden from the catalog for anyone without
+    an active enrollment — they only appear once assigned/enrolled."""
     author = await _user(db, roles=["operations"])
     invite_course = await _course(db, author=author, access_mode="invite")
     student = await _user(db)
 
     resp = await client.get("/lms/catalog", headers=_headers(student))
     assert resp.status_code == 200
-    by_id = {c["id"]: c for c in resp.json()}
+    ids = [c["id"] for c in resp.json()]
+    assert str(invite_course.id) not in ids
+
+    await enroll(db, user_id=student.id, course_id=invite_course.id, source="ops")
+    await db.commit()
+
+    resp2 = await client.get("/lms/catalog", headers=_headers(student))
+    by_id = {c["id"]: c for c in resp2.json()}
     assert str(invite_course.id) in by_id
     assert by_id[str(invite_course.id)]["access_mode"] == "invite"
-    assert by_id[str(invite_course.id)]["enrolled"] is False
+    assert by_id[str(invite_course.id)]["enrolled"] is True
 
 
 @pytest.mark.asyncio

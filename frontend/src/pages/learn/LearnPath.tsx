@@ -36,13 +36,19 @@ export default function LearnPath() {
   });
   const earned = certificates?.find((c) => c.learning_path_id === pathId);
 
+  const goToStep = (steps: LearningPathStep[]) => {
+    const target = steps.find((s) => s.state === "current") ?? steps.find((s) => s.state !== "mission" && s.state !== "done");
+    if (target) void navigate({ to: `/learn/courses/${target.course_id}` });
+  };
+
+  const [startError, setStartError] = useState("");
   const start = useMutation({
     mutationFn: () => startLearningPath(pathId),
     onSuccess: (updated) => {
       queryClient.setQueryData(["lms-learning-path", pathId], updated);
-      const target = updated.steps.find((s) => s.state === "current") ?? updated.steps.find((s) => s.state !== "mission" && s.state !== "done");
-      if (target) void navigate({ to: `/learn/courses/${target.course_id}` });
+      goToStep(updated.steps);
     },
+    onError: () => setStartError("Couldn't start this path. Please try again."),
   });
 
   const [checkoutError, setCheckoutError] = useState("");
@@ -57,6 +63,15 @@ export default function LearnPath() {
 
   const currentStep = path.steps.find((s) => s.state === "current");
   const hasStarted = path.steps.some((s) => s.state === "done" || s.state === "current");
+  // Skip re-POSTing to `/start` only for a non-open path the caller is
+  // already enrolled in (an ops/invite-code grant) — `/start` now 403/402s
+  // invite/paid paths outright, so a granted holder must navigate directly
+  // instead. An `open` path always calls `/start`: it's what bulk-enrolls
+  // any remaining un-enrolled steps and is idempotent, so `path.enrolled`
+  // (true from just one step's enrollment) must never skip it here — doing
+  // so would strand later open steps that were never actually enrolled.
+  const handleContinue = () =>
+    path.access_mode !== "open" && path.enrolled ? goToStep(path.steps) : start.mutate();
   const ctaLabel = start.isPending
     ? "Starting..."
     : !hasStarted
@@ -111,7 +126,7 @@ export default function LearnPath() {
                 <Button
                   size="xl"
                   variant={path.price_cents != null && !path.fully_owned ? "outline" : "default"}
-                  onClick={() => void start.mutate()} disabled={start.isPending}
+                  onClick={() => handleContinue()} disabled={start.isPending}
                 >
                   {ctaLabel}
                   <ChevronRight className="size-4" />
@@ -119,6 +134,7 @@ export default function LearnPath() {
               )}
             </div>
             {checkoutError && <p className="text-xs text-destructive">{checkoutError}</p>}
+            {startError && <p className="text-xs text-destructive">{startError}</p>}
           </div>
         </div>
 

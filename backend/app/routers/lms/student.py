@@ -190,16 +190,18 @@ async def catalog(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
 ):
-    """P1-7: `invite` courses list *with a lock* (access_mode + enrolled),
-    never hidden — the catalog stays the full picture; access_mode is what
-    the client renders "Enrol" / "Buy" / a lock icon from.
+    """`open` and `paid` courses list for everyone; `invite` courses are
+    fully hidden from this catalog for anyone without an active enrollment
+    — the catalog isn't the place to advertise a course you can't get into
+    without an existing grant, only `enrolled=True` invite courses show up
+    (this applies to every caller, admin/operations included — the admin
+    course list at `/lms/admin/courses` is the unfiltered oversight view).
 
-    That's for students, who can self-enrol into an `open` course and
-    browse the rest to see what's coming. Staff can't self-enrol at all —
-    `POST /lms/enroll` is student-only, so any course they don't already
-    hold an ops-granted `Enrollment` in just 403s on click. For everyone
-    but admin/operations (who need the full catalog for oversight), the
-    catalog scopes down to what they're actually enrolled in."""
+    Staff can't self-enrol at all — `POST /lms/enroll` is student-only, so
+    any course they don't already hold an ops-granted `Enrollment` in just
+    403s on click. For everyone but admin/operations (who need the full
+    catalog for oversight), the catalog additionally scopes down to what
+    they're actually enrolled in."""
     stmt = select(Course).where(Course.is_published.is_(True))
     if q and q.strip():
         pattern = f"%{q.strip()}%"
@@ -213,6 +215,8 @@ async def catalog(
             *enrollment_is_active(),
         )
     )).scalars().all())
+
+    rows = [c for c in rows if c.access_mode != "invite" or c.id in enrolled_course_ids]
 
     if not ({"student", "admin", "operations"} & set(current.roles)):
         rows = [c for c in rows if c.id in enrolled_course_ids]
@@ -297,19 +301,47 @@ async def course_detail(
 
 # ── learning paths (self-paced ordered course sequences) ────────────────────
 
-async def _published_path(db: AsyncSession, path_id: uuid.UUID) -> LearningPath:
-    path = await db.get(LearningPath, path_id)
-    if path is None or not path.is_published:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
-    return path
-
-
 async def _path_steps(db: AsyncSession, path_id: uuid.UUID) -> list[LearningPathStep]:
     return list((await db.execute(
         select(LearningPathStep)
         .where(LearningPathStep.learning_path_id == path_id)
         .order_by(LearningPathStep.position)
     )).scalars().all())
+
+
+async def _path_enrolled(db: AsyncSession, *, user_id: uuid.UUID, course_ids: list[uuid.UUID]) -> bool:
+    """True iff the caller has an active enrollment in at least one of these
+    step courses — the "am I on this path" signal (2026-08-12), and
+    (2026-09-01) also what makes an invite-mode path visible/reachable at
+    all for that caller."""
+    if not course_ids:
+        return False
+    return (await db.execute(
+        select(Enrollment.id).where(
+            Enrollment.user_id == user_id, Enrollment.course_id.in_(course_ids), *enrollment_is_active(),
+        ).limit(1)
+    )).first() is not None
+
+
+async def _published_path(
+    db: AsyncSession, path_id: uuid.UUID, user_id: uuid.UUID | None = None
+) -> LearningPath:
+    """Published, AND not invite-mode unless the caller already holds an
+    active enrollment in one of its step courses (mirrors _published_course)
+    — an invite path is fully hidden, not just locked, for anyone it hasn't
+    been granted to. `user_id=None` (nothing to check enrollment against)
+    always fails the invite branch, same as `_published_course`."""
+    path = await db.get(LearningPath, path_id)
+    if path is None or not path.is_published:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    if path.access_mode == "invite":
+        steps = await _path_steps(db, path.id)
+        enrolled = user_id is not None and await _path_enrolled(
+            db, user_id=user_id, course_ids=[s.course_id for s in steps]
+        )
+        if not enrolled:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    return path
 
 
 async def _path_fully_owned(db: AsyncSession, *, user_id: uuid.UUID, course_ids: list[uuid.UUID]) -> bool:
@@ -337,23 +369,18 @@ async def learning_paths_catalog(
     out: list[LearningPathCatalogOut] = []
     for path in paths:
         steps = await _path_steps(db, path.id)
+        step_course_ids = [s.course_id for s in steps]
+        enrolled = await _path_enrolled(db, user_id=current.id, course_ids=step_course_ids)
+        if path.access_mode == "invite" and not enrolled:
+            continue
         progress = await path_progress(db, user_id=current.id, steps=steps)
         duration = await path_total_duration_seconds(db, [s.course_id for s in steps])
-        step_course_ids = [s.course_id for s in steps]
-        enrolled = False
-        if step_course_ids:
-            enrolled = (await db.execute(
-                select(Enrollment.id).where(
-                    Enrollment.user_id == current.id,
-                    Enrollment.course_id.in_(step_course_ids),
-                    *enrollment_is_active(),
-                ).limit(1)
-            )).first() is not None
         out.append(LearningPathCatalogOut(
             id=path.id, title=path.title, description=path.description,
             image_url=await storage.resolve_url(path.image_bucket, path.image_path),
             course_count=progress["course_count"], mission_count=progress["mission_count"],
             total_duration_seconds=duration, pct=progress["pct"], enrolled=enrolled,
+            access_mode=path.access_mode,
             price_cents=path.price_cents, currency=path.currency,
             fully_owned=await _path_fully_owned(db, user_id=current.id, course_ids=step_course_ids),
         ))
@@ -366,17 +393,20 @@ async def learning_path_detail(
     db: AsyncSession = Depends(get_db),
     current: User = Depends(get_current_active_user),
 ):
-    path = await _published_path(db, path_id)
+    path = await _published_path(db, path_id, user_id=current.id)
     steps = await _path_steps(db, path.id)
+    step_course_ids = [s.course_id for s in steps]
     progress = await path_progress(db, user_id=current.id, steps=steps)
     duration = await path_total_duration_seconds(db, [s.course_id for s in steps])
-    fully_owned = await _path_fully_owned(db, user_id=current.id, course_ids=[s.course_id for s in steps])
+    enrolled = await _path_enrolled(db, user_id=current.id, course_ids=step_course_ids)
+    fully_owned = await _path_fully_owned(db, user_id=current.id, course_ids=step_course_ids)
     return LearningPathDetailOut(
         id=path.id, title=path.title, description=path.description,
         image_url=await storage.resolve_url(path.image_bucket, path.image_path),
         pct=progress["pct"], course_count=progress["course_count"],
         mission_count=progress["mission_count"], total_duration_seconds=duration,
         steps=[LearningPathStepOut(**row) for row in progress["steps"]],
+        access_mode=path.access_mode, enrolled=enrolled,
         price_cents=path.price_cents, currency=path.currency, fully_owned=fully_owned,
     )
 
@@ -393,13 +423,28 @@ async def start_learning_path(
     course in it, mirroring how cohort-add already bulk-enrols a program's
     whole curriculum in one shot.
 
-    Only `open` steps self-enrol (P1-6) — this bulk path is a shortcut for
-    the same self-enrol `POST /lms/enroll` does, so it must respect the same
-    access_mode gate (P1-4) rather than silently granting access to an
-    invite-only or paid course the single-course endpoint would 403/402 on.
-    A restricted step is just skipped; the rest of the path still starts."""
-    path = await _published_path(db, path_id)
+    The path's own access_mode (2026-09-01) is checked first: `invite`/`paid`
+    paths 403/402 here exactly like `POST /lms/enroll` does for a course —
+    self-`/start` only works on `open` paths; an invite path only becomes
+    reachable via an admin/invite-code grant, a paid path via the bundle
+    checkout. Separately, and unchanged, only `open` steps self-enrol even on
+    an `open` path (P1-4/P1-6) — this bulk path is a shortcut for the same
+    self-enrol `POST /lms/enroll` does, so it must respect each step's own
+    access_mode gate too. A restricted step is just skipped; the rest of the
+    path still starts."""
+    path = await _published_path(db, path_id, user_id=current.id)
+    if path.access_mode == "invite":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="This learning path is invite-only — ask an admin to grant you access",
+        )
+    if path.access_mode == "paid":
+        raise HTTPException(
+            status.HTTP_402_PAYMENT_REQUIRED,
+            detail="This learning path requires payment — buy it via POST /lms/learning-paths/{path_id}/checkout",
+        )
     steps = await _path_steps(db, path.id)
+    step_course_ids = [s.course_id for s in steps]
     for step in steps:
         course = await db.get(Course, step.course_id)
         if course is not None and course.access_mode == "open":
@@ -408,13 +453,15 @@ async def start_learning_path(
 
     progress = await path_progress(db, user_id=current.id, steps=steps)
     duration = await path_total_duration_seconds(db, [s.course_id for s in steps])
-    fully_owned = await _path_fully_owned(db, user_id=current.id, course_ids=[s.course_id for s in steps])
+    enrolled = await _path_enrolled(db, user_id=current.id, course_ids=step_course_ids)
+    fully_owned = await _path_fully_owned(db, user_id=current.id, course_ids=step_course_ids)
     return LearningPathDetailOut(
         id=path.id, title=path.title, description=path.description,
         image_url=await storage.resolve_url(path.image_bucket, path.image_path),
         pct=progress["pct"], course_count=progress["course_count"],
         mission_count=progress["mission_count"], total_duration_seconds=duration,
         steps=[LearningPathStepOut(**row) for row in progress["steps"]],
+        access_mode=path.access_mode, enrolled=enrolled,
         price_cents=path.price_cents, currency=path.currency, fully_owned=fully_owned,
     )
 
@@ -702,14 +749,15 @@ async def enroll_self(
     """Self-enrol from the catalog (D8 source='self'), branched on the
     course's access_mode (P1-4): `open` enrols outright; `invite` 403s — a
     student can't self-enrol into an invite-only course, only an admin grant
-    (P1-5) gets them in; `paid` 402s with a plain "not available yet"
-    message — real checkout is Stage S, not built yet, so this is the
-    correct shape (right status code, right branch) without a fabricated
-    payment flow behind it. `access_mode` and prerequisites (7B-2) are two
-    different mechanisms and both apply here — a grant alone isn't enough
-    if the unified DAG says a required course/mission isn't done yet.
-    Idempotent for `open` — enrolling again returns the same row; a
-    reinstated or re-expired enrollment (re)activates in place."""
+    (P1-5) gets them in; `paid` 402s and points the caller at
+    `POST /lms/courses/{course_id}/checkout` — that's where the real Stripe
+    flow lives (checkout.py); this endpoint never takes payment itself, on
+    purpose, so a client can't self-enrol a paid course by hitting the wrong
+    route. `access_mode` and prerequisites (7B-2) are two different
+    mechanisms and both apply here — a grant alone isn't enough if the
+    unified DAG says a required course/mission isn't done yet. Idempotent
+    for `open` — enrolling again returns the same row; a reinstated or
+    re-expired enrollment (re)activates in place."""
     course = await _published_course(db, body.course_id)
 
     if course.access_mode == "invite":
@@ -720,7 +768,7 @@ async def enroll_self(
     if course.access_mode == "paid":
         raise HTTPException(
             status.HTTP_402_PAYMENT_REQUIRED,
-            detail="This course requires payment — checkout isn't available yet",
+            detail="This course requires payment — start checkout via POST /lms/courses/{course_id}/checkout",
         )
     if not await is_unlocked(db, item_type="course", item_id=course.id, user_id=current.id):
         raise HTTPException(

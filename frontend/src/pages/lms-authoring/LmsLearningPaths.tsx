@@ -65,6 +65,11 @@ export default function LmsLearningPaths() {
                   >
                     {path.is_published ? "Published" : "Draft"}
                   </span>
+                  {path.access_mode !== "open" && (
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
+                      {path.access_mode === "paid" ? "Paid" : "Invite-only"}
+                    </span>
+                  )}
                 </div>
                 {path.description && <p className="text-xs text-muted-foreground truncate">{path.description}</p>}
               </div>
@@ -91,10 +96,16 @@ export default function LmsLearningPaths() {
 function CreatePathModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: (path: AdminLearningPath) => void }) {
   const [title, setTitle] = useState("")
   const [description, setDescription] = useState("")
+  const [accessMode, setAccessMode] = useState<"open" | "invite" | "paid">("open")
+  const [priceDollars, setPriceDollars] = useState("")
   const [error, setError] = useState("")
 
   const mutation = useMutation({
-    mutationFn: () => createLearningPathApi({ title: title.trim(), description: description.trim() || undefined }),
+    mutationFn: () => createLearningPathApi({
+      title: title.trim(), description: description.trim() || undefined,
+      access_mode: accessMode,
+      price_cents: accessMode === "paid" && priceDollars.trim() ? Math.round(Number(priceDollars) * 100) : undefined,
+    }),
     onSuccess,
     onError: (e: unknown) => setError(errorDetail(e, "Failed to create learning path")),
   })
@@ -114,8 +125,33 @@ function CreatePathModal({ onClose, onSuccess }: { onClose: () => void; onSucces
             className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors resize-none"
           />
         </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Access">
+            <select
+              value={accessMode} onChange={(e) => setAccessMode(e.target.value as "open" | "invite" | "paid")}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            >
+              <option value="open">Open — anyone self-starts</option>
+              <option value="invite">Invite-only — admin grant only</option>
+              <option value="paid">Paid — Stripe Checkout</option>
+            </select>
+          </Field>
+          {accessMode === "paid" && (
+            <Field label="Bundle price (USD)">
+              <input
+                value={priceDollars} onChange={(e) => setPriceDollars(e.target.value)}
+                type="number" min="0" step="0.01" placeholder="49.00"
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+          )}
+        </div>
         {error && <p className="text-xs text-red-500">{error}</p>}
-        <ModalActions onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending} disabled={!title.trim()} label="Create path" />
+        <ModalActions
+          onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending}
+          disabled={!title.trim() || (accessMode === "paid" && !(Number(priceDollars) > 0))}
+          label="Create path"
+        />
       </div>
     </Modal>
   )

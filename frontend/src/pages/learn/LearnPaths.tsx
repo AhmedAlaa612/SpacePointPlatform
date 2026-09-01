@@ -1,6 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Route as RouteIcon } from "lucide-react";
+import { CheckCircle2, Lock, Route as RouteIcon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/primitives";
 import { fetchLearningPaths } from "@/api/lms";
@@ -33,9 +33,22 @@ export default function LearnPaths() {
             onClick={() => void navigate({ to: `/learn/paths/${path.id}` })}
           >
             <div
-              className="h-[130px] rounded-t-2xl bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.11)_0px,hsl(var(--primary)/0.11)_8px,hsl(var(--primary)/0.03)_8px,hsl(var(--primary)/0.03)_16px)] flex items-end p-3"
+              className="h-[130px] rounded-t-2xl bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.11)_0px,hsl(var(--primary)/0.11)_8px,hsl(var(--primary)/0.03)_8px,hsl(var(--primary)/0.03)_16px)] flex items-start justify-end p-3"
               style={path.image_url ? { backgroundImage: `url(${path.image_url})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
-            />
+            >
+              {path.enrolled ? (
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-emerald-500 bg-background/80 backdrop-blur px-2 py-1 rounded-md">
+                  <CheckCircle2 className="size-3" /> ENROLLED
+                </span>
+              ) : path.access_mode !== "open" ? (
+                // The catalog already excludes non-enrolled `invite` paths server-side,
+                // so in practice only "paid" ever renders here — this mirrors
+                // LearnCatalog.tsx's course badge for consistency either way.
+                <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground bg-background/80 backdrop-blur px-2 py-1 rounded-md">
+                  <Lock className="size-3" /> {path.access_mode === "paid" ? "PAID" : "INVITE ONLY"}
+                </span>
+              ) : null}
+            </div>
             <div className="p-4 flex flex-col gap-2.5">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <RouteIcon className="size-3.5" />
