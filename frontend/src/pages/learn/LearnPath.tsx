@@ -63,12 +63,15 @@ export default function LearnPath() {
 
   const currentStep = path.steps.find((s) => s.state === "current");
   const hasStarted = path.steps.some((s) => s.state === "done" || s.state === "current");
-  // `path.enrolled` (an actual active enrollment), not `hasStarted` (derived
-  // from step progress, which reads "current" the instant you *view* the
-  // path — before you've enrolled in anything): the CTA click must not
-  // re-POST to `/start` for someone already enrolled via an ops/invite-code
-  // grant, since `/start` now 403/402s an invite/paid path outright.
-  const handleContinue = () => (path.enrolled ? goToStep(path.steps) : start.mutate());
+  // Skip re-POSTing to `/start` only for a non-open path the caller is
+  // already enrolled in (an ops/invite-code grant) — `/start` now 403/402s
+  // invite/paid paths outright, so a granted holder must navigate directly
+  // instead. An `open` path always calls `/start`: it's what bulk-enrolls
+  // any remaining un-enrolled steps and is idempotent, so `path.enrolled`
+  // (true from just one step's enrollment) must never skip it here — doing
+  // so would strand later open steps that were never actually enrolled.
+  const handleContinue = () =>
+    path.access_mode !== "open" && path.enrolled ? goToStep(path.steps) : start.mutate();
   const ctaLabel = start.isPending
     ? "Starting..."
     : !hasStarted

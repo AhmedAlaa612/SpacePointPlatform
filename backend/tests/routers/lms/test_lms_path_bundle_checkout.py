@@ -46,10 +46,10 @@ async def _course(db, *, author, **kw) -> Course:
     return course
 
 
-async def _path(db, *, author, price_cents=5000, currency="usd", published=True) -> LearningPath:
+async def _path(db, *, author, price_cents=5000, currency="usd", published=True, **kw) -> LearningPath:
     path = LearningPath(
         id=uuid.uuid4(), title=f"Bundle {uuid.uuid4().hex[:8]}", created_by=author.id, is_published=published,
-        price_cents=price_cents, currency=currency,
+        price_cents=price_cents, currency=currency, access_mode=kw.pop("access_mode", "paid"), **kw,
     )
     db.add(path)
     await db.flush()
@@ -112,6 +112,27 @@ async def test_path_checkout_400s_when_not_purchasable(db, client):
 
     resp = await client.post(f"/lms/learning-paths/{path.id}/checkout", headers=_headers(student))
     assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_path_checkout_400s_for_an_invite_path_even_with_a_price_set(db, client):
+    """access_mode is the invite gate, not price_cents alone — an admin can
+    flip a path to invite-only while a stale price_cents lingers from when it
+    was paid, and checkout must not let that price re-open the door."""
+    author = await _user(db)
+    student = await _user(db)
+    path = await _path(db, author=author, price_cents=4900, access_mode="invite")
+    course = await _course(db, author=author)
+    await _step(db, path=path, course=course, position=1)
+    await db.commit()
+
+    resp = await client.post(f"/lms/learning-paths/{path.id}/checkout", headers=_headers(student))
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    purchases = (await db.execute(
+        select(Purchase).where(Purchase.user_id == student.id, Purchase.learning_path_id == path.id)
+    )).scalars().all()
+    assert purchases == []
 
 
 @pytest.mark.asyncio
