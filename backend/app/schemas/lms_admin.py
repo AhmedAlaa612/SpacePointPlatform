@@ -182,6 +182,19 @@ class AdminQuizQuestionIn(BaseModel):
 class AdminContentQuiz(BaseModel):
     pass_threshold: int = Field(ge=0, le=100, default=0)
     questions: list[AdminQuizQuestionIn] = Field(min_length=1)
+    # Random-N quizzes (2026-09-01) — None means show every question, same
+    # as before this existed. When set, each attempt samples this many
+    # questions at random from `questions` (services/lms/quiz.py::
+    # get_quiz_display_order); must not exceed the pool size.
+    random_count: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_random_count(self) -> "AdminContentQuiz":
+        if self.random_count is not None and self.random_count > len(self.questions):
+            raise ValueError(
+                f"random_count ({self.random_count}) cannot exceed the number of questions ({len(self.questions)})"
+            )
+        return self
 
 
 class AdminFlashcardIn(BaseModel):

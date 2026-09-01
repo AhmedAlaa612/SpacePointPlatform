@@ -20,7 +20,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
 
@@ -122,3 +122,10 @@ class ItemProgress(Base):
     hints_used = Column(Integer, nullable=False, default=0)
     first_score = Column(Numeric(5, 2), nullable=True)
     first_scored_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Random-N quizzes (2026-09-01) — JSONB list[int], indices into
+    # content["questions"] shown for the student's current, not-yet-graded
+    # attempt. None means: no randomization configured, nothing sampled yet,
+    # or the last submission cleared it so the next view draws a fresh
+    # sample. See services/lms/quiz.py::get_quiz_display_order.
+    quiz_question_order = Column(JSONB, nullable=True)

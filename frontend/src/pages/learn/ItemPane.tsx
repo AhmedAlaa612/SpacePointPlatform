@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PdfViewer } from "@/components/documents/PdfViewer";
 import {
-  checkQuizAnswer, getAttachmentUrl, recordProgress, submitQuiz,
+  checkQuizAnswer, fetchQuizQuestions, getAttachmentUrl, recordProgress, submitQuiz,
   type ModuleItem, type QuizAnswerCheck, type QuizReview,
 } from "@/api/lms";
 import { VideoPlayer } from "./VideoPlayer";
@@ -247,8 +247,13 @@ function ScoreRing({ score }: { score: number }) {
 
 function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void }) {
   const content = "questions" in item.content ? item.content : null;
-  const questions = content?.questions ?? [];
-  const passThreshold = content?.pass_threshold ?? 0;
+  // Random-N quizzes (2026-09-01): the server samples a fresh subset each
+  // time it's fetched fresh (module load, or after a submit clears the
+  // sample), so this needs to be state — not just derived from `item` —
+  // for retry() to be able to swap in a newly-fetched sample.
+  const [liveContent, setLiveContent] = useState(content);
+  const questions = liveContent?.questions ?? [];
+  const passThreshold = liveContent?.pass_threshold ?? 0;
   const [answers, setAnswers] = useState<number[]>(() => questions.map(() => -1));
   // One entry per question once its answer has been live-checked — drives
   // both "has this question been revealed yet" and what to show for it.
@@ -258,6 +263,7 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
   const [currentIndex, setCurrentIndex] = useState(0);
   const [review, setReview] = useState<QuizReview | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   if (!content) return null;
 
@@ -292,11 +298,20 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
     }
   };
 
-  const retry = () => {
-    setReview(null);
-    setAnswers(questions.map(() => -1));
-    setChecks({});
-    setCurrentIndex(0);
+  const retry = async () => {
+    setRetrying(true);
+    try {
+      // submitQuiz always clears the server-side sample for a randomized
+      // quiz, so this naturally draws a fresh random N when applicable.
+      const fresh = await fetchQuizQuestions(item.id);
+      setLiveContent(fresh);
+      setReview(null);
+      setAnswers(fresh.questions.map(() => -1));
+      setChecks({});
+      setCurrentIndex(0);
+    } finally {
+      setRetrying(false);
+    }
   };
 
   // Reviewing a submitted attempt: the whole point is scanning every
@@ -358,7 +373,9 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
         })}
 
         {!review.passed && (
-          <Button size="xl" onClick={retry} className="w-fit">Retry</Button>
+          <Button size="xl" onClick={() => void retry()} disabled={retrying} className="w-fit">
+            {retrying ? "Loading..." : "Retry"}
+          </Button>
         )}
       </div>
     );

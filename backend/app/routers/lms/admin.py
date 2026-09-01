@@ -153,7 +153,12 @@ def _validated_content(*, kind: str, content: dict) -> dict:
     try:
         parsed = model(**content)
     except ValidationError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=exc.errors())
+        # include_context=False — a model_validator's raised ValueError
+        # instance itself lands in ctx.error otherwise, which json.dumps
+        # can't serialize (FastAPI's own exception handler runs input
+        # through jsonable_encoder first; a manually-raised HTTPException
+        # like this one does not, so it must already be JSON-safe).
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=exc.errors(include_context=False))
     # mode="json": AdminContentMission's mission_id/variant_id are UUID
     # fields (the first content model with one) — plain model_dump() would
     # hand back UUID objects, which JSONB can't bind. mode="json" stringifies

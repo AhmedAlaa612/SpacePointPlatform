@@ -14,7 +14,7 @@ from app.services.lms.progress import (
     item_progress,
     unlock_state,
 )
-from app.services.lms.quiz import check_quiz_answer, submit_quiz
+from app.services.lms.quiz import check_quiz_answer, get_quiz_display_order, submit_quiz
 from app.services.lms.serialize import sanitize_checkpoint, student_view
 
 __all__ = [
@@ -26,6 +26,7 @@ __all__ = [
     "batch_course_completion",
     "submit_quiz",
     "check_quiz_answer",
+    "get_quiz_display_order",
     "submit_checkpoint_answer",
     "student_view",
     "sanitize_checkpoint",

@@ -419,6 +419,11 @@ export async function fetchModule(moduleId: string): Promise<ModuleDetail> {
   return data;
 }
 
+export async function fetchQuizQuestions(itemId: string): Promise<{ pass_threshold: number; questions: QuizQuestion[] }> {
+  const { data } = await api.get<{ pass_threshold: number; questions: QuizQuestion[] }>(`/lms/items/${itemId}/quiz/questions`);
+  return data;
+}
+
 export async function submitQuiz(itemId: string, answers: number[]): Promise<QuizReview> {
   const { data } = await api.post<QuizReview>(`/lms/items/${itemId}/quiz/submit`, { answers });
   return data;
