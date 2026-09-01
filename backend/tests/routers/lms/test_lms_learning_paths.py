@@ -43,9 +43,10 @@ async def _course(db, *, author, published=True, kind="course", **kw) -> Course:
     return course
 
 
-async def _path(db, *, author, published=True) -> LearningPath:
+async def _path(db, *, author, published=True, **kw) -> LearningPath:
     path = LearningPath(
         id=uuid.uuid4(), title=f"Path {uuid.uuid4().hex[:8]}", created_by=author.id, is_published=published,
+        **kw,
     )
     db.add(path)
     await db.flush()
@@ -233,11 +234,14 @@ async def test_path_detail_and_catalog_expose_price_and_ownership(db, client):
     detail = await client.get(f"/lms/learning-paths/{path.id}", headers=_headers(student))
     assert detail.json()["price_cents"] == 4900
     assert detail.json()["fully_owned"] is False
+    assert detail.json()["access_mode"] == "open"
+    assert detail.json()["enrolled"] is False
 
     db.add(Enrollment(id=uuid.uuid4(), user_id=student.id, course_id=course_a.id, source="ops", status="active"))
     await db.commit()
     partial = await client.get(f"/lms/learning-paths/{path.id}", headers=_headers(student))
     assert partial.json()["fully_owned"] is False
+    assert partial.json()["enrolled"] is True
 
     db.add(Enrollment(id=uuid.uuid4(), user_id=student.id, course_id=course_b.id, source="ops", status="active"))
     await db.commit()
@@ -274,6 +278,118 @@ async def test_start_path_skips_invite_and_paid_steps(db, client):
         select(Enrollment).where(Enrollment.user_id == student.id)
     )).scalars().all()
     assert {e.course_id for e in enrollments} == {open_course.id}
+
+
+# ── invite-mode paths (2026-09-01) ───────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_catalog_hides_invite_paths_for_non_enrolled_caller(db, client):
+    """Invite paths are fully hidden from the catalog for anyone without an
+    active enrollment in a step course — they only appear once assigned."""
+    ops = await _user(db)
+    student = await _user(db, roles=["student"])
+    path = await _path(db, author=ops, access_mode="invite")
+    course, _item = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course.id, position=1))
+    await db.commit()
+
+    resp = await client.get("/lms/learning-paths", headers=_headers(student))
+    assert resp.status_code == 200
+    assert all(p["id"] != str(path.id) for p in resp.json())
+
+    await enroll(db, user_id=student.id, course_id=course.id, source="ops")
+    await db.commit()
+
+    resp2 = await client.get("/lms/learning-paths", headers=_headers(student))
+    row = next(p for p in resp2.json() if p["id"] == str(path.id))
+    assert row["access_mode"] == "invite"
+    assert row["enrolled"] is True
+
+
+@pytest.mark.asyncio
+async def test_invite_path_detail_404s_for_non_enrolled_caller(db, client):
+    ops = await _user(db)
+    student = await _user(db, roles=["student"])
+    path = await _path(db, author=ops, access_mode="invite")
+    course, _item = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course.id, position=1))
+    await db.commit()
+
+    resp = await client.get(f"/lms/learning-paths/{path.id}", headers=_headers(student))
+    assert resp.status_code == 404
+
+    await enroll(db, user_id=student.id, course_id=course.id, source="ops")
+    await db.commit()
+
+    resp2 = await client.get(f"/lms/learning-paths/{path.id}", headers=_headers(student))
+    assert resp2.status_code == 200
+    assert resp2.json()["access_mode"] == "invite"
+    assert resp2.json()["enrolled"] is True
+
+
+@pytest.mark.asyncio
+async def test_start_path_rejects_invite_access_mode(db, client):
+    ops = await _user(db)
+    student = await _user(db, roles=["student"])
+    path = await _path(db, author=ops, access_mode="invite")
+    course, _item = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course.id, position=1))
+    await db.commit()
+
+    # not enrolled — detail is 404, so /start on it is unreachable/404 too
+    resp = await client.post(f"/lms/learning-paths/{path.id}/start", headers=_headers(student))
+    assert resp.status_code == 404
+
+    # even once granted, self-`/start` still refuses an invite-mode path —
+    # the grant is what gives access, not a switch to self-service
+    await enroll(db, user_id=student.id, course_id=course.id, source="ops")
+    await db.commit()
+    resp2 = await client.post(f"/lms/learning-paths/{path.id}/start", headers=_headers(student))
+    assert resp2.status_code == http_status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_start_path_rejects_paid_access_mode(db, client):
+    ops = await _user(db)
+    student = await _user(db, roles=["student"])
+    path = await _path(db, author=ops, access_mode="paid")
+    course, _item = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course.id, position=1))
+    await db.commit()
+
+    resp = await client.post(f"/lms/learning-paths/{path.id}/start", headers=_headers(student))
+    assert resp.status_code == http_status.HTTP_402_PAYMENT_REQUIRED
+
+    enrollments = (await db.execute(
+        select(Enrollment).where(Enrollment.user_id == student.id)
+    )).scalars().all()
+    assert enrollments == []
+
+
+@pytest.mark.asyncio
+async def test_admin_grant_enrolls_into_invite_path_regardless_of_access_mode(db, client):
+    """access_mode only gates self-`/start` — an ops bulk grant is always
+    allowed, same posture as the course-level equivalent."""
+    ops = await _user(db)
+    path = await _path(db, author=ops, access_mode="invite")
+    course_a, _ = await _course_with_one_module_one_item(db, author=ops)
+    course_b, _ = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course_a.id, position=1))
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course_b.id, position=2))
+    facilitator = await _user(db, roles=["facilitator"])
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/admin/learning-paths/{path.id}/enrollments/bulk", headers=_headers(ops),
+        json={"role": "facilitator"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["granted"] == 1
+
+    rows = (await db.execute(
+        select(Enrollment).where(Enrollment.user_id == facilitator.id)
+    )).scalars().all()
+    assert {r.course_id for r in rows} == {course_a.id, course_b.id}
 
 
 # ── path_progress state rollup (service layer) ──────────────────────────────

@@ -222,6 +222,7 @@ export interface LearningPathCatalogItem {
   /** True iff you have an active enrollment in at least one of the path's
    * courses — `pct` can't answer this (a just-started path is still 0%). */
   enrolled: boolean;
+  access_mode: "open" | "invite" | "paid"; // mirrors CourseCatalogItem.access_mode
   // Bundle pricing (2026-08-21) — null price_cents means not purchasable.
   price_cents: number | null;
   currency: string;
@@ -251,6 +252,12 @@ export interface LearningPathDetail {
   mission_count: number;
   total_duration_seconds: number;
   steps: LearningPathStep[];
+  access_mode: "open" | "invite" | "paid";
+  /** True iff you already hold an active enrollment in at least one step
+   * course — lets the client tell a genuine self-enrol ("Start path") from
+   * an already-granted invite/paid path ("Continue"), which should navigate
+   * straight to the next step instead of re-POSTing to `/start`. */
+  enrolled: boolean;
   price_cents: number | null;
   currency: string;
   fully_owned: boolean;

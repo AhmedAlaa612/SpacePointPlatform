@@ -36,13 +36,19 @@ export default function LearnPath() {
   });
   const earned = certificates?.find((c) => c.learning_path_id === pathId);
 
+  const goToStep = (steps: LearningPathStep[]) => {
+    const target = steps.find((s) => s.state === "current") ?? steps.find((s) => s.state !== "mission" && s.state !== "done");
+    if (target) void navigate({ to: `/learn/courses/${target.course_id}` });
+  };
+
+  const [startError, setStartError] = useState("");
   const start = useMutation({
     mutationFn: () => startLearningPath(pathId),
     onSuccess: (updated) => {
       queryClient.setQueryData(["lms-learning-path", pathId], updated);
-      const target = updated.steps.find((s) => s.state === "current") ?? updated.steps.find((s) => s.state !== "mission" && s.state !== "done");
-      if (target) void navigate({ to: `/learn/courses/${target.course_id}` });
+      goToStep(updated.steps);
     },
+    onError: () => setStartError("Couldn't start this path. Please try again."),
   });
 
   const [checkoutError, setCheckoutError] = useState("");
@@ -57,6 +63,12 @@ export default function LearnPath() {
 
   const currentStep = path.steps.find((s) => s.state === "current");
   const hasStarted = path.steps.some((s) => s.state === "done" || s.state === "current");
+  // `path.enrolled` (an actual active enrollment), not `hasStarted` (derived
+  // from step progress, which reads "current" the instant you *view* the
+  // path — before you've enrolled in anything): the CTA click must not
+  // re-POST to `/start` for someone already enrolled via an ops/invite-code
+  // grant, since `/start` now 403/402s an invite/paid path outright.
+  const handleContinue = () => (path.enrolled ? goToStep(path.steps) : start.mutate());
   const ctaLabel = start.isPending
     ? "Starting..."
     : !hasStarted
@@ -111,7 +123,7 @@ export default function LearnPath() {
                 <Button
                   size="xl"
                   variant={path.price_cents != null && !path.fully_owned ? "outline" : "default"}
-                  onClick={() => void start.mutate()} disabled={start.isPending}
+                  onClick={() => handleContinue()} disabled={start.isPending}
                 >
                   {ctaLabel}
                   <ChevronRight className="size-4" />
@@ -119,6 +131,7 @@ export default function LearnPath() {
               )}
             </div>
             {checkoutError && <p className="text-xs text-destructive">{checkoutError}</p>}
+            {startError && <p className="text-xs text-destructive">{startError}</p>}
           </div>
         </div>
 

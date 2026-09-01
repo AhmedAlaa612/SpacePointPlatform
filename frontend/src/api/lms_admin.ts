@@ -550,9 +550,18 @@ export interface AdminLearningPath {
   created_by: string;
   created_at: string | null;
   image_url: string | null;
+  access_mode: "open" | "invite" | "paid";
   // Bundle pricing (2026-08-21) — null price_cents means not purchasable.
   price_cents: number | null;
   currency: string;
+}
+
+export interface LearningPathMetadataInput {
+  title?: string;
+  description?: string;
+  access_mode?: "open" | "invite" | "paid";
+  price_cents?: number | null;
+  currency?: string;
 }
 
 export interface LearningPathStepEntry {
@@ -662,14 +671,11 @@ export const listLearningPathsApi = () =>
   api.get<AdminLearningPath[]>("/lms/admin/learning-paths").then((r) => r.data);
 export const getLearningPathApi = (id: string) =>
   api.get<AdminLearningPath>(`/lms/admin/learning-paths/${id}`).then((r) => r.data);
-export const createLearningPathApi = (
-  data: { title: string; description?: string; price_cents?: number | null; currency?: string },
-) => api.post<AdminLearningPath>("/lms/admin/learning-paths", data).then((r) => r.data);
+export const createLearningPathApi = (data: LearningPathMetadataInput & { title: string }) =>
+  api.post<AdminLearningPath>("/lms/admin/learning-paths", data).then((r) => r.data);
 export const updateLearningPathApi = (
   id: string,
-  data: Partial<{
-    title: string; description: string; is_published: boolean; price_cents: number | null; currency: string;
-  }>,
+  data: Partial<LearningPathMetadataInput & { is_published: boolean }>,
 ) => api.patch<AdminLearningPath>(`/lms/admin/learning-paths/${id}`, data).then((r) => r.data);
 export const deleteLearningPathApi = (id: string) =>
   api.delete<void>(`/lms/admin/learning-paths/${id}`).then((r) => r.data);

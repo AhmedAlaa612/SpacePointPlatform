@@ -329,6 +329,7 @@ class LearningPathCatalogOut(BaseModel):
     # answer it (a freshly-started path is 0% but is still yours), which is
     # the same distinction `CourseCatalogOut.enrolled` already draws.
     enrolled: bool = False
+    access_mode: str = "open"  # mirrors CourseCatalogOut.access_mode — open|invite|paid
     # Bundle pricing (2026-08-21) — null price_cents means not purchasable,
     # same convention as Course. `fully_owned` is true iff the caller already
     # has an active enrollment in every step's course, i.e. there's nothing
@@ -371,6 +372,12 @@ class LearningPathDetailOut(BaseModel):
     mission_count: int
     total_duration_seconds: int
     steps: list[LearningPathStepOut]
+    access_mode: str = "open"
+    # True iff the caller already holds an active enrollment in at least one
+    # step course — lets the client tell a genuine self-enrol ("Start path")
+    # from an already-granted invite/paid path ("Continue"), which must
+    # navigate straight to the next step instead of re-POSTing to `/start`.
+    enrolled: bool = False
     price_cents: int | None = None
     currency: str = "usd"
     fully_owned: bool = False

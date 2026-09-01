@@ -287,6 +287,7 @@ function EditPathModal({
 }: { path: AdminLearningPath; onClose: () => void; onSuccess: () => void }) {
   const [title, setTitle] = useState(path.title)
   const [description, setDescription] = useState(path.description ?? "")
+  const [accessMode, setAccessMode] = useState<"open" | "invite" | "paid">(path.access_mode)
   const [priceDollars, setPriceDollars] = useState(
     path.price_cents != null ? String(path.price_cents / 100) : ""
   )
@@ -295,6 +296,7 @@ function EditPathModal({
   const mutation = useMutation({
     mutationFn: () => updateLearningPathApi(path.id, {
       title: title.trim(), description: description.trim() || undefined,
+      access_mode: accessMode,
       price_cents: priceDollars.trim() ? Math.round(Number(priceDollars) * 100) : null,
     }),
     onSuccess,
@@ -315,6 +317,19 @@ function EditPathModal({
             value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
             className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors resize-none"
           />
+        </Field>
+        <Field label="Access">
+          <select
+            value={accessMode} onChange={(e) => setAccessMode(e.target.value as "open" | "invite" | "paid")}
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          >
+            <option value="open">Open — anyone self-starts</option>
+            <option value="invite">Invite-only — admin grant only</option>
+            <option value="paid">Paid — Stripe Checkout</option>
+          </select>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Invite-only paths are hidden from the catalog entirely until a student is granted access.
+          </p>
         </Field>
         <Field label="Bundle price, USD (optional)">
           <input

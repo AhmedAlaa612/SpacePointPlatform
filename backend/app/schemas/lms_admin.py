@@ -529,6 +529,11 @@ class LmsProgramCohortEffectiveOut(BaseModel):
 class LearningPathCreate(BaseModel):
     title: str
     description: str | None = None
+    # Mirrors Course.access_mode — open: anyone self-`/start`s. invite:
+    # hidden from the catalog unless already enrolled, admin/invite-code
+    # grant only. paid: still listed, but `/start` 402s (bundle purchase is
+    # the separate price_cents-driven checkout below).
+    access_mode: CourseAccessMode = "open"
     # Bundle pricing (2026-08-21) — mirrors Course; null = not purchasable as
     # a bundle, existing free `/start` self-enrol is unaffected either way.
     price_cents: int | None = Field(default=None, ge=1)
@@ -539,6 +544,7 @@ class LearningPathUpdate(BaseModel):
     title: str | None = None
     description: str | None = None
     is_published: bool | None = None
+    access_mode: CourseAccessMode | None = None
     price_cents: int | None = Field(default=None, ge=1)
     currency: str | None = None
 
@@ -552,6 +558,7 @@ class LearningPathAdminOut(BaseModel):
     created_by: UUID
     created_at: datetime | None
     image_url: str | None = None
+    access_mode: str = "open"
     price_cents: int | None = None
     currency: str = "usd"
 

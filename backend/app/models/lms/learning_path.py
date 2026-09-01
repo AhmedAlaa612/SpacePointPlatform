@@ -33,6 +33,17 @@ class LearningPath(Base):
     is_published = Column(Boolean, nullable=False, default=False)
     image_bucket = Column(String(64), nullable=True)
     image_path = Column(String(512), nullable=True)
+
+    # Mirrors Course.access_mode (2026-09-01) — open: anyone self-`/start`s.
+    # invite: hidden from the catalog and 403/404s on detail/`/start` unless
+    # the caller already holds an active enrollment in a step course; only an
+    # admin grant (bulk grant or invite-code grant) gets someone in — both
+    # already enroll unconditionally regardless of any access_mode, same as
+    # the course-level equivalents. paid: still listed, but `/start` 402s —
+    # bundle purchase goes through the existing `price_cents`-driven checkout,
+    # independent of this column. Existing paths default to 'open', so
+    # today's behaviour is unchanged by this column's arrival.
+    access_mode = Column(String(12), nullable=False, default="open", server_default="open")
     created_by = Column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
     )

@@ -63,7 +63,8 @@ class Course(Base):
     instructor_title = Column(String(120), nullable=True)  # e.g. "Lead Systems Engineer, SpacePoint"
 
     # P1-2 (Phase 2 Stage 1, 2026-08-10) — open: anyone logged in self-enrols.
-    # invite: lists with a lock, only an admin grant enrols. paid: self-enrol
+    # invite: hidden from the catalog entirely unless the caller already
+    # holds an active enrollment; only an admin grant enrols. paid: self-enrol
     # starts a checkout (Stage S). Existing courses default to 'open', so
     # today's behaviour is unchanged by this column's arrival.
     access_mode = Column(String(12), nullable=False, default="open", server_default="open")
