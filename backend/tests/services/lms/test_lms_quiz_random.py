@@ -18,7 +18,7 @@ from sqlalchemy import select
 from app.models.lms import Course, CourseModule, ItemProgress, ModuleItem
 from app.models.user import User
 from app.services.lms import check_quiz_answer, get_quiz_display_order, student_view, submit_quiz
-from app.services.lms.quiz import random as quiz_random
+from app.services.lms.quiz import _create_progress_row, random as quiz_random
 
 
 async def _user(db) -> User:
@@ -166,6 +166,59 @@ async def test_submit_clears_the_sample_so_the_next_view_draws_fresh(db, monkeyp
     second_order = await get_quiz_display_order(db, user_id=student.id, item=quiz)
     assert second_order == [1, 2, 3]
     assert second_order != first_order
+
+
+# ── module_read made ItemProgress creation reachable from a plain GET ──────
+# (get_quiz_display_order), which — unlike the POST endpoints that used to
+# be the only callers — commonly fires twice concurrently (two tabs, a
+# refresh double-click). ─────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_concurrent_first_view_does_not_crash_on_duplicate_progress_row(db):
+    course = await _course(db)
+    m = await _module(db, course)
+    quiz = await _quiz_5q(db, m, random_count=3)
+    student = await _user(db)
+
+    first = await _create_progress_row(db, student.id, quiz.id)
+    # A second "concurrent" creation attempt for the same (user, item) must
+    # lose the race gracefully and return the winner's row, not raise.
+    second = await _create_progress_row(db, student.id, quiz.id)
+    assert first.id == second.id
+
+    rows = (await db.execute(
+        select(ItemProgress).where(ItemProgress.user_id == student.id, ItemProgress.item_id == quiz.id)
+    )).scalars().all()
+    assert len(rows) == 1
+
+    # The session must still be usable afterward (the SAVEPOINT confined
+    # the conflict — it didn't poison the outer transaction).
+    order = await get_quiz_display_order(db, user_id=student.id, item=quiz)
+    assert order is not None and len(order) == 3
+
+
+@pytest.mark.asyncio
+async def test_get_quiz_display_order_accepts_a_prefetched_progress_row(db):
+    """module_read passes its own batched-query row (or None, if it knows
+    none exists) instead of letting this re-SELECT ItemProgress per item."""
+    course = await _course(db)
+    m = await _module(db, course)
+    quiz = await _quiz_5q(db, m, random_count=3)
+    student = await _user(db)
+
+    # progress=None (caller already knows there's no row) still creates one.
+    order = await get_quiz_display_order(db, user_id=student.id, item=quiz, progress=None)
+    assert order is not None and len(order) == 3
+
+    row = (await db.execute(
+        select(ItemProgress).where(ItemProgress.user_id == student.id, ItemProgress.item_id == quiz.id)
+    )).scalars().first()
+    assert row is not None
+
+    # Passing that same row back in reuses it (no re-lookup) and the sample
+    # is stable, same as the default/unset path.
+    order2 = await get_quiz_display_order(db, user_id=student.id, item=quiz, progress=row)
+    assert order2 == order
 
 
 # ── grading/live-check resolve against the shown subset, not raw positions ──

@@ -625,6 +625,41 @@ async def test_module_read_serves_all_questions_when_random_count_unset(db, clie
 
 
 @pytest.mark.asyncio
+async def test_module_read_samples_every_random_quiz_item_independently(db, client):
+    """A module can hold several randomized quiz items — each must get its
+    own independent sample on first view, off the same batched ItemProgress
+    prefetch (get_quiz_display_order(progress=...) in module_read)."""
+    author = await _user(db, roles=["operations"])
+    course = await _course(db, author=author)
+    module = await _module(db, course)
+
+    def _quiz_content(random_count):
+        return {
+            "pass_threshold": 0,
+            "random_count": random_count,
+            "questions": [
+                {
+                    "prompt": f"Q{i}?", "explanation": None,
+                    "options": [{"text": "Wrong", "is_correct": False}, {"text": "Right", "is_correct": True}],
+                }
+                for i in range(5)
+            ],
+        }
+
+    quiz_a = await _item(db, module, position=1, kind="quiz", content=_quiz_content(2))
+    quiz_b = await _item(db, module, position=2, kind="quiz", content=_quiz_content(4))
+    student = await _user(db)
+    await enroll(db, user_id=student.id, course_id=course.id)
+    await db.commit()
+
+    resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(student))
+    assert resp.status_code == 200
+    by_id = {i["id"]: i for i in resp.json()["items"]}
+    assert len(by_id[str(quiz_a.id)]["content"]["questions"]) == 2
+    assert len(by_id[str(quiz_b.id)]["content"]["questions"]) == 4
+
+
+@pytest.mark.asyncio
 async def test_quiz_questions_endpoint_regrants_a_fresh_sample_after_submit(db, client):
     """The player's Retry action calls GET .../quiz/questions to draw a new
     random N — submit_quiz always clears the previous sample first, so this

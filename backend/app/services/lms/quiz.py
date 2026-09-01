@@ -28,11 +28,29 @@ from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.course import ModuleItem
 from app.models.lms.enrollment import ItemProgress
 from app.services.lms.points import award_quiz_points
+
+# Sentinel distinguishing "caller has no prefetched row, look it up" (the
+# default) from "caller already looked it up and it's None" — get_quiz_
+# display_order's `progress` parameter uses this so module_read's batched
+# ItemProgress query isn't re-queried per quiz item (see its call site).
+_UNSET = object()
+
+
+def _new_progress_row(user_id: uuid.UUID, item_id: uuid.UUID) -> ItemProgress:
+    return ItemProgress(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        item_id=item_id,
+        status="not_started",
+        quiz_attempts=0,
+        hints_used=0,
+    )
 
 
 async def _progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID) -> ItemProgress:
@@ -42,21 +60,37 @@ async def _progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID
             ItemProgress.item_id == item_id,
         )
     )).scalars().first()
-    if row is None:
-        row = ItemProgress(
-            id=uuid.uuid4(),
-            user_id=user_id,
-            item_id=item_id,
-            status="not_started",
-            quiz_attempts=0,
-            hints_used=0,
-        )
-        db.add(row)
+    if row is not None:
+        return row
+    return await _create_progress_row(db, user_id, item_id)
+
+
+async def _create_progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID) -> ItemProgress:
+    """Insert a fresh ItemProgress row, tolerating a concurrent insert of the
+    same (user_id, item_id) row. random-N quizzes (2026-09-01) made this
+    reachable from a plain module-view GET via get_quiz_display_order below
+    — unlike the POST endpoints that used to be the only callers, a GET is
+    routinely fired twice concurrently (two tabs, a refresh). The SAVEPOINT
+    confines a lost race to this insert instead of poisoning the caller's
+    whole transaction — same pattern as certificates.py::issue_course_
+    certificate."""
+    row = _new_progress_row(user_id, item_id)
+    try:
+        async with db.begin_nested():
+            db.add(row)
+    except IntegrityError:
+        row = (await db.execute(
+            select(ItemProgress).where(
+                ItemProgress.user_id == user_id,
+                ItemProgress.item_id == item_id,
+            )
+        )).scalars().first()
     return row
 
 
 async def get_quiz_display_order(
     db: AsyncSession, *, user_id: uuid.UUID, item: ModuleItem,
+    progress: ItemProgress | None = _UNSET,  # type: ignore[assignment]
 ) -> list[int] | None:
     """Random-N quizzes (2026-09-01). Returns None when `random_count` isn't
     configured or is >= the pool size — show everything, authored order,
@@ -70,6 +104,12 @@ async def get_quiz_display_order(
     The `len(order) != random_count or max(...) >= len(questions)` guard
     covers an admin editing the quiz (shrinking the pool or changing N)
     while a student has a stale sample stored.
+
+    `progress`: pass the caller's already-fetched ItemProgress row (or None,
+    if the caller already knows none exists) to skip the lookup here —
+    module_read prefetches every item's progress row in one batched query
+    and would otherwise re-SELECT per quiz item. Leave unset (the default)
+    for a single-item caller (check_quiz_answer, submit_quiz).
     """
     content = item.content or {}
     questions: list[dict] = content.get("questions") or []
@@ -77,7 +117,12 @@ async def get_quiz_display_order(
     if not random_count or random_count >= len(questions):
         return None
 
-    row = await _progress_row(db, user_id, item.id)
+    if progress is _UNSET:
+        row = await _progress_row(db, user_id, item.id)
+    elif progress is None:
+        row = await _create_progress_row(db, user_id, item.id)
+    else:
+        row = progress
     order = row.quiz_question_order
     if not order or len(order) != random_count or max(order, default=-1) >= len(questions):
         order = random.sample(range(len(questions)), random_count)

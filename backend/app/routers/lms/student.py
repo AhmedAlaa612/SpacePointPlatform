@@ -815,15 +815,22 @@ async def module_read(
 
     item_payloads: list[ModuleItemOut] = []
     for item in items:
+        row = progress_map.get(item.id)
         quiz_order = None
         if item.kind == "quiz":
-            quiz_order = await get_quiz_display_order(db, user_id=current.id, item=item)
+            # Pass the already-fetched (possibly absent) row so a random-N
+            # quiz doesn't re-SELECT ItemProgress per item — the batched
+            # query above already has it (or knows it's missing). If this
+            # creates a row (first-ever view), `row` here still reports the
+            # status as of the batched query (None, i.e. not started) —
+            # cosmetically stale for this one response, corrected on the
+            # very next fetch once the row exists in that query too.
+            quiz_order = await get_quiz_display_order(db, user_id=current.id, item=item, progress=row)
         payload = student_view(item, quiz_order=quiz_order)
         if item.kind == "video":
             payload["content"].update(await _video_state(db, item))
         if item.kind == "mission":
             payload["content"].update(await _mission_embed_state(db, item, current.id))
-        row = progress_map.get(item.id)
         item_payloads.append(ModuleItemOut(
             id=item.id,
             kind=item.kind,
