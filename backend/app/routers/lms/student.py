@@ -47,6 +47,7 @@ from app.schemas.lms import (
     AttachmentUrlOut,
     CheckpointAnswerIn,
     CheckpointAnswerOut,
+    ContentQuiz,
     CourseCatalogOut,
     CourseDetailOut,
     EnrollIn,
@@ -78,6 +79,7 @@ from app.services.lms import (
     course_completion,
     enroll,
     enrollment_is_active,
+    get_quiz_display_order,
     item_progress,
     path_progress,
     path_total_duration_seconds,
@@ -861,12 +863,22 @@ async def module_read(
 
     item_payloads: list[ModuleItemOut] = []
     for item in items:
-        payload = student_view(item)
+        row = progress_map.get(item.id)
+        quiz_order = None
+        if item.kind == "quiz":
+            # Pass the already-fetched (possibly absent) row so a random-N
+            # quiz doesn't re-SELECT ItemProgress per item — the batched
+            # query above already has it (or knows it's missing). If this
+            # creates a row (first-ever view), `row` here still reports the
+            # status as of the batched query (None, i.e. not started) —
+            # cosmetically stale for this one response, corrected on the
+            # very next fetch once the row exists in that query too.
+            quiz_order = await get_quiz_display_order(db, user_id=current.id, item=item, progress=row)
+        payload = student_view(item, quiz_order=quiz_order)
         if item.kind == "video":
             payload["content"].update(await _video_state(db, item))
         if item.kind == "mission":
             payload["content"].update(await _mission_embed_state(db, item, current.id))
-        row = progress_map.get(item.id)
         item_payloads.append(ModuleItemOut(
             id=item.id,
             kind=item.kind,
@@ -876,6 +888,7 @@ async def module_read(
             status=row.status if row else None,
         ))
 
+    await db.commit()
     return ModuleOut(
         id=module.id,
         course_id=module.course_id,
@@ -903,6 +916,24 @@ async def list_checkpoints(
 
 
 # ── learner writes: enrolled (P1-6/D2 — role no longer gates this) ─────────
+
+@router.get("/items/{item_id}/quiz/questions", response_model=ContentQuiz)
+async def quiz_questions(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    """Re-fetch this quiz's current sample (random-N quizzes, 2026-09-01) —
+    used by the player's Retry action to draw a fresh random N without
+    re-fetching the whole module. `submit_quiz` always clears the stored
+    sample first, so this naturally returns a new one after a submission."""
+    item = await _enrolled_item(db, current.id, item_id)
+    if item.kind != "quiz":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Quiz item not found")
+    quiz_order = await get_quiz_display_order(db, user_id=current.id, item=item)
+    await db.commit()
+    return student_view(item, quiz_order=quiz_order)["content"]
+
 
 @router.post("/items/{item_id}/quiz/check", response_model=QuizAnswerCheckOut)
 async def quiz_check_answer(

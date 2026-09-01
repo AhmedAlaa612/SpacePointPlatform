@@ -681,6 +681,7 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
   const existing = item && "questions" in item.content ? item.content : null
   const [title, setTitle] = useState(item?.title ?? "")
   const [passThreshold, setPassThreshold] = useState(existing?.pass_threshold ?? 0)
+  const [randomCount, setRandomCount] = useState<number | null>(existing?.random_count ?? null)
   const [isRequired, setIsRequired] = useState(item?.is_required ?? true)
   const [questions, setQuestions] = useState<AdminQuizQuestion[]>(
     existing?.questions?.length
@@ -698,12 +699,14 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
     )
 
   const valid = questions.every((q) => q.prompt.trim() && q.options.filter((o) => o.text.trim()).length >= 2 && q.options.some((o) => o.is_correct))
+    && (randomCount == null || (randomCount >= 1 && randomCount <= questions.length))
 
   const mutation = useMutation({
     mutationFn: () => {
       const content = {
         pass_threshold: passThreshold,
         questions: questions.map((q) => ({ ...q, options: q.options.filter((o) => o.text.trim()) })),
+        random_count: randomCount,
       }
       return item
         ? updateItemApi(item.id, { title: title.trim() || undefined, is_required: isRequired, content })
@@ -726,6 +729,14 @@ function QuizItemModal({ moduleId, item, onClose, onSuccess }: {
           <input
             type="number" min={0} max={100} value={passThreshold}
             onChange={(e) => setPassThreshold(Number(e.target.value))}
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+        </Field>
+        <Field label={`Random questions per attempt (blank = all ${questions.length})`}>
+          <input
+            type="number" min={1} max={questions.length} value={randomCount ?? ""}
+            onChange={(e) => setRandomCount(e.target.value === "" ? null : Number(e.target.value))}
+            placeholder={`${questions.length}`}
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
         </Field>

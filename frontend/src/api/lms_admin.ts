@@ -140,7 +140,7 @@ export type VideoTranscodeStatus = "pending" | "processing" | "ready" | "failed"
 
 export type AdminItemContent =
   | { body: string }
-  | { pass_threshold: number; questions: AdminQuizQuestion[] }
+  | { pass_threshold: number; questions: AdminQuizQuestion[]; random_count?: number | null }
   | { title: string | null; cards: { term: string; definition: string }[] }
   | { transcode_status: VideoTranscodeStatus | null; transcode_error: string | null; duration_seconds: number | null }
   // Empty until uploaded (same two-step shape as video) — every field optional

@@ -245,6 +245,56 @@ async def test_quiz_item_validates_shape_and_strips_nothing_from_the_author(db, 
     assert q["options"][0]["is_correct"] is True
 
 
+@pytest.mark.asyncio
+async def test_quiz_random_count_validated_against_question_count(db, client):
+    """Random-N quizzes (2026-09-01) — `random_count` must not exceed the
+    authored question count, and blank/None stays valid (show every
+    question, today's behavior)."""
+    ops = await _user(db)
+    course = await _course(db, author=ops)
+    module = await _module(db, course)
+    await db.commit()
+
+    def _content(random_count):
+        return {
+            "pass_threshold": 0,
+            "random_count": random_count,
+            "questions": [
+                {
+                    "prompt": f"Q{i}?", "explanation": None,
+                    "options": [{"text": "A", "is_correct": True}, {"text": "B", "is_correct": False}],
+                }
+                for i in range(3)
+            ],
+        }
+
+    too_high = await client.post(
+        f"/lms/admin/modules/{module.id}/items", headers=_headers(ops),
+        json={"kind": "quiz", "content": _content(4)},
+    )
+    assert too_high.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    zero = await client.post(
+        f"/lms/admin/modules/{module.id}/items", headers=_headers(ops),
+        json={"kind": "quiz", "content": _content(0)},
+    )
+    assert zero.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    unset = await client.post(
+        f"/lms/admin/modules/{module.id}/items", headers=_headers(ops),
+        json={"kind": "quiz", "content": _content(None)},
+    )
+    assert unset.status_code == 201
+    assert unset.json()["content"]["random_count"] is None
+
+    valid = await client.post(
+        f"/lms/admin/modules/{module.id}/items", headers=_headers(ops),
+        json={"kind": "quiz", "content": _content(2)},
+    )
+    assert valid.status_code == 201
+    assert valid.json()["content"]["random_count"] == 2
+
+
 # ── video checkpoints ────────────────────────────────────────────────────────
 
 async def _video_item(db, module) -> ModuleItem:

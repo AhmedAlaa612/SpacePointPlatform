@@ -21,17 +21,36 @@ submission is worth.
 
 from __future__ import annotations
 
+import random
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.course import ModuleItem
 from app.models.lms.enrollment import ItemProgress
 from app.services.lms.points import award_quiz_points
+
+# Sentinel distinguishing "caller has no prefetched row, look it up" (the
+# default) from "caller already looked it up and it's None" — get_quiz_
+# display_order's `progress` parameter uses this so module_read's batched
+# ItemProgress query isn't re-queried per quiz item (see its call site).
+_UNSET = object()
+
+
+def _new_progress_row(user_id: uuid.UUID, item_id: uuid.UUID) -> ItemProgress:
+    return ItemProgress(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        item_id=item_id,
+        status="not_started",
+        quiz_attempts=0,
+        hints_used=0,
+    )
 
 
 async def _progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID) -> ItemProgress:
@@ -41,17 +60,75 @@ async def _progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID
             ItemProgress.item_id == item_id,
         )
     )).scalars().first()
-    if row is None:
-        row = ItemProgress(
-            id=uuid.uuid4(),
-            user_id=user_id,
-            item_id=item_id,
-            status="not_started",
-            quiz_attempts=0,
-            hints_used=0,
-        )
-        db.add(row)
+    if row is not None:
+        return row
+    return await _create_progress_row(db, user_id, item_id)
+
+
+async def _create_progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID) -> ItemProgress:
+    """Insert a fresh ItemProgress row, tolerating a concurrent insert of the
+    same (user_id, item_id) row. random-N quizzes (2026-09-01) made this
+    reachable from a plain module-view GET via get_quiz_display_order below
+    — unlike the POST endpoints that used to be the only callers, a GET is
+    routinely fired twice concurrently (two tabs, a refresh). The SAVEPOINT
+    confines a lost race to this insert instead of poisoning the caller's
+    whole transaction — same pattern as certificates.py::issue_course_
+    certificate."""
+    row = _new_progress_row(user_id, item_id)
+    try:
+        async with db.begin_nested():
+            db.add(row)
+    except IntegrityError:
+        row = (await db.execute(
+            select(ItemProgress).where(
+                ItemProgress.user_id == user_id,
+                ItemProgress.item_id == item_id,
+            )
+        )).scalars().first()
     return row
+
+
+async def get_quiz_display_order(
+    db: AsyncSession, *, user_id: uuid.UUID, item: ModuleItem,
+    progress: ItemProgress | None = _UNSET,  # type: ignore[assignment]
+) -> list[int] | None:
+    """Random-N quizzes (2026-09-01). Returns None when `random_count` isn't
+    configured or is >= the pool size — show everything, authored order,
+    exactly as before this feature existed. Otherwise returns the get-or-
+    create per-attempt random sample: indices into `content["questions"]`,
+    persisted on `ItemProgress.quiz_question_order` so a page refresh
+    mid-attempt doesn't reshuffle it. `submit_quiz` clears that column after
+    grading, so the next call here (next view) draws a fresh sample — that's
+    what makes a retry (or a later re-take) get a new random N.
+
+    The `len(order) != random_count or max(...) >= len(questions)` guard
+    covers an admin editing the quiz (shrinking the pool or changing N)
+    while a student has a stale sample stored.
+
+    `progress`: pass the caller's already-fetched ItemProgress row (or None,
+    if the caller already knows none exists) to skip the lookup here —
+    module_read prefetches every item's progress row in one batched query
+    and would otherwise re-SELECT per quiz item. Leave unset (the default)
+    for a single-item caller (check_quiz_answer, submit_quiz).
+    """
+    content = item.content or {}
+    questions: list[dict] = content.get("questions") or []
+    random_count = content.get("random_count")
+    if not random_count or random_count >= len(questions):
+        return None
+
+    if progress is _UNSET:
+        row = await _progress_row(db, user_id, item.id)
+    elif progress is None:
+        row = await _create_progress_row(db, user_id, item.id)
+    else:
+        row = progress
+    order = row.quiz_question_order
+    if not order or len(order) != random_count or max(order, default=-1) >= len(questions):
+        order = random.sample(range(len(questions)), random_count)
+        row.quiz_question_order = order
+        await db.flush()
+    return order
 
 
 async def check_quiz_answer(
@@ -69,10 +146,13 @@ async def check_quiz_answer(
         raise HTTPException(404, detail="Quiz item not found")
 
     questions: list[dict] = (item.content or {}).get("questions") or []
-    if not (0 <= question_index < len(questions)):
+    order = await get_quiz_display_order(db, user_id=user_id, item=item)
+    shown_count = len(order) if order is not None else len(questions)
+    if not (0 <= question_index < shown_count):
         raise HTTPException(400, detail="question_index is out of range")
+    real_index = order[question_index] if order is not None else question_index
 
-    options = questions[question_index].get("options") or []
+    options = questions[real_index].get("options") or []
     if not isinstance(answer, int) or isinstance(answer, bool) or not (0 <= answer < len(options)):
         raise HTTPException(400, detail="answer is out of range")
 
@@ -82,7 +162,7 @@ async def check_quiz_answer(
 
     return {
         "correct": bool(options[answer].get("is_correct")),
-        "explanation": questions[question_index].get("explanation"),
+        "explanation": questions[real_index].get("explanation"),
         "correct_text": next((o.get("text") for o in options if o.get("is_correct")), None),
     }
 
@@ -166,13 +246,21 @@ async def submit_quiz(
     questions: list[dict] = content.get("questions") or []
     pass_threshold = content.get("pass_threshold", 0)
 
-    graded = grade_quiz(questions=questions, answers=answers, pass_threshold=pass_threshold)
+    # Random-N quizzes (2026-09-01) — grade against exactly the sampled
+    # subset/order the student was shown, not the raw authored pool.
+    order = await get_quiz_display_order(db, user_id=user_id, item=item)
+    graded_questions = [questions[i] for i in order] if order is not None else questions
+
+    graded = grade_quiz(questions=graded_questions, answers=answers, pass_threshold=pass_threshold)
     score = graded["score"]
     passed = graded["passed"]
 
     row = await _progress_row(db, user_id, item_id)
     row.quiz_attempts += 1
     row.updated_at = datetime.now(timezone.utc)
+    # Clear the sample so the next view (a retry, or a later re-take) draws
+    # a fresh random N — see get_quiz_display_order's docstring.
+    row.quiz_question_order = None
 
     new_best = Decimal(str(score))
     row.best_score = new_best if row.best_score is None else max(row.best_score, new_best)

@@ -23,7 +23,14 @@ import uuid
 from app.models.lms.course import ModuleItem, VideoCheckpoint
 
 
-def _sanitize_quiz(content: dict) -> dict:
+def _sanitize_quiz(content: dict, order: list[int] | None = None) -> dict:
+    """`order`, when given (random-N quizzes, 2026-09-01), is the sampled
+    subset/order of question indices to serve — see services/lms/quiz.py::
+    get_quiz_display_order. None means every question, authored order,
+    exactly as before that feature existed."""
+    questions = content.get("questions") or []
+    if order is not None:
+        questions = [questions[i] for i in order if 0 <= i < len(questions)]
     return {
         "pass_threshold": content.get("pass_threshold", 0),
         "questions": [
@@ -31,7 +38,7 @@ def _sanitize_quiz(content: dict) -> dict:
                 "prompt": q.get("prompt"),
                 "options": [{"text": o.get("text")} for o in (q.get("options") or [])],
             }
-            for q in (content.get("questions") or [])
+            for q in questions
         ],
     }
 
@@ -65,10 +72,10 @@ def _sanitize_mission(content: dict) -> dict:
     return {"mission_id": content.get("mission_id"), "variant_id": content.get("variant_id")}
 
 
-def _sanitize(kind: str, content: dict | None) -> dict:
+def _sanitize(kind: str, content: dict | None, quiz_order: list[int] | None = None) -> dict:
     content = content or {}
     if kind == "quiz":
-        return _sanitize_quiz(content)
+        return _sanitize_quiz(content, quiz_order)
     if kind == "text":
         return _sanitize_text(content)
     if kind == "flashcards":
@@ -82,20 +89,23 @@ def _sanitize(kind: str, content: dict | None) -> dict:
     return {}
 
 
-def student_view(item: ModuleItem) -> dict:
+def student_view(item: ModuleItem, quiz_order: list[int] | None = None) -> dict:
     """The JSON-safe, answer-free payload for a student-facing item.
 
     This is what LM1-3's module read calls for every item. Guarantees: the
     returned dict (at any depth) contains no `is_correct` and no
     `explanation` key, for every kind — pinned by test_lms_services.py's leak
     test. Pydantic response models on the routes enforce it a second time.
+
+    `quiz_order` (random-N quizzes, 2026-09-01) is ignored for every kind
+    but `quiz` — see `_sanitize_quiz`.
     """
     return {
         "id": str(item.id),
         "kind": item.kind,
         "title": item.title,
         "position": item.position,
-        "content": _sanitize(item.kind, item.content),
+        "content": _sanitize(item.kind, item.content, quiz_order),
     }
 
 

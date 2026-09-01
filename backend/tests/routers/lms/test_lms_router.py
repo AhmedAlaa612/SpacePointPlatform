@@ -580,6 +580,125 @@ async def test_quiz_check_gives_live_feedback_without_recording_an_attempt(db, c
     assert row.first_score is None
 
 
+async def _tree_with_random_quiz(db, *, random_count):
+    """A 5-question quiz configured with `random_count` (random-N quizzes,
+    2026-09-01) — mirrors `_tree_with_quiz` above but with enough questions
+    to actually exercise sampling."""
+    author = await _user(db, roles=["operations"])
+    course = await _course(db, author=author)
+    module = await _module(db, course)
+    quiz = await _item(db, module, position=1, kind="quiz", content={
+        "pass_threshold": 0,
+        "random_count": random_count,
+        "questions": [
+            {
+                "prompt": f"Q{i}?",
+                "explanation": f"Because {i}.",
+                "options": [{"text": "Wrong", "is_correct": False}, {"text": "Right", "is_correct": True}],
+            }
+            for i in range(5)
+        ],
+    })
+    return course, module, quiz
+
+
+@pytest.mark.asyncio
+async def test_module_read_serves_only_n_random_questions(db, client):
+    course, module, quiz = await _tree_with_random_quiz(db, random_count=3)
+    student = await _user(db)
+    await enroll(db, user_id=student.id, course_id=course.id)
+    await db.commit()
+
+    resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(student))
+    assert resp.status_code == 200
+    quiz_content = resp.json()["items"][0]["content"]
+    assert len(quiz_content["questions"]) == 3
+
+    # A second fetch (no submit in between) must be the identical subset —
+    # a page refresh mid-attempt must not reshuffle it.
+    resp2 = await client.get(f"/lms/modules/{module.id}", headers=_headers(student))
+    assert resp2.json()["items"][0]["content"]["questions"] == quiz_content["questions"]
+
+
+@pytest.mark.asyncio
+async def test_module_read_serves_all_questions_when_random_count_unset(db, client):
+    course, module, quiz = await _tree_with_random_quiz(db, random_count=None)
+    student = await _user(db)
+    await enroll(db, user_id=student.id, course_id=course.id)
+    await db.commit()
+
+    resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(student))
+    assert len(resp.json()["items"][0]["content"]["questions"]) == 5
+
+
+@pytest.mark.asyncio
+async def test_module_read_samples_every_random_quiz_item_independently(db, client):
+    """A module can hold several randomized quiz items — each must get its
+    own independent sample on first view, off the same batched ItemProgress
+    prefetch (get_quiz_display_order(progress=...) in module_read)."""
+    author = await _user(db, roles=["operations"])
+    course = await _course(db, author=author)
+    module = await _module(db, course)
+
+    def _quiz_content(random_count):
+        return {
+            "pass_threshold": 0,
+            "random_count": random_count,
+            "questions": [
+                {
+                    "prompt": f"Q{i}?", "explanation": None,
+                    "options": [{"text": "Wrong", "is_correct": False}, {"text": "Right", "is_correct": True}],
+                }
+                for i in range(5)
+            ],
+        }
+
+    quiz_a = await _item(db, module, position=1, kind="quiz", content=_quiz_content(2))
+    quiz_b = await _item(db, module, position=2, kind="quiz", content=_quiz_content(4))
+    student = await _user(db)
+    await enroll(db, user_id=student.id, course_id=course.id)
+    await db.commit()
+
+    resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(student))
+    assert resp.status_code == 200
+    by_id = {i["id"]: i for i in resp.json()["items"]}
+    assert len(by_id[str(quiz_a.id)]["content"]["questions"]) == 2
+    assert len(by_id[str(quiz_b.id)]["content"]["questions"]) == 4
+
+
+@pytest.mark.asyncio
+async def test_quiz_questions_endpoint_regrants_a_fresh_sample_after_submit(db, client):
+    """The player's Retry action calls GET .../quiz/questions to draw a new
+    random N — submit_quiz always clears the previous sample first, so this
+    must return a fresh (and gradeable) subset, never the stale one."""
+    course, module, quiz = await _tree_with_random_quiz(db, random_count=3)
+    student = await _user(db)
+    await enroll(db, user_id=student.id, course_id=course.id)
+    await db.commit()
+
+    not_enrolled = await client.get(f"/lms/items/{quiz.id}/quiz/questions", headers=_headers(await _user(db)))
+    assert not_enrolled.status_code == http_status.HTTP_404_NOT_FOUND
+
+    first = await client.get(f"/lms/items/{quiz.id}/quiz/questions", headers=_headers(student))
+    assert first.status_code == 200
+    assert len(first.json()["questions"]) == 3
+
+    # Submit the shown 3 (whatever they are — pass_threshold is 0, any grade passes).
+    submit_resp = await client.post(
+        f"/lms/items/{quiz.id}/quiz/submit", headers=_headers(student), json={"answers": [0, 0, 0]},
+    )
+    assert submit_resp.status_code == 200
+
+    # After submit, the endpoint must serve a freshly-sampled 3, still gradeable.
+    second = await client.get(f"/lms/items/{quiz.id}/quiz/questions", headers=_headers(student))
+    assert len(second.json()["questions"]) == 3
+    second_submit = await client.post(
+        f"/lms/items/{quiz.id}/quiz/submit", headers=_headers(student), json={"answers": [1, 1, 1]},
+    )
+    assert second_submit.status_code == 200
+    assert second_submit.json()["score"] == 100.0
+
+
 @pytest.mark.asyncio
 async def test_progress_write_requires_enrollment_and_valid_action(db, client):
     course, module, text, _quiz = await _tree_with_quiz(db)
