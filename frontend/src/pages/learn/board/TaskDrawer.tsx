@@ -176,6 +176,9 @@ export function TaskDrawer({
     target.kind === "external" ? "Open the link" : "Open";
 
   const canSubmit = !hasGuideline || guidelineOpened;
+  // Once the deadline passes, the paste-link form is hidden — already
+  // submitted content above stays visible/reviewable.
+  const pastDeadline = !!item.deadline_at && new Date(item.deadline_at) < new Date();
   const Icon = iconForItem(item);
 
   // Step numbering — computed once, in render order, so it stays correct
@@ -330,25 +333,46 @@ export function TaskDrawer({
           ) : null}
         </div>
 
-        {isSubmission && !done && !awaiting && (
-          <div className="flex flex-col gap-2.5" onClick={(e) => e.stopPropagation()}>
-            {item.submission_prompt && <p className="text-sm text-muted-foreground">{item.submission_prompt}</p>}
-            <input
-              value={submitUrl || item.submitted_url || ""}
-              onChange={(e) => setSubmitUrl(e.target.value)}
-              placeholder="Paste your link…"
-              disabled={!canSubmit}
-              className="h-12 px-4 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
-            />
+        {/* Always visible once something's been submitted — done or not —
+            so "which submission actually went through" never has to be
+            guessed at. Editing stays open after done too: every submission
+            item is overridable at any time, individual or team-scoped, up
+            until the deadline. */}
+        {isSubmission && item.submitted_url && (
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
+            <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
+            <a
+              href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+              className="text-primary hover:underline truncate max-w-full min-w-0"
+            >
+              {item.submitted_url}
+            </a>
+            <span className="min-w-0">
+              · Submitted
+              {item.updated_at &&
+                ` ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+              {item.updated_by_name && ` by ${item.updated_by_name}`}
+            </span>
           </div>
         )}
-        {isSubmission && item.submitted_url && (
-          <a
-            href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer"
-            className="text-sm text-primary hover:underline truncate"
-          >
-            Current submission: {item.submitted_url}
-          </a>
+
+        {isSubmission && (
+          pastDeadline ? (
+            <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
+              Deadline passed — no longer accepting submissions
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2.5" onClick={(e) => e.stopPropagation()}>
+              {item.submission_prompt && <p className="text-sm text-muted-foreground">{item.submission_prompt}</p>}
+              <input
+                value={submitUrl || item.submitted_url || ""}
+                onChange={(e) => setSubmitUrl(e.target.value)}
+                placeholder="Paste your link…"
+                disabled={!canSubmit}
+                className="h-12 px-4 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+              />
+            </div>
+          )
         )}
 
         <div className="mt-auto pt-3 flex flex-col gap-3 border-t border-border">
@@ -362,14 +386,14 @@ export function TaskDrawer({
               <Icon className="size-[18px]" /> Open guideline
             </Button>
           )}
-          {isSubmission && !done && (
+          {isSubmission && !pastDeadline && (
             <Button
               variant="outline"
               disabled={!canSubmit || (!submitUrl && !item.submitted_url) || submitMutation.isPending}
               onClick={() => submitMutation.mutate(submitUrl || item.submitted_url || "")}
               className="h-12 text-base"
             >
-              {submitMutation.isPending ? "Submitting…" : "Go to submission"}
+              {submitMutation.isPending ? "Submitting…" : item.submitted_url ? "Replace submission" : "Submit for review"}
             </Button>
           )}
           {isSelfCheck && !done && !awaiting && (
