@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, ChevronLeft, ChevronRight, FileText, FileWarning, Rocket, XCircle } from "lucide-react";
@@ -31,9 +31,11 @@ export function ItemPane({
         {/* Watching to the end already completes+advances via onEnded above
             — this is the manual "I've seen this, move on" alternative,
             same posture as every other content type's own Got it! button. */}
-        <Button size="xl" onClick={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}>
-          <CheckCircle2 className="size-4" /> Got it!
-        </Button>
+        <div className="w-[95%] flex justify-end">
+          <Button size="xl" onClick={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}>
+            <CheckCircle2 className="size-4" /> Got it!
+          </Button>
+        </div>
       </div>
     );
   }
@@ -122,9 +124,11 @@ function TextBlock({ body, onContinue }: { body: string; onContinue: () => void 
       <div className="p-6 rounded-2xl ring-1 ring-border bg-card/60 whitespace-pre-wrap text-base leading-relaxed">
         {body}
       </div>
-      <Button size="xl" onClick={onContinue} className="mt-5">
-        <CheckCircle2 className="size-4" /> Got it!
-      </Button>
+      <div className="mt-5 flex justify-end">
+        <Button size="xl" onClick={onContinue}>
+          <CheckCircle2 className="size-4" /> Got it!
+        </Button>
+      </div>
     </div>
   );
 }
@@ -167,9 +171,11 @@ function AttachmentBlock({ itemId, onDone }: { itemId: string; onDone: () => voi
           <p className="text-sm text-muted-foreground">Tap to open</p>
         </div>
       </button>
-      <Button size="xl" onClick={onDone} className="w-fit">
-        <CheckCircle2 className="size-4" /> Got it!
-      </Button>
+      <div className="flex justify-end">
+        <Button size="xl" onClick={onDone}>
+          <CheckCircle2 className="size-4" /> Got it!
+        </Button>
+      </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] flex flex-col">
@@ -184,29 +190,15 @@ function AttachmentBlock({ itemId, onDone }: { itemId: string; onDone: () => voi
 function FlashcardsBlock({
   title, cards, onDone,
 }: { title: string | null; cards: { term: string; definition: string }[]; onDone: () => void }) {
-  const [queue, setQueue] = useState(cards);
-  const [doneCount, setDoneCount] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const total = cards.length;
-
-  // A card that's "still learning" gets requeued rather than skipped, so the
-  // deck only finishes once every card has been marked "got it" at least once.
-  useEffect(() => {
-    if (queue.length === 0) onDone();
-  }, [queue, onDone]);
-
-  const card = queue[0];
+  const card = cards[currentIndex];
   if (!card) return null;
 
-  const stillLearning = () => {
+  const goTo = (i: number) => {
     setRevealed(false);
-    setQueue((prev) => [...prev.slice(1), prev[0]]);
-  };
-
-  const gotIt = () => {
-    setRevealed(false);
-    setDoneCount((n) => n + 1);
-    setQueue((prev) => prev.slice(1));
+    setCurrentIndex(i);
   };
 
   return (
@@ -218,14 +210,28 @@ function FlashcardsBlock({
       >
         <span className="font-display text-xl font-medium">{revealed ? card.definition : card.term}</span>
       </button>
+
+      {/* Free navigation, not a queue — every card is a dot, click any dot
+          to jump straight to it. No per-card "still learning" requeue. */}
+      <div className="mt-4 flex items-center justify-center gap-2">
+        {cards.map((_, i) => (
+          <button
+            key={i}
+            onClick={() => goTo(i)}
+            aria-label={`Go to card ${i + 1}`}
+            className={`size-2.5 rounded-full transition-colors cursor-pointer ${
+              i === currentIndex ? "bg-primary" : "bg-muted-foreground/30 hover:bg-muted-foreground/50"
+            }`}
+          />
+        ))}
+      </div>
+
       <p className="mt-2.5 text-center text-sm text-muted-foreground">
-        {revealed ? "Tap to see the term" : "Tap to reveal"} · {doneCount}/{total} · {total - doneCount} to go
+        {revealed ? "Tap to see the term" : "Tap to reveal"} · Card {currentIndex + 1} of {total}
       </p>
-      <div className="mt-5 flex gap-2">
-        <Button size="xl" variant="outline" className="flex-1" onClick={stillLearning}>
-          Still learning
-        </Button>
-        <Button size="xl" className="flex-1" onClick={gotIt}>
+
+      <div className="mt-5 flex justify-end">
+        <Button size="xl" onClick={onDone}>
           <CheckCircle2 className="size-4" /> Got it!
         </Button>
       </div>
@@ -233,7 +239,7 @@ function FlashcardsBlock({
         onClick={onDone}
         className="mt-3 mx-auto block text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
       >
-        Skip deck
+        Skip
       </button>
     </div>
   );

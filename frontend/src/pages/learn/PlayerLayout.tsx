@@ -169,7 +169,7 @@ export function PlayerLayout({
               onClick={() => setSidebarOpen(true)}
               className="hidden lg:flex w-full items-center gap-2 px-6 py-3.5 text-left text-sm font-semibold text-primary bg-background/95 backdrop-blur border-b border-border cursor-pointer hover:bg-foreground/5 transition-colors"
             >
-              <PanelLeftOpen className="size-4" /> Show modules
+              <PanelLeftOpen className="size-4" /> Show course outline
             </button>
           )}
         </div>

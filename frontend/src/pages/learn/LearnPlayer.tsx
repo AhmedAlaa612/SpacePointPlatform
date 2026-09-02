@@ -161,16 +161,23 @@ export default function LearnPlayer() {
       <PlayerLayout course={course} modulesData={modulesData} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId}>
         {selectedItem ? (
           <div className="flex flex-col gap-6">
-            <div className="min-w-0">
-              {currentModule && (
-                <div className="text-xs font-semibold uppercase tracking-wide text-primary">
-                  Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
-                </div>
-              )}
-              <h1 className="font-display text-3xl font-bold tracking-tight mt-2">
-                {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
-              </h1>
-            </div>
+            {/* Video is player-first, title underneath (the YouTube/Vimeo
+                convention — the thing you came here for is immediately
+                visible, not below a heading) — every other kind keeps the
+                title up top since there's no equivalent "big media" to lead
+                with. */}
+            {selectedItem.kind !== "video" && (
+              <div className="min-w-0">
+                {currentModule && (
+                  <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+                    Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
+                  </div>
+                )}
+                <h1 className="font-display text-3xl font-bold tracking-tight mt-2">
+                  {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
+                </h1>
+              </div>
+            )}
 
             {/* Each content type owns its own single "Got it!" action
                 (ItemPane.tsx) — it both records progress and advances
@@ -178,6 +185,19 @@ export default function LearnPlayer() {
                 no separate "mark complete" control or Next-item nav bar
                 here anymore. */}
             <ItemPane key={selectedItem.id} item={selectedItem} onProgressed={() => void handleProgressed()} />
+
+            {selectedItem.kind === "video" && (
+              <div className="min-w-0">
+                {currentModule && (
+                  <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+                    Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
+                  </div>
+                )}
+                <h1 className="font-display text-3xl font-bold tracking-tight mt-2">
+                  {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
+                </h1>
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex flex-col items-center text-center gap-3 py-16">
