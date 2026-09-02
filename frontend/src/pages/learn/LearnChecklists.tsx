@@ -31,7 +31,7 @@ export default function LearnChecklists() {
         <EmptyState title="No programs assigned yet" hint="Once you're assigned a program checklist, it'll show up here." />
       )}
 
-      <div className="grid sm:grid-cols-2 gap-4">
+      <div className="flex flex-col gap-4 max-w-2xl">
         {checklists?.map((c) => (
           <Card
             key={c.assignment_id}

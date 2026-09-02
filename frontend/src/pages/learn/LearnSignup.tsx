@@ -11,6 +11,7 @@ import { CountrySelect } from "@/components/ui/CountrySelect";
 import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect";
 import { DomainIcon } from "@/components/ui/DomainIcon";
 import { PasswordInput } from "@/components/ui/PasswordInput";
+import { resolveLearnLanding } from "./resolveLearnLanding";
 
 /**
  * Student signup — mounted on rootRoute, outside the portal auth shell.
@@ -60,7 +61,7 @@ export default function LearnSignup() {
             : {}),
         });
         setCurrentUser(user);
-        void navigate({ to: "/learn" });
+        void navigate({ to: await resolveLearnLanding() });
       } catch (err) {
         if (isAxiosError(err) && err.response?.status === 409) {
           setError("An account with this email already exists — log in instead.");
