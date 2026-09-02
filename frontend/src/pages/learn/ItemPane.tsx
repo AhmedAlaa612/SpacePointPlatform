@@ -31,7 +31,7 @@ export function ItemPane({
         {/* Watching to the end already completes+advances via onEnded above
             — this is the manual "I've seen this, move on" alternative,
             same posture as every other content type's own Got it! button. */}
-        <div className="w-[95%] flex justify-end">
+        <div className="w-[80%] flex justify-end">
           <Button size="xl" onClick={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}>
             <CheckCircle2 className="size-4" /> Got it!
           </Button>

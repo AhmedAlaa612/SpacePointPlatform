@@ -179,7 +179,7 @@ export function PlayerLayout({
             </button>
           )}
         </div>
-        <div className="p-5 sm:p-8 lg:p-12">
+        <div className="px-5 sm:px-8 lg:px-12 pb-5 sm:pb-8 lg:pb-12 pt-5 sm:pt-6 lg:pt-6">
           <div className="max-w-[1040px] mx-auto">
             {children}
           </div>
