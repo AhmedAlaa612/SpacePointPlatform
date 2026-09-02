@@ -56,25 +56,25 @@ function StepRow({
       onClick={onClick}
       disabled={disabled || !onClick}
       className={cn(
-        "flex items-start gap-3 rounded-xl p-2.5 text-left transition-colors",
+        "flex items-start gap-3.5 rounded-xl p-3.5 text-left transition-colors",
         onClick && !disabled ? "hover:bg-foreground/5 cursor-pointer" : "cursor-default",
       )}
     >
       <span
         className={cn(
-          "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[11px] font-bold mt-0.5",
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold mt-0.5",
           status === "done" ? "bg-primary text-primary-foreground" : status === "now" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
         )}
       >
-        {status === "done" ? <Check size={12} /> : index}
+        {status === "done" ? <Check size={15} /> : index}
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-2 flex-wrap">
-          <span className="text-[12.5px] font-semibold text-foreground">{title}</span>
+          <span className="text-base font-semibold text-foreground">{title}</span>
           {pillLabel && (
             <span
               className={cn(
-                "text-[9px] font-bold uppercase tracking-wide rounded px-1.5 py-0.5",
+                "text-[11px] font-bold uppercase tracking-wide rounded px-2 py-0.5",
                 status === "done" ? "text-emerald-600 dark:text-emerald-500" : "text-primary bg-primary/10",
               )}
             >
@@ -82,7 +82,7 @@ function StepRow({
             </span>
           )}
         </span>
-        {hint && <span className="block text-[10.5px] text-muted-foreground mt-0.5">{hint}</span>}
+        {hint && <span className="block text-sm text-muted-foreground mt-0.5">{hint}</span>}
       </span>
     </button>
   );
@@ -185,11 +185,12 @@ export function TaskDrawer({
   const showWorkStep = (target.kind !== "none" && target.kind !== "drawer" && !isAutoTracked) || !!submissionReference;
   const showAutoTrackedStep = isAutoTracked;
   const showSubmitStep = !isAutoTracked && (isSubmission || isSelfCheck);
-  let stepCounter = 0;
-  const guidelineStepIndex = hasGuideline ? ++stepCounter : 0;
-  const workStepIndex = showWorkStep ? ++stepCounter : 0;
-  const autoTrackedStepIndex = showAutoTrackedStep ? ++stepCounter : 0;
-  const submitStepIndex = showSubmitStep ? ++stepCounter : 0;
+  const stepFlags = [hasGuideline, showWorkStep, showAutoTrackedStep, showSubmitStep];
+  const stepIndexAt = (i: number) => stepFlags.slice(0, i + 1).filter(Boolean).length;
+  const guidelineStepIndex = hasGuideline ? stepIndexAt(0) : 0;
+  const workStepIndex = showWorkStep ? stepIndexAt(1) : 0;
+  const autoTrackedStepIndex = showAutoTrackedStep ? stepIndexAt(2) : 0;
+  const submitStepIndex = showSubmitStep ? stepIndexAt(3) : 0;
 
   return (
     <>
@@ -200,12 +201,12 @@ export function TaskDrawer({
         onClick={onClose}
       />
       {/* Desktop right panel */}
-      <div className="hidden md:flex fixed inset-y-0 right-0 z-50 w-[360px] flex-col bg-card p-[22px] gap-3.5 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)] overflow-y-auto">
+      <div className="hidden md:flex fixed inset-y-0 right-0 z-50 w-[460px] flex-col bg-card p-8 gap-5 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)] overflow-y-auto">
         <DrawerBody item={item} />
       </div>
       {/* Mobile bottom sheet */}
-      <div className="md:hidden fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] bg-card px-4 pt-2.5 pb-5 gap-3 max-h-[86vh] overflow-y-auto">
-        <div className="mx-auto h-1 w-10 rounded-full bg-border shrink-0" />
+      <div className="md:hidden fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] bg-card px-5 pt-3 pb-6 gap-4 max-h-[86vh] overflow-y-auto">
+        <div className="mx-auto h-1.5 w-12 rounded-full bg-border shrink-0" />
         <DrawerBody item={item} />
       </div>
 
@@ -226,35 +227,35 @@ export function TaskDrawer({
     return (
       <>
         <div className="flex items-center justify-between gap-2">
-          <div className="text-[10px] font-bold uppercase tracking-[0.06em] text-primary truncate">
+          <div className="text-xs font-bold uppercase tracking-[0.06em] text-primary truncate">
             {item.checkpoint_label ?? "Task"} · {item.item_type === "mission_run" && item.mission_step_key ? MISSION_STEP_LABELS[item.mission_step_key as MissionStepKey] : "Step"}
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
           >
-            <X size={14} />
+            <X size={17} />
           </button>
         </div>
 
-        <div className="flex flex-col gap-1">
-          <h2 className="font-display text-[22px] md:text-[18px] font-extrabold tracking-tight text-foreground">{item.title}</h2>
-          {item.description && <p className="text-sm text-muted-foreground">{item.description}</p>}
+        <div className="flex flex-col gap-1.5">
+          <h2 className="font-display text-[26px] md:text-2xl font-extrabold tracking-tight text-foreground">{item.title}</h2>
+          {item.description && <p className="text-base text-muted-foreground">{item.description}</p>}
           {item.deadline_at && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Due {new Date(item.deadline_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
             </p>
           )}
         </div>
 
         {done && (
-          <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-500">
-            <Check size={16} /> Cleared
+          <div className="flex items-center gap-1.5 text-base font-semibold text-emerald-600 dark:text-emerald-500">
+            <Check size={19} /> Cleared
           </div>
         )}
-        {awaiting && <p className="text-sm font-medium text-primary">Awaiting instructor review</p>}
+        {awaiting && <p className="text-base font-medium text-primary">Awaiting instructor review</p>}
 
         <div className="flex flex-col gap-1">
           {hasGuideline && (
@@ -268,7 +269,7 @@ export function TaskDrawer({
           )}
 
           {item.guideline_kind === "video" && (
-            <div className="ml-9 -mt-1 mb-1">
+            <div className="ml-[46px] -mt-1 mb-1.5">
               {item.guideline_url ? (
                 isKnownEmbedHost(item.guideline_url) ? (
                   <div className="aspect-video rounded-lg overflow-hidden border border-border">
@@ -280,14 +281,14 @@ export function TaskDrawer({
                 ) : (
                   <a
                     href={ensureAbsoluteUrl(item.guideline_url)} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-1.5 text-sm text-primary hover:underline"
+                    className="flex items-center gap-1.5 text-base text-primary hover:underline"
                   >
-                    Watch the video <ExternalLink size={12} />
+                    Watch the video <ExternalLink size={15} />
                   </a>
                 )
               ) : (
-                <div className="flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground">
-                  <Play size={14} /> Start here · 3 min — video coming soon
+                <div className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-4 py-3.5 text-sm text-muted-foreground">
+                  <Play size={17} /> Start here · 3 min — video coming soon
                 </div>
               )}
             </div>
@@ -330,35 +331,35 @@ export function TaskDrawer({
         </div>
 
         {isSubmission && !done && !awaiting && (
-          <div className="flex flex-col gap-2" onClick={(e) => e.stopPropagation()}>
-            {item.submission_prompt && <p className="text-xs text-muted-foreground">{item.submission_prompt}</p>}
+          <div className="flex flex-col gap-2.5" onClick={(e) => e.stopPropagation()}>
+            {item.submission_prompt && <p className="text-sm text-muted-foreground">{item.submission_prompt}</p>}
             <input
               value={submitUrl || item.submitted_url || ""}
               onChange={(e) => setSubmitUrl(e.target.value)}
               placeholder="Paste your link…"
               disabled={!canSubmit}
-              className="h-10 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+              className="h-12 px-4 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
             />
           </div>
         )}
         {isSubmission && item.submitted_url && (
           <a
             href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer"
-            className="text-xs text-primary hover:underline truncate"
+            className="text-sm text-primary hover:underline truncate"
           >
             Current submission: {item.submitted_url}
           </a>
         )}
 
-        <div className="mt-auto pt-2 flex flex-col gap-2.5 border-t border-border">
+        <div className="mt-auto pt-3 flex flex-col gap-3 border-t border-border">
           {!done && !awaiting && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               Finishing this powers the next step and keeps you on the roadmap — no back-tracking.
             </p>
           )}
           {hasGuideline && (
-            <Button onClick={openGuideline} className="h-11">
-              <Icon size={14} /> Open guideline
+            <Button onClick={openGuideline} className="h-[52px] text-base gap-2">
+              <Icon className="size-[18px]" /> Open guideline
             </Button>
           )}
           {isSubmission && !done && (
@@ -366,7 +367,7 @@ export function TaskDrawer({
               variant="outline"
               disabled={!canSubmit || (!submitUrl && !item.submitted_url) || submitMutation.isPending}
               onClick={() => submitMutation.mutate(submitUrl || item.submitted_url || "")}
-              className="h-[42px]"
+              className="h-12 text-base"
             >
               {submitMutation.isPending ? "Submitting…" : "Go to submission"}
             </Button>
@@ -376,7 +377,7 @@ export function TaskDrawer({
               variant="outline"
               disabled={!canSubmit || completeMutation.isPending}
               onClick={() => completeMutation.mutate()}
-              className="h-[42px]"
+              className="h-12 text-base"
             >
               {completeMutation.isPending ? "Marking done…" : item.requires_confirmation ? "Mark as done (needs sign-off)" : "Mark as done"}
             </Button>
