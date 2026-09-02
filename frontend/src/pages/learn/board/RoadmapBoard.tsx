@@ -77,7 +77,9 @@ export default function RoadmapBoard() {
           ) : (
             <div className="h-[96px] sm:h-[180px] bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.09)_0px,hsl(var(--primary)/0.09)_11px,hsl(var(--foreground)/0.014)_11px,hsl(var(--foreground)/0.014)_22px)]" />
           )}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 sm:h-24 bg-gradient-to-t from-background to-transparent" />
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-10 sm:h-16 bg-[linear-gradient(to_top,hsl(var(--background))_0%,hsl(var(--background)/0.55)_40%,hsl(var(--primary)/0.22)_70%,transparent_100%)]"
+          />
         </div>
 
         <div className="px-5 sm:px-8 lg:px-14 py-6 sm:py-8 flex flex-col gap-6 sm:gap-8 max-w-[1180px] mx-auto w-full">
