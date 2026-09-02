@@ -206,7 +206,7 @@ export function TaskDrawer({
       {/* Desktop right panel — 640px, not a viewport-relative width: wide
           enough to give an embedded video real size without turning into
           most of the screen on a large monitor. */}
-      <div className="hidden md:flex fixed inset-y-0 right-0 z-50 w-[640px] flex-col bg-card p-8 gap-5 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)] overflow-y-auto">
+      <div className="hidden md:flex fixed inset-y-0 right-0 z-50 w-[720px] flex-col bg-card p-8 gap-5 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)] overflow-y-auto">
         <DrawerBody item={item} />
       </div>
       {/* Mobile bottom sheet */}
