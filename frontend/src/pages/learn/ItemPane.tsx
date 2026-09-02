@@ -21,12 +21,20 @@ export function ItemPane({
 }: { item: ModuleItem; onProgressed: () => void }) {
   if (item.kind === "video" && "transcode_status" in item.content) {
     return (
-      <VideoPlayer
-        key={item.id}
-        itemId={item.id}
-        transcodeStatus={item.content.transcode_status}
-        onEnded={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}
-      />
+      <div className="flex flex-col items-center gap-5">
+        <VideoPlayer
+          key={item.id}
+          itemId={item.id}
+          transcodeStatus={item.content.transcode_status}
+          onEnded={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}
+        />
+        {/* Watching to the end already completes+advances via onEnded above
+            — this is the manual "I've seen this, move on" alternative,
+            same posture as every other content type's own Got it! button. */}
+        <Button size="xl" onClick={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}>
+          <CheckCircle2 className="size-4" /> Got it!
+        </Button>
+      </div>
     );
   }
 
@@ -115,7 +123,7 @@ function TextBlock({ body, onContinue }: { body: string; onContinue: () => void 
         {body}
       </div>
       <Button size="xl" onClick={onContinue} className="mt-5">
-        Continue <ChevronRight className="size-4" />
+        <CheckCircle2 className="size-4" /> Got it!
       </Button>
     </div>
   );
@@ -160,7 +168,7 @@ function AttachmentBlock({ itemId, onDone }: { itemId: string; onDone: () => voi
         </div>
       </button>
       <Button size="xl" onClick={onDone} className="w-fit">
-        Mark as read <ChevronRight className="size-4" />
+        <CheckCircle2 className="size-4" /> Got it!
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -218,7 +226,7 @@ function FlashcardsBlock({
           Still learning
         </Button>
         <Button size="xl" className="flex-1" onClick={gotIt}>
-          <CheckCircle2 className="size-4" /> Got it
+          <CheckCircle2 className="size-4" /> Got it!
         </Button>
       </div>
       <button

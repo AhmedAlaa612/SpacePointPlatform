@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { ArrowRight, CheckCircle2 } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  fetchCourse, fetchModule, recordProgress, type CourseDetail, type ModuleDetail, type ModuleItem,
+  fetchCourse, fetchModule, type CourseDetail, type ModuleDetail, type ModuleItem,
 } from "@/api/lms";
 import { PlayerLayout } from "./PlayerLayout";
 import { ItemPane } from "./ItemPane";
@@ -111,9 +111,11 @@ export default function LearnPlayer() {
   const itemsInModule = selectedModuleId ? modulesData[selectedModuleId]?.items ?? [] : [];
   const itemIndexInModule = itemsInModule.findIndex((i) => i.id === selectedItemId);
 
+  // Still computed even though the Next-item nav bar it originally backed is
+  // gone (see `handleProgressed`'s own advance-forward logic below, and
+  // CompletionCelebration's own docblock) — `flat.length` is the readiness
+  // gate the completion-celebration effect uses.
   const flat = useMemo(() => (course ? flatItems(course, modulesData) : []), [course, modulesData]);
-  const flatIndex = flat.findIndex((f) => f.item.id === selectedItemId);
-  const nextEntry = flatIndex >= 0 && flatIndex < flat.length - 1 ? flat[flatIndex + 1] : null;
 
   // Same "first observation is a baseline, not a celebration" pattern as
   // DesignMissionPage's own completion effect — `flat.length > 0` gates out
@@ -151,12 +153,6 @@ export default function LearnPlayer() {
     setSelectedItemId(next);
   }, [course, selectedModuleId, selectedItemId, modulesData, courseId, loadUnlockedModules]);
 
-  const markComplete = async () => {
-    if (!selectedItem) return;
-    await recordProgress(selectedItem.id, "video-watched");
-    await handleProgressed();
-  };
-
   if (error) return <div className="p-8"><p className="text-sm text-destructive">{error}</p></div>;
   if (!course) return <div className="p-8"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
@@ -165,40 +161,23 @@ export default function LearnPlayer() {
       <PlayerLayout course={course} modulesData={modulesData} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId}>
         {selectedItem ? (
           <div className="flex flex-col gap-6">
-            <div className="flex items-start justify-between gap-4">
-              <div className="min-w-0">
-                {currentModule && (
-                  <div className="text-xs font-semibold uppercase tracking-wide text-primary">
-                    Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
-                  </div>
-                )}
-                <h1 className="font-display text-3xl font-bold tracking-tight mt-2">
-                  {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
-                </h1>
-              </div>
-              {selectedItem.kind === "video" && !COMPLETED.has(selectedItem.status ?? "not_started") && (
-                <Button variant="outline" size="xl" onClick={() => void markComplete()} className="shrink-0">
-                  <CheckCircle2 className="size-4" /> Mark complete
-                </Button>
+            <div className="min-w-0">
+              {currentModule && (
+                <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+                  Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
+                </div>
               )}
+              <h1 className="font-display text-3xl font-bold tracking-tight mt-2">
+                {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
+              </h1>
             </div>
 
+            {/* Each content type owns its own single "Got it!" action
+                (ItemPane.tsx) — it both records progress and advances
+                (onProgressed -> handleProgressed) in one step, so there's
+                no separate "mark complete" control or Next-item nav bar
+                here anymore. */}
             <ItemPane key={selectedItem.id} item={selectedItem} onProgressed={() => void handleProgressed()} />
-
-            <div className="flex justify-end mt-2 pt-6 border-t border-border">
-              <Button
-                size="xl"
-                disabled={!nextEntry}
-                onClick={() => nextEntry && setSelectedItemId(nextEntry.item.id)}
-              >
-                {nextEntry ? (
-                  <>
-                    Next: <span className="truncate max-w-[220px] sm:max-w-[320px]">{nextEntry.item.title ?? ITEM_KIND_LABEL[nextEntry.item.kind]}</span>
-                  </>
-                ) : "Next item"}
-                <ArrowRight className="size-4" />
-              </Button>
-            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center text-center gap-3 py-16">
