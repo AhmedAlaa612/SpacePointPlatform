@@ -43,7 +43,7 @@ export function TileField({
     // ancestor DOES establish a stacking context and paints behind the
     // whole page instead of just behind these tiles.
     <div ref={containerRef} className="relative isolate">
-      <TraceLayer containerRef={containerRef} tileRefs={tileRefs} items={items} />
+      <TraceLayer containerRef={containerRef} tileRefs={tileRefs} items={items} isMobile={!isDesktop} />
 
       {isDesktop ? (
         <div className="flex flex-col gap-[46px]">
