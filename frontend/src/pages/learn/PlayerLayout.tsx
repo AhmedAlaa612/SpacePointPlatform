@@ -1,6 +1,8 @@
 import { useState, type ReactNode } from "react";
+import { Link, useSearch } from "@tanstack/react-router";
 import {
-  CheckCircle2, ChevronDown, FileText, HelpCircle, Layers, Lock, Paperclip, PlayCircle, Rocket, Video as VideoIcon,
+  ArrowLeft, CheckCircle2, ChevronDown, FileText, HelpCircle, Layers, Lock, Paperclip, PlayCircle, Rocket,
+  Video as VideoIcon,
 } from "lucide-react";
 import type { CourseDetail, ModuleDetail, ModuleItem } from "@/api/lms";
 import { cn } from "@/lib/utils";
@@ -25,10 +27,19 @@ export function PlayerLayout({
     const current = course.modules.find((m) => !m.locked && m.mandatory_completed < m.mandatory_total);
     return current?.module_id ?? course.modules.find((m) => !m.locked)?.module_id ?? null;
   });
+  // Only used to carry the "opened from a checklist" chain through to the
+  // course landing page — same param TaskDrawer/LearnCourse already thread
+  // for the completion-celebration "back to your program" nudge.
+  const { program } = useSearch({ strict: false }) as { program?: string };
 
   return (
     <div className="flex flex-col lg:flex-row lg:h-[calc(100vh-72px)]">
-      <aside className="lg:w-[380px] lg:shrink-0 lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-border bg-card/30">
+      {/* Below `lg` the module list doesn't fit stacked above the content
+          the way it does as a fixed-width side column — it just pushed the
+          actual lesson off the bottom of the screen. Mobile instead gets a
+          "Back to course" link (below) to the landing page's own expandable
+          module list (LearnCourse.tsx's ModuleRow) to browse/pick from. */}
+      <aside className="hidden lg:block lg:w-[380px] lg:shrink-0 lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-border bg-card/30">
         <div className="p-5 sm:p-6">
           <h2 className="font-display text-lg font-bold truncate">{course.title}</h2>
         </div>
@@ -102,9 +113,19 @@ export function PlayerLayout({
         </div>
       </aside>
 
-      <div className="flex-1 min-w-0 overflow-y-auto p-5 sm:p-8 lg:p-12">
-        <div className="max-w-[1040px] mx-auto">
-          {children}
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        <Link
+          to="/learn/courses/$courseId"
+          params={{ courseId: course.id }}
+          search={program ? ({ program } as never) : undefined}
+          className="lg:hidden sticky top-0 z-10 flex items-center gap-2 px-5 py-3.5 text-sm font-semibold text-primary bg-background/95 backdrop-blur border-b border-border"
+        >
+          <ArrowLeft className="size-4" /> Back to course
+        </Link>
+        <div className="p-5 sm:p-8 lg:p-12">
+          <div className="max-w-[1040px] mx-auto">
+            {children}
+          </div>
         </div>
       </div>
     </div>
