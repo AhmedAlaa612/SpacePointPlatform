@@ -40,7 +40,7 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
         </Link>
       </div>
 
-      <nav className="flex flex-1 flex-col space-y-2 overflow-y-auto px-4 py-6">
+      <nav className="flex flex-1 min-h-0 flex-col space-y-2 overflow-y-auto px-4 py-6">
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = item.key === active;
@@ -60,33 +60,37 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
             </Link>
           );
         })}
-
-        <div className="mt-auto flex flex-col gap-3 pt-4">
-          {progress && (
-            <div className="flex flex-col gap-1.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
-              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                <Zap className="size-3" /> Board power
-              </div>
-              <div className="text-[11px] text-muted-foreground">
-                {progress.liveCount} of {progress.total} traces live
-              </div>
-              <div className="h-[6px] rounded-full bg-border overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-primary transition-[width] duration-300"
-                  style={{ width: `${pct}%` }}
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center gap-1 border-t border-border pt-3">
-            <ThemeToggle />
-            <LearnNotificationsBell />
-            <LearnProfileMenu />
-          </div>
-          <BackToPortalButton />
-        </div>
       </nav>
+
+      {/* A sibling of the scrollable <nav>, not nested inside it — pinned
+          to the sidebar's true bottom edge regardless of how short the nav
+          list is, rather than relying on `mt-auto` inside an
+          `overflow-y-auto` container (unreliable when content is short). */}
+      <div className="shrink-0 flex flex-col gap-3 px-4 pb-6 pt-3">
+        {progress && (
+          <div className="flex flex-col gap-1.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+            <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+              <Zap className="size-3" /> Board power
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              {progress.liveCount} of {progress.total} traces live
+            </div>
+            <div className="h-[6px] rounded-full bg-border overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary transition-[width] duration-300"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center gap-1 border-t border-border pt-3">
+          <ThemeToggle />
+          <LearnNotificationsBell />
+          <LearnProfileMenu />
+        </div>
+        <BackToPortalButton />
+      </div>
     </aside>
   );
 }
