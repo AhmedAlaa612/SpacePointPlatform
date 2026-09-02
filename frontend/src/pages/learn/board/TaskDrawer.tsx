@@ -203,8 +203,10 @@ export function TaskDrawer({
         style={{ background: "var(--drawer-scrim, rgba(5,3,10,0.55))" }}
         onClick={onClose}
       />
-      {/* Desktop right panel */}
-      <div className="hidden md:flex fixed inset-y-0 right-0 z-50 w-[460px] flex-col bg-card p-8 gap-5 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)] overflow-y-auto">
+      {/* Desktop right panel — 640px, not a viewport-relative width: wide
+          enough to give an embedded video real size without turning into
+          most of the screen on a large monitor. */}
+      <div className="hidden md:flex fixed inset-y-0 right-0 z-50 w-[640px] flex-col bg-card p-8 gap-5 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)] overflow-y-auto">
         <DrawerBody item={item} />
       </div>
       {/* Mobile bottom sheet */}
@@ -271,8 +273,11 @@ export function TaskDrawer({
             />
           )}
 
+          {/* Not indented under the step-number column like the row above
+              it — a video benefits from the panel's full width far more
+              than it needs to visually align with the numbered steps. */}
           {item.guideline_kind === "video" && (
-            <div className="ml-[46px] -mt-1 mb-1.5">
+            <div className="-mt-1 mb-1.5">
               {item.guideline_url ? (
                 isKnownEmbedHost(item.guideline_url) ? (
                   <div className="aspect-video rounded-lg overflow-hidden border border-border">

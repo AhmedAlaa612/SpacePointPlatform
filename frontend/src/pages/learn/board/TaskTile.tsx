@@ -72,14 +72,21 @@ export function TaskTile({
           {/* eslint-disable-next-line react-hooks/static-components -- iconForItem is a fixed-lookup, not a per-render component construction */}
           <Icon size={14} />
         </div>
-        <div
-          className={cn(
-            "flex h-[22px] w-[22px] items-center justify-center rounded-full font-display text-[11px] font-bold",
-            state === "live" ? "bg-primary/15" : "bg-transparent",
+        <div className="flex items-center gap-1">
+          {item.optional && (
+            <span className="rounded-full bg-muted px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-muted-foreground">
+              Optional
+            </span>
           )}
-          style={{ color: INK[state] }}
-        >
-          {number}
+          <div
+            className={cn(
+              "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full font-display text-[11px] font-bold",
+              state === "live" ? "bg-primary/15" : "bg-transparent",
+            )}
+            style={{ color: INK[state] }}
+          >
+            {number}
+          </div>
         </div>
       </div>
 
