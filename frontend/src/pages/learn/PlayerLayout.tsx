@@ -28,9 +28,9 @@ export function PlayerLayout({
 
   return (
     <div className="flex flex-col lg:flex-row lg:h-[calc(100vh-72px)]">
-      <aside className="lg:w-[340px] lg:shrink-0 lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-border bg-card/30">
-        <div className="p-4 sm:p-5">
-          <h2 className="font-display text-base font-bold truncate">{course.title}</h2>
+      <aside className="lg:w-[380px] lg:shrink-0 lg:overflow-y-auto border-b lg:border-b-0 lg:border-r border-border bg-card/30">
+        <div className="p-5 sm:p-6">
+          <h2 className="font-display text-lg font-bold truncate">{course.title}</h2>
         </div>
         <div className="flex flex-col">
           {course.modules.map((module) => {
@@ -43,25 +43,25 @@ export function PlayerLayout({
                   onClick={() => !module.locked && setOpenModuleId(isOpen ? null : module.module_id)}
                   disabled={module.locked}
                   className={cn(
-                    "w-full flex items-center gap-3 px-4 sm:px-5 py-3.5 text-left transition-colors",
+                    "w-full flex items-center gap-3.5 px-5 sm:px-6 py-4 text-left transition-colors",
                     module.locked ? "cursor-default" : "cursor-pointer hover:bg-foreground/5",
                     isOpen && "bg-foreground/[0.03]",
                   )}
                 >
                   <span className={cn(
-                    "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold",
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold",
                     module.locked ? "ring-1 ring-border text-muted-foreground"
                       : done ? "bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/40"
                       : isOpen ? "ring-1.5 ring-primary text-primary"
                       : "ring-1 ring-border text-muted-foreground",
                   )}>
-                    {module.locked ? <Lock className="size-3" /> : done ? <CheckCircle2 className="size-3.5" /> : module.position}
+                    {module.locked ? <Lock className="size-4" /> : done ? <CheckCircle2 className="size-4" /> : module.position}
                   </span>
-                  <span className={cn("flex-1 min-w-0 text-sm truncate", module.locked ? "text-muted-foreground" : "font-medium")}>
+                  <span className={cn("flex-1 min-w-0 text-base truncate", module.locked ? "text-muted-foreground" : "font-medium")}>
                     {module.title ?? `Module ${module.position}`}
                   </span>
                   {!module.locked && (
-                    <ChevronDown className={cn("size-4 text-muted-foreground shrink-0 transition-transform", isOpen && "rotate-180")} />
+                    <ChevronDown className={cn("size-5 text-muted-foreground shrink-0 transition-transform", isOpen && "rotate-180")} />
                   )}
                 </button>
                 {isOpen && !module.locked && (
@@ -75,14 +75,14 @@ export function PlayerLayout({
                           key={item.id}
                           onClick={() => onSelectItem(item.id)}
                           className={cn(
-                            "w-full flex items-center gap-2.5 pl-11 pr-4 py-2 text-left text-sm transition-colors cursor-pointer",
+                            "w-full flex items-center gap-2.5 pl-12 pr-5 py-2.5 text-left text-sm transition-colors cursor-pointer",
                             isSelected ? "bg-primary/10 text-foreground font-medium" : "text-muted-foreground hover:bg-foreground/5",
                           )}
                         >
                           <span className="relative shrink-0">
-                            <Icon className={cn("size-3.5", isDone && "text-emerald-500", isSelected && "text-primary")} />
+                            <Icon className={cn("size-4", isDone && "text-emerald-500", isSelected && "text-primary")} />
                             {isDone && (
-                              <CheckCircle2 className="absolute -top-0.5 -right-1 size-2.5 text-emerald-500 bg-card rounded-full" />
+                              <CheckCircle2 className="absolute -top-0.5 -right-1 size-3 text-emerald-500 bg-card rounded-full" />
                             )}
                           </span>
                           <span className="truncate">{item.title ?? item.kind}</span>
@@ -90,8 +90,8 @@ export function PlayerLayout({
                       );
                     })}
                     {items.length === 0 && (
-                      <div className="pl-11 pr-4 py-2 text-xs text-muted-foreground flex items-center gap-2">
-                        <PlayCircle className="size-3.5" /> Loading...
+                      <div className="pl-12 pr-5 py-2.5 text-sm text-muted-foreground flex items-center gap-2">
+                        <PlayCircle className="size-4" /> Loading...
                       </div>
                     )}
                   </div>
@@ -102,7 +102,7 @@ export function PlayerLayout({
         </div>
       </aside>
 
-      <div className="flex-1 min-w-0 overflow-y-auto p-5 sm:p-8 lg:p-10">
+      <div className="flex-1 min-w-0 overflow-y-auto p-5 sm:p-8 lg:p-12">
         <div className="max-w-[1040px] mx-auto">
           {children}
         </div>

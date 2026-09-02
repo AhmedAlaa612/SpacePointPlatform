@@ -82,19 +82,19 @@ function MissionEmbedBlock({ content }: { content: Extract<ModuleItem["content"]
 
   return (
     <Card className="p-6 flex flex-col gap-4 items-start">
-      <div className="flex items-center gap-2 text-xs text-primary font-semibold uppercase tracking-wide">
-        <Rocket className="size-3.5" /> Mission
+      <div className="flex items-center gap-2 text-sm text-primary font-semibold uppercase tracking-wide">
+        <Rocket className="size-4" /> Mission
       </div>
       <div>
-        <p className="font-display text-lg font-bold">{content.mission_title ?? "Mission"}</p>
-        <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5">
-          {passed ? <CheckCircle2 className="size-3.5 text-emerald-500" /> : null}
+        <p className="font-display text-xl font-bold">{content.mission_title ?? "Mission"}</p>
+        <p className="text-base text-muted-foreground mt-1 flex items-center gap-1.5">
+          {passed ? <CheckCircle2 className="size-4 text-emerald-500" /> : null}
           {statusLabel}
           {content.points != null && ` · ${content.points} pts`}
         </p>
       </div>
       <Link to="/learn/missions/$missionId" params={{ missionId: content.mission_id }}>
-        <Button size="lg">{passed ? "Review mission" : "Go to mission"}</Button>
+        <Button size="xl">{passed ? "Review mission" : "Go to mission"}</Button>
       </Link>
     </Card>
   );
@@ -108,10 +108,10 @@ function readingMinutes(body: string): number {
 function TextBlock({ body, onContinue }: { body: string; onContinue: () => void }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-primary mb-2.5">
+      <p className="text-xs font-semibold uppercase tracking-wide text-primary mb-2.5">
         Reading · {readingMinutes(body)} min
       </p>
-      <div className="p-5 rounded-2xl ring-1 ring-border bg-card/60 whitespace-pre-wrap text-sm leading-relaxed">
+      <div className="p-6 rounded-2xl ring-1 ring-border bg-card/60 whitespace-pre-wrap text-base leading-relaxed">
         {body}
       </div>
       <Button size="xl" onClick={onContinue} className="mt-5">
@@ -131,12 +131,12 @@ function AttachmentBlock({ itemId, onDone }: { itemId: string; onDone: () => voi
   const [open, setOpen] = useState(false);
 
   if (isLoading) {
-    return <p className="text-sm text-muted-foreground">Loading document...</p>;
+    return <p className="text-base text-muted-foreground">Loading document...</p>;
   }
   if (isError || !data) {
     return (
-      <div className="flex items-center gap-2 p-4 rounded-2xl ring-1 ring-destructive/30 bg-destructive/5 text-destructive text-sm">
-        <FileWarning className="size-4 shrink-0" /> Couldn't load this document.
+      <div className="flex items-center gap-2 p-5 rounded-2xl ring-1 ring-destructive/30 bg-destructive/5 text-destructive text-base">
+        <FileWarning className="size-5 shrink-0" /> Couldn't load this document.
       </div>
     );
   }
@@ -151,12 +151,12 @@ function AttachmentBlock({ itemId, onDone }: { itemId: string; onDone: () => voi
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex items-center gap-3 p-4 rounded-2xl ring-1 ring-border bg-card/60 hover:bg-card transition-colors text-left cursor-pointer"
+        className="flex items-center gap-3 p-5 rounded-2xl ring-1 ring-border bg-card/60 hover:bg-card transition-colors text-left cursor-pointer"
       >
-        <FileText className="text-primary shrink-0" size={22} />
+        <FileText className="text-primary shrink-0" size={26} />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium truncate">{data.filename ?? "Document"}</p>
-          <p className="text-xs text-muted-foreground">Tap to open</p>
+          <p className="text-base font-medium truncate">{data.filename ?? "Document"}</p>
+          <p className="text-sm text-muted-foreground">Tap to open</p>
         </div>
       </button>
       <Button size="xl" onClick={onDone} className="w-fit">
@@ -206,11 +206,11 @@ function FlashcardsBlock({
       {title && <p className="text-sm text-muted-foreground mb-2">{title}</p>}
       <button
         onClick={() => setRevealed((r) => !r)}
-        className="w-full min-h-48 p-6 rounded-2xl ring-1 ring-border bg-card/60 flex items-center justify-center text-center cursor-pointer hover:ring-primary/30 transition-shadow"
+        className="w-full min-h-56 p-6 rounded-2xl ring-1 ring-border bg-card/60 flex items-center justify-center text-center cursor-pointer hover:ring-primary/30 transition-shadow"
       >
-        <span className="font-display text-lg font-medium">{revealed ? card.definition : card.term}</span>
+        <span className="font-display text-xl font-medium">{revealed ? card.definition : card.term}</span>
       </button>
-      <p className="mt-2.5 text-center text-xs text-muted-foreground">
+      <p className="mt-2.5 text-center text-sm text-muted-foreground">
         {revealed ? "Tap to see the term" : "Tap to reveal"} · {doneCount}/{total} · {total - doneCount} to go
       </p>
       <div className="mt-5 flex gap-2">
@@ -223,7 +223,7 @@ function FlashcardsBlock({
       </div>
       <button
         onClick={onDone}
-        className="mt-3 mx-auto block text-xs text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+        className="mt-3 mx-auto block text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
       >
         Skip deck
       </button>
@@ -235,11 +235,11 @@ function ScoreRing({ score }: { score: number }) {
   const pct = Math.max(0, Math.min(100, score));
   return (
     <div
-      className="relative w-[74px] h-[74px] shrink-0 rounded-full flex items-center justify-center"
+      className="relative w-[84px] h-[84px] shrink-0 rounded-full flex items-center justify-center"
       style={{ background: `conic-gradient(hsl(var(--primary)) 0% ${pct}%, hsl(var(--muted)) ${pct}% 100%)` }}
     >
-      <div className="w-[58px] h-[58px] rounded-full bg-background flex flex-col items-center justify-center">
-        <span className="font-display text-lg font-bold leading-none">{Math.round(pct)}%</span>
+      <div className="w-[68px] h-[68px] rounded-full bg-background flex flex-col items-center justify-center">
+        <span className="font-display text-xl font-bold leading-none">{Math.round(pct)}%</span>
       </div>
     </div>
   );
@@ -320,15 +320,15 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
   if (review) {
     return (
       <div className="flex flex-col gap-5">
-        <div className="flex items-center gap-4 p-4 rounded-2xl ring-1 ring-border bg-card/60">
+        <div className="flex items-center gap-4 p-5 rounded-2xl ring-1 ring-border bg-card/60">
           <ScoreRing score={review.score} />
           <div className="min-w-0">
-            <p className={`text-[11px] font-semibold uppercase tracking-wide flex items-center gap-1.5 ${review.passed ? "text-emerald-500" : "text-destructive"}`}>
+            <p className={`text-xs font-semibold uppercase tracking-wide flex items-center gap-1.5 ${review.passed ? "text-emerald-500" : "text-destructive"}`}>
               {review.passed ? <CheckCircle2 className="size-3" /> : <XCircle className="size-3" />}
               {review.passed ? "Passed" : "Not yet"}
               {passThreshold > 0 && ` · ${passThreshold}% needed`}
             </p>
-            <p className="font-display text-lg font-bold mt-1">
+            <p className="font-display text-xl font-bold mt-1">
               {review.passed ? "Check complete" : `Score ${review.score}%`}
             </p>
           </div>
@@ -337,8 +337,8 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
         {questions.map((q, qi) => {
           const reviewQ = review.questions[qi];
           return (
-            <div key={qi} className="p-4 rounded-2xl ring-1 ring-border bg-card/60">
-              <p className="font-medium text-sm mb-3">{q.prompt}</p>
+            <div key={qi} className="p-5 rounded-2xl ring-1 ring-border bg-card/60">
+              <p className="font-medium text-base mb-3">{q.prompt}</p>
               <div className="flex flex-col gap-2">
                 {q.options.map((opt, oi) => {
                   const isSelected = answers[qi] === oi;
@@ -346,7 +346,7 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
                     <button
                       key={oi}
                       disabled
-                      className={`text-left px-3.5 py-2.5 rounded-xl ring-1 text-sm cursor-default disabled:cursor-default flex items-center justify-between gap-2 transition-colors ${
+                      className={`text-left px-4 py-3 rounded-xl ring-1 text-base cursor-default disabled:cursor-default flex items-center justify-between gap-2 transition-colors ${
                         isSelected ? "ring-primary/40 bg-primary/10" : "ring-border"
                       }`}
                     >
@@ -360,13 +360,13 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
                   );
                 })}
               </div>
-              <p className={`mt-2 text-xs ${reviewQ.correct ? "text-emerald-500" : "text-destructive"}`}>
+              <p className={`mt-2 text-sm ${reviewQ.correct ? "text-emerald-500" : "text-destructive"}`}>
                 {reviewQ.correct
                   ? `Your answer: ${q.options[reviewQ.selected]?.text ?? ""} ✓`
                   : `You said: ${q.options[reviewQ.selected]?.text ?? ""}${reviewQ.correct_text ? ` · Correct: ${reviewQ.correct_text}` : ""}`}
               </p>
               {!reviewQ.correct && reviewQ.explanation && (
-                <p className="mt-1 text-xs text-muted-foreground">{reviewQ.explanation}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{reviewQ.explanation}</p>
               )}
             </div>
           );
@@ -394,16 +394,16 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Question {currentIndex + 1} of {questions.length}
         </p>
         {passThreshold > 0 && (
-          <p className="text-xs text-muted-foreground">Passing score: {passThreshold}%</p>
+          <p className="text-sm text-muted-foreground">Passing score: {passThreshold}%</p>
         )}
       </div>
 
-      <div className="p-4 rounded-2xl ring-1 ring-border bg-card/60">
-        <p className="font-medium text-sm mb-3">{q.prompt}</p>
+      <div className="p-5 rounded-2xl ring-1 ring-border bg-card/60">
+        <p className="font-medium text-base mb-3">{q.prompt}</p>
         <div className="flex flex-col gap-2">
           {q.options.map((opt, oi) => {
             const isSelected = answers[currentIndex] === oi;
@@ -414,7 +414,7 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
                 key={oi}
                 disabled={!!currentCheck}
                 onClick={() => selectAnswer(oi)}
-                className={`text-left px-3.5 py-2.5 rounded-xl ring-1 text-sm flex items-center justify-between gap-2 transition-colors ${
+                className={`text-left px-4 py-3 rounded-xl ring-1 text-base flex items-center justify-between gap-2 transition-colors ${
                   currentCheck ? "cursor-default" : "cursor-pointer"
                 } ${
                   isSelected ? "ring-primary/40 bg-primary/10" : isRevealedCorrectOption ? "ring-emerald-500/40 bg-emerald-500/5" : "ring-border hover:bg-muted/50"
@@ -433,14 +433,14 @@ function QuizBlock({ item, onPassed }: { item: ModuleItem; onPassed: () => void 
             );
           })}
         </div>
-        {checking && <p className="mt-3 text-xs text-muted-foreground">Checking...</p>}
+        {checking && <p className="mt-3 text-sm text-muted-foreground">Checking...</p>}
         {currentCheck && (
-          <p className={`mt-3 text-xs ${currentCheck.correct ? "text-emerald-500" : "text-destructive"}`}>
+          <p className={`mt-3 text-sm ${currentCheck.correct ? "text-emerald-500" : "text-destructive"}`}>
             {currentCheck.correct ? "Correct!" : `Not quite — the answer was "${currentCheck.correct_text ?? ""}"`}
           </p>
         )}
         {currentCheck?.explanation && (
-          <p className="mt-1 text-xs text-muted-foreground">{currentCheck.explanation}</p>
+          <p className="mt-1 text-sm text-muted-foreground">{currentCheck.explanation}</p>
         )}
       </div>
 

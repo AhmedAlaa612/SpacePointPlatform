@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
+import { ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   fetchCourse, fetchModule, recordProgress, type CourseDetail, type ModuleDetail, type ModuleItem,
@@ -113,7 +113,6 @@ export default function LearnPlayer() {
 
   const flat = useMemo(() => (course ? flatItems(course, modulesData) : []), [course, modulesData]);
   const flatIndex = flat.findIndex((f) => f.item.id === selectedItemId);
-  const prevEntry = flatIndex > 0 ? flat[flatIndex - 1] : null;
   const nextEntry = flatIndex >= 0 && flatIndex < flat.length - 1 ? flat[flatIndex + 1] : null;
 
   // Same "first observation is a baseline, not a celebration" pattern as
@@ -165,20 +164,20 @@ export default function LearnPlayer() {
     <>
       <PlayerLayout course={course} modulesData={modulesData} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId}>
         {selectedItem ? (
-          <div className="flex flex-col gap-5">
+          <div className="flex flex-col gap-6">
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 {currentModule && (
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-primary">
                     Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
                   </div>
                 )}
-                <h1 className="font-display text-2xl font-bold tracking-tight mt-1">
+                <h1 className="font-display text-3xl font-bold tracking-tight mt-2">
                   {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
                 </h1>
               </div>
               {selectedItem.kind === "video" && !COMPLETED.has(selectedItem.status ?? "not_started") && (
-                <Button variant="outline" onClick={() => void markComplete()} className="shrink-0">
+                <Button variant="outline" size="xl" onClick={() => void markComplete()} className="shrink-0">
                   <CheckCircle2 className="size-4" /> Mark complete
                 </Button>
               )}
@@ -186,28 +185,26 @@ export default function LearnPlayer() {
 
             <ItemPane key={selectedItem.id} item={selectedItem} onProgressed={() => void handleProgressed()} />
 
-            <div className="flex items-center justify-between gap-4 pt-2">
+            <div className="flex justify-end mt-2 pt-6 border-t border-border">
               <Button
-                variant="outline"
-                disabled={!prevEntry}
-                onClick={() => prevEntry && setSelectedItemId(prevEntry.item.id)}
-              >
-                <ArrowLeft className="size-4" /> Previous item
-              </Button>
-              <Button
+                size="xl"
                 disabled={!nextEntry}
                 onClick={() => nextEntry && setSelectedItemId(nextEntry.item.id)}
               >
-                {nextEntry ? `Next: ${nextEntry.item.title ?? ITEM_KIND_LABEL[nextEntry.item.kind]}` : "Next item"}
+                {nextEntry ? (
+                  <>
+                    Next: <span className="truncate max-w-[220px] sm:max-w-[320px]">{nextEntry.item.title ?? ITEM_KIND_LABEL[nextEntry.item.kind]}</span>
+                  </>
+                ) : "Next item"}
                 <ArrowRight className="size-4" />
               </Button>
             </div>
           </div>
         ) : (
           <div className="flex flex-col items-center text-center gap-3 py-16">
-            <CheckCircle2 className="size-10 text-emerald-500" />
-            <h2 className="font-display text-xl font-bold">Course complete</h2>
-            <p className="text-sm text-muted-foreground">Nice work — every module is done.</p>
+            <CheckCircle2 className="size-12 text-emerald-500" />
+            <h2 className="font-display text-2xl font-bold">Course complete</h2>
+            <p className="text-base text-muted-foreground">Nice work — every module is done.</p>
             <Button size="xl" onClick={() => void navigate({ to: `/learn/courses/${courseId}` })}>Back to course</Button>
           </div>
         )}
