@@ -148,6 +148,17 @@
   animation: fadeInUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* CompletionCelebration's checkmark — a small overshoot bounce, not just
+   a fade, so "you finished this" actually reads as a micro-celebration. */
+@keyframes checkPop {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-check-pop {
+  animation: checkPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
 @layer base {
   /* These element selectors are MORE specific than Tailwind's single-class
      utilities (0,2,1 and 0,1,1 vs 0,1,0), so they silently beat them. The

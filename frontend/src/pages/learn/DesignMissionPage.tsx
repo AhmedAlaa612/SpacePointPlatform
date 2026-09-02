@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { PdfViewer } from "@/components/documents/PdfViewer";
 import DesignHandbookDrawer from "@/components/missions/DesignHandbook";
 import PosterTab from "@/components/missions/PosterTab";
+import { CompletionCelebration } from "./CompletionCelebration";
 import {
   addDesignComponent, completeDesign, fetchComponentDatasheetUrl, fetchDesignHandbook, fetchDesignLibrary,
   fetchDesignState, joinObjectivePrompts, parseObjectivePrompts, removeDesignComponent, saveConops,
@@ -66,6 +67,18 @@ const DESIGN_TABS: {
   { value: "dashboard", label: "Report" },
 ];
 
+/** Whether one design tab's own step is "closed", by the same signal
+ * `CompletionMap` reads — `setup`/`dashboard` aren't real
+ * `dashboard.steps` keys (see `DESIGN_TABS`' own `step` field, undefined
+ * for both), so they get their own check, matching the backend's
+ * `_mission_run_item_done` (services/lms/program.py). */
+function tabIsDone(state: DesignState, tabValue: string): boolean {
+  if (tabValue === "setup") return state.design_objective !== null;
+  if (tabValue === "dashboard") return state.dashboard.all_valid;
+  const stepKey = DESIGN_TABS.find((t) => t.value === tabValue)?.step;
+  return !!stepKey && !!state.dashboard.steps[stepKey]?.is_valid;
+}
+
 /** The design-mission nine-step wizard (P7-5), ported from Madar's eleven
  * HTML pages. One fetch (`DesignState`) drives every tab; each save action
  * re-fetches the whole state so the dashboard is always current — this is
@@ -74,7 +87,7 @@ const DESIGN_TABS: {
  * updates. */
 export default function DesignMissionPage() {
   const { attemptId } = useParams({ strict: false }) as { attemptId: string };
-  const search = useSearch({ strict: false }) as { phase?: string };
+  const search = useSearch({ strict: false }) as { phase?: string; program?: string };
   const navigate = useNavigate();
   const [state, setState] = useState<DesignState | null>(null);
   const [error, setError] = useState("");
@@ -87,17 +100,46 @@ export default function DesignMissionPage() {
   // DesignBriefingPage's own ?variant=/?team= write-back pattern.
   const setTab = useCallback((next: string) => {
     setTabState(next);
-    void navigate({ search: { phase: next } as never, replace: true });
-  }, [navigate]);
+    void navigate({ search: { phase: next, program: search.program } as never, replace: true });
+  }, [navigate, search.program]);
   const [completeError, setCompleteError] = useState("");
   const [completing, setCompleting] = useState(false);
   const [handbook, setHandbook] = useState<DesignHandbook | null>(null);
+
+  // The *specific* tile the student arrived from — captured once at mount,
+  // deliberately not read reactively off `search.phase`: `setTab` rewrites
+  // that same param on every tab switch, so a live read would silently
+  // start celebrating whichever tab the student happens to be on instead
+  // of the one their checklist item actually pointed at. `null` means the
+  // checklist item referenced the whole mission, not one phase.
+  const sourceTabRef = useRef(search.phase && DESIGN_TABS.some((t) => t.value === search.phase) ? search.phase : null);
+  const wasDoneRef = useRef<boolean | null>(null);
+  const [celebration, setCelebration] = useState<{ title: string; subtitle: string } | null>(null);
 
   const load = useCallback(() => {
     fetchDesignState(attemptId).then(setState).catch(() => setError("Couldn't load this design."));
   }, [attemptId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Fires the celebration on the first observed false→true transition only
+  // — not on load (so revisiting an already-finished phase stays quiet) and
+  // only when `program` is present (so this never appears for a student who
+  // opened Madar from the Missions hub instead of a checklist tile).
+  useEffect(() => {
+    if (!state || !search.program) return;
+    const done = sourceTabRef.current ? tabIsDone(state, sourceTabRef.current) : state.attempt_status === "passed";
+    const was = wasDoneRef.current;
+    wasDoneRef.current = done;
+    if (was === null || was === done) return;
+    if (!done) return;
+    const label = sourceTabRef.current ? DESIGN_TABS.find((t) => t.value === sourceTabRef.current)?.label : null;
+    setCelebration(
+      label
+        ? { title: `${label} phase complete!`, subtitle: "Nice work — that step is locked in on your board." }
+        : { title: "Mission complete!", subtitle: "Every budget checks out. Nice work." },
+    );
+  }, [state, search.program]);
 
   // Static for the life of the attempt — fetched once, not on every save.
   useEffect(() => { fetchDesignHandbook(attemptId).then(setHandbook).catch(() => {}); }, [attemptId]);
@@ -192,6 +234,14 @@ export default function DesignMissionPage() {
 
       <DesignHandbookDrawer handbook={handbook} />
       <PosterTab state={state} attemptId={attemptId} onSaved={setState} />
+
+      <CompletionCelebration
+        open={!!celebration}
+        onOpenChange={(open) => { if (!open) setCelebration(null); }}
+        title={celebration?.title ?? ""}
+        subtitle={celebration?.subtitle ?? ""}
+        assignmentId={search.program ?? ""}
+      />
     </div>
   );
 }

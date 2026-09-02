@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -7,6 +7,7 @@ import {
 } from "@/api/lms";
 import { PlayerLayout } from "./PlayerLayout";
 import { ItemPane } from "./ItemPane";
+import { CompletionCelebration } from "./CompletionCelebration";
 
 const COMPLETED = new Set(["completed", "skipped"]);
 const ITEM_KIND_LABEL: Record<ModuleItem["kind"], string> = {
@@ -30,6 +31,7 @@ function flatItems(course: CourseDetail, modulesData: Record<string, ModuleDetai
  * the old per-module route (LM1-8) entirely. */
 export default function LearnPlayer() {
   const { courseId } = useParams({ strict: false }) as { courseId: string };
+  const search = useSearch({ strict: false }) as { program?: string };
   const navigate = useNavigate();
 
   const [course, setCourse] = useState<CourseDetail | null>(null);
@@ -114,6 +116,23 @@ export default function LearnPlayer() {
   const prevEntry = flatIndex > 0 ? flat[flatIndex - 1] : null;
   const nextEntry = flatIndex >= 0 && flatIndex < flat.length - 1 ? flat[flatIndex + 1] : null;
 
+  // Same "first observation is a baseline, not a celebration" pattern as
+  // DesignMissionPage's own completion effect — `flat.length > 0` gates out
+  // the loading window before modules/selectedItemId have actually settled,
+  // where `selectedItemId === null` would otherwise look like a false
+  // "already done" reading. Only wired up when this course was opened from
+  // a checklist tile (`?program=`).
+  const wasCourseDoneRef = useRef<boolean | null>(null);
+  const [showCourseCelebration, setShowCourseCelebration] = useState(false);
+  useEffect(() => {
+    if (!search.program) return;
+    const done = flat.length > 0 && selectedItemId === null;
+    const was = wasCourseDoneRef.current;
+    wasCourseDoneRef.current = done;
+    if (was === null || was === done || !done) return;
+    setShowCourseCelebration(true);
+  }, [flat.length, selectedItemId, search.program]);
+
   const handleProgressed = useCallback(async () => {
     if (!course || !selectedModuleId) return;
     const [freshModule, freshCourse] = await Promise.all([fetchModule(selectedModuleId), fetchCourse(courseId)]);
@@ -143,55 +162,64 @@ export default function LearnPlayer() {
   if (!course) return <div className="p-8"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
   return (
-    <PlayerLayout course={course} modulesData={modulesData} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId}>
-      {selectedItem ? (
-        <div className="flex flex-col gap-5">
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              {currentModule && (
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">
-                  Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
-                </div>
+    <>
+      <PlayerLayout course={course} modulesData={modulesData} selectedItemId={selectedItemId} onSelectItem={setSelectedItemId}>
+        {selectedItem ? (
+          <div className="flex flex-col gap-5">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                {currentModule && (
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-primary">
+                    Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
+                  </div>
+                )}
+                <h1 className="font-display text-2xl font-bold tracking-tight mt-1">
+                  {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
+                </h1>
+              </div>
+              {selectedItem.kind === "video" && !COMPLETED.has(selectedItem.status ?? "not_started") && (
+                <Button variant="outline" onClick={() => void markComplete()} className="shrink-0">
+                  <CheckCircle2 className="size-4" /> Mark complete
+                </Button>
               )}
-              <h1 className="font-display text-2xl font-bold tracking-tight mt-1">
-                {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
-              </h1>
             </div>
-            {selectedItem.kind === "video" && !COMPLETED.has(selectedItem.status ?? "not_started") && (
-              <Button variant="outline" onClick={() => void markComplete()} className="shrink-0">
-                <CheckCircle2 className="size-4" /> Mark complete
+
+            <ItemPane key={selectedItem.id} item={selectedItem} onProgressed={() => void handleProgressed()} />
+
+            <div className="flex items-center justify-between gap-4 pt-2">
+              <Button
+                variant="outline"
+                disabled={!prevEntry}
+                onClick={() => prevEntry && setSelectedItemId(prevEntry.item.id)}
+              >
+                <ArrowLeft className="size-4" /> Previous item
               </Button>
-            )}
+              <Button
+                disabled={!nextEntry}
+                onClick={() => nextEntry && setSelectedItemId(nextEntry.item.id)}
+              >
+                {nextEntry ? `Next: ${nextEntry.item.title ?? ITEM_KIND_LABEL[nextEntry.item.kind]}` : "Next item"}
+                <ArrowRight className="size-4" />
+              </Button>
+            </div>
           </div>
-
-          <ItemPane key={selectedItem.id} item={selectedItem} onProgressed={() => void handleProgressed()} />
-
-          <div className="flex items-center justify-between gap-4 pt-2">
-            <Button
-              variant="outline"
-              disabled={!prevEntry}
-              onClick={() => prevEntry && setSelectedItemId(prevEntry.item.id)}
-            >
-              <ArrowLeft className="size-4" /> Previous item
-            </Button>
-            <Button
-              disabled={!nextEntry}
-              onClick={() => nextEntry && setSelectedItemId(nextEntry.item.id)}
-            >
-              {nextEntry ? `Next: ${nextEntry.item.title ?? ITEM_KIND_LABEL[nextEntry.item.kind]}` : "Next item"}
-              <ArrowRight className="size-4" />
-            </Button>
+        ) : (
+          <div className="flex flex-col items-center text-center gap-3 py-16">
+            <CheckCircle2 className="size-10 text-emerald-500" />
+            <h2 className="font-display text-xl font-bold">Course complete</h2>
+            <p className="text-sm text-muted-foreground">Nice work — every module is done.</p>
+            <Button size="xl" onClick={() => void navigate({ to: `/learn/courses/${courseId}` })}>Back to course</Button>
           </div>
-        </div>
-      ) : (
-        <div className="flex flex-col items-center text-center gap-3 py-16">
-          <CheckCircle2 className="size-10 text-emerald-500" />
-          <h2 className="font-display text-xl font-bold">Course complete</h2>
-          <p className="text-sm text-muted-foreground">Nice work — every module is done.</p>
-          <Button size="xl" onClick={() => void navigate({ to: `/learn/courses/${courseId}` })}>Back to course</Button>
-        </div>
-      )}
-    </PlayerLayout>
+        )}
+      </PlayerLayout>
+      <CompletionCelebration
+        open={showCourseCelebration}
+        onOpenChange={setShowCourseCelebration}
+        title="Course complete!"
+        subtitle="Nice work — everything's finished here."
+        assignmentId={search.program ?? ""}
+      />
+    </>
   );
 }
 

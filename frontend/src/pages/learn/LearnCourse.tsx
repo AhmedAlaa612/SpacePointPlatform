@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams, Link } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
 import { CheckCircle2, ChevronRight, Lock, PlayCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,10 @@ export default function LearnCourse() {
   // (see LMS_EXECUTION_PLAN.md §DISCOVERIES, LM1-13) — strict: false reads
   // whatever route actually matched instead of re-deriving it.
   const { courseId } = useParams({ strict: false }) as { courseId: string };
+  // Carried through from a Roadmap board tile (TaskDrawer) so the player
+  // can offer a "back to your program" nudge on completion — forwarded
+  // as-is into the player below, not read for anything on this page itself.
+  const search = useSearch({ strict: false }) as { program?: string };
   const navigate = useNavigate();
   const [course, setCourse] = useState<CourseDetail | null>(null);
   const [error, setError] = useState("");
@@ -131,7 +135,7 @@ export default function LearnCourse() {
                   <div
                     key={module.module_id}
                     onClick={() => {
-                      if (course.enrolled && !module.locked) void navigate({ to: `/learn/courses/${course.id}/learn` });
+                      if (course.enrolled && !module.locked) void navigate({ to: `/learn/courses/${course.id}/learn`, search: { program: search.program } as never });
                     }}
                     className={`flex items-center gap-3.5 p-4 ${
                       course.enrolled && !module.locked ? "cursor-pointer hover:bg-foreground/5 transition-colors" : ""
@@ -172,7 +176,7 @@ export default function LearnCourse() {
                   ) : (
                     <CourseProgress value={pct} label={`${modulesDone} of ${course.modules.length} modules`} />
                   )}
-                  <Button size="xl" className="w-full" onClick={() => void navigate({ to: `/learn/courses/${course.id}/learn` })}>
+                  <Button size="xl" className="w-full" onClick={() => void navigate({ to: `/learn/courses/${course.id}/learn`, search: { program: search.program } as never })}>
                     {itemCta}
                   </Button>
                 </>

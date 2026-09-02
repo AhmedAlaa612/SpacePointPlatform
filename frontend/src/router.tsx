@@ -896,10 +896,17 @@ const learnMyCoursesRoute = createRoute({
   component: LearnMyCourses,
 });
 
+// `?program=` (2026-09) — carries the originating checklist's assignment id
+// through from a Roadmap board course tile so LearnCourse/LearnPlayer can
+// offer a "back to your program" nudge on completion. Absent for anyone who
+// got here any other way (catalog, My Learning, …).
 const learnCourseRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/courses/$courseId",
   component: LearnCourse,
+  validateSearch: (search: Record<string, unknown>): { program?: string } => ({
+    program: typeof search.program === "string" ? search.program : undefined,
+  }),
 });
 
 // Redesign 1h: one route for the whole course, sidebar swaps the content pane
@@ -908,6 +915,9 @@ const learnPlayerRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/courses/$courseId/learn",
   component: LearnPlayer,
+  validateSearch: (search: Record<string, unknown>): { program?: string } => ({
+    program: typeof search.program === "string" ? search.program : undefined,
+  }),
 });
 
 // Stage S (Stripe Checkout, August Build Brief Branch 4) — the redirect
@@ -983,12 +993,16 @@ const learnMissionRoute = createRoute({
 // `?phase=` (2026-09) — the Roadmap board's Madar tiles deep-link straight
 // into one wizard tab (e.g. a "ConOps" tile opens ?phase=conops) instead of
 // always landing on Setup. See DesignMissionPage.tsx's own seed/write-back.
+// `?program=` (2026-09) joins `?phase=` here the same way it does on the
+// course routes above — DesignMissionPage.tsx's own docblock covers why it
+// has to be captured once at mount rather than read reactively.
 const learnDesignMissionRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/missions/design/$attemptId",
   component: DesignMissionPage,
-  validateSearch: (search: Record<string, unknown>): { phase?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { phase?: string; program?: string } => ({
     phase: typeof search.phase === "string" ? search.phase : undefined,
+    program: typeof search.program === "string" ? search.program : undefined,
   }),
 });
 

@@ -149,9 +149,15 @@ export function TaskDrawer({
   const target = navTargetFor(item);
   const doWork = () => {
     saveBoardScrollPosition(assignmentId);
-    if (target.kind === "course") void navigate({ to: `/learn/courses/${target.courseId}` });
+    // `program` rides along so the destination can offer a "back to your
+    // program" nudge on completion (CompletionCelebration) — only these two
+    // targets have one wired up so far.
+    if (target.kind === "course") void navigate({ to: `/learn/courses/${target.courseId}`, search: { program: assignmentId } as never });
     else if (target.kind === "design") {
-      void navigate({ to: `/learn/missions/design/${target.attemptId}`, search: target.phase ? ({ phase: target.phase } as never) : undefined });
+      void navigate({
+        to: `/learn/missions/design/${target.attemptId}`,
+        search: { ...(target.phase ? { phase: target.phase } : {}), program: assignmentId } as never,
+      });
     } else if (target.kind === "operate") void navigate({ to: `/learn/missions/operate/${target.attemptId}` });
     else if (target.kind === "mission") void navigate({ to: `/learn/missions/${target.missionId}` });
     else if (target.kind === "external") window.open(ensureAbsoluteUrl(target.url), "_blank", "noreferrer");
