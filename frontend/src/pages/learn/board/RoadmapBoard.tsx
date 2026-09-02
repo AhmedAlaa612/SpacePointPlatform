@@ -104,7 +104,10 @@ export default function RoadmapBoard() {
         </div>
       </div>
 
-      <TaskDrawer item={openItem} assignmentId={assignmentId} onClose={() => setOpenItemId(null)} onChanged={invalidate} />
+      {/* key remounts the drawer per item — its own per-item local state
+          (guidelineOpened, submitUrl) resets via fresh useState instead of
+          a useEffect+setState reset on item change. */}
+      <TaskDrawer key={openItem?.id ?? "closed"} item={openItem} assignmentId={assignmentId} onClose={() => setOpenItemId(null)} onChanged={invalidate} />
     </div>
   );
 }
