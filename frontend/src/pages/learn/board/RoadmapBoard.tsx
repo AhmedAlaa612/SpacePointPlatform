@@ -67,20 +67,26 @@ export default function RoadmapBoard() {
   return (
     <div className="flex flex-col">
       <div className={cn("transition-[filter,opacity] duration-150", openItem && "md:blur-[1.5px] md:opacity-50")}>
-        {/* Banner — native ratio, full width, never cropped (the clipping fix). */}
-        {checklist.image_url ? (
-          <img src={checklist.image_url} alt="" className="w-full h-auto block" />
-        ) : (
-          <div className="h-[96px] sm:h-[180px] bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.09)_0px,hsl(var(--primary)/0.09)_11px,hsl(var(--foreground)/0.014)_11px,hsl(var(--foreground)/0.014)_22px)]" />
-        )}
+        {/* Banner — native ratio, full width, never cropped (the clipping
+            fix). The fade below is a lighting cue, not a crop: it sits on
+            top of the image's own bottom edge so the poster reads as
+            settling into the page instead of cutting off hard. */}
+        <div className="relative">
+          {checklist.image_url ? (
+            <img src={checklist.image_url} alt="" className="w-full h-auto block" />
+          ) : (
+            <div className="h-[96px] sm:h-[180px] bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.09)_0px,hsl(var(--primary)/0.09)_11px,hsl(var(--foreground)/0.014)_11px,hsl(var(--foreground)/0.014)_22px)]" />
+          )}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 sm:h-24 bg-gradient-to-t from-background to-transparent" />
+        </div>
 
         <div className="px-5 sm:px-8 lg:px-14 py-6 sm:py-8 flex flex-col gap-6 sm:gap-8 max-w-[1180px] mx-auto w-full">
           <div className="flex flex-col gap-1.5">
             <h1 className="font-display text-[19px] sm:text-2xl font-extrabold tracking-tight leading-none">{checklist.name}</h1>
             {checklist.cohort_name && <p className="text-sm text-muted-foreground">{checklist.cohort_name}</p>}
             {checklist.team_name && (
-              <div className="flex items-center gap-1.5 text-xs font-medium text-foreground/90">
-                <Users className="size-3.5" /> Team {checklist.team_name}
+              <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-sm font-semibold text-primary">
+                <Users className="size-4" /> Team {checklist.team_name}
               </div>
             )}
           </div>
