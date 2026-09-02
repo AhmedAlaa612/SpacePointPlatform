@@ -58,8 +58,14 @@ export function PlayerLayout({
     }
   };
 
+  // lg:h-screen, not a calc() subtracting a navbar height — that was left
+  // over from the pre-Roadmap-redesign top navbar (LearnNav.tsx, deleted).
+  // The sidebar replacing it is `fixed`, so it takes no space out of this
+  // row; the old offset just left a dead strip at the bottom of the
+  // viewport where this row's internal overflow-y-auto panes fell 72px
+  // short of the real screen height.
   return (
-    <div className="flex flex-col lg:flex-row lg:h-[calc(100vh-72px)]">
+    <div className="flex flex-col lg:flex-row lg:h-screen">
       {/* Below `lg` the module list doesn't fit stacked above the content
           the way it does as a fixed-width side column — it just pushed the
           actual lesson off the bottom of the screen. Mobile instead gets a
