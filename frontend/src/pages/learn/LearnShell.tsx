@@ -18,10 +18,12 @@ import type { LearnNavActive } from "./nav/navItems";
  * separate component under `pages/learn/**`, not a reuse of that one (see its
  * own docblock for why it can't be).
  *
- * Desktop (2026-09, Roadmap board redesign): a fixed 196px `LearnSidebar`
- * replaces the old horizontal navbar — the content column is offset by the
- * same width. Mobile is unchanged: still the bottom tab bar, full-bleed
- * content (desktop frames run to 1440px per the design).
+ * Desktop (2026-09, Roadmap board redesign): a fixed `LearnSidebar` replaces
+ * the old horizontal navbar — sized to match the portal's own sidebar
+ * exactly (w-64, same spacing — client's own ask) rather than the design
+ * wireframe's narrower 196px. The content column is offset by that same
+ * width. Mobile is unchanged: still the bottom tab bar, full-bleed content
+ * (desktop frames run to 1440px per the design).
  */
 export function LearnShell() {
   const { pathname } = useLocation();
@@ -44,9 +46,10 @@ export function LearnShell() {
         {/* pb-28 not pb-20 on mobile: staff get a second row (Back to
             portal) under the tab icons, and the fixed bar's real height
             varies by role — sized for that taller case so nothing sits
-            behind it either way. md:ml-[196px] offsets for the fixed
-            desktop sidebar instead of a static top navbar. */}
-        <main className="flex-1 pb-28 md:pb-0 md:ml-[196px]">
+            behind it either way. md:ml-64 matches LearnSidebar's own
+            width, offsetting for the fixed desktop sidebar instead of a
+            static top navbar. */}
+        <main className="flex-1 pb-28 md:pb-0 md:ml-64">
           <Outlet />
         </main>
       </div>
