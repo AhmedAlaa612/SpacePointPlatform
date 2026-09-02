@@ -86,7 +86,7 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
 
         <div className="flex items-center gap-1 border-t border-border pt-3">
           <ThemeToggle />
-          <LearnNotificationsBell />
+          <LearnNotificationsBell align="left" side="top" />
           <LearnProfileMenu />
         </div>
         <BackToPortalButton />

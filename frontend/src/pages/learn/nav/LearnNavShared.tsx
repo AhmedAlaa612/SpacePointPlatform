@@ -34,7 +34,15 @@ export function BackToPortalButton({ compact }: { compact?: boolean }) {
   );
 }
 
-export function LearnNotificationsBell() {
+export function LearnNotificationsBell({
+  align = "right", side = "bottom",
+}: {
+  align?: "left" | "right";
+  /** "bottom" (default, opens below the trigger) or "top" (opens above
+   * it) — the sidebar's own bell sits pinned at the bottom of the
+   * viewport, so it needs "top" to stay on screen. */
+  side?: "top" | "bottom";
+}) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -86,7 +94,13 @@ export function LearnNotificationsBell() {
         )}
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-lg">
+        <div
+          className={cn(
+            "absolute z-50 w-80 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-border bg-popover shadow-lg",
+            align === "left" ? "left-0" : "right-0",
+            side === "top" ? "bottom-full mb-2" : "top-full mt-2",
+          )}
+        >
           <div className="border-b border-border px-4 py-3">
             <p className="text-sm font-semibold text-foreground">Notifications</p>
           </div>

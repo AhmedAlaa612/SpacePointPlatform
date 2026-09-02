@@ -48,8 +48,14 @@ export function LearnShell() {
             varies by role — sized for that taller case so nothing sits
             behind it either way. md:ml-64 matches LearnSidebar's own
             width, offsetting for the fixed desktop sidebar instead of a
-            static top navbar. */}
-        <main className="flex-1 pb-28 md:pb-0 md:ml-64">
+            static top navbar. min-w-0 is required alongside flex-1: a
+            flex item's default min-width is `auto` (its content's
+            intrinsic width), not 0 — without this, any wide-ish content
+            a page renders (a hero image, a horizontally-scrolling row)
+            refuses to shrink to the available width and blows out the
+            whole layout instead of clipping/scrolling inside itself,
+            which is what produced the page-wide horizontal scrollbar. */}
+        <main className="flex-1 min-w-0 pb-28 md:pb-0 md:ml-64">
           <Outlet />
         </main>
       </div>
