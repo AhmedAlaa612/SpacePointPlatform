@@ -1,7 +1,6 @@
 import { Outlet, useLocation } from "@tanstack/react-router";
 import { LearnSidebar } from "./LearnSidebar";
 import { LearnMobileTabBar } from "./nav/LearnMobileTabBar";
-import { BoardProgressProvider } from "./nav/boardProgressContext";
 import type { LearnNavActive } from "./nav/navItems";
 
 /**
@@ -39,26 +38,24 @@ export function LearnShell() {
     : "home";
 
   return (
-    <BoardProgressProvider>
-      <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row">
-        <LearnSidebar active={active} />
-        <LearnMobileTabBar active={active} />
-        {/* pb-28 not pb-20 on mobile: staff get a second row (Back to
-            portal) under the tab icons, and the fixed bar's real height
-            varies by role — sized for that taller case so nothing sits
-            behind it either way. md:ml-64 matches LearnSidebar's own
-            width, offsetting for the fixed desktop sidebar instead of a
-            static top navbar. min-w-0 is required alongside flex-1: a
-            flex item's default min-width is `auto` (its content's
-            intrinsic width), not 0 — without this, any wide-ish content
-            a page renders (a hero image, a horizontally-scrolling row)
-            refuses to shrink to the available width and blows out the
-            whole layout instead of clipping/scrolling inside itself,
-            which is what produced the page-wide horizontal scrollbar. */}
-        <main className="flex-1 min-w-0 pb-28 md:pb-0 md:ml-64">
-          <Outlet />
-        </main>
-      </div>
-    </BoardProgressProvider>
+    <div className="min-h-screen bg-background text-foreground flex flex-col md:flex-row">
+      <LearnSidebar active={active} />
+      <LearnMobileTabBar active={active} />
+      {/* pb-28 not pb-20 on mobile: staff get a second row (Back to
+          portal) under the tab icons, and the fixed bar's real height
+          varies by role — sized for that taller case so nothing sits
+          behind it either way. md:ml-64 matches LearnSidebar's own
+          width, offsetting for the fixed desktop sidebar instead of a
+          static top navbar. min-w-0 is required alongside flex-1: a
+          flex item's default min-width is `auto` (its content's
+          intrinsic width), not 0 — without this, any wide-ish content
+          a page renders (a hero image, a horizontally-scrolling row)
+          refuses to shrink to the available width and blows out the
+          whole layout instead of clipping/scrolling inside itself,
+          which is what produced the page-wide horizontal scrollbar. */}
+      <main className="flex-1 min-w-0 pb-28 md:pb-0 md:ml-64">
+        <Outlet />
+      </main>
+    </div>
   );
 }

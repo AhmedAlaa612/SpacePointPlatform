@@ -3,7 +3,6 @@ import { useParams } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Users } from "lucide-react";
 import { fetchChecklist, type LmsProgramChecklistItem } from "@/api/lms";
-import { useBoardProgress } from "@/pages/learn/nav/boardProgressContext";
 import { cn } from "@/lib/utils";
 import { NextTaskCard } from "./NextTaskCard";
 import { TileField } from "./TileField";
@@ -20,7 +19,6 @@ import { computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition } from ".
 export default function RoadmapBoard() {
   const { assignmentId } = useParams({ strict: false }) as { assignmentId: string };
   const queryClient = useQueryClient();
-  const { setProgress } = useBoardProgress();
   const [openItemId, setOpenItemId] = useState<string | null>(null);
 
   const { data: checklist, isLoading, error } = useQuery({
@@ -45,16 +43,8 @@ export default function RoadmapBoard() {
   const requiredItems = items.filter((i) => !i.optional);
   const doneCount = requiredItems.filter((i) => i.status === "done").length;
   const pct = requiredItems.length ? Math.round((100 * doneCount) / requiredItems.length) : 100;
-  const unlockedCount = items.filter((i) => !i.locked).length;
   const groups = groupByCheckpoint(items);
   const openItem = items.find((i) => i.id === openItemId) ?? null;
-
-  useEffect(() => {
-    if (!checklist) { setProgress(null); return; }
-    setProgress({ liveCount: unlockedCount, total: items.length });
-    return () => setProgress(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checklist, unlockedCount, items.length]);
 
   if (error) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-destructive">Couldn't load this program.</p></div>;
   if (isLoading || !checklist) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-muted-foreground">Loading...</p></div>;
