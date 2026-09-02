@@ -37,6 +37,23 @@
   --border: 258 35% 90%;
   --input: 258 35% 90%;
   --ring: 258 100% 75%;
+
+  /* Roadmap board (2026-09) — tile ring/glow + trace colours per state.
+     Light values from the design spec's "Light surfaces"/"Trace colors"
+     tables; kept as their own tokens (not derived from --primary etc.)
+     since the spec's alpha values are tuned per state, not a single hue. */
+  --board-cleared-ink: #059669;
+  --board-cleared-ring: rgba(5, 150, 105, 0.35);
+  --board-cleared-glow: rgba(5, 150, 105, 0.12);
+  --board-live-ink: #643f83;
+  --board-live-ring: rgba(168, 128, 255, 0.65);
+  --board-live-glow: rgba(168, 128, 255, 0.22);
+  --board-locked-ink: #a79fb8;
+  --board-locked-ring: rgba(0, 0, 0, 0.08);
+  --board-trace-cleared: #10b981;
+  --board-trace-live: #a880ff;
+  --board-trace-dim: #d3cbe0;
+  --board-next-bg: rgba(168, 128, 255, 0.09);
 }
 
 /* The original instructors "space" theme, near-1:1. Background #05030A with
@@ -60,6 +77,21 @@
   --border: 268 30% 18%;      /* hairline ≈ white/8 over near-black */
   --input: 268 30% 18%;
   --ring: 258 100% 75%;
+
+  /* Roadmap board (2026-09) — dark values from the design spec's "Dark
+     surfaces"/"Trace colors" tables. See :root above for the light twin. */
+  --board-cleared-ink: #34d399;
+  --board-cleared-ring: rgba(52, 211, 153, 0.55);
+  --board-cleared-glow: rgba(52, 211, 153, 0.22);
+  --board-live-ink: #c7aaff;
+  --board-live-ring: rgba(199, 170, 255, 0.85);
+  --board-live-glow: rgba(168, 128, 255, 0.35);
+  --board-locked-ink: #8d80a3;
+  --board-locked-ring: rgba(255, 255, 255, 0.14);
+  --board-trace-cleared: #34d399;
+  --board-trace-live: #a880ff;
+  --board-trace-dim: rgba(214, 199, 225, 0.35);
+  --board-next-bg: rgba(168, 128, 255, 0.14);
 }
 
 @layer base {
@@ -96,6 +128,20 @@
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Roadmap board — the single live tile's glow, dark theme only (design
+   spec: "Nothing loops except the single live-tile pulse."). */
+@keyframes boardPulse {
+  0%, 100% {
+    box-shadow: inset 0 0 0 1.5px var(--board-live-ring), 0 0 22px var(--board-live-glow);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1.5px var(--board-live-ring), 0 0 34px var(--board-live-glow);
+  }
+}
+.dark .animate-board-pulse {
+  animation: boardPulse 2.6s ease-in-out infinite;
 }
 
 .animate-fade-in-up {

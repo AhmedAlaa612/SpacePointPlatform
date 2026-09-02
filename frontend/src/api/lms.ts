@@ -550,6 +550,19 @@ export interface LmsProgramChecklistItem {
   scope: LmsProgramItemScope;
   updated_by_name: string | null;
   updated_at: string | null;
+  // ── Roadmap board (2026-09) ────────────────────────────────────────────
+  /** Which single Madar design phase a `mission_run` tile targets — null
+   * means the whole mission. One of MISSION_STEP_KEYS (lib/roadmap.ts). */
+  mission_step_key: string | null;
+  gated: boolean;
+  guideline_kind: "pdf" | "link" | "video" | null;
+  guideline_url: string | null;
+  /** Groups tiles into the board's row sections ("Checkpoint 1 — Learn &
+   * plan"). Free text, matched by exact string. */
+  checkpoint_label: string | null;
+  /** Derived server-side (compute_lock_states) — true iff `gated` and some
+   * earlier non-optional item on this checklist isn't `done` yet. */
+  locked: boolean;
 }
 
 export interface LmsProgramAssignmentSummary {

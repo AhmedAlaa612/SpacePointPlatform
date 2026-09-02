@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams, Link } from "@tanstack/react-router";
+import { useParams, useSearch, useNavigate, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
 import { CheckCircle2, ChevronRight, Rocket, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -74,9 +74,21 @@ const DESIGN_TABS: {
  * updates. */
 export default function DesignMissionPage() {
   const { attemptId } = useParams({ strict: false }) as { attemptId: string };
+  const search = useSearch({ strict: false }) as { phase?: string };
+  const navigate = useNavigate();
   const [state, setState] = useState<DesignState | null>(null);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState("setup");
+  // Seeded from ?phase= (a Roadmap board Madar tile's deep link) when it
+  // names a real tab — falls back to Setup exactly as before this existed.
+  const [tab, setTabState] = useState(
+    () => (search.phase && DESIGN_TABS.some((t) => t.value === search.phase) ? search.phase : "setup"),
+  );
+  // Keeps the URL in sync so the tab survives a refresh/share, mirroring
+  // DesignBriefingPage's own ?variant=/?team= write-back pattern.
+  const setTab = useCallback((next: string) => {
+    setTabState(next);
+    void navigate({ search: { phase: next } as never, replace: true });
+  }, [navigate]);
   const [completeError, setCompleteError] = useState("");
   const [completing, setCompleting] = useState(false);
   const [handbook, setHandbook] = useState<DesignHandbook | null>(null);

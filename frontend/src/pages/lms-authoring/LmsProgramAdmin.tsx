@@ -21,6 +21,7 @@ import {
   getMyReachableProgramsApi, getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi,
   getAssignmentItemsApi, resyncCohortProgramAssignmentsApi,
   uploadLmsProgramItemPdfApi, deleteLmsProgramItemPdfApi,
+  MISSION_STEP_KEYS,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType,
   type LmsProgramRosterRow, type LmsAssignmentItemDetail,
 } from "@/api/lms_admin"
@@ -52,6 +53,25 @@ function toDatetimeLocalValue(iso: string | null | undefined): string {
   if (Number.isNaN(d.getTime())) return ""
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** Roadmap-board-safe round-trip of an existing item back into the PATCH
+ * shape — the endpoint replaces every field from `model_dump()`, so a
+ * partial `{ gated: true }` body would blow away the rest of the row
+ * (course_id, guideline fields, etc.) back to their schema defaults. Used
+ * by the "Gate everything in order" bulk action, which only means to
+ * flip one field per item. */
+function itemToInput(item: LmsProgramItem): LmsProgramItemInput {
+  return {
+    item_type: item.item_type, title: item.title, description: item.description,
+    optional: item.optional, requires_confirmation: item.requires_confirmation, scope: item.scope,
+    course_id: item.course_id, mission_id: item.mission_id, variant_id: item.variant_id,
+    external_url: item.external_url, submission_prompt: item.submission_prompt,
+    deadline_at: item.deadline_at, session_date: item.session_date, session_starts_at: item.session_starts_at,
+    session_location: item.session_location, session_meeting_url: item.session_meeting_url,
+    mission_step_key: item.mission_step_key, gated: item.gated, guideline_kind: item.guideline_kind,
+    guideline_url: item.guideline_url, checkpoint_label: item.checkpoint_label,
+  }
 }
 
 const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookOpen }[] = [
@@ -455,15 +475,44 @@ function ChecklistItemsEditor({
     void onReorder(ids).then(() => setOrder(null)).catch(() => setOrder(null))
   }
 
+  // Roadmap board (2026-09) — every checkpoint_label already used on this
+  // checklist, offered as a datalist so authoring a run of tiles for the
+  // same checkpoint doesn't drift on a typo. Order-preserving, deduped.
+  const checkpointLabels = Array.from(new Set(items.map((i) => i.checkpoint_label).filter((l): l is string => !!l)))
+
+  const [gatingAll, setGatingAll] = useState(false)
+  const gateEverything = async () => {
+    setGatingAll(true)
+    try {
+      for (const item of items) {
+        if (!item.gated) await onUpdate(item.id, { ...itemToInput(item), gated: true })
+      }
+    } finally {
+      setGatingAll(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-2">
+      {!readOnly && items.length > 1 && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => void gateEverything()}
+            disabled={gatingAll || items.every((i) => i.gated)}
+            className="h-7 px-3 rounded-full border border-dashed border-border text-xs font-medium text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            {gatingAll ? "Gating…" : "Gate everything in order"}
+          </button>
+        </div>
+      )}
+
       {displayItems.length === 0 && addingType === null && <EmptyState title="No steps yet" />}
 
       {displayItems.map((item) => (
         <ItemRow
           key={item.id} item={item} onUpdate={onUpdate} onDelete={onDelete}
           onUploadPdf={onUploadPdf} onRemovePdf={onRemovePdf} readOnly={readOnly}
-          cohortId={cohortId}
+          cohortId={cohortId} checkpointLabels={checkpointLabels}
           draggable={!readOnly}
           isDragging={dragId === item.id}
           onDragStartRow={() => setDragId(item.id)}
@@ -476,7 +525,7 @@ function ChecklistItemsEditor({
         <ItemForm
           itemType={addingType}
           initialScope={addingType === "submission" ? addingSubmissionScope : undefined}
-          cohortId={cohortId}
+          cohortId={cohortId} checkpointLabels={checkpointLabels}
           onCancel={() => setAddingType(null)}
           onSave={async (data) => { await onAdd(data); setAddingType(null) }}
         />
@@ -527,7 +576,7 @@ const ITEM_TYPE_META: Record<LmsProgramItemType, { label: string; icon: typeof B
 ) as Record<LmsProgramItemType, { label: string; icon: typeof BookOpen }>
 
 function ItemRow({
-  item, onUpdate, onDelete, onUploadPdf, onRemovePdf, readOnly, cohortId,
+  item, onUpdate, onDelete, onUploadPdf, onRemovePdf, readOnly, cohortId, checkpointLabels,
   draggable, isDragging, onDragStartRow, onDropRow, onDragEndRow,
 }: {
   item: LmsProgramItem
@@ -539,6 +588,7 @@ function ItemRow({
   onRemovePdf?: (itemId: string) => Promise<unknown>
   readOnly: boolean
   cohortId?: string
+  checkpointLabels?: string[]
   draggable?: boolean
   isDragging?: boolean
   onDragStartRow?: () => void
@@ -550,13 +600,17 @@ function ItemRow({
   const pdfInputRef = useRef<HTMLInputElement>(null)
   const meta = ITEM_TYPE_META[item.item_type]
   const Icon = meta.icon
+  // A `pdf`-type item's own upload IS its guideline even when
+  // guideline_kind isn't separately set — see services/lms/program.py's
+  // note on this reuse (one file, one upload control either way).
+  const showsPdfUpload = item.item_type === "pdf" || item.guideline_kind === "pdf"
 
   if (editing) {
     return (
       <ItemForm
         itemType={item.item_type}
         initial={item}
-        cohortId={cohortId}
+        cohortId={cohortId} checkpointLabels={checkpointLabels}
         onCancel={() => setEditing(false)}
         onSave={async (data) => { await onUpdate(item.id, data); setEditing(false) }}
       />
@@ -585,15 +639,25 @@ function ItemRow({
           {item.scope === "team" && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">team</span>}
           {item.optional && <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">optional</span>}
           {item.requires_confirmation && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 rounded px-1.5 py-0.5">needs confirmation</span>}
+          {item.gated && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">gated</span>}
+          {item.mission_step_key && (
+            <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">
+              {MISSION_STEP_KEYS.find((s) => s.value === item.mission_step_key)?.label ?? item.mission_step_key}
+            </span>
+          )}
+          {item.guideline_kind && (
+            <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">guideline: {item.guideline_kind}</span>
+          )}
           {item.item_type === "pdf" && !item.has_pdf && (
             <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-500 border border-amber-500/30 rounded px-1.5 py-0.5">no PDF uploaded</span>
           )}
         </div>
+        {item.checkpoint_label && <div className="text-xs text-muted-foreground">{item.checkpoint_label}</div>}
         <div className="text-xs text-muted-foreground">{meta.label}</div>
       </div>
       {!readOnly && (
         <>
-          {item.item_type === "pdf" && (
+          {showsPdfUpload && (
             <>
               <input
                 ref={pdfInputRef} type="file" accept="application/pdf" className="hidden"
@@ -638,8 +702,14 @@ function ItemRow({
   )
 }
 
+// The Roadmap board tile a design mission's phase picker offers — the
+// client's own instruction: "data, link, and cost will not be used for
+// this competition." MISSION_STEP_KEYS (api/lms_admin.ts) keeps the full
+// backend vocabulary; this is just what the picker shows.
+const PHASE_PICKER_KEYS = MISSION_STEP_KEYS.filter((s) => !["data_budget", "link_budget", "cost_budget"].includes(s.value))
+
 function ItemForm({
-  itemType, initial, initialScope, cohortId, onCancel, onSave,
+  itemType, initial, initialScope, cohortId, checkpointLabels, onCancel, onSave,
 }: {
   itemType: LmsProgramItemType
   initial?: LmsProgramItem
@@ -652,6 +722,10 @@ function ItemForm({
   // item. See ChecklistItemsEditor's own comment on why a program
   // template never passes this.
   cohortId?: string
+  // Every checkpoint_label already used on this checklist — offered as a
+  // datalist so a run of tiles for the same checkpoint doesn't drift on a
+  // typo (Roadmap board, 2026-09).
+  checkpointLabels?: string[]
   onCancel: () => void
   onSave: (data: LmsProgramItemInput) => Promise<void>
 }) {
@@ -675,6 +749,12 @@ function ItemForm({
   const [sessionLocation, setSessionLocation] = useState(initial?.session_location ?? "")
   const [sessionMeetingUrl, setSessionMeetingUrl] = useState(initial?.session_meeting_url ?? "")
   const [prefillSessionId, setPrefillSessionId] = useState("")
+  // ── Roadmap board (2026-09) ──────────────────────────────────────────
+  const [missionStepKey, setMissionStepKey] = useState(initial?.mission_step_key ?? "")
+  const [gated, setGated] = useState(initial?.gated ?? false)
+  const [guidelineKind, setGuidelineKind] = useState<"" | "pdf" | "link" | "video">(initial?.guideline_kind ?? "")
+  const [guidelineUrl, setGuidelineUrl] = useState(initial?.guideline_url ?? "")
+  const [checkpointLabel, setCheckpointLabel] = useState(initial?.checkpoint_label ?? "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
@@ -697,6 +777,8 @@ function ItemForm({
     setSessionLocation(session.effective_location_name ?? "")
   }
 
+  const isDesignMission = itemType === "mission_run" && selectedMission?.kind === "design"
+
   const save = async () => {
     setError("")
     if (!title.trim()) { setError("Title is required"); return }
@@ -704,6 +786,7 @@ function ItemForm({
     if (itemType === "mission_run" && !missionId) { setError("Pick a mission"); return }
     if (itemType === "external_link" && !externalUrl.trim()) { setError("A link is required"); return }
     if (itemType === "submission" && !externalUrl.trim() && !submissionPrompt.trim()) { setError("Add a link or a submission prompt"); return }
+    if (guidelineKind === "link" && !guidelineUrl.trim()) { setError("A link guideline needs a URL"); return }
 
     setSaving(true)
     try {
@@ -724,6 +807,11 @@ function ItemForm({
         session_starts_at: itemType === "session" ? (sessionStartsAt || null) : null,
         session_location: itemType === "session" ? (sessionLocation.trim() || null) : null,
         session_meeting_url: itemType === "session" ? (sessionMeetingUrl.trim() || null) : null,
+        mission_step_key: isDesignMission && missionStepKey ? missionStepKey : null,
+        gated,
+        guideline_kind: guidelineKind || null,
+        guideline_url: guidelineKind === "link" || guidelineKind === "video" ? (guidelineUrl.trim() || null) : null,
+        checkpoint_label: checkpointLabel.trim() || null,
       })
     } catch (e: unknown) {
       const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
@@ -767,6 +855,19 @@ function ItemForm({
               <option value="">Easiest variant (default)</option>
               {selectedMission.variants.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
             </select>
+          )}
+          {isDesignMission && (
+            <div className="flex flex-col gap-1">
+              <label className="text-[11px] font-medium text-muted-foreground">Which part of the mission?</label>
+              <select value={missionStepKey} onChange={(e) => setMissionStepKey(e.target.value)} className={`${inputCls} cursor-pointer`}>
+                <option value="">Whole mission</option>
+                {PHASE_PICKER_KEYS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+              <span className="text-[11px] text-muted-foreground">
+                A specific phase deep-links straight into that step of Madar and clears once it's valid there — you
+                can still add the full mission as its own step too.
+              </span>
+            </div>
           )}
         </>
       )}
@@ -835,10 +936,56 @@ function ItemForm({
         </>
       )}
 
+      {/* Roadmap board (2026-09) — checkpoint grouping + the task drawer's
+          guideline step. Shown for every item type, not just design phases:
+          any tile can carry a guideline before its own work/submit steps. */}
+      <div className="flex flex-col gap-1.5 pt-1 border-t border-border/60">
+        <label className="text-[11px] font-medium text-muted-foreground">Checkpoint (optional)</label>
+        <input
+          value={checkpointLabel} onChange={(e) => setCheckpointLabel(e.target.value)}
+          placeholder="e.g. Checkpoint 1 — Learn & plan" className={inputCls}
+          list="checkpoint-label-options"
+        />
+        {checkpointLabels && checkpointLabels.length > 0 && (
+          <datalist id="checkpoint-label-options">
+            {checkpointLabels.map((label) => <option key={label} value={label} />)}
+          </datalist>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-[11px] font-medium text-muted-foreground">Guideline (optional)</label>
+        <select
+          value={guidelineKind} onChange={(e) => setGuidelineKind(e.target.value as "" | "pdf" | "link" | "video")}
+          className={`${inputCls} cursor-pointer`}
+        >
+          <option value="">No guideline</option>
+          <option value="pdf">PDF</option>
+          <option value="link">Link</option>
+          <option value="video">Video (YouTube/Vimeo)</option>
+        </select>
+        {guidelineKind === "pdf" && (
+          <p className="text-xs text-muted-foreground">
+            {initial ? "Upload the PDF on this step's row after saving." : "Upload the PDF after saving this step — see the \"Upload PDF\" button on its row."}
+          </p>
+        )}
+        {(guidelineKind === "link" || guidelineKind === "video") && (
+          <input
+            value={guidelineUrl} onChange={(e) => setGuidelineUrl(e.target.value)}
+            placeholder={guidelineKind === "video" ? "https://youtube.com/... (leave blank for a coming-soon slot)" : "https://…"}
+            className={inputCls}
+          />
+        )}
+      </div>
+
       <div className="flex items-center gap-4 pt-1 flex-wrap">
         <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
           <input type="checkbox" checked={optional} onChange={(e) => setOptional(e.target.checked)} />
           Optional
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
+          <input type="checkbox" checked={gated} onChange={(e) => setGated(e.target.checked)} />
+          Locked until the previous task is done
         </label>
         <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
           <input type="checkbox" checked={requiresConfirmation} onChange={(e) => setRequiresConfirmation(e.target.checked)} />

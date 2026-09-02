@@ -35,7 +35,8 @@ from app.models.lms.program import (
     LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem, LmsProgramItemProgress,
     LmsProgramTeamItemProgress,
 )
-from app.models.missions.mission import Mission, MissionAttempt
+from app.models.missions.design import Design
+from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.team import Team, TeamMember
@@ -45,6 +46,7 @@ from app.services import storage
 from app.services.lms.enrollment import enroll
 from app.services.lms.progress import course_completion
 from app.services.missions import assign_mission_run
+from app.services.missions.design import service as design_service
 
 # Same bucket routers/lms/admin.py's module-attachment upload already uses —
 # a `pdf` program item is just another hosted-PDF-behind-a-checklist-item,
@@ -52,6 +54,20 @@ from app.services.missions import assign_mission_run
 PROGRAM_ITEM_PDF_BUCKET = "lms-attachments"
 
 AUTO_TRACKED_TYPES = {"course", "mission_run"}
+
+# Roadmap board (2026-09) — the vocabulary a `mission_run` item's
+# `mission_step_key` can name. Nine of these mirror
+# `services/lms/admin_progress.py::DESIGN_STEP_LABELS` exactly (the real
+# Madar design phases); `setup` and `report` aren't in that vocabulary —
+# they're wizard tabs with no gate/selection row of their own, so their
+# completion is inferred (see `_mission_run_item_done`) rather than read
+# off `dashboard.steps`.
+MISSION_STEP_KEYS: frozenset[str] = frozenset({
+    "setup", "components", "conops", "power_budget", "energy_budget",
+    "mass_budget", "data_budget", "link_budget", "cost_budget", "report",
+})
+
+GUIDELINE_KINDS: frozenset[str] = frozenset({"pdf", "link", "video"})
 
 
 async def item_out(db: AsyncSession, item: LmsProgramItem) -> LmsProgramItemOut:
@@ -126,6 +142,24 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
             status.HTTP_400_BAD_REQUEST,
             detail="Only a submission item can have a deadline",
         )
+    # Roadmap board (2026-09) ─────────────────────────────────────────
+    if body.mission_step_key is not None:
+        if body.item_type != "mission_run":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="Only a mission_run item can target a mission phase",
+            )
+        if body.mission_step_key not in MISSION_STEP_KEYS:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Unknown mission phase '{body.mission_step_key}'")
+    if body.guideline_kind is not None:
+        if body.guideline_kind not in GUIDELINE_KINDS:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Unknown guideline kind '{body.guideline_kind}'")
+        # A 'video' guideline may be left with no URL on purpose — the Week 1
+        # platform-tutorial slot, recorded and filled in later (see
+        # docs/HANDOFF_LMS.md §11). 'pdf' never needs a URL — it reuses this
+        # item's own pdf_path/upload. Only 'link' has nothing else to fall
+        # back on.
+        if body.guideline_kind == "link" and not body.guideline_url:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="A link guideline needs a URL")
 
 
 def guard_locked_submission_scope(item: LmsProgramItem, body: LmsProgramItemIn) -> None:
@@ -150,8 +184,14 @@ def guard_locked_submission_scope(item: LmsProgramItem, body: LmsProgramItemIn) 
 async def validate_item_refs(db: AsyncSession, body: LmsProgramItemIn) -> None:
     if body.course_id is not None and await db.get(Course, body.course_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-    if body.mission_id is not None and await db.get(Mission, body.mission_id) is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+    if body.mission_id is not None:
+        mission = await db.get(Mission, body.mission_id)
+        if mission is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission not found")
+        if body.mission_step_key is not None and mission.kind != "design":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, detail="A mission phase can only be targeted on a design mission",
+            )
 
 
 async def check_item_conflicts(
@@ -634,15 +674,67 @@ async def _course_item_done(db: AsyncSession, *, user_id: uuid.UUID, course_id: 
     return bool(modules) and all(m["completed"] for m in modules)
 
 
-async def _mission_run_item_done(db: AsyncSession, *, mission_attempt_id: uuid.UUID | None) -> bool:
+async def _design_dashboard_for_attempt(
+    db: AsyncSession, *, mission_attempt_id: uuid.UUID, cache: dict[uuid.UUID, dict | None],
+) -> dict | None:
+    """Cached per attempt (not per checklist item) — several Madar phase
+    tiles share one `mission_attempt_id` (see `start_attempt`'s
+    single-flight resume), and the handoff spec is explicit: read the
+    design state once per attempt per checklist load, not once per item.
+    `None` means there's no design (or no attempt) to read from —
+    callers treat that as "not done" rather than erroring, same posture
+    the old whole-mission check took for a dangling attempt id."""
+    if mission_attempt_id in cache:
+        return cache[mission_attempt_id]
+    attempt = await db.get(MissionAttempt, mission_attempt_id)
+    design = (
+        await db.scalar(select(Design).where(Design.attempt_id == mission_attempt_id))
+        if attempt is not None else None
+    )
+    if attempt is None or design is None:
+        cache[mission_attempt_id] = None
+        return None
+    variant = await db.get(MissionVariant, attempt.variant_id) if attempt.variant_id else None
+    dash = await design_service.compute_dashboard(
+        db, design=design, variant_config=(variant.config or {}) if variant else {}, attempt=attempt,
+    )
+    # 'setup' isn't a DESIGN_STEP_LABELS key (no gate/selection row of its
+    # own — it's the wizard's free-text/guided-prompt tab), so its
+    # completion isn't in `dash["steps"]`. Piggyback it on the same cached
+    # lookup rather than a second query: SetupTab only ever writes
+    # `design_objective` once the guided prompts are actually saved
+    # (DesignMissionPage.tsx's SetupTab), so "has one" is a real signal,
+    # unlike `design_name` which always starts pre-filled ("My CubeSat").
+    dash["_setup_done"] = design.design_objective is not None
+    cache[mission_attempt_id] = dash
+    return dash
+
+
+async def _mission_run_item_done(
+    db: AsyncSession, *, mission_attempt_id: uuid.UUID | None, mission_step_key: str | None,
+    dashboard_cache: dict[uuid.UUID, dict | None],
+) -> bool:
     if mission_attempt_id is None:
         return False
-    attempt = await db.get(MissionAttempt, mission_attempt_id)
-    return attempt is not None and attempt.status == "passed"
+    if mission_step_key is None:
+        # Whole-mission item — unchanged behaviour: done means passed.
+        attempt = await db.get(MissionAttempt, mission_attempt_id)
+        return attempt is not None and attempt.status == "passed"
+
+    dash = await _design_dashboard_for_attempt(db, mission_attempt_id=mission_attempt_id, cache=dashboard_cache)
+    if dash is None:
+        return False
+    if mission_step_key == "setup":
+        return dash["_setup_done"]
+    if mission_step_key == "report":
+        return dash["all_valid"]
+    step = dash["steps"].get(mission_step_key)
+    return bool(step and step["has_data"] and step["is_valid"])
 
 
 async def refresh_item_progress(
     db: AsyncSession, *, progress: LmsProgramItemProgress, item: LmsProgramItem, user_id: uuid.UUID,
+    dashboard_cache: dict[uuid.UUID, dict | None] | None = None,
 ) -> str:
     """For `course`/`mission_run` items, recompute `status` from the real
     Enrollment/MissionAttempt state and persist it if it changed — never
@@ -650,14 +742,23 @@ async def refresh_item_progress(
     `compute_dashboard`'s `all_valid` follows for Design missions. Manual/
     external/submission/article items are untouched here; their status is
     written directly by the self-check/confirm actions. Returns the
-    resulting status."""
+    resulting status.
+
+    `dashboard_cache`, when passed, is shared across every item in one
+    checklist read (`get_student_checklist`/`_assignment_summary`/etc.) so
+    several Madar phase items pointing at the same attempt only compute
+    the design dashboard once — pass a fresh dict per call, not None, from
+    any caller that loops over more than one item."""
     if item.item_type not in AUTO_TRACKED_TYPES:
         return progress.status
 
     if item.item_type == "course":
         done = await _course_item_done(db, user_id=user_id, course_id=item.course_id) if item.course_id else False
     else:
-        done = await _mission_run_item_done(db, mission_attempt_id=progress.mission_attempt_id)
+        done = await _mission_run_item_done(
+            db, mission_attempt_id=progress.mission_attempt_id, mission_step_key=item.mission_step_key,
+            dashboard_cache=dashboard_cache if dashboard_cache is not None else {},
+        )
 
     if done and progress.status != "done":
         progress.status = "done"
@@ -668,6 +769,29 @@ async def refresh_item_progress(
         progress.status = "pending"
         progress.completed_at = None
     return progress.status
+
+
+def compute_lock_states(
+    items: list[LmsProgramItem], statuses: dict[uuid.UUID, str],
+) -> dict[uuid.UUID, bool]:
+    """Roadmap board gating. An item is locked iff `item.gated` **and**
+    some *earlier* (by position) non-optional item on the same checklist
+    isn't `done` yet — `awaiting_confirmation` doesn't count as done, so a
+    submission pending review does not unlock the next tile (the spec's
+    "done when accepted, not when uploaded" rule). Optional items never
+    block anything and are never themselves locked by this rule (they can
+    still be individually `gated`, but nothing about being optional stops
+    them being reachable). `statuses` is keyed by item id — callers pass
+    whatever's already been resolved (post `refresh_item_progress`), so
+    this function does no I/O of its own."""
+    ordered = sorted(items, key=lambda i: i.position)
+    locked: dict[uuid.UUID, bool] = {}
+    blocked_by_earlier = False
+    for item in ordered:
+        locked[item.id] = bool(item.gated) and blocked_by_earlier
+        if not item.optional and statuses.get(item.id) != "done":
+            blocked_by_earlier = True
+    return locked
 
 
 async def certificate_gate_satisfied(db: AsyncSession, *, cohort_id: uuid.UUID, user_id: uuid.UUID | None) -> bool:
@@ -705,11 +829,12 @@ async def certificate_gate_satisfied(db: AsyncSession, *, cohort_id: uuid.UUID, 
             select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == assignment.id)
         )).scalars().all()
     }
+    dashboard_cache: dict[uuid.UUID, dict | None] = {}
     for item in required_items:
         progress = progress_rows.get(item.id)
         if progress is None:
             return False
-        status = await refresh_item_progress(db, progress=progress, item=item, user_id=user_id)
+        status = await refresh_item_progress(db, progress=progress, item=item, user_id=user_id, dashboard_cache=dashboard_cache)
         if status != "done":
             return False
     return True
@@ -829,6 +954,32 @@ async def checklist_item_write_target(
     return await _get_or_create_team_progress(db, item_id=item.id, team_id=team.id)
 
 
+async def checklist_item_locked(db: AsyncSession, *, assignment: LmsProgramAssignment, item: LmsProgramItem) -> bool:
+    """Server-side twin of the board's own "not-powered → no-op" rule —
+    what `complete_program_item`/`submit_program_item` 409 on, so a
+    locked tile can't be completed by calling the API directly even
+    though the client already hides/disables it. Recomputes this whole
+    assignment's lock state (a handful of items, workshop-scale tool —
+    same "just re-fetch" posture DesignMissionPage's own re-fetch-per-save
+    takes) rather than trusting anything the client sent."""
+    pairs = await _assignment_items_and_progress(db, assignment.id)
+    team_progress_by_item = await _team_progress_by_item(
+        db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
+    )
+    dashboard_cache: dict[uuid.UUID, dict | None] = {}
+    statuses: dict[uuid.UUID, str] = {}
+    for row_item, progress in pairs:
+        team_progress = team_progress_by_item.get(row_item.id) if row_item.scope == "team" else None
+        statuses[row_item.id] = (
+            team_progress.status if team_progress is not None
+            else await refresh_item_progress(
+                db, progress=progress, item=row_item, user_id=assignment.user_id, dashboard_cache=dashboard_cache,
+            )
+        )
+    locked = compute_lock_states([row_item for row_item, _ in pairs], statuses)
+    return locked.get(item.id, False)
+
+
 async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, user_id: uuid.UUID) -> dict | None:
     """None means either the assignment doesn't exist or belongs to a
     different student — the router turns both into a plain 404, never
@@ -875,13 +1026,19 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     student = await db.get(User, user_id)
     student_name = student.full_name if student else None
 
-    items_out = []
+    # One design-dashboard read per attempt for this whole checklist load,
+    # not per item — several Madar phase tiles can share one
+    # mission_attempt_id (see refresh_item_progress's own docstring).
+    dashboard_cache: dict[uuid.UUID, dict | None] = {}
+    statuses: dict[uuid.UUID, str] = {}
+    rows: list[dict] = []
     for item, progress in pairs:
         team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
         status = (
             team_progress.status if team_progress is not None
-            else (await refresh_item_progress(db, progress=progress, item=item, user_id=user_id))
+            else (await refresh_item_progress(db, progress=progress, item=item, user_id=user_id, dashboard_cache=dashboard_cache))
         )
+        statuses[item.id] = status
         submitted_url = team_progress.submitted_url if team_progress is not None else progress.submitted_url
         updated_at = team_progress.updated_at if team_progress is not None else progress.updated_at
         updated_by_name = (
@@ -889,7 +1046,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             if team_progress is not None and team_progress.updated_by_user_id
             else (student_name if team_progress is None and progress.updated_at else None)
         )
-        items_out.append({
+        rows.append({
             "id": item.id, "position": item.position, "item_type": item.item_type,
             "title": item.title, "description": item.description,
             "optional": item.optional, "requires_confirmation": item.requires_confirmation,
@@ -905,7 +1062,13 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "scope": item.scope,
             "updated_by_name": updated_by_name,
             "updated_at": updated_at,
+            "mission_step_key": item.mission_step_key, "gated": item.gated,
+            "guideline_kind": item.guideline_kind, "guideline_url": item.guideline_url,
+            "checkpoint_label": item.checkpoint_label,
         })
+
+    locked_by_item = compute_lock_states([item for item, _ in pairs], statuses)
+    items_out = [{**row, "locked": locked_by_item.get(row["id"], False)} for row in rows]
 
     return {
         "assignment_id": assignment.id, "lms_program_id": program.id, "name": program.name,
@@ -938,6 +1101,7 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
     done = 0
     required_total = 0
     next_item_title: str | None = None
+    dashboard_cache: dict[uuid.UUID, dict | None] = {}
     for item, progress in pairs:
         if item.optional:
             continue
@@ -945,7 +1109,7 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
         team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
         status = (
             team_progress.status if team_progress is not None
-            else await refresh_item_progress(db, progress=progress, item=item, user_id=assignment.user_id)
+            else await refresh_item_progress(db, progress=progress, item=item, user_id=assignment.user_id, dashboard_cache=dashboard_cache)
         )
         if status == "done":
             done += 1
@@ -1087,6 +1251,7 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
     )
 
     out = []
+    dashboard_cache: dict[uuid.UUID, dict | None] = {}
     for item, progress in pairs:
         team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
         if team_progress is not None:
@@ -1095,7 +1260,7 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
             completed_at = team_progress.completed_at
             confirmed_by_user_id = team_progress.confirmed_by_user_id
         else:
-            status = await refresh_item_progress(db, progress=progress, item=item, user_id=assignment.user_id)
+            status = await refresh_item_progress(db, progress=progress, item=item, user_id=assignment.user_id, dashboard_cache=dashboard_cache)
             submitted_url = progress.submitted_url
             completed_at = progress.completed_at
             confirmed_by_user_id = progress.confirmed_by_user_id

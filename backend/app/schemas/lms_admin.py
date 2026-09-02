@@ -458,6 +458,12 @@ class LmsProgramItemIn(BaseModel):
     session_location: str | None = None
     session_meeting_url: str | None = None
     position: int | None = None
+    # ── Roadmap board (2026-09) — see LmsProgramItem's own field comments.
+    mission_step_key: str | None = None
+    gated: bool = False
+    guideline_kind: str | None = None
+    guideline_url: str | None = None
+    checkpoint_label: str | None = None
 
 
 class LmsProgramItemOut(BaseModel):
@@ -491,6 +497,11 @@ class LmsProgramItemOut(BaseModel):
     session_starts_at: time | None = None
     session_location: str | None = None
     session_meeting_url: str | None = None
+    mission_step_key: str | None = None
+    gated: bool = False
+    guideline_kind: str | None = None
+    guideline_url: str | None = None
+    checkpoint_label: str | None = None
 
 
 class LmsProgramItemReorderIn(BaseModel):

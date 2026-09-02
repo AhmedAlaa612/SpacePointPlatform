@@ -177,7 +177,7 @@ export default function DesignHandbookDrawer({ handbook }: { handbook: Handbook 
 
   return (
     <>
-      {/* bottom-24 on mobile clears LearnNav.tsx's fixed bottom tab bar
+      {/* bottom-24 on mobile clears LearnMobileTabBar's fixed bottom tab bar
           (md:hidden, so no longer in the way from md: up) — this button
           didn't know the nav bar existed and sat on top of it. */}
       <button

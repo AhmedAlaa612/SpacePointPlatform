@@ -139,7 +139,7 @@ import LearnGames from "@/pages/learn/LearnGames";
 import GamePlay from "@/pages/learn/GamePlay";
 import LearnProgram from "@/pages/learn/LearnProgram";
 import LearnChecklists from "@/pages/learn/LearnChecklists";
-import LearnChecklist from "@/pages/learn/LearnChecklist";
+import RoadmapBoard from "@/pages/learn/board/RoadmapBoard";
 import MissionCatalog from "@/pages/learn/MissionCatalog";
 import MissionPage from "@/pages/learn/MissionPage";
 import DesignMissionPage from "@/pages/learn/DesignMissionPage";
@@ -944,10 +944,12 @@ const learnChecklistsRoute = createRoute({
   component: LearnChecklists,
 });
 
+// Roadmap board (2026-09) — replaces the old flat LearnChecklist.tsx
+// outright with a gated visual roadmap. See pages/learn/board/RoadmapBoard.tsx.
 const learnChecklistRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/checklists/$assignmentId",
-  component: LearnChecklist,
+  component: RoadmapBoard,
 });
 
 // Student profile (design 2a/2b, 2026-08-08).
@@ -978,10 +980,16 @@ const learnMissionRoute = createRoute({
 // generic attempt-flow page above (a design is iterative, saved freely
 // across many steps; a submission/quiz attempt is a single act). Keyed on
 // attempt_id, not mission_id: /missions/design/$attemptId.
+// `?phase=` (2026-09) — the Roadmap board's Madar tiles deep-link straight
+// into one wizard tab (e.g. a "ConOps" tile opens ?phase=conops) instead of
+// always landing on Setup. See DesignMissionPage.tsx's own seed/write-back.
 const learnDesignMissionRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/missions/design/$attemptId",
   component: DesignMissionPage,
+  validateSearch: (search: Record<string, unknown>): { phase?: string } => ({
+    phase: typeof search.phase === "string" ? search.phase : undefined,
+  }),
 });
 
 // The operate-mission console (Stage 7B-4) — same reasoning as design

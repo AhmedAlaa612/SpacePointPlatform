@@ -17,12 +17,52 @@ from sqlalchemy import select
 from app.core.security import create_access_token
 from app.models.lms.course import Course
 from app.models.lms.program import LmsProgram, LmsProgramItem, LmsProgramTeamItemProgress
+from app.models.missions.design import Design, DesignComponent, DesignComponentLibrary
+from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.lms.program import assign_lms_program
 from app.services.teams import create_team
+
+# ── Roadmap board fixtures (2026-09) — a minimal design mission an attempt
+# can be pinned to, and a variant config with every threshold key
+# variant_thresholds() reads, same shape test_missions_design_v2_router.py
+# uses. ──────────────────────────────────────────────────────────────────────
+
+_VARIANT_CONFIG = {
+    "max_storage_kb": 1_048_576.0, "required_storage_margin_kb": 0.0,
+    "power_per_solar_cell_w": 1.1, "maximum_budget_aed": 2000.0,
+    "assumed_distance_km": 500.0, "transmit_power_dbm": 30.0,
+    "good_link_margin_threshold_db": 3.0, "weak_link_margin_threshold_db": 0.0,
+    "max_depth_of_discharge_pct": 30.0, "required_downlink_margin_fraction": 0.10,
+}
+
+
+async def _design_mission(db, *, author) -> tuple[Mission, MissionVariant]:
+    mission = Mission(
+        id=uuid.uuid4(), title="Build Your CubeSat", slug=f"roadmap-design-{uuid.uuid4().hex[:8]}",
+        kind="design", authored_by=author.id, status="published", summary="Design one.",
+    )
+    db.add(mission)
+    await db.flush()
+    variant = MissionVariant(
+        id=uuid.uuid4(), mission_id=mission.id, label="Engineer", position=1, points=200, config=_VARIANT_CONFIG,
+    )
+    db.add(variant)
+    await db.flush()
+    return mission, variant
+
+
+async def _phase_item(db, *, lms_program: LmsProgram, position: int, mission_id, step_key: str) -> LmsProgramItem:
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=position,
+        item_type="mission_run", title=f"Madar · {step_key}", mission_id=mission_id, mission_step_key=step_key,
+    )
+    db.add(item)
+    await db.flush()
+    return item
 
 
 def _headers(user: User) -> dict:
@@ -540,3 +580,203 @@ async def test_individual_and_team_items_on_the_same_checklist_stay_independent(
     detail_a = await client.get(f"/lms/programs/{assignment_a.id}", headers=_headers(student_a))
     a_team_item = next(i for i in detail_a.json()["items"] if i["id"] == str(team_item.id))
     assert a_team_item["submitted_url"] == "https://canva.com/design/team-poster"
+
+
+# ── Roadmap board — gating (2026-09) ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_gated_item_locks_until_the_earlier_required_item_is_done(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    first = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="manual", title="Read the guideline",
+    )
+    second = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="manual", title="Do the work", gated=True,
+    )
+    db.add_all([first, second])
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    before = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    items_by_id = {i["id"]: i for i in before.json()["items"]}
+    assert items_by_id[str(first.id)]["locked"] is False
+    assert items_by_id[str(second.id)]["locked"] is True
+
+    locked_complete = await client.post(
+        f"/lms/programs/{assignment.id}/items/{second.id}/complete", headers=_headers(student),
+    )
+    assert locked_complete.status_code == http_status.HTTP_409_CONFLICT
+
+    first_done = await client.post(f"/lms/programs/{assignment.id}/items/{first.id}/complete", headers=_headers(student))
+    assert first_done.status_code == 200
+
+    after = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    after_by_id = {i["id"]: i for i in after.json()["items"]}
+    assert after_by_id[str(second.id)]["locked"] is False
+
+    now_complete = await client.post(f"/lms/programs/{assignment.id}/items/{second.id}/complete", headers=_headers(student))
+    assert now_complete.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_optional_item_never_blocks_a_gated_item(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    optional_first = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="manual", title="Optional extra reading", optional=True,
+    )
+    gated_second = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="manual", title="Do the work", gated=True,
+    )
+    db.add_all([optional_first, gated_second])
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    by_id = {i["id"]: i for i in detail.json()["items"]}
+    assert by_id[str(gated_second.id)]["locked"] is False
+
+
+@pytest.mark.asyncio
+async def test_awaiting_confirmation_does_not_unlock_the_next_gated_item(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    first = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="manual", title="Attend the ceremony", requires_confirmation=True,
+    )
+    second = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="manual", title="Do the work", gated=True,
+    )
+    db.add_all([first, second])
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    first_check = await client.post(f"/lms/programs/{assignment.id}/items/{first.id}/complete", headers=_headers(student))
+    assert first_check.status_code == 200 and first_check.json()["status"] == "awaiting_confirmation"
+
+    detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    by_id = {i["id"]: i for i in detail.json()["items"]}
+    assert by_id[str(second.id)]["locked"] is True
+
+    locked_submit = await client.post(f"/lms/programs/{assignment.id}/items/{second.id}/complete", headers=_headers(student))
+    assert locked_submit.status_code == http_status.HTTP_409_CONFLICT
+
+
+@pytest.mark.asyncio
+async def test_gated_submission_item_409s_while_locked(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    first = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="manual", title="Read the guideline",
+    )
+    second = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="submission", title="Upload your build", submission_prompt="Paste your link", gated=True,
+    )
+    db.add_all([first, second])
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{second.id}/submit", headers=_headers(student),
+        json={"url": "https://example.com/build"},
+    )
+    assert resp.status_code == http_status.HTTP_409_CONFLICT
+
+
+# ── Roadmap board — Madar phase items (2026-09) ─────────────────────────────
+
+@pytest.mark.asyncio
+async def test_phase_item_setup_completes_once_the_design_objective_is_saved(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    mission, _variant = await _design_mission(db, author=author)
+    item = await _phase_item(db, lms_program=lms_program, position=1, mission_id=mission.id, step_key="setup")
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    row = detail.json()["items"][0]
+    assert row["mission_step_key"] == "setup" and row["status"] == "pending"
+    attempt_id = uuid.UUID(row["mission_attempt_id"])
+
+    design = Design(id=uuid.uuid4(), attempt_id=attempt_id, design_name="My CubeSat", design_objective="Track weather.")
+    db.add(design)
+    await db.commit()
+
+    after = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    assert after.json()["items"][0]["status"] == "done"
+    # The whole-mission attempt is still just in_progress — phase completion
+    # never touches attempt.status.
+    attempt = await db.get(MissionAttempt, attempt_id)
+    assert attempt.status == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_phase_item_components_completes_from_dashboard_steps(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    mission, _variant = await _design_mission(db, author=author)
+    item = await _phase_item(db, lms_program=lms_program, position=1, mission_id=mission.id, step_key="components")
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    attempt_id = uuid.UUID(detail.json()["items"][0]["mission_attempt_id"])
+    assert detail.json()["items"][0]["status"] == "pending"
+
+    design = Design(id=uuid.uuid4(), attempt_id=attempt_id, design_name="My CubeSat")
+    db.add(design)
+    await db.flush()
+    library = DesignComponentLibrary(id=uuid.uuid4(), component_name="GPS Module", subsystem="ADCS")
+    db.add(library)
+    await db.flush()
+    db.add(DesignComponent(
+        id=uuid.uuid4(), design_id=design.id, library_component_id=library.id, quantity=1,
+        component_name=library.component_name, subsystem=library.subsystem,
+    ))
+    await db.commit()
+
+    after = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    assert after.json()["items"][0]["status"] == "done"
+
+
+@pytest.mark.asyncio
+async def test_several_phase_items_share_one_mission_attempt_id(db, client):
+    """Six Madar phase tiles on one checklist all pin the same
+    mission_attempt_id — start_attempt's single-flight resume, not a bug
+    (see docs/HANDOFF_LMS.md §11's op note)."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    mission, _variant = await _design_mission(db, author=author)
+    await _phase_item(db, lms_program=lms_program, position=1, mission_id=mission.id, step_key="setup")
+    await _phase_item(db, lms_program=lms_program, position=2, mission_id=mission.id, step_key="components")
+    await _phase_item(db, lms_program=lms_program, position=3, mission_id=mission.id, step_key="conops")
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    attempt_ids = {i["mission_attempt_id"] for i in detail.json()["items"]}
+    assert len(attempt_ids) == 1 and None not in attempt_ids
