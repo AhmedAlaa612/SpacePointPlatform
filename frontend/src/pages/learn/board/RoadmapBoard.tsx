@@ -13,7 +13,7 @@ import { computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition } from ".
 
 /** `/learn/checklists/$assignmentId` — the gated visual roadmap ("the
  * board") that replaces the old flat `LearnChecklist.tsx`. Order per the
- * design spec: banner → header + legend → next-task card → tile field →
+ * design spec: banner → header + progress → next-task card → tile field →
  * final gate bar. One student code path — a program with no gating/
  * checkpoints just renders as an ungated board where every tile is live
  * (handoff decision #5). */
@@ -75,29 +75,25 @@ export default function RoadmapBoard() {
         )}
 
         <div className="px-5 sm:px-8 lg:px-14 py-6 sm:py-8 flex flex-col gap-6 sm:gap-8 max-w-[1180px] mx-auto w-full">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex flex-col gap-1.5">
-              <h1 className="font-display text-[19px] sm:text-2xl font-extrabold tracking-tight leading-none">{checklist.name}</h1>
-              <p className="text-sm text-muted-foreground">
-                {doneCount} of {requiredItems.length} cleared
-                {checklist.cohort_name ? ` · ${checklist.cohort_name}` : ""}
-              </p>
-              {checklist.team_name && (
-                <div className="flex items-center gap-1.5 text-xs font-medium text-foreground/90">
-                  <Users className="size-3.5" /> Team {checklist.team_name}
-                </div>
-              )}
-            </div>
-
-            <div className="hidden sm:flex flex-col gap-1.5 shrink-0">
-              <LegendRow color="var(--board-cleared-ink)" label="Cleared" />
-              <LegendRow color="var(--board-live-ink)" label="Live now" />
-              <LegendRow color="var(--board-locked-ink)" label="Not powered" />
-            </div>
+          <div className="flex flex-col gap-1.5">
+            <h1 className="font-display text-[19px] sm:text-2xl font-extrabold tracking-tight leading-none">{checklist.name}</h1>
+            {checklist.cohort_name && <p className="text-sm text-muted-foreground">{checklist.cohort_name}</p>}
+            {checklist.team_name && (
+              <div className="flex items-center gap-1.5 text-xs font-medium text-foreground/90">
+                <Users className="size-3.5" /> Team {checklist.team_name}
+              </div>
+            )}
           </div>
 
-          <div className="h-0.5 bg-border relative">
-            <div className="absolute inset-y-0 left-0 bg-primary transition-[width] duration-300" style={{ width: `${pct}%` }} />
+          <div className="flex items-center gap-4">
+            <div className="flex items-baseline gap-1 shrink-0">
+              <span className="font-display text-2xl sm:text-3xl font-extrabold text-foreground">{doneCount}</span>
+              <span className="text-base sm:text-lg font-semibold text-muted-foreground">/{requiredItems.length}</span>
+              <span className="ml-1.5 whitespace-nowrap text-xs text-muted-foreground">steps done</span>
+            </div>
+            <div className="h-px flex-1 bg-border relative">
+              <div className="absolute inset-y-0 left-0 bg-primary transition-[width] duration-300" style={{ width: `${pct}%` }} />
+            </div>
           </div>
 
           <NextTaskCard item={liveItem} onStart={() => liveItem && openItemById(liveItem)} />
@@ -111,15 +107,6 @@ export default function RoadmapBoard() {
       </div>
 
       <TaskDrawer item={openItem} assignmentId={assignmentId} onClose={() => setOpenItemId(null)} onChanged={invalidate} />
-    </div>
-  );
-}
-
-function LegendRow({ color, label }: { color: string; label: string }) {
-  return (
-    <div className="flex items-center gap-2">
-      <span className="h-[2px] w-[22px] rounded-full" style={{ backgroundColor: color }} />
-      <span className="text-[10px] text-muted-foreground">{label}</span>
     </div>
   );
 }
