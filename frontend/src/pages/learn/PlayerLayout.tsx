@@ -31,7 +31,7 @@ export function PlayerLayout({
   // open/closed state — a "sign to expand/collapse the sidebar itself", not
   // just its rows. Desktop only; mobile already has no column to collapse
   // (see the "Back to course" link below).
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   // Only used to carry the "opened from a checklist" chain through to the
   // course landing page — same param TaskDrawer/LearnCourse already thread
   // for the completion-celebration "back to your program" nudge.
