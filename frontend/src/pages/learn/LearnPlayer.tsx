@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
-  fetchCourse, fetchModule, type CourseDetail, type ModuleDetail, type ModuleItem,
+  fetchCourse, fetchModule, recordProgress, type CourseDetail, type ModuleDetail, type ModuleItem,
 } from "@/api/lms";
 import { PlayerLayout } from "./PlayerLayout";
 import { ItemPane } from "./ItemPane";
@@ -183,19 +183,31 @@ export default function LearnPlayer() {
                 (ItemPane.tsx) — it both records progress and advances
                 (onProgressed -> handleProgressed) in one step, so there's
                 no separate "mark complete" control or Next-item nav bar
-                here anymore. */}
+                here anymore. Video is the one exception: its Got it!
+                button sits here instead, sharing a row with the title
+                (below the player, both at the same height) rather than
+                stacked under it inside ItemPane. */}
             <ItemPane key={selectedItem.id} item={selectedItem} onProgressed={() => void handleProgressed()} />
 
             {selectedItem.kind === "video" && (
-              <div className="min-w-0">
-                {currentModule && (
-                  <div className="text-xs font-semibold uppercase tracking-wide text-primary">
-                    Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
-                  </div>
-                )}
-                <h1 className="font-display text-3xl font-bold tracking-tight mt-2">
-                  {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
-                </h1>
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  {currentModule && (
+                    <div className="text-xs font-semibold uppercase tracking-wide text-primary">
+                      Module {currentModule.position} · Item {itemIndexInModule + 1} of {itemsInModule.length}
+                    </div>
+                  )}
+                  <h1 className="font-display text-3xl font-bold tracking-tight mt-2">
+                    {selectedItem.title ?? ITEM_KIND_LABEL[selectedItem.kind]}
+                  </h1>
+                </div>
+                <Button
+                  size="xl"
+                  className="shrink-0"
+                  onClick={() => { recordProgress(selectedItem.id, "video-watched").finally(() => void handleProgressed()); }}
+                >
+                  <CheckCircle2 className="size-4" /> Got it!
+                </Button>
               </div>
             )}
           </div>

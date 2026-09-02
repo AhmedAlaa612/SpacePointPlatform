@@ -19,24 +19,18 @@ import { VideoPlayer } from "./VideoPlayer";
 export function ItemPane({
   item, onProgressed,
 }: { item: ModuleItem; onProgressed: () => void }) {
+  // The Got it! button for a video lives in LearnPlayer.tsx instead of
+  // here, in the same row as the title (both sit *under* the player,
+  // player-first) — every other content type keeps its action inside its
+  // own block since there's no title to share a row with.
   if (item.kind === "video" && "transcode_status" in item.content) {
     return (
-      <div className="flex flex-col items-center gap-5">
-        <VideoPlayer
-          key={item.id}
-          itemId={item.id}
-          transcodeStatus={item.content.transcode_status}
-          onEnded={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}
-        />
-        {/* Watching to the end already completes+advances via onEnded above
-            — this is the manual "I've seen this, move on" alternative,
-            same posture as every other content type's own Got it! button. */}
-        <div className="w-full flex justify-end">
-          <Button size="xl" onClick={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}>
-            <CheckCircle2 className="size-4" /> Got it!
-          </Button>
-        </div>
-      </div>
+      <VideoPlayer
+        key={item.id}
+        itemId={item.id}
+        transcodeStatus={item.content.transcode_status}
+        onEnded={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}
+      />
     );
   }
 
