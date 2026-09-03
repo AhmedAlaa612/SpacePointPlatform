@@ -28,8 +28,8 @@ function errorDetail(err: unknown, fallback: string): string {
   return fallback;
 }
 
-const inputCls = "h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors w-full";
-const labelCls = "text-xs font-semibold uppercase tracking-wide text-muted-foreground";
+const inputCls = "h-12 px-4 border border-border bg-card text-foreground rounded-xl text-base focus:outline-none focus:border-primary transition-colors w-full";
+const labelCls = "text-sm font-semibold uppercase tracking-wide text-muted-foreground";
 
 /** The nine steps, with the dependency between them made visible (D2:
  * explain the order, don't enforce it). `needs` lists the steps whose data
@@ -331,7 +331,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
       <div className="flex flex-col gap-2 max-w-md">
         <label className={labelCls}>Mission Name</label>
         <input
-          className={`${inputCls} h-10 px-3.5`}
+          className={inputCls}
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. EduSat-1"
@@ -346,7 +346,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
             <div key={p.key} className="flex flex-col gap-1.5">
               <label className="text-xs text-muted-foreground">{p.label}</label>
               <input
-                className={`${inputCls} h-10 px-3.5`}
+                className={inputCls}
                 value={objectives[p.key] ?? ""}
                 onChange={(e) => setObjectives((prev) => ({ ...prev, [p.key]: e.target.value }))}
                 placeholder={p.placeholder}
@@ -377,14 +377,14 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="flex flex-col gap-2">
             <label className={labelCls}>Orbit Type</label>
-            <select className={`${inputCls} h-10 px-3.5 cursor-pointer`} value={orbitType} onChange={(e) => setOrbitType(e.target.value)}>
+            <select className={`${inputCls} cursor-pointer`} value={orbitType} onChange={(e) => setOrbitType(e.target.value)}>
               {["LEO", "MEO", "GEO", "SSO", "Custom"].map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           </div>
 
           <div className="flex flex-col gap-2">
             <label className={labelCls}>CubeSat Size</label>
-            <select className={`${inputCls} h-10 px-3.5 cursor-pointer`} value={cubesatSize} onChange={(e) => setCubesatSize(e.target.value)}>
+            <select className={`${inputCls} cursor-pointer`} value={cubesatSize} onChange={(e) => setCubesatSize(e.target.value)}>
               {state.cubesat_presets.map((p) => (
                 <option key={p.size} value={p.size}>
                   {p.size} ({p.max_mass_kg}kg, {p.available_volume_cm3}cm³)
@@ -397,7 +397,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
             <label className={labelCls}>Orbit Duration (min)</label>
             <input
               type="number"
-              className={`${inputCls} h-10 px-3.5`}
+              className={inputCls}
               value={orbitDuration}
               onChange={(e) => setOrbitDuration(Number(e.target.value))}
             />
@@ -407,7 +407,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
             <label className={labelCls}>Orbits Per Day</label>
             <input
               type="number"
-              className={`${inputCls} h-10 px-3.5`}
+              className={inputCls}
               value={orbitsPerDay}
               onChange={(e) => setOrbitsPerDay(Number(e.target.value))}
             />
@@ -824,7 +824,7 @@ export function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignSta
         <p>Required solar cells: <b>{state.dashboard.power.required_solar_cells}</b></p>
         <div className="flex items-center gap-2">
           <label className={labelCls}>Selected solar cells</label>
-          <input type="number" className={`${inputCls} w-20`} value={cells} onChange={(e) => setCells(Number(e.target.value))} />
+          <input type="number" className={`${inputCls} w-24`} value={cells} onChange={(e) => setCells(Number(e.target.value))} />
           <Button size="sm" onClick={() => void saveCells()} disabled={savingCells}>{savingCells ? "..." : "Set"}</Button>
         </div>
       </div>
@@ -885,7 +885,7 @@ export function EnergyBudgetTab({ state, attemptId, onSaved }: { state: DesignSt
         <div className="flex items-end gap-3">
           <div className="flex flex-col gap-1">
             <label className={labelCls}>Battery capacity (Wh)</label>
-            <input type="number" step="0.1" className={`${inputCls} w-32`} value={capacity}
+            <input type="number" step="0.1" className={`${inputCls} w-36`} value={capacity}
               onChange={(ev) => setCapacity(Number(ev.target.value))} />
           </div>
           <Button size="sm" onClick={() => void save()} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
@@ -942,19 +942,19 @@ export function MassBudgetTab({ state, attemptId, onSaved }: { state: DesignStat
         <div key={c.id} className="flex flex-wrap items-end gap-3 p-3 rounded-xl ring-1 ring-border">
           <div className="text-sm font-medium min-w-[120px]">{c.component_name}</div>
           <div className="flex flex-col gap-1"><label className={labelCls}>Qty</label>
-            <input type="number" className={`${inputCls} w-16`} value={rows[c.id]?.quantity ?? 1}
+            <input type="number" className={`${inputCls} w-24`} value={rows[c.id]?.quantity ?? 1}
               onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], quantity: Number(e.target.value) } }))} /></div>
           <div className="flex flex-col gap-1"><label className={labelCls}>Mass (g)</label>
             <input type="number" className={inputCls} value={rows[c.id]?.mass_per_unit_g ?? 0}
               onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], mass_per_unit_g: Number(e.target.value) } }))} /></div>
           <div className="flex flex-col gap-1"><label className={labelCls}>L (mm)</label>
-            <input type="number" className={`${inputCls} w-20`} value={rows[c.id]?.length_mm ?? 0}
+            <input type="number" className={`${inputCls} w-24`} value={rows[c.id]?.length_mm ?? 0}
               onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], length_mm: Number(e.target.value) } }))} /></div>
           <div className="flex flex-col gap-1"><label className={labelCls}>W (mm)</label>
-            <input type="number" className={`${inputCls} w-20`} value={rows[c.id]?.width_mm ?? 0}
+            <input type="number" className={`${inputCls} w-24`} value={rows[c.id]?.width_mm ?? 0}
               onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], width_mm: Number(e.target.value) } }))} /></div>
           <div className="flex flex-col gap-1"><label className={labelCls}>H (mm)</label>
-            <input type="number" className={`${inputCls} w-20`} value={rows[c.id]?.height_mm ?? 0}
+            <input type="number" className={`${inputCls} w-24`} value={rows[c.id]?.height_mm ?? 0}
               onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], height_mm: Number(e.target.value) } }))} /></div>
           <Button size="sm" onClick={() => void save(c.id)} disabled={saving === c.id}>{saving === c.id ? "..." : "Save"}</Button>
         </div>
@@ -984,7 +984,7 @@ export function CostBudgetTab({ state, attemptId, onSaved }: { state: DesignStat
         <div key={c.id} className="flex flex-wrap items-end gap-3 p-3 rounded-xl ring-1 ring-border">
           <div className="text-sm font-medium min-w-[140px]">{c.component_name}</div>
           <div className="flex flex-col gap-1"><label className={labelCls}>Qty</label>
-            <input type="number" className={`${inputCls} w-16`} value={rows[c.id]?.quantity ?? 1}
+            <input type="number" className={`${inputCls} w-24`} value={rows[c.id]?.quantity ?? 1}
               onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], quantity: Number(e.target.value) } }))} /></div>
           <div className="flex flex-col gap-1"><label className={labelCls}>Cost/unit (AED)</label>
             <input type="number" className={inputCls} value={rows[c.id]?.cost_per_unit_aed ?? 0}
