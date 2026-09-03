@@ -126,6 +126,7 @@ import LearnLogin from "@/pages/learn/LearnLogin";
 import LearnSignup from "@/pages/learn/LearnSignup";
 import LearnSetPassword from "@/pages/learn/LearnSetPassword";
 import LearnLanding from "@/pages/learn/LearnLanding";
+import { resolveLearnLanding } from "@/pages/learn/resolveLearnLanding";
 import LearnCatalog from "@/pages/learn/LearnCatalog";
 import LearnMyCourses from "@/pages/learn/LearnMyCourses";
 import LearnCourse from "@/pages/learn/LearnCourse";
@@ -878,10 +879,19 @@ const learnSetPasswordRoute = createRoute({
   component: LearnSetPassword,
 });
 
+// A program student's real "home" is their latest program board, not this
+// dashboard — redirects on every visit to `/learn` (typed URL, refresh, the
+// sidebar/tab-bar Home link, all of it), same target resolveLearnLanding
+// already computes for the post-login/signup landing. Reuses that helper
+// rather than re-deriving "does this student have a program" here.
 const learnLandingRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/",
   component: LearnLanding,
+  beforeLoad: async () => {
+    const target = await resolveLearnLanding();
+    if (target !== "/learn") throw redirect({ to: target });
+  },
 });
 
 const learnCatalogRoute = createRoute({
