@@ -1949,22 +1949,35 @@ export function EnergyBudgetTab({ state, attemptId, onSaved }: { state: DesignSt
           </p>
         </div>
 
-        <div className={`rounded-2xl ring-1 px-6 py-6 flex flex-col items-center text-center gap-1.5 ${dodOk ? ALERT_TONE.success : ALERT_TONE.warning}`}>
-          <p className="text-sm font-bold uppercase tracking-wider text-primary">Depth of discharge</p>
-          <p className={`font-display text-5xl font-extrabold ${dodOk ? "text-emerald-500" : "text-amber-500"}`}>
-            {dod.toFixed(0)}%
-          </p>
-          <p className="text-xs text-muted-foreground">of {maxDod.toFixed(0)}% allowed</p>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
-            dodOk ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-          }`}
-          >
-            {dodOk ? <><CheckCircle2 className="size-3.5" /> Within limit</> : <><AlertTriangle className="size-3.5" /> Too deep</>}
-          </span>
-          <p className="text-xs text-muted-foreground max-w-xs">
-            Eclipse draws {eclipseDraw.toFixed(0)} mWh from a {capacity.toFixed(1)} Wh battery.
-          </p>
-        </div>
+        {capacity > 0 ? (
+          <div className={`rounded-2xl ring-1 px-6 py-6 flex flex-col items-center text-center gap-1.5 ${dodOk ? ALERT_TONE.success : ALERT_TONE.warning}`}>
+            <p className="text-sm font-bold uppercase tracking-wider text-primary">Depth of discharge</p>
+            <p className={`font-display text-5xl font-extrabold ${dodOk ? "text-emerald-500" : "text-amber-500"}`}>
+              {dod.toFixed(0)}%
+            </p>
+            <p className="text-xs text-muted-foreground">of {maxDod.toFixed(0)}% allowed</p>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+              dodOk ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+            }`}
+            >
+              {dodOk ? <><CheckCircle2 className="size-3.5" /> Within limit</> : <><AlertTriangle className="size-3.5" /> Too deep</>}
+            </span>
+            <p className="text-xs text-muted-foreground max-w-xs">
+              Eclipse draws {eclipseDraw.toFixed(0)} mWh from a {capacity.toFixed(1)} Wh battery.
+            </p>
+          </div>
+        ) : (
+          // 0% with a "Too deep" warning read as broken (a 0% reading looks
+          // fine, the pill said otherwise) — there's no reading at all until
+          // a battery is entered, which is a different thing from failing.
+          <div className="rounded-2xl ring-1 ring-border px-6 py-6 flex flex-col items-center text-center gap-1.5">
+            <p className="text-sm font-bold uppercase tracking-wider text-primary">Depth of discharge</p>
+            <p className="font-display text-5xl font-extrabold text-muted-foreground">&mdash;</p>
+            <p className="text-xs text-muted-foreground max-w-xs">
+              Enter a battery capacity above to check depth of discharge.
+            </p>
+          </div>
+        )}
       </div>
 
       <Card className="p-4">
