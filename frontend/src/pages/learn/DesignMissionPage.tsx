@@ -1730,13 +1730,28 @@ export function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignSta
           {consumedW > 0 ? (
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
-                <Pie
-                  data={[{ name: "Consumed", value: consumedW }, { name: "Deficit", value: deficitW || 0.0001 }]}
-                  dataKey="value" nameKey="name" innerRadius={50} outerRadius={82} paddingAngle={2}
-                >
-                  <Cell fill={CHART_COLORS[3]} />
-                  <Cell fill="hsl(var(--muted-foreground))" />
-                </Pie>
+                {generatedW >= consumedW ? (
+                  // Enough (or exact) power: split what's GENERATED into the
+                  // part consumed vs the surplus margin — matches the legacy
+                  // screen's own "Consumed (W) / Margin (W)" donut exactly.
+                  <Pie
+                    data={[{ name: "Consumed", value: consumedW }, { name: "Margin", value: generatedW - consumedW }]}
+                    dataKey="value" nameKey="name" innerRadius={50} outerRadius={82} paddingAngle={2}
+                  >
+                    <Cell fill={CHART_COLORS[3]} />
+                    <Cell fill="#10b981" />
+                  </Pie>
+                ) : (
+                  // Not enough power: split what's CONSUMED into the part
+                  // covered by generation vs the uncovered deficit.
+                  <Pie
+                    data={[{ name: "Generated", value: generatedW }, { name: "Deficit", value: consumedW - generatedW }]}
+                    dataKey="value" nameKey="name" innerRadius={50} outerRadius={82} paddingAngle={2}
+                  >
+                    <Cell fill="#10b981" />
+                    <Cell fill={CHART_COLORS[3]} />
+                  </Pie>
+                )}
                 <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
                 <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
               </PieChart>
