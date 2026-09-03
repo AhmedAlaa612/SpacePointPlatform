@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearch, useNavigate, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
-import { AlertTriangle, Box, CheckCircle2, ChevronRight, FileText, Minus, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, Box, CheckCircle2, ChevronRight, Clock, FileText, Layers, Minus, Orbit, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -814,6 +815,16 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
 
   const matched = Math.abs(diff) < 0.01;
 
+  const modeShareData = state.modes.map((m) => ({ name: m.mode_name, value: durations[m.id] ?? 0 }));
+
+  const activeBySubsystem = Object.entries(
+    state.components.reduce<Record<string, number>>((acc, c) => {
+      acc[c.subsystem] = (acc[c.subsystem] ?? 0) + activeMinutes(c.id);
+      return acc;
+    }, {}),
+  ).map(([subsystem, value], i) => ({ subsystem, value, color: CHART_COLORS[i % CHART_COLORS.length] }));
+  const maxActive = Math.max(1, ...activeBySubsystem.map((d) => d.value));
+
   return (
     <Card className="p-5 flex flex-col gap-4">
       <div className={`flex items-start gap-3 rounded-2xl ring-1 px-5 py-4 ${matched ? ALERT_TONE.success : ALERT_TONE.warning}`}>
@@ -907,45 +918,89 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
             </table>
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-3">
-            <div className="flex flex-col gap-2.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Summary</p>
-              <div className="rounded-xl ring-1 ring-border p-3 flex flex-col gap-0.5">
-                <span className="text-[11px] text-muted-foreground">Total mode duration</span>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-lg font-extrabold">{total.toFixed(1)} min</span>
-                  {!matched && (
-                    <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] font-bold">
-                      {Math.abs(diff).toFixed(1)} min off
-                    </span>
-                  )}
+          <div className="grid sm:grid-cols-3 gap-4 items-start">
+            <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-1">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Summary</p>
+              {[
+                {
+                  icon: Clock, label: "Total mode duration",
+                  value: (
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-lg font-extrabold">{total.toFixed(1)} min</span>
+                      {!matched && (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] font-bold">
+                          {Math.abs(diff).toFixed(1)} off
+                        </span>
+                      )}
+                    </div>
+                  ),
+                },
+                { icon: Orbit, label: "Orbit duration", value: <span className="text-lg font-extrabold">{state.orbit_duration_min ?? 0} min</span> },
+                { icon: Layers, label: "Selected components", value: <span className="text-lg font-extrabold">{state.components.length}</span> },
+              ].map((row, i) => (
+                <div key={row.label} className={`flex items-center justify-between gap-3 py-3 ${i > 0 ? "border-t border-border" : ""}`}>
+                  <div className="flex items-center gap-2.5">
+                    <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <row.icon className="size-4 text-primary" />
+                    </div>
+                    <span className="text-xs text-muted-foreground">{row.label}</span>
+                  </div>
+                  {row.value}
                 </div>
-              </div>
-              <div className="rounded-xl ring-1 ring-border p-3 flex flex-col gap-0.5">
-                <span className="text-[11px] text-muted-foreground">Orbit duration</span>
-                <span className="text-lg font-extrabold">{state.orbit_duration_min ?? 0} min</span>
-              </div>
-              <div className="rounded-xl ring-1 ring-border p-3 flex flex-col gap-0.5">
-                <span className="text-[11px] text-muted-foreground">Selected components</span>
-                <span className="text-lg font-extrabold">{state.components.length}</span>
-              </div>
+              ))}
+
+              {activeBySubsystem.length > 0 && (
+                <div className="flex flex-col gap-3 mt-3 pt-3 border-t border-border">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Active time by subsystem</p>
+                  <div className="flex flex-col gap-3">
+                    {activeBySubsystem.map((d) => (
+                      <div key={d.subsystem} className="flex flex-col gap-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide"
+                            style={{ background: `${d.color}26`, color: d.color }}
+                          >
+                            {d.subsystem}
+                          </span>
+                          <span className="text-xs font-bold">{d.value.toFixed(1)} min</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${(d.value / maxActive) * 100}%`, background: d.color }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <ShareChart
-              title="Mode duration share"
-              unit="min"
-              data={state.modes.map((m) => ({ label: m.mode_name, value: durations[m.id] ?? 0 }))}
-            />
-            <ShareChart
-              title="Active time by subsystem"
-              unit="min"
-              data={Object.entries(
-                state.components.reduce<Record<string, number>>((acc, c) => {
-                  acc[c.subsystem] = (acc[c.subsystem] ?? 0) + activeMinutes(c.id);
-                  return acc;
-                }, {}),
-              ).map(([label, value]) => ({ label, value }))}
-            />
+            <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Mode duration share</p>
+              <ResponsiveContainer width="100%" height={260}>
+                <PieChart>
+                  <Pie data={modeShareData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={2}>
+                    {modeShareData.map((d, i) => <Cell key={d.name} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                  <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Active time by subsystem (min)</p>
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={activeBySubsystem} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted-foreground/20" />
+                  <XAxis dataKey="subsystem" tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" />
+                  <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                  <Bar dataKey="value" name="Active time" radius={[6, 6, 0, 0]}>
+                    {activeBySubsystem.map((d) => <Cell key={d.subsystem} fill={d.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
       )}
@@ -1427,29 +1482,34 @@ function ShareChart({ title, unit, data }: {
 }) {
   if (data.length === 0) {
     return (
-      <div className="rounded-xl ring-1 ring-border p-4 text-center text-xs text-muted-foreground">
+      <div className="rounded-2xl ring-1 ring-border bg-card p-5 text-center text-xs text-muted-foreground">
         {title} — no data yet
       </div>
     );
   }
   const total = data.reduce((a, d) => a + d.value, 0);
   return (
-    <div className="rounded-xl ring-1 ring-border p-4 flex flex-col gap-2">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
-      <div className="flex h-2.5 rounded-full overflow-hidden">
+    <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+        <p className="text-xs font-mono text-muted-foreground">
+          {total >= 1000 ? total.toLocaleString(undefined, { maximumFractionDigits: 0 }) : total.toFixed(1)} {unit}
+        </p>
+      </div>
+      <div className="flex h-3 rounded-full overflow-hidden gap-px bg-border">
         {data.map((d, i) => (
           <div key={d.label} style={{ width: `${(d.value / total) * 100}%`, background: CHART_COLORS[i % CHART_COLORS.length] }} />
         ))}
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-2">
         {data.map((d, i) => (
-          <div key={d.label} className="flex items-center gap-2 text-[11px]">
-            <span className="size-2 rounded-sm shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-            <span className="flex-1">{d.label}</span>
+          <div key={d.label} className="flex items-center gap-2 text-xs">
+            <span className="size-2.5 rounded-sm shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
+            <span className="flex-1 text-foreground">{d.label}</span>
             <span className="font-mono text-muted-foreground">
               {d.value >= 1000 ? d.value.toLocaleString(undefined, { maximumFractionDigits: 0 }) : d.value.toFixed(1)} {unit}
             </span>
-            <span className="font-mono text-muted-foreground w-10 text-right">{((d.value / total) * 100).toFixed(0)}%</span>
+            <span className="font-mono text-muted-foreground w-9 text-right">{((d.value / total) * 100).toFixed(0)}%</span>
           </div>
         ))}
       </div>
