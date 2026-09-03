@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PdfViewer } from "@/components/documents/PdfViewer";
 import { isKnownEmbedHost, toEmbedUrl } from "@/lib/embed";
-import { cn, ensureAbsoluteUrl } from "@/lib/utils";
+import { ensureAbsoluteUrl } from "@/lib/utils";
 import {
   iconForItem, MISSION_STEP_LABELS, navTargetFor, saveBoardScrollPosition, type MissionStepKey, type NavTarget,
 } from "./roadmap";
@@ -17,10 +17,12 @@ import {
 const SELF_CHECK_TYPES = new Set<LmsProgramChecklistItem["item_type"]>(["manual", "pdf", "external_link", "session"]);
 
 /** Per-item, per-browser "did they open the guideline yet" flag — the
- * submit step is disabled until this is true (design spec: "The guideline
- * step must be completed before the submission step is enabled."). Not
+ * final CTA stays disabled until this is true (design spec: "The guideline
+ * must be viewed before the submission/complete step is enabled"). Not
  * server state — same posture the drawer takes toward "opened" vs.
- * "completed", and cheap to lose (worst case: re-open the guideline). */
+ * "completed", and cheap to lose (worst case: re-open the guideline). A
+ * `video` guideline never sets this via localStorage — see its own note
+ * where `guidelineOpened`'s initial state is computed. */
 function guidelineViewedKey(assignmentId: string, itemId: string) {
   return `roadmap-guideline-viewed:${assignmentId}:${itemId}`;
 }
@@ -41,74 +43,20 @@ function markGuidelineViewed(assignmentId: string, itemId: string) {
   }
 }
 
-function StepRow({
-  index, status, title, hint, onClick, disabled,
-}: {
-  index: number;
-  status: "done" | "now" | "next" | "upcoming";
-  title: string;
-  hint?: string;
-  onClick?: () => void;
-  disabled?: boolean;
-}) {
-  const pillLabel = status === "done" ? "DONE" : status === "now" ? "NOW" : status === "next" ? "NEXT" : "";
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled || !onClick}
-      className={cn(
-        "flex items-start gap-3.5 rounded-xl p-3.5 text-left transition-colors",
-        onClick && !disabled ? "hover:bg-foreground/5 cursor-pointer" : "cursor-default",
-      )}
-    >
-      <span
-        className={cn(
-          "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-bold mt-0.5",
-          status === "done" ? "bg-primary text-primary-foreground" : status === "now" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
-        )}
-      >
-        {status === "done" ? <Check size={15} /> : index}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2 flex-wrap">
-          <span className="text-base font-semibold text-foreground">{title}</span>
-          {pillLabel && (
-            <span
-              className={cn(
-                "text-[11px] font-bold uppercase tracking-wide rounded px-2 py-0.5",
-                status === "done" ? "text-emerald-600 dark:text-emerald-500" : "text-primary bg-primary/10",
-              )}
-            >
-              {pillLabel}
-            </span>
-          )}
-        </span>
-        {hint && <span className="block text-sm text-muted-foreground mt-0.5">{hint}</span>}
-      </span>
-    </button>
-  );
-}
-
 interface DrawerBodyProps {
   item: LmsProgramChecklistItem;
   onClose: () => void;
   hasGuideline: boolean;
   effectiveGuidelineKind: string | null;
-  guidelineStepIndex: number;
   guidelineOpened: boolean;
   openGuideline: () => void;
-  showWorkStep: boolean;
-  workStepIndex: number;
-  submissionReference: string | null;
+  target: NavTarget;
   workLabel: string;
   doWork: () => void;
-  showAutoTrackedStep: boolean;
-  autoTrackedStepIndex: number;
-  target: NavTarget;
-  showSubmitStep: boolean;
-  submitStepIndex: number;
+  submissionReference: string | null;
+  isAutoTracked: boolean;
   isSubmission: boolean;
+  isSelfCheck: boolean;
   done: boolean;
   awaiting: boolean;
   canSubmit: boolean;
@@ -117,11 +65,21 @@ interface DrawerBodyProps {
   setSubmitUrl: (url: string) => void;
   submitMutation: UseMutationResult<LmsProgramChecklistItem, Error, string>;
   Icon: LucideIcon;
-  isSelfCheck: boolean;
   completeMutation: UseMutationResult<LmsProgramChecklistItem, Error, void>;
 }
 
-/** Split out to module scope (not declared inside `TaskDrawer`, which it
+/** One task, three sections top to bottom: an optional **Guide** (a button
+ * that opens a PDF/link, or an inline video area — never both, never a
+ * numbered step), the **item** itself (what it actually is: a course/
+ * mission's progress tracks automatically, a link/session shows what to
+ * open or attend, a submission shows its paste-back form), and exactly one
+ * **CTA** at the bottom — "Go to the course/mission" for anything
+ * auto-tracked, "Submit for review" for a submission, "Mark as done" for
+ * everything else. Never more than one primary action at a time (2026-09
+ * redesign — the old numbered guideline→work→submit step list read as three
+ * separate tasks instead of one).
+ *
+ * Split out to module scope (not declared inside `TaskDrawer`, which it
  * used to be) — a function declared *inside* a component's render body gets
  * a new identity every render, so React treated every re-render as "a
  * different component" and remounted this whole subtree from scratch
@@ -131,10 +89,9 @@ interface DrawerBodyProps {
  * `TaskDrawer`, which re-rendered it, which remounted this. Everything this
  * used to reach via closure is now an explicit prop instead. */
 function DrawerBody({
-  item, onClose, hasGuideline, effectiveGuidelineKind, guidelineStepIndex, guidelineOpened, openGuideline, showWorkStep, workStepIndex,
-  submissionReference, workLabel, doWork, showAutoTrackedStep, autoTrackedStepIndex, target, showSubmitStep,
-  submitStepIndex, isSubmission, done, awaiting, canSubmit, pastDeadline, submitUrl, setSubmitUrl, submitMutation,
-  Icon, isSelfCheck, completeMutation,
+  item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
+  submissionReference, isAutoTracked, isSubmission, isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl,
+  setSubmitUrl, submitMutation, Icon, completeMutation,
 }: DrawerBodyProps) {
   return (
     <>
@@ -169,23 +126,20 @@ function DrawerBody({
       )}
       {awaiting && <p className="text-base font-medium text-primary">Awaiting instructor review</p>}
 
-      <div className="flex flex-col gap-1">
-        {hasGuideline && (
-          <StepRow
-            index={guidelineStepIndex}
-            status={guidelineOpened ? "done" : "now"}
-            title="View the guideline"
-            hint={effectiveGuidelineKind === "video" ? "Short video" : effectiveGuidelineKind === "pdf" ? "PDF guide" : "Opens in a new tab"}
-            onClick={openGuideline}
-          />
-        )}
-
-        {/* Not indented under the step-number column like the row above
-            it — a video benefits from the panel's full width far more
-            than it needs to visually align with the numbered steps. */}
-        {item.guideline_kind === "video" && (
-          <div className="-mt-1 mb-1.5">
-            {item.guideline_url ? (
+      {/* Guide — optional, only when this item has one. A video is shown
+          directly inline (nothing to "open"); a PDF/link gets a button. */}
+      {hasGuideline && (
+        <div className="flex flex-col gap-2.5 rounded-2xl ring-1 ring-border p-4 bg-muted/30">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Guide</span>
+            {guidelineOpened && effectiveGuidelineKind !== "video" && (
+              <span className="flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-500">
+                <Check size={13} /> Viewed
+              </span>
+            )}
+          </div>
+          {effectiveGuidelineKind === "video" ? (
+            item.guideline_url ? (
               isKnownEmbedHost(item.guideline_url) ? (
                 <div className="aspect-video rounded-lg overflow-hidden border border-border">
                   <iframe
@@ -205,45 +159,64 @@ function DrawerBody({
               <div className="flex items-center gap-2.5 rounded-lg border border-dashed border-border px-4 py-3.5 text-sm text-muted-foreground">
                 <Play size={17} /> Start here · 3 min — video coming soon
               </div>
-            )}
-          </div>
-        )}
+            )
+          ) : (
+            <Button variant="outline" onClick={openGuideline} className="h-12 text-base gap-2 justify-start">
+              <Icon className="size-[18px]" />
+              {effectiveGuidelineKind === "pdf" ? "View guideline (PDF)" : "Open guideline"}
+              {guidelineOpened && <Check size={15} className="ml-auto text-emerald-600 dark:text-emerald-500" />}
+            </Button>
+          )}
+        </div>
+      )}
 
-        {/* A real external/in-app destination to open — never rendered
-            for a "drawer"-kind target (manual/pdf/session/plain
-            submission with no reference link), which has nothing to
-            navigate to outside the drawer itself. */}
-        {showWorkStep && (
-          <StepRow
-            index={workStepIndex}
-            status={done ? "done" : "next"}
-            title={submissionReference ? "Open the reference link" : workLabel}
-            hint="Opens in a new tab"
-            onClick={() => {
-              if (submissionReference) window.open(ensureAbsoluteUrl(submissionReference), "_blank", "noreferrer");
-              else doWork();
-            }}
-          />
-        )}
+      {/* The item itself — what it actually is, distinct from its guide. */}
+      {item.item_type === "external_link" && (
+        <button
+          type="button" onClick={doWork}
+          className="flex items-center justify-between gap-3 rounded-xl ring-1 ring-border p-4 text-left hover:bg-foreground/5 transition-colors"
+        >
+          <span className="text-base font-semibold text-foreground">{workLabel}</span>
+          <ExternalLink size={17} className="text-muted-foreground shrink-0" />
+        </button>
+      )}
 
-        {showAutoTrackedStep ? (
-          <StepRow
-            index={autoTrackedStepIndex}
-            status={done ? "done" : "now"}
-            title={workLabel}
-            hint={target.kind === "course" ? "Completes automatically once you finish the course" : "Completes automatically once this phase is complete in Madar"}
-            onClick={doWork}
-          />
-        ) : showSubmitStep ? (
-          <StepRow
-            index={submitStepIndex}
-            status={done ? "done" : awaiting ? "done" : canSubmit ? "now" : "upcoming"}
-            title={isSubmission ? "Submit for review" : "Mark as done"}
-            hint={!canSubmit ? "Opens after you view the guideline" : undefined}
-            onClick={undefined}
-          />
-        ) : null}
-      </div>
+      {item.item_type === "session" && (
+        <div className="flex flex-col gap-1 rounded-xl ring-1 ring-border p-4 text-sm">
+          {item.session_date && (
+            <span className="font-semibold text-foreground">
+              {new Date(item.session_date).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })}
+            </span>
+          )}
+          {item.session_starts_at && <span className="text-muted-foreground">{item.session_starts_at}</span>}
+          {item.session_location && <span className="text-muted-foreground">{item.session_location}</span>}
+          {item.session_meeting_url && (
+            <a
+              href={ensureAbsoluteUrl(item.session_meeting_url)} target="_blank" rel="noreferrer"
+              className="flex items-center gap-1.5 text-primary hover:underline mt-1"
+            >
+              Join link <ExternalLink size={14} />
+            </a>
+          )}
+        </div>
+      )}
+
+      {isAutoTracked && (
+        <p className="rounded-xl ring-1 ring-border p-4 text-sm text-muted-foreground">
+          {target.kind === "course"
+            ? "Progress tracks automatically as you work through the course."
+            : "Completes automatically once this phase is finished in Madar."}
+        </p>
+      )}
+
+      {isSubmission && submissionReference && (
+        <a
+          href={ensureAbsoluteUrl(submissionReference)} target="_blank" rel="noreferrer"
+          className="flex items-center gap-1.5 text-base text-primary hover:underline"
+        >
+          Open the reference link <ExternalLink size={15} />
+        </a>
+      )}
 
       {/* Always visible once something's been submitted — done or not —
           so "which submission actually went through" never has to be
@@ -287,28 +260,28 @@ function DrawerBody({
         )
       )}
 
-      <div className="mt-auto pt-3 flex flex-col gap-3 border-t border-border">
-        {hasGuideline && (
-          <Button onClick={openGuideline} className="h-[52px] text-base gap-2">
-            <Icon className="size-[18px]" /> Open guideline
-          </Button>
+      {/* Exactly one primary action, whatever this item's type. */}
+      <div className="mt-auto pt-3 flex flex-col gap-2.5 border-t border-border">
+        {!canSubmit && (isSubmission || isSelfCheck) && !done && !awaiting && (
+          <p className="text-xs text-muted-foreground text-center">View the guide above first</p>
+        )}
+        {isAutoTracked && (
+          <Button onClick={doWork} className="h-[52px] text-base gap-2">{workLabel}</Button>
         )}
         {isSubmission && !pastDeadline && (
           <Button
-            variant="outline"
             disabled={!canSubmit || (!submitUrl && !item.submitted_url) || submitMutation.isPending}
             onClick={() => submitMutation.mutate(submitUrl || item.submitted_url || "")}
-            className="h-12 text-base"
+            className="h-[52px] text-base"
           >
             {submitMutation.isPending ? "Submitting…" : item.submitted_url ? "Replace submission" : "Submit for review"}
           </Button>
         )}
         {isSelfCheck && !done && !awaiting && (
           <Button
-            variant="outline"
             disabled={!canSubmit || completeMutation.isPending}
             onClick={() => completeMutation.mutate()}
-            className="h-12 text-base"
+            className="h-[52px] text-base"
           >
             {completeMutation.isPending ? "Marking done…" : item.requires_confirmation ? "Mark as done (needs sign-off)" : "Mark as done"}
           </Button>
@@ -318,12 +291,12 @@ function DrawerBody({
   );
 }
 
-/** Design spec §"Task drawer" — guideline → work → submit, without
- * unloading the board. Desktop: 360px right panel over a blurred/scrimmed
- * board. Mobile: bottom sheet. The per-type action logic (course routing,
- * mission routing, PDF dialog, submit/complete mutations, deadline
- * handling) is lifted from the old `ChecklistItemRow`
- * (`LearnChecklist.tsx`, now retired), not rewritten. */
+/** Design spec §"Task drawer" — guide → item → one CTA, without unloading
+ * the board. Desktop: 360px right panel over a blurred/scrimmed board.
+ * Mobile: bottom sheet. The per-type action logic (course routing, mission
+ * routing, PDF dialog, submit/complete mutations, deadline handling) is
+ * lifted from the old `ChecklistItemRow` (`LearnChecklist.tsx`, now
+ * retired), not rewritten. */
 export function TaskDrawer({
   item, assignmentId, onClose, onChanged,
 }: {
@@ -336,6 +309,12 @@ export function TaskDrawer({
   const queryClient = useQueryClient();
   const [submitUrl, setSubmitUrl] = useState("");
   const [viewingPdf, setViewingPdf] = useState(false);
+
+  // A `pdf`-type item's own content IS its guideline even when
+  // `guideline_kind` was never separately set on it — same file, same
+  // `pdf_path`/upload, see the backend's own note on this reuse.
+  const effectiveGuidelineKind = item?.guideline_kind ?? (item?.item_type === "pdf" ? "pdf" : null);
+
   // Reset per item via the parent's `key={item?.id}` remounting this whole
   // component (RoadmapBoard.tsx), not a useEffect+setState reset on
   // item/assignmentId change — React's own recommendation for "state that
@@ -343,12 +322,14 @@ export function TaskDrawer({
   // and it's what a set-state-in-effect lint rule now catches directly
   // (previously masked by DrawerBody being defined as a nested component,
   // which apparently kept the linter from fully analyzing this effect).
-  const [guidelineOpened, setGuidelineOpened] = useState(() => (item ? readGuidelineViewed(assignmentId, item.id) : false));
-
-  // A `pdf`-type item's own content IS its guideline even when
-  // `guideline_kind` was never separately set on it — same file, same
-  // `pdf_path`/upload, see the backend's own note on this reuse.
-  const effectiveGuidelineKind = item?.guideline_kind ?? (item?.item_type === "pdf" ? "pdf" : null);
+  // A `video` guideline is shown inline with nothing to click "open" — it
+  // seeds as already-viewed rather than gating on a localStorage flag that
+  // would never get set.
+  const [guidelineOpened, setGuidelineOpened] = useState(() => {
+    if (!item) return false;
+    if (effectiveGuidelineKind === "video") return true;
+    return readGuidelineViewed(assignmentId, item.id);
+  });
 
   const { data: pdfUrl, isLoading: pdfLoading, isError: pdfError } = useQuery({
     queryKey: ["lms-checklist-item-pdf-url", assignmentId, item?.id],
@@ -375,7 +356,7 @@ export function TaskDrawer({
     } else if (item.guideline_kind === "link" && item.guideline_url) {
       window.open(ensureAbsoluteUrl(item.guideline_url), "_blank", "noreferrer");
     }
-    // 'video' opens inline below — nothing to dispatch here.
+    // 'video' renders inline in DrawerBody — nothing to dispatch here.
   };
 
   const target = navTargetFor(item);
@@ -419,25 +400,10 @@ export function TaskDrawer({
   const pastDeadline = !!item.deadline_at && new Date(item.deadline_at) < new Date();
   const Icon = iconForItem(item);
 
-  // Step numbering — computed once, in render order, so it stays correct
-  // regardless of which combination of rows actually renders (a plain
-  // manual/pdf/session item has no "do the work" row at all; a submission
-  // with a reference link gets one in addition to its submit row).
-  const showWorkStep = (target.kind !== "none" && target.kind !== "drawer" && !isAutoTracked) || !!submissionReference;
-  const showAutoTrackedStep = isAutoTracked;
-  const showSubmitStep = !isAutoTracked && (isSubmission || isSelfCheck);
-  const stepFlags = [hasGuideline, showWorkStep, showAutoTrackedStep, showSubmitStep];
-  const stepIndexAt = (i: number) => stepFlags.slice(0, i + 1).filter(Boolean).length;
-  const guidelineStepIndex = hasGuideline ? stepIndexAt(0) : 0;
-  const workStepIndex = showWorkStep ? stepIndexAt(1) : 0;
-  const autoTrackedStepIndex = showAutoTrackedStep ? stepIndexAt(2) : 0;
-  const submitStepIndex = showSubmitStep ? stepIndexAt(3) : 0;
-
   const bodyProps: DrawerBodyProps = {
-    item, onClose, hasGuideline, effectiveGuidelineKind, guidelineStepIndex, guidelineOpened, openGuideline,
-    showWorkStep, workStepIndex, submissionReference, workLabel, doWork, showAutoTrackedStep, autoTrackedStepIndex,
-    target, showSubmitStep, submitStepIndex, isSubmission, done, awaiting, canSubmit, pastDeadline, submitUrl,
-    setSubmitUrl, submitMutation, Icon, isSelfCheck, completeMutation,
+    item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
+    submissionReference, isAutoTracked, isSubmission, isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl,
+    setSubmitUrl, submitMutation, Icon, completeMutation,
   };
 
   return (
