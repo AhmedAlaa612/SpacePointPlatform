@@ -38,6 +38,24 @@ function formatKB(kb: number): string {
   return `${kb.toFixed(2)} KB`;
 }
 
+/** Ported verbatim from backend/app/services/missions/design/rf_calc.py — the
+ * server never exposes these intermediate values (only the final margin_db/
+ * status), so the "detailed calculations" breakdown recomputes them
+ * client-side, live, off the same formula. */
+function freeSpacePathLossDb(frequencyMhz: number, distanceKm: number): number {
+  if (frequencyMhz <= 0 || distanceKm <= 0) return 0;
+  const fHz = frequencyMhz * 1e6;
+  const dM = distanceKm * 1e3;
+  return 20 * Math.log10(dM) + 20 * Math.log10(fHz) - 147.55;
+}
+function noisePowerDbm(dataRateKbps: number, tSysK = 290.0): number {
+  if (dataRateKbps <= 0) return 0;
+  const k = 1.380649e-23;
+  const bw = dataRateKbps * 1e3;
+  const pW = k * tSysK * bw;
+  return 10 * Math.log10(pW) + 30;
+}
+
 const inputCls = "h-12 px-4 border border-border bg-card text-foreground rounded-xl text-base focus:outline-none focus:border-primary transition-colors w-full";
 /** For a number input squeezed into a narrow table cell — inputCls's own
  * px-4 leaves too little room for digits once the cell is only ~80px wide,
@@ -1956,6 +1974,8 @@ export function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignStat
   });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [formulasOpen, setFormulasOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const link = state.dashboard.link;
 
   // Recalculate as you type. The old form only recomputed on an explicit
@@ -1995,7 +2015,6 @@ export function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignStat
     push(b, next);
   };
 
-  const closes = link.status === "Good Link";
   const shortBy = link.good_threshold_db - link.margin_db;
 
   const FIELD_HINTS: Record<keyof typeof fields, string> = {
@@ -2006,50 +2025,219 @@ export function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignStat
     required_signal_quality_db: "What your modulation needs to decode cleanly.",
   };
 
+  const StatusIcon = link.status === "Good Link" ? CheckCircle2 : link.status === "Weak Link" ? AlertTriangle : XCircle;
+  const statusToneKey = link.status === "Good Link" ? "success" : link.status === "Weak Link" ? "warning" : "error";
+  const statusTextColor = link.status === "Good Link"
+    ? "text-emerald-500" : link.status === "Weak Link" ? "text-amber-500" : "text-destructive";
+
+  // Live detail breakdown — free_space_path_loss_db/noise_power_dbm above are
+  // the exact backend formula; distance/transmit power stay the read-only
+  // variant thresholds already on state.dashboard.link (never student-owned,
+  // matching every other budget tab's P7-6 threshold treatment). This is new
+  // content with no server equivalent, so unlike the headline stat above (which
+  // stays on the server-debounced link.margin_db, per this tab's existing
+  // "server is the source of truth" design) it recomputes live as you type.
+  const fspl = freeSpacePathLossDb(fields.downlink_frequency_mhz, link.assumed_distance_km);
+  const eirp = link.transmit_power_dbm + fields.satellite_antenna_gain_dbi;
+  const rx = eirp - fspl;
+  const noise = noisePowerDbm(fields.data_rate_kbps);
+  const actualSnr = rx - noise;
+  const liveMargin = actualSnr - fields.required_signal_quality_db;
+
+  const detailRows: { label: string; value: number; unit: string; formula: string; bold?: boolean }[] = [
+    { label: "EIRP", value: eirp, unit: "dBm", formula: "Tx Power + Antenna Gain" },
+    { label: "Free Space Path Loss", value: fspl, unit: "dB", formula: "20·log(d) + 20·log(f) − 147.55" },
+    { label: "Received Power", value: rx, unit: "dBm", formula: "EIRP − FSPL" },
+    { label: "Noise Power", value: noise, unit: "dBm", formula: "10·log(k·T·BW) + 30" },
+    { label: "Actual Signal Quality", value: actualSnr, unit: "dB", formula: "Received Power − Noise Power" },
+    { label: "Required Signal Quality", value: fields.required_signal_quality_db, unit: "dB", formula: "(student input)" },
+    { label: "System Link Margin", value: liveMargin, unit: "dB", formula: "Actual SNR − Required SNR", bold: true },
+  ];
+
   return (
-    <Card className="p-5 flex flex-col gap-4">
-      {/* The bar, not just the score. "Margin 0.61 dB / Failed Link" with no
-          stated threshold is unanswerable — you cannot tell which way to move. */}
-      <div className={`max-w-xl rounded-xl ring-1 px-4 py-3 flex flex-col gap-1 ${
-        closes ? "ring-emerald-500/30 bg-emerald-500/5" : "ring-destructive/30 bg-destructive/5"}`}>
-        <div className="flex items-baseline justify-between gap-2">
-          <span className={`text-sm font-semibold ${closes ? "text-emerald-500" : "text-destructive"}`}>
-            {link.status}
-          </span>
-          <span className="font-mono text-sm">
-            {link.margin_db.toFixed(2)} dB
-            <span className="text-muted-foreground"> / need {link.good_threshold_db.toFixed(1)} dB</span>
-          </span>
+    <div className="flex flex-col gap-5">
+      <div className="grid lg:grid-cols-2 gap-5 items-start">
+        {/* Link configuration */}
+        <Card className="p-5 flex flex-col gap-5">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Link configuration</p>
+
+          <div className="flex flex-col gap-2">
+            <label className={labelCls}>Step 1: choose band / profile</label>
+            <div className="flex gap-2">
+              {Object.keys(state.band_presets).map((b) => (
+                <button
+                  key={b} type="button" onClick={() => applyPreset(b)}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${
+                    band === b ? "bg-primary text-primary-foreground" : "ring-1 ring-border text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  {b}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <label className={labelCls}>Step 2: satellite transmitter &amp; frequency</label>
+            <div className="grid sm:grid-cols-2 gap-4">
+              {(Object.keys(fields) as (keyof typeof fields)[]).map((key) => (
+                <div key={key} className="flex flex-col gap-1.5">
+                  <label className={labelCls}>{key.replace(/_/g, " ")}</label>
+                  <input
+                    type="number" step="any" className={inputCls} value={fields[key]}
+                    onChange={(e) => setField(key, Number(e.target.value))}
+                  />
+                  <span className="text-[10px] text-muted-foreground leading-snug">{FIELD_HINTS[key]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3">
+            <label className={labelCls}>Step 3: ground station settings</label>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="rounded-xl ring-1 ring-border bg-muted/30 p-3 flex flex-col gap-0.5">
+                <span className="text-xs text-muted-foreground">Assumed distance</span>
+                <span className="text-base font-bold">{link.assumed_distance_km.toLocaleString()} km</span>
+                <span className="text-[10px] text-muted-foreground">Set by your instructor</span>
+              </div>
+              <div className="rounded-xl ring-1 ring-border bg-muted/30 p-3 flex flex-col gap-0.5">
+                <span className="text-xs text-muted-foreground">Satellite transmit power</span>
+                <span className="text-base font-bold">{link.transmit_power_dbm.toFixed(0)} dBm</span>
+                <span className="text-[10px] text-muted-foreground">Set by your instructor</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl ring-1 ring-border overflow-hidden">
+            <button
+              type="button" onClick={() => setFormulasOpen((v) => !v)}
+              className="w-full flex items-center gap-2 px-3.5 py-2.5 hover:bg-muted/50 transition-colors text-left"
+            >
+              <FileText className="size-3.5 text-primary shrink-0" />
+              <span className="flex-1 text-xs font-bold uppercase tracking-wide text-primary">Show formulas</span>
+              <ChevronRight className={`size-4 shrink-0 text-muted-foreground transition-transform ${formulasOpen ? "rotate-90" : ""}`} />
+            </button>
+            {formulasOpen && (
+              <div className="px-3.5 pb-3.5 pt-1 flex flex-col gap-1.5 border-t border-border/60 text-xs font-mono">
+                <p>EIRP = Tx Power + Antenna Gain</p>
+                <p>FSPL = 20&middot;log(d) + 20&middot;log(f) &minus; 147.55</p>
+                <p>Received Power = EIRP &minus; FSPL</p>
+                <p>Noise Power = 10&middot;log(k&middot;T&middot;BW) + 30</p>
+                <p>Margin = (Received Power &minus; Noise Power) &minus; Required Signal Quality</p>
+              </div>
+            )}
+          </div>
+
+          {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+        </Card>
+
+        {/* Margin + charts */}
+        <div className="flex flex-col gap-5">
+          <div className={`rounded-2xl ring-1 px-6 py-6 flex flex-col items-center text-center gap-1.5 ${ALERT_TONE[statusToneKey]}`}>
+            <p className="text-sm font-bold uppercase tracking-wider text-primary">System link margin</p>
+            <p className={`font-display text-5xl font-extrabold ${statusTextColor}`}>
+              {link.margin_db >= 0 ? "+" : ""}{link.margin_db.toFixed(2)}
+            </p>
+            <p className="text-xs text-muted-foreground">dB</p>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+              link.status === "Good Link" ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                : link.status === "Weak Link" ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                : "bg-destructive/15 text-destructive"
+            }`}
+            >
+              <StatusIcon className="size-3.5" /> {link.status}
+            </span>
+            <p className="text-xs text-muted-foreground max-w-xs">
+              {link.status === "Good Link"
+                ? `${(link.margin_db - link.good_threshold_db).toFixed(1)} dB of headroom above the requirement.`
+                : `Short by ${shortBy.toFixed(1)} dB. Raise the antenna gain, lower the data rate, or move to a lower frequency.`}
+              {" "}{saving ? "Recalculating…" : ""}
+            </p>
+          </div>
+
+          <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+            <p className="text-sm font-bold uppercase tracking-wider text-primary">Signal quality comparison</p>
+            <ResponsiveContainer width="100%" height={140}>
+              <BarChart
+                layout="vertical"
+                data={[{ name: "Required SNR", value: fields.required_signal_quality_db }, { name: "Actual SNR", value: actualSnr }]}
+                margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted-foreground/20" />
+                <XAxis type="number" tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" />
+                <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" />
+                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                <Bar dataKey="value" radius={[0, 6, 6, 0]}>
+                  <Cell fill={CHART_COLORS[5]} />
+                  <Cell fill={CHART_COLORS[4]} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+            <p className="text-sm font-bold uppercase tracking-wider text-primary">Link margin (dB)</p>
+            <ResponsiveContainer width="100%" height={100}>
+              <BarChart
+                layout="vertical" data={[{ name: "Margin", value: liveMargin }]}
+                margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted-foreground/20" />
+                <XAxis
+                  type="number" domain={[Math.min(-10, link.weak_threshold_db - 5), Math.max(20, link.good_threshold_db + 5)]}
+                  tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground"
+                />
+                <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" />
+                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                <Bar
+                  dataKey="value" radius={[0, 6, 6, 0]}
+                  fill={liveMargin >= link.good_threshold_db ? "#10b981" : liveMargin >= link.weak_threshold_db ? CHART_COLORS[2] : CHART_COLORS[3]}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+            <p className="text-[10px] text-muted-foreground text-center">
+              dB &mdash; {link.weak_threshold_db} dB = minimum, &gt;{link.good_threshold_db} dB = good
+            </p>
+          </div>
         </div>
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
-          {closes
-            ? `${(link.margin_db - link.good_threshold_db).toFixed(1)} dB of headroom above the requirement.`
-            : `Short by ${shortBy.toFixed(1)} dB. Raise the antenna gain, lower the data rate, or move to a lower frequency — each is worth a few dB.`}
-        </p>
-        <p className="text-[10px] text-muted-foreground">
-          Computed at {link.assumed_distance_km.toLocaleString()} km with a {link.transmit_power_dbm.toFixed(0)} dBm
-          transmitter. {saving ? "Recalculating..." : "Updates as you type."}
-        </p>
       </div>
 
-      <div className="flex flex-col gap-1.5 max-w-xs">
-        <label className={labelCls}>Band</label>
-        <select className={inputCls} value={band} onChange={(e) => applyPreset(e.target.value)}>
-          {Object.keys(state.band_presets).map((b) => <option key={b} value={b}>{b}</option>)}
-        </select>
-      </div>
-      <div className="grid sm:grid-cols-3 gap-4">
-        {(Object.keys(fields) as (keyof typeof fields)[]).map((key) => (
-          <div key={key} className="flex flex-col gap-1.5">
-            <label className={labelCls}>{key.replace(/_/g, " ")}</label>
-            <input type="number" step="any" className={inputCls} value={fields[key]}
-              onChange={(e) => setField(key, Number(e.target.value))} />
-            <span className="text-[10px] text-muted-foreground leading-snug">{FIELD_HINTS[key]}</span>
+      <div className="rounded-2xl ring-1 ring-border bg-card overflow-hidden">
+        <button
+          type="button" onClick={() => setDetailsOpen((v) => !v)}
+          className="w-full flex items-center gap-2 px-5 py-4 hover:bg-muted/50 transition-colors text-left"
+        >
+          <Search className="size-4 text-primary shrink-0" />
+          <span className="flex-1 text-sm font-bold uppercase tracking-wider text-primary">Show detailed calculations</span>
+          <ChevronRight className={`size-4 shrink-0 text-muted-foreground transition-transform ${detailsOpen ? "rotate-90" : ""}`} />
+        </button>
+        {detailsOpen && (
+          <div className="px-5 pb-5 overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Parameter</th>
+                  <th className="px-2 py-2 font-medium text-muted-foreground text-right">Value</th>
+                  <th className="px-2 py-2 font-medium text-muted-foreground text-center">Unit</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Formula</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detailRows.map((row) => (
+                  <tr key={row.label} className={`border-b border-border/50 ${row.bold ? "font-bold" : ""}`}>
+                    <td className="py-2 pr-3">{row.label}</td>
+                    <td className={`px-2 py-2 text-right font-mono ${row.bold ? "text-primary" : ""}`}>{row.value.toFixed(4)}</td>
+                    <td className="px-2 py-2 text-center text-muted-foreground">{row.unit}</td>
+                    <td className="px-2 py-2 text-muted-foreground font-mono text-xs">{row.formula}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        ))}
+        )}
       </div>
-      {saveError && <p className="text-xs text-destructive">{saveError}</p>}
-    </Card>
+    </div>
   );
 }
 
