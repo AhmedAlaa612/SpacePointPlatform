@@ -1292,9 +1292,9 @@ export function DataBudgetTab({ state, attemptId, onSaved, handbook }: {
                     </div>
                   </td>
                   <td className="px-2 py-2 text-center font-mono text-xs text-muted-foreground">{activeMin.toFixed(1)}</td>
-                  <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{dpo.toFixed(2)}</td>
+                  <td className="px-2 py-2 text-center font-mono text-sm font-bold text-primary">{dpo.toFixed(2)}</td>
                   <td className="px-2 py-2 text-center font-mono text-xs text-muted-foreground">{orbitsPerDay.toFixed(1)}</td>
-                  <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{dpd.toFixed(2)}</td>
+                  <td className="px-2 py-2 text-center font-mono text-sm font-bold text-primary">{dpd.toFixed(2)}</td>
                   <td className="px-2 py-2">
                     <div className="w-28">
                       <select
@@ -1616,7 +1616,7 @@ export function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignSta
                       />
                     </div>
                   </td>
-                  <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{power.toFixed(2)}</td>
+                  <td className="px-2 py-2 text-center font-mono text-sm font-bold text-primary">{power.toFixed(2)}</td>
                   <td className="px-2 py-2 text-center">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                       missing ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
@@ -1626,7 +1626,7 @@ export function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignSta
                     </span>
                   </td>
                   <td className="px-2 py-2 text-center font-mono text-xs text-muted-foreground">{activeMin.toFixed(1)}</td>
-                  <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{energyOrbit.toFixed(3)}</td>
+                  <td className="px-2 py-2 text-center font-mono text-sm font-bold text-primary">{energyOrbit.toFixed(3)}</td>
                 </tr>
               ))}
             </tbody>
@@ -2206,7 +2206,7 @@ export function MassBudgetTab({ state, attemptId, onSaved, handbook }: {
                           />
                         </div>
                       </td>
-                      <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{totalMassG.toFixed(1)}</td>
+                      <td className="px-2 py-2 text-center font-mono text-sm font-bold text-primary">{totalMassG.toFixed(1)}</td>
                       <td className="px-2 py-2">
                         <div className="w-16">
                           <input
@@ -2232,7 +2232,7 @@ export function MassBudgetTab({ state, attemptId, onSaved, handbook }: {
                         </div>
                       </td>
                       <td className="px-2 py-2 text-center font-mono text-xs text-muted-foreground">{volPerUnitMm3.toFixed(0)}</td>
-                      <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{totalVolMm3.toFixed(0)}</td>
+                      <td className="px-2 py-2 text-center font-mono text-sm font-bold text-primary">{totalVolMm3.toFixed(0)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2417,7 +2417,16 @@ export function CostBudgetTab({ state, attemptId, onSaved, handbook }: {
       <Card className="p-5 flex flex-col gap-4">
         <p className="text-sm font-bold uppercase tracking-wider text-primary">Cost budget table</p>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
+          <table className="w-full min-w-[860px] text-sm border-collapse table-fixed">
+            <colgroup>
+              <col style={{ width: "26%" }} />
+              <col style={{ width: "7%" }} />
+              <col style={{ width: "13%" }} />
+              <col style={{ width: "10%" }} />
+              <col style={{ width: "11%" }} />
+              <col style={{ width: "16%" }} />
+              <col style={{ width: "17%" }} />
+            </colgroup>
             <thead>
               <tr className="border-b border-border">
                 <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Component</th>
@@ -2458,14 +2467,14 @@ export function CostBudgetTab({ state, attemptId, onSaved, handbook }: {
                     </div>
                   </td>
                   <td className="px-2 py-2">
-                    <div className="w-20">
+                    <div className="w-24">
                       <input
                         type="number" className={compactInputCls} value={rows[c.id]?.cost_per_unit_aed ?? 0}
                         onChange={(e) => setRow(c.id, { cost_per_unit_aed: Number(e.target.value) })}
                       />
                     </div>
                   </td>
-                  <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{rowTotal.toFixed(2)}</td>
+                  <td className="px-2 py-2 text-center font-mono text-sm font-bold text-primary">{rowTotal.toFixed(2)}</td>
                   <td className="px-2 py-2">
                     <div className="w-24">
                       <select
