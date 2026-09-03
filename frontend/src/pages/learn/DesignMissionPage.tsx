@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearch, useNavigate, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
-import { CheckCircle2, ChevronRight, Rocket, Trash2, XCircle } from "lucide-react";
+import { Box, CheckCircle2, ChevronRight, FileText, Minus, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -458,10 +458,10 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
     return true;
   });
 
-  const add = async (libraryComponentId: string) => {
+  const add = async (libraryComponentId: string, quantity: number) => {
     setError("");
     try {
-      onChanged(await addDesignComponent(attemptId, libraryComponentId, 1));
+      onChanged(await addDesignComponent(attemptId, libraryComponentId, quantity));
     } catch (err) {
       setError(errorDetail(err, "Couldn't add this component."));
     }
@@ -476,86 +476,149 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
     }
   };
 
-  const bySubsystem = filteredLibrary.reduce<Record<string, DesignLibraryComponent[]>>((acc, c) => {
-    (acc[c.subsystem] ??= []).push(c);
-    return acc;
-  }, {});
+  // Cost/mass totals come off the backend-computed dashboard, not a
+  // client-side re-sum — the same numbers the Cost/Mass budget tabs show.
+  const totalCost = state.dashboard.cost.total_cost_aed;
+  const maxBudget = state.dashboard.cost.maximum_budget_aed;
+  const overBudget = state.dashboard.cost.cost_margin_aed < 0;
+  const budgetPct = maxBudget > 0 ? Math.min(100, (totalCost / maxBudget) * 100) : 0;
+  const combinedMassG = state.dashboard.mass.total_mass_kg * 1000;
 
   return (
     <div className="flex flex-col gap-5">
       {error && <p className="text-xs text-destructive">{error}</p>}
-      <Card className="p-5 flex flex-col gap-3">
-        <p className="text-base font-bold">Your components ({state.components.length})</p>
-        {state.components.length === 0 && <p className="text-xs text-muted-foreground">Add components from the library below.</p>}
-        <div className="flex flex-col gap-2">
-          {state.components.map((c) => (
-            <div key={c.id} className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl ring-1 ring-border">
-              {c.image_url
-                ? <img src={c.image_url} alt="" className="size-10 rounded-lg object-cover shrink-0 ring-1 ring-border" />
-                : <div className="size-10 rounded-lg shrink-0 ring-1 ring-border bg-muted" />}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium truncate">{c.component_name}</p>
-                <p className="text-xs text-muted-foreground">{c.subsystem} &middot; {c.mass_per_unit_g ?? 0}g &middot; {c.voltage_v ?? 0}V/{c.current_ma ?? 0}mA</p>
-              </div>
-              <button onClick={() => void remove(c.id)} className="text-muted-foreground hover:text-destructive shrink-0"><Trash2 className="size-4" /></button>
-            </div>
-          ))}
-        </div>
-      </Card>
-      <Card className="p-5 flex flex-col gap-4">
-        <div>
-          <p className="text-base font-bold">Component library</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Click a component to read its specs, then add it to your design. What you pick here decides
-            every budget that follows.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-2.5">
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search components by name…"
-            className={inputCls}
-          />
-          <div className="flex flex-wrap gap-1.5">
-            {SUBSYSTEMS.map((s) => (
-              <button
-                key={s}
-                onClick={() => setSubsystemFilter(s)}
-                className={`px-3 py-1.5 rounded-xl text-xs ring-1 transition-colors ${
-                  subsystemFilter === s ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
-                }`}
-              >
-                {s}
-              </button>
-            ))}
+      <div className="flex flex-col lg:flex-row gap-5 items-start">
+        {/* Component library */}
+        <div className="flex-1 min-w-0 flex flex-col gap-4">
+          <div>
+            <p className="text-base font-bold">Component library</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Click a component to read its specs, then add it to your design. What you pick here decides
+              every budget that follows.
+            </p>
           </div>
-          {tags.length > 1 && (
-            <select
-              value={tagFilter}
-              onChange={(e) => setTagFilter(e.target.value)}
-              className={`${inputCls} w-auto`}
-            >
-              {tags.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
-          )}
-        </div>
 
-        {filteredLibrary.length === 0 && (
-          <p className="text-xs text-muted-foreground">No components match this filter.</p>
-        )}
-        {Object.entries(bySubsystem).map(([subsystem, comps]) => (
-          <div key={subsystem} className="flex flex-col gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{subsystem}</p>
-            <div className="grid sm:grid-cols-2 gap-2">
-              {comps.map((c) => (
-                <LibraryCard key={c.id} component={c} onAdd={() => void add(c.id)} />
+          <div className="flex flex-col gap-2.5">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search components by name…"
+                className={`${inputCls} pl-11`}
+              />
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {SUBSYSTEMS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSubsystemFilter(s)}
+                  className={`px-3 py-1.5 rounded-xl text-xs ring-1 transition-colors ${
+                    subsystemFilter === s ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
+                  }`}
+                >
+                  {s}
+                </button>
               ))}
             </div>
+            {tags.length > 1 && (
+              <select
+                value={tagFilter}
+                onChange={(e) => setTagFilter(e.target.value)}
+                className={`${inputCls} w-auto`}
+              >
+                {tags.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            )}
           </div>
-        ))}
-      </Card>
+
+          {filteredLibrary.length === 0 && (
+            <p className="text-xs text-muted-foreground">No components match this filter.</p>
+          )}
+          <div className="grid sm:grid-cols-2 gap-4">
+            {filteredLibrary.map((c) => (
+              <LibraryCard key={c.id} component={c} onAdd={(quantity) => void add(c.id, quantity)} />
+            ))}
+          </div>
+        </div>
+
+        {/* Mission cart + invoice */}
+        <div className="w-full lg:w-[360px] shrink-0 flex flex-col gap-4 lg:sticky lg:top-4">
+          <Card className="p-5 flex flex-col gap-3.5">
+            <div className="flex items-center gap-2">
+              <ShoppingCart className="size-[19px] text-primary" />
+              <p className="text-base font-bold">Your mission cart</p>
+              <span className="ml-auto text-xs font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-full">
+                {state.components.length} {state.components.length === 1 ? "item" : "items"}
+              </span>
+            </div>
+            {state.components.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Add components from the library to build your mission.</p>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                {state.components.map((c) => (
+                  <div key={c.id} className="flex items-center gap-2.5">
+                    {c.image_url
+                      ? <img src={c.image_url} alt="" className="size-11 rounded-lg object-cover shrink-0 ring-1 ring-border" />
+                      : (
+                        <div className="size-11 rounded-lg shrink-0 ring-1 ring-border bg-muted flex items-center justify-center">
+                          <Box className="size-5 text-muted-foreground" strokeWidth={1.5} />
+                        </div>
+                      )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{c.component_name}</p>
+                      <p className="text-xs text-muted-foreground">Qty {c.quantity} &middot; {(c.cost_per_unit_aed ?? 0).toFixed(0)} AED each</p>
+                    </div>
+                    <p className="text-sm font-bold text-amber-600 dark:text-amber-400 shrink-0">
+                      {((c.cost_per_unit_aed ?? 0) * c.quantity).toFixed(0)} AED
+                    </p>
+                    <button onClick={() => void remove(c.id)} className="text-muted-foreground hover:text-destructive shrink-0">
+                      <Trash2 className="size-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-5 flex flex-col gap-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Invoice</p>
+            {state.components.length > 0 && (
+              <>
+                <div className="flex flex-col gap-1.5 text-xs">
+                  {state.components.map((c) => (
+                    <div key={c.id} className="flex justify-between gap-3">
+                      <span className="text-muted-foreground truncate">{c.component_name} &times; {c.quantity}</span>
+                      <span className="shrink-0">{((c.cost_per_unit_aed ?? 0) * c.quantity).toFixed(0)} AED</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="h-px bg-border" />
+              </>
+            )}
+            <div className="flex justify-between items-baseline">
+              <span className="text-base font-bold">Total</span>
+              <span className="text-xl font-extrabold text-amber-600 dark:text-amber-400">{totalCost.toFixed(0)} AED</span>
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground -mt-1">
+              <span>Combined mass</span>
+              <span>{combinedMassG.toFixed(0)} g</span>
+            </div>
+            <div className="flex flex-col gap-1.5 mt-1">
+              <div className="flex justify-between text-[11px] text-muted-foreground">
+                <span>Cost budget</span>
+                <span>{totalCost.toFixed(0)} of {maxBudget.toFixed(0)} AED</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${overBudget ? "bg-destructive" : "bg-emerald-500"}`}
+                  style={{ width: `${budgetPct}%` }}
+                />
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }
@@ -566,73 +629,91 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
  * and an image; the picker used to render name, mass, voltage and cost and
  * throw the rest away — so students chose parts from a spreadsheet with the
  * explanations deleted. No backend change was needed for any of this. */
-function LibraryCard({ component: c, onAdd }: { component: DesignLibraryComponent; onAdd: () => void }) {
-  const [open, setOpen] = useState(false);
+function LibraryCard({ component: c, onAdd }: { component: DesignLibraryComponent; onAdd: (quantity: number) => void }) {
+  const [qty, setQty] = useState(1);
   const dims = [c.length_mm, c.width_mm, c.height_mm];
   const hasDims = dims.every((d) => d != null && d > 0);
 
-  return (
-    <div className="rounded-xl ring-1 ring-border overflow-hidden">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full text-left px-3.5 py-2.5 hover:bg-muted/50 transition-colors flex items-start gap-3"
-      >
-        {c.image_url && (
-          <img src={c.image_url} alt="" className="size-10 rounded-lg object-cover shrink-0 ring-1 ring-border" />
-        )}
-        <span className="min-w-0 flex-1">
-          <span className="block text-sm font-medium">{c.component_name}</span>
-          {c.example_role && <span className="block text-xs text-primary mt-0.5">{c.example_role}</span>}
-          <span className="block text-xs text-muted-foreground mt-0.5">
-            {c.scaled_mass_g ?? 0}g &middot; {c.voltage_v ?? 0}V/{c.current_ma ?? 0}mA &middot; ${c.assumed_cost_usd ?? 0}
-          </span>
-        </span>
-        <ChevronRight className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
-      </button>
+  const specs: { label: string; value: string; accent?: boolean }[] = [
+    { label: "Voltage", value: c.voltage_v != null ? `${c.voltage_v}V` : "N/A" },
+    { label: "Current", value: c.current_ma != null ? `${c.current_ma}mA` : "N/A" },
+    { label: "Mass", value: c.scaled_mass_g != null ? `${c.scaled_mass_g}g` : "N/A" },
+    { label: "Dimensions", value: hasDims ? dims.join(" × ") : "N/A" },
+    { label: "Data size", value: c.data_size ?? "N/A" },
+    { label: "Cost", value: c.assumed_cost_usd != null ? `$${c.assumed_cost_usd}` : "N/A", accent: true },
+  ];
 
-      {open && (
-        <div className="px-3.5 pb-3.5 pt-1 flex flex-col gap-2.5 border-t border-border/60 text-xs">
-          {c.scaled_description && <p className="leading-relaxed">{c.scaled_description}</p>}
-          {c.key_specs && (
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-0.5">Key specs</p>
-              <p className="font-mono text-[11px] leading-relaxed">{c.key_specs}</p>
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[11px]">
-            {hasDims && (
-              <span><span className="text-muted-foreground">Size </span>{dims.join(" × ")} mm</span>
-            )}
-            {c.temperature_range && (
-              <span><span className="text-muted-foreground">Temp </span>{c.temperature_range}</span>
-            )}
-            {c.data_size && (
-              <span><span className="text-muted-foreground">Data </span>{c.data_size}</span>
-            )}
-            {c.component_code && (
-              <span><span className="text-muted-foreground">Code </span>{c.component_code}</span>
-            )}
-          </div>
-          {!hasDims && (
-            <p className="text-[11px] text-amber-600 dark:text-amber-400">
-              No dimensions on file — this component will contribute zero volume to your mass budget.
-            </p>
-          )}
-          <div className="flex items-center gap-3 pt-1">
-            <Button size="sm" onClick={onAdd}>Add to design</Button>
-            {c.has_datasheet_file ? (
-              <DatasheetViewerButton componentId={c.id} componentName={c.component_name} />
-            ) : c.datasheet_url && (
-              <a
-                href={c.datasheet_url} target="_blank" rel="noreferrer"
-                className="text-[11px] text-primary hover:opacity-80"
-              >
-                Datasheet ↗
-              </a>
-            )}
-          </div>
+  return (
+    <div className="rounded-2xl ring-1 ring-border bg-card overflow-hidden flex flex-col">
+      <div className="relative h-[140px] shrink-0 flex items-center justify-center bg-gradient-to-br from-muted to-muted/40">
+        {c.image_url
+          ? <img src={c.image_url} alt="" className="h-full w-full object-cover" />
+          : <Box className="size-11 text-muted-foreground/50" strokeWidth={1.5} />}
+        <div className="absolute top-2.5 left-2.5 flex gap-1.5">
+          <span className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide bg-primary/90 text-primary-foreground">{c.subsystem}</span>
+          {c.tag && <span className="px-2 py-1 rounded-lg text-[10px] font-bold tracking-wide bg-black/55 text-white">{c.tag.toUpperCase()}</span>}
         </div>
-      )}
+      </div>
+
+      <div className="p-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-0.5">
+          <p className="font-display text-[17px] font-bold leading-tight">{c.component_name}</p>
+          {c.example_role && <p className="text-[13px] text-primary">{c.example_role}</p>}
+          {c.scaled_description && (
+            <p className="text-xs text-muted-foreground leading-relaxed mt-0.5 line-clamp-2">{c.scaled_description}</p>
+          )}
+        </div>
+
+        {c.has_datasheet_file ? (
+          <DatasheetViewerButton componentId={c.id} componentName={c.component_name} />
+        ) : c.datasheet_url ? (
+          <a
+            href={c.datasheet_url} target="_blank" rel="noreferrer"
+            className="h-9 rounded-lg bg-primary/10 ring-1 ring-primary/30 flex items-center justify-center gap-1.5 text-xs font-bold tracking-wide text-primary hover:bg-primary/15 transition-colors"
+          >
+            <FileText className="size-3.5" /> VIEW DATASHEET
+          </a>
+        ) : null}
+
+        <div className="grid grid-cols-3 gap-2">
+          {specs.map((s) => (
+            <div key={s.label} className="rounded-lg bg-muted px-1.5 py-2 text-center">
+              <p className={`text-sm font-bold ${s.accent ? "text-amber-600 dark:text-amber-400" : ""}`}>{s.value}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {!hasDims && (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+            No dimensions on file — this component will contribute zero volume to your mass budget.
+          </p>
+        )}
+
+        <div className="flex gap-2 mt-0.5">
+          <div className="flex items-center justify-between gap-1 w-[104px] h-11 rounded-lg bg-muted ring-1 ring-border px-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => setQty((q) => Math.max(1, q - 1))}
+              disabled={qty <= 1}
+              className="size-7 flex items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40"
+            >
+              <Minus className="size-3.5" />
+            </button>
+            <span className="text-sm font-semibold w-4 text-center">{qty}</span>
+            <button
+              type="button"
+              onClick={() => setQty((q) => q + 1)}
+              className="size-7 flex items-center justify-center text-primary hover:text-primary/80"
+            >
+              <Plus className="size-3.5" />
+            </button>
+          </div>
+          <Button className="flex-1 h-11 gap-1.5 font-bold" onClick={() => { onAdd(qty); setQty(1); }}>
+            <Plus className="size-3.5" /> Add to Mission
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -664,9 +745,9 @@ function DatasheetViewerButton({ componentId, componentName }: { componentId: st
       <button
         type="button"
         onClick={handleOpen}
-        className="text-[11px] text-primary hover:opacity-80"
+        className="h-9 rounded-lg bg-primary/10 ring-1 ring-primary/30 flex items-center justify-center gap-1.5 text-xs font-bold tracking-wide text-primary hover:bg-primary/15 transition-colors"
       >
-        Datasheet ↗
+        <FileText className="size-3.5" /> VIEW DATASHEET
       </button>
       <Dialog open={open} onOpenChange={(v) => { setOpen(v); if (!v) { setUrl(null); setError(false); } }}>
         <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw]">
