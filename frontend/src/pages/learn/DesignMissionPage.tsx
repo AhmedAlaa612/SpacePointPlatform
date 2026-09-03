@@ -776,16 +776,37 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
   const total = Object.values(durations).reduce((a, b) => a + (Number(b) || 0), 0);
   const diff = total - (state.orbit_duration_min ?? 0);
 
-  const save = async () => {
-    setSaving(true);
-    setSaveError("");
-    try {
-      onSaved(await saveConops(attemptId, durations, cells));
-    } catch (err) {
-      setSaveError(errorDetail(err, "Couldn't save CONOPS."));
-    } finally {
-      setSaving(false);
-    }
+  // Auto-saves 500ms after the last edit, same debounce SetupTab/LinkBudgetTab
+  // already use — no separate "Save" button competing with the drawer's own
+  // "Complete this step" (2026-09: two buttons for one step is one too many).
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const push = useCallback((nextDurations: typeof durations, nextCells: typeof cells) => {
+    if (pending.current) clearTimeout(pending.current);
+    pending.current = setTimeout(async () => {
+      setSaving(true);
+      setSaveError("");
+      try {
+        onSaved(await saveConops(attemptId, nextDurations, nextCells));
+      } catch (err) {
+        setSaveError(errorDetail(err, "Couldn't save CONOPS."));
+      } finally {
+        setSaving(false);
+      }
+    }, 500);
+  }, [attemptId, onSaved]);
+
+  useEffect(() => () => { if (pending.current) clearTimeout(pending.current); }, []);
+
+  const setDuration = (modeId: string, value: number) => {
+    const next = { ...durations, [modeId]: value };
+    setDurations(next);
+    push(next, cells);
+  };
+
+  const setCell = (componentId: string, modeId: string, checked: boolean) => {
+    const next = { ...cells, [componentId]: { ...cells[componentId], [modeId]: checked } };
+    setCells(next);
+    push(durations, next);
   };
 
   return (
@@ -793,7 +814,7 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
       <div className="flex items-center justify-between">
         <p className="text-base font-bold">Mode durations must sum to the orbit period ({state.orbit_duration_min ?? 0} min)</p>
         <p className={`text-xs font-medium ${Math.abs(diff) < 0.01 ? "text-emerald-500" : "text-destructive"}`}>
-          Total: {total.toFixed(1)} min ({diff >= 0 ? "+" : ""}{diff.toFixed(1)})
+          Total: {total.toFixed(1)} min ({diff >= 0 ? "+" : ""}{diff.toFixed(1)}){saving && <span className="text-primary"> · Saving…</span>}
         </p>
       </div>
       <div className="grid sm:grid-cols-2 gap-3">
@@ -802,7 +823,7 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
             <label className={labelCls}>{m.mode_name}</label>
             <input
               type="number" className={inputCls} value={durations[m.id] ?? 0}
-              onChange={(e) => setDurations((prev) => ({ ...prev, [m.id]: Number(e.target.value) }))}
+              onChange={(e) => setDuration(m.id, Number(e.target.value))}
             />
           </div>
         ))}
@@ -825,7 +846,7 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
                     <td key={m.id} className="px-2 py-2 text-center">
                       <input
                         type="checkbox" checked={cells[c.id]?.[m.id] ?? false}
-                        onChange={(e) => setCells((prev) => ({ ...prev, [c.id]: { ...prev[c.id], [m.id]: e.target.checked } }))}
+                        onChange={(e) => setCell(c.id, m.id, e.target.checked)}
                       />
                     </td>
                   ))}
@@ -836,7 +857,6 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
         </div>
       )}
 
-      <Button className="w-fit" onClick={() => void save()} disabled={saving}>{saving ? "Saving..." : "Save CONOPS"}</Button>
       {saveError && <p className="text-xs text-destructive">{saveError}</p>}
     </Card>
   );
