@@ -59,7 +59,7 @@ export function MadarPhaseDrawer({
         type="button"
         onClick={onClose}
         aria-label="Close"
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer print:hidden"
       >
         <X size={22} strokeWidth={2.75} />
       </button>
@@ -85,7 +85,7 @@ export function MadarPhaseDrawer({
   // own, matching the backend's own exclusion of "report" from
   // CONFIRMABLE_STEP_KEYS (routers/missions/design.py).
   const footer = !isDashboard && (
-    <div className="shrink-0 pt-2 flex flex-col items-center gap-1.5 border-t border-border bg-card">
+    <div className="shrink-0 pt-2 flex flex-col items-center gap-1.5 border-t border-border bg-card print:hidden">
       {confirmError && <p className="text-xs text-destructive text-center">{confirmError}</p>}
       <Button
         variant={confirmed ? "outline" : "default"}
@@ -101,20 +101,25 @@ export function MadarPhaseDrawer({
   return (
     <>
       <div
-        className="fixed inset-0 z-40 bg-black/55 transition-opacity"
+        className="fixed inset-0 z-40 bg-black/55 transition-opacity print:hidden"
         style={{ background: "var(--drawer-scrim, rgba(5,3,10,0.55))" }}
         onClick={onClose}
       />
       {/* Header and the Complete CTA are outside the scroll area on every
           phase — only the phase's own content scrolls between them, so the
           CTA stays put (sticky) instead of scrolling out of reach on a
-          long tab. */}
-      <div className="hidden md:flex fixed inset-0 z-50 flex-col bg-card px-8 pt-8 pb-3 gap-3 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)]">
+          long tab. print: overrides un-fix and un-scroll the panel — a
+          `position: fixed` + `overflow-y-auto` element only ever renders
+          its current on-screen viewport to print/PDF (clipping everything
+          below the fold, and in some browsers baking the scrollbar itself
+          into the page), so printing the Report needs the whole thing to
+          lay out as normal, unclipped document flow instead. */}
+      <div className="hidden md:flex fixed inset-0 z-50 flex-col bg-card px-8 pt-8 pb-3 gap-3 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)] print:static print:flex print:h-auto print:max-h-none print:overflow-visible print:shadow-none print:p-0">
         {header}
-        <div className="flex-1 min-h-0 overflow-y-auto">{content}</div>
+        <div className="flex-1 min-h-0 overflow-y-auto print:overflow-visible print:h-auto print:flex-none">{content}</div>
         {footer}
       </div>
-      <div className="md:hidden fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] bg-card px-5 pt-3 pb-3 gap-2.5 max-h-[86vh]">
+      <div className="md:hidden fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] bg-card px-5 pt-3 pb-3 gap-2.5 max-h-[86vh] print:hidden">
         <div className="mx-auto h-1.5 w-12 rounded-full bg-border shrink-0" />
         {header}
         <div className="flex-1 min-h-0 overflow-y-auto">{content}</div>
