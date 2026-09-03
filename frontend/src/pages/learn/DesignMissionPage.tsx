@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearch, useNavigate, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
-import { Box, CheckCircle2, ChevronRight, FileText, Minus, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, Box, CheckCircle2, ChevronRight, FileText, Minus, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -809,51 +809,103 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
     push(durations, next);
   };
 
+  const activeMinutes = (componentId: string) =>
+    state.modes.reduce((sum, m) => sum + (cells[componentId]?.[m.id] ? (durations[m.id] ?? 0) : 0), 0);
+
+  const matched = Math.abs(diff) < 0.01;
+
   return (
     <Card className="p-5 flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <p className="text-base font-bold">Mode durations must sum to the orbit period ({state.orbit_duration_min ?? 0} min)</p>
-        <p className={`text-xs font-medium ${Math.abs(diff) < 0.01 ? "text-emerald-500" : "text-destructive"}`}>
-          Total: {total.toFixed(1)} min ({diff >= 0 ? "+" : ""}{diff.toFixed(1)}){saving && <span className="text-primary"> · Saving…</span>}
+      <div className={`flex items-start gap-3 rounded-2xl ring-1 px-5 py-4 ${matched ? ALERT_TONE.success : ALERT_TONE.warning}`}>
+        {matched
+          ? <CheckCircle2 className="size-5 shrink-0 mt-0.5 text-emerald-500" />
+          : <AlertTriangle className="size-5 shrink-0 mt-0.5 text-amber-500" />}
+        <p className="text-sm leading-relaxed">
+          {matched
+            ? <>Total mode duration <b>{total.toFixed(1)} min</b> matches the orbit period.</>
+            : (
+              <>
+                Total mode duration <b>{total.toFixed(1)} min</b> &ne; orbit duration <b>{state.orbit_duration_min ?? 0} min</b> &middot; Difference:{" "}
+                <b>{Math.abs(diff).toFixed(1)} min</b>. Adjust mode durations to match.
+              </>
+            )}
+          {saving && <span className="text-primary"> &middot; Saving&hellip;</span>}
         </p>
       </div>
-      <div className="grid sm:grid-cols-2 gap-3">
-        {state.modes.map((m) => (
-          <div key={m.id} className="flex flex-col gap-1.5">
-            <label className={labelCls}>{m.mode_name}</label>
-            <input
-              type="number" className={inputCls} value={durations[m.id] ?? 0}
-              onChange={(e) => setDuration(m.id, Number(e.target.value))}
-            />
-          </div>
-        ))}
+
+      <div className="flex flex-col gap-3">
+        <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Mission modes</p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          {state.modes.map((m) => (
+            <div key={m.id} className="flex flex-col gap-1.5">
+              <label className={labelCls}>{m.mode_name}</label>
+              <input
+                type="number" className={inputCls} value={durations[m.id] ?? 0}
+                onChange={(e) => setDuration(m.id, Number(e.target.value))}
+              />
+            </div>
+          ))}
+        </div>
       </div>
 
       {state.components.length > 0 && (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Component</th>
-                {state.modes.map((m) => <th key={m.id} className="px-2 py-2 font-medium text-muted-foreground text-center">{m.mode_name}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {state.components.map((c) => (
-                <tr key={c.id} className="border-b border-border/50">
-                  <td className="py-2 pr-3">{c.component_name}</td>
-                  {state.modes.map((m) => (
-                    <td key={m.id} className="px-2 py-2 text-center">
-                      <input
-                        type="checkbox" checked={cells[c.id]?.[m.id] ?? false}
-                        onChange={(e) => setCell(c.id, m.id, e.target.checked)}
-                      />
-                    </td>
-                  ))}
+        <div className="flex flex-col gap-3">
+          <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">CONOPS matrix</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Component</th>
+                  {state.modes.map((m) => <th key={m.id} className="px-2 py-2 font-medium text-muted-foreground text-center">{m.mode_name}</th>)}
+                  <th className="px-2 py-2 font-medium text-muted-foreground text-center">Active time</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {state.components.map((c) => (
+                  <tr key={c.id} className="border-b border-border/50">
+                    <td className="py-2.5 pr-3">
+                      <div className="flex items-center gap-2.5">
+                        {c.image_url
+                          ? <img src={c.image_url} alt="" className="size-8 rounded-lg object-cover shrink-0 ring-1 ring-border" />
+                          : (
+                            <div className="size-8 rounded-lg shrink-0 ring-1 ring-border bg-muted flex items-center justify-center">
+                              <Box className="size-4 text-muted-foreground" strokeWidth={1.5} />
+                            </div>
+                          )}
+                        <div className="flex flex-col gap-0.5">
+                          <span className="font-medium">{c.component_name}</span>
+                          <span className="w-fit px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-primary/10 text-primary">
+                            {c.subsystem}
+                          </span>
+                        </div>
+                      </div>
+                    </td>
+                    {state.modes.map((m) => {
+                      const on = cells[c.id]?.[m.id] ?? false;
+                      return (
+                        <td key={m.id} className="px-2 py-2 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setCell(c.id, m.id, !on)}
+                            className={`px-3 py-1 rounded-full text-[11px] font-bold tracking-wide transition-colors ${
+                              on ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground hover:bg-muted/70"
+                            }`}
+                          >
+                            {on ? "ON" : "OFF"}
+                          </button>
+                        </td>
+                      );
+                    })}
+                    <td className="px-2 py-2 text-center">
+                      <span className="px-2.5 py-1 rounded-full bg-primary/10 text-primary text-[11px] font-bold">
+                        {activeMinutes(c.id).toFixed(1)} min
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
