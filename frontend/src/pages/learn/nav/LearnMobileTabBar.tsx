@@ -23,7 +23,7 @@ export function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
   const myProgram = checklists?.[0] ?? null;
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 flex flex-col md:hidden border-t border-border bg-background/95 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+    <nav className="fixed inset-x-0 bottom-0 z-30 flex flex-col md:hidden border-t border-border bg-background/95 backdrop-blur-xl pb-[env(safe-area-inset-bottom)] print:hidden">
       <div className="flex items-stretch">
         {MOBILE_TAB_ITEMS.map((key) => {
           const item = NAV_ITEMS.find((navItem) => navItem.key === key)!;

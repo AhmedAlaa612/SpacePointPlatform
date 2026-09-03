@@ -52,8 +52,13 @@ export function LearnShell() {
           a page renders (a hero image, a horizontally-scrolling row)
           refuses to shrink to the available width and blows out the
           whole layout instead of clipping/scrolling inside itself,
-          which is what produced the page-wide horizontal scrollbar. */}
-      <main className="flex-1 min-w-0 pb-28 md:pb-0 md:ml-64">
+          which is what produced the page-wide horizontal scrollbar.
+          print:ml-0/pb-0 to match the sidebar/tab bar going print:hidden
+          below — a page's own "Print report" button (e.g. the design
+          mission's Report tab) should print just that content, not the
+          shell chrome around it, which a fixed-position "cover it on
+          screen" trick doesn't reliably keep off the printed page. */}
+      <main className="flex-1 min-w-0 pb-28 md:pb-0 md:ml-64 print:ml-0 print:pb-0">
         <Outlet />
       </main>
     </div>

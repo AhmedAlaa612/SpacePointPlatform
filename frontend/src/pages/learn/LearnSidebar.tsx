@@ -32,7 +32,7 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
   const myProgram = checklists?.[0] ?? null;
 
   return (
-    <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-border bg-background md:flex">
+    <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-border bg-background md:flex print:hidden">
       <div className="flex h-20 shrink-0 items-center gap-2 border-b border-border px-4">
         <Link to="/learn" aria-label="SpacePoint Learn" className="flex flex-1 items-center gap-2 overflow-hidden">
           <DomainIcon className="h-11 w-auto shrink-0" />

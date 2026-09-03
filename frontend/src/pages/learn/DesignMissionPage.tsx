@@ -275,14 +275,20 @@ export default function DesignMissionPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1100px] px-5 sm:px-8 py-6 sm:py-8 flex flex-col gap-6">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+    <div className="mx-auto max-w-[1100px] px-5 sm:px-8 py-6 sm:py-8 flex flex-col gap-6 print:max-w-none print:p-0 print:gap-0">
+      {/* Everything here except MadarPhaseDrawer goes print:hidden — the
+          drawer used to visually cover the board/handbook/poster/etc. via
+          fixed positioning + a high z-index, which only ever hid them on
+          screen. Printing doesn't respect that stacking trick, so without
+          this the "Print report" button printed the whole page (board,
+          sidebar, poster) around the actual report. */}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground print:hidden">
         <Link to="/learn/missions" className="text-primary hover:opacity-80">Missions</Link>
         <ChevronRight className="size-3.5" />
         <span className="text-foreground">{state.design_name || "My CubeSat"}</span>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div className="flex flex-col gap-4">
           <div className="w-fit flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide px-3 py-1.5 rounded-md bg-primary/10 text-primary">
             <Rocket className="size-3.5" /> Design Mission &middot; {state.variant_label}
@@ -297,12 +303,16 @@ export default function DesignMissionPage() {
           </Button>
         )}
       </div>
-      {completeError && <p className="text-xs text-destructive">{completeError}</p>}
+      {completeError && <p className="text-xs text-destructive print:hidden">{completeError}</p>}
 
-      <MadarPhaseBoard state={state} visibleTabs={visibleTabs} confirmedSteps={confirmedSteps} onOpenPhase={setOpenPhase} />
+      <div className="print:hidden">
+        <MadarPhaseBoard state={state} visibleTabs={visibleTabs} confirmedSteps={confirmedSteps} onOpenPhase={setOpenPhase} />
+      </div>
 
-      <DesignHandbookDrawer handbook={handbook} />
-      <PosterTab state={state} attemptId={attemptId} onSaved={setState} />
+      <div className="print:hidden">
+        <DesignHandbookDrawer handbook={handbook} />
+        <PosterTab state={state} attemptId={attemptId} onSaved={setState} />
+      </div>
 
       <MadarPhaseDrawer
         tab={effectiveOpenPhase}
@@ -318,13 +328,15 @@ export default function DesignMissionPage() {
         onConfirm={(t) => void confirmStep(t)}
       />
 
-      <CompletionCelebration
-        open={!!celebration}
-        onOpenChange={(open) => { if (!open) setCelebration(null); }}
-        title={celebration?.title ?? ""}
-        subtitle={celebration?.subtitle ?? ""}
-        assignmentId={search.program ?? ""}
-      />
+      <div className="print:hidden">
+        <CompletionCelebration
+          open={!!celebration}
+          onOpenChange={(open) => { if (!open) setCelebration(null); }}
+          title={celebration?.title ?? ""}
+          subtitle={celebration?.subtitle ?? ""}
+          assignmentId={search.program ?? ""}
+        />
+      </div>
     </div>
   );
 }
@@ -1843,56 +1855,116 @@ export function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignSta
 export function EnergyBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
   const [capacity, setCapacity] = useState(state.battery_capacity_wh ?? 0);
   const [saving, setSaving] = useState(false);
-  const e = state.dashboard.energy;
+  const [saveError, setSaveError] = useState("");
 
-  const save = async () => {
-    setSaving(true);
-    try { onSaved(await updateDesign(attemptId, { battery_capacity_wh: Number(capacity) })); }
-    finally { setSaving(false); }
-  };
+  // Auto-saves 500ms after the last edit, same debounce every other budget
+  // tab uses — no manual "Save" button. The stat cards below were reading
+  // straight off state.dashboard.energy, which only ever changes after this
+  // round-trip settles, so typing a new capacity looked like it did nothing.
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pushCapacity = useCallback((next: number) => {
+    if (pending.current) clearTimeout(pending.current);
+    pending.current = setTimeout(async () => {
+      setSaving(true);
+      setSaveError("");
+      try {
+        onSaved(await updateDesign(attemptId, { battery_capacity_wh: next }));
+      } catch (err) {
+        setSaveError(errorDetail(err, "Couldn't save the battery capacity."));
+      } finally {
+        setSaving(false);
+      }
+    }, 500);
+  }, [attemptId, onSaved]);
+  const setCapacityValue = (next: number) => { setCapacity(next); pushCapacity(next); };
 
-  const Row = ({ label, value, ok, detail }: { label: string; value: string; ok: boolean; detail: string }) => (
-    <div className="flex flex-col gap-1 px-4 py-3 rounded-xl ring-1 ring-border">
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span className={`font-mono text-lg font-semibold ${ok ? "text-emerald-500" : "text-destructive"}`}>{value}</span>
-      <span className="text-[11px] text-muted-foreground leading-relaxed">{detail}</span>
-    </div>
-  );
+  useEffect(() => () => { if (pending.current) clearTimeout(pending.current); }, []);
+
+  // Mirrors calc_energy_budget (backend/app/services/missions/design/
+  // calculators.py) exactly, live off the current capacity value — same
+  // "live totals" pattern as every other budget tab this session.
+  // generated_power_mw/max_depth_of_discharge_pct are read-only dependencies
+  // owned by Power Budget/the variant, so those stay server-sourced.
+  const eclipseMin = state.modes.filter((m) => m.position === 3).reduce((s, m) => s + m.duration_min, 0);
+  const sunlitMin = Math.max(0, (state.orbit_duration_min ?? 0) - eclipseMin);
+  const eclipseIds = new Set(state.modes.filter((m) => m.position === 3).map((m) => m.id));
+
+  let consumed = 0, eclipseDraw = 0;
+  for (const c of state.components) {
+    const v = c.power_entry?.voltage_v ?? c.voltage_v ?? 0;
+    const i = c.power_entry?.current_ma ?? c.current_ma ?? 0;
+    const p = v * i;
+    const activeMin = state.modes.reduce((s, m) => s + (c.on_mode_ids.includes(m.id) ? m.duration_min : 0), 0);
+    consumed += (p * activeMin) / 60;
+    if (c.on_mode_ids.some((id) => eclipseIds.has(id))) eclipseDraw += (p * eclipseMin) / 60;
+  }
+
+  const generatedPowerMw = state.dashboard.power.generated_power_mw;
+  const generated = (generatedPowerMw * sunlitMin) / 60;
+  const margin = generated - consumed;
+  const energyOk = generated > 0 && margin >= 0;
+
+  const batteryMwh = (capacity || 0) * 1000;
+  const dod = batteryMwh > 0 ? (eclipseDraw / batteryMwh) * 100 : 0;
+  const maxDod = state.dashboard.energy.max_depth_of_discharge_pct;
+  const dodOk = batteryMwh > 0 && dod <= maxDod;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <Card className="p-5 flex flex-col gap-3">
         <div>
           <p className="text-base font-bold">Size the battery</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Everything still running when the spacecraft flies into Earth's shadow comes out of the
             battery. Your CONOPS says that lasts{" "}
-            <b className="text-foreground">{e.eclipse_minutes.toFixed(0)} minutes</b> of every orbit.
+            <b className="text-foreground">{eclipseMin.toFixed(0)} minutes</b> of every orbit.
           </p>
         </div>
-        <div className="flex items-end gap-3">
-          <div className="flex flex-col gap-1">
-            <label className={labelCls}>Battery capacity (Wh)</label>
-            <input type="number" step="0.1" className={`${inputCls} w-36`} value={capacity}
-              onChange={(ev) => setCapacity(Number(ev.target.value))} />
-          </div>
-          <Button size="sm" onClick={() => void save()} disabled={saving}>{saving ? "Saving..." : "Save"}</Button>
+        <div className="flex flex-col gap-1.5 max-w-[180px]">
+          <label className={labelCls}>Battery capacity (Wh)</label>
+          <input
+            type="number" step="0.1" className={inputCls} value={capacity}
+            onChange={(ev) => setCapacityValue(Number(ev.target.value))}
+          />
         </div>
+        {saving && <span className="text-xs text-primary">&middot; Saving&hellip;</span>}
+        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
       </Card>
 
-      <div className="grid sm:grid-cols-2 gap-3">
-        <Row
-          label="Energy balance per orbit"
-          value={`${e.energy_margin_mwh >= 0 ? "+" : ""}${e.energy_margin_mwh.toFixed(0)} mWh`}
-          ok={e.energy_balance_ok}
-          detail={`Generating ${e.generated_per_orbit_mwh.toFixed(0)} mWh in ${e.sunlit_minutes.toFixed(0)} min of sunlight, consuming ${e.consumed_per_orbit_mwh.toFixed(0)} mWh over the full orbit.`}
-        />
-        <Row
-          label="Depth of discharge"
-          value={`${e.depth_of_discharge_pct.toFixed(0)}%`}
-          ok={e.depth_of_discharge_ok}
-          detail={`Eclipse draws ${e.eclipse_draw_mwh.toFixed(0)} mWh from a ${(e.battery_capacity_mwh / 1000).toFixed(1)} Wh battery. This mission allows ${e.max_depth_of_discharge_pct.toFixed(0)}%.`}
-        />
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className={`rounded-2xl ring-1 px-6 py-6 flex flex-col items-center text-center gap-1.5 ${energyOk ? ALERT_TONE.success : ALERT_TONE.warning}`}>
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Energy balance / orbit</p>
+          <p className={`font-display text-5xl font-extrabold ${energyOk ? "text-emerald-500" : "text-amber-500"}`}>
+            {margin >= 0 ? "+" : ""}{margin.toFixed(0)}
+          </p>
+          <p className="text-xs text-muted-foreground">mWh</p>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+            energyOk ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+          }`}
+          >
+            {energyOk ? <><CheckCircle2 className="size-3.5" /> Balanced</> : <><AlertTriangle className="size-3.5" /> Deficit</>}
+          </span>
+          <p className="text-xs text-muted-foreground max-w-xs">
+            Generating {generated.toFixed(0)} mWh in {sunlitMin.toFixed(0)} min of sunlight, consuming {consumed.toFixed(0)} mWh over the full orbit.
+          </p>
+        </div>
+
+        <div className={`rounded-2xl ring-1 px-6 py-6 flex flex-col items-center text-center gap-1.5 ${dodOk ? ALERT_TONE.success : ALERT_TONE.warning}`}>
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Depth of discharge</p>
+          <p className={`font-display text-5xl font-extrabold ${dodOk ? "text-emerald-500" : "text-amber-500"}`}>
+            {dod.toFixed(0)}%
+          </p>
+          <p className="text-xs text-muted-foreground">of {maxDod.toFixed(0)}% allowed</p>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+            dodOk ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+          }`}
+          >
+            {dodOk ? <><CheckCircle2 className="size-3.5" /> Within limit</> : <><AlertTriangle className="size-3.5" /> Too deep</>}
+          </span>
+          <p className="text-xs text-muted-foreground max-w-xs">
+            Eclipse draws {eclipseDraw.toFixed(0)} mWh from a {capacity.toFixed(1)} Wh battery.
+          </p>
+        </div>
       </div>
 
       <Card className="p-4">
