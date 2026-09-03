@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { DesignHandbook, DesignState } from "@/api/missionsDesign";
@@ -31,6 +32,17 @@ export function MadarPhaseDrawer({
   confirmError: string;
   onConfirm: (tab: string) => void;
 }) {
+  // Now that the desktop panel is inset-0 (covers the whole page), the page
+  // scrolling behind it is no longer just hidden off to the side — it stacks
+  // a second, visually coincident scrollbar right next to the panel's own.
+  // Lock body scroll for as long as a phase is open.
+  useEffect(() => {
+    if (!tab) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [tab]);
+
   if (!tab) return null;
 
   const meta = DESIGN_TABS.find((t) => t.value === tab);

@@ -55,11 +55,11 @@ export const DESIGN_TABS: {
     blockedHint: "Add components first — the CONOPS matrix is a grid of components against modes.",
   },
   {
-    value: "data", label: "Data", step: "data_budget", needs: ["conops"],
+    value: "data", label: "Data Budget", step: "data_budget", needs: ["conops"],
     blockedHint: "Set your CONOPS first — data volume is computed from how long each component is on.",
   },
   {
-    value: "power", label: "Power", step: "power_budget", needs: ["conops"],
+    value: "power", label: "Power Budget", step: "power_budget", needs: ["conops"],
     blockedHint: "Set your CONOPS first — power draw is computed from how long each component is on.",
   },
   {
