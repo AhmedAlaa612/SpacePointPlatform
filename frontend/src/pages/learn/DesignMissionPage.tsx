@@ -2459,7 +2459,7 @@ export function CostBudgetTab({ state, attemptId, onSaved, handbook }: {
                     </div>
                   </td>
                   <td className="px-2 py-2">
-                    <div className="w-16">
+                    <div className="w-16 mx-auto">
                       <input
                         type="number" className={compactInputCls} value={rows[c.id]?.quantity ?? 1}
                         onChange={(e) => setRow(c.id, { quantity: Number(e.target.value) })}
@@ -2467,7 +2467,7 @@ export function CostBudgetTab({ state, attemptId, onSaved, handbook }: {
                     </div>
                   </td>
                   <td className="px-2 py-2">
-                    <div className="w-24">
+                    <div className="w-24 mx-auto">
                       <input
                         type="number" className={compactInputCls} value={rows[c.id]?.cost_per_unit_aed ?? 0}
                         onChange={(e) => setRow(c.id, { cost_per_unit_aed: Number(e.target.value) })}
@@ -2476,7 +2476,7 @@ export function CostBudgetTab({ state, attemptId, onSaved, handbook }: {
                   </td>
                   <td className="px-2 py-2 text-center font-mono text-sm font-bold text-primary">{rowTotal.toFixed(2)}</td>
                   <td className="px-2 py-2">
-                    <div className="w-24">
+                    <div className="w-24 mx-auto">
                       <select
                         className={compactInputCls} value={rows[c.id]?.priority ?? "Medium"}
                         onChange={(e) => setRow(c.id, { priority: e.target.value })}
@@ -2486,7 +2486,7 @@ export function CostBudgetTab({ state, attemptId, onSaved, handbook }: {
                     </div>
                   </td>
                   <td className="px-2 py-2">
-                    <div className="w-28">
+                    <div className="w-28 mx-auto">
                       <input
                         type="text" className={compactTextInputCls} value={rows[c.id]?.vendor ?? ""} placeholder="e.g. Amazon"
                         onChange={(e) => setRow(c.id, { vendor: e.target.value })}
@@ -2494,7 +2494,7 @@ export function CostBudgetTab({ state, attemptId, onSaved, handbook }: {
                     </div>
                   </td>
                   <td className="px-2 py-2">
-                    <div className="w-32">
+                    <div className="w-32 mx-auto">
                       <input
                         type="text" className={compactTextInputCls} value={rows[c.id]?.purchase_link ?? ""} placeholder="https://"
                         onChange={(e) => setRow(c.id, { purchase_link: e.target.value })}
