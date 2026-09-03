@@ -777,7 +777,15 @@ function ItemForm({
     setSessionLocation(session.effective_location_name ?? "")
   }
 
-  const isDesignMission = itemType === "mission_run" && selectedMission?.kind === "design"
+  // Falls back to `initial.mission_kind` (already known from the list this
+  // item came from) rather than only `selectedMission?.kind` — the
+  // `missions-admin-full` query can still be loading (or briefly fail) when
+  // an existing item's Save is clicked, and `selectedMission` would then be
+  // `undefined` for a mission that's actually still Design, silently
+  // wiping a correctly-set `missionStepKey` down at line ~810 below.
+  const isDesignMission = itemType === "mission_run" && (selectedMission
+    ? selectedMission.kind === "design"
+    : initial?.mission_id === missionId && initial?.mission_kind === "design")
 
   const save = async () => {
     setError("")
@@ -1113,6 +1121,17 @@ function CohortMissionsPanel({ cohortId, isStaff }: { cohortId: string; isStaff:
                 {expanded === item.id ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
                 <Rocket size={16} className="text-primary shrink-0" />
                 <span className="text-sm font-medium truncate">{item.title}</span>
+                {/* Two mission_run items can legitimately point at the same
+                    mission_id while tracking different phases of it (D1) —
+                    without this badge they're indistinguishable here, since
+                    "Steps included"/Gates below are shared per (cohort,
+                    mission) config, not per-item. Same label lookup ItemRow
+                    already uses on the Checklist tab. */}
+                {item.mission_step_key && (
+                  <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5 shrink-0">
+                    {MISSION_STEP_KEYS.find((s) => s.value === item.mission_step_key)?.label ?? item.mission_step_key}
+                  </span>
+                )}
               </button>
               <button onClick={() => setEditingId(item.id)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">
                 Edit
