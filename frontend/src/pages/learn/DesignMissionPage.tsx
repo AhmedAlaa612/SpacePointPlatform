@@ -79,6 +79,34 @@ function tabIsDone(state: DesignState, tabValue: string): boolean {
   return !!stepKey && !!state.dashboard.steps[stepKey]?.is_valid;
 }
 
+/** Per-step "I'm done here" confirmation (2026-09) — `tabIsDone` alone (e.g.
+ * "at least one component added") used to flip a step straight to "done"
+ * the moment its bare minimum was met, before the student had actually
+ * finished shopping/tuning it. Confirmation is a separate, explicit click,
+ * stored client-side (same posture as TaskDrawer's own
+ * guidelineViewedKey) — it only ever gates the *display* of "done"; the
+ * Complete button itself stays disabled until `tabIsDone` says the real
+ * requirements are met, so this can't be used to skip validation. */
+function stepConfirmedKey(attemptId: string, tabValue: string): string {
+  return `madar-step-confirmed:${attemptId}:${tabValue}`;
+}
+
+function readStepConfirmed(attemptId: string, tabValue: string): boolean {
+  try {
+    return localStorage.getItem(stepConfirmedKey(attemptId, tabValue)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markStepConfirmed(attemptId: string, tabValue: string) {
+  try {
+    localStorage.setItem(stepConfirmedKey(attemptId, tabValue), "1");
+  } catch {
+    /* no-op */
+  }
+}
+
 /** The design-mission nine-step wizard (P7-5), ported from Madar's eleven
  * HTML pages. One fetch (`DesignState`) drives every tab; each save action
  * re-fetches the whole state so the dashboard is always current — this is
@@ -105,6 +133,18 @@ export default function DesignMissionPage() {
   const [completeError, setCompleteError] = useState("");
   const [completing, setCompleting] = useState(false);
   const [handbook, setHandbook] = useState<DesignHandbook | null>(null);
+  const [confirmedSteps, setConfirmedSteps] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const t of DESIGN_TABS) {
+      if (t.value === "dashboard") continue;
+      initial[t.value] = readStepConfirmed(attemptId, t.value);
+    }
+    return initial;
+  });
+  const confirmStep = (tabValue: string) => {
+    markStepConfirmed(attemptId, tabValue);
+    setConfirmedSteps((prev) => ({ ...prev, [tabValue]: true }));
+  };
 
   // The *specific* tile the student arrived from — captured once at mount,
   // deliberately not read reactively off `search.phase`: `setTab` rewrites
@@ -193,12 +233,11 @@ export default function DesignMissionPage() {
       </div>
       {completeError && <p className="text-xs text-destructive">{completeError}</p>}
 
-      <CompletionMap state={state} visibleTabs={visibleTabs} onGoToTab={setTab} />
+      <CompletionMap state={state} visibleTabs={visibleTabs} onGoToTab={setTab} confirmedSteps={confirmedSteps} />
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="flex-wrap">
           {visibleTabs.map((t) => {
-            const step = t.step ? state.dashboard.steps[t.step] : undefined;
             // 2026-08-17 — two independent reasons a tab can be blocked:
             // a data dependency (D2: explain the order, don't enforce it —
             // still openable) or an instructor's explicit gate (a hard
@@ -213,7 +252,7 @@ export default function DesignMissionPage() {
                 <span className="flex items-center gap-1.5">
                   {t.label}
                   {blocked && <span className="text-[9px] text-amber-500">!</span>}
-                  {step?.is_valid && <CheckCircle2 className="size-3 text-emerald-500" />}
+                  {confirmedSteps[t.value] && tabIsDone(state, t.value) && <CheckCircle2 className="size-3 text-emerald-500" />}
                 </span>
               </TabsTrigger>
             );
@@ -231,6 +270,34 @@ export default function DesignMissionPage() {
         <TabsContent value="cost"><CostBudgetTab state={state} attemptId={attemptId} onSaved={setState} /></TabsContent>
         <TabsContent value="dashboard"><DashboardTab state={state} onGoToTab={setTab} /></TabsContent>
       </Tabs>
+
+      {/* An explicit "I'm done here" per step, separate from tabIsDone's own
+          bare-minimum validity check — see stepConfirmedKey's own comment.
+          Not shown for the Report tab, which is a read-only summary of the
+          other eight, not a step of its own to confirm. */}
+      {tab !== "dashboard" && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl ring-1 ring-border p-4 bg-card/60">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">
+              {confirmedSteps[tab] ? "Step confirmed" : tabIsDone(state, tab) ? "Requirements met" : "Not ready yet"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {confirmedSteps[tab]
+                ? "You've marked this step done — you can still keep editing it."
+                : tabIsDone(state, tab)
+                  ? "Confirm when you're happy with this step."
+                  : "Finish this step's requirements before confirming it."}
+            </p>
+          </div>
+          <Button
+            variant={confirmedSteps[tab] ? "outline" : "default"}
+            disabled={!tabIsDone(state, tab) || confirmedSteps[tab]}
+            onClick={() => confirmStep(tab)}
+          >
+            {confirmedSteps[tab] ? <><CheckCircle2 className="size-4" /> Completed</> : "Complete this step"}
+          </Button>
+        </div>
+      )}
 
       <DesignHandbookDrawer handbook={handbook} />
       <PosterTab state={state} attemptId={attemptId} onSaved={setState} />
@@ -1097,7 +1164,9 @@ function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignState; atte
  * saving a *failing* power budget (F11). Here a stamp is earned on the
  * step being **valid**, which is the fix that audit asked for — effort is
  * visible, but only correctness fills it in. */
-function CompletionMap({ state, visibleTabs, onGoToTab }: { state: DesignState; visibleTabs: typeof DESIGN_TABS; onGoToTab: (tab: string) => void }) {
+function CompletionMap({
+  state, visibleTabs, onGoToTab, confirmedSteps,
+}: { state: DesignState; visibleTabs: typeof DESIGN_TABS; onGoToTab: (tab: string) => void; confirmedSteps: Record<string, boolean> }) {
   const visibleStepKeys = new Set(visibleTabs.map((t) => t.step).filter((k): k is string => !!k));
   const allSteps = [
     { key: "components", label: "Components", tab: "components" },
@@ -1111,9 +1180,14 @@ function CompletionMap({ state, visibleTabs, onGoToTab }: { state: DesignState; 
     { key: "cost_budget", label: "Cost", tab: "cost" },
   ];
   // Downlink is never in visibleTabs (it's not a tab at all) — show it iff
-  // it currently counts toward all_valid for this cohort's scope.
+  // it currently counts toward all_valid for this cohort's scope. It also
+  // has no tab of its own to confirm (tab: "dashboard", the Report summary,
+  // not a real step) — stays purely validity-driven, unlike every other
+  // row here which also needs its step confirmed.
   const steps = allSteps.filter((s) => s.key === "downlink" ? state.dashboard.downlink_included : visibleStepKeys.has(s.key));
-  const earned = steps.filter((s) => state.dashboard.steps[s.key]?.is_valid).length;
+  const isDone = (s: (typeof allSteps)[number]) =>
+    s.tab === "dashboard" ? !!state.dashboard.steps[s.key]?.is_valid : confirmedSteps[s.tab] && !!state.dashboard.steps[s.key]?.is_valid;
+  const earned = steps.filter(isDone).length;
 
   return (
     <div className="flex flex-col gap-2">
@@ -1124,7 +1198,7 @@ function CompletionMap({ state, visibleTabs, onGoToTab }: { state: DesignState; 
       <div className="grid grid-cols-5 sm:grid-cols-9 gap-1.5">
         {steps.map((s) => {
           const st = state.dashboard.steps[s.key];
-          const done = st?.is_valid;
+          const done = isDone(s);
           const started = st?.has_data;
           return (
             <button
