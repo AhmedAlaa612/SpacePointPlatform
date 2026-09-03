@@ -79,28 +79,31 @@ export const DESIGN_TABS: {
   { value: "components", label: "Components", step: "components" },
   {
     value: "conops", label: "CONOPS", step: "conops", needs: ["components"],
-    blockedHint: "Add components first — the CONOPS matrix is a grid of components against modes.",
+    blockedHint: "Complete Components first — the CONOPS matrix is a grid of components against modes.",
   },
   {
     value: "data", label: "Data Budget", step: "data_budget", needs: ["conops"],
-    blockedHint: "Set your CONOPS first — data volume is computed from how long each component is on.",
+    blockedHint: "Complete CONOPS first — data volume is computed from how long each component is on.",
   },
   {
     value: "power", label: "Power Budget", step: "power_budget", needs: ["conops"],
-    blockedHint: "Set your CONOPS first — power draw is computed from how long each component is on.",
+    blockedHint: "Complete CONOPS first — power draw is computed from how long each component is on.",
   },
   {
     value: "energy", label: "Energy", step: "energy_budget", needs: ["power_budget"],
-    blockedHint: "Enter the power budget first — energy over an orbit is computed from it.",
+    blockedHint: "Complete the Power Budget first — energy over an orbit is computed from it.",
   },
-  { value: "link", label: "Link", step: "link_budget", needs: ["components"] },
+  {
+    value: "link", label: "Link", step: "link_budget", needs: ["components"],
+    blockedHint: "Complete Components first.",
+  },
   {
     value: "mass", label: "Mass", step: "mass_budget", needs: ["components"],
-    blockedHint: "Add components first.",
+    blockedHint: "Complete Components first.",
   },
   {
     value: "cost", label: "Cost", step: "cost_budget", needs: ["components"],
-    blockedHint: "Add components first.",
+    blockedHint: "Complete Components first.",
   },
   { value: "dashboard", label: "Report" },
 ];
@@ -117,14 +120,20 @@ export function tabIsDone(state: DesignState, tabValue: string): boolean {
   return !!stepKey && !!state.dashboard.steps[stepKey]?.is_valid;
 }
 
-/** Whether one design tab is soft-blocked — a data dependency
- * (`needs`, D2: explain the order, don't enforce it) or an instructor's
- * explicit gate (`step_gates`, backed by a 403 on the write endpoint).
- * Both are informational at the tile level: a blocked tile still opens,
- * same as the tab strip this replaces never actually disabled a blocked
- * tab either — only the write endpoint enforces the gate. */
+/** Whether one design tab is gated — a data dependency (`needs`) not yet
+ * *confirmed*, or an instructor's explicit gate (`step_gates`, backed by a
+ * 403 on the write endpoint). Steps gate each other (2026-09): `needs`
+ * requires the prerequisite step to be in `state.confirmed_steps`, the same
+ * "done, not just started" bar the checklist's own `compute_lock_states`
+ * (backend/app/services/lms/program.py) uses — having *some* data in the
+ * prerequisite used to be enough to unlock the next phase, which let a
+ * half-finished CONOPS silently feed a budget tab. `MadarPhaseBoard`
+ * renders a blocked tile fully locked (inert, no click), matching the
+ * checklist board's own tile behavior; `DesignMissionPage` also closes a
+ * `?phase=` deep link straight back to the board if it names a step that's
+ * (still) blocked, so the gate holds regardless of entry point. */
 export function tabBlockInfo(state: DesignState, t: (typeof DESIGN_TABS)[number]): { blocked: boolean; hint?: string } {
-  const needsBlocked = t.needs?.some((k) => !state.dashboard.steps[k]?.has_data);
+  const needsBlocked = t.needs?.some((k) => !state.confirmed_steps.includes(k));
   const gateLocked = t.step ? state.step_gates?.[t.step] === false : false;
   return {
     blocked: !!(needsBlocked || gateLocked),
@@ -215,6 +224,15 @@ export default function DesignMissionPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // A `?phase=` deep link (a Roadmap board tile, a checklist item, a shared
+  // URL) opens a phase directly, bypassing the board's own tile click — a
+  // derived value, not an effect+setState, so a gated phase never actually
+  // renders regardless of how it was reached, without a spurious extra
+  // render or a stale URL race.
+  const openPhaseMeta = openPhase ? DESIGN_TABS.find((t) => t.value === openPhase) : undefined;
+  const openPhaseBlocked = !!(state && openPhaseMeta && tabBlockInfo(state, openPhaseMeta).blocked);
+  const effectiveOpenPhase = openPhaseBlocked ? null : openPhase;
+
   // Static for the life of the attempt — fetched once, not on every save.
   useEffect(() => { fetchDesignHandbook(attemptId).then(setHandbook).catch(() => {}); }, [attemptId]);
 
@@ -281,7 +299,7 @@ export default function DesignMissionPage() {
       <PosterTab state={state} attemptId={attemptId} onSaved={setState} />
 
       <MadarPhaseDrawer
-        tab={openPhase}
+        tab={effectiveOpenPhase}
         state={state}
         attemptId={attemptId}
         handbook={handbook}
