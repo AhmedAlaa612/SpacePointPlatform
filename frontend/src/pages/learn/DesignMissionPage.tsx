@@ -2016,7 +2016,7 @@ export function MassBudgetTab({ state, attemptId, onSaved, handbook }: {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="grid lg:grid-cols-2 gap-5 items-start">
+      <div className="grid lg:grid-cols-[340px_1fr] gap-5 items-start">
         {/* Left column */}
         <div className="flex flex-col gap-5">
           <Card className="p-5 flex flex-col gap-3">
