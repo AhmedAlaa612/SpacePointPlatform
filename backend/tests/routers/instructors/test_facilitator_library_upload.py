@@ -56,12 +56,15 @@ async def test_video_upload_round_trips_as_a_file_resource(client, db):
 
 
 @pytest.mark.asyncio
-async def test_upload_rejects_an_oversized_file(client, db):
+async def test_upload_rejects_an_oversized_file(client, db, monkeypatch):
+    import app.routers.instructors.facilitator as facilitator_router
+    monkeypatch.setattr(facilitator_router, "MAX_LIBRARY_FILE_BYTES", 10)
+
     facilitator = await _facilitator(db)
     module = await _module(db)
     await db.commit()
 
-    too_big = b"x" * (500 * 1024 * 1024 + 1)
+    too_big = b"x" * 11
     resp = await client.post(
         f"/instructors/facilitator/library?module_id={module.id}&title=Huge",
         headers=_headers(facilitator),
@@ -71,7 +74,7 @@ async def test_upload_rejects_an_oversized_file(client, db):
 
 
 @pytest.mark.asyncio
-async def test_replace_file_also_rejects_an_oversized_file(client, db):
+async def test_replace_file_also_rejects_an_oversized_file(client, db, monkeypatch):
     facilitator = await _facilitator(db)
     module = await _module(db)
     await db.commit()
@@ -84,7 +87,10 @@ async def test_replace_file_also_rejects_an_oversized_file(client, db):
     assert created.status_code == 201, created.text
     resource_id = created.json()["id"]
 
-    too_big = b"x" * (500 * 1024 * 1024 + 1)
+    import app.routers.instructors.facilitator as facilitator_router
+    monkeypatch.setattr(facilitator_router, "MAX_LIBRARY_FILE_BYTES", 10)
+
+    too_big = b"x" * 11
     resp = await client.put(
         f"/instructors/facilitator/library/{resource_id}/file",
         headers=_headers(facilitator),

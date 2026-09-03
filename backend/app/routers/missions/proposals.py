@@ -36,7 +36,7 @@ from app.services.missions.proposals import review_proposal, submit_proposal
 router = APIRouter(prefix="/missions/proposals", tags=["missions-proposals"])
 
 ZIP_BUCKET = "mission-proposals"
-MAX_ZIP_BYTES = 50 * 1024 * 1024  # 50MB — a small mission prototype, not a full asset pipeline
+MAX_ZIP_BYTES = 4 * 1024 * 1024 * 1024  # 4GB — platform-wide upload cap
 
 
 async def _proposal_out(db: AsyncSession, proposal: MissionProposal) -> MissionProposalOut:

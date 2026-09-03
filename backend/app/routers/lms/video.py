@@ -39,7 +39,7 @@ from app.workers.settings import get_arq_redis, safe_enqueue
 router = APIRouter(tags=["lms-video"])
 
 VIDEO_SOURCE_BUCKET = "lms-video-sources"
-MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024  # 2GB ceiling (§8 Q7, closed)
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024 * 1024  # 4GB ceiling (was 2GB per §8 Q7; raised to match platform-wide 4GB cap)
 # Must cover the longest lecture plus a mid-lesson pause — see create_video_token.
 # Passed to create_video_token explicitly rather than relying on its default:
 # this constant is what the client is *told* the expiry is, so if the two drift

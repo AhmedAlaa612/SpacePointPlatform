@@ -179,8 +179,11 @@ slower than this list):
   transcoding/publish status not tracked here — check `/lms-authoring/courses` directly.
 - `client_max_body_size 50m` in nginx will `413` a video upload attempted through the browser
   authoring UI (the bulk-import scripts are unaffected — they default to
-  `http://localhost:8000`, bypassing nginx entirely when run on the VPS itself). Flagged, not yet
-  raised — worth bumping to `2G`.
+  `http://localhost:8000`, bypassing nginx entirely when run on the VPS itself). **Action
+  required on the VPS itself** (this file isn't tracked in-repo): bump this to `client_max_body_size
+  4g;` to match the app-level uploads, which were all raised to a 4GB ceiling
+  (`MAX_LIBRARY_FILE_BYTES`, `MAX_UPLOAD_BYTES`, `MAX_IMAGE_BYTES`, `MAX_ATTACHMENT_BYTES`,
+  `MAX_ZIP_BYTES`) — otherwise nginx still 413s large uploads before they reach the app.
 - HTTP/2 not confirmed enabled (`listen 443 ssl;` vs `listen 443 ssl http2;` on nginx 1.24).
 
 ---

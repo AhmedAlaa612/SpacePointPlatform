@@ -108,7 +108,7 @@ router = APIRouter(prefix="/facilitator", tags=["instructors-facilitator"])
 # purely a fail-fast guard so a stray multi-GB file 413s immediately rather
 # than getting read fully into memory first. Not a real ceiling on video
 # length; just big enough for a typical workshop recording.
-MAX_LIBRARY_FILE_BYTES = 500 * 1024 * 1024  # 500MB
+MAX_LIBRARY_FILE_BYTES = 4 * 1024 * 1024 * 1024  # 4GB
 
 # Reuses the training_modules/training_videos/library_modules/library_resources
 # models from the instructor portal (3.3) — this is purely the write side,
