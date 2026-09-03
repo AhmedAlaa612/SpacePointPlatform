@@ -74,7 +74,7 @@ export function MadarPhaseDrawer({
   // own, matching the backend's own exclusion of "report" from
   // CONFIRMABLE_STEP_KEYS (routers/missions/design.py).
   const footer = !isDashboard && (
-    <div className="shrink-0 pt-3 flex flex-col items-center gap-2 border-t border-border bg-card">
+    <div className="shrink-0 pt-2 flex flex-col items-center gap-1.5 border-t border-border bg-card">
       {confirmError && <p className="text-xs text-destructive text-center">{confirmError}</p>}
       <Button
         variant={confirmed ? "outline" : "default"}
@@ -98,12 +98,12 @@ export function MadarPhaseDrawer({
           phase — only the phase's own content scrolls between them, so the
           CTA stays put (sticky) instead of scrolling out of reach on a
           long tab. */}
-      <div className="hidden md:flex fixed inset-y-0 right-0 left-64 z-50 flex-col bg-card px-8 pt-8 pb-5 gap-4 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)]">
+      <div className="hidden md:flex fixed inset-y-0 right-0 left-64 z-50 flex-col bg-card px-8 pt-8 pb-3 gap-3 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)]">
         {header}
         <div className="flex-1 min-h-0 overflow-y-auto">{content}</div>
         {footer}
       </div>
-      <div className="md:hidden fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] bg-card px-5 pt-3 pb-4 gap-3 max-h-[86vh]">
+      <div className="md:hidden fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[22px] bg-card px-5 pt-3 pb-3 gap-2.5 max-h-[86vh]">
         <div className="mx-auto h-1.5 w-12 rounded-full bg-border shrink-0" />
         {header}
         <div className="flex-1 min-h-0 overflow-y-auto">{content}</div>
