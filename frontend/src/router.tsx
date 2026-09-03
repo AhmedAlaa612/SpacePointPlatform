@@ -880,10 +880,13 @@ const learnSetPasswordRoute = createRoute({
 });
 
 // A program student's real "home" is their latest program board, not this
-// dashboard — redirects on every visit to `/learn` (typed URL, refresh, the
-// sidebar/tab-bar Home link, all of it), same target resolveLearnLanding
-// already computes for the post-login/signup landing. Reuses that helper
-// rather than re-deriving "does this student have a program" here.
+// dashboard — redirects on every fresh visit to bare `/learn` (typed URL,
+// refresh, a bookmark), same target resolveLearnLanding already computes
+// for the post-login/signup landing. Reuses that helper rather than
+// re-deriving "does this student have a program" here. Deliberately does
+// NOT cover the sidebar/tab-bar Home link — that points at `learnHomeRoute`
+// below instead, precisely so clicking Home always shows the general
+// dashboard rather than bouncing a program student back to their board.
 const learnLandingRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/",
@@ -892,6 +895,16 @@ const learnLandingRoute = createRoute({
     const target = await resolveLearnLanding();
     if (target !== "/learn") throw redirect({ to: target });
   },
+});
+
+// The Home icon's actual target (LearnSidebar.tsx/LearnMobileTabBar.tsx) —
+// same `LearnLanding` component as bare `/learn`, but with no redirect, so
+// clicking Home is a reliable way back to the general dashboard regardless
+// of whether the student has a program.
+const learnHomeRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/home",
+  component: LearnLanding,
 });
 
 const learnCatalogRoute = createRoute({
@@ -1088,7 +1101,7 @@ const routeTree = rootRoute.addChildren([
   learnSignupRoute,
   learnSetPasswordRoute,
   learnLayoutRoute.addChildren([
-    learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
+    learnLandingRoute, learnHomeRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
     learnCheckoutSuccessRoute,
     learnPathsRoute, learnPathRoute, learnChecklistsRoute, learnChecklistRoute,
     learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,

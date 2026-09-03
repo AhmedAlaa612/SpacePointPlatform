@@ -34,7 +34,7 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
   return (
     <aside className="fixed inset-y-0 left-0 z-20 hidden w-64 flex-col border-r border-border bg-background md:flex print:hidden">
       <div className="flex h-20 shrink-0 items-center gap-2 border-b border-border px-4">
-        <Link to="/learn" aria-label="SpacePoint Learn" className="flex flex-1 items-center gap-2 overflow-hidden">
+        <Link to="/learn/home" aria-label="SpacePoint Learn" className="flex flex-1 items-center gap-2 overflow-hidden">
           <DomainIcon className="h-11 w-auto shrink-0" />
         </Link>
         <Link
@@ -74,9 +74,10 @@ export function LearnSidebar({ active }: { active: LearnNavActive }) {
           `overflow-y-auto` container (unreliable when content is short). */}
       <div className="shrink-0 flex flex-col gap-3 px-4 pb-6 pt-3">
         {/* The way back to "your" program once a tile has already sent you
-            off to Madar/a course/wherever (2026-09) — landing on /learn
-            drops a student with a program straight onto its board, but
-            clicking Home afterwards goes back to the normal dashboard, so
+            off to Madar/a course/wherever (2026-09) — a fresh visit to bare
+            /learn drops a student with a program straight onto its board,
+            but clicking Home (which goes to /learn/home, a plain route with
+            no such redirect) always shows the normal dashboard instead, so
             this is the persistent quick-return the client asked for. */}
         {myProgram && (
           <Link

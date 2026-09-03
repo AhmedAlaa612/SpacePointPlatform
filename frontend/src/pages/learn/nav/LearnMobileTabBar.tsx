@@ -68,7 +68,7 @@ export function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
             </Link>
           )}
           <Link
-            to="/learn"
+            to="/learn/home"
             aria-label="Home"
             className={cn(
               "rounded-xl p-2.5 transition-colors hover:bg-foreground/5 hover:text-foreground",
