@@ -76,7 +76,7 @@ export function MadarPhaseDrawer({
       {tab === "energy" && <EnergyBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} />}
       {tab === "link" && <LinkBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} />}
       {tab === "mass" && <MassBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} handbook={handbook} />}
-      {tab === "cost" && <CostBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} />}
+      {tab === "cost" && <CostBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} handbook={handbook} />}
       {isDashboard && <DashboardTab state={state} onGoToTab={onGoToTab} />}
     </>
   );

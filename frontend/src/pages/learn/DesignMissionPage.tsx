@@ -66,6 +66,12 @@ const inputCls = "h-12 px-4 border border-border bg-card text-foreground rounded
  * that; also drops the native spin buttons, which eat width a 2-3 digit
  * cell can't spare. */
 const compactInputCls = "h-10 px-2 border border-border bg-card text-foreground rounded-xl text-sm text-center focus:outline-none focus:border-primary transition-colors w-full [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
+/** Same idea as compactInputCls, for a left-aligned text cell (vendor name,
+ * a URL) rather than a centered number — a separate constant rather than
+ * compactInputCls + "text-left" appended, for the same reason compactInputCls
+ * itself exists: two conflicting single-class utilities for one CSS property
+ * in one class list isn't reliably resolved by source order. */
+const compactTextInputCls = "h-10 px-2 border border-border bg-card text-foreground rounded-xl text-sm text-left focus:outline-none focus:border-primary transition-colors w-full";
 const labelCls = "text-sm font-semibold uppercase tracking-wide text-muted-foreground";
 
 /** The nine steps, with the dependency between them made visible (D2:
@@ -2293,36 +2299,262 @@ export function MassBudgetTab({ state, attemptId, onSaved, handbook }: {
   );
 }
 
-export function CostBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
+export function CostBudgetTab({ state, attemptId, onSaved, handbook }: {
+  state: DesignState; attemptId: string; onSaved: (s: DesignState) => void; handbook: DesignHandbook | null;
+}) {
   const [rows, setRows] = useState(Object.fromEntries(state.components.map((c) => [c.id, {
     quantity: c.cost_entry?.quantity ?? c.quantity, cost_per_unit_aed: c.cost_entry?.cost_per_unit_aed ?? c.cost_per_unit_aed ?? 0,
+    priority: c.cost_entry?.priority ?? "Medium", vendor: c.cost_entry?.vendor ?? "", purchase_link: c.cost_entry?.purchase_link ?? "",
   }])));
-  const [saving, setSaving] = useState<string | null>(null);
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [saveError, setSaveError] = useState("");
+  const [notesOpen, setNotesOpen] = useState(false);
 
-  const save = async (id: string) => {
-    setSaving(id);
-    try { onSaved(await saveCostBudget(attemptId, id, rows[id])); } finally { setSaving(null); }
+  const pending = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const setRow = (id: string, patch: Partial<(typeof rows)[string]>) => {
+    const next = { ...rows[id], ...patch };
+    setRows((p) => ({ ...p, [id]: next }));
+    if (pending.current[id]) clearTimeout(pending.current[id]);
+    pending.current[id] = setTimeout(async () => {
+      setSavingIds((s) => new Set(s).add(id));
+      setSaveError("");
+      try {
+        onSaved(await saveCostBudget(attemptId, id, next));
+      } catch (err) {
+        setSaveError(errorDetail(err, "Couldn't save the cost budget."));
+      } finally {
+        setSavingIds((s) => { const n = new Set(s); n.delete(id); return n; });
+      }
+    }, 500);
   };
 
+  useEffect(() => () => { Object.values(pending.current).forEach(clearTimeout); }, []);
+
+  if (state.components.length === 0) {
+    return (
+      <Card className="p-5">
+        <p className="text-sm text-muted-foreground">Add components first — the cost budget is computed from what you pick.</p>
+      </Card>
+    );
+  }
+
+  // Mirrors calc_cost_budget (backend/app/services/missions/design/calculators.py)
+  // exactly, live off the current row values.
+  const costRows = state.components.map((c) => {
+    const r = rows[c.id];
+    const quantity = r?.quantity ?? 1;
+    const costPerUnit = r?.cost_per_unit_aed ?? 0;
+    return { component: c, totalCost: costPerUnit * quantity };
+  });
+  const totalCost = costRows.reduce((s, r) => s + r.totalCost, 0);
+  const maxBudget = state.dashboard.cost.maximum_budget_aed;
+  const margin = maxBudget - totalCost;
+  const mostExpensive = costRows.reduce<(typeof costRows)[number] | null>(
+    (top, r) => (!top || r.totalCost > top.totalCost ? r : top), null,
+  );
+
+  const bySubsystem = Object.entries(
+    costRows.reduce<Record<string, number>>((acc, r) => {
+      acc[r.component.subsystem] = (acc[r.component.subsystem] ?? 0) + r.totalCost;
+      return acc;
+    }, {}),
+  ).map(([subsystem, value], i) => ({ subsystem, value, color: CHART_COLORS[i % CHART_COLORS.length] }));
+
+  const topComponents = [...costRows]
+    .sort((a, b) => b.totalCost - a.totalCost)
+    .slice(0, 6)
+    .map((r) => ({ name: r.component.component_name, value: r.totalCost }));
+
+  // Real, already-authored content (content.py's BUDGETS), not invented copy.
+  const costBudgetNote = handbook?.budgets.find((b) => b.key === "cost_budget");
+
   return (
-    <Card className="p-5 flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-4 text-sm">
-        <p>Total cost: <b>{state.dashboard.cost.total_cost_aed.toFixed(0)} AED</b></p>
-        <p>Budget margin: <b className={state.dashboard.cost.cost_margin_aed >= 0 ? "text-emerald-500" : "text-destructive"}>{state.dashboard.cost.cost_margin_aed.toFixed(0)} AED</b> of {state.dashboard.cost.maximum_budget_aed} AED</p>
-      </div>
-      {state.components.map((c) => (
-        <div key={c.id} className="flex flex-wrap items-end gap-3 p-3 rounded-xl ring-1 ring-border">
-          <div className="text-sm font-medium min-w-[140px]">{c.component_name}</div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>Qty</label>
-            <input type="number" className={`${inputCls} w-24`} value={rows[c.id]?.quantity ?? 1}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], quantity: Number(e.target.value) } }))} /></div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>Cost/unit (AED)</label>
-            <input type="number" className={inputCls} value={rows[c.id]?.cost_per_unit_aed ?? 0}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], cost_per_unit_aed: Number(e.target.value) } }))} /></div>
-          <Button size="sm" onClick={() => void save(c.id)} disabled={saving === c.id}>{saving === c.id ? "..." : "Save"}</Button>
+    <div className="flex flex-col gap-5">
+      <div className="grid sm:grid-cols-4 gap-4">
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Max budget</span>
+          <span className="text-lg font-extrabold">{maxBudget.toFixed(2)} AED</span>
         </div>
-      ))}
-    </Card>
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Total cost (AED)</span>
+          <span className="text-lg font-extrabold">{totalCost.toFixed(2)} AED</span>
+        </div>
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Cost margin (AED)</span>
+          <span className={`text-lg font-extrabold ${margin >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+            {margin < 0 ? "-" : ""}{Math.abs(margin).toFixed(2)} AED
+          </span>
+        </div>
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Most expensive part</span>
+          {mostExpensive ? (
+            <>
+              <span className="text-sm font-bold truncate">{mostExpensive.component.component_name}</span>
+              <span className="text-sm font-extrabold text-destructive">{mostExpensive.totalCost.toFixed(2)} AED</span>
+            </>
+          ) : <span className="text-sm text-muted-foreground">&mdash;</span>}
+        </div>
+      </div>
+
+      <div className="rounded-xl ring-1 ring-border overflow-hidden">
+        <button
+          type="button" onClick={() => setNotesOpen((v) => !v)}
+          className="w-full flex items-center gap-2 px-3.5 py-2.5 hover:bg-muted/50 transition-colors text-left"
+        >
+          <FileText className="size-3.5 text-primary shrink-0" />
+          <span className="flex-1 text-xs font-bold uppercase tracking-wide text-primary">Formulas &amp; notes</span>
+          <ChevronRight className={`size-4 shrink-0 text-muted-foreground transition-transform ${notesOpen ? "rotate-90" : ""}`} />
+        </button>
+        {notesOpen && (
+          <div className="px-3.5 pb-3.5 pt-1 flex flex-col gap-1.5 border-t border-border/60 text-xs">
+            <p className="font-mono">{costBudgetNote?.formula ?? "Total Cost = Quantity × Cost/Unit"}</p>
+            <p className="font-mono">Cost Margin = Max Budget &minus; Total Cost</p>
+            {costBudgetNote?.why_it_matters && <p className="text-muted-foreground leading-relaxed mt-1">{costBudgetNote.why_it_matters}</p>}
+          </div>
+        )}
+      </div>
+
+      <Card className="p-5 flex flex-col gap-4">
+        <p className="text-sm font-bold uppercase tracking-wider text-primary">Cost budget table</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Component</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Qty</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Cost/unit (AED)</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Total (AED)</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Priority</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Vendor</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Link</th>
+              </tr>
+            </thead>
+            <tbody>
+              {costRows.map(({ component: c, totalCost: rowTotal }) => (
+                <tr key={c.id} className="border-b border-border/50">
+                  <td className="py-2.5 pr-3">
+                    <div className="flex items-center gap-2.5">
+                      {c.image_url
+                        ? <img src={c.image_url} alt="" className="size-8 rounded-lg object-cover shrink-0 ring-1 ring-border" />
+                        : (
+                          <div className="size-8 rounded-lg shrink-0 ring-1 ring-border bg-muted flex items-center justify-center">
+                            <Box className="size-4 text-muted-foreground" strokeWidth={1.5} />
+                          </div>
+                        )}
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium">{c.component_name}</span>
+                        <span className="w-fit px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-primary/10 text-primary">
+                          {c.subsystem}
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-2 py-2">
+                    <div className="w-16">
+                      <input
+                        type="number" className={compactInputCls} value={rows[c.id]?.quantity ?? 1}
+                        onChange={(e) => setRow(c.id, { quantity: Number(e.target.value) })}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-2 py-2">
+                    <div className="w-20">
+                      <input
+                        type="number" className={compactInputCls} value={rows[c.id]?.cost_per_unit_aed ?? 0}
+                        onChange={(e) => setRow(c.id, { cost_per_unit_aed: Number(e.target.value) })}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{rowTotal.toFixed(2)}</td>
+                  <td className="px-2 py-2">
+                    <div className="w-24">
+                      <select
+                        className={compactInputCls} value={rows[c.id]?.priority ?? "Medium"}
+                        onChange={(e) => setRow(c.id, { priority: e.target.value })}
+                      >
+                        {PRIORITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
+                  </td>
+                  <td className="px-2 py-2">
+                    <div className="w-28">
+                      <input
+                        type="text" className={compactTextInputCls} value={rows[c.id]?.vendor ?? ""} placeholder="e.g. Amazon"
+                        onChange={(e) => setRow(c.id, { vendor: e.target.value })}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-2 py-2">
+                    <div className="w-32">
+                      <input
+                        type="text" className={compactTextInputCls} value={rows[c.id]?.purchase_link ?? ""} placeholder="https://"
+                        onChange={(e) => setRow(c.id, { purchase_link: e.target.value })}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {savingIds.size > 0 && <p className="text-xs text-primary">&middot; Saving&hellip;</p>}
+        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+      </Card>
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Cost by subsystem (AED)</p>
+          {totalCost > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={bySubsystem} dataKey="value" nameKey="subsystem" innerRadius={50} outerRadius={82} paddingAngle={2}>
+                  {bySubsystem.map((d, i) => <Cell key={d.subsystem} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+        </div>
+
+        <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Used vs remaining (AED)</p>
+          {maxBudget > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie
+                  data={[{ name: "Used", value: Math.min(totalCost, maxBudget) }, { name: "Remaining", value: Math.max(0, margin) }]}
+                  dataKey="value" nameKey="name" innerRadius={50} outerRadius={82} paddingAngle={2}
+                >
+                  <Cell fill={CHART_COLORS[3]} />
+                  <Cell fill="#10b981" />
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+        </div>
+      </div>
+
+      <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+        <p className="text-sm font-bold uppercase tracking-wider text-primary">Top components by cost (AED)</p>
+        {totalCost > 0 ? (
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={topComponents} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted-foreground/20" />
+              <XAxis
+                dataKey="name" tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground"
+                tickFormatter={(v: string) => (v.length > 12 ? `${v.slice(0, 12)}…` : v)}
+              />
+              <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" />
+              <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+              <Bar dataKey="value" name="Cost" fill={CHART_COLORS[0]} radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+      </div>
+    </div>
   );
 }
 
