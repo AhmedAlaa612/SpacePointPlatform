@@ -323,15 +323,12 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
   };
 
   return (
-    <Card className="p-6 sm:p-7 flex flex-col gap-6 max-w-2xl mx-auto border border-border/80 shadow-sm">
-      <div className="flex flex-col gap-1 border-b border-border/60 pb-3">
-        <h2 className="font-display text-lg font-bold tracking-tight text-foreground">Mission Setup</h2>
-        <p className="text-xs text-muted-foreground">
-          Define your satellite's core identity, mission objective, and orbital specifications.
-        </p>
-      </div>
+    <div className="flex flex-col gap-6">
+      <p className="text-sm text-muted-foreground max-w-[70ch]">
+        Define your satellite's core identity, mission objective, and orbital specifications.
+      </p>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-2 max-w-md">
         <label className={labelCls}>Mission Name</label>
         <input
           className={`${inputCls} h-10 px-3.5`}
@@ -344,17 +341,19 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
 
       <div className="flex flex-col gap-3 border-t border-border/60 pt-5">
         <p className="text-xs font-semibold uppercase tracking-wider text-primary">Mission Objective</p>
-        {OBJECTIVE_PROMPTS.map((p) => (
-          <div key={p.key} className="flex flex-col gap-1.5">
-            <label className="text-xs text-muted-foreground">{p.label}</label>
-            <input
-              className={`${inputCls} h-10 px-3.5`}
-              value={objectives[p.key] ?? ""}
-              onChange={(e) => setObjectives((prev) => ({ ...prev, [p.key]: e.target.value }))}
-              placeholder={p.placeholder}
-            />
-          </div>
-        ))}
+        <div className="grid sm:grid-cols-2 gap-x-6 gap-y-4">
+          {OBJECTIVE_PROMPTS.map((p) => (
+            <div key={p.key} className="flex flex-col gap-1.5">
+              <label className="text-xs text-muted-foreground">{p.label}</label>
+              <input
+                className={`${inputCls} h-10 px-3.5`}
+                value={objectives[p.key] ?? ""}
+                onChange={(e) => setObjectives((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                placeholder={p.placeholder}
+              />
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="flex flex-col gap-4 border-t border-border/60 pt-5">
@@ -375,7 +374,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
           ))}
         </div>
 
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="flex flex-col gap-2">
             <label className={labelCls}>Orbit Type</label>
             <select className={`${inputCls} h-10 px-3.5 cursor-pointer`} value={orbitType} onChange={(e) => setOrbitType(e.target.value)}>
@@ -416,7 +415,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
         </div>
       </div>
 
-      <div className="flex items-center gap-3 pt-2">
+      <div className="flex items-center gap-3 border-t border-border/60 pt-5">
         <Button className="h-10 px-6 font-semibold cursor-pointer" onClick={() => void save()} disabled={saving}>
           {saving ? "Saving..." : "Save Setup"}
         </Button>
@@ -427,7 +426,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
         )}
         {saveError && <p className="text-xs text-destructive">{saveError}</p>}
       </div>
-    </Card>
+    </div>
   );
 }
 
@@ -1062,10 +1061,10 @@ export function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignStat
   };
 
   return (
-    <Card className="p-5 flex flex-col gap-4 max-w-xl">
+    <Card className="p-5 flex flex-col gap-4">
       {/* The bar, not just the score. "Margin 0.61 dB / Failed Link" with no
           stated threshold is unanswerable — you cannot tell which way to move. */}
-      <div className={`rounded-xl ring-1 px-4 py-3 flex flex-col gap-1 ${
+      <div className={`max-w-xl rounded-xl ring-1 px-4 py-3 flex flex-col gap-1 ${
         closes ? "ring-emerald-500/30 bg-emerald-500/5" : "ring-destructive/30 bg-destructive/5"}`}>
         <div className="flex items-baseline justify-between gap-2">
           <span className={`text-sm font-semibold ${closes ? "text-emerald-500" : "text-destructive"}`}>
@@ -1087,13 +1086,13 @@ export function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignStat
         </p>
       </div>
 
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1.5 max-w-xs">
         <label className={labelCls}>Band</label>
         <select className={inputCls} value={band} onChange={(e) => applyPreset(e.target.value)}>
           {Object.keys(state.band_presets).map((b) => <option key={b} value={b}>{b}</option>)}
         </select>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid sm:grid-cols-3 gap-4">
         {(Object.keys(fields) as (keyof typeof fields)[]).map((key) => (
           <div key={key} className="flex flex-col gap-1.5">
             <label className={labelCls}>{key.replace(/_/g, " ")}</label>

@@ -71,8 +71,8 @@ export function MadarPhaseDrawer({
           its own, matching the backend's own exclusion of "report" from
           CONFIRMABLE_STEP_KEYS (routers/missions/design.py). */}
       {!isDashboard && (
-        <div className="mt-auto pt-3 flex flex-col gap-2.5 border-t border-border">
-          <p className={cn("text-xs", confirmError ? "text-destructive" : "text-muted-foreground")}>
+        <div className="mt-auto pt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border">
+          <p className={cn("text-xs max-w-[46ch]", confirmError ? "text-destructive" : "text-muted-foreground")}>
             {confirmError || (confirmed
               ? "You've marked this step done — you can still keep editing it."
               : ready
@@ -83,7 +83,7 @@ export function MadarPhaseDrawer({
             variant={confirmed ? "outline" : "default"}
             disabled={!ready || confirmed || confirmingTab === tab}
             onClick={() => onConfirm(tab)}
-            className="h-12 text-base"
+            className="shrink-0"
           >
             {confirmed ? <><CheckCircle2 className="size-4" /> Completed</> : confirmingTab === tab ? "Confirming..." : "Complete this step"}
           </Button>
