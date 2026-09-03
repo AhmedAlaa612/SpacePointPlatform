@@ -8,11 +8,9 @@ import {
 } from "../DesignMissionPage";
 
 /** The side panel for one Madar phase (2026-09) — sibling of the
- * checklist's `TaskDrawer.tsx` (same scrim + fixed-panel + mobile-sheet
- * mechanics), except the desktop panel reaches `LearnSidebar`'s own left
- * nav (`left-64`, matching its own `w-64`) instead of a fixed width —
- * the boss's own ask, "opens till it touches the left sidebar". Mobile has
- * no left-nav concept (bottom tab bar instead), so it stays a full-width
+ * checklist's `TaskDrawer.tsx` (same scrim + fixed-panel mechanics), except
+ * the desktop panel covers the whole page (`inset-0`), sidebar included,
+ * instead of a fixed width — the boss's own ask. Mobile stays a full-width
  * bottom sheet, same as `TaskDrawer`'s own mobile treatment.
  *
  * Renders whichever phase's existing tab component unchanged — this panel
@@ -99,7 +97,7 @@ export function MadarPhaseDrawer({
           phase — only the phase's own content scrolls between them, so the
           CTA stays put (sticky) instead of scrolling out of reach on a
           long tab. */}
-      <div className="hidden md:flex fixed inset-y-0 right-0 left-64 z-50 flex-col bg-card px-8 pt-8 pb-3 gap-3 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)]">
+      <div className="hidden md:flex fixed inset-0 z-50 flex-col bg-card px-8 pt-8 pb-3 gap-3 shadow-[-28px_0_60px_-30px_rgba(23,17,31,0.6)]">
         {header}
         <div className="flex-1 min-h-0 overflow-y-auto">{content}</div>
         {footer}
