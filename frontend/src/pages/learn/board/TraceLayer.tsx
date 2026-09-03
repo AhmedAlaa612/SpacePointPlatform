@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import type { LmsProgramChecklistItem } from "@/api/lms";
-import { tileState } from "./roadmap";
+import type { BoardTile, TileState } from "./roadmap";
 
 /** The circuit-board "wires" between tiles — generated from measured tile
  * geometry every layout pass, never hard-coded coordinates (design spec
@@ -22,7 +21,7 @@ import { tileState } from "./roadmap";
  * surface, so most runs on a normal board end up doubled with only the
  * shortest single and the longest (row-change) triple. */
 
-const TRACE_COLOR: Record<ReturnType<typeof tileState>, string> = {
+const TRACE_COLOR: Record<TileState, string> = {
   cleared: "var(--board-trace-cleared)", live: "var(--board-trace-live)", locked: "var(--board-trace-dim)",
 };
 
@@ -132,7 +131,7 @@ export function TraceLayer({
 }: {
   containerRef: React.RefObject<HTMLDivElement | null>;
   tileRefs: React.RefObject<Map<string, HTMLDivElement>>;
-  items: LmsProgramChecklistItem[];
+  items: BoardTile[];
   isMobile: boolean;
 }) {
   const [layout, setLayout] = useState<{ runs: TraceRun[]; viewBox: string }>({ runs: [], viewBox: "0 0 1 1" });
@@ -162,7 +161,7 @@ export function TraceLayer({
         const toRect = rectOf(toEl);
         const { path, axis } = buildConnector(fromRect, toRect, isMobile);
         const strokes = strokeCountFor(fromRect, toRect);
-        const color = TRACE_COLOR[tileState(items[i])];
+        const color = TRACE_COLOR[items[i].state];
         const sameRow = !isMobile && Math.abs(toRect.centerY - fromRect.centerY) < fromRect.height * 0.6;
         const nodeAt: [number, number] = sameRow
           ? [round(toRect.centerX >= fromRect.centerX ? toRect.left : toRect.right), round(toRect.centerY)]

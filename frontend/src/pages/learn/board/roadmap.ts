@@ -12,6 +12,23 @@ import type { LmsProgramChecklistItem } from "@/api/lms";
 
 export type TileState = "cleared" | "live" | "locked";
 
+/** What `TaskTile`/`TileField`/`TraceLayer` actually need to render one
+ * tile and one wire — reduced away from `LmsProgramChecklistItem` so
+ * those three components work for any board, not just the checklist's.
+ * Madar's own phase board (`pages/learn/missions/MadarPhaseBoard.tsx`)
+ * builds this same shape from `DESIGN_TABS` instead of a checklist item —
+ * "the same wires, the same card style" for both boards means both
+ * literally render through these same three components, not two
+ * look-alike implementations. */
+export interface BoardTile {
+  id: string;
+  title: string;
+  state: TileState;
+  icon: LucideIcon;
+  optional?: boolean;
+  meta?: string | null;
+}
+
 export function itemDone(item: LmsProgramChecklistItem): boolean {
   return item.status === "done";
 }
@@ -69,7 +86,7 @@ export function stepKeyToDesignTab(stepKey: string): string {
   return map[stepKey] ?? stepKey;
 }
 
-const STEP_ICON: Record<MissionStepKey, LucideIcon> = {
+export const STEP_ICON: Record<MissionStepKey, LucideIcon> = {
   setup: Target, components: Cpu, conops: Layout, power_budget: BatteryCharging,
   energy_budget: BatteryCharging, mass_budget: Scale, data_budget: FileText,
   link_budget: Link2, cost_budget: FileText, report: ClipboardList,
@@ -95,6 +112,30 @@ export function actionLineText(state: TileState): string {
   if (state === "cleared") return "Cleared";
   if (state === "locked") return "Not powered";
   return "Start now →";
+}
+
+/** The tile's small bottom-left meta line — a Madar phase name, a
+ * deadline, or a session date, whichever applies. */
+export function tileMeta(item: LmsProgramChecklistItem): string | null {
+  if (item.item_type === "mission_run" && item.mission_step_key) {
+    return MISSION_STEP_LABELS[item.mission_step_key as MissionStepKey] ?? null;
+  }
+  if (item.deadline_at) {
+    return `Due ${new Date(item.deadline_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+  }
+  if (item.item_type === "session" && item.session_date) {
+    return new Date(item.session_date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  }
+  return item.checkpoint_label;
+}
+
+/** One checklist item, reduced to what `TileField`/`TaskTile`/`TraceLayer`
+ * actually need. */
+export function checklistItemToTile(item: LmsProgramChecklistItem): BoardTile {
+  return {
+    id: item.id, title: item.title, state: tileState(item), icon: iconForItem(item),
+    optional: item.optional, meta: tileMeta(item),
+  };
 }
 
 export type NavTarget =

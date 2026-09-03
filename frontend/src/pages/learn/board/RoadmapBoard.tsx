@@ -8,7 +8,7 @@ import { NextTaskCard } from "./NextTaskCard";
 import { TileField } from "./TileField";
 import { FinalGateBar } from "./FinalGateBar";
 import { TaskDrawer } from "./TaskDrawer";
-import { computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition } from "./roadmap";
+import { checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScrollPosition } from "./roadmap";
 
 /** `/learn/checklists/$assignmentId` — the gated visual roadmap ("the
  * board") that replaces the old flat `LearnChecklist.tsx`. Order per the
@@ -97,7 +97,11 @@ export default function RoadmapBoard() {
           <NextTaskCard item={liveItem} onStart={() => liveItem && openItemById(liveItem)} />
 
           {items.length > 0 && (
-            <TileField items={items} liveTaskId={liveTaskId} onOpenItem={openItemById} />
+            <TileField
+              items={items.map(checklistItemToTile)}
+              liveTaskId={liveTaskId}
+              onOpenItem={(tile) => setOpenItemId(tile.id)}
+            />
           )}
 
           <FinalGateBar groups={groups} allDone={pct === 100} />

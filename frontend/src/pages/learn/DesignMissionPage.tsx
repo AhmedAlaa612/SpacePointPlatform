@@ -110,7 +110,7 @@ export function tabBlockInfo(state: DesignState, t: (typeof DESIGN_TABS)[number]
  * `tabValue` (this page's tab id, e.g. "power") and the backend's step key
  * (e.g. "power_budget") differ for three renamed budgets plus "report" —
  * same map `roadmap.ts`'s `stepKeyToDesignTab` uses in the other direction. */
-function designStepKeyForTab(tabValue: string): string {
+export function designStepKeyForTab(tabValue: string): string {
   if (tabValue === "setup") return "setup";
   return DESIGN_TABS.find((t) => t.value === tabValue)?.step ?? tabValue;
 }

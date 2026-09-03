@@ -1,9 +1,9 @@
 import { useRef } from "react";
-import type { LmsProgramChecklistItem } from "@/api/lms";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
 import { TaskTile } from "./TaskTile";
 import { TraceLayer } from "./TraceLayer";
+import type { BoardTile } from "./roadmap";
 
 const DESKTOP_ROW_SIZE = 4;
 
@@ -23,9 +23,9 @@ function chunk<T>(items: T[], size: number): T[][] {
 export function TileField({
   items, liveTaskId, onOpenItem,
 }: {
-  items: LmsProgramChecklistItem[];
+  items: BoardTile[];
   liveTaskId: string | null;
-  onOpenItem: (item: LmsProgramChecklistItem) => void;
+  onOpenItem: (item: BoardTile) => void;
 }) {
   const isDesktop = useMediaQuery("(min-width: 768px)");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -59,7 +59,7 @@ export function TileField({
                   return (
                     <div key={item.id} className={cn(visualCol % 2 === 1 && "mt-4")}>
                       <TaskTile
-                        item={item}
+                        tile={item}
                         number={items.indexOf(item) + 1}
                         isPulsing={item.id === liveTaskId}
                         onOpen={() => onOpenItem(item)}
@@ -77,7 +77,7 @@ export function TileField({
           {items.map((item, index) => (
             <div key={item.id} className={cn("flex", index % 2 === 0 ? "justify-start" : "justify-end")}>
               <TaskTile
-                item={item}
+                tile={item}
                 number={index + 1}
                 isPulsing={item.id === liveTaskId}
                 onOpen={() => onOpenItem(item)}
