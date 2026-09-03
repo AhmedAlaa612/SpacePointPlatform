@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearch, useNavigate, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
-import { AlertTriangle, Box, CheckCircle2, ChevronRight, Clock, FileText, Layers, Minus, Orbit, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, Box, CheckCircle2, ChevronRight, Clock, FileText, Layers, Minus, Orbit, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle, Zap } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -1403,43 +1403,360 @@ export function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignSta
     voltage_v: c.power_entry?.voltage_v ?? c.voltage_v ?? 0, current_ma: c.power_entry?.current_ma ?? c.current_ma ?? 0,
   }])));
   const [cells, setCells] = useState(state.selected_solar_cells);
-  const [saving, setSaving] = useState<string | null>(null);
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [savingCells, setSavingCells] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
-  const save = async (id: string) => {
-    setSaving(id);
-    try { onSaved(await savePowerBudget(attemptId, id, rows[id])); } finally { setSaving(null); }
+  // Auto-saves 500ms after the last edit — same debounce as the other budget
+  // tabs, no manual per-row "Save"/"Set" buttons.
+  const pending = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const setRow = (id: string, patch: Partial<(typeof rows)[string]>) => {
+    const next = { ...rows[id], ...patch };
+    setRows((p) => ({ ...p, [id]: next }));
+    if (pending.current[id]) clearTimeout(pending.current[id]);
+    pending.current[id] = setTimeout(async () => {
+      setSavingIds((s) => new Set(s).add(id));
+      setSaveError("");
+      try {
+        onSaved(await savePowerBudget(attemptId, id, next));
+      } catch (err) {
+        setSaveError(errorDetail(err, "Couldn't save the power budget."));
+      } finally {
+        setSavingIds((s) => { const n = new Set(s); n.delete(id); return n; });
+      }
+    }, 500);
   };
-  const saveCells = async () => {
-    setSavingCells(true);
-    try { onSaved(await updateDesign(attemptId, { selected_solar_cells: cells })); } finally { setSavingCells(false); }
-  };
+  const cellsPending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pushCells = useCallback((next: number) => {
+    if (cellsPending.current) clearTimeout(cellsPending.current);
+    cellsPending.current = setTimeout(async () => {
+      setSavingCells(true);
+      setSaveError("");
+      try {
+        onSaved(await updateDesign(attemptId, { selected_solar_cells: next }));
+      } catch (err) {
+        setSaveError(errorDetail(err, "Couldn't save the solar cell count."));
+      } finally {
+        setSavingCells(false);
+      }
+    }, 500);
+  }, [attemptId, onSaved]);
+  const setCellsValue = (next: number) => { setCells(next); pushCells(next); };
+
+  useEffect(() => () => {
+    Object.values(pending.current).forEach(clearTimeout);
+    if (cellsPending.current) clearTimeout(cellsPending.current);
+  }, []);
+
+  if (state.components.length === 0) {
+    return (
+      <Card className="p-5">
+        <p className="text-sm text-muted-foreground">Add components first — the power budget is computed from what you pick.</p>
+      </Card>
+    );
+  }
+
+  // Mirrors calc_power_budget (backend/app/services/missions/design/calculators.py)
+  // exactly, over the live row/cell values — same live-total pattern already
+  // used by ConopsTab/DataBudgetTab.
+  const orbitsPerDay = state.orbits_per_day ?? 1;
+  const powerPerCell = state.dashboard.power.power_per_solar_cell_w;
+  const powerRows = state.components.map((c) => {
+    const activeMin = state.modes.reduce((sum, m) => sum + (c.on_mode_ids.includes(m.id) ? m.duration_min : 0), 0);
+    const r = rows[c.id];
+    const v = r?.voltage_v ?? 0;
+    const i = r?.current_ma ?? 0;
+    const power = v * i;
+    const energyOrbit = (power * activeMin) / 60;
+    const isActive = c.on_mode_ids.length > 0;
+    const missing = isActive && (!v || !i);
+    return { component: c, activeMin, power, energyOrbit, isActive, missing };
+  });
+  const totalPower = powerRows.reduce((s, r) => s + r.power, 0);
+  const totalEnergyOrbit = powerRows.reduce((s, r) => s + r.energyOrbit, 0);
+  const totalEnergyDay = totalEnergyOrbit * orbitsPerDay;
+  const generatedMw = cells * powerPerCell * 1000;
+  const marginMw = generatedMw - totalPower;
+  const requiredCells = totalPower > 0 && powerPerCell > 0 ? Math.ceil(totalPower / 1000 / powerPerCell) : 0;
+  const missingCount = powerRows.filter((r) => r.missing).length;
+
+  const bySubsystem = Object.entries(
+    powerRows.reduce<Record<string, number>>((acc, r) => {
+      acc[r.component.subsystem] = (acc[r.component.subsystem] ?? 0) + r.power;
+      return acc;
+    }, {}),
+  ).map(([subsystem, value], i) => ({ subsystem, value, color: CHART_COLORS[i % CHART_COLORS.length] }));
+
+  const topComponents = [...powerRows]
+    .sort((a, b) => b.energyOrbit - a.energyOrbit)
+    .slice(0, 6)
+    .map((r) => ({ name: r.component.component_name, value: r.energyOrbit }));
+
+  const consumedW = totalPower / 1000;
+  const generatedW = generatedMw / 1000;
+  const deficitW = Math.max(0, consumedW - generatedW);
 
   return (
-    <Card className="p-5 flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-4 text-sm">
-        <p>Total power: <b>{state.dashboard.power.total_power_mw.toFixed(0)} mW</b></p>
-        <p>Margin: <b className={state.dashboard.power.power_margin_mw >= 0 ? "text-emerald-500" : "text-destructive"}>{state.dashboard.power.power_margin_mw.toFixed(0)} mW</b></p>
-        <p>Required solar cells: <b>{state.dashboard.power.required_solar_cells}</b></p>
+    <div className="flex flex-col gap-5">
+      {missingCount > 0 && (
+        <div className={`flex items-start gap-3 rounded-2xl ring-1 px-5 py-4 ${ALERT_TONE.warning}`}>
+          <AlertTriangle className="size-5 shrink-0 mt-0.5 text-amber-500" />
+          <p className="text-sm leading-relaxed">
+            <b>{missingCount}</b> active component{missingCount === 1 ? "" : "s"} {missingCount === 1 ? "is" : "are"} missing voltage or
+            current values. Please fill in all inputs.
+          </p>
+        </div>
+      )}
+
+      <div className="rounded-2xl ring-1 ring-border bg-primary/5 p-5 flex flex-col gap-3">
         <div className="flex items-center gap-2">
-          <label className={labelCls}>Selected solar cells</label>
-          <input type="number" className={`${inputCls} w-24`} value={cells} onChange={(e) => setCells(Number(e.target.value))} />
-          <Button size="sm" onClick={() => void saveCells()} disabled={savingCells}>{savingCells ? "..." : "Set"}</Button>
+          <Zap className="size-4 text-primary" />
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">How power budget works</p>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-3 text-xs">
+          <p><b>Power (mW)</b> = Voltage (V) &times; Current (mA)</p>
+          <p><b>Energy/orbit (mWh)</b> = Power &times; Active time &divide; 60</p>
+          <p><b>Energy/day (mWh)</b> = Energy/orbit &times; Orbits per day</p>
+          <p><b>Required solar cells</b> = &lceil;Total power (W) &divide; Power per cell (W)&rceil;</p>
+          <p><b>Generated power (W)</b> = Selected cells &times; Power per cell</p>
+          <p><b>Power margin (W)</b> = Generated power &minus; Total consumption</p>
         </div>
       </div>
-      {state.components.map((c) => (
-        <div key={c.id} className="flex flex-wrap items-end gap-3 p-3 rounded-xl ring-1 ring-border">
-          <div className="text-sm font-medium min-w-[140px]">{c.component_name}</div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>Voltage (V)</label>
-            <input type="number" className={inputCls} value={rows[c.id]?.voltage_v ?? 0}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], voltage_v: Number(e.target.value) } }))} /></div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>Current (mA)</label>
-            <input type="number" className={inputCls} value={rows[c.id]?.current_ma ?? 0}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], current_ma: Number(e.target.value) } }))} /></div>
-          <Button size="sm" onClick={() => void save(c.id)} disabled={saving === c.id}>{saving === c.id ? "..." : "Save"}</Button>
+
+      <Card className="p-5 flex flex-col gap-4">
+        <p className="text-sm font-bold uppercase tracking-wider text-primary">EPS / power budget table</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Component</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Voltage (V)</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Current (mA)</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Power (mW)</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Status</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Active time (min)</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Energy/orbit (mWh)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {powerRows.map(({ component: c, activeMin, power, energyOrbit, missing }) => (
+                <tr key={c.id} className={`border-b border-border/50 ${missing ? "bg-amber-500/5" : ""}`}>
+                  <td className="py-2.5 pr-3">
+                    <div className="flex items-center gap-2.5">
+                      {c.image_url
+                        ? <img src={c.image_url} alt="" className="size-8 rounded-lg object-cover shrink-0 ring-1 ring-border" />
+                        : (
+                          <div className="size-8 rounded-lg shrink-0 ring-1 ring-border bg-muted flex items-center justify-center">
+                            <Box className="size-4 text-muted-foreground" strokeWidth={1.5} />
+                          </div>
+                        )}
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium">{c.component_name}</span>
+                        <span className="w-fit px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-primary/10 text-primary">
+                          {c.subsystem}
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-2 py-2">
+                    <div className="w-20">
+                      <input
+                        type="number" className={compactInputCls} value={rows[c.id]?.voltage_v ?? 0}
+                        onChange={(e) => setRow(c.id, { voltage_v: Number(e.target.value) })}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-2 py-2">
+                    <div className="w-20">
+                      <input
+                        type="number" className={compactInputCls} value={rows[c.id]?.current_ma ?? 0}
+                        onChange={(e) => setRow(c.id, { current_ma: Number(e.target.value) })}
+                      />
+                    </div>
+                  </td>
+                  <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{power.toFixed(2)}</td>
+                  <td className="px-2 py-2 text-center">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      missing ? "bg-amber-500/15 text-amber-600 dark:text-amber-400" : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                    }`}
+                    >
+                      {missing ? "Missing input" : "OK"}
+                    </span>
+                  </td>
+                  <td className="px-2 py-2 text-center font-mono text-xs text-muted-foreground">{activeMin.toFixed(1)}</td>
+                  <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{energyOrbit.toFixed(3)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      ))}
-    </Card>
+        {([...savingIds].length > 0 || savingCells) && <p className="text-xs text-primary">&middot; Saving&hellip;</p>}
+        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+      </Card>
+
+      {/* Solar panel sizing */}
+      <div className="flex flex-col gap-3">
+        <p className="text-sm font-bold uppercase tracking-wider text-primary">Solar panel sizing</p>
+        <div className="grid sm:grid-cols-3 gap-4 items-start">
+          <div className="grid grid-cols-2 gap-4 sm:col-span-1">
+            <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Power per solar cell</span>
+              <span className="text-lg font-extrabold">{powerPerCell.toFixed(1)} W</span>
+              <span className="text-[10px] text-muted-foreground">Fixed admin value</span>
+            </div>
+            <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Generated power</span>
+              <span className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400">{generatedW.toFixed(2)} W</span>
+              <span className="text-[10px] text-muted-foreground">Selected cells &times; cell power</span>
+            </div>
+            <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Total consumption</span>
+              <span className="text-lg font-extrabold">{consumedW.toFixed(3)} W</span>
+              <span className="text-[10px] text-muted-foreground">From all components</span>
+            </div>
+            <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+              <span className="text-xs text-muted-foreground">Power margin</span>
+              <span className={`text-lg font-extrabold ${marginMw >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                {marginMw >= 0 ? "+" : ""}{(marginMw / 1000).toFixed(3)} W
+              </span>
+              <span className="text-[10px] text-muted-foreground">Generated &minus; consumed</span>
+            </div>
+          </div>
+
+          <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-3 sm:col-span-2">
+            <div>
+              <p className="text-sm font-bold uppercase tracking-wider text-primary">Your solar panel design</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Enter the number of solar cells you want to include in your mission design. The system checks if it's enough to power
+                all selected components.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1.5 max-w-[200px]">
+              <label className={labelCls}>Selected number of solar cells (your design)</label>
+              <input
+                type="number" className={inputCls} value={cells}
+                onChange={(e) => setCellsValue(Number(e.target.value))}
+              />
+            </div>
+            {totalPower === 0 ? (
+              <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <Zap className="size-3.5 shrink-0" /> Enter voltage/current in the table, then choose your solar cell count.
+              </p>
+            ) : cells < requiredCells && (
+              <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                <AlertTriangle className="size-3.5 shrink-0" /> You need at least {requiredCells} cells to cover your total power draw.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Power summary */}
+      <div className="grid sm:grid-cols-5 gap-4">
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Total power (mW)</span>
+          <span className="text-lg font-extrabold">{totalPower.toFixed(1)}</span>
+        </div>
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Total power (W)</span>
+          <span className="text-lg font-extrabold">{(totalPower / 1000).toFixed(3)}</span>
+        </div>
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Energy/orbit</span>
+          <span className="text-lg font-extrabold">{totalEnergyOrbit.toFixed(2)} <span className="text-xs font-normal text-muted-foreground">mWh</span></span>
+        </div>
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Orbits/day</span>
+          <span className="text-lg font-extrabold">{orbitsPerDay.toFixed(1)}</span>
+        </div>
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Energy/day</span>
+          <span className="text-lg font-extrabold">{totalEnergyDay.toFixed(1)} <span className="text-xs font-normal text-muted-foreground">mWh</span></span>
+        </div>
+      </div>
+
+      {/* Charts */}
+      <div className="grid sm:grid-cols-3 gap-4 items-start">
+        <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Power by subsystem</p>
+          {totalPower > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={bySubsystem} dataKey="value" nameKey="subsystem" innerRadius={50} outerRadius={82} paddingAngle={2}>
+                  {bySubsystem.map((d, i) => <Cell key={d.subsystem} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+        </div>
+
+        <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Top components by energy/orbit</p>
+          {totalEnergyOrbit > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={topComponents} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted-foreground/20" />
+                <XAxis
+                  dataKey="name" tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground"
+                  tickFormatter={(v: string) => (v.length > 12 ? `${v.slice(0, 12)}…` : v)}
+                />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" />
+                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                <Bar dataKey="value" name="Energy/orbit" fill={CHART_COLORS[0]} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+        </div>
+
+        <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Generated vs consumed power</p>
+          {consumedW > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie
+                  data={[{ name: "Consumed", value: consumedW }, { name: "Deficit", value: deficitW || 0.0001 }]}
+                  dataKey="value" nameKey="name" innerRadius={50} outerRadius={82} paddingAngle={2}
+                >
+                  <Cell fill={CHART_COLORS[3]} />
+                  <Cell fill="hsl(var(--muted-foreground))" />
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+        </div>
+      </div>
+
+      <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-3">
+        <p className="text-sm font-bold uppercase tracking-wider text-primary">Power by subsystem (mW)</p>
+        {bySubsystem.length > 0 ? (
+          <div className="flex flex-col gap-3">
+            {bySubsystem.map((d) => (
+              <div key={d.subsystem} className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span
+                    className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide"
+                    style={{ background: `${d.color}26`, color: d.color }}
+                  >
+                    {d.subsystem}
+                  </span>
+                  <span className="text-xs font-bold">{d.value.toFixed(1)} mW</span>
+                </div>
+                <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full rounded-full"
+                    style={{ width: `${(d.value / Math.max(...bySubsystem.map((x) => x.value), 1)) * 100}%`, background: d.color }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : <p className="text-xs text-muted-foreground">No data yet.</p>}
+      </div>
+    </div>
   );
 }
 
