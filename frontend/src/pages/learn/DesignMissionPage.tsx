@@ -1631,21 +1631,36 @@ export function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignSta
                 all selected components.
               </p>
             </div>
-            <div className="flex flex-col gap-1.5 max-w-[200px]">
+            <div className="flex flex-col gap-1.5">
               <label className={labelCls}>Selected number of solar cells (your design)</label>
-              <input
-                type="number" className={inputCls} value={cells}
-                onChange={(e) => setCellsValue(Number(e.target.value))}
-              />
+              <div className="max-w-[200px]">
+                <input
+                  type="number" className={inputCls} value={cells}
+                  onChange={(e) => setCellsValue(Number(e.target.value))}
+                />
+              </div>
             </div>
             {totalPower === 0 ? (
-              <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-                <Zap className="size-3.5 shrink-0" /> Enter voltage/current in the table, then choose your solar cell count.
-              </p>
-            ) : cells < requiredCells && (
-              <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
-                <AlertTriangle className="size-3.5 shrink-0" /> You need at least {requiredCells} cells to cover your total power draw.
-              </p>
+              <div className={`flex items-start gap-3 rounded-2xl ring-1 px-5 py-4 ${ALERT_TONE.warning}`}>
+                <AlertTriangle className="size-5 shrink-0 mt-0.5 text-amber-500" />
+                <p className="text-sm leading-relaxed">Enter voltage/current in the table, then choose your solar cell count.</p>
+              </div>
+            ) : cells < requiredCells ? (
+              <div className={`flex items-start gap-3 rounded-2xl ring-1 px-5 py-4 ${ALERT_TONE.warning}`}>
+                <AlertTriangle className="size-5 shrink-0 mt-0.5 text-amber-500" />
+                <p className="text-sm leading-relaxed">
+                  <b>Not enough power</b> &mdash; Your {cells} solar cell{cells === 1 ? "" : "s"} generate{cells === 1 ? "s" : ""} {generatedW.toFixed(2)} W,
+                  short of the {consumedW.toFixed(3)} W required. Deficit: {deficitW.toFixed(3)} W.
+                </p>
+              </div>
+            ) : (
+              <div className={`flex items-start gap-3 rounded-2xl ring-1 px-5 py-4 ${ALERT_TONE.success}`}>
+                <CheckCircle2 className="size-5 shrink-0 mt-0.5 text-emerald-500" />
+                <p className="text-sm leading-relaxed">
+                  <b>Enough power</b> &mdash; Your {cells} solar cell{cells === 1 ? "" : "s"} generate{cells === 1 ? "s" : ""} {generatedW.toFixed(2)} W,
+                  which exceeds the {consumedW.toFixed(3)} W required. Margin: +{(marginMw / 1000).toFixed(3)} W.
+                </p>
+              </div>
             )}
           </div>
         </div>
