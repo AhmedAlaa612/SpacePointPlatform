@@ -583,7 +583,7 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
           </Card>
 
           <Card className="p-5 flex flex-col gap-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Invoice</p>
+            <p className="text-sm font-bold uppercase tracking-wider text-primary">Invoice</p>
             {state.components.length > 0 && (
               <>
                 <div className="flex flex-col gap-1.5 text-xs">
@@ -845,7 +845,7 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
       </div>
 
       <div className="flex flex-col gap-3">
-        <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Mission modes</p>
+        <p className="text-sm font-bold uppercase tracking-wider text-primary">Mission modes</p>
         <div className="grid sm:grid-cols-2 gap-3">
           {state.modes.map((m) => (
             <div key={m.id} className="flex flex-col gap-1.5">
@@ -861,7 +861,7 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
 
       {state.components.length > 0 && (
         <div className="flex flex-col gap-3">
-          <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">CONOPS matrix</p>
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">CONOPS matrix</p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
@@ -920,7 +920,7 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
 
           <div className="grid sm:grid-cols-3 gap-4 items-start">
             <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-1">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">Summary</p>
+              <p className="text-sm font-bold uppercase tracking-wider text-primary mb-2">Summary</p>
               {[
                 {
                   icon: Clock, label: "Total mode duration",
@@ -951,7 +951,7 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
 
               {activeBySubsystem.length > 0 && (
                 <div className="flex flex-col gap-3 mt-3 pt-3 border-t border-border">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Active time by subsystem</p>
+                  <p className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Active time by subsystem</p>
                   <div className="flex flex-col gap-3">
                     {activeBySubsystem.map((d) => (
                       <div key={d.subsystem} className="flex flex-col gap-1.5">
@@ -975,7 +975,7 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
             </div>
 
             <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Mode duration share</p>
+              <p className="text-sm font-bold uppercase tracking-wider text-primary">Mode duration share</p>
               <ResponsiveContainer width="100%" height={260}>
                 <PieChart>
                   <Pie data={modeShareData} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={2}>
@@ -988,7 +988,7 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
             </div>
 
             <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Active time by subsystem (min)</p>
+              <p className="text-sm font-bold uppercase tracking-wider text-primary">Active time by subsystem (min)</p>
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={activeBySubsystem} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted-foreground/20" />
@@ -1491,7 +1491,7 @@ function ShareChart({ title, unit, data }: {
   return (
     <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
+        <p className="text-sm font-bold uppercase tracking-wider text-primary">{title}</p>
         <p className="text-xs font-mono text-muted-foreground">
           {total >= 1000 ? total.toLocaleString(undefined, { maximumFractionDigits: 0 }) : total.toFixed(1)} {unit}
         </p>
