@@ -425,10 +425,12 @@ async def missions_overview(db: AsyncSession) -> list[dict]:
     return rows
 
 
-# The design mission's nine steps, in the order a student walks them —
+# The design mission's eight steps, in the order a student walks them —
 # matching `CompletionMap`'s own list in DesignMissionPage.tsx exactly (2026-08-14:
 # they'd drifted — this used to be 8 keys with no "downlink" at all, so a
-# design that the workbench itself called 9/9 closed could show 7/8 here).
+# design that the workbench itself called 9/9 closed could show 7/8 here;
+# 2026-09: Energy Budget removed as a step of its own — its checks never
+# gated `all_valid` on their own merit worth the confusion it caused).
 # Named here rather than in each caller so the profile, the cohort grid and
 # the per-mission table can never disagree about what the phases are or what
 # they're called.
@@ -437,7 +439,6 @@ DESIGN_STEP_LABELS: list[tuple[str, str]] = [
     ("conops", "CONOPS"),
     ("data_budget", "Data"),
     ("power_budget", "Power"),
-    ("energy_budget", "Energy"),
     ("link_budget", "Link"),
     ("downlink", "Downlink"),
     ("mass_budget", "Mass"),
@@ -459,7 +460,6 @@ DESIGN_STEP_PREREQS: dict[str, tuple[str, ...]] = {
     "conops": (),
     "data_budget": ("components",),
     "power_budget": ("components",),
-    "energy_budget": ("power_budget",),
     "mass_budget": ("components",),
     "cost_budget": ("components",),
     "link_budget": (),

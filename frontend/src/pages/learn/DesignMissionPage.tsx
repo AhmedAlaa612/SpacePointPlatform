@@ -74,9 +74,9 @@ const compactInputCls = "h-10 px-2 border border-border bg-card text-foreground 
 const compactTextInputCls = "h-10 px-2 border border-border bg-card text-foreground rounded-xl text-sm text-left focus:outline-none focus:border-primary transition-colors w-full";
 const labelCls = "text-sm font-semibold uppercase tracking-wide text-muted-foreground";
 
-/** The nine steps, with the dependency between them made visible (D2:
+/** The eight steps, with the dependency between them made visible (D2:
  * explain the order, don't enforce it). `needs` lists the steps whose data
- * this one is computed from — CONOPS feeds four separate budgets, which is
+ * this one is computed from — CONOPS feeds three separate budgets, which is
  * the single most important thing to communicate about the sequence. */
 export const DESIGN_TABS: {
   value: string; label: string; step?: string; needs?: string[]; blockedHint?: string;
@@ -94,10 +94,6 @@ export const DESIGN_TABS: {
   {
     value: "power", label: "Power Budget", step: "power_budget", needs: ["conops"],
     blockedHint: "Complete CONOPS first — power draw is computed from how long each component is on.",
-  },
-  {
-    value: "energy", label: "Energy", step: "energy_budget", needs: ["power_budget"],
-    blockedHint: "Complete the Power Budget first — energy over an orbit is computed from it.",
   },
   {
     value: "link", label: "Link Budget", step: "link_budget", needs: ["components"],
@@ -167,7 +163,7 @@ export function designStepKeyForTab(tabValue: string): string {
   return DESIGN_TABS.find((t) => t.value === tabValue)?.step ?? tabValue;
 }
 
-/** The design-mission nine-step wizard (P7-5), ported from Madar's eleven
+/** The design-mission eight-step wizard (P7-5), ported from Madar's eleven
  * HTML pages. One fetch (`DesignState`) drives every tab; each save action
  * re-fetches the whole state so the dashboard is always current — this is
  * a workshop-scale tool, not a high-traffic one, so re-fetching the full
@@ -1840,155 +1836,6 @@ export function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignSta
           </div>
         ) : <p className="text-xs text-muted-foreground">No data yet.</p>}
       </div>
-    </div>
-  );
-}
-
-/** Energy & battery (7D-2, D4) — the step that closes F8.
- *
- * The power budget checks one instant. This checks a whole orbit, and the
- * illumination fraction it needs is already in the student's own CONOPS:
- * sunlit time is whatever they did *not* allocate to the eclipse mode. The
- * only new input is the battery, and the limit it's checked against is
- * variant-owned, not student-editable (the F4 lesson).
- */
-export function EnergyBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
-  const [capacity, setCapacity] = useState(state.battery_capacity_wh ?? 0);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
-
-  // Auto-saves 500ms after the last edit, same debounce every other budget
-  // tab uses — no manual "Save" button. The stat cards below were reading
-  // straight off state.dashboard.energy, which only ever changes after this
-  // round-trip settles, so typing a new capacity looked like it did nothing.
-  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pushCapacity = useCallback((next: number) => {
-    if (pending.current) clearTimeout(pending.current);
-    pending.current = setTimeout(async () => {
-      setSaving(true);
-      setSaveError("");
-      try {
-        onSaved(await updateDesign(attemptId, { battery_capacity_wh: next }));
-      } catch (err) {
-        setSaveError(errorDetail(err, "Couldn't save the battery capacity."));
-      } finally {
-        setSaving(false);
-      }
-    }, 500);
-  }, [attemptId, onSaved]);
-  const setCapacityValue = (next: number) => { setCapacity(next); pushCapacity(next); };
-
-  useEffect(() => () => { if (pending.current) clearTimeout(pending.current); }, []);
-
-  // Mirrors calc_energy_budget (backend/app/services/missions/design/
-  // calculators.py) exactly, live off the current capacity value — same
-  // "live totals" pattern as every other budget tab this session.
-  // generated_power_mw/max_depth_of_discharge_pct are read-only dependencies
-  // owned by Power Budget/the variant, so those stay server-sourced.
-  const eclipseMin = state.modes.filter((m) => m.position === 3).reduce((s, m) => s + m.duration_min, 0);
-  const sunlitMin = Math.max(0, (state.orbit_duration_min ?? 0) - eclipseMin);
-  const eclipseIds = new Set(state.modes.filter((m) => m.position === 3).map((m) => m.id));
-
-  let consumed = 0, eclipseDraw = 0;
-  for (const c of state.components) {
-    const v = c.power_entry?.voltage_v ?? c.voltage_v ?? 0;
-    const i = c.power_entry?.current_ma ?? c.current_ma ?? 0;
-    const p = v * i;
-    const activeMin = state.modes.reduce((s, m) => s + (c.on_mode_ids.includes(m.id) ? m.duration_min : 0), 0);
-    consumed += (p * activeMin) / 60;
-    if (c.on_mode_ids.some((id) => eclipseIds.has(id))) eclipseDraw += (p * eclipseMin) / 60;
-  }
-
-  const generatedPowerMw = state.dashboard.power.generated_power_mw;
-  const generated = (generatedPowerMw * sunlitMin) / 60;
-  const margin = generated - consumed;
-  const energyOk = generated > 0 && margin >= 0;
-
-  const batteryMwh = (capacity || 0) * 1000;
-  const dod = batteryMwh > 0 ? (eclipseDraw / batteryMwh) * 100 : 0;
-  const maxDod = state.dashboard.energy.max_depth_of_discharge_pct;
-  const dodOk = batteryMwh > 0 && dod <= maxDod;
-
-  return (
-    <div className="flex flex-col gap-5">
-      <Card className="p-5 flex flex-col gap-3">
-        <div>
-          <p className="text-base font-bold">Size the battery</p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Everything still running when the spacecraft flies into Earth's shadow comes out of the
-            battery. Your CONOPS says that lasts{" "}
-            <b className="text-foreground">{eclipseMin.toFixed(0)} minutes</b> of every orbit.
-          </p>
-        </div>
-        <div className="flex flex-col gap-1.5 max-w-[180px]">
-          <label className={labelCls}>Battery capacity (Wh)</label>
-          <input
-            type="number" step="0.1" className={inputCls} value={capacity}
-            onChange={(ev) => setCapacityValue(Number(ev.target.value))}
-          />
-        </div>
-        {saving && <span className="text-xs text-primary">&middot; Saving&hellip;</span>}
-        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
-      </Card>
-
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div className={`rounded-2xl ring-1 px-6 py-6 flex flex-col items-center text-center gap-1.5 ${energyOk ? ALERT_TONE.success : ALERT_TONE.warning}`}>
-          <p className="text-sm font-bold uppercase tracking-wider text-primary">Energy balance / orbit</p>
-          <p className={`font-display text-5xl font-extrabold ${energyOk ? "text-emerald-500" : "text-amber-500"}`}>
-            {margin >= 0 ? "+" : ""}{margin.toFixed(0)}
-          </p>
-          <p className="text-xs text-muted-foreground">mWh</p>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
-            energyOk ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-          }`}
-          >
-            {energyOk ? <><CheckCircle2 className="size-3.5" /> Balanced</> : <><AlertTriangle className="size-3.5" /> Deficit</>}
-          </span>
-          <p className="text-xs text-muted-foreground max-w-xs">
-            Generating {generated.toFixed(0)} mWh in {sunlitMin.toFixed(0)} min of sunlight, consuming {consumed.toFixed(0)} mWh over the full orbit.
-          </p>
-        </div>
-
-        {capacity > 0 ? (
-          <div className={`rounded-2xl ring-1 px-6 py-6 flex flex-col items-center text-center gap-1.5 ${dodOk ? ALERT_TONE.success : ALERT_TONE.warning}`}>
-            <p className="text-sm font-bold uppercase tracking-wider text-primary">Depth of discharge</p>
-            <p className={`font-display text-5xl font-extrabold ${dodOk ? "text-emerald-500" : "text-amber-500"}`}>
-              {dod.toFixed(0)}%
-            </p>
-            <p className="text-xs text-muted-foreground">of {maxDod.toFixed(0)}% allowed</p>
-            <span className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
-              dodOk ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-            }`}
-            >
-              {dodOk ? <><CheckCircle2 className="size-3.5" /> Within limit</> : <><AlertTriangle className="size-3.5" /> Too deep</>}
-            </span>
-            <p className="text-xs text-muted-foreground max-w-xs">
-              Eclipse draws {eclipseDraw.toFixed(0)} mWh from a {capacity.toFixed(1)} Wh battery.
-            </p>
-          </div>
-        ) : (
-          // 0% with a "Too deep" warning read as broken (a 0% reading looks
-          // fine, the pill said otherwise) — there's no reading at all until
-          // a battery is entered, which is a different thing from failing.
-          <div className="rounded-2xl ring-1 ring-border px-6 py-6 flex flex-col items-center text-center gap-1.5">
-            <p className="text-sm font-bold uppercase tracking-wider text-primary">Depth of discharge</p>
-            <p className="font-display text-5xl font-extrabold text-muted-foreground">&mdash;</p>
-            <p className="text-xs text-muted-foreground max-w-xs">
-              Enter a battery capacity above to check depth of discharge.
-            </p>
-          </div>
-        )}
-      </div>
-
-      <Card className="p-4">
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          <b className="text-foreground">Why depth of discharge is a hard limit.</b> Taking a lithium cell
-          deep every orbit — sixteen times a day, for years — wears it out long before the mission ends.
-          It is a lifetime constraint, not a survival one, which is why passing the energy balance is not
-          enough on its own. The cheapest fix is almost always turning the payload off in eclipse rather
-          than carrying a bigger battery.
-        </p>
-      </Card>
     </div>
   );
 }

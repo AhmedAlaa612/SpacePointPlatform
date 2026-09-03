@@ -51,7 +51,7 @@ type FieldGroup = "identity" | "physical" | "electrical" | "sourcing";
 const GROUPS: { key: FieldGroup; title: string; detail: string }[] = [
   { key: "identity", title: "Identity", detail: "What students see in the picker." },
   { key: "physical", title: "Physical — feeds the mass and volume budgets", detail: "Leave blank rather than guess; a blank reads as unknown, a wrong number reads as fact." },
-  { key: "electrical", title: "Electrical & data — feeds the power, energy and data budgets", detail: "Power is voltage x current, so both are needed for the component to count." },
+  { key: "electrical", title: "Electrical & data — feeds the power and data budgets", detail: "Power is voltage x current, so both are needed for the component to count." },
   { key: "sourcing", title: "Cost & sourcing", detail: "Where the numbers came from, so an instructor can check them." },
 ];
 

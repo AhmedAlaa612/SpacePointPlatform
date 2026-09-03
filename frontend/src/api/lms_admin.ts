@@ -346,7 +346,7 @@ export interface LmsProgramItem {
 }
 
 /** Mirrors the backend's MISSION_STEP_KEYS (services/lms/program.py) — the
- * nine real Madar design phases plus `setup`/`report`, whose completion is
+ * eight real Madar design phases plus `setup`/`report`, whose completion is
  * inferred rather than read off a gate/selection row. `data_budget`,
  * `link_budget` and `cost_budget` are still selectable here (Madar itself
  * still has them) even though the client asked to hide them from this
@@ -357,7 +357,6 @@ export const MISSION_STEP_KEYS: { value: string; label: string }[] = [
   { value: "components", label: "Components" },
   { value: "conops", label: "CONOPS" },
   { value: "power_budget", label: "Power budget" },
-  { value: "energy_budget", label: "Energy budget" },
   { value: "mass_budget", label: "Mass budget" },
   { value: "data_budget", label: "Data budget" },
   { value: "link_budget", label: "Link budget" },

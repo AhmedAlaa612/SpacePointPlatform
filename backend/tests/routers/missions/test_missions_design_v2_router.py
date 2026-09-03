@@ -169,8 +169,7 @@ async def test_design_state_carries_the_whole_report(db, client):
     assert dash["module_cards"] and dash["alerts"] is not None
     assert "power_by_subsystem" in dash["charts"]
     assert body["assumptions"], "F9 — say what the model simplifies"
-    # The two new steps exist and start unstarted.
-    assert dash["steps"]["energy_budget"]["has_data"] is False
+    # The derived downlink step exists and starts unstarted.
     assert dash["steps"]["downlink"]["has_data"] is False
 
 

@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { DesignHandbook, DesignState } from "@/api/missionsDesign";
 import {
   DESIGN_TABS, tabIsDone,
-  SetupTab, ComponentsTab, ConopsTab, DataBudgetTab, PowerBudgetTab, EnergyBudgetTab, LinkBudgetTab,
+  SetupTab, ComponentsTab, ConopsTab, DataBudgetTab, PowerBudgetTab, LinkBudgetTab,
   MassBudgetTab, CostBudgetTab, DashboardTab,
 } from "../DesignMissionPage";
 
@@ -73,7 +73,6 @@ export function MadarPhaseDrawer({
       {tab === "conops" && <ConopsTab state={state} attemptId={attemptId} onSaved={onSaved} />}
       {tab === "data" && <DataBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} handbook={handbook} />}
       {tab === "power" && <PowerBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} />}
-      {tab === "energy" && <EnergyBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} />}
       {tab === "link" && <LinkBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} />}
       {tab === "mass" && <MassBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} handbook={handbook} />}
       {tab === "cost" && <CostBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} handbook={handbook} />}

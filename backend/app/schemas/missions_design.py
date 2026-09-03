@@ -245,20 +245,6 @@ class LinkBudgetSummaryOut(BaseModel):
     transmit_power_dbm: float
 
 
-class EnergyBudgetSummaryOut(BaseModel):
-    sunlit_minutes: float
-    eclipse_minutes: float
-    generated_per_orbit_mwh: float
-    consumed_per_orbit_mwh: float
-    energy_margin_mwh: float
-    energy_balance_ok: bool
-    eclipse_draw_mwh: float
-    battery_capacity_mwh: float
-    depth_of_discharge_pct: float
-    max_depth_of_discharge_pct: float
-    depth_of_discharge_ok: bool
-
-
 class DownlinkBudgetSummaryOut(BaseModel):
     data_to_downlink_per_orbit_kb: float
     downlink_capacity_per_orbit_kb: float
@@ -326,7 +312,6 @@ class DashboardOut(BaseModel):
     mass: MassBudgetSummaryOut
     cost: CostBudgetSummaryOut
     link: LinkBudgetSummaryOut
-    energy: EnergyBudgetSummaryOut
     downlink: DownlinkBudgetSummaryOut
 
     # Design v2 (7D-3) — the payoff screen. Madar had all of this and the

@@ -64,31 +64,31 @@ export function tileState(item: LmsProgramChecklistItem): TileState {
 /** Every Madar design-phase key a `mission_run` item's `mission_step_key`
  * can carry — mirrors the backend's MISSION_STEP_KEYS. */
 export const MISSION_STEP_KEYS = [
-  "setup", "components", "conops", "power_budget", "energy_budget",
+  "setup", "components", "conops", "power_budget",
   "mass_budget", "data_budget", "link_budget", "cost_budget", "report",
 ] as const;
 export type MissionStepKey = (typeof MISSION_STEP_KEYS)[number];
 
 export const MISSION_STEP_LABELS: Record<MissionStepKey, string> = {
   setup: "Name the mission", components: "Components", conops: "CONOPS",
-  power_budget: "Power budget", energy_budget: "Energy budget", mass_budget: "Mass budget",
+  power_budget: "Power budget", mass_budget: "Mass budget",
   data_budget: "Data budget", link_budget: "Link budget", cost_budget: "Cost budget",
   report: "Report",
 };
 
 /** mission_step_key → DesignMissionPage's own tab `value` — the board
  * tile's deep link target (`?phase=<tab>`). Everything is 1:1 except the
- * three renamed budget tabs and `report` → `dashboard`. */
+ * renamed budget tabs and `report` → `dashboard`. */
 export function stepKeyToDesignTab(stepKey: string): string {
   const map: Record<string, string> = {
-    power_budget: "power", energy_budget: "energy", mass_budget: "mass", report: "dashboard",
+    power_budget: "power", mass_budget: "mass", report: "dashboard",
   };
   return map[stepKey] ?? stepKey;
 }
 
 export const STEP_ICON: Record<MissionStepKey, LucideIcon> = {
   setup: Target, components: Cpu, conops: Layout, power_budget: BatteryCharging,
-  energy_budget: BatteryCharging, mass_budget: Scale, data_budget: FileText,
+  mass_budget: Scale, data_budget: FileText,
   link_budget: Link2, cost_budget: FileText, report: ClipboardList,
 };
 

@@ -150,14 +150,6 @@ export interface Dashboard {
     good_threshold_db: number; weak_threshold_db: number;
     assumed_distance_km: number; transmit_power_dbm: number;
   };
-  /** Design v2 (7D-2, F8/D4) — energy over a whole orbit, and the battery. */
-  energy: {
-    sunlit_minutes: number; eclipse_minutes: number;
-    generated_per_orbit_mwh: number; consumed_per_orbit_mwh: number;
-    energy_margin_mwh: number; energy_balance_ok: boolean;
-    eclipse_draw_mwh: number; battery_capacity_mwh: number;
-    depth_of_discharge_pct: number; max_depth_of_discharge_pct: number; depth_of_discharge_ok: boolean;
-  };
   /** Design v2 (7D-2, F7) — can you actually get the data down? */
   downlink: {
     data_to_downlink_per_orbit_kb: number; downlink_capacity_per_orbit_kb: number;

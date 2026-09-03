@@ -185,12 +185,6 @@ export function DesignRunDetail({ attemptId }: { attemptId: string }) {
               ))}
             </BudgetSection>
 
-            <BudgetSection title="Energy" totals={[
-              ["Balance/orbit", `${detail.dashboard.energy.energy_margin_mwh >= 0 ? "+" : ""}${N(detail.dashboard.energy.energy_margin_mwh, 0)} mWh`],
-              ["Depth of discharge", `${N(detail.dashboard.energy.depth_of_discharge_pct, 0)}% of ${N(detail.dashboard.energy.max_depth_of_discharge_pct, 0)}% allowed`],
-              ["Eclipse", `${N(detail.dashboard.energy.eclipse_minutes, 0)} min`],
-            ]} />
-
             <BudgetSection title="Link" totals={[
               ["Status", detail.dashboard.link.status],
               ["Margin", `${N(detail.dashboard.link.margin_db, 2)} dB (need ${N(detail.dashboard.link.good_threshold_db, 1)})`],

@@ -56,14 +56,14 @@ PROGRAM_ITEM_PDF_BUCKET = "lms-attachments"
 AUTO_TRACKED_TYPES = {"course", "mission_run"}
 
 # Roadmap board (2026-09) — the vocabulary a `mission_run` item's
-# `mission_step_key` can name. Nine of these mirror
+# `mission_step_key` can name. Eight of these mirror
 # `services/lms/admin_progress.py::DESIGN_STEP_LABELS` exactly (the real
 # Madar design phases); `setup` and `report` aren't in that vocabulary —
 # they're wizard tabs with no gate/selection row of their own, so their
 # completion is inferred (see `_mission_run_item_done`) rather than read
 # off `dashboard.steps`.
 MISSION_STEP_KEYS: frozenset[str] = frozenset({
-    "setup", "components", "conops", "power_budget", "energy_budget",
+    "setup", "components", "conops", "power_budget",
     "mass_budget", "data_budget", "link_budget", "cost_budget", "report",
 })
 
