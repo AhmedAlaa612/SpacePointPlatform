@@ -922,12 +922,32 @@ export function DataBudgetTab({ state, attemptId, onSaved }: { state: DesignStat
     measurements_per_minute: c.data_entry?.measurements_per_minute ?? 0,
     storage_mode: c.data_entry?.storage_mode ?? "Stored",
   }])));
-  const [saving, setSaving] = useState<string | null>(null);
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [saveError, setSaveError] = useState("");
 
-  const save = async (id: string) => {
-    setSaving(id);
-    try { onSaved(await saveDataBudget(attemptId, id, rows[id])); } finally { setSaving(null); }
+  // Auto-saves 500ms after the last edit, same debounce SetupTab/ConopsTab
+  // already use — no separate per-row "Save" button. Each component debounces
+  // independently (keyed by id) so editing two rows back to back schedules
+  // two saves rather than one cancelling the other.
+  const pending = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const setRow = (id: string, patch: Partial<(typeof rows)[string]>) => {
+    const next = { ...rows[id], ...patch };
+    setRows((p) => ({ ...p, [id]: next }));
+    if (pending.current[id]) clearTimeout(pending.current[id]);
+    pending.current[id] = setTimeout(async () => {
+      setSavingIds((s) => new Set(s).add(id));
+      setSaveError("");
+      try {
+        onSaved(await saveDataBudget(attemptId, id, next));
+      } catch (err) {
+        setSaveError(errorDetail(err, "Couldn't save the data budget."));
+      } finally {
+        setSavingIds((s) => { const n = new Set(s); n.delete(id); return n; });
+      }
+    }, 500);
   };
+
+  useEffect(() => () => { Object.values(pending.current).forEach(clearTimeout); }, []);
 
   return (
     <Card className="p-5 flex flex-col gap-4">
@@ -936,22 +956,49 @@ export function DataBudgetTab({ state, attemptId, onSaved }: { state: DesignStat
         <p>Data/day: <b>{state.dashboard.data.total_per_day_kb.toFixed(1)} KB</b></p>
       </div>
       {state.components.map((c) => (
-        <div key={c.id} className="flex flex-wrap items-end gap-3 p-3 rounded-xl ring-1 ring-border">
-          <div className="text-sm font-medium min-w-[140px]">{c.component_name}</div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>Size/measurement (KB)</label>
-            <input type="number" className={inputCls} value={rows[c.id]?.data_size_per_measurement_kb ?? 0}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], data_size_per_measurement_kb: Number(e.target.value) } }))} /></div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>Measurements/min</label>
-            <input type="number" className={inputCls} value={rows[c.id]?.measurements_per_minute ?? 0}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], measurements_per_minute: Number(e.target.value) } }))} /></div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>Storage mode</label>
-            <select className={inputCls} value={rows[c.id]?.storage_mode ?? "Stored"}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], storage_mode: e.target.value as "Stored" | "Sent" | "Both" } }))}>
-              {["Stored", "Sent", "Both"].map((o) => <option key={o} value={o}>{o}</option>)}
-            </select></div>
-          <Button size="sm" onClick={() => void save(c.id)} disabled={saving === c.id}>{saving === c.id ? "..." : "Save"}</Button>
+        <div key={c.id} className="flex flex-col gap-3 p-4 rounded-xl ring-1 ring-border">
+          <div className="flex items-center gap-2.5">
+            {c.image_url
+              ? <img src={c.image_url} alt="" className="size-8 rounded-lg object-cover shrink-0 ring-1 ring-border" />
+              : (
+                <div className="size-8 rounded-lg shrink-0 ring-1 ring-border bg-muted flex items-center justify-center">
+                  <Box className="size-4 text-muted-foreground" strokeWidth={1.5} />
+                </div>
+              )}
+            <span className="text-sm font-medium">{c.component_name}</span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-primary/10 text-primary">
+              {c.subsystem}
+            </span>
+            {savingIds.has(c.id) && <span className="text-xs text-primary">&middot; Saving&hellip;</span>}
+          </div>
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className={labelCls}>Size/measurement (KB)</label>
+              <input
+                type="number" className={inputCls} value={rows[c.id]?.data_size_per_measurement_kb ?? 0}
+                onChange={(e) => setRow(c.id, { data_size_per_measurement_kb: Number(e.target.value) })}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className={labelCls}>Measurements/min</label>
+              <input
+                type="number" className={inputCls} value={rows[c.id]?.measurements_per_minute ?? 0}
+                onChange={(e) => setRow(c.id, { measurements_per_minute: Number(e.target.value) })}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <label className={labelCls}>Storage mode</label>
+              <select
+                className={inputCls} value={rows[c.id]?.storage_mode ?? "Stored"}
+                onChange={(e) => setRow(c.id, { storage_mode: e.target.value as "Stored" | "Sent" | "Both" })}
+              >
+                {["Stored", "Sent", "Both"].map((o) => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
         </div>
       ))}
+      {saveError && <p className="text-xs text-destructive">{saveError}</p>}
     </Card>
   );
 }
