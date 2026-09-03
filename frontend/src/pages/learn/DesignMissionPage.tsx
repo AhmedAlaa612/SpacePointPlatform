@@ -215,18 +215,18 @@ export default function DesignMissionPage() {
 
   return (
     <div className="mx-auto max-w-[1100px] px-5 sm:px-8 py-6 sm:py-8 flex flex-col gap-6">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Link to="/learn/missions" className="text-primary hover:opacity-80">Missions</Link>
-        <ChevronRight className="size-3" />
+        <ChevronRight className="size-3.5" />
         <span className="text-foreground">{state.design_name || "My CubeSat"}</span>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-2">
-          <div className="w-fit flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide px-2.5 py-1 rounded-md bg-primary/10 text-primary">
-            <Rocket className="size-3" /> Design Mission &middot; {state.variant_label}
+        <div className="flex flex-col gap-4">
+          <div className="w-fit flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide px-3 py-1.5 rounded-md bg-primary/10 text-primary">
+            <Rocket className="size-3.5" /> Design Mission &middot; {state.variant_label}
           </div>
-          <h1 className="font-display text-2xl sm:text-3xl font-extrabold tracking-tight">{state.design_name || "My CubeSat"}</h1>
+          <h1 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight leading-tight">{state.design_name || "My CubeSat"}</h1>
         </div>
         {passed ? (
           <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-500"><CheckCircle2 className="size-5" /> Complete</div>
