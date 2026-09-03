@@ -43,16 +43,16 @@ export function MadarPhaseDrawer({
   const body = (
     <>
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-bold uppercase tracking-[0.06em] text-primary truncate">
+        <div className="text-base font-extrabold uppercase tracking-[0.06em] text-primary truncate">
           Madar &middot; {meta?.label ?? "Step"}
         </div>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
-          <X size={17} />
+          <X size={22} strokeWidth={2.75} />
         </button>
       </div>
 

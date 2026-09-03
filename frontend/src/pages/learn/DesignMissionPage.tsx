@@ -340,7 +340,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
       </div>
 
       <div className="flex flex-col gap-3 border-t border-border/60 pt-5">
-        <p className="text-xs font-semibold uppercase tracking-wider text-primary">Mission Objective</p>
+        <p className="text-sm font-bold uppercase tracking-wider text-primary">Mission Objective</p>
         <div className="grid sm:grid-cols-2 gap-x-6 gap-y-4">
           {OBJECTIVE_PROMPTS.map((p) => (
             <div key={p.key} className="flex flex-col gap-1.5">
@@ -357,7 +357,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
       </div>
 
       <div className="flex flex-col gap-4 border-t border-border/60 pt-5">
-        <p className="text-xs font-semibold uppercase tracking-wider text-primary">Orbital & Satellite Specifications</p>
+        <p className="text-sm font-bold uppercase tracking-wider text-primary">Orbital & Satellite Specifications</p>
 
         <div className="flex flex-wrap gap-2">
           {(Object.keys(ORBIT_PRESETS) as (keyof typeof ORBIT_PRESETS)[]).map((preset) => (
@@ -481,7 +481,7 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
     <div className="flex flex-col gap-5">
       {error && <p className="text-xs text-destructive">{error}</p>}
       <Card className="p-5 flex flex-col gap-3">
-        <p className="text-sm font-semibold">Your components ({state.components.length})</p>
+        <p className="text-base font-bold">Your components ({state.components.length})</p>
         {state.components.length === 0 && <p className="text-xs text-muted-foreground">Add components from the library below.</p>}
         <div className="flex flex-col gap-2">
           {state.components.map((c) => (
@@ -500,7 +500,7 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
       </Card>
       <Card className="p-5 flex flex-col gap-4">
         <div>
-          <p className="text-sm font-semibold">Component library</p>
+          <p className="text-base font-bold">Component library</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Click a component to read its specs, then add it to your design. What you pick here decides
             every budget that follows.
@@ -706,7 +706,7 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
   return (
     <Card className="p-5 flex flex-col gap-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold">Mode durations must sum to the orbit period ({state.orbit_duration_min ?? 0} min)</p>
+        <p className="text-base font-bold">Mode durations must sum to the orbit period ({state.orbit_duration_min ?? 0} min)</p>
         <p className={`text-xs font-medium ${Math.abs(diff) < 0.01 ? "text-emerald-500" : "text-destructive"}`}>
           Total: {total.toFixed(1)} min ({diff >= 0 ? "+" : ""}{diff.toFixed(1)})
         </p>
@@ -875,7 +875,7 @@ export function EnergyBudgetTab({ state, attemptId, onSaved }: { state: DesignSt
     <div className="flex flex-col gap-4">
       <Card className="p-5 flex flex-col gap-3">
         <div>
-          <p className="text-sm font-semibold">Size the battery</p>
+          <p className="text-base font-bold">Size the battery</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Everything still running when the spacecraft flies into Earth's shadow comes out of the
             battery. Your CONOPS says that lasts{" "}
@@ -1229,7 +1229,7 @@ export function DashboardTab({ state, onGoToTab }: { state: DesignState; onGoToT
             ? <CheckCircle2 className="size-7 text-emerald-500 shrink-0" />
             : <XCircle className={`size-7 shrink-0 ${o.errors > 0 ? "text-destructive" : "text-muted-foreground"}`} />}
           <div>
-            <p className="text-base font-semibold">{o.label}</p>
+            <p className="text-base font-bold">{o.label}</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {o.errors} failing · {o.warnings} tight · {o.incomplete} not started
             </p>
@@ -1260,7 +1260,7 @@ export function DashboardTab({ state, onGoToTab }: { state: DesignState; onGoToT
       {/* margins — the table Madar had, with interpretations */}
       <Card className="p-5 flex flex-col gap-3">
         <div>
-          <p className="text-sm font-semibold">Margins</p>
+          <p className="text-base font-bold">Margins</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             What you have left of every resource, and what that means.
           </p>
@@ -1287,7 +1287,7 @@ export function DashboardTab({ state, onGoToTab }: { state: DesignState; onGoToT
       {d.recommendations.length > 0 && (
         <Card className="p-5 flex flex-col gap-3">
           <div>
-            <p className="text-sm font-semibold">What to change</p>
+            <p className="text-base font-bold">What to change</p>
             <p className="text-xs text-muted-foreground mt-0.5">
               These are the mistakes your numbers look like. Each one is a real trade — none of them is free.
             </p>
@@ -1337,7 +1337,7 @@ export function DashboardTab({ state, onGoToTab }: { state: DesignState; onGoToT
       {state.attempt_status === "passed" && (
         <Card className="p-5 flex flex-wrap items-center justify-between gap-3 ring-primary/30 bg-primary/5 print:hidden">
           <div className="min-w-0">
-            <p className="text-sm font-semibold">Your design report is unlocked</p>
+            <p className="text-base font-bold">Your design report is unlocked</p>
             <p className="text-xs text-muted-foreground mt-0.5 max-w-[60ch] leading-relaxed">
               Designing a spacecraft and explaining one are different skills. Export the JSON above and
               write it up — a review board reads the report, not the spreadsheet.
@@ -1365,7 +1365,7 @@ export function DashboardTab({ state, onGoToTab }: { state: DesignState; onGoToT
 
       {/* F9 */}
       <Card className="p-5 flex flex-col gap-2">
-        <p className="text-sm font-semibold">What this model simplifies</p>
+        <p className="text-base font-bold">What this model simplifies</p>
         <p className="text-xs text-muted-foreground">
           Knowing the limits of your analysis is part of knowing how to use it.
         </p>
