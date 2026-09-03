@@ -29,6 +29,15 @@ function errorDetail(err: unknown, fallback: string): string {
   return fallback;
 }
 
+/** KB -> the largest whole unit that reads naturally ("1.00 GB" rather than
+ * "1048576.00 KB") — everything in the data budget is tracked in KB, but a
+ * whole-mission storage figure in raw KB is unreadable. */
+function formatKB(kb: number): string {
+  if (kb >= 1_048_576) return `${(kb / 1_048_576).toFixed(2)} GB`;
+  if (kb >= 1024) return `${(kb / 1024).toFixed(2)} MB`;
+  return `${kb.toFixed(2)} KB`;
+}
+
 const inputCls = "h-12 px-4 border border-border bg-card text-foreground rounded-xl text-base focus:outline-none focus:border-primary transition-colors w-full";
 const labelCls = "text-sm font-semibold uppercase tracking-wide text-muted-foreground";
 
@@ -248,6 +257,7 @@ export default function DesignMissionPage() {
         tab={openPhase}
         state={state}
         attemptId={attemptId}
+        handbook={handbook}
         onClose={() => setOpenPhase(null)}
         onSaved={setState}
         onGoToTab={setOpenPhase}
@@ -1012,14 +1022,21 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
 
 // ── Budget tabs (data/power/mass/cost share the same per-component-row shape) ──
 
-export function DataBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
+const PRIORITY_OPTIONS = ["Low", "Medium", "High"];
+
+export function DataBudgetTab({ state, attemptId, onSaved, handbook }: {
+  state: DesignState; attemptId: string; onSaved: (s: DesignState) => void; handbook: DesignHandbook | null;
+}) {
   const [rows, setRows] = useState(Object.fromEntries(state.components.map((c) => [c.id, {
+    data_type: c.data_entry?.data_type ?? "",
     data_size_per_measurement_kb: c.data_entry?.data_size_per_measurement_kb ?? 0,
     measurements_per_minute: c.data_entry?.measurements_per_minute ?? 0,
+    priority: c.data_entry?.priority ?? "Medium",
     storage_mode: c.data_entry?.storage_mode ?? "Stored",
   }])));
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   const [saveError, setSaveError] = useState("");
+  const [guideOpen, setGuideOpen] = useState(false);
 
   // Auto-saves 500ms after the last edit, same debounce SetupTab/ConopsTab
   // already use — no separate per-row "Save" button. Each component debounces
@@ -1045,57 +1062,320 @@ export function DataBudgetTab({ state, attemptId, onSaved }: { state: DesignStat
 
   useEffect(() => () => { Object.values(pending.current).forEach(clearTimeout); }, []);
 
+  if (state.components.length === 0) {
+    return (
+      <Card className="p-5">
+        <p className="text-sm text-muted-foreground">Add components first — the data budget is computed from what you pick.</p>
+      </Card>
+    );
+  }
+
+  // Mirrors calc_data_budget (backend/app/services/missions/design/calculators.py)
+  // exactly, over the live (not-yet-saved) row values, so this tab reads as
+  // current as ConopsTab's own live totals instead of lagging one debounce
+  // cycle behind the server-computed `state.dashboard.data`.
+  const orbitsPerDay = state.orbits_per_day ?? 1;
+  const dataRows = state.components.map((c) => {
+    const activeMin = state.modes.reduce((sum, m) => sum + (c.on_mode_ids.includes(m.id) ? m.duration_min : 0), 0);
+    const r = rows[c.id];
+    const dpo = (r?.data_size_per_measurement_kb ?? 0) * (r?.measurements_per_minute ?? 0) * activeMin;
+    const dpd = dpo * orbitsPerDay;
+    return { component: c, activeMin, dpo, dpd, storageMode: r?.storage_mode ?? "Stored" };
+  });
+  const totalPerOrbit = dataRows.reduce((s, r) => s + r.dpo, 0);
+  const totalPerDay = dataRows.reduce((s, r) => s + r.dpd, 0);
+  const totalStored = dataRows.reduce((s, r) => s + (r.storageMode !== "Sent" ? r.dpd : 0), 0);
+  const totalSent = dataRows.reduce((s, r) => s + (r.storageMode !== "Stored" ? r.dpd : 0), 0);
+
+  const maxStorage = state.dashboard.data.max_storage_kb;
+  const requiredMargin = state.dashboard.data.required_storage_margin_kb;
+  const remaining = maxStorage - totalStored;
+  const isValid = totalStored <= maxStorage && remaining >= requiredMargin;
+
+  const bySubsystem = Object.entries(
+    dataRows.reduce<Record<string, number>>((acc, r) => {
+      acc[r.component.subsystem] = (acc[r.component.subsystem] ?? 0) + r.dpd;
+      return acc;
+    }, {}),
+  ).map(([subsystem, value], i) => ({ subsystem, value, color: CHART_COLORS[i % CHART_COLORS.length] }));
+
+  const topComponents = [...dataRows]
+    .sort((a, b) => b.dpd - a.dpd)
+    .slice(0, 6)
+    .map((r) => ({ name: r.component.component_name, value: r.dpd }));
+
   return (
-    <Card className="p-5 flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-4 text-sm">
-        <p>Storage remaining: <b>{state.dashboard.data.storage_remaining_kb.toFixed(1)} KB</b> of {state.dashboard.data.max_storage_kb.toFixed(0)} KB</p>
-        <p>Data/day: <b>{state.dashboard.data.total_per_day_kb.toFixed(1)} KB</b></p>
-      </div>
-      {state.components.map((c) => (
-        <div key={c.id} className="flex flex-col gap-3 p-4 rounded-xl ring-1 ring-border">
-          <div className="flex items-center gap-2.5">
-            {c.image_url
-              ? <img src={c.image_url} alt="" className="size-8 rounded-lg object-cover shrink-0 ring-1 ring-border" />
-              : (
-                <div className="size-8 rounded-lg shrink-0 ring-1 ring-border bg-muted flex items-center justify-center">
-                  <Box className="size-4 text-muted-foreground" strokeWidth={1.5} />
-                </div>
-              )}
-            <span className="text-sm font-medium">{c.component_name}</span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-primary/10 text-primary">
-              {c.subsystem}
-            </span>
-            {savingIds.has(c.id) && <span className="text-xs text-primary">&middot; Saving&hellip;</span>}
-          </div>
-          <div className="grid sm:grid-cols-3 gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className={labelCls}>Size/measurement (KB)</label>
-              <input
-                type="number" className={inputCls} value={rows[c.id]?.data_size_per_measurement_kb ?? 0}
-                onChange={(e) => setRow(c.id, { data_size_per_measurement_kb: Number(e.target.value) })}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className={labelCls}>Measurements/min</label>
-              <input
-                type="number" className={inputCls} value={rows[c.id]?.measurements_per_minute ?? 0}
-                onChange={(e) => setRow(c.id, { measurements_per_minute: Number(e.target.value) })}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <label className={labelCls}>Storage mode</label>
-              <select
-                className={inputCls} value={rows[c.id]?.storage_mode ?? "Stored"}
-                onChange={(e) => setRow(c.id, { storage_mode: e.target.value as "Stored" | "Sent" | "Both" })}
-              >
-                {["Stored", "Sent", "Both"].map((o) => <option key={o} value={o}>{o}</option>)}
-              </select>
-            </div>
+    <div className="flex flex-col gap-5">
+      {/* Storage constraints */}
+      <div className="grid sm:grid-cols-4 gap-4">
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Max storage</span>
+          <span className="text-lg font-extrabold">{formatKB(maxStorage)}</span>
+        </div>
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Required margin</span>
+          <span className="text-lg font-extrabold">{formatKB(requiredMargin)}</span>
+        </div>
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1.5">
+          <span className="text-xs text-muted-foreground">Stored/day</span>
+          <span className="text-lg font-extrabold">{formatKB(totalStored)}</span>
+          <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+            <div
+              className={`h-full rounded-full ${totalStored <= maxStorage ? "bg-primary" : "bg-destructive"}`}
+              style={{ width: `${Math.min(100, (totalStored / maxStorage) * 100)}%` }}
+            />
           </div>
         </div>
-      ))}
-      {saveError && <p className="text-xs text-destructive">{saveError}</p>}
-    </Card>
+        <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+          <span className="text-xs text-muted-foreground">Remaining</span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-lg font-extrabold">{formatKB(remaining)}</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
+              isValid ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-destructive/15 text-destructive"
+            }`}
+            >
+              {isValid ? <><CheckCircle2 className="size-3" /> OK</> : <><AlertTriangle className="size-3" /> Over</>}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <Card className="p-5 flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Data budget table</p>
+          <p className="text-xs text-muted-foreground">Amber rows are missing a data type.</p>
+        </div>
+
+        {handbook && handbook.data_types.length > 0 && (
+          <div className="rounded-xl ring-1 ring-border overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setGuideOpen((v) => !v)}
+              className="w-full flex items-center gap-2 px-3.5 py-2.5 hover:bg-muted/50 transition-colors text-left"
+            >
+              <FileText className="size-3.5 text-primary shrink-0" />
+              <span className="flex-1 text-xs font-bold uppercase tracking-wide text-primary">Data types guide</span>
+              <ChevronRight className={`size-4 shrink-0 text-muted-foreground transition-transform ${guideOpen ? "rotate-90" : ""}`} />
+            </button>
+            {guideOpen && (
+              <div className="px-3.5 pb-3.5 pt-1 flex flex-col gap-2 border-t border-border/60">
+                {handbook.data_types.map((dt) => (
+                  <div key={dt.name} className="text-xs">
+                    <span className="font-bold">{dt.name}</span>
+                    <span className="text-muted-foreground"> &mdash; {dt.detail}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+          <AlertTriangle className="size-3.5 shrink-0" />
+          Meas/min stands for measurement/min — how many data points are collected every minute.
+        </p>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Component</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Data type</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Size/meas (KB)</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Meas/min</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Active time (min)</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Data/orbit (KB)</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Orbits/day</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Data/day (KB)</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Priority</th>
+                <th className="px-2 py-2 font-medium text-muted-foreground text-center">Stored/Sent</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dataRows.map(({ component: c, activeMin, dpo, dpd }) => (
+                <tr key={c.id} className={`border-b border-border/50 ${!rows[c.id]?.data_type ? "bg-amber-500/5" : ""}`}>
+                  <td className="py-2.5 pr-3">
+                    <div className="flex items-center gap-2.5">
+                      {c.image_url
+                        ? <img src={c.image_url} alt="" className="size-8 rounded-lg object-cover shrink-0 ring-1 ring-border" />
+                        : (
+                          <div className="size-8 rounded-lg shrink-0 ring-1 ring-border bg-muted flex items-center justify-center">
+                            <Box className="size-4 text-muted-foreground" strokeWidth={1.5} />
+                          </div>
+                        )}
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium">{c.component_name}</span>
+                        <span className="w-fit px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-primary/10 text-primary">
+                          {c.subsystem}
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-2 py-2">
+                    <select
+                      className={`${inputCls} h-10 text-sm w-40`} value={rows[c.id]?.data_type ?? ""}
+                      onChange={(e) => setRow(c.id, { data_type: e.target.value })}
+                    >
+                      <option value="">-- Select --</option>
+                      {(handbook?.data_types ?? []).map((dt) => <option key={dt.name} value={dt.name}>{dt.name}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-2 py-2">
+                    <input
+                      type="number" className={`${inputCls} h-10 text-sm w-20 text-center`}
+                      value={rows[c.id]?.data_size_per_measurement_kb ?? 0}
+                      onChange={(e) => setRow(c.id, { data_size_per_measurement_kb: Number(e.target.value) })}
+                    />
+                  </td>
+                  <td className="px-2 py-2">
+                    <input
+                      type="number" className={`${inputCls} h-10 text-sm w-20 text-center`}
+                      value={rows[c.id]?.measurements_per_minute ?? 0}
+                      onChange={(e) => setRow(c.id, { measurements_per_minute: Number(e.target.value) })}
+                    />
+                  </td>
+                  <td className="px-2 py-2 text-center font-mono text-xs text-muted-foreground">{activeMin.toFixed(1)}</td>
+                  <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{dpo.toFixed(2)}</td>
+                  <td className="px-2 py-2 text-center font-mono text-xs text-muted-foreground">{orbitsPerDay.toFixed(1)}</td>
+                  <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{dpd.toFixed(2)}</td>
+                  <td className="px-2 py-2">
+                    <select
+                      className={`${inputCls} h-10 text-sm w-24`} value={rows[c.id]?.priority ?? "Medium"}
+                      onChange={(e) => setRow(c.id, { priority: e.target.value })}
+                    >
+                      {PRIORITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-2 py-2">
+                    <select
+                      className={`${inputCls} h-10 text-sm w-24`} value={rows[c.id]?.storage_mode ?? "Stored"}
+                      onChange={(e) => setRow(c.id, { storage_mode: e.target.value as "Stored" | "Sent" | "Both" })}
+                    >
+                      {["Stored", "Sent", "Both"].map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {[...savingIds].length > 0 && <p className="text-xs text-primary">&middot; Saving&hellip;</p>}
+        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
+      </Card>
+
+      {/* Summary + charts */}
+      <div className="grid sm:grid-cols-3 gap-4 items-start">
+        <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-1">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary mb-2">Summary</p>
+          <div className="flex items-center justify-between gap-3 py-3">
+            <span className="text-xs text-muted-foreground">Total/orbit</span>
+            <span className="text-lg font-extrabold">{formatKB(totalPerOrbit)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3 py-3 border-t border-border">
+            <span className="text-xs text-muted-foreground">Total/day</span>
+            <span className="text-lg font-extrabold">{formatKB(totalPerDay)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3 py-3 border-t border-border">
+            <div className="flex flex-col">
+              <span className="text-xs text-muted-foreground">Stored/day</span>
+              <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">{formatKB(totalStored)}</span>
+            </div>
+            <div className="flex flex-col items-end">
+              <span className="text-xs text-muted-foreground">Sent/day</span>
+              <span className="text-sm font-bold text-sky-600 dark:text-sky-400">{formatKB(totalSent)}</span>
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 py-3 border-t border-border">
+            <span className="text-xs text-muted-foreground">Status</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
+              isValid ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-destructive/15 text-destructive"
+            }`}
+            >
+              {isValid ? <><CheckCircle2 className="size-3" /> Valid</> : <><AlertTriangle className="size-3" /> Invalid</>}
+            </span>
+          </div>
+        </div>
+
+        <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Data/day by subsystem</p>
+          {totalPerDay > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie data={bySubsystem} dataKey="value" nameKey="subsystem" innerRadius={50} outerRadius={82} paddingAngle={2}>
+                  {bySubsystem.map((d, i) => <Cell key={d.subsystem} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+        </div>
+
+        <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Top components by data/day</p>
+          {totalPerDay > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={topComponents} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted-foreground/20" />
+                <XAxis
+                  dataKey="name" tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground"
+                  tickFormatter={(v: string) => (v.length > 12 ? `${v.slice(0, 12)}…` : v)}
+                />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" />
+                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                <Bar dataKey="value" name="Data/day" fill={CHART_COLORS[0]} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+        </div>
+
+        <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Stored vs sent distribution</p>
+          {totalStored + totalSent > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie
+                  data={[{ name: "Stored", value: totalStored }, { name: "Sent", value: totalSent }]}
+                  dataKey="value" nameKey="name" innerRadius={50} outerRadius={82} paddingAngle={2}
+                >
+                  <Cell fill={CHART_COLORS[0]} />
+                  <Cell fill={CHART_COLORS[1]} />
+                </Pie>
+                <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+        </div>
+
+        <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-3 sm:col-span-2">
+          <p className="text-sm font-bold uppercase tracking-wider text-primary">Subsystem data breakdown</p>
+          {bySubsystem.length > 0 ? (
+            <div className="flex flex-col gap-3">
+              {bySubsystem.map((d) => (
+                <div key={d.subsystem} className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span
+                      className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide"
+                      style={{ background: `${d.color}26`, color: d.color }}
+                    >
+                      {d.subsystem}
+                    </span>
+                    <span className="text-xs font-bold">{formatKB(d.value)}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${Math.max(1, totalPerDay > 0 ? (d.value / Math.max(...bySubsystem.map((x) => x.value), 1)) * 100 : 0)}%`, background: d.color }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-xs text-muted-foreground">No data yet.</p>}
+        </div>
+      </div>
+    </div>
   );
 }
 

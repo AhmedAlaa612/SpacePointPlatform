@@ -1,6 +1,6 @@
 import { CheckCircle2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { DesignState } from "@/api/missionsDesign";
+import type { DesignHandbook, DesignState } from "@/api/missionsDesign";
 import {
   DESIGN_TABS, tabIsDone,
   SetupTab, ComponentsTab, ConopsTab, DataBudgetTab, PowerBudgetTab, EnergyBudgetTab, LinkBudgetTab,
@@ -19,11 +19,12 @@ import {
  * is only the shell (header, one Complete CTA); every phase's actual
  * editing UI is untouched from the old tab-strip layout. */
 export function MadarPhaseDrawer({
-  tab, state, attemptId, onClose, onSaved, onGoToTab, confirmedSteps, confirmingTab, confirmError, onConfirm,
+  tab, state, attemptId, handbook, onClose, onSaved, onGoToTab, confirmedSteps, confirmingTab, confirmError, onConfirm,
 }: {
   tab: string | null;
   state: DesignState;
   attemptId: string;
+  handbook: DesignHandbook | null;
   onClose: () => void;
   onSaved: (s: DesignState) => void;
   onGoToTab: (tab: string) => void;
@@ -60,7 +61,7 @@ export function MadarPhaseDrawer({
       {tab === "setup" && <SetupTab state={state} onSaved={onSaved} />}
       {tab === "components" && <ComponentsTab state={state} attemptId={attemptId} onChanged={onSaved} />}
       {tab === "conops" && <ConopsTab state={state} attemptId={attemptId} onSaved={onSaved} />}
-      {tab === "data" && <DataBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} />}
+      {tab === "data" && <DataBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} handbook={handbook} />}
       {tab === "power" && <PowerBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} />}
       {tab === "energy" && <EnergyBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} />}
       {tab === "link" && <LinkBudgetTab state={state} attemptId={attemptId} onSaved={onSaved} />}
