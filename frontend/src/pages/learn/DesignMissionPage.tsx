@@ -906,6 +906,47 @@ export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; a
               </tbody>
             </table>
           </div>
+
+          <div className="grid sm:grid-cols-3 gap-3">
+            <div className="flex flex-col gap-2.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Summary</p>
+              <div className="rounded-xl ring-1 ring-border p-3 flex flex-col gap-0.5">
+                <span className="text-[11px] text-muted-foreground">Total mode duration</span>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-lg font-extrabold">{total.toFixed(1)} min</span>
+                  {!matched && (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] font-bold">
+                      {Math.abs(diff).toFixed(1)} min off
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="rounded-xl ring-1 ring-border p-3 flex flex-col gap-0.5">
+                <span className="text-[11px] text-muted-foreground">Orbit duration</span>
+                <span className="text-lg font-extrabold">{state.orbit_duration_min ?? 0} min</span>
+              </div>
+              <div className="rounded-xl ring-1 ring-border p-3 flex flex-col gap-0.5">
+                <span className="text-[11px] text-muted-foreground">Selected components</span>
+                <span className="text-lg font-extrabold">{state.components.length}</span>
+              </div>
+            </div>
+
+            <ShareChart
+              title="Mode duration share"
+              unit="min"
+              data={state.modes.map((m) => ({ label: m.mode_name, value: durations[m.id] ?? 0 }))}
+            />
+            <ShareChart
+              title="Active time by subsystem"
+              unit="min"
+              data={Object.entries(
+                state.components.reduce<Record<string, number>>((acc, c) => {
+                  acc[c.subsystem] = (acc[c.subsystem] ?? 0) + activeMinutes(c.id);
+                  return acc;
+                }, {}),
+              ).map(([label, value]) => ({ label, value }))}
+            />
+          </div>
         </div>
       )}
 
@@ -1377,8 +1418,12 @@ const ALERT_TONE: Record<string, string> = {
 
 const CHART_COLORS = ["#A77DFF", "#6DD3FB", "#F7B267", "#F25F5C", "#70C1B3", "#9381FF", "#5FAD56"];
 
-function SubsystemChart({ title, unit, data }: {
-  title: string; unit: string; data: { subsystem: string; value: number }[];
+/** A proportion-of-whole breakdown — segmented bar + color-coded legend, no
+ * chart library. Originally subsystem-only ("SubsystemChart"); generalized
+ * (2026-09) so ConopsTab's mode-duration and active-time breakdowns can
+ * reuse the exact same widget instead of a second bespoke chart. */
+function ShareChart({ title, unit, data }: {
+  title: string; unit: string; data: { label: string; value: number }[];
 }) {
   if (data.length === 0) {
     return (
@@ -1393,14 +1438,14 @@ function SubsystemChart({ title, unit, data }: {
       <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
       <div className="flex h-2.5 rounded-full overflow-hidden">
         {data.map((d, i) => (
-          <div key={d.subsystem} style={{ width: `${(d.value / total) * 100}%`, background: CHART_COLORS[i % CHART_COLORS.length] }} />
+          <div key={d.label} style={{ width: `${(d.value / total) * 100}%`, background: CHART_COLORS[i % CHART_COLORS.length] }} />
         ))}
       </div>
       <div className="flex flex-col gap-1">
         {data.map((d, i) => (
-          <div key={d.subsystem} className="flex items-center gap-2 text-[11px]">
+          <div key={d.label} className="flex items-center gap-2 text-[11px]">
             <span className="size-2 rounded-sm shrink-0" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-            <span className="flex-1">{d.subsystem}</span>
+            <span className="flex-1">{d.label}</span>
             <span className="font-mono text-muted-foreground">
               {d.value >= 1000 ? d.value.toLocaleString(undefined, { maximumFractionDigits: 0 }) : d.value.toFixed(1)} {unit}
             </span>
@@ -1531,9 +1576,9 @@ export function DashboardTab({ state, onGoToTab }: { state: DesignState; onGoToT
 
       {/* charts (D5 — three, not Madar's ten) */}
       <div className="grid sm:grid-cols-3 gap-3">
-        <SubsystemChart title="Power by subsystem" unit="mW" data={d.charts.power_by_subsystem} />
-        <SubsystemChart title="Mass by subsystem" unit="g" data={d.charts.mass_by_subsystem} />
-        <SubsystemChart title="Cost by subsystem" unit="AED" data={d.charts.cost_by_subsystem} />
+        <ShareChart title="Power by subsystem" unit="mW" data={d.charts.power_by_subsystem.map((s) => ({ label: s.subsystem, value: s.value }))} />
+        <ShareChart title="Mass by subsystem" unit="g" data={d.charts.mass_by_subsystem.map((s) => ({ label: s.subsystem, value: s.value }))} />
+        <ShareChart title="Cost by subsystem" unit="AED" data={d.charts.cost_by_subsystem.map((s) => ({ label: s.subsystem, value: s.value }))} />
       </div>
 
       {/* The chained written report (D6). Gated on *passing* the design —
