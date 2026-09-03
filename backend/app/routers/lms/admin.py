@@ -111,9 +111,9 @@ router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
 COURSE_IMAGE_BUCKET = "lms-course-images"
 LEARNING_PATH_IMAGE_BUCKET = "lms-learning-path-images"
 PROGRAM_IMAGE_BUCKET = "lms-program-images"
-MAX_IMAGE_BYTES = 8 * 1024 * 1024  # 8MB — a cover image, not a dataset
+MAX_IMAGE_BYTES = 4 * 1024 * 1024 * 1024  # 4GB — platform-wide upload cap
 ATTACHMENT_BUCKET = "lms-attachments"
-MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024  # 25MB — a reading, not a video
+MAX_ATTACHMENT_BYTES = 4 * 1024 * 1024 * 1024  # 4GB — platform-wide upload cap
 
 
 async def _course_admin_out(db: AsyncSession, course: Course) -> CourseAdminOut:

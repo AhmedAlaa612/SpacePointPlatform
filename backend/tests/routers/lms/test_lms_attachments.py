@@ -79,12 +79,15 @@ async def test_upload_requires_content_role_pdf_content_type_and_an_attachment_i
 
 
 @pytest.mark.asyncio
-async def test_upload_rejects_oversized_pdf(db, client):
+async def test_upload_rejects_oversized_pdf(db, client, monkeypatch):
+    import app.routers.lms.admin as admin_router
+    monkeypatch.setattr(admin_router, "MAX_ATTACHMENT_BYTES", 10)
+
     ops = await _user(db, roles=["operations"])
     course, module, item = await _course_module_item(db, author=ops)
     await db.commit()
 
-    too_big = b"x" * (25 * 1024 * 1024 + 1)
+    too_big = b"x" * 11
     resp = await client.post(
         f"/lms/admin/items/{item.id}/attachment", headers=_headers(ops),
         files={"file": ("big.pdf", too_big, "application/pdf")},
