@@ -1212,47 +1212,57 @@ export function DataBudgetTab({ state, attemptId, onSaved, handbook }: {
                     </div>
                   </td>
                   <td className="px-2 py-2">
-                    <select
-                      className={`${inputCls} h-10 text-sm w-40`} value={rows[c.id]?.data_type ?? ""}
-                      onChange={(e) => setRow(c.id, { data_type: e.target.value })}
-                    >
-                      <option value="">-- Select --</option>
-                      {(handbook?.data_types ?? []).map((dt) => <option key={dt.name} value={dt.name}>{dt.name}</option>)}
-                    </select>
+                    <div className="w-32">
+                      <select
+                        className={`${inputCls} h-10 text-sm`} value={rows[c.id]?.data_type ?? ""}
+                        onChange={(e) => setRow(c.id, { data_type: e.target.value })}
+                      >
+                        <option value="">-- Select --</option>
+                        {(handbook?.data_types ?? []).map((dt) => <option key={dt.name} value={dt.name}>{dt.name}</option>)}
+                      </select>
+                    </div>
                   </td>
                   <td className="px-2 py-2">
-                    <input
-                      type="number" className={`${inputCls} h-10 text-sm w-20 text-center`}
-                      value={rows[c.id]?.data_size_per_measurement_kb ?? 0}
-                      onChange={(e) => setRow(c.id, { data_size_per_measurement_kb: Number(e.target.value) })}
-                    />
+                    <div className="w-16">
+                      <input
+                        type="number" className={`${inputCls} h-10 text-sm text-center`}
+                        value={rows[c.id]?.data_size_per_measurement_kb ?? 0}
+                        onChange={(e) => setRow(c.id, { data_size_per_measurement_kb: Number(e.target.value) })}
+                      />
+                    </div>
                   </td>
                   <td className="px-2 py-2">
-                    <input
-                      type="number" className={`${inputCls} h-10 text-sm w-20 text-center`}
-                      value={rows[c.id]?.measurements_per_minute ?? 0}
-                      onChange={(e) => setRow(c.id, { measurements_per_minute: Number(e.target.value) })}
-                    />
+                    <div className="w-16">
+                      <input
+                        type="number" className={`${inputCls} h-10 text-sm text-center`}
+                        value={rows[c.id]?.measurements_per_minute ?? 0}
+                        onChange={(e) => setRow(c.id, { measurements_per_minute: Number(e.target.value) })}
+                      />
+                    </div>
                   </td>
                   <td className="px-2 py-2 text-center font-mono text-xs text-muted-foreground">{activeMin.toFixed(1)}</td>
                   <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{dpo.toFixed(2)}</td>
                   <td className="px-2 py-2 text-center font-mono text-xs text-muted-foreground">{orbitsPerDay.toFixed(1)}</td>
                   <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{dpd.toFixed(2)}</td>
                   <td className="px-2 py-2">
-                    <select
-                      className={`${inputCls} h-10 text-sm w-24`} value={rows[c.id]?.priority ?? "Medium"}
-                      onChange={(e) => setRow(c.id, { priority: e.target.value })}
-                    >
-                      {PRIORITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
-                    </select>
+                    <div className="w-28">
+                      <select
+                        className={`${inputCls} h-10 text-sm`} value={rows[c.id]?.priority ?? "Medium"}
+                        onChange={(e) => setRow(c.id, { priority: e.target.value })}
+                      >
+                        {PRIORITY_OPTIONS.map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
                   </td>
                   <td className="px-2 py-2">
-                    <select
-                      className={`${inputCls} h-10 text-sm w-24`} value={rows[c.id]?.storage_mode ?? "Stored"}
-                      onChange={(e) => setRow(c.id, { storage_mode: e.target.value as "Stored" | "Sent" | "Both" })}
-                    >
-                      {["Stored", "Sent", "Both"].map((o) => <option key={o} value={o}>{o}</option>)}
-                    </select>
+                    <div className="w-28">
+                      <select
+                        className={`${inputCls} h-10 text-sm`} value={rows[c.id]?.storage_mode ?? "Stored"}
+                        onChange={(e) => setRow(c.id, { storage_mode: e.target.value as "Stored" | "Sent" | "Both" })}
+                      >
+                        {["Stored", "Sent", "Both"].map((o) => <option key={o} value={o}>{o}</option>)}
+                      </select>
+                    </div>
                   </td>
                 </tr>
               ))}
