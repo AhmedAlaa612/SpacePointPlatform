@@ -1,5 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowLeftRight, Home } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowLeftRight, Home, Rocket } from "lucide-react";
+import { fetchMyChecklists } from "@/api/lms";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
@@ -13,6 +15,12 @@ import { LearnNotificationsBell, LearnProfileMenu } from "./LearnNavShared";
 export function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
   const { currentUser } = useAuth();
   const isStaff = !!currentUser?.role && currentUser.role !== "student";
+  // Same query key LearnSidebar/LearnLanding/LearnChecklists all share — one
+  // cached fetch, not a new one. Already ordered newest-first by the
+  // backend, so [0] is the student's latest program; null for anyone with
+  // none (or a non-student role), and the button just doesn't render.
+  const { data: checklists } = useQuery({ queryKey: ["lms-my-checklists"], queryFn: fetchMyChecklists });
+  const myProgram = checklists?.[0] ?? null;
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 flex flex-col md:hidden border-t border-border bg-background/95 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
@@ -49,6 +57,16 @@ export function LearnMobileTabBar({ active }: { active: LearnNavActive }) {
           <span />
         )}
         <div className="flex items-center gap-0.5">
+          {myProgram && (
+            <Link
+              to="/learn/checklists/$assignmentId"
+              params={{ assignmentId: myProgram.assignment_id }}
+              aria-label="Go to your program"
+              className="rounded-xl p-2.5 text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+            >
+              <Rocket size={20} />
+            </Link>
+          )}
           <Link
             to="/learn"
             aria-label="Home"
