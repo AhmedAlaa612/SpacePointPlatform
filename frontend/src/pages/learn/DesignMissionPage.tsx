@@ -94,15 +94,15 @@ export const DESIGN_TABS: {
     blockedHint: "Complete the Power Budget first — energy over an orbit is computed from it.",
   },
   {
-    value: "link", label: "Link", step: "link_budget", needs: ["components"],
+    value: "link", label: "Link Budget", step: "link_budget", needs: ["components"],
     blockedHint: "Complete Components first.",
   },
   {
-    value: "mass", label: "Mass", step: "mass_budget", needs: ["components"],
+    value: "mass", label: "Mass Budget", step: "mass_budget", needs: ["components"],
     blockedHint: "Complete Components first.",
   },
   {
-    value: "cost", label: "Cost", step: "cost_budget", needs: ["components"],
+    value: "cost", label: "Cost Budget", step: "cost_budget", needs: ["components"],
     blockedHint: "Complete Components first.",
   },
   { value: "dashboard", label: "Report" },
@@ -1902,46 +1902,394 @@ export function EnergyBudgetTab({ state, attemptId, onSaved }: { state: DesignSt
   );
 }
 
-export function MassBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
+export function MassBudgetTab({ state, attemptId, onSaved, handbook }: {
+  state: DesignState; attemptId: string; onSaved: (s: DesignState) => void; handbook: DesignHandbook | null;
+}) {
   const [rows, setRows] = useState(Object.fromEntries(state.components.map((c) => [c.id, {
     quantity: c.mass_entry?.quantity ?? c.quantity, mass_per_unit_g: c.mass_entry?.mass_per_unit_g ?? c.mass_per_unit_g ?? 0,
     length_mm: c.mass_entry?.length_mm ?? c.length_mm ?? 0, width_mm: c.mass_entry?.width_mm ?? c.width_mm ?? 0, height_mm: c.mass_entry?.height_mm ?? c.height_mm ?? 0,
   }])));
-  const [saving, setSaving] = useState<string | null>(null);
+  const [cubesatSize, setCubesatSize] = useState(state.selected_cubesat_size);
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [savingSize, setSavingSize] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [formulasOpen, setFormulasOpen] = useState(false);
 
-  const save = async (id: string) => {
-    setSaving(id);
-    try { onSaved(await saveMassBudget(attemptId, id, rows[id])); } finally { setSaving(null); }
+  const pending = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const setRow = (id: string, patch: Partial<(typeof rows)[string]>) => {
+    const next = { ...rows[id], ...patch };
+    setRows((p) => ({ ...p, [id]: next }));
+    if (pending.current[id]) clearTimeout(pending.current[id]);
+    pending.current[id] = setTimeout(async () => {
+      setSavingIds((s) => new Set(s).add(id));
+      setSaveError("");
+      try {
+        onSaved(await saveMassBudget(attemptId, id, next));
+      } catch (err) {
+        setSaveError(errorDetail(err, "Couldn't save the mass budget."));
+      } finally {
+        setSavingIds((s) => { const n = new Set(s); n.delete(id); return n; });
+      }
+    }, 500);
   };
+  const sizePending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pushSize = useCallback((next: string) => {
+    if (sizePending.current) clearTimeout(sizePending.current);
+    sizePending.current = setTimeout(async () => {
+      setSavingSize(true);
+      setSaveError("");
+      try {
+        onSaved(await updateDesign(attemptId, { selected_cubesat_size: next }));
+      } catch (err) {
+        setSaveError(errorDetail(err, "Couldn't save the CubeSat size."));
+      } finally {
+        setSavingSize(false);
+      }
+    }, 500);
+  }, [attemptId, onSaved]);
+  const setCubesatSizeValue = (next: string) => { setCubesatSize(next); pushSize(next); };
+
+  useEffect(() => () => {
+    Object.values(pending.current).forEach(clearTimeout);
+    if (sizePending.current) clearTimeout(sizePending.current);
+  }, []);
+
+  if (state.components.length === 0) {
+    return (
+      <Card className="p-5">
+        <p className="text-sm text-muted-foreground">Add components first — the mass budget is computed from what you pick.</p>
+      </Card>
+    );
+  }
+
+  // Unlike the other budget tabs' thresholds, Max mass/Avail. volume aren't
+  // fixed — they come from whichever CubeSat size is selected
+  // (state.cubesat_presets), which is why that's editable right here too
+  // (already editable in SetupTab; this is the same field, not a fork of it).
+  const preset = state.cubesat_presets.find((p) => p.size === cubesatSize) ?? state.cubesat_presets[0];
+  const maxMassKg = preset?.max_mass_kg ?? state.dashboard.mass.max_allowed_mass_kg;
+  const availVolumeCm3 = preset?.available_volume_cm3 ?? state.dashboard.mass.available_internal_volume_cm3;
+
+  // Mirrors calc_mass_budget (backend/app/services/missions/design/calculators.py)
+  // exactly, live off the current row values — same pattern as the other
+  // budget-tab rebuilds this session.
+  const massRows = state.components.map((c) => {
+    const r = rows[c.id];
+    const quantity = r?.quantity ?? 1;
+    const massPerUnit = r?.mass_per_unit_g ?? 0;
+    const l = r?.length_mm ?? 0, w = r?.width_mm ?? 0, h = r?.height_mm ?? 0;
+    const totalMassG = massPerUnit * quantity;
+    const volPerUnitMm3 = l * w * h;
+    const totalVolMm3 = volPerUnitMm3 * quantity;
+    return { component: c, totalMassG, volPerUnitMm3, totalVolMm3 };
+  });
+  const totalMassKg = massRows.reduce((s, r) => s + r.totalMassG, 0) / 1000;
+  const totalVolCm3 = massRows.reduce((s, r) => s + r.totalVolMm3, 0) / 1000;
+  const massMarginKg = maxMassKg - totalMassKg;
+  const volMarginCm3 = availVolumeCm3 - totalVolCm3;
+  const withinMass = massMarginKg >= 0;
+  const fitsVolume = volMarginCm3 >= 0;
+
+  const bySubsystem = Object.entries(
+    massRows.reduce<Record<string, number>>((acc, r) => {
+      acc[r.component.subsystem] = (acc[r.component.subsystem] ?? 0) + r.totalMassG;
+      return acc;
+    }, {}),
+  ).map(([subsystem, value], i) => ({ subsystem, value, color: CHART_COLORS[i % CHART_COLORS.length] }));
+
+  const topComponents = [...massRows]
+    .sort((a, b) => b.totalMassG - a.totalMassG)
+    .slice(0, 6)
+    .map((r) => ({ name: r.component.component_name, value: r.totalMassG }));
+
+  // Real, already-authored content (backend/app/services/missions/design/
+  // content.py's BUDGETS), not invented copy — same handbook the "Data types
+  // guide" pulled from.
+  const massBudgetNote = handbook?.budgets.find((b) => b.key === "mass_budget");
 
   return (
-    <Card className="p-5 flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-4 text-sm">
-        <p>Total mass: <b>{state.dashboard.mass.total_mass_kg.toFixed(3)} kg</b> of {state.dashboard.mass.max_allowed_mass_kg} kg</p>
-        <p>Volume: <b>{state.dashboard.mass.total_volume_cm3.toFixed(1)} cm&sup3;</b> of {state.dashboard.mass.available_internal_volume_cm3} cm&sup3;</p>
-      </div>
-      {state.components.map((c) => (
-        <div key={c.id} className="flex flex-wrap items-end gap-3 p-3 rounded-xl ring-1 ring-border">
-          <div className="text-sm font-medium min-w-[120px]">{c.component_name}</div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>Qty</label>
-            <input type="number" className={`${inputCls} w-24`} value={rows[c.id]?.quantity ?? 1}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], quantity: Number(e.target.value) } }))} /></div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>Mass (g)</label>
-            <input type="number" className={inputCls} value={rows[c.id]?.mass_per_unit_g ?? 0}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], mass_per_unit_g: Number(e.target.value) } }))} /></div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>L (mm)</label>
-            <input type="number" className={`${inputCls} w-24`} value={rows[c.id]?.length_mm ?? 0}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], length_mm: Number(e.target.value) } }))} /></div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>W (mm)</label>
-            <input type="number" className={`${inputCls} w-24`} value={rows[c.id]?.width_mm ?? 0}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], width_mm: Number(e.target.value) } }))} /></div>
-          <div className="flex flex-col gap-1"><label className={labelCls}>H (mm)</label>
-            <input type="number" className={`${inputCls} w-24`} value={rows[c.id]?.height_mm ?? 0}
-              onChange={(e) => setRows((p) => ({ ...p, [c.id]: { ...p[c.id], height_mm: Number(e.target.value) } }))} /></div>
-          <Button size="sm" onClick={() => void save(c.id)} disabled={saving === c.id}>{saving === c.id ? "..." : "Save"}</Button>
+    <div className="flex flex-col gap-5">
+      <div className="grid lg:grid-cols-2 gap-5 items-start">
+        {/* Left column */}
+        <div className="flex flex-col gap-5">
+          <Card className="p-5 flex flex-col gap-3">
+            <label className={labelCls}>Step 1: CubeSat size</label>
+            <div className="flex flex-wrap gap-2">
+              {state.cubesat_presets.map((p) => (
+                <button
+                  key={p.size} type="button" onClick={() => setCubesatSizeValue(p.size)}
+                  className={`px-4 py-2 rounded-xl text-sm font-bold transition-colors ${
+                    cubesatSize === p.size ? "bg-primary text-primary-foreground" : "ring-1 ring-border text-muted-foreground hover:bg-muted/50"
+                  }`}
+                >
+                  {p.size}
+                </button>
+              ))}
+            </div>
+          </Card>
+
+          <div className="flex flex-col gap-3">
+            <p className="text-sm font-bold uppercase tracking-wider text-primary">Launch constraints</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Max mass</span>
+                <span className="text-lg font-extrabold">{maxMassKg.toFixed(2)} kg</span>
+              </div>
+              <div className="rounded-2xl ring-1 ring-border bg-card p-4 flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">Avail. volume</span>
+                <span className="text-lg font-extrabold">{availVolumeCm3.toLocaleString()} cm&sup3;</span>
+              </div>
+            </div>
+            {massBudgetNote && (
+              <div className="rounded-xl ring-1 ring-border overflow-hidden">
+                <button
+                  type="button" onClick={() => setNoteOpen((v) => !v)}
+                  className="w-full flex items-center gap-2 px-3.5 py-2.5 hover:bg-muted/50 transition-colors text-left"
+                >
+                  <FileText className="size-3.5 text-primary shrink-0" />
+                  <span className="flex-1 text-xs font-bold uppercase tracking-wide text-primary">Learning note</span>
+                  <ChevronRight className={`size-4 shrink-0 text-muted-foreground transition-transform ${noteOpen ? "rotate-90" : ""}`} />
+                </button>
+                {noteOpen && (
+                  <div className="px-3.5 pb-3.5 pt-1 flex flex-col gap-2 border-t border-border/60 text-xs">
+                    {massBudgetNote.means && <p className="leading-relaxed">{massBudgetNote.means}</p>}
+                    {massBudgetNote.fails_when && <p><b>Fails when:</b> {massBudgetNote.fails_when}</p>}
+                    {massBudgetNote.fix && <p><b>Fix:</b> {massBudgetNote.fix}</p>}
+                    {massBudgetNote.why_it_matters && <p className="text-muted-foreground leading-relaxed">{massBudgetNote.why_it_matters}</p>}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-3">
+            <p className="text-sm font-bold uppercase tracking-wider text-primary">Launch mass summary</p>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs text-muted-foreground">Total mass</span>
+                <span className="text-2xl font-extrabold">{totalMassKg.toFixed(3)} kg</span>
+              </div>
+              <div className="flex flex-col gap-0.5 items-end">
+                <span className="text-xs text-muted-foreground">Mass margin</span>
+                <span className={`text-2xl font-extrabold ${withinMass ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                  {massMarginKg < 0 ? "-" : ""}{Math.abs(massMarginKg).toFixed(3)} kg
+                </span>
+              </div>
+            </div>
+            <span className={`w-fit px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
+              withinMass ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-destructive/15 text-destructive"
+            }`}
+            >
+              {withinMass ? <><CheckCircle2 className="size-3" /> Within mass limit</> : <><AlertTriangle className="size-3" /> Over mass limit</>}
+            </span>
+          </div>
+
+          <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-3">
+            <p className="text-sm font-bold uppercase tracking-wider text-primary">Volume summary</p>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-xs text-muted-foreground">Total volume</span>
+                <span className="text-2xl font-extrabold">{totalVolCm3.toFixed(1)} cm&sup3;</span>
+              </div>
+              <div className="flex flex-col gap-0.5 items-end">
+                <span className="text-xs text-muted-foreground">Vol margin</span>
+                <span className={`text-2xl font-extrabold ${fitsVolume ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                  {volMarginCm3 < 0 ? "-" : ""}{Math.abs(volMarginCm3).toFixed(1)} cm&sup3;
+                </span>
+              </div>
+            </div>
+            <span className={`w-fit px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
+              fitsVolume ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-destructive/15 text-destructive"
+            }`}
+            >
+              {fitsVolume ? <><CheckCircle2 className="size-3" /> Fits selected size</> : <><AlertTriangle className="size-3" /> Doesn't fit</>}
+            </span>
+          </div>
+
+          <div className="rounded-xl ring-1 ring-border overflow-hidden">
+            <button
+              type="button" onClick={() => setFormulasOpen((v) => !v)}
+              className="w-full flex items-center gap-2 px-3.5 py-2.5 hover:bg-muted/50 transition-colors text-left"
+            >
+              <FileText className="size-3.5 text-primary shrink-0" />
+              <span className="flex-1 text-xs font-bold uppercase tracking-wide text-primary">Formulas</span>
+              <ChevronRight className={`size-4 shrink-0 text-muted-foreground transition-transform ${formulasOpen ? "rotate-90" : ""}`} />
+            </button>
+            {formulasOpen && (
+              <div className="px-3.5 pb-3.5 pt-1 flex flex-col gap-1.5 border-t border-border/60 text-xs font-mono whitespace-pre-line">
+                {massBudgetNote?.formula ?? "mass = Σ (mass_per_unit × quantity)\nvolume = Σ (L × W × H × quantity)"}
+              </div>
+            )}
+          </div>
+
+          {(savingIds.size > 0 || savingSize) && <p className="text-xs text-primary">&middot; Saving&hellip;</p>}
+          {saveError && <p className="text-xs text-destructive">{saveError}</p>}
         </div>
-      ))}
-    </Card>
+
+        {/* Right column */}
+        <div className="flex flex-col gap-5">
+          <div className="rounded-2xl ring-1 ring-border bg-primary/5 p-5 flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <Box className="size-4 text-primary" />
+              <p className="text-sm font-bold uppercase tracking-wider text-primary">Understanding the volume columns</p>
+            </div>
+            <p className="text-xs leading-relaxed">
+              <b>Vol/unit (mm&sup3;)</b> &mdash; The volume of a single component: Length &times; Width &times; Height. Tells you how much
+              space one piece occupies inside the CubeSat.
+            </p>
+            <p className="text-xs leading-relaxed">
+              <b>Total vol (mm&sup3;)</b> &mdash; The total space taken by all units of that component: Vol/unit &times; Quantity. This is
+              what actually contributes to the satellite's internal volume usage.
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              The sum of all Total vol values is compared against the Available Volume of the selected CubeSat size to determine if everything fits.
+            </p>
+          </div>
+
+          <Card className="p-5 flex flex-col gap-4">
+            <p className="text-sm font-bold uppercase tracking-wider text-primary">Mass &amp; volume table</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-2 pr-3 font-medium text-muted-foreground">Component</th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground text-center">Qty</th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground text-center">Mass/unit (g)</th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground text-center">Total mass (g)</th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground text-center">L (mm)</th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground text-center">W (mm)</th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground text-center">H (mm)</th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground text-center">Vol/unit (mm&sup3;)</th>
+                    <th className="px-2 py-2 font-medium text-muted-foreground text-center">Total vol (mm&sup3;)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {massRows.map(({ component: c, totalMassG, volPerUnitMm3, totalVolMm3 }) => (
+                    <tr key={c.id} className="border-b border-border/50">
+                      <td className="py-2.5 pr-3">
+                        <div className="flex items-center gap-2.5">
+                          {c.image_url
+                            ? <img src={c.image_url} alt="" className="size-8 rounded-lg object-cover shrink-0 ring-1 ring-border" />
+                            : (
+                              <div className="size-8 rounded-lg shrink-0 ring-1 ring-border bg-muted flex items-center justify-center">
+                                <Box className="size-4 text-muted-foreground" strokeWidth={1.5} />
+                              </div>
+                            )}
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-medium">{c.component_name}</span>
+                            <span className="w-fit px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-primary/10 text-primary">
+                              {c.subsystem}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="w-16">
+                          <input
+                            type="number" className={compactInputCls} value={rows[c.id]?.quantity ?? 1}
+                            onChange={(e) => setRow(c.id, { quantity: Number(e.target.value) })}
+                          />
+                        </div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="w-20">
+                          <input
+                            type="number" className={compactInputCls} value={rows[c.id]?.mass_per_unit_g ?? 0}
+                            onChange={(e) => setRow(c.id, { mass_per_unit_g: Number(e.target.value) })}
+                          />
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{totalMassG.toFixed(1)}</td>
+                      <td className="px-2 py-2">
+                        <div className="w-16">
+                          <input
+                            type="number" className={compactInputCls} value={rows[c.id]?.length_mm ?? 0}
+                            onChange={(e) => setRow(c.id, { length_mm: Number(e.target.value) })}
+                          />
+                        </div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="w-16">
+                          <input
+                            type="number" className={compactInputCls} value={rows[c.id]?.width_mm ?? 0}
+                            onChange={(e) => setRow(c.id, { width_mm: Number(e.target.value) })}
+                          />
+                        </div>
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="w-16">
+                          <input
+                            type="number" className={compactInputCls} value={rows[c.id]?.height_mm ?? 0}
+                            onChange={(e) => setRow(c.id, { height_mm: Number(e.target.value) })}
+                          />
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 text-center font-mono text-xs text-muted-foreground">{volPerUnitMm3.toFixed(0)}</td>
+                      <td className="px-2 py-2 text-center font-mono text-xs font-bold text-primary">{totalVolMm3.toFixed(0)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+              <p className="text-sm font-bold uppercase tracking-wider text-primary">Mass by subsystem</p>
+              {totalMassKg > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie data={bySubsystem} dataKey="value" nameKey="subsystem" innerRadius={45} outerRadius={75} paddingAngle={2}>
+                      {bySubsystem.map((d, i) => <Cell key={d.subsystem} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                    <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+            </div>
+
+            <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+              <p className="text-sm font-bold uppercase tracking-wider text-primary">Volume usage</p>
+              {availVolumeCm3 > 0 ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={[{ name: "Used", value: totalVolCm3 }, { name: "Remaining", value: Math.max(0, availVolumeCm3 - totalVolCm3) }]}
+                      dataKey="value" nameKey="name" innerRadius={45} outerRadius={75} paddingAngle={2}
+                    >
+                      <Cell fill={CHART_COLORS[3]} />
+                      <Cell fill="hsl(var(--muted))" />
+                    </Pie>
+                    <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                    <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+            </div>
+          </div>
+
+          <div className="rounded-2xl ring-1 ring-border bg-card p-5 flex flex-col gap-2">
+            <p className="text-sm font-bold uppercase tracking-wider text-primary">Top components by mass (g)</p>
+            {totalMassKg > 0 ? (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={topComponents} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-muted-foreground/20" />
+                  <XAxis
+                    dataKey="name" tick={{ fontSize: 10, fill: "currentColor" }} className="text-muted-foreground"
+                    tickFormatter={(v: string) => (v.length > 12 ? `${v.slice(0, 12)}…` : v)}
+                  />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "currentColor" }} className="text-muted-foreground" />
+                  <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12 }} />
+                  <Bar dataKey="value" name="Mass" fill={CHART_COLORS[0]} radius={[6, 6, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <p className="text-xs text-muted-foreground py-8 text-center">No data yet.</p>}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
