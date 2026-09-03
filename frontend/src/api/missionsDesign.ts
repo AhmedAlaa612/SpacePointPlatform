@@ -248,6 +248,11 @@ export interface DesignState {
    * reads all true. Drives which tabs even appear, not just whether
    * they're blocked. */
   included_steps: Record<string, boolean>;
+  /** 2026-09 — step keys the student has explicitly confirmed via "Complete
+   * this step" (`confirmDesignStep`). Never includes "report" — that step
+   * stays purely validity-driven. Persisted server-side, replacing the
+   * old client-only localStorage flag. */
+  confirmed_steps: string[];
   /** Ops-set once per cohort — null outside any cohort (or when unset). */
   poster_template_url: string | null;
   /** The team's own working-copy link — editable until the cohort ends. */
@@ -360,6 +365,15 @@ export async function saveCostBudget(attemptId: string, componentId: string, bod
 
 export async function saveLinkBudget(attemptId: string, body: Omit<LinkEntry, "is_saved">): Promise<DesignState> {
   const { data } = await api.post<DesignState>(`/missions/design/attempts/${attemptId}/link-budget`, body);
+  return data;
+}
+
+/** Self-check for one design-phase step (2026-09) — "Complete this step" in
+ * DesignMissionPage.tsx. The backend re-validates the step's own
+ * requirements and 400s if they aren't met yet, matching the disabled
+ * Complete button here — this is the enforcement, not just a UI nicety. */
+export async function confirmDesignStep(attemptId: string, stepKey: string): Promise<DesignState> {
+  const { data } = await api.post<DesignState>(`/missions/design/attempts/${attemptId}/steps/${stepKey}/confirm`);
   return data;
 }
 

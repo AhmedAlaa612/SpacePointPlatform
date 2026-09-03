@@ -706,6 +706,11 @@ async def _design_dashboard_for_attempt(
     # (DesignMissionPage.tsx's SetupTab), so "has one" is a real signal,
     # unlike `design_name` which always starts pre-filled ("My CubeSat").
     dash["_setup_done"] = design.design_objective is not None
+    # Self-check (2026-09) — the step keys the student has explicitly
+    # confirmed via POST .../steps/{step_key}/confirm (routers/missions/
+    # design.py), piggybacked here for the same reason `_setup_done` is:
+    # one query per attempt, not one per checklist item.
+    dash["_confirmed_steps"] = set(design.confirmed_steps or [])
     cache[mission_attempt_id] = dash
     return dash
 
@@ -724,12 +729,23 @@ async def _mission_run_item_done(
     dash = await _design_dashboard_for_attempt(db, mission_attempt_id=mission_attempt_id, cache=dashboard_cache)
     if dash is None:
         return False
-    if mission_step_key == "setup":
-        return dash["_setup_done"]
     if mission_step_key == "report":
+        # Stays purely validity-driven — no self-check of its own, matching
+        # DesignMissionPage.tsx's exclusion of the Report tab from the
+        # Complete-button flow (it's a summary of the other steps, not a
+        # step a student "finishes" on its own terms).
         return dash["all_valid"]
-    step = dash["steps"].get(mission_step_key)
-    return bool(step and step["has_data"] and step["is_valid"])
+    # Every other step — 'setup' included — now needs BOTH its own
+    # requirements met AND the student's explicit self-check confirmation.
+    # `is_valid` alone used to be enough, so a tile flipped to done the
+    # instant the bare-minimum requirement was met (e.g. one component
+    # added) — see confirm_design_step's docstring for the full story.
+    if mission_step_key == "setup":
+        ready = dash["_setup_done"]
+    else:
+        step = dash["steps"].get(mission_step_key)
+        ready = bool(step and step["has_data"] and step["is_valid"])
+    return ready and mission_step_key in dash["_confirmed_steps"]
 
 
 async def refresh_item_progress(

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearch, useNavigate, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
 import { CheckCircle2, ChevronRight, Rocket, Trash2, XCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,9 +12,9 @@ import DesignHandbookDrawer from "@/components/missions/DesignHandbook";
 import PosterTab from "@/components/missions/PosterTab";
 import { CompletionCelebration } from "./CompletionCelebration";
 import {
-  addDesignComponent, completeDesign, fetchComponentDatasheetUrl, fetchDesignHandbook, fetchDesignLibrary,
-  fetchDesignState, joinObjectivePrompts, parseObjectivePrompts, removeDesignComponent, saveConops,
-  saveCostBudget, saveDataBudget, saveLinkBudget, saveMassBudget, savePowerBudget, updateDesign,
+  addDesignComponent, completeDesign, confirmDesignStep, fetchComponentDatasheetUrl, fetchDesignHandbook,
+  fetchDesignLibrary, fetchDesignState, joinObjectivePrompts, parseObjectivePrompts, removeDesignComponent,
+  saveConops, saveCostBudget, saveDataBudget, saveLinkBudget, saveMassBudget, savePowerBudget, updateDesign,
   OBJECTIVE_PROMPTS,
   type DesignHandbook, type DesignLibraryComponent, type DesignState,
 } from "@/api/missionsDesign";
@@ -83,28 +84,20 @@ function tabIsDone(state: DesignState, tabValue: string): boolean {
  * "at least one component added") used to flip a step straight to "done"
  * the moment its bare minimum was met, before the student had actually
  * finished shopping/tuning it. Confirmation is a separate, explicit click,
- * stored client-side (same posture as TaskDrawer's own
- * guidelineViewedKey) — it only ever gates the *display* of "done"; the
- * Complete button itself stays disabled until `tabIsDone` says the real
- * requirements are met, so this can't be used to skip validation. */
-function stepConfirmedKey(attemptId: string, tabValue: string): string {
-  return `madar-step-confirmed:${attemptId}:${tabValue}`;
-}
-
-function readStepConfirmed(attemptId: string, tabValue: string): boolean {
-  try {
-    return localStorage.getItem(stepConfirmedKey(attemptId, tabValue)) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function markStepConfirmed(attemptId: string, tabValue: string) {
-  try {
-    localStorage.setItem(stepConfirmedKey(attemptId, tabValue), "1");
-  } catch {
-    /* no-op */
-  }
+ * persisted server-side on `Design.confirmed_steps` (POST .../steps/
+ * {step_key}/confirm — see routers/missions/design.py's
+ * `confirm_design_step`) so it also gates the Roadmap board's own
+ * checklist-item completion (`_mission_run_item_done`, services/lms/
+ * program.py), not just this page's own display. The backend re-checks
+ * `tabIsDone`'s own requirements before accepting a confirmation, so this
+ * can't be used to skip validation from either side.
+ *
+ * `tabValue` (this page's tab id, e.g. "power") and the backend's step key
+ * (e.g. "power_budget") differ for three renamed budgets plus "report" —
+ * same map `roadmap.ts`'s `stepKeyToDesignTab` uses in the other direction. */
+function designStepKeyForTab(tabValue: string): string {
+  if (tabValue === "setup") return "setup";
+  return DESIGN_TABS.find((t) => t.value === tabValue)?.step ?? tabValue;
 }
 
 /** The design-mission nine-step wizard (P7-5), ported from Madar's eleven
@@ -133,17 +126,18 @@ export default function DesignMissionPage() {
   const [completeError, setCompleteError] = useState("");
   const [completing, setCompleting] = useState(false);
   const [handbook, setHandbook] = useState<DesignHandbook | null>(null);
-  const [confirmedSteps, setConfirmedSteps] = useState<Record<string, boolean>>(() => {
-    const initial: Record<string, boolean> = {};
-    for (const t of DESIGN_TABS) {
-      if (t.value === "dashboard") continue;
-      initial[t.value] = readStepConfirmed(attemptId, t.value);
+  const [confirmingTab, setConfirmingTab] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState("");
+  const confirmStep = async (tabValue: string) => {
+    setConfirmingTab(tabValue);
+    setConfirmError("");
+    try {
+      setState(await confirmDesignStep(attemptId, designStepKeyForTab(tabValue)));
+    } catch (err) {
+      setConfirmError(errorDetail(err, "Couldn't confirm this step right now."));
+    } finally {
+      setConfirmingTab(null);
     }
-    return initial;
-  });
-  const confirmStep = (tabValue: string) => {
-    markStepConfirmed(attemptId, tabValue);
-    setConfirmedSteps((prev) => ({ ...prev, [tabValue]: true }));
   };
 
   // The *specific* tile the student arrived from — captured once at mount,
@@ -207,6 +201,13 @@ export default function DesignMissionPage() {
   // the wizard entirely, not just blocked (contrast with gate/needs
   // blocking below, which keeps a tab visible but disabled).
   const visibleTabs = DESIGN_TABS.filter((t) => !t.step || state.included_steps[t.step] !== false);
+  // Server-truth confirmations, re-keyed from the backend's step keys to
+  // this page's own tab values (see `designStepKeyForTab`'s own comment).
+  const confirmedSteps: Record<string, boolean> = {};
+  for (const t of DESIGN_TABS) {
+    if (t.value === "dashboard") continue;
+    confirmedSteps[t.value] = state.confirmed_steps.includes(designStepKeyForTab(t.value));
+  }
 
   return (
     <div className="mx-auto max-w-[1100px] px-5 sm:px-8 py-6 sm:py-8 flex flex-col gap-6">
@@ -272,7 +273,7 @@ export default function DesignMissionPage() {
       </Tabs>
 
       {/* An explicit "I'm done here" per step, separate from tabIsDone's own
-          bare-minimum validity check — see stepConfirmedKey's own comment.
+          bare-minimum validity check — see designStepKeyForTab's own comment.
           Not shown for the Report tab, which is a read-only summary of the
           other eight, not a step of its own to confirm. */}
       {tab !== "dashboard" && (
@@ -281,20 +282,20 @@ export default function DesignMissionPage() {
             <p className="text-sm font-semibold">
               {confirmedSteps[tab] ? "Step confirmed" : tabIsDone(state, tab) ? "Requirements met" : "Not ready yet"}
             </p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {confirmedSteps[tab]
+            <p className={cn("text-xs mt-0.5", confirmError ? "text-destructive" : "text-muted-foreground")}>
+              {confirmError || (confirmedSteps[tab]
                 ? "You've marked this step done — you can still keep editing it."
                 : tabIsDone(state, tab)
                   ? "Confirm when you're happy with this step."
-                  : "Finish this step's requirements before confirming it."}
+                  : "Finish this step's requirements before confirming it.")}
             </p>
           </div>
           <Button
             variant={confirmedSteps[tab] ? "outline" : "default"}
-            disabled={!tabIsDone(state, tab) || confirmedSteps[tab]}
-            onClick={() => confirmStep(tab)}
+            disabled={!tabIsDone(state, tab) || confirmedSteps[tab] || confirmingTab === tab}
+            onClick={() => void confirmStep(tab)}
           >
-            {confirmedSteps[tab] ? <><CheckCircle2 className="size-4" /> Completed</> : "Complete this step"}
+            {confirmedSteps[tab] ? <><CheckCircle2 className="size-4" /> Completed</> : confirmingTab === tab ? "Confirming..." : "Complete this step"}
           </Button>
         </div>
       )}

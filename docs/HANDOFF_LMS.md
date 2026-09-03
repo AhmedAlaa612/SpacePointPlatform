@@ -702,6 +702,8 @@ specific phase") already described flat per-phase tiles instead, matching decisi
 2. **The board reads Madar automatically.** A phase tile flips to done by reading the design
    dashboard's own `steps[<key>]` validity (or an inferred signal for `setup`/`report`, which
    aren't real `DESIGN_STEP_LABELS` keys) — no student self-check, no instructor confirmation.
+   **Superseded 2026-09** (see the "Self-check amendment" note at the end of this section) — every
+   step except `report` now also needs the student's own explicit confirmation.
 3. **Gating is per item, opt-in.** A `gated` checkbox means "locked until every earlier
    non-optional item on this checklist is done" — never a blanket sequential lock. Authoring has a
    "Gate everything in order" bulk action (client-side loop over the existing PATCH endpoint, no
@@ -732,7 +734,9 @@ boundary; the tile field is always one continuous serpentine sequence).
   dict threaded through every caller that loops over a checklist's items) — several phase tiles
   sharing one attempt must not each recompute all six budgets. `setup` reads
   `design.design_objective is not None` (the guided Setup-tab prompts, not `design_name`, which
-  always starts pre-filled `"My CubeSat"`); `report` reads `dashboard.all_valid`.
+  always starts pre-filled `"My CubeSat"`); `report` reads `dashboard.all_valid`. **2026-09**: every
+  key except `report` also requires `mission_step_key in design.confirmed_steps` — see the
+  amendment note below.
 - **A `pdf` guideline reuses the item's own `pdf_path` column and the existing
   `POST/DELETE /lms/admin/items/{id}/pdf` + `GET .../pdf-url` endpoints** — no new storage
   plumbing. Those three endpoints (plus the student-side resolver) now gate on
@@ -791,3 +795,29 @@ boundary; the tile field is always one continuous serpentine sequence).
 
 **Not built**: video upload for guidelines (see decision 4); the reference wireframe's nested
 Madar sub-checklist screen (see decision 1 — deliberately not built, not a gap).
+
+**Self-check amendment (2026-09, post-ship)**: decision 2 above shipped a real usability bug —
+`is_valid` alone (e.g. "at least one component added") flipped a phase tile straight to done
+before the student had actually finished shopping/tuning that step. Fixed by adding an explicit
+"Complete this step" click (`DesignMissionPage.tsx`), required in addition to `is_valid`, for
+every step except `report` (which stays purely validity-driven — it's a read-only summary of the
+other eight, not a step of its own to confirm).
+- **`Design.confirmed_steps`** (migration `d4a72fe19b03`, JSONB, default `[]`) — `list[str]` of
+  step keys (`setup` plus the 8 selectable `DESIGN_STEP_LABELS` keys minus `downlink`, which isn't
+  a tab) the student has explicitly confirmed. Lives on `designs`, not `lms_program_items` —
+  self-check is a fact about the design itself, not about any particular checklist tracking it
+  (a design mission run outside any LMS checklist is a real case, e.g. from the Missions hub).
+- **`POST /missions/design/attempts/{attempt_id}/steps/{step_key}/confirm`**
+  (`routers/missions/design.py::confirm_design_step`) — re-validates the step's own requirements
+  server-side (setup: `design_objective is not None`; else `dashboard.steps[key].is_valid`) and
+  400s if they aren't met, so a client can't force a confirmation through. Idempotent. Rejects any
+  key outside `CONFIRMABLE_STEP_KEYS` (`setup` + `DESIGN_STEP_LABELS` minus `downlink`) — `report`
+  included, on purpose.
+- `_mission_run_item_done` (services/lms/program.py) now requires both the step's own readiness
+  AND `mission_step_key in design.confirmed_steps` (piggybacked onto the same cached dashboard
+  fetch `_setup_done` already uses) for every key except `report`.
+- Frontend: `DesignMissionPage.tsx` reads `state.confirmed_steps` from the server (replacing an
+  earlier, briefly-shipped client-only `localStorage` version of this same idea, which only ever
+  gated this page's own display and never reached the Roadmap board's checklist-item completion —
+  the gap this amendment closes) and calls `confirmDesignStep` on the Complete button, disabled
+  until `tabIsDone` says the step's real requirements are met.

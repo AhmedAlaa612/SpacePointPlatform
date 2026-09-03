@@ -395,6 +395,12 @@ class DesignStateOut(BaseModel):
     # pacing. Drives DesignMissionPage.tsx's tab list (steps are removed
     # entirely, not just blocked).
     included_steps: dict[str, bool] = {}
+    # 2026-09 — step keys the student has explicitly confirmed via
+    # "Complete this step" (POST .../steps/{step_key}/confirm). Never
+    # includes "report" — that step stays purely validity-driven. Drives
+    # DesignMissionPage.tsx's per-step Complete button/checkmark instead of
+    # the old client-only localStorage flag.
+    confirmed_steps: list[str] = []
 
 
 # ── Teaching surfaces (Design v2, 7D-4 / 7D-5) ──────────────────────────

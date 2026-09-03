@@ -703,7 +703,11 @@ async def test_gated_submission_item_409s_while_locked(db, client):
 # ── Roadmap board — Madar phase items (2026-09) ─────────────────────────────
 
 @pytest.mark.asyncio
-async def test_phase_item_setup_completes_once_the_design_objective_is_saved(db, client):
+async def test_phase_item_setup_needs_self_check_after_the_design_objective_is_saved(db, client):
+    """2026-09 — `is_valid` (here, `design_objective is not None`) alone no
+    longer flips the tile to done: the student's own "Complete this step"
+    click (POST /missions/design/attempts/{id}/steps/setup/confirm) is now
+    also required. See services/lms/program.py's `_mission_run_item_done`."""
     author = await _author(db)
     cohort, lms_program = await _cohort_with_checklist(db, author=author)
     mission, _variant = await _design_mission(db, author=author)
@@ -722,6 +726,14 @@ async def test_phase_item_setup_completes_once_the_design_objective_is_saved(db,
     db.add(design)
     await db.commit()
 
+    # Ready, but not yet self-checked — still pending.
+    still_pending = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    assert still_pending.json()["items"][0]["status"] == "pending"
+
+    confirm = await client.post(f"/missions/design/attempts/{attempt_id}/steps/setup/confirm", headers=_headers(student))
+    assert confirm.status_code == http_status.HTTP_200_OK
+    assert confirm.json()["confirmed_steps"] == ["setup"]
+
     after = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
     assert after.json()["items"][0]["status"] == "done"
     # The whole-mission attempt is still just in_progress — phase completion
@@ -731,7 +743,48 @@ async def test_phase_item_setup_completes_once_the_design_objective_is_saved(db,
 
 
 @pytest.mark.asyncio
-async def test_phase_item_components_completes_from_dashboard_steps(db, client):
+async def test_confirm_design_step_rejects_a_step_that_isnt_ready(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    mission, _variant = await _design_mission(db, author=author)
+    await _phase_item(db, lms_program=lms_program, position=1, mission_id=mission.id, step_key="setup")
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    attempt_id = uuid.UUID(detail.json()["items"][0]["mission_attempt_id"])
+    # No Design row at all yet — nothing to be ready.
+    resp = await client.post(f"/missions/design/attempts/{attempt_id}/steps/setup/confirm", headers=_headers(student))
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_confirm_design_step_rejects_report_and_downlink(db, client):
+    """`report`/`downlink` stay purely validity-driven — matching
+    DesignMissionPage.tsx's own exclusion of the Report tab from the
+    Complete-button flow — so they're not in `CONFIRMABLE_STEP_KEYS`."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    mission, _variant = await _design_mission(db, author=author)
+    await _phase_item(db, lms_program=lms_program, position=1, mission_id=mission.id, step_key="report")
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    attempt_id = uuid.UUID(detail.json()["items"][0]["mission_attempt_id"])
+    for step_key in ("report", "downlink"):
+        resp = await client.post(f"/missions/design/attempts/{attempt_id}/steps/{step_key}/confirm", headers=_headers(student))
+        assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_phase_item_components_needs_self_check_after_dashboard_steps_is_valid(db, client):
+    """2026-09 — same self-check requirement as `setup`, for a real
+    `DESIGN_STEP_LABELS` key this time (`components`)."""
     author = await _author(db)
     cohort, lms_program = await _cohort_with_checklist(db, author=author)
     mission, _variant = await _design_mission(db, author=author)
@@ -756,6 +809,17 @@ async def test_phase_item_components_completes_from_dashboard_steps(db, client):
         component_name=library.component_name, subsystem=library.subsystem,
     ))
     await db.commit()
+
+    # Ready (one component added), but not yet self-checked.
+    still_pending = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    assert still_pending.json()["items"][0]["status"] == "pending"
+
+    confirm = await client.post(f"/missions/design/attempts/{attempt_id}/steps/components/confirm", headers=_headers(student))
+    assert confirm.status_code == http_status.HTTP_200_OK
+    assert confirm.json()["confirmed_steps"] == ["components"]
+    # Idempotent — confirming again doesn't duplicate the entry.
+    again = await client.post(f"/missions/design/attempts/{attempt_id}/steps/components/confirm", headers=_headers(student))
+    assert again.json()["confirmed_steps"] == ["components"]
 
     after = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
     assert after.json()["items"][0]["status"] == "done"
