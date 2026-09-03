@@ -1,10 +1,9 @@
-"""Design v2 (7D-2) — the two cross-checks Madar left open, plus the
+"""Design v2 (7D-2) — the cross-check Madar left open, plus the
 content and report layers, as pure functions.
 
-`MISSIONS_MADAR_GAP.md` §3.5 recorded both F7 and F8 as still open in the
-port: `total_sent_per_day_kb` was computed and compared against nothing, and
-`total_energy_per_orbit_mwh` was computed and discarded. These tests are the
-regression suite for closing them.
+`MISSIONS_MADAR_GAP.md` §3.5 recorded F7 as still open in the port:
+`total_sent_per_day_kb` was computed and compared against nothing. These
+tests are the regression suite for closing it.
 
 The headline case is the one the audit named: **500 MB/day over a 9,600 bps
 UHF radio used to pass every check.** It cannot now.
@@ -17,7 +16,6 @@ from app.services.missions.design.calculators import (
     ComponentInput,
     ModeInput,
     calc_downlink_budget,
-    calc_energy_budget,
 )
 
 # A 90-minute orbit split the way the default CONOPS does: sun pointing,
@@ -107,86 +105,6 @@ def test_required_margin_reserves_headroom():
     assert strict.is_valid is False
 
 
-# ── F8: energy over an orbit, and the battery ────────────────────────────
-
-def test_sunlit_time_comes_from_the_students_own_conops():
-    result = calc_energy_budget(
-        components=[component(on={SUN})], modes=MODES, orbit_duration_min=90.0,
-        generated_power_mw=2000.0, battery_capacity_wh=10.0,
-    )
-    assert result.eclipse_minutes == 22.0
-    assert result.sunlit_minutes == 68.0
-
-
-def test_an_array_sized_for_peak_can_still_fail_the_orbit():
-    """The lesson: passing the instantaneous power check says nothing about
-    whether the orbit balances, because the array stops in eclipse."""
-    always_on = [component(on={SUN, NADIR, GS, ECLIPSE}, v=5.0, ma=400.0)]
-    result = calc_energy_budget(
-        components=always_on, modes=MODES, orbit_duration_min=90.0,
-        generated_power_mw=2100.0, battery_capacity_wh=20.0,
-    )
-    assert result.energy_balance_ok is False
-    assert result.energy_margin_mwh < 0
-
-
-def test_turning_the_payload_off_in_eclipse_fixes_both_checks():
-    always_on = [component(on={SUN, NADIR, GS, ECLIPSE}, v=5.0, ma=400.0)]
-    duty_cycled = [component(on={SUN, NADIR, GS}, v=5.0, ma=400.0)]
-    bad = calc_energy_budget(components=always_on, modes=MODES, orbit_duration_min=90.0,
-                             generated_power_mw=2100.0, battery_capacity_wh=20.0)
-    good = calc_energy_budget(components=duty_cycled, modes=MODES, orbit_duration_min=90.0,
-                              generated_power_mw=2100.0, battery_capacity_wh=20.0)
-    assert bad.is_valid is False
-    assert good.is_valid is True
-    assert good.eclipse_draw_mwh == 0.0
-    assert good.depth_of_discharge_pct == 0.0
-
-
-def test_depth_of_discharge_is_a_separate_failure_from_energy_balance():
-    """A design can generate plenty over an orbit and still ruin its
-    battery every eclipse."""
-    result = calc_energy_budget(
-        components=[component(on={SUN, NADIR, GS, ECLIPSE}, v=5.0, ma=300.0)],
-        modes=MODES, orbit_duration_min=90.0,
-        generated_power_mw=8000.0,   # a very generous array
-        battery_capacity_wh=0.5,     # and a tiny battery
-    )
-    assert result.energy_balance_ok is True
-    assert result.depth_of_discharge_ok is False
-    assert result.is_valid is False
-
-
-def test_the_dod_limit_is_variant_owned():
-    args = dict(
-        components=[component(on={SUN, ECLIPSE}, v=5.0, ma=200.0)],
-        modes=MODES, orbit_duration_min=90.0, generated_power_mw=4000.0, battery_capacity_wh=2.0,
-    )
-    lenient = calc_energy_budget(**args, max_depth_of_discharge_pct=40.0)
-    strict = calc_energy_budget(**args, max_depth_of_discharge_pct=5.0)
-    assert lenient.depth_of_discharge_ok is True
-    assert strict.depth_of_discharge_ok is False
-
-
-def test_no_battery_means_the_step_is_not_started():
-    result = calc_energy_budget(
-        components=[component(on={SUN})], modes=MODES, orbit_duration_min=90.0,
-        generated_power_mw=2000.0, battery_capacity_wh=None,
-    )
-    assert result.has_data is False
-    assert result.is_valid is False
-
-
-def test_a_zero_current_component_is_not_treated_as_missing():
-    """F5's `is None` discipline, carried into the new calculator."""
-    result = calc_energy_budget(
-        components=[ComponentInput(subsystem="STR", quantity=1, on_mode_ids={SUN}, voltage_v=0.0, current_ma=0.0)],
-        modes=MODES, orbit_duration_min=90.0, generated_power_mw=2000.0, battery_capacity_wh=10.0,
-    )
-    assert result.has_data is True
-    assert result.consumed_per_orbit_mwh == 0.0
-
-
 # ── The report layer (7D-3) ──────────────────────────────────────────────
 
 def _dash(**over):
@@ -209,8 +127,6 @@ def _dash(**over):
         "link": calc_link_budget_status(is_saved=True, link_status="Good Link", margin_db=6.0),
         "downlink": calc_downlink_budget(total_sent_per_day_kb=0, orbits_per_day=15, modes=MODES,
                                          data_rate_kbps=9.6, link_is_saved=True),
-        "energy": calc_energy_budget(components=comps, modes=MODES, orbit_duration_min=90.0,
-                                     generated_power_mw=power.generated_power_mw, battery_capacity_wh=10.0),
         "all_valid": False,
         "steps": {},
     }
@@ -224,7 +140,7 @@ LIMITS = {"max_mass_kg": 1.33, "available_volume_cm3": 1000.0}
 # The unfiltered case — every step in scope, matching a cohort/solo run with
 # no MissionStepSelection configured (report.py's own "all included" default).
 ALL_STEPS = frozenset({
-    "components", "conops", "data_budget", "power_budget", "energy_budget",
+    "components", "conops", "data_budget", "power_budget",
     "link_budget", "downlink", "mass_budget", "cost_budget",
 })
 
@@ -233,7 +149,7 @@ def test_every_margin_carries_an_interpretation():
     """The half of Madar's dashboard the port dropped: the numbers were
     always there, the judgement was not."""
     margins = report.build_margins(_dash(), THRESHOLDS, LIMITS, ALL_STEPS)
-    assert len(margins) >= 9
+    assert len(margins) >= 7
     for row in margins:
         assert row["interpretation"], row["key"]
         assert row["status"] in {"good", "tight", "fail", "incomplete"}
@@ -268,10 +184,10 @@ def test_overall_status_counts_what_is_wrong():
 def test_module_cards_point_at_a_tab_to_fix_it():
     dash = _dash()
     dash["steps"] = {k: {"has_data": True, "is_valid": True} for k in
-                     ("components", "conops", "data_budget", "power_budget", "energy_budget",
+                     ("components", "conops", "data_budget", "power_budget",
                       "link_budget", "downlink", "mass_budget", "cost_budget")}
     cards = report.build_module_cards(dash, THRESHOLDS, 1, ALL_STEPS)
-    assert len(cards) == 9
+    assert len(cards) == 8
     assert all(c["tab"] for c in cards)
 
 
@@ -283,7 +199,7 @@ def test_module_cards_and_margins_are_filtered_to_the_cohorts_selected_steps():
     student never had access to."""
     dash = _dash(components=[component(on={SUN, NADIR, GS, ECLIPSE}, v=12.0, ma=900.0)])
     dash["steps"] = {k: {"has_data": True, "is_valid": True} for k in
-                     ("components", "conops", "data_budget", "power_budget", "energy_budget",
+                     ("components", "conops", "data_budget", "power_budget",
                       "link_budget", "downlink", "mass_budget", "cost_budget")}
     scoped = frozenset({"components", "conops", "link_budget"})
 
@@ -324,7 +240,7 @@ def test_charts_aggregate_by_subsystem():
 def test_the_handbook_covers_every_step_the_dashboard_can_fail():
     """A budget with no handbook entry is unteachable."""
     keys = {b["key"] for b in content.BUDGETS}
-    assert {"conops", "data_budget", "power_budget", "energy_budget",
+    assert {"conops", "data_budget", "power_budget",
             "link_budget", "downlink", "mass_budget", "cost_budget"} <= keys
 
 

@@ -1467,8 +1467,11 @@ async def upload_program_item_pdf(
     item_id: uuid.UUID, file: UploadFile,
     db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
+    # A pdf-type item's own content is a PDF; any other item type can
+    # instead carry a `pdf` guideline (the Roadmap board's "view the
+    # guideline" step) — either way it's the same file, same pdf_path.
     item = await db.get(LmsProgramItem, item_id)
-    if item is None or item.item_type != "pdf":
+    if item is None or (item.item_type != "pdf" and item.guideline_kind != "pdf"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="PDF item not found")
 
     if file.content_type != "application/pdf":
@@ -1495,7 +1498,7 @@ async def delete_program_item_pdf(
     item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
 ):
     item = await db.get(LmsProgramItem, item_id)
-    if item is None or item.item_type != "pdf":
+    if item is None or (item.item_type != "pdf" and item.guideline_kind != "pdf"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="PDF item not found")
     if item.pdf_path:
         await storage.delete_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
@@ -1512,7 +1515,7 @@ async def get_program_item_pdf_url(
     """Authoring-side preview — same resolve-fresh posture as the student
     endpoint (routers/lms/student.py::program_item_pdf_url)."""
     item = await db.get(LmsProgramItem, item_id)
-    if item is None or item.item_type != "pdf" or not item.pdf_path:
+    if item is None or (item.item_type != "pdf" and item.guideline_kind != "pdf") or not item.pdf_path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No PDF uploaded for this item yet")
     url = await storage.get_signed_url(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
     return {"url": url}

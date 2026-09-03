@@ -3,11 +3,15 @@
  * `poster_url` (the team's own working-copy link, editable until the
  * cohort's program ends).
  *
- * Mirrors `DesignHandbookDrawer`'s slide-over-panel mechanic exactly, but
- * anchored to the left edge instead of the right — the bottom-right corner
- * is already the handbook's trigger, and this is the only other floating
- * tab this wizard needs (legacy Madar's left-edge "Standings" tab is the
- * precedent for the shape).
+ * Mirrors `DesignHandbookDrawer`'s slide-over-panel mechanic, anchored to
+ * the right edge at mid-height — the handbook's own trigger sits at the
+ * bottom-right, a different vertical band, so the two don't collide.
+ * Originally this was a left-edge tab (legacy Madar's left-edge
+ * "Standings" tab was the precedent for the shape), but the Roadmap
+ * board redesign (2026-09) put a fixed desktop sidebar on the left edge
+ * of every /learn page — this tab sat on top of it. Right edge only,
+ * not a responsive per-side flip: simpler, and there's nothing on the
+ * left worth reserving room for even on mobile (no sidebar there either).
  */
 import { useState } from "react";
 import { isAxiosError } from "axios";
@@ -53,10 +57,10 @@ export default function PosterTab({ state, attemptId, onSaved }: {
           margin, since mobile layouts don't have that margin to spare. */}
       <button
         onClick={() => setOpen(true)}
-        className="fixed left-0 top-1/2 -translate-y-1/2 z-40 group flex flex-col items-center gap-1.5 sm:gap-3 px-2 sm:px-3.5 py-2.5 sm:py-6 rounded-r-2xl bg-[#1d132e]/95 hover:bg-[#271a3e] border border-l-0 border-purple-500/30 hover:border-purple-400/50 text-purple-100 shadow-2xl shadow-purple-950/80 -translate-x-1.5 hover:translate-x-0 transition-all duration-300 ease-out cursor-pointer select-none"
+        className="fixed right-0 top-1/2 -translate-y-1/2 z-40 group flex flex-col items-center gap-1.5 sm:gap-3 px-2 sm:px-3.5 py-2.5 sm:py-6 rounded-l-2xl bg-[#1d132e]/95 hover:bg-[#271a3e] border border-r-0 border-purple-500/30 hover:border-purple-400/50 text-purple-100 shadow-2xl shadow-purple-950/80 translate-x-1.5 hover:translate-x-0 transition-all duration-300 ease-out cursor-pointer select-none"
         title="Open Poster Tab"
       >
-        <span className="hidden sm:inline text-[11px] font-bold tracking-widest uppercase [writing-mode:vertical-rl] rotate-180 text-purple-200/90 group-hover:text-white transition-colors">
+        <span className="hidden sm:inline text-[11px] font-bold tracking-widest uppercase [writing-mode:vertical-rl] text-purple-200/90 group-hover:text-white transition-colors">
           POSTER
         </span>
         <div className="p-1 sm:p-1.5 rounded-lg bg-purple-500/15 border border-purple-500/30 text-purple-300 group-hover:bg-purple-500/25 group-hover:text-purple-100 transition-colors">
@@ -65,13 +69,13 @@ export default function PosterTab({ state, attemptId, onSaved }: {
       </button>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex justify-start">
+        <div className="fixed inset-0 z-50 flex justify-end">
           <button
             aria-label="Close poster tab"
             onClick={() => setOpen(false)}
             className="absolute inset-0 bg-background/80 backdrop-blur-md transition-opacity"
           />
-          <aside className="relative w-full sm:max-w-[480px] h-full overflow-y-auto bg-card border-r border-border p-6 flex flex-col gap-5 shadow-2xl animate-in slide-in-from-left duration-200">
+          <aside className="relative w-full sm:max-w-[480px] h-full overflow-y-auto bg-card border-l border-border p-6 flex flex-col gap-5 shadow-2xl animate-in slide-in-from-right duration-200">
             <div className="flex items-start justify-between gap-3 pb-4 border-b border-border">
               <div>
                 <h2 className="font-display text-lg font-extrabold tracking-tight flex items-center gap-2.5 text-foreground">

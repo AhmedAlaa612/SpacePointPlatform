@@ -26,13 +26,13 @@ from app.services.missions.design import content
 # room for the thing that always goes wrong later.
 TIGHT_MARGIN_FRACTION = 0.10
 
-# A margin row's key isn't always the step key it belongs to (energy budget
-# produces two rows, mass produces two) — this is the one mapping everything
-# scope-aware in this module reads, so it can't drift between build_margins'
-# own filtering and build_advice's mistake-matching.
+# A margin row's key isn't always the step key it belongs to (mass produces
+# two rows) — this is the one mapping everything scope-aware in this module
+# reads, so it can't drift between build_margins' own filtering and
+# build_advice's mistake-matching.
 MARGIN_ROW_STEP: dict[str, str] = {
-    "storage": "data_budget", "power": "power_budget", "energy": "energy_budget",
-    "depth_of_discharge": "energy_budget", "link": "link_budget", "downlink": "downlink",
+    "storage": "data_budget", "power": "power_budget",
+    "link": "link_budget", "downlink": "downlink",
     "mass": "mass_budget", "volume": "mass_budget", "cost": "cost_budget",
 }
 
@@ -65,7 +65,7 @@ def build_margins(dash: dict, thresholds: dict, limits: dict, effective_keys: se
     student on a Components/CONOPS/Data-only run never had the ability to
     add a solar array, so a "your power budget fails" card is not useful
     feedback, it's noise about a step they were never given."""
-    data, power, energy = dash["data"], dash["power"], dash["energy"]
+    data, power = dash["data"], dash["power"]
     mass, cost, link, downlink = dash["mass"], dash["cost"], dash["link"], dash["downlink"]
 
     rows: list[dict] = []
@@ -101,36 +101,6 @@ def build_margins(dash: dict, thresholds: dict, limits: dict, effective_keys: se
             else f"Only {_fmt(power.power_margin_mw, 'mW')} of headroom at peak load."
             if tight
             else f"{_fmt(power.power_margin_mw, 'mW')} of headroom at peak load."
-        ),
-    })
-
-    # ── energy over an orbit ─────────────────────────────────────────────
-    rows.append({
-        "key": "energy", "label": "Energy per orbit", "value": energy.energy_margin_mwh, "unit": "mWh",
-        "status": _status(energy.energy_balance_ok, energy.has_data),
-        "interpretation": (
-            "Size a battery to complete this check." if not energy.has_data
-            else f"You consume {_fmt(energy.consumed_per_orbit_mwh, 'mWh')} per orbit but only generate "
-                 f"{_fmt(energy.generated_per_orbit_mwh, 'mWh')} in {energy.sunlit_minutes:.0f} minutes of "
-                 f"sunlight. The battery loses {_fmt(abs(energy.energy_margin_mwh), 'mWh')} every lap."
-            if not energy.energy_balance_ok
-            else f"Generation covers consumption with {_fmt(energy.energy_margin_mwh, 'mWh')} to spare each orbit."
-        ),
-    })
-
-    # ── depth of discharge ───────────────────────────────────────────────
-    dod_limit = energy.max_depth_of_discharge_pct
-    rows.append({
-        "key": "depth_of_discharge", "label": "Battery depth of discharge", "value": energy.depth_of_discharge_pct,
-        "unit": "%",
-        "status": _status(energy.depth_of_discharge_ok, energy.has_data,
-                          tight=energy.depth_of_discharge_ok and energy.depth_of_discharge_pct > dod_limit * 0.85),
-        "interpretation": (
-            "Size a battery to complete this check." if not energy.has_data
-            else f"Eclipse takes {energy.depth_of_discharge_pct:.0f}% out of the battery — over the "
-                 f"{dod_limit:.0f}% limit. Sixteen times a day for years, that wears the cells out."
-            if not energy.depth_of_discharge_ok
-            else f"Eclipse takes {energy.depth_of_discharge_pct:.0f}% out of a {dod_limit:.0f}% allowance."
         ),
     })
 
@@ -212,7 +182,6 @@ def build_kpis(dash: dict, component_count: int, mode_count: int) -> dict:
         "total_modes": mode_count,
         "total_data_per_day_kb": dash["data"].total_per_day_kb,
         "total_power_mw": dash["power"].total_power_mw,
-        "energy_per_orbit_mwh": dash["energy"].consumed_per_orbit_mwh,
         "total_mass_kg": dash["mass"].total_mass_kg,
         "total_cost_aed": dash["cost"].total_cost_aed,
         "link_margin_db": dash["link"].margin_db,
@@ -220,7 +189,7 @@ def build_kpis(dash: dict, component_count: int, mode_count: int) -> dict:
 
 
 _MODULE_TABS = {
-    "conops": "conops", "data_budget": "data", "power_budget": "power", "energy_budget": "energy",
+    "conops": "conops", "data_budget": "data", "power_budget": "power",
     "link_budget": "link", "downlink": "dashboard", "mass_budget": "mass", "cost_budget": "cost",
     "components": "components",
 }
@@ -244,8 +213,6 @@ def build_module_cards(
          "Stored", _fmt(d["data"].total_stored_per_day_kb, "KB")),
         ("power_budget", "Power budget", "Peak load", _fmt(d["power"].total_power_mw, "mW"),
          "Generated", _fmt(d["power"].generated_power_mw, "mW")),
-        ("energy_budget", "Energy & battery", "Margin/orbit", _fmt(d["energy"].energy_margin_mwh, "mWh"),
-         "Depth of discharge", f"{d['energy'].depth_of_discharge_pct:.0f}%"),
         ("link_budget", "Link budget", "Margin", f"{d['link'].margin_db:.1f} dB", "Status", d["link"].status),
         ("downlink", "Downlink check", "Needed", _fmt(d["downlink"].data_to_downlink_per_orbit_kb, "KB"),
          "Capacity", _fmt(d["downlink"].downlink_capacity_per_orbit_kb, "KB")),

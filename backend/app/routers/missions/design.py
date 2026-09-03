@@ -53,7 +53,6 @@ from app.schemas.missions_design import (
     DesignBriefingOut,
     DesignHandbookOut,
     DownlinkBudgetSummaryOut,
-    EnergyBudgetSummaryOut,
     DataEntrySaveIn,
     DesignComponentAddIn,
     DesignComponentOut,
@@ -90,6 +89,14 @@ from app.services.missions.gating import gate_map_for_attempt, require_step_unlo
 from app.routers.missions.student import _own_attempt
 
 router = APIRouter(prefix="/missions/design", tags=["missions-design"])
+
+# Step keys the student can explicitly self-check (2026-09) — `setup` (no
+# `DESIGN_STEP_LABELS` row of its own, see design_state_out's own
+# `included_steps` comment) plus every selectable design-phase tab except
+# `downlink` (not a tab) and `report` (stays purely validity-driven —
+# matches DesignMissionPage.tsx's own exclusion of the Report tab from the
+# Complete-button flow).
+CONFIRMABLE_STEP_KEYS = {"setup"} | {key for key, _ in DESIGN_STEP_LABELS if key != "downlink"}
 
 
 async def _own_design_attempt(db: AsyncSession, attempt_id: uuid.UUID, user: User) -> MissionAttempt:
@@ -234,18 +241,6 @@ async def design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design:
             assumed_distance_km=thresholds["assumed_distance_km"],
             transmit_power_dbm=thresholds["transmit_power_dbm"],
         ),
-        energy=EnergyBudgetSummaryOut(
-            sunlit_minutes=dash["energy"].sunlit_minutes, eclipse_minutes=dash["energy"].eclipse_minutes,
-            generated_per_orbit_mwh=dash["energy"].generated_per_orbit_mwh,
-            consumed_per_orbit_mwh=dash["energy"].consumed_per_orbit_mwh,
-            energy_margin_mwh=dash["energy"].energy_margin_mwh,
-            energy_balance_ok=dash["energy"].energy_balance_ok,
-            eclipse_draw_mwh=dash["energy"].eclipse_draw_mwh,
-            battery_capacity_mwh=dash["energy"].battery_capacity_mwh,
-            depth_of_discharge_pct=dash["energy"].depth_of_discharge_pct,
-            max_depth_of_discharge_pct=dash["energy"].max_depth_of_discharge_pct,
-            depth_of_discharge_ok=dash["energy"].depth_of_discharge_ok,
-        ),
         downlink=DownlinkBudgetSummaryOut(
             data_to_downlink_per_orbit_kb=dash["downlink"].data_to_downlink_per_orbit_kb,
             downlink_capacity_per_orbit_kb=dash["downlink"].downlink_capacity_per_orbit_kb,
@@ -289,6 +284,7 @@ async def design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design:
         assumptions=design_content.ASSUMPTIONS,
         step_gates=step_gates,
         included_steps=included_steps,
+        confirmed_steps=list(design.confirmed_steps or []),
     )
 
 
@@ -535,6 +531,47 @@ async def save_link_budget(
     await require_step_unlocked(db, attempt=attempt, step_key="link_budget")
     design = await ensure_design(db, attempt=attempt)
     await design_service.save_link_entry(db, design_id=design.id, **body.model_dump())
+    result = await design_state_out(db, attempt=attempt, design=design)
+    await db.commit()
+    return result
+
+
+@router.post("/attempts/{attempt_id}/steps/{step_key}/confirm", response_model=DesignStateOut)
+async def confirm_design_step(
+    attempt_id: uuid.UUID, step_key: str,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Explicit student self-check for one design-phase step (2026-09) —
+    "Complete this step" in DesignMissionPage.tsx. `is_valid` alone used to
+    be enough for a Roadmap board `mission_run` tile to read done the
+    instant a step's bare-minimum requirement was met (e.g. one component
+    added); this is the persisted "I'm actually done here" click that
+    `_mission_run_item_done` (services/lms/program.py) now also requires.
+    Rejects a step whose own requirements aren't met yet — the frontend's
+    Complete button is disabled for the same reason, but a client can't be
+    trusted to enforce that itself. Idempotent: confirming an
+    already-confirmed step just returns the current state."""
+    if step_key not in CONFIRMABLE_STEP_KEYS:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"'{step_key}' can't be self-confirmed")
+    attempt = await _own_design_attempt(db, attempt_id, current)
+    if step_key != "setup":
+        await require_step_unlocked(db, attempt=attempt, step_key=step_key)
+    design = await ensure_design(db, attempt=attempt)
+    if step_key == "setup":
+        ready = design.design_objective is not None
+    else:
+        variant = await db.get(MissionVariant, attempt.variant_id)
+        dash = await design_service.compute_dashboard(
+            db, design=design, variant_config=(variant.config or {}) if variant else {}, attempt=attempt,
+        )
+        step = dash["steps"].get(step_key)
+        ready = bool(step and step["has_data"] and step["is_valid"])
+    if not ready:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This step's requirements aren't met yet")
+    confirmed = set(design.confirmed_steps or [])
+    if step_key not in confirmed:
+        confirmed.add(step_key)
+        design.confirmed_steps = sorted(confirmed)
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result

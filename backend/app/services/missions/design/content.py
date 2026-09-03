@@ -21,7 +21,7 @@ to edit on a published mission under D8, where thresholds stay frozen.
 
 from __future__ import annotations
 
-# ── What a budget is, and why there are seven ────────────────────────────
+# ── What a budget is, and why there are six ──────────────────────────────
 
 WHAT_IS_A_BUDGET = (
     "A budget in systems engineering is not money — it is any finite resource you have to "
@@ -68,12 +68,6 @@ STEP_ORDER = [
         "depends_on": ["conops"],
     },
     {
-        "key": "energy_budget", "label": "Energy & battery",
-        "detail": "Power over a whole orbit, not just at one instant: does generation in sunlight "
-                  "cover consumption, and does the battery survive eclipse?",
-        "depends_on": ["power_budget", "conops"],
-    },
-    {
         "key": "link_budget", "label": "Link budget",
         "detail": "Whether the radio signal is strong enough to close the link to the ground "
                   "station at all.",
@@ -116,7 +110,7 @@ BUDGETS = [
                       "length of time; every minute of it has to be spent doing something.",
         "fix": "Adjust the mode durations until they total your orbit duration.",
         "formula": "active_time(component) = Σ duration(mode) for every mode the component is on in",
-        "why_it_matters": "Four separate budgets read this table. Getting it wrong quietly moves "
+        "why_it_matters": "Three separate budgets read this table. Getting it wrong quietly moves "
                           "every number downstream, which is why it comes before them.",
     },
     {
@@ -145,30 +139,8 @@ BUDGETS = [
                "more modes so fewer things are on at once.",
         "formula": "power (mW) = voltage (V) × current (mA);  generated = cells × watts_per_cell × 1000",
         "why_it_matters": "This check alone is not enough — it says nothing about eclipse, or "
-                          "about whether you can keep it up for a whole orbit. That is the "
-                          "energy budget.",
-    },
-    {
-        "key": "energy_budget",
-        "title": "Energy & battery — power over a whole orbit",
-        "checks": "Two things: that energy generated over one orbit covers energy consumed, and "
-                  "that the battery does not discharge too deeply through eclipse.",
-        "means": "The array only produces while the spacecraft is in sunlight, and roughly a "
-                 "third of a low Earth orbit is spent in Earth's shadow. Your CONOPS already "
-                 "says how long that is — it is whatever you allocated to the eclipse mode. "
-                 "Everything running during eclipse comes out of the battery.",
-        "fails_when": "Energy in over a lap is less than energy out (the battery trends down every "
-                      "orbit until the spacecraft dies), or eclipse discharge exceeds the depth-"
-                      "of-discharge limit.",
-        "fix": "Turn non-essential components off in the eclipse mode, add solar cells, or size a "
-               "larger battery. Turning things off in eclipse usually fixes both checks at once.",
-        "formula": "generated = solar_power × sunlit_minutes / 60\n"
-                   "consumed  = Σ (power × active_minutes) / 60\n"
-                   "depth_of_discharge = eclipse_draw / battery_capacity",
-        "why_it_matters": "Depth of discharge is a lifetime limit, not a survival one. A "
-                          "lithium cell taken to 60% every orbit — sixteen times a day, for "
-                          "years — wears out long before the mission is over. This is what "
-                          "actually kills satellites.",
+                          "about whether you can keep the load up for a whole orbit, not just "
+                          "one instant.",
     },
     {
         "key": "link_budget",
@@ -256,26 +228,15 @@ DATA_TYPES = [
 
 MISTAKES = [
     {
-        "key": "array_sized_for_peak",
-        "title": "Sizing the array for peak load",
-        "symptom": "Power budget passes, energy budget fails with a negative margin.",
-        "meaning": "Peak load happens for a few minutes an orbit — usually while transmitting. "
-                   "Sizing the array to cover the peak instant is expensive and still doesn't "
-                   "guarantee the orbit balances, because the array stops entirely in eclipse.",
-        "fix": "Size for orbit-average consumption and let the battery cover the peaks. Then check "
-               "the battery can actually cover them.",
-        "steps": ["power_budget", "energy_budget"],
-    },
-    {
         "key": "everything_on_always",
         "title": "Every component on in every mode",
         "symptom": "Active time equals the full orbit for everything; power and data both come out "
-                   "very high; eclipse discharge is enormous.",
+                   "very high.",
         "meaning": "That is not a concept of operations, it is a parts list. The entire point of "
                    "the CONOPS matrix is that things turn off — a camera does not run in eclipse, "
                    "a transmitter does not run outside a ground station pass.",
         "fix": "Go back to CONOPS and untick anything that has no reason to be on in that mode. "
-               "It usually fixes the power, energy and data budgets at once.",
+               "It usually fixes the power and data budgets at once.",
         "steps": ["conops"],
     },
     {
@@ -300,17 +261,6 @@ MISTAKES = [
         "steps": ["data_budget", "link_budget", "downlink"],
     },
     {
-        "key": "battery_too_small",
-        "title": "A battery that can't survive the night",
-        "symptom": "Energy balance is positive but depth of discharge is over the limit.",
-        "meaning": "Over a full orbit you generate enough — but the eclipse pass takes too much "
-                   "out of the battery in one go. Charging back up afterwards doesn't undo the "
-                   "wear of a deep discharge.",
-        "fix": "A bigger battery, or a smaller eclipse load. Turning the payload off in eclipse is "
-               "almost always the cheaper answer.",
-        "steps": ["energy_budget"],
-    },
-    {
         "key": "data_rate_too_high",
         "title": "Asking for a data rate the link can't support",
         "symptom": "Link margin goes negative as soon as you raise the data rate.",
@@ -324,7 +274,7 @@ MISTAKES = [
         "title": "Mode durations that don't total the orbit",
         "symptom": "CONOPS shows a duration difference, and every downstream budget looks slightly wrong.",
         "meaning": "An orbit is a fixed length of time. If your modes sum to more or less than it, "
-                   "the active times feeding four other budgets are wrong too.",
+                   "the active times feeding the other budgets are wrong too.",
         "fix": "Make the mode durations total your orbit period exactly.",
         "steps": ["conops"],
     },
@@ -345,10 +295,6 @@ ASSUMPTIONS = [
     "Volume is a sum of component bounding boxes with no packing factor. Real integration loses "
     "20–30% to harness, brackets and clearance, so a design that just fits here does not fit in "
     "reality.",
-    "The energy budget uses your eclipse mode duration as the shadow fraction. A real eclipse "
-    "fraction varies through the year with the orbit's beta angle.",
-    "Battery modelling is capacity and depth of discharge only — no temperature effects, no charge "
-    "efficiency curve, no ageing.",
     "Costs are indicative component prices converted at a fixed rate. They exclude launch, "
     "integration, testing, licensing and ground segment, which on a real CubeSat usually cost more "
     "than the parts.",
@@ -427,9 +373,6 @@ def briefing(variant, *, mission_title: str, mission_summary: str | None) -> dic
             {"key": "link", "label": "Link margin",
              "value": f"{t['good_link_margin_threshold_db']:.0f} dB",
              "detail": f"at an assumed range of {t['assumed_distance_km']:,.0f} km"},
-            {"key": "battery", "label": "Depth of discharge",
-             "value": f"{t['max_depth_of_discharge_pct']:.0f}%",
-             "detail": "the most the battery may be drained each eclipse"},
             {"key": "downlink", "label": "Downlink headroom",
              "value": f"{t['required_downlink_margin_fraction'] * 100:.0f}%",
              "detail": "of the contact window must stay free"},

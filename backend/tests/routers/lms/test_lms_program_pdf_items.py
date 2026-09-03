@@ -137,6 +137,46 @@ async def test_upload_then_replace_then_remove(db, client):
     assert gone.status_code == http_status.HTTP_404_NOT_FOUND
 
 
+# ── Roadmap board (2026-09) — a pdf-kind guideline on a non-pdf item ────────
+
+@pytest.mark.asyncio
+async def test_pdf_upload_and_resolve_works_for_a_pdf_guideline_on_any_item_type(db, client):
+    """A `manual`/`submission`/`mission_run`/etc. item can carry a `pdf`
+    guideline (Roadmap board task drawer's "view the guideline" step) —
+    same file, same upload/resolve endpoints as a real `pdf`-type item,
+    gated on `guideline_kind == 'pdf'` instead of `item_type == 'pdf'`."""
+    ops = await _staff(db)
+    lms_program, cohort, _pdf_item = await _program_cohort_and_item(db, author=ops)
+    guideline_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="manual", title="Do the thing", guideline_kind="pdf",
+    )
+    db.add(guideline_item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    upload = await client.post(
+        f"/lms/admin/items/{guideline_item.id}/pdf", headers=_headers(ops),
+        files={"file": ("guide.pdf", b"%PDF-1.4 guide", "application/pdf")},
+    )
+    assert upload.status_code == 200, upload.text
+    assert upload.json()["has_pdf"] is True
+
+    admin_resolved = await client.get(f"/lms/admin/items/{guideline_item.id}/pdf-url", headers=_headers(ops))
+    assert admin_resolved.status_code == 200, admin_resolved.text
+
+    student_resolved = await client.get(
+        f"/lms/programs/{assignment.id}/items/{guideline_item.id}/pdf-url", headers=_headers(student),
+    )
+    assert student_resolved.status_code == 200, student_resolved.text
+    assert "url" in student_resolved.json()
+
+    removed = await client.delete(f"/lms/admin/items/{guideline_item.id}/pdf", headers=_headers(ops))
+    assert removed.status_code == 200 and removed.json()["has_pdf"] is False
+
+
 # ── student: resolve ─────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

@@ -164,6 +164,33 @@ class LmsProgramItem(Base):
     session_location = Column(String(255), nullable=True)
     session_meeting_url = Column(String(512), nullable=True)
 
+    # ── Roadmap board (2026-09) ─────────────────────────────────────────
+    # For a `mission_run` item: which single Madar design phase this tile
+    # targets — one of the DESIGN_STEP_LABELS keys, plus 'setup' and
+    # 'report' (inferred completion, see services/lms/program.py's
+    # `_mission_run_item_done`). NULL means "the whole mission" — today's
+    # behaviour, unchanged. Never an `external_link`: the target URL needs
+    # the student's own mission_attempt_id, resolved per assignment, so a
+    # static authored link can't express it.
+    mission_step_key = Column(String(24), nullable=True)
+    # Locked until every earlier non-optional item on this checklist is
+    # done — see compute_lock_states. Optional items never block and are
+    # never themselves locked.
+    gated = Column(Boolean, nullable=False, default=False, server_default="false")
+    # pdf|link|video — the task drawer's "view the guideline" step. NULL
+    # means no guideline configured. A `pdf` kind reuses this item's own
+    # `pdf_path`/upload endpoint rather than a second file column; `link`/
+    # `video` resolve from `guideline_url` below. `video` is a YouTube/
+    # Vimeo URL rendered as an iframe embed (see lib/embed.ts) — no native
+    # upload, see docs/HANDOFF_LMS.md §11's video-upload decision.
+    guideline_kind = Column(String(8), nullable=True)
+    guideline_url = Column(String(512), nullable=True)
+    # Groups tiles into the board's row sections ("Checkpoint 1 — Learn &
+    # plan"). Free text, not an id — matched by exact string, same
+    # "authoring convenience, not a real entity" posture as everywhere
+    # else in this table that isn't a real FK.
+    checkpoint_label = Column(String(120), nullable=True)
+
 
 class LmsProgramAssignment(Base):
     """One student's instance of a program (or cohort override) checklist.

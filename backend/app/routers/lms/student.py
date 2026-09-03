@@ -95,7 +95,8 @@ from app.services.lms.dashboard import my_courses_dashboard, recent_activity
 from app.services.lms.leaderboard import leaderboard
 from app.services.lms.my_programs import my_programs
 from app.services.lms.program import (
-    PROGRAM_ITEM_PDF_BUCKET, checklist_item_write_target, get_student_checklist, list_student_assignments,
+    PROGRAM_ITEM_PDF_BUCKET, checklist_item_locked, checklist_item_write_target, get_student_checklist,
+    list_student_assignments,
 )
 from app.services import storage
 from app.models.certificate import Certificate
@@ -577,10 +578,12 @@ async def program_item_pdf_url(
     db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
 ) -> dict[str, str]:
     """Resolved only when a student actually opens a `pdf` item's document
-    — same posture as `attachment_url`/the Curriculum Library's resolve
-    endpoint, never baked into the checklist read payload."""
+    (or a `pdf`-kind guideline on any other item type — same file, same
+    reuse the admin upload endpoint follows) — same posture as
+    `attachment_url`/the Curriculum Library's resolve endpoint, never
+    baked into the checklist read payload."""
     _, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
-    if item.item_type != "pdf" or not item.pdf_path:
+    if (item.item_type != "pdf" and item.guideline_kind != "pdf") or not item.pdf_path:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No PDF uploaded for this item yet")
     url = await storage.get_signed_url(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
     return {"url": url}
@@ -600,6 +603,8 @@ async def complete_program_item(
     assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     if item.item_type in ("course", "mission_run"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is tracked automatically")
+    if await checklist_item_locked(db, assignment=assignment, item=item):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
     if item.item_type == "submission" and not target.submitted_url:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit a link first")
@@ -631,6 +636,8 @@ async def submit_program_item(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item does not take a submission")
     if item.deadline_at is not None and datetime.now(timezone.utc) > item.deadline_at:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The deadline for this submission has passed")
+    if await checklist_item_locked(db, assignment=assignment, item=item):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
     target.submitted_url = body.url
     if item.requires_confirmation:

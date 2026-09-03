@@ -679,3 +679,145 @@ existed before this stays `individual` and behaves exactly as documented above �
 not a change to the checklist model §11 describes. Full detail, including why it's a separate
 table rather than a nullable second key on `LmsProgramItemProgress`, is in
 [`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md).
+
+## 17. Roadmap board — the student checklist becomes a gated visual board (2026-09)
+
+Replaces `LearnChecklist.tsx` (a flat numbered list) outright with a gated visual "board" —
+clickable tiles connected by generated circuit-trace wires, a task drawer implementing
+guideline → work → submit, individually addressable Madar design phases, and a desktop sidebar
+in place of the old horizontal navbar. One student code path: a checklist with no gating/
+checkpoints just renders as an ungated board where every unlocked tile reads "live" (there is no
+longer a special "flat" mode). Design source: a client-supplied wireframe bundle (circuit-board
+motif, "Ru'ya Space Race" reference content) — build from its layout/states/traces faithfully, but
+the reference program's own nested six-item Madar checklist screen was explicitly **not** built;
+the client's own authoring ask ("I click add mission as a checklist point, it asks me if I want a
+specific phase") already described flat per-phase tiles instead, matching decision (2) below.
+
+**Decisions locked with the client:**
+1. **Flat Madar tiles, not a nested sub-checklist.** Each referenced design phase is an ordinary
+   checklist item/tile in the serpentine, addressed via `LmsProgramItem.mission_step_key`. No
+   `parent_item_id`, no second-level checklist screen. One program still has one design mission —
+   several phase items on the same checklist share the same `mission_attempt_id` (see §11's
+   `start_attempt` single-flight-resume note; this was verified, not assumed, before building).
+2. **The board reads Madar automatically.** A phase tile flips to done by reading the design
+   dashboard's own `steps[<key>]` validity (or an inferred signal for `setup`/`report`, which
+   aren't real `DESIGN_STEP_LABELS` keys) — no student self-check, no instructor confirmation.
+   **Superseded 2026-09** (see the "Self-check amendment" note at the end of this section) — every
+   step except `report` now also needs the student's own explicit confirmation.
+3. **Gating is per item, opt-in.** A `gated` checkbox means "locked until every earlier
+   non-optional item on this checklist is done" — never a blanket sequential lock. Authoring has a
+   "Gate everything in order" bulk action (client-side loop over the existing PATCH endpoint, no
+   new backend route).
+4. **Guideline videos are YouTube/Vimeo links, no upload.** The storage layer has no seekable
+   streaming path for the `local` backend (Fernet-encrypts whole files, no range requests) and no
+   resumable-upload API for `supabase`; building real upload was scoped and explicitly deferred.
+   The Week 1 platform tutorial is a `guideline_kind="video"` item with `guideline_url` left empty
+   — the drawer renders a "Start here · 3 min — video coming soon" placeholder until the client
+   supplies the real link once they've recorded it.
+
+**Backend — five additive columns on `lms_program_items`** (migration `a3f6d18c5b02`, no new
+tables): `mission_step_key` (`setup|components|conops|power_budget|energy_budget|mass_budget|
+data_budget|link_budget|cost_budget|report`, null = whole mission), `gated` (bool), `guideline_kind`
+(`pdf|link|video`, null = no guideline), `guideline_url` (link/video only — a `pdf` guideline
+reuses the item's own `pdf_path`/upload, see below), `checkpoint_label` (free text, groups tiles
+into the board's row sections and the final-gate-bar summary — purely cosmetic, never a gating
+boundary; the tile field is always one continuous serpentine sequence).
+
+- `services/lms/program.py::compute_lock_states(items, statuses)` — pure function, no I/O: an item
+  is locked iff `gated` and some *earlier* (by position) non-optional item isn't `done`.
+  `awaiting_confirmation` doesn't count as done (a pending submission never unlocks the next tile).
+  `checklist_item_locked()` re-derives this for one item and backs the 409 `complete`/`submit` now
+  return for a locked item — the client's own lock/no-op is enforced server-side too.
+- `refresh_item_progress`/`_mission_run_item_done` are phase-aware: when `mission_step_key` is set,
+  status comes from the design dashboard, not `attempt.status`. `_design_dashboard_for_attempt`
+  caches one `compute_dashboard()` call per `mission_attempt_id` per request (a `dashboard_cache`
+  dict threaded through every caller that loops over a checklist's items) — several phase tiles
+  sharing one attempt must not each recompute all six budgets. `setup` reads
+  `design.design_objective is not None` (the guided Setup-tab prompts, not `design_name`, which
+  always starts pre-filled `"My CubeSat"`); `report` reads `dashboard.all_valid`. **2026-09**: every
+  key except `report` also requires `mission_step_key in design.confirmed_steps` — see the
+  amendment note below.
+- **A `pdf` guideline reuses the item's own `pdf_path` column and the existing
+  `POST/DELETE /lms/admin/items/{id}/pdf` + `GET .../pdf-url` endpoints** — no new storage
+  plumbing. Those three endpoints (plus the student-side resolver) now gate on
+  `item_type == "pdf" OR guideline_kind == "pdf"`, not `item_type == "pdf"` alone, so a `manual`/
+  `submission`/`mission_run`/etc. item can carry an uploaded PDF guideline the same way a real
+  `pdf`-type item carries its own document.
+- No new endpoints otherwise. Authoring's item create/update stayed generic (`**body.model_dump()`
+  spread onto the ORM row) so the five new fields needed no router changes at all — only the
+  schemas (`LmsProgramItemIn`/`Out`, `LmsProgramChecklistItemOut` += the five fields + derived
+  `locked`) and the service layer.
+
+**Frontend** (`frontend/src/pages/learn/board/`):
+- `RoadmapBoard.tsx` — the route component (`/learn/checklists/$assignmentId`), replaces
+  `LearnChecklist.tsx` (deleted). Order: banner (`<img>` at native ratio — `w-full h-auto`, the
+  fix for the old fixed-height `bg-cover` clipping) → header + legend → next-task card → tile
+  field → final gate bar.
+- `roadmap.ts` — pure helpers shared by every board component: `tileState`, `computeLiveTaskId`
+  (first non-optional, not-done, unlocked item — drives the next-task card and which tile pulses),
+  `navTargetFor` (course/design/operate/mission/external/drawer/none), `iconForItem`,
+  `groupByCheckpoint`, scroll-position save/restore (`sessionStorage`, keyed by assignment id —
+  flow rule "back returns to the board at the same scroll position").
+- `TileField.tsx` + `TraceLayer.tsx` — the serpentine desktop grid (3-ish rows of 4, `flex-row-
+  reverse` on alternate rows, `useMediaQuery` picks desktop vs. the mobile alternating-column
+  layout rather than reflowing one DOM tree, since the two are structurally different) and the
+  generated SVG wires (measured via `ResizeObserver` inside an effect — reading `ref.current`
+  during render, e.g. in a `useMemo`, is now a real lint error under this repo's React Compiler
+  rules, not just a style nit). **Gotcha that cost real time to find**: the trace SVG's `-z-[1]`
+  needs an ancestor that actually establishes a stacking context (`relative` **and** `isolate`, or
+  an explicit `z-index`) — `position:relative` alone doesn't contain a negative-z-index child, so
+  without `isolate` the wires silently paint behind the entire page instead of just behind the
+  tiles. Caught only by an actual rendered screenshot; the DOM/computed-style inspection alone
+  looked completely correct.
+- `TaskDrawer.tsx` — every tile click (locked tiles are inert, no handler) opens the drawer rather
+  than navigating directly; "direct navigation, no intermediate screen" (flow rule 1) describes
+  what the drawer's own "do the work" row does, not the tile click itself. Steps are numbered
+  dynamically (guideline is optional; a plain `manual`/`pdf`/`session` item or a submission with no
+  reference link has no "do the work" row at all — only guideline + submit/mark-done) rather than
+  with fixed indices, to avoid a real bug caught in visual testing: a hardcoded "step 2" rendered a
+  dead "Open" row with nothing to open for exactly those item types.
+- `LearnSidebar.tsx` (new, `pages/learn/**`-local — cannot import the portal's
+  `components/layout/Sidebar`, see `LearnShell.tsx`'s own import-discipline note) replaces the old
+  horizontal `LearnNav.tsx` (deleted) on desktop; `pages/learn/nav/LearnMobileTabBar.tsx` is the
+  same bottom tab bar unchanged, just extracted into its own file. `BoardProgressContext` lets a
+  mounted `RoadmapBoard` publish "N of M traces live" up to the sidebar's own panel without either
+  file importing the other.
+- `DesignMissionPage.tsx` gained `?phase=` (seeds/write-backs the wizard's active tab) so a phase
+  tile can deep-link straight into one step of Madar — `mission_step_key` → tab value is 1:1 except
+  `power_budget→power`, `energy_budget→energy`, `mass_budget→mass`, `report→dashboard`.
+- `LmsProgramAdmin.tsx`'s `ItemForm` — "Which part of the mission?" phase picker (shown only for a
+  `mission_run` item pointing at a `kind="design"` mission; `data_budget`/`link_budget`/
+  `cost_budget` are filtered out of the *picker* per the client's "not used for this competition,"
+  though the backend vocabulary keeps them — Madar itself still has them), the `gated` checkbox +
+  toolbar bulk action, a `guideline_kind` picker that swaps between the existing PDF upload
+  affordance and a URL field, and a free-text `checkpoint_label` with a datalist of labels already
+  used on this checklist so a run of tiles doesn't drift on a typo.
+
+**Not built**: video upload for guidelines (see decision 4); the reference wireframe's nested
+Madar sub-checklist screen (see decision 1 — deliberately not built, not a gap).
+
+**Self-check amendment (2026-09, post-ship)**: decision 2 above shipped a real usability bug —
+`is_valid` alone (e.g. "at least one component added") flipped a phase tile straight to done
+before the student had actually finished shopping/tuning that step. Fixed by adding an explicit
+"Complete this step" click (`DesignMissionPage.tsx`), required in addition to `is_valid`, for
+every step except `report` (which stays purely validity-driven — it's a read-only summary of the
+other eight, not a step of its own to confirm).
+- **`Design.confirmed_steps`** (migration `d4a72fe19b03`, JSONB, default `[]`) — `list[str]` of
+  step keys (`setup` plus the 8 selectable `DESIGN_STEP_LABELS` keys minus `downlink`, which isn't
+  a tab) the student has explicitly confirmed. Lives on `designs`, not `lms_program_items` —
+  self-check is a fact about the design itself, not about any particular checklist tracking it
+  (a design mission run outside any LMS checklist is a real case, e.g. from the Missions hub).
+- **`POST /missions/design/attempts/{attempt_id}/steps/{step_key}/confirm`**
+  (`routers/missions/design.py::confirm_design_step`) — re-validates the step's own requirements
+  server-side (setup: `design_objective is not None`; else `dashboard.steps[key].is_valid`) and
+  400s if they aren't met, so a client can't force a confirmation through. Idempotent. Rejects any
+  key outside `CONFIRMABLE_STEP_KEYS` (`setup` + `DESIGN_STEP_LABELS` minus `downlink`) — `report`
+  included, on purpose.
+- `_mission_run_item_done` (services/lms/program.py) now requires both the step's own readiness
+  AND `mission_step_key in design.confirmed_steps` (piggybacked onto the same cached dashboard
+  fetch `_setup_done` already uses) for every key except `report`.
+- Frontend: `DesignMissionPage.tsx` reads `state.confirmed_steps` from the server (replacing an
+  earlier, briefly-shipped client-only `localStorage` version of this same idea, which only ever
+  gated this page's own display and never reached the Roadmap board's checklist-item completion —
+  the gap this amendment closes) and calls `confirmDesignStep` on the Complete button, disabled
+  until `tabIsDone` says the step's real requirements are met.

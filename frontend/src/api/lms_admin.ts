@@ -332,7 +332,37 @@ export interface LmsProgramItem {
   session_starts_at: string | null;
   session_location: string | null;
   session_meeting_url: string | null;
+  // ── Roadmap board (2026-09) ────────────────────────────────────────────
+  /** Which single Madar design phase a `mission_run` item targets — null
+   * means the whole mission. See MISSION_STEP_KEYS below. */
+  mission_step_key: string | null;
+  /** Locked until every earlier non-optional item on this checklist is done. */
+  gated: boolean;
+  guideline_kind: "pdf" | "link" | "video" | null;
+  guideline_url: string | null;
+  /** Groups tiles into the board's row sections ("Checkpoint 1 — Learn &
+   * plan") — free text, matched by exact string. */
+  checkpoint_label: string | null;
 }
+
+/** Mirrors the backend's MISSION_STEP_KEYS (services/lms/program.py) — the
+ * eight real Madar design phases plus `setup`/`report`, whose completion is
+ * inferred rather than read off a gate/selection row. `data_budget`,
+ * `link_budget` and `cost_budget` are still selectable here (Madar itself
+ * still has them) even though the client asked to hide them from this
+ * competition's roadmap — that's done by simply not authoring items for
+ * them, not by removing them from the vocabulary. */
+export const MISSION_STEP_KEYS: { value: string; label: string }[] = [
+  { value: "setup", label: "Name the mission" },
+  { value: "components", label: "Components" },
+  { value: "conops", label: "CONOPS" },
+  { value: "power_budget", label: "Power budget" },
+  { value: "mass_budget", label: "Mass budget" },
+  { value: "data_budget", label: "Data budget" },
+  { value: "link_budget", label: "Link budget" },
+  { value: "cost_budget", label: "Cost budget" },
+  { value: "report", label: "Report" },
+];
 
 export interface LmsProgramItemInput {
   item_type: LmsProgramItemType;
@@ -352,6 +382,11 @@ export interface LmsProgramItemInput {
   session_location?: string | null;
   session_meeting_url?: string | null;
   position?: number | null;
+  mission_step_key?: string | null;
+  gated?: boolean;
+  guideline_kind?: "pdf" | "link" | "video" | null;
+  guideline_url?: string | null;
+  checkpoint_label?: string | null;
 }
 
 export interface LmsProgram {

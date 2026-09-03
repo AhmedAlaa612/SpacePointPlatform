@@ -196,7 +196,7 @@ async def test_assigned_instructor_gets_default_all_steps_when_unconfigured(db, 
     body = resp.json()
     assert body["is_default"] is True
     assert {s["step_key"] for s in body["steps"]} == {
-        "components", "conops", "data_budget", "power_budget", "energy_budget",
+        "components", "conops", "data_budget", "power_budget",
         "mass_budget", "cost_budget", "link_budget",
     }
     assert all(s["included"] for s in body["steps"])
@@ -231,21 +231,6 @@ async def test_put_step_selection_server_expands_prereqs_not_just_trusting_clien
     assert {s["step_key"] for s in get_after.json()["steps"] if s["included"]} == included
 
 
-async def test_put_step_selection_energy_pulls_in_power_and_components(db, client):
-    author = await _user(db, roles=["operations"])
-    mission, _ = await _mission(db, author=author)
-    cohort, session = await _cohort_with_session(db)
-    instructor = await _user(db, roles=["instructor"])
-    await _assign_instructor(db, session=session, user=instructor)
-    await db.commit()
-
-    put = await client.put(
-        f"/missions/instructor/cohorts/{cohort.id}/missions/{mission.id}/steps",
-        headers=_headers(instructor), json={"step_keys": ["energy_budget"]},
-    )
-    assert put.status_code == 200, put.text
-    included = {s["step_key"] for s in put.json()["steps"] if s["included"]}
-    assert included == {"energy_budget", "power_budget", "components"}
 
 
 async def test_put_step_selection_rejects_downlink_and_empty_set(db, client):

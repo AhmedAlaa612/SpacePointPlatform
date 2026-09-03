@@ -126,6 +126,7 @@ import LearnLogin from "@/pages/learn/LearnLogin";
 import LearnSignup from "@/pages/learn/LearnSignup";
 import LearnSetPassword from "@/pages/learn/LearnSetPassword";
 import LearnLanding from "@/pages/learn/LearnLanding";
+import { resolveLearnLanding } from "@/pages/learn/resolveLearnLanding";
 import LearnCatalog from "@/pages/learn/LearnCatalog";
 import LearnMyCourses from "@/pages/learn/LearnMyCourses";
 import LearnCourse from "@/pages/learn/LearnCourse";
@@ -139,7 +140,7 @@ import LearnGames from "@/pages/learn/LearnGames";
 import GamePlay from "@/pages/learn/GamePlay";
 import LearnProgram from "@/pages/learn/LearnProgram";
 import LearnChecklists from "@/pages/learn/LearnChecklists";
-import LearnChecklist from "@/pages/learn/LearnChecklist";
+import RoadmapBoard from "@/pages/learn/board/RoadmapBoard";
 import MissionCatalog from "@/pages/learn/MissionCatalog";
 import MissionPage from "@/pages/learn/MissionPage";
 import DesignMissionPage from "@/pages/learn/DesignMissionPage";
@@ -878,9 +879,31 @@ const learnSetPasswordRoute = createRoute({
   component: LearnSetPassword,
 });
 
+// A program student's real "home" is their latest program board, not this
+// dashboard — redirects on every fresh visit to bare `/learn` (typed URL,
+// refresh, a bookmark), same target resolveLearnLanding already computes
+// for the post-login/signup landing. Reuses that helper rather than
+// re-deriving "does this student have a program" here. Deliberately does
+// NOT cover the sidebar/tab-bar Home link — that points at `learnHomeRoute`
+// below instead, precisely so clicking Home always shows the general
+// dashboard rather than bouncing a program student back to their board.
 const learnLandingRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/",
+  component: LearnLanding,
+  beforeLoad: async () => {
+    const target = await resolveLearnLanding();
+    if (target !== "/learn") throw redirect({ to: target });
+  },
+});
+
+// The Home icon's actual target (LearnSidebar.tsx/LearnMobileTabBar.tsx) —
+// same `LearnLanding` component as bare `/learn`, but with no redirect, so
+// clicking Home is a reliable way back to the general dashboard regardless
+// of whether the student has a program.
+const learnHomeRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/home",
   component: LearnLanding,
 });
 
@@ -896,10 +919,17 @@ const learnMyCoursesRoute = createRoute({
   component: LearnMyCourses,
 });
 
+// `?program=` (2026-09) — carries the originating checklist's assignment id
+// through from a Roadmap board course tile so LearnCourse/LearnPlayer can
+// offer a "back to your program" nudge on completion. Absent for anyone who
+// got here any other way (catalog, My Learning, …).
 const learnCourseRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/courses/$courseId",
   component: LearnCourse,
+  validateSearch: (search: Record<string, unknown>): { program?: string } => ({
+    program: typeof search.program === "string" ? search.program : undefined,
+  }),
 });
 
 // Redesign 1h: one route for the whole course, sidebar swaps the content pane
@@ -908,6 +938,9 @@ const learnPlayerRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/courses/$courseId/learn",
   component: LearnPlayer,
+  validateSearch: (search: Record<string, unknown>): { program?: string } => ({
+    program: typeof search.program === "string" ? search.program : undefined,
+  }),
 });
 
 // Stage S (Stripe Checkout, August Build Brief Branch 4) — the redirect
@@ -944,10 +977,12 @@ const learnChecklistsRoute = createRoute({
   component: LearnChecklists,
 });
 
+// Roadmap board (2026-09) — replaces the old flat LearnChecklist.tsx
+// outright with a gated visual roadmap. See pages/learn/board/RoadmapBoard.tsx.
 const learnChecklistRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/checklists/$assignmentId",
-  component: LearnChecklist,
+  component: RoadmapBoard,
 });
 
 // Student profile (design 2a/2b, 2026-08-08).
@@ -978,10 +1013,20 @@ const learnMissionRoute = createRoute({
 // generic attempt-flow page above (a design is iterative, saved freely
 // across many steps; a submission/quiz attempt is a single act). Keyed on
 // attempt_id, not mission_id: /missions/design/$attemptId.
+// `?phase=` (2026-09) — the Roadmap board's Madar tiles deep-link straight
+// into one wizard tab (e.g. a "ConOps" tile opens ?phase=conops) instead of
+// always landing on Setup. See DesignMissionPage.tsx's own seed/write-back.
+// `?program=` (2026-09) joins `?phase=` here the same way it does on the
+// course routes above — DesignMissionPage.tsx's own docblock covers why it
+// has to be captured once at mount rather than read reactively.
 const learnDesignMissionRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/missions/design/$attemptId",
   component: DesignMissionPage,
+  validateSearch: (search: Record<string, unknown>): { phase?: string; program?: string } => ({
+    phase: typeof search.phase === "string" ? search.phase : undefined,
+    program: typeof search.program === "string" ? search.program : undefined,
+  }),
 });
 
 // The operate-mission console (Stage 7B-4) — same reasoning as design
@@ -1056,7 +1101,7 @@ const routeTree = rootRoute.addChildren([
   learnSignupRoute,
   learnSetPasswordRoute,
   learnLayoutRoute.addChildren([
-    learnLandingRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
+    learnLandingRoute, learnHomeRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
     learnCheckoutSuccessRoute,
     learnPathsRoute, learnPathRoute, learnChecklistsRoute, learnChecklistRoute,
     learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,

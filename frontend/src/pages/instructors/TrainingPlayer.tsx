@@ -5,19 +5,7 @@ import { listTrainingApi, markVideoCompleteApi } from "@/api/instructors/trainin
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader, Spinner } from "@/pages/instructors/components/common"
-
-function toEmbedUrl(url: string): string {
-  if (!url) return ""
-  try {
-    if (url.includes("youtu.be/")) {
-      const id = url.split("youtu.be/")[1].split(/[?&]/)[0]
-      return `https://www.youtube.com/embed/${id}`
-    }
-    const m = url.match(/[?&]v=([^&]+)/)
-    if (m) return `https://www.youtube.com/embed/${m[1]}`
-  } catch { /* ignore */ }
-  return url
-}
+import { toEmbedUrl } from "@/lib/embed"
 
 export default function TrainingPlayer() {
   const { videoId } = useParams({ strict: false }) as { videoId: string }

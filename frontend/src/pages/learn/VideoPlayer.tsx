@@ -228,7 +228,7 @@ export function VideoPlayer({ itemId, transcodeStatus, onEnded }: VideoPlayerPro
 
   if (transcodeStatus !== "ready") {
     return (
-      <div className="aspect-video w-[85%] mx-auto rounded-2xl ring-1 ring-border bg-muted flex items-center justify-center text-sm text-muted-foreground text-center px-6">
+      <div className="aspect-video w-[90%] mx-auto rounded-2xl ring-1 ring-border bg-muted flex items-center justify-center text-sm text-muted-foreground text-center px-6">
         {transcodeStatus === "failed"
           ? "Video processing failed — contact ops."
           : "Video is still processing — this can take a minute. It'll appear here automatically once ready."}
@@ -237,7 +237,7 @@ export function VideoPlayer({ itemId, transcodeStatus, onEnded }: VideoPlayerPro
   }
 
   return (
-    <div ref={containerRef} className="w-[85%] mx-auto rounded-2xl overflow-hidden ring-1 ring-white/10 bg-black relative">
+    <div ref={containerRef} className="w-[90%] mx-auto rounded-2xl overflow-hidden ring-1 ring-white/10 bg-black relative">
       {loading && (
         <div className="aspect-video flex items-center justify-center text-sm text-white/70">Loading video...</div>
       )}
@@ -261,7 +261,7 @@ export function VideoPlayer({ itemId, transcodeStatus, onEnded }: VideoPlayerPro
         />
 
         {activeNote && "body" in activeNote.content && (
-          <div className="absolute left-3 right-3 bottom-3 flex items-start gap-2.5 rounded-xl bg-black/75 backdrop-blur px-4 py-3 text-sm text-white/90 pointer-events-none">
+          <div className="absolute left-2 right-2 bottom-3 flex items-start gap-2.5 rounded-2xl bg-white shadow-xl px-5 py-4 text-sm text-neutral-900 pointer-events-none">
             <StickyNote className="size-4 shrink-0 mt-0.5 text-primary" />
             <span>{activeNote.content.body}</span>
           </div>
@@ -360,22 +360,22 @@ function CheckpointQuizOverlay({
 
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
-      <div className="w-full max-w-md rounded-2xl bg-card ring-1 ring-primary/25 shadow-2xl p-6 flex flex-col gap-4">
+      <div className="w-full max-w-2xl rounded-2xl bg-card ring-1 ring-primary/25 shadow-2xl p-8 flex flex-col gap-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-amber-500">
             <AlertCircle className="size-3.5" /> Checkpoint · paused at {formatCheckpointClock(checkpoint.start_seconds)}
           </div>
         </div>
-        <p className="font-display text-lg font-semibold leading-snug">{content.prompt}</p>
+        <p className="font-display text-xl font-semibold leading-snug">{content.prompt}</p>
 
         {content.question_type === "mcq" && content.options && (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2.5">
             {content.options.map((opt, i) => (
               <button
                 key={i}
                 disabled={!!result}
                 onClick={() => setSelected(i)}
-                className={`text-left px-3.5 py-2.5 rounded-xl ring-1 text-sm cursor-pointer disabled:cursor-default transition-colors ${
+                className={`text-left px-4 py-3.5 rounded-xl ring-1 text-base cursor-pointer disabled:cursor-default transition-colors ${
                   selected === i ? "ring-primary/50 bg-primary/10" : "ring-border hover:bg-muted/50"
                 }`}
               >
@@ -386,7 +386,7 @@ function CheckpointQuizOverlay({
         )}
 
         {content.question_type === "multiselect" && content.options && (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2.5">
             {content.options.map((opt, i) => {
               const checked = Array.isArray(selected) && selected.includes(i);
               return (
@@ -394,7 +394,7 @@ function CheckpointQuizOverlay({
                   key={i}
                   disabled={!!result}
                   onClick={() => toggleMulti(i)}
-                  className={`text-left px-3.5 py-2.5 rounded-xl ring-1 text-sm cursor-pointer disabled:cursor-default flex items-center gap-2.5 transition-colors ${
+                  className={`text-left px-4 py-3.5 rounded-xl ring-1 text-base cursor-pointer disabled:cursor-default flex items-center gap-2.5 transition-colors ${
                     checked ? "ring-primary/50 bg-primary/10" : "ring-border hover:bg-muted/50"
                   }`}
                 >
@@ -413,25 +413,25 @@ function CheckpointQuizOverlay({
             disabled={!!result}
             rows={3}
             placeholder="Type your answer..."
-            className="w-full px-3 py-2 rounded-xl ring-1 ring-border bg-background text-sm resize-none focus:outline-none focus:ring-primary/40"
+            className="w-full px-4 py-3 rounded-xl ring-1 ring-border bg-background text-base resize-none focus:outline-none focus:ring-primary/40"
           />
         )}
 
         {result && (
-          <p className={`text-sm ${result.correct === null ? "text-muted-foreground" : result.correct ? "text-emerald-500" : "text-destructive"}`}>
+          <p className={`text-base ${result.correct === null ? "text-muted-foreground" : result.correct ? "text-emerald-500" : "text-destructive"}`}>
             {result.correct === null ? "Noted — thanks for answering." : result.correct ? "Correct!" : "Not quite."}
             {result.explanation && ` ${result.explanation}`}
           </p>
         )}
 
         <div className="flex items-center justify-between gap-3 pt-1">
-          <button onClick={onResolved} className="text-sm text-muted-foreground hover:text-foreground cursor-pointer">
+          <button onClick={onResolved} className="text-base text-muted-foreground hover:text-foreground cursor-pointer">
             Skip
           </button>
           {result ? (
-            <Button onClick={onResolved}>Continue</Button>
+            <Button size="xl" onClick={onResolved}>Continue</Button>
           ) : (
-            <Button onClick={() => void submit()} disabled={!canSubmit || submitting}>
+            <Button size="xl" onClick={() => void submit()} disabled={!canSubmit || submitting}>
               {submitting ? "Checking..." : "Check answer"}
             </Button>
           )}

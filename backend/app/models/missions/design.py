@@ -50,7 +50,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
 
@@ -132,6 +132,15 @@ class Design(Base):
     # The team's own working-copy link, pasted back in (August Build Brief,
     # Branch 3) — editable until the cohort's `ends_on` passes.
     poster_url = Column(String(512), nullable=True)
+    # Step self-check (2026-09) — list[str] of step keys (`setup` plus the
+    # selectable `DESIGN_STEP_LABELS` keys, minus `downlink`/`report`) the
+    # student has explicitly clicked "Complete this step" on in
+    # DesignMissionPage.tsx. `is_valid` alone used to be enough to flip a
+    # Roadmap board tile to done; this is the persisted half of that gate —
+    # see services/lms/program.py's `_mission_run_item_done`. Never
+    # includes `report`: that step stays purely validity-driven, matching
+    # the frontend's own exclusion of the Report tab from this flow.
+    confirmed_steps = Column(JSONB, nullable=False, default=list, server_default="[]")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

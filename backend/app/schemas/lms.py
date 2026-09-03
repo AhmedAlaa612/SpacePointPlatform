@@ -468,6 +468,17 @@ class LmsProgramChecklistItemOut(BaseModel):
     scope: str = "individual"
     updated_by_name: str | None = None
     updated_at: datetime | None = None
+    # ── Roadmap board (2026-09) ─────────────────────────────────────────
+    # Which single Madar design phase a `mission_run` tile targets — NULL
+    # means the whole mission (see LmsProgramItem.mission_step_key).
+    mission_step_key: str | None = None
+    gated: bool = False
+    guideline_kind: str | None = None
+    guideline_url: str | None = None
+    checkpoint_label: str | None = None
+    # Derived, never stored — see compute_lock_states. True iff `gated`
+    # and some earlier non-optional item on this checklist isn't done yet.
+    locked: bool = False
 
 
 class LmsProgramAssignmentSummaryOut(BaseModel):

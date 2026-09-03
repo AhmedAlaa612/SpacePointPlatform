@@ -49,7 +49,14 @@ async def selected_steps_for_cohort_mission(
     db: AsyncSession, *, cohort_id: uuid.UUID, mission_id: uuid.UUID,
 ) -> set[str]:
     """The resolved included-step set. No rows -> every selectable step —
-    the single place this default lives; everything else consumes it."""
+    the single place this default lives; everything else consumes it.
+
+    Intersected with the *current* `SELECTABLE_STEP_KEYS` (2026-09) — a row
+    can outlive the step it names (e.g. Energy Budget's retirement), and a
+    stale key here used to reach `compute_dashboard`'s `effective_keys` and
+    crash with a `KeyError` looking up a step that no longer exists. Rows
+    for a retired step are otherwise harmless clutter, so this filters
+    rather than requiring a data migration to delete them."""
     from app.services.lms.admin_progress import SELECTABLE_STEP_KEYS
 
     rows = (await db.execute(
@@ -59,7 +66,7 @@ async def selected_steps_for_cohort_mission(
     )).scalars().all()
     if not rows:
         return set(SELECTABLE_STEP_KEYS)
-    return set(rows)
+    return set(rows) & SELECTABLE_STEP_KEYS
 
 
 async def set_selected_steps(

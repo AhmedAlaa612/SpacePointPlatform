@@ -73,10 +73,6 @@ def test_power_and_data_budget_pull_in_components_only_not_conops():
     assert expand_with_prereqs({"data_budget"}) == {"data_budget", "components"}
 
 
-def test_energy_budget_transitively_pulls_in_power_and_components():
-    assert expand_with_prereqs({"energy_budget"}) == {"energy_budget", "power_budget", "components"}
-
-
 def test_mass_and_cost_budget_pull_in_components_only():
     assert expand_with_prereqs({"mass_budget"}) == {"mass_budget", "components"}
     assert expand_with_prereqs({"cost_budget"}) == {"cost_budget", "components"}

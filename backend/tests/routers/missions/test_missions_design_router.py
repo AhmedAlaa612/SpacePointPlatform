@@ -328,7 +328,7 @@ async def test_design_state_reports_step_gates(db, client):
     gates = state.json()["step_gates"]
     assert gates["power_budget"] is False
     assert gates["components"] is True  # no row for this step -> unlocked
-    assert gates["energy_budget"] is True  # ungated computed step, always shown
+    assert gates["mass_budget"] is True  # no row for this step either -> unlocked
 
 
 # ── Poster/Canva link fields (August Build Brief, Branch 3) ─────────────────

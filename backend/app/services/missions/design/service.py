@@ -42,7 +42,6 @@ from app.services import storage
 from app.services.missions.design import rf_calc
 from app.services.missions.design.calculators import (
     calc_downlink_budget,
-    calc_energy_budget,
     CUBESAT_PRESETS,
     ComponentInput,
     ModeInput,
@@ -364,9 +363,9 @@ async def compute_dashboard(
         is_saved=bool(link_entry and link_entry.is_saved), link_status=link_status_str, margin_db=link_margin,
     )
 
-    # Design v2 (7D-2) — the two cross-checks Madar left open. Both read the
+    # Design v2 (7D-2) — the cross-check Madar left open. It reads the
     # CONOPS matrix rather than one budget's own inputs, which is what makes
-    # that matrix load-bearing for four budgets instead of two.
+    # that matrix load-bearing beyond CONOPS itself.
     downlink = calc_downlink_budget(
         total_sent_per_day_kb=data.total_sent_per_day_kb,
         orbits_per_day=design.orbits_per_day or 1.0,
@@ -375,20 +374,12 @@ async def compute_dashboard(
         link_is_saved=bool(link_entry and link_entry.is_saved),
         required_margin_fraction=thresholds["required_downlink_margin_fraction"],
     )
-    energy = calc_energy_budget(
-        components=components, modes=modes,
-        orbit_duration_min=design.orbit_duration_min or 0.0,
-        generated_power_mw=power.generated_power_mw,
-        battery_capacity_wh=design.battery_capacity_wh,
-        max_depth_of_discharge_pct=thresholds["max_depth_of_discharge_pct"],
-    )
 
     steps = {
         "components": {"has_data": len(components) > 0, "is_valid": len(components) > 0},
         "conops": {"has_data": conops.has_data, "is_valid": conops.is_valid},
         "data_budget": {"has_data": data.has_data, "is_valid": data.is_valid},
         "power_budget": {"has_data": power.has_data, "is_valid": power.is_valid},
-        "energy_budget": {"has_data": energy.has_data, "is_valid": energy.is_valid},
         "link_budget": {"has_data": link.has_data, "is_valid": link.is_valid},
         # Not a tab of its own — a constraint that spans Data, Link and
         # CONOPS. The dashboard's alerts say which of the three to change.
@@ -419,7 +410,7 @@ async def compute_dashboard(
 
     return {
         "conops": conops, "data": data, "power": power, "link": link, "mass": mass, "cost": cost,
-        "downlink": downlink, "energy": energy,
+        "downlink": downlink,
         "steps": steps, "all_valid": all_valid,
         "included_steps": included, "downlink_included": downlink_included,
         "cubesat_limits": limits, "thresholds": thresholds,
