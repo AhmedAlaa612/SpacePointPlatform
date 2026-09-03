@@ -11,7 +11,7 @@ import { Home, GraduationCap, Rocket, Gamepad2, Trophy, ClipboardCheck } from "l
 export type LearnNavActive = "home" | "catalog" | "missions" | "paths" | "checklists" | "my-courses" | "games" | "leaderboard" | "profile";
 
 export const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: typeof Home }[] = [
-  { key: "home", label: "Home", to: "/learn", icon: Home },
+  { key: "home", label: "Home", to: "/learn/home", icon: Home },
   { key: "my-courses", label: "My Learning", to: "/learn/my-courses", icon: GraduationCap },
   { key: "checklists", label: "Programs", to: "/learn/checklists", icon: ClipboardCheck },
   { key: "missions", label: "Missions", to: "/learn/missions", icon: Rocket },
