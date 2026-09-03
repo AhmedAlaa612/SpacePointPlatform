@@ -2,15 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearch, useNavigate, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
 import { CheckCircle2, ChevronRight, Rocket, Trash2, XCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PdfViewer } from "@/components/documents/PdfViewer";
 import DesignHandbookDrawer from "@/components/missions/DesignHandbook";
 import PosterTab from "@/components/missions/PosterTab";
 import { CompletionCelebration } from "./CompletionCelebration";
+import { MadarPhaseBoard } from "./missions/MadarPhaseBoard";
+import { MadarPhaseDrawer } from "./missions/MadarPhaseDrawer";
 import {
   addDesignComponent, completeDesign, confirmDesignStep, fetchComponentDatasheetUrl, fetchDesignHandbook,
   fetchDesignLibrary, fetchDesignState, joinObjectivePrompts, parseObjectivePrompts, removeDesignComponent,
@@ -35,7 +35,7 @@ const labelCls = "text-xs font-semibold uppercase tracking-wide text-muted-foreg
  * explain the order, don't enforce it). `needs` lists the steps whose data
  * this one is computed from — CONOPS feeds four separate budgets, which is
  * the single most important thing to communicate about the sequence. */
-const DESIGN_TABS: {
+export const DESIGN_TABS: {
   value: string; label: string; step?: string; needs?: string[]; blockedHint?: string;
 }[] = [
   { value: "setup", label: "Setup" },
@@ -73,11 +73,26 @@ const DESIGN_TABS: {
  * `dashboard.steps` keys (see `DESIGN_TABS`' own `step` field, undefined
  * for both), so they get their own check, matching the backend's
  * `_mission_run_item_done` (services/lms/program.py). */
-function tabIsDone(state: DesignState, tabValue: string): boolean {
+export function tabIsDone(state: DesignState, tabValue: string): boolean {
   if (tabValue === "setup") return state.design_objective !== null;
   if (tabValue === "dashboard") return state.dashboard.all_valid;
   const stepKey = DESIGN_TABS.find((t) => t.value === tabValue)?.step;
   return !!stepKey && !!state.dashboard.steps[stepKey]?.is_valid;
+}
+
+/** Whether one design tab is soft-blocked — a data dependency
+ * (`needs`, D2: explain the order, don't enforce it) or an instructor's
+ * explicit gate (`step_gates`, backed by a 403 on the write endpoint).
+ * Both are informational at the tile level: a blocked tile still opens,
+ * same as the tab strip this replaces never actually disabled a blocked
+ * tab either — only the write endpoint enforces the gate. */
+export function tabBlockInfo(state: DesignState, t: (typeof DESIGN_TABS)[number]): { blocked: boolean; hint?: string } {
+  const needsBlocked = t.needs?.some((k) => !state.dashboard.steps[k]?.has_data);
+  const gateLocked = t.step ? state.step_gates?.[t.step] === false : false;
+  return {
+    blocked: !!(needsBlocked || gateLocked),
+    hint: gateLocked ? "Your instructor hasn't unlocked this step yet." : t.blockedHint,
+  };
 }
 
 /** Per-step "I'm done here" confirmation (2026-09) — `tabIsDone` alone (e.g.
@@ -112,27 +127,44 @@ export default function DesignMissionPage() {
   const navigate = useNavigate();
   const [state, setState] = useState<DesignState | null>(null);
   const [error, setError] = useState("");
-  // Seeded from ?phase= (a Roadmap board Madar tile's deep link) when it
-  // names a real tab — falls back to Setup exactly as before this existed.
-  const [tab, setTabState] = useState(
-    () => (search.phase && DESIGN_TABS.some((t) => t.value === search.phase) ? search.phase : "setup"),
+  // Which phase's drawer is open — null means the board is showing. Seeded
+  // from ?phase= (a Roadmap board Madar tile's deep link, or a checklist
+  // item's own deep link) when it names a real tab.
+  const [openPhase, setOpenPhaseState] = useState<string | null>(
+    () => (search.phase && DESIGN_TABS.some((t) => t.value === search.phase) ? search.phase : null),
   );
-  // Keeps the URL in sync so the tab survives a refresh/share, mirroring
-  // DesignBriefingPage's own ?variant=/?team= write-back pattern.
-  const setTab = useCallback((next: string) => {
-    setTabState(next);
-    void navigate({ search: { phase: next, program: search.program } as never, replace: true });
+  // Keeps the URL in sync so the open phase survives a refresh/share,
+  // mirroring DesignBriefingPage's own ?variant=/?team= write-back pattern.
+  const setOpenPhase = useCallback((next: string | null) => {
+    setOpenPhaseState(next);
+    void navigate({ search: { phase: next ?? undefined, program: search.program } as never, replace: true });
   }, [navigate, search.program]);
   const [completeError, setCompleteError] = useState("");
   const [completing, setCompleting] = useState(false);
   const [handbook, setHandbook] = useState<DesignHandbook | null>(null);
   const [confirmingTab, setConfirmingTab] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState("");
+  const [celebration, setCelebration] = useState<{ title: string; subtitle: string } | null>(null);
+  // Confirming is always this one deliberate click now (2026-09) — no more
+  // guessing at completion via a false→true-transition watcher, since a
+  // phase can no longer complete itself as a side effect of ordinary
+  // editing (that auto-complete-on-any-edit behavior is exactly the bug
+  // the confirm-step work fixed). So the celebration just fires straight
+  // from here, for any phase, whether or not the student arrived via a
+  // checklist deep link (`search.program` only changes whether
+  // `CompletionCelebration`'s own button offers a way back to it).
   const confirmStep = async (tabValue: string) => {
     setConfirmingTab(tabValue);
     setConfirmError("");
     try {
-      setState(await confirmDesignStep(attemptId, designStepKeyForTab(tabValue)));
+      const next = await confirmDesignStep(attemptId, designStepKeyForTab(tabValue));
+      setState(next);
+      setOpenPhase(null);
+      const label = DESIGN_TABS.find((t) => t.value === tabValue)?.label;
+      setCelebration({
+        title: `${label} phase complete!`,
+        subtitle: "Nice work — that step is locked in on your board.",
+      });
     } catch (err) {
       setConfirmError(errorDetail(err, "Couldn't confirm this step right now."));
     } finally {
@@ -140,40 +172,11 @@ export default function DesignMissionPage() {
     }
   };
 
-  // The *specific* tile the student arrived from — captured once at mount,
-  // deliberately not read reactively off `search.phase`: `setTab` rewrites
-  // that same param on every tab switch, so a live read would silently
-  // start celebrating whichever tab the student happens to be on instead
-  // of the one their checklist item actually pointed at. `null` means the
-  // checklist item referenced the whole mission, not one phase.
-  const sourceTabRef = useRef(search.phase && DESIGN_TABS.some((t) => t.value === search.phase) ? search.phase : null);
-  const wasDoneRef = useRef<boolean | null>(null);
-  const [celebration, setCelebration] = useState<{ title: string; subtitle: string } | null>(null);
-
   const load = useCallback(() => {
     fetchDesignState(attemptId).then(setState).catch(() => setError("Couldn't load this design."));
   }, [attemptId]);
 
   useEffect(() => { load(); }, [load]);
-
-  // Fires the celebration on the first observed false→true transition only
-  // — not on load (so revisiting an already-finished phase stays quiet) and
-  // only when `program` is present (so this never appears for a student who
-  // opened Madar from the Missions hub instead of a checklist tile).
-  useEffect(() => {
-    if (!state || !search.program) return;
-    const done = sourceTabRef.current ? tabIsDone(state, sourceTabRef.current) : state.attempt_status === "passed";
-    const was = wasDoneRef.current;
-    wasDoneRef.current = done;
-    if (was === null || was === done) return;
-    if (!done) return;
-    const label = sourceTabRef.current ? DESIGN_TABS.find((t) => t.value === sourceTabRef.current)?.label : null;
-    setCelebration(
-      label
-        ? { title: `${label} phase complete!`, subtitle: "Nice work — that step is locked in on your board." }
-        : { title: "Mission complete!", subtitle: "Every budget checks out. Nice work." },
-    );
-  }, [state, search.program]);
 
   // Static for the life of the attempt — fetched once, not on every save.
   useEffect(() => { fetchDesignHandbook(attemptId).then(setHandbook).catch(() => {}); }, [attemptId]);
@@ -184,7 +187,8 @@ export default function DesignMissionPage() {
     try {
       const next = await completeDesign(attemptId);
       setState(next);
-      setTab("dashboard");
+      setOpenPhase("dashboard");
+      setCelebration({ title: "Mission complete!", subtitle: "Every budget checks out. Nice work." });
     } catch (err) {
       setCompleteError(errorDetail(err, "Couldn't complete this design right now."));
       load();
@@ -234,74 +238,23 @@ export default function DesignMissionPage() {
       </div>
       {completeError && <p className="text-xs text-destructive">{completeError}</p>}
 
-      <CompletionMap state={state} visibleTabs={visibleTabs} onGoToTab={setTab} confirmedSteps={confirmedSteps} />
-
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="flex-wrap">
-          {visibleTabs.map((t) => {
-            // 2026-08-17 — two independent reasons a tab can be blocked:
-            // a data dependency (D2: explain the order, don't enforce it —
-            // still openable) or an instructor's explicit gate (a hard
-            // block, backed by a 403 on the write endpoint, not just a
-            // hint).
-            const needsBlocked = t.needs?.some((k) => !state.dashboard.steps[k]?.has_data);
-            const gateLocked = t.step ? state.step_gates?.[t.step] === false : false;
-            const blocked = needsBlocked || gateLocked;
-            const hint = gateLocked ? "Your instructor hasn't unlocked this step yet." : t.blockedHint;
-            return (
-              <TabsTrigger key={t.value} value={t.value} title={blocked ? hint : undefined}>
-                <span className="flex items-center gap-1.5">
-                  {t.label}
-                  {blocked && <span className="text-[9px] text-amber-500">!</span>}
-                  {confirmedSteps[t.value] && tabIsDone(state, t.value) && <CheckCircle2 className="size-3 text-emerald-500" />}
-                </span>
-              </TabsTrigger>
-            );
-          })}
-        </TabsList>
-
-        <TabsContent value="setup"><SetupTab state={state} onSaved={setState} /></TabsContent>
-        <TabsContent value="components"><ComponentsTab state={state} attemptId={attemptId} onChanged={setState} /></TabsContent>
-        <TabsContent value="conops"><ConopsTab state={state} attemptId={attemptId} onSaved={setState} /></TabsContent>
-        <TabsContent value="data"><DataBudgetTab state={state} attemptId={attemptId} onSaved={setState} /></TabsContent>
-        <TabsContent value="power"><PowerBudgetTab state={state} attemptId={attemptId} onSaved={setState} /></TabsContent>
-        <TabsContent value="energy"><EnergyBudgetTab state={state} attemptId={attemptId} onSaved={setState} /></TabsContent>
-        <TabsContent value="link"><LinkBudgetTab state={state} attemptId={attemptId} onSaved={setState} /></TabsContent>
-        <TabsContent value="mass"><MassBudgetTab state={state} attemptId={attemptId} onSaved={setState} /></TabsContent>
-        <TabsContent value="cost"><CostBudgetTab state={state} attemptId={attemptId} onSaved={setState} /></TabsContent>
-        <TabsContent value="dashboard"><DashboardTab state={state} onGoToTab={setTab} /></TabsContent>
-      </Tabs>
-
-      {/* An explicit "I'm done here" per step, separate from tabIsDone's own
-          bare-minimum validity check — see designStepKeyForTab's own comment.
-          Not shown for the Report tab, which is a read-only summary of the
-          other eight, not a step of its own to confirm. */}
-      {tab !== "dashboard" && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl ring-1 ring-border p-4 bg-card/60">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold">
-              {confirmedSteps[tab] ? "Step confirmed" : tabIsDone(state, tab) ? "Requirements met" : "Not ready yet"}
-            </p>
-            <p className={cn("text-xs mt-0.5", confirmError ? "text-destructive" : "text-muted-foreground")}>
-              {confirmError || (confirmedSteps[tab]
-                ? "You've marked this step done — you can still keep editing it."
-                : tabIsDone(state, tab)
-                  ? "Confirm when you're happy with this step."
-                  : "Finish this step's requirements before confirming it.")}
-            </p>
-          </div>
-          <Button
-            variant={confirmedSteps[tab] ? "outline" : "default"}
-            disabled={!tabIsDone(state, tab) || confirmedSteps[tab] || confirmingTab === tab}
-            onClick={() => void confirmStep(tab)}
-          >
-            {confirmedSteps[tab] ? <><CheckCircle2 className="size-4" /> Completed</> : confirmingTab === tab ? "Confirming..." : "Complete this step"}
-          </Button>
-        </div>
-      )}
+      <MadarPhaseBoard state={state} visibleTabs={visibleTabs} confirmedSteps={confirmedSteps} onOpenPhase={setOpenPhase} />
 
       <DesignHandbookDrawer handbook={handbook} />
       <PosterTab state={state} attemptId={attemptId} onSaved={setState} />
+
+      <MadarPhaseDrawer
+        tab={openPhase}
+        state={state}
+        attemptId={attemptId}
+        onClose={() => setOpenPhase(null)}
+        onSaved={setState}
+        onGoToTab={setOpenPhase}
+        confirmedSteps={confirmedSteps}
+        confirmingTab={confirmingTab}
+        confirmError={confirmError}
+        onConfirm={(t) => void confirmStep(t)}
+      />
 
       <CompletionCelebration
         open={!!celebration}
@@ -328,7 +281,7 @@ const ORBIT_PRESETS: Record<string, { orbit_type: string; orbit_duration_min: nu
   GEO: { orbit_type: "GEO", orbit_duration_min: 1436, orbits_per_day: 1 },
 };
 
-function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: DesignState) => void }) {
+export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: DesignState) => void }) {
   const [name, setName] = useState(state.design_name);
   const [objectives, setObjectives] = useState<Record<string, string>>(() => parseObjectivePrompts(state.design_objective));
   const [orbitType, setOrbitType] = useState(state.orbit_type ?? "LEO");
@@ -482,7 +435,7 @@ function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: DesignS
 
 const SUBSYSTEMS = ["All", "ADCS", "CDHS", "EPS", "COMMS", "Payload", "Structure", "Thermal"];
 
-function ComponentsTab({ state, attemptId, onChanged }: { state: DesignState; attemptId: string; onChanged: (s: DesignState) => void }) {
+export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignState; attemptId: string; onChanged: (s: DesignState) => void }) {
   const [library, setLibrary] = useState<DesignLibraryComponent[]>([]);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -726,7 +679,7 @@ function DatasheetViewerButton({ componentId, componentName }: { componentId: st
 
 // ── CONOPS ───────────────────────────────────────────────────────────────
 
-function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
+export function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
   const [durations, setDurations] = useState<Record<string, number>>(
     Object.fromEntries(state.modes.map((m) => [m.id, m.duration_min])),
   );
@@ -807,7 +760,7 @@ function ConopsTab({ state, attemptId, onSaved }: { state: DesignState; attemptI
 
 // ── Budget tabs (data/power/mass/cost share the same per-component-row shape) ──
 
-function DataBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
+export function DataBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
   const [rows, setRows] = useState(Object.fromEntries(state.components.map((c) => [c.id, {
     data_size_per_measurement_kb: c.data_entry?.data_size_per_measurement_kb ?? 0,
     measurements_per_minute: c.data_entry?.measurements_per_minute ?? 0,
@@ -847,7 +800,7 @@ function DataBudgetTab({ state, attemptId, onSaved }: { state: DesignState; atte
   );
 }
 
-function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
+export function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
   const [rows, setRows] = useState(Object.fromEntries(state.components.map((c) => [c.id, {
     voltage_v: c.power_entry?.voltage_v ?? c.voltage_v ?? 0, current_ma: c.power_entry?.current_ma ?? c.current_ma ?? 0,
   }])));
@@ -900,7 +853,7 @@ function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignState; att
  * only new input is the battery, and the limit it's checked against is
  * variant-owned, not student-editable (the F4 lesson).
  */
-function EnergyBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
+export function EnergyBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
   const [capacity, setCapacity] = useState(state.battery_capacity_wh ?? 0);
   const [saving, setSaving] = useState(false);
   const e = state.dashboard.energy;
@@ -968,7 +921,7 @@ function EnergyBudgetTab({ state, attemptId, onSaved }: { state: DesignState; at
   );
 }
 
-function MassBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
+export function MassBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
   const [rows, setRows] = useState(Object.fromEntries(state.components.map((c) => [c.id, {
     quantity: c.mass_entry?.quantity ?? c.quantity, mass_per_unit_g: c.mass_entry?.mass_per_unit_g ?? c.mass_per_unit_g ?? 0,
     length_mm: c.mass_entry?.length_mm ?? c.length_mm ?? 0, width_mm: c.mass_entry?.width_mm ?? c.width_mm ?? 0, height_mm: c.mass_entry?.height_mm ?? c.height_mm ?? 0,
@@ -1011,7 +964,7 @@ function MassBudgetTab({ state, attemptId, onSaved }: { state: DesignState; atte
   );
 }
 
-function CostBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
+export function CostBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
   const [rows, setRows] = useState(Object.fromEntries(state.components.map((c) => [c.id, {
     quantity: c.cost_entry?.quantity ?? c.quantity, cost_per_unit_aed: c.cost_entry?.cost_per_unit_aed ?? c.cost_per_unit_aed ?? 0,
   }])));
@@ -1046,7 +999,7 @@ function CostBudgetTab({ state, attemptId, onSaved }: { state: DesignState; atte
 
 // ── Link ─────────────────────────────────────────────────────────────────
 
-function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
+export function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignState; attemptId: string; onSaved: (s: DesignState) => void }) {
   const [band, setBand] = useState(state.link_entry?.band_profile ?? "UHF");
   const preset = state.band_presets[band];
   const [fields, setFields] = useState({
@@ -1157,69 +1110,6 @@ function LinkBudgetTab({ state, attemptId, onSaved }: { state: DesignState; atte
 
 // ── Dashboard ────────────────────────────────────────────────────────────
 
-/** The completion map (7D-6) — Madar's "Satellite Stamps" grid, rebuilt.
- *
- * Nine tabs with no sense of progress is a worse experience than eight
- * stamps filling in, even though Madar's stamps were scored wrong: there,
- * a stamp meant "a row exists", so you earned the Power Budget badge by
- * saving a *failing* power budget (F11). Here a stamp is earned on the
- * step being **valid**, which is the fix that audit asked for — effort is
- * visible, but only correctness fills it in. */
-function CompletionMap({
-  state, visibleTabs, onGoToTab, confirmedSteps,
-}: { state: DesignState; visibleTabs: typeof DESIGN_TABS; onGoToTab: (tab: string) => void; confirmedSteps: Record<string, boolean> }) {
-  const visibleStepKeys = new Set(visibleTabs.map((t) => t.step).filter((k): k is string => !!k));
-  const allSteps = [
-    { key: "components", label: "Components", tab: "components" },
-    { key: "conops", label: "CONOPS", tab: "conops" },
-    { key: "data_budget", label: "Data", tab: "data" },
-    { key: "power_budget", label: "Power", tab: "power" },
-    { key: "energy_budget", label: "Energy", tab: "energy" },
-    { key: "link_budget", label: "Link", tab: "link" },
-    { key: "downlink", label: "Downlink", tab: "dashboard" },
-    { key: "mass_budget", label: "Mass", tab: "mass" },
-    { key: "cost_budget", label: "Cost", tab: "cost" },
-  ];
-  // Downlink is never in visibleTabs (it's not a tab at all) — show it iff
-  // it currently counts toward all_valid for this cohort's scope. It also
-  // has no tab of its own to confirm (tab: "dashboard", the Report summary,
-  // not a real step) — stays purely validity-driven, unlike every other
-  // row here which also needs its step confirmed.
-  const steps = allSteps.filter((s) => s.key === "downlink" ? state.dashboard.downlink_included : visibleStepKeys.has(s.key));
-  const isDone = (s: (typeof allSteps)[number]) =>
-    s.tab === "dashboard" ? !!state.dashboard.steps[s.key]?.is_valid : confirmedSteps[s.tab] && !!state.dashboard.steps[s.key]?.is_valid;
-  const earned = steps.filter(isDone).length;
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Progress</p>
-        <p className="text-[11px] font-mono text-muted-foreground">{earned} / {steps.length} closed</p>
-      </div>
-      <div className="grid grid-cols-5 sm:grid-cols-9 gap-1.5">
-        {steps.map((s) => {
-          const st = state.dashboard.steps[s.key];
-          const done = isDone(s);
-          const started = st?.has_data;
-          return (
-            <button
-              key={s.key} onClick={() => onGoToTab(s.tab)}
-              title={done ? "Closed" : started ? "Started, not closing yet" : "Not started"}
-              className={`flex flex-col items-center gap-1 py-2 rounded-xl ring-1 transition-colors ${
-                done ? "ring-emerald-500/40 bg-emerald-500/10 text-emerald-500"
-                  : started ? "ring-amber-500/30 bg-amber-500/5 text-amber-600 dark:text-amber-400"
-                  : "ring-border text-muted-foreground hover:bg-muted/40"}`}
-            >
-              <span className="text-sm leading-none">{done ? "●" : started ? "◐" : "○"}</span>
-              <span className="text-[9px] font-semibold uppercase tracking-wide">{s.label}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 /** Export the whole design as JSON (D6). Madar had this and it mattered:
  * it is the only way a student walks away with the numbers, and the only
  * way an instructor can look at a design outside the app. */
@@ -1326,7 +1216,7 @@ function SubsystemChart({ title, unit, data }: {
  * mission actually teaches on failure. `onGoToTab` lets a module card send
  * the student to the step that needs work — the design analog of the
  * operate debrief pointing at the fault you missed. */
-function DashboardTab({ state, onGoToTab }: { state: DesignState; onGoToTab: (tab: string) => void }) {
+export function DashboardTab({ state, onGoToTab }: { state: DesignState; onGoToTab: (tab: string) => void }) {
   const d = state.dashboard;
   const o = d.overall;
 

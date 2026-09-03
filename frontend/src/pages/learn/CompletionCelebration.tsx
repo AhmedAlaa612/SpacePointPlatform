@@ -4,14 +4,17 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 /** The "you're done, here's the way back" popup (2026-09) — fires from
- * Madar (a phase, or the whole mission) and a finished course, but only
- * when the student got there from a checklist tile in the first place
- * (a `?program=` search param carries that origin through the nav —
- * see TaskDrawer's `doWork`). Landing on `/learn` already sends a
- * program student straight to their board and the sidebar carries a
- * permanent quick-return card, so this isn't the only way back — it's
- * the moment-of-completion nudge, shown once per thing finished (each
- * caller owns its own "have I shown this already" guard). */
+ * Madar (confirming a phase, in `MadarPhaseDrawer`) and a finished course.
+ * `assignmentId` is only non-empty when the student got there from a
+ * checklist tile in the first place (a `?program=` search param carries
+ * that origin through the nav — see `TaskDrawer`'s `doWork`); when it's
+ * empty (Madar opened straight from the Missions hub) the primary button
+ * just closes the dialog instead of linking to a checklist that doesn't
+ * apply. Landing on `/learn` already sends a program student straight to
+ * their board and the sidebar carries a permanent quick-return card, so
+ * this isn't the only way back — it's the moment-of-completion nudge,
+ * shown once per thing finished (each caller owns its own "have I shown
+ * this already" guard). */
 export function CompletionCelebration({
   open, onOpenChange, title, subtitle, assignmentId,
 }: {
@@ -38,10 +41,10 @@ export function CompletionCelebration({
             className="w-full mt-1"
             onClick={() => {
               onOpenChange(false);
-              void navigate({ to: "/learn/checklists/$assignmentId", params: { assignmentId } });
+              if (assignmentId) void navigate({ to: "/learn/checklists/$assignmentId", params: { assignmentId } });
             }}
           >
-            Back to your program
+            {assignmentId ? "Back to your program" : "Back to board"}
           </Button>
           <button
             type="button"
