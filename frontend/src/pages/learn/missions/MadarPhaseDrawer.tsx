@@ -1,5 +1,4 @@
 import { CheckCircle2, X } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import type { DesignState } from "@/api/missionsDesign";
 import {
@@ -71,21 +70,15 @@ export function MadarPhaseDrawer({
           its own, matching the backend's own exclusion of "report" from
           CONFIRMABLE_STEP_KEYS (routers/missions/design.py). */}
       {!isDashboard && (
-        <div className="mt-auto pt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border">
-          <p className={cn("text-xs max-w-[46ch]", confirmError ? "text-destructive" : "text-muted-foreground")}>
-            {confirmError || (confirmed
-              ? "You've marked this step done — you can still keep editing it."
-              : ready
-                ? "Confirm when you're happy with this step."
-                : "Finish this step's requirements before confirming it.")}
-          </p>
+        <div className="mt-auto pt-4 flex flex-col items-center gap-2.5 border-t border-border">
+          {confirmError && <p className="text-xs text-destructive text-center">{confirmError}</p>}
           <Button
             variant={confirmed ? "outline" : "default"}
             disabled={!ready || confirmed || confirmingTab === tab}
             onClick={() => onConfirm(tab)}
-            className="shrink-0"
+            className="h-14 px-16 text-base font-semibold rounded-lg transition-transform duration-150 hover:scale-[1.03] active:scale-[0.97] hover:shadow-[0_10px_28px_-10px_hsl(var(--primary)/0.55)]"
           >
-            {confirmed ? <><CheckCircle2 className="size-4" /> Completed</> : confirmingTab === tab ? "Confirming..." : "Complete this step"}
+            {confirmed ? <><CheckCircle2 className="size-5" /> Completed</> : confirmingTab === tab ? "Confirming..." : "Complete this step"}
           </Button>
         </div>
       )}

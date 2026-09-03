@@ -282,58 +282,72 @@ const ORBIT_PRESETS: Record<string, { orbit_type: string; orbit_duration_min: nu
 };
 
 export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: DesignState) => void }) {
-  const [name, setName] = useState(state.design_name);
-  const [objectives, setObjectives] = useState<Record<string, string>>(() => parseObjectivePrompts(state.design_objective));
-  const [orbitType, setOrbitType] = useState(state.orbit_type ?? "LEO");
-  const [orbitDuration, setOrbitDuration] = useState(state.orbit_duration_min ?? 90);
-  const [orbitsPerDay, setOrbitsPerDay] = useState(state.orbits_per_day ?? 15);
-  const [cubesatSize, setCubesatSize] = useState(state.selected_cubesat_size);
+  const [fields, setFields] = useState(() => ({
+    name: state.design_name,
+    objectives: parseObjectivePrompts(state.design_objective),
+    orbitType: state.orbit_type ?? "LEO",
+    orbitDuration: state.orbit_duration_min ?? 90,
+    orbitsPerDay: state.orbits_per_day ?? 15,
+    cubesatSize: state.selected_cubesat_size,
+  }));
   const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState("");
+
+  // Auto-saves 500ms after the last edit, same debounce LinkBudgetTab
+  // already uses — no separate "Save" button competing with the drawer's
+  // own "Complete this step" (2026-09: two buttons for one step is one
+  // button too many).
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const push = useCallback((next: typeof fields) => {
+    if (pending.current) clearTimeout(pending.current);
+    pending.current = setTimeout(async () => {
+      setSaving(true);
+      setSaveError("");
+      try {
+        onSaved(await updateDesign(state.attempt_id, {
+          design_name: next.name,
+          design_objective: joinObjectivePrompts(next.objectives),
+          orbit_type: next.orbitType,
+          orbit_duration_min: Number(next.orbitDuration),
+          orbits_per_day: Number(next.orbitsPerDay),
+          selected_cubesat_size: next.cubesatSize,
+        }));
+      } catch (err) {
+        setSaveError(errorDetail(err, "Couldn't save mission setup."));
+      } finally {
+        setSaving(false);
+      }
+    }, 500);
+  }, [state.attempt_id, onSaved]);
+
+  useEffect(() => () => { if (pending.current) clearTimeout(pending.current); }, []);
+
+  const setField = <K extends keyof typeof fields>(key: K, value: (typeof fields)[K]) => {
+    const next = { ...fields, [key]: value };
+    setFields(next);
+    push(next);
+  };
 
   const applyOrbitPreset = (preset: keyof typeof ORBIT_PRESETS) => {
     const p = ORBIT_PRESETS[preset];
-    setOrbitType(p.orbit_type);
-    setOrbitDuration(p.orbit_duration_min);
-    setOrbitsPerDay(p.orbits_per_day);
-  };
-
-  const save = async () => {
-    setSaving(true);
-    setSaveError("");
-    setSaveSuccess(false);
-    try {
-      const next = await updateDesign(state.attempt_id, {
-        design_name: name,
-        design_objective: joinObjectivePrompts(objectives),
-        orbit_type: orbitType,
-        orbit_duration_min: Number(orbitDuration),
-        orbits_per_day: Number(orbitsPerDay),
-        selected_cubesat_size: cubesatSize,
-      });
-      onSaved(next);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (err) {
-      setSaveError(errorDetail(err, "Couldn't save mission setup."));
-    } finally {
-      setSaving(false);
-    }
+    const next = { ...fields, orbitType: p.orbit_type, orbitDuration: p.orbit_duration_min, orbitsPerDay: p.orbits_per_day };
+    setFields(next);
+    push(next);
   };
 
   return (
     <div className="flex flex-col gap-6">
       <p className="text-sm text-muted-foreground max-w-[70ch]">
         Define your satellite's core identity, mission objective, and orbital specifications.
+        {saving && <span className="text-primary"> · Saving…</span>}
       </p>
 
       <div className="flex flex-col gap-2 max-w-md">
         <label className={labelCls}>Mission Name</label>
         <input
           className={inputCls}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+          value={fields.name}
+          onChange={(e) => setField("name", e.target.value)}
           placeholder="e.g. EduSat-1"
         />
         <p className="text-[11px] text-muted-foreground">You can run this mission more than once — this name is how you'll tell your runs apart.</p>
@@ -347,8 +361,8 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
               <label className="text-xs text-muted-foreground">{p.label}</label>
               <input
                 className={inputCls}
-                value={objectives[p.key] ?? ""}
-                onChange={(e) => setObjectives((prev) => ({ ...prev, [p.key]: e.target.value }))}
+                value={fields.objectives[p.key] ?? ""}
+                onChange={(e) => setField("objectives", { ...fields.objectives, [p.key]: e.target.value })}
                 placeholder={p.placeholder}
               />
             </div>
@@ -366,7 +380,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
               type="button"
               onClick={() => applyOrbitPreset(preset)}
               className={`px-3 py-1.5 rounded-xl text-sm ring-1 transition-colors ${
-                orbitType === preset ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
+                fields.orbitType === preset ? "ring-primary/40 bg-primary/10 text-primary font-medium" : "ring-border hover:bg-muted/50"
               }`}
             >
               {preset}
@@ -377,14 +391,14 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="flex flex-col gap-2">
             <label className={labelCls}>Orbit Type</label>
-            <select className={`${inputCls} cursor-pointer`} value={orbitType} onChange={(e) => setOrbitType(e.target.value)}>
+            <select className={`${inputCls} cursor-pointer`} value={fields.orbitType} onChange={(e) => setField("orbitType", e.target.value)}>
               {["LEO", "MEO", "GEO", "SSO", "Custom"].map((o) => <option key={o} value={o}>{o}</option>)}
             </select>
           </div>
 
           <div className="flex flex-col gap-2">
             <label className={labelCls}>CubeSat Size</label>
-            <select className={`${inputCls} cursor-pointer`} value={cubesatSize} onChange={(e) => setCubesatSize(e.target.value)}>
+            <select className={`${inputCls} cursor-pointer`} value={fields.cubesatSize} onChange={(e) => setField("cubesatSize", e.target.value)}>
               {state.cubesat_presets.map((p) => (
                 <option key={p.size} value={p.size}>
                   {p.size} ({p.max_mass_kg}kg, {p.available_volume_cm3}cm³)
@@ -398,8 +412,8 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
             <input
               type="number"
               className={inputCls}
-              value={orbitDuration}
-              onChange={(e) => setOrbitDuration(Number(e.target.value))}
+              value={fields.orbitDuration}
+              onChange={(e) => setField("orbitDuration", Number(e.target.value))}
             />
           </div>
 
@@ -408,24 +422,14 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
             <input
               type="number"
               className={inputCls}
-              value={orbitsPerDay}
-              onChange={(e) => setOrbitsPerDay(Number(e.target.value))}
+              value={fields.orbitsPerDay}
+              onChange={(e) => setField("orbitsPerDay", Number(e.target.value))}
             />
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-3 border-t border-border/60 pt-5">
-        <Button className="h-10 px-6 font-semibold cursor-pointer" onClick={() => void save()} disabled={saving}>
-          {saving ? "Saving..." : "Save Setup"}
-        </Button>
-        {saveSuccess && (
-          <span className="text-xs font-semibold text-emerald-500 animate-in fade-in-0 duration-200">
-            ✓ Mission setup saved!
-          </span>
-        )}
-        {saveError && <p className="text-xs text-destructive">{saveError}</p>}
-      </div>
+      {saveError && <p className="text-xs text-destructive">{saveError}</p>}
     </div>
   );
 }
