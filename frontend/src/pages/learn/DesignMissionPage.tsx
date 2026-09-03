@@ -39,6 +39,15 @@ function formatKB(kb: number): string {
 }
 
 const inputCls = "h-12 px-4 border border-border bg-card text-foreground rounded-xl text-base focus:outline-none focus:border-primary transition-colors w-full";
+/** For a number input squeezed into a narrow table cell — inputCls's own
+ * px-4 leaves too little room for digits once the cell is only ~80px wide,
+ * and appending a conflicting px-* utility after inputCls isn't reliable
+ * (Tailwind class-conflict winner depends on generated CSS order, not
+ * source order — the same trap that broke the data budget table's column
+ * widths). A standalone class list with one utility per property sidesteps
+ * that; also drops the native spin buttons, which eat width a 2-3 digit
+ * cell can't spare. */
+const compactInputCls = "h-10 px-2 border border-border bg-card text-foreground rounded-xl text-sm text-center focus:outline-none focus:border-primary transition-colors w-full [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none";
 const labelCls = "text-sm font-semibold uppercase tracking-wide text-muted-foreground";
 
 /** The nine steps, with the dependency between them made visible (D2:
@@ -1223,18 +1232,18 @@ export function DataBudgetTab({ state, attemptId, onSaved, handbook }: {
                     </div>
                   </td>
                   <td className="px-2 py-2">
-                    <div className="w-16">
+                    <div className="w-20">
                       <input
-                        type="number" className={`${inputCls} h-10 text-sm text-center`}
+                        type="number" className={compactInputCls}
                         value={rows[c.id]?.data_size_per_measurement_kb ?? 0}
                         onChange={(e) => setRow(c.id, { data_size_per_measurement_kb: Number(e.target.value) })}
                       />
                     </div>
                   </td>
                   <td className="px-2 py-2">
-                    <div className="w-16">
+                    <div className="w-20">
                       <input
-                        type="number" className={`${inputCls} h-10 text-sm text-center`}
+                        type="number" className={compactInputCls}
                         value={rows[c.id]?.measurements_per_minute ?? 0}
                         onChange={(e) => setRow(c.id, { measurements_per_minute: Number(e.target.value) })}
                       />
