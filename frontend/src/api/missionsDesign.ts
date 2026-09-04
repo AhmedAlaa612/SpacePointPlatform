@@ -369,11 +369,6 @@ export async function confirmDesignStep(attemptId: string, stepKey: string): Pro
   return data;
 }
 
-export async function completeDesign(attemptId: string): Promise<DesignState> {
-  const { data } = await api.post<DesignState>(`/missions/design/attempts/${attemptId}/complete`);
-  return data;
-}
-
 // ── Teaching surfaces (Design v2, 7D-4 / 7D-5) ──────────────────────────
 
 export interface DesignBriefing {

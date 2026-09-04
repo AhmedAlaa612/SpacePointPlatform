@@ -13,7 +13,7 @@ import { CompletionCelebration } from "./CompletionCelebration";
 import { MadarPhaseBoard } from "./missions/MadarPhaseBoard";
 import { MadarPhaseDrawer } from "./missions/MadarPhaseDrawer";
 import {
-  addDesignComponent, completeDesign, confirmDesignStep, fetchComponentDatasheetUrl, fetchDesignHandbook,
+  addDesignComponent, confirmDesignStep, fetchComponentDatasheetUrl, fetchDesignHandbook,
   fetchDesignLibrary, fetchDesignState, joinObjectivePrompts, parseObjectivePrompts, removeDesignComponent,
   saveConops, saveCostBudget, saveDataBudget, saveLinkBudget, saveMassBudget, savePowerBudget, updateDesign,
   OBJECTIVE_PROMPTS,
@@ -187,8 +187,6 @@ export default function DesignMissionPage() {
     setOpenPhaseState(next);
     void navigate({ search: { phase: next ?? undefined, program: search.program } as never, replace: true });
   }, [navigate, search.program]);
-  const [completeError, setCompleteError] = useState("");
-  const [completing, setCompleting] = useState(false);
   const [handbook, setHandbook] = useState<DesignHandbook | null>(null);
   const [confirmingTab, setConfirmingTab] = useState<string | null>(null);
   const [confirmError, setConfirmError] = useState("");
@@ -201,18 +199,30 @@ export default function DesignMissionPage() {
   // from here, for any phase, whether or not the student arrived via a
   // checklist deep link (`search.program` only changes whether
   // `CompletionCelebration`'s own button offers a way back to it).
+  //
+  // The whole mission auto-finalizes server-side (2026-09) the moment the
+  // *last* required phase gets confirmed here — see confirm_design_step's
+  // own docstring. There's no separate "Mark design complete" click left:
+  // confirming every phase already IS finishing the mission, so this
+  // upgrades the per-phase celebration to the mission-complete one instead
+  // of stacking both for the same click.
   const confirmStep = async (tabValue: string) => {
     setConfirmingTab(tabValue);
     setConfirmError("");
     try {
+      const wasPassed = state?.attempt_status === "passed";
       const next = await confirmDesignStep(attemptId, designStepKeyForTab(tabValue));
       setState(next);
       setOpenPhase(null);
-      const label = DESIGN_TABS.find((t) => t.value === tabValue)?.label;
-      setCelebration({
-        title: `${label} phase complete!`,
-        subtitle: "Nice work — that step is locked in on your board.",
-      });
+      if (next.attempt_status === "passed" && !wasPassed) {
+        setCelebration({ title: "Mission complete!", subtitle: "Every budget checks out. Nice work." });
+      } else {
+        const label = DESIGN_TABS.find((t) => t.value === tabValue)?.label;
+        setCelebration({
+          title: `${label} phase complete!`,
+          subtitle: "Nice work — that step is locked in on your board.",
+        });
+      }
     } catch (err) {
       setConfirmError(errorDetail(err, "Couldn't confirm this step right now."));
     } finally {
@@ -237,22 +247,6 @@ export default function DesignMissionPage() {
 
   // Static for the life of the attempt — fetched once, not on every save.
   useEffect(() => { fetchDesignHandbook(attemptId).then(setHandbook).catch(() => {}); }, [attemptId]);
-
-  const handleComplete = async () => {
-    setCompleting(true);
-    setCompleteError("");
-    try {
-      const next = await completeDesign(attemptId);
-      setState(next);
-      setOpenPhase("dashboard");
-      setCelebration({ title: "Mission complete!", subtitle: "Every budget checks out. Nice work." });
-    } catch (err) {
-      setCompleteError(errorDetail(err, "Couldn't complete this design right now."));
-      load();
-    } finally {
-      setCompleting(false);
-    }
-  };
 
   if (error) return <div className="mx-auto max-w-[1100px] px-5 py-10"><p className="text-sm text-destructive">{error}</p></div>;
   if (!state) return <div className="mx-auto max-w-[1100px] px-5 py-10"><p className="text-sm text-muted-foreground">Loading...</p></div>;
@@ -294,12 +288,11 @@ export default function DesignMissionPage() {
         {passed ? (
           <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-500"><CheckCircle2 className="size-5" /> Complete</div>
         ) : (
-          <Button onClick={() => void handleComplete()} disabled={completing || !state.dashboard.all_valid}>
-            {completing ? "Checking..." : "Mark design complete"}
-          </Button>
+          <p className="text-xs text-muted-foreground">
+            Confirm every phase below — the mission finishes on its own once they're all locked in.
+          </p>
         )}
       </div>
-      {completeError && <p className="text-xs text-destructive print:hidden">{completeError}</p>}
 
       <div className="print:hidden">
         <MadarPhaseBoard state={state} visibleTabs={visibleTabs} confirmedSteps={confirmedSteps} onOpenPhase={setOpenPhase} />

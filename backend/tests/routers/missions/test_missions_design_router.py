@@ -175,6 +175,102 @@ async def test_complete_design_end_to_end_through_http(db, client):
 
 
 @pytest.mark.asyncio
+async def test_confirming_every_step_auto_finalizes_without_a_separate_complete_call(db, client):
+    """2026-09 — a separate "Mark design complete" click is redundant once
+    every step has been explicitly self-checked: confirm_design_step itself
+    finalizes the attempt the moment the last required step is confirmed
+    and the design is fully valid, exactly what /complete used to require
+    a distinct call for. Same data-fill sequence as
+    test_complete_design_end_to_end_through_http, but this one never calls
+    POST .../complete at all."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    await db.commit()
+    student = await _user(db)
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+    h = _headers(student)
+
+    setup = await client.patch(f"/missions/design/attempts/{attempt_id}", headers=h, json={"design_objective": "Track weather."})
+    assert setup.status_code == 200, setup.text
+    confirm_setup = await client.post(f"/missions/design/attempts/{attempt_id}/steps/setup/confirm", headers=h)
+    assert confirm_setup.status_code == 200, confirm_setup.text
+
+    add = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components", headers=h,
+        json={"library_component_id": str(library.id), "quantity": 1},
+    )
+    dc_id = add.json()["components"][0]["id"]
+    mode_ids = [m["id"] for m in add.json()["modes"]]
+    confirm_components = await client.post(f"/missions/design/attempts/{attempt_id}/steps/components/confirm", headers=h)
+    assert confirm_components.status_code == 200, confirm_components.text
+
+    conops = await client.post(
+        f"/missions/design/attempts/{attempt_id}/conops", headers=h,
+        json={"mode_durations": {mid: 22.5 for mid in mode_ids}, "cell_states": {dc_id: {mode_ids[0]: True}}},
+    )
+    assert conops.status_code == 200, conops.text
+
+    # Must land before confirming CONOPS — its own validity is checked
+    # against orbit_duration_min (mode_durations must sum to it), which
+    # isn't set until this PATCH.
+    await client.patch(
+        f"/missions/design/attempts/{attempt_id}", headers=h,
+        json={"orbit_duration_min": 90.0, "orbits_per_day": 15.0, "selected_solar_cells": 5,
+              "battery_capacity_wh": 10.0},
+    )
+    confirm_conops = await client.post(f"/missions/design/attempts/{attempt_id}/steps/conops/confirm", headers=h)
+    assert confirm_conops.status_code == 200, confirm_conops.text
+
+    await client.post(
+        f"/missions/design/attempts/{attempt_id}/components/{dc_id}/data-budget", headers=h,
+        json={"data_size_per_measurement_kb": 0.1, "measurements_per_minute": 1.0, "storage_mode": "Both"},
+    )
+    confirm_data = await client.post(f"/missions/design/attempts/{attempt_id}/steps/data_budget/confirm", headers=h)
+    assert confirm_data.status_code == 200, confirm_data.text
+
+    await client.post(
+        f"/missions/design/attempts/{attempt_id}/components/{dc_id}/power-budget", headers=h,
+        json={"voltage_v": 5.0, "current_ma": 100.0},
+    )
+    confirm_power = await client.post(f"/missions/design/attempts/{attempt_id}/steps/power_budget/confirm", headers=h)
+    assert confirm_power.status_code == 200, confirm_power.text
+
+    await client.post(f"/missions/design/attempts/{attempt_id}/components/{dc_id}/mass-budget", headers=h, json={})
+    confirm_mass = await client.post(f"/missions/design/attempts/{attempt_id}/steps/mass_budget/confirm", headers=h)
+    assert confirm_mass.status_code == 200, confirm_mass.text
+
+    await client.post(
+        f"/missions/design/attempts/{attempt_id}/components/{dc_id}/cost-budget", headers=h,
+        json={"cost_per_unit_aed": 50.0},
+    )
+    confirm_cost = await client.post(f"/missions/design/attempts/{attempt_id}/steps/cost_budget/confirm", headers=h)
+    assert confirm_cost.status_code == 200, confirm_cost.text
+
+    link = await client.post(
+        f"/missions/design/attempts/{attempt_id}/link-budget", headers=h,
+        json={
+            "band_profile": "UHF", "downlink_frequency_mhz": 437.5, "uplink_frequency_mhz": 145.8,
+            "satellite_antenna_gain_dbi": 2.0, "data_rate_kbps": 9.6, "required_signal_quality_db": 9.6,
+        },
+    )
+    assert link.status_code == 200, link.text
+    assert link.json()["dashboard"]["all_valid"] is True, link.json()["dashboard"]["steps"]
+
+    # link_budget is the last unconfirmed required step — confirming it
+    # alone (no call to /complete anywhere in this test) must flip the
+    # attempt straight to "passed".
+    confirm_link = await client.post(f"/missions/design/attempts/{attempt_id}/steps/link_budget/confirm", headers=h)
+    assert confirm_link.status_code == 200, confirm_link.text
+    assert confirm_link.json()["attempt_status"] == "passed"
+
+
+@pytest.mark.asyncio
 async def test_cannot_act_on_another_students_design_attempt(db, client):
     author = await _user(db, roles=["operations"])
     mission, variant = await _design_mission(db, author=author)
