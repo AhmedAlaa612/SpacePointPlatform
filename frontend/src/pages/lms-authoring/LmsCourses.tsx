@@ -1,13 +1,14 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Plus, ChevronRight } from "lucide-react"
+import { Plus, ChevronRight, CloudUpload } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
+import { useToast } from "@/components/ui/toast"
 import {
   listCoursesApi, createCourseApi, publishCourseApi, unpublishCourseApi, deleteCourseApi,
-  listInstructorOptionsApi,
-  type AdminCourse, type CourseKind, type CourseLevel,
+  listInstructorOptionsApi, getCoursesVideoBackendStatusApi, migrateCourseVideosToR2Api,
+  type AdminCourse, type CourseKind, type CourseLevel, type CourseVideoBackend,
 } from "@/api/lms_admin"
 
 /** LMS course authoring (LM1-13) — the LM1-5 admin API's course list. Own
@@ -15,6 +16,7 @@ import {
 export default function LmsCourses() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const toast = useToast()
   const [createOpen, setCreateOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<AdminCourse | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -24,12 +26,34 @@ export default function LmsCourses() {
     queryFn: listCoursesApi,
   })
 
+  // Per-course R2/VPS video counts — separate query from the course list
+  // itself so a slow/failed video-status join never blocks the page's main
+  // content from rendering; a course with no entry here just shows no badge.
+  const { data: videoBackendRows } = useQuery<CourseVideoBackend[]>({
+    queryKey: ["lms-admin-courses-video-backend-status"],
+    queryFn: getCoursesVideoBackendStatusApi,
+  })
+  const videoBackendByCourse = new Map((videoBackendRows ?? []).map((row) => [row.course_id, row]))
+
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-courses"] })
 
   const publishMutation = useMutation({
     mutationFn: (course: AdminCourse) =>
       course.is_published ? unpublishCourseApi(course.id) : publishCourseApi(course.id),
     onSuccess: invalidate,
+  })
+
+  const migrateMutation = useMutation({
+    mutationFn: (courseId: string) => migrateCourseVideosToR2Api(courseId),
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ["lms-admin-courses-video-backend-status"] })
+      toast.success(
+        r.queued === 0
+          ? "Already on R2 — nothing to migrate."
+          : `Queued ${r.queued} video${r.queued === 1 ? "" : "s"} for re-encode onto R2. Each one keeps playing its current version until its own encode finishes.`,
+      )
+    },
+    onError: () => toast.error("Couldn't start the migration — try again."),
   })
 
   const deleteMutation = useMutation({
@@ -90,8 +114,29 @@ export default function LmsCourses() {
                 </div>
                 {course.description && <p className="text-xs text-muted-foreground truncate">{course.description}</p>}
                 {course.instructor_name && <p className="text-xs text-muted-foreground mt-0.5">Instructor: {course.instructor_name}</p>}
+                {(() => {
+                  const backend = videoBackendByCourse.get(course.id)
+                  if (!backend) return null
+                  return (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Video: {backend.r2 > 0 && <span className="text-emerald-600 dark:text-emerald-400">{backend.r2} on R2</span>}
+                      {backend.r2 > 0 && backend.vps > 0 && " · "}
+                      {backend.vps > 0 && <span className="text-amber-600 dark:text-amber-400">{backend.vps} still on VPS</span>}
+                    </p>
+                  )
+                })()}
               </div>
               <div className="flex items-center gap-1 flex-shrink-0 ml-3" onClick={(e) => e.stopPropagation()}>
+                {(videoBackendByCourse.get(course.id)?.vps ?? 0) > 0 && (
+                  <button
+                    onClick={() => migrateMutation.mutate(course.id)}
+                    disabled={migrateMutation.isPending}
+                    title="Re-encode this course's VPS videos onto R2 — each keeps playing its current version until its own encode finishes"
+                    className="flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-medium border border-border text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                  >
+                    <CloudUpload size={13} /> Migrate to R2
+                  </button>
+                )}
                 <button
                   onClick={() => publishMutation.mutate(course)}
                   disabled={publishMutation.isPending}

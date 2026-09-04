@@ -206,6 +206,21 @@ export const uploadCourseImageApi = (id: string, file: File) => {
 export const listInstructorOptionsApi = () =>
   api.get<InstructorOption[]>("/lms/admin/instructors").then((r) => r.data);
 
+// Per-course R2/VPS video migration visibility (2026-09) — mirrors
+// scripts/video_migrate_to_r2.py's --status/--reencode as an API so
+// migrating one course at a time doesn't need an SSH session.
+export interface CourseVideoBackend {
+  course_id: string;
+  title: string;
+  r2: number;
+  vps: number;
+}
+export const getCoursesVideoBackendStatusApi = () =>
+  api.get<CourseVideoBackend[]>("/lms/admin/courses/video-backend-status").then((r) => r.data);
+export const migrateCourseVideosToR2Api = (courseId: string) =>
+  api.post<{ queued: number; already_on_r2: number }>(`/lms/admin/courses/${courseId}/videos/migrate-to-r2`)
+    .then((r) => r.data);
+
 // ── modules ──────────────────────────────────────────────────────────────
 
 export const listModulesApi = (courseId: string) =>
