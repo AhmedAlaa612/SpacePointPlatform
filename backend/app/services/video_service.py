@@ -164,7 +164,14 @@ async def _delete_storage(video: Video) -> None:
     row that never finished uploading) shouldn't block the DB write."""
     try:
         if video.upload_mode == "hls_encrypted":
-            prefix = f"{video.id}/"
+            # Derived from playlist_path's own directory, not video.id — a
+            # row backfilled from the old ModuleVideo table keeps its
+            # original item_id-prefixed storage layout (playlist_path
+            # copied verbatim by the migration), which doesn't equal this
+            # row's new, freshly-generated id. Falls back to video.id only
+            # when there's no playlist yet (still "pending" — nothing to
+            # list/delete either way).
+            prefix = (video.playlist_path.rsplit("/", 1)[0] if video.playlist_path else str(video.id)) + "/"
             for entry in await storage.list_files(HLS_BUCKET, prefix):
                 if entry.get("metadata") is not None:  # a file, not a folder
                     await storage.delete_file(HLS_BUCKET, f"{prefix}{entry['name']}")

@@ -122,6 +122,29 @@ async def test_upload_rejects_oversized_file(db, client, monkeypatch):
     assert resp.status_code == http_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
 
 
+@pytest.mark.asyncio
+async def test_reupload_cleans_up_old_hls_objects_even_with_a_pre_migration_layout(db, client):
+    """A video whose HLS objects sit under `item_id` (the layout a row
+    backfilled from the old ModuleVideo table has — see `_ready_video`'s own
+    note) must still get its old segment/playlist/key deleted when replaced
+    by a new upload, not just have a dangling storage prefix nobody cleans
+    up because it doesn't match the row's own id."""
+    ops = await _user(db, roles=["operations"])
+    course, module, item = await _course_module_item(db, author=ops)
+    await db.commit()
+    old_video = await _ready_video(db, item)
+    old_prefix = old_video.playlist_path.rsplit("/", 1)[0]
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/admin/items/{item.id}/video", headers=_headers(ops),
+        files={"file": ("lesson.mp4", b"fake-new-video-bytes", "video/mp4")},
+    )
+    assert resp.status_code == http_status.HTTP_202_ACCEPTED
+
+    assert await storage.list_files(HLS_BUCKET, f"{old_prefix}/") == []
+
+
 # ── transcode (fake encoder — no real ffmpeg) ──────────────────────────────
 
 async def _fake_encoder(source_path):
@@ -183,6 +206,12 @@ async def test_run_transcode_records_failure_on_encoder_error(db):
 # ── token issuance + streaming gate ────────────────────────────────────────
 
 async def _ready_video(db, item) -> Video:
+    """`video.id` (uuid4) is deliberately distinct from `item.id` here — same
+    shape a row backfilled from the old ModuleVideo table has (its
+    playlist_path/key_path/segments still sit under the historical
+    `item_id` prefix, not this row's own, freshly-generated id). Storage
+    paths below are all keyed by `item.id`, matching playlist_path/key_path
+    — this is what get_segment must resolve against, not video.id."""
     video = Video(
         id=uuid.uuid4(), owner_type="module_item", owner_id=item.id, provider="upload",
         upload_mode="hls_encrypted", source_bucket=SOURCE_BUCKET,
@@ -197,7 +226,7 @@ async def _ready_video(db, item) -> Video:
         b'#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key"\nsegment_000.ts\n#EXT-X-ENDLIST\n',
         "application/vnd.apple.mpegurl",
     )
-    await storage.upload_to_path(HLS_BUCKET, f"{video.id}/segment_000.ts", b"ts-bytes", "video/mp2t")
+    await storage.upload_to_path(HLS_BUCKET, f"{item.id}/segment_000.ts", b"ts-bytes", "video/mp2t")
     await storage.upload_to_path(HLS_BUCKET, video.key_path, b"1" * 16, "application/octet-stream")
     return video
 
@@ -283,6 +312,6 @@ async def test_streaming_routes_require_a_valid_matching_unexpired_token(db, cli
     # segment_1000.ts (B1): "%03d" in the encoder is a *minimum* width, so a
     # video past 999 segments (66m36s at 4s/segment) writes segment_1000.ts —
     # a fixed \d{3} regex 404s on it mid-playback. 4+ digits must resolve.
-    await storage.upload_to_path(HLS_BUCKET, f"{video.id}/segment_1000.ts", b"late-ts-bytes", "video/mp2t")
+    await storage.upload_to_path(HLS_BUCKET, f"{item.id}/segment_1000.ts", b"late-ts-bytes", "video/mp2t")
     late_seg = await client.get(f"/lms/videos/{item.id}/segment/segment_1000.ts", params={"token": token})
     assert late_seg.status_code == 200 and late_seg.content == b"late-ts-bytes"

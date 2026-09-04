@@ -183,7 +183,15 @@ async def get_segment(
     if not _SEGMENT_NAME_RE.match(segment_name):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Segment not found")
     video = await _video_from_token(db, item_id, token)
-    data = await storage.download_file(HLS_BUCKET, f"{video.id}/{segment_name}")
+    # Derived from playlist_path's own directory, not video.id — a video
+    # backfilled from the old ModuleVideo table keeps its original
+    # item_id-prefixed storage layout (playlist_path/key_path copied
+    # verbatim by the migration), which doesn't equal this row's new,
+    # freshly-generated id. A video transcoded post-migration has
+    # playlist_path == f"{video.id}/playlist.m3u8", so this still resolves
+    # correctly there too.
+    prefix = video.playlist_path.rsplit("/", 1)[0]
+    data = await storage.download_file(HLS_BUCKET, f"{prefix}/{segment_name}")
     return Response(content=data, media_type="video/mp2t")
 
 
