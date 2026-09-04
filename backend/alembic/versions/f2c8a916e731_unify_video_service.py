@@ -43,6 +43,7 @@ Create Date: 2026-09-04 00:00:00.000000
 """
 import re
 import uuid
+from datetime import datetime, timezone
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -105,7 +106,12 @@ def upgrade() -> None:
     op.create_index("ix_videos_created_by", "videos", ["created_by"])
 
     bind = op.get_bind()
-    now = sa.func.now()
+    # A real Python value, not sa.func.now() — a SQL-function object passed
+    # as a bound parameter through raw sa.text()/DBAPI execution has no
+    # adapter on the sync (psycopg2) driver alembic runs migrations over
+    # ("can't adapt type 'now'"), only ever exercised once a source table
+    # actually has a row to back-fill.
+    now = datetime.now(timezone.utc)
 
     # ── module_videos -> videos (owner_type='module_item') ──────────────
     for row in bind.execute(sa.text(
