@@ -130,6 +130,11 @@ export interface LibraryResource {
   format: string
   file_url: string   // signed URL for files, raw URL for links
   resource_type: "link" | "file"
+  /** Set only for a video-service-backed resource (uploaded OR embedded
+   * video, format === "EMBED" for the latter) — mirrors
+   * video_service.get_playback_info() / VideoPlaybackInfo exactly, so it's
+   * passed straight through as <VideoPlayer info={...}>. */
+  video_info?: import("@/components/video/VideoPlayer").VideoPlaybackInfo | null
 }
 
 export interface LibraryModule {

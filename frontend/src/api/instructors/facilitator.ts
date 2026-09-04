@@ -63,6 +63,17 @@ export const uploadLibraryResourceApi = (params: {
   return api.post(`/instructors/facilitator/library?${qs}`, form).then((r) => r.data)
 }
 
+/** The other half of the "Video" tab in Add Resource — a pasted YouTube/Vimeo
+ * link, rendered inline via the shared <VideoPlayer>, instead of only ever a
+ * raw file upload. */
+export const addLibraryVideoEmbedApi = (params: {
+  moduleId: string; title: string; url: string; description?: string
+}) => {
+  const qs = new URLSearchParams({ module_id: params.moduleId, title: params.title, url: params.url })
+  if (params.description) qs.set("description", params.description)
+  return api.post(`/instructors/facilitator/library/video-embed?${qs}`).then((r) => r.data)
+}
+
 export const updateLibraryResourceApi = (resourceId: string, params: { title?: string; url?: string }) => {
   const qs = new URLSearchParams()
   if (params.title !== undefined) qs.set("title", params.title)

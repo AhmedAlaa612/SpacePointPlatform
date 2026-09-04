@@ -61,6 +61,20 @@ class TrainingVideoCreate(BaseModel):
     sort_order: int = 1
 
 
+class LibraryVideoPlaybackInfo(BaseModel):
+    """Mirrors video_service.get_playback_info()'s response shape exactly,
+    and frontend/src/components/video/VideoPlayer.tsx's VideoPlaybackInfo
+    interface field for field — passed straight through as that component's
+    `info` prop, no reshaping on either side."""
+    provider: str  # "youtube" | "vimeo" | "upload"
+    status: str | None = None
+    embed_url: str | None = None
+    mode: str | None = None  # "direct" | "hls_encrypted"
+    url: str | None = None
+    duration_seconds: int | None = None
+    status_error: str | None = None
+
+
 class LibraryResourceOut(BaseModel):
     id: UUID
     title: str
@@ -68,6 +82,11 @@ class LibraryResourceOut(BaseModel):
     format: str
     file_url: str          # signed URL at response time (not stored value)
     resource_type: str = "file"
+    # Set only for a video-service-backed resource (uploaded or embedded
+    # video) — None for a PDF/other file or a plain external link. The
+    # facilitator Library UI uses this, not file_url, to decide whether/how
+    # to render a <VideoPlayer>.
+    video_info: LibraryVideoPlaybackInfo | None = None
 
     class Config:
         from_attributes = True

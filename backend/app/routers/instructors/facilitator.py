@@ -18,12 +18,13 @@ from app.schemas.instructors.training import (
     LibraryModuleCreate,
     LibraryModuleOut,
     LibraryResourceOut,
+    LibraryVideoPlaybackInfo,
     TrainingModuleCreate,
     TrainingModuleOut,
     TrainingVideoOut,
 )
 from app.services import storage
-from app.services.video_service import attach_upload, get_playback_info, get_video_for_owner
+from app.services.video_service import attach_embed_link, attach_upload, get_playback_info, get_video_for_owner
 from app.services.video_service import delete as delete_video
 from pydantic import BaseModel
 
@@ -275,23 +276,36 @@ def _is_video_format(fmt: str) -> bool:
     return fmt.upper() in _VIDEO_FORMATS
 
 
-async def _lib_resolve_url(db: AsyncSession, r: LibraryResource) -> str:
-    """Return the URL to expose in API responses: signed URL for file
-    resources (routed through the standardized video service for video
-    rows), raw URL for links. NULL resource_type means a legacy row created
-    before the column existed — treat as file."""
+async def _lib_playback(db: AsyncSession, r: LibraryResource) -> tuple[str, LibraryVideoPlaybackInfo | None]:
+    """Returns (file_url, video_info) for API responses.
+
+    file_url: signed URL for file resources, raw URL for links — same
+    contract this used to be alone (as _lib_resolve_url), kept for the
+    "open externally" link and for non-video resources' only representation.
+
+    video_info: get_playback_info()'s dict, as-is, for anything backed by the
+    standardized video service (an uploaded OR embedded video) — None for
+    everything else. This is what the frontend's shared <VideoPlayer> needs;
+    file_url alone can't distinguish an embed (needs an iframe) from a direct
+    upload (needs a <video src>), and for an embed file_url was previously
+    just "" (get_playback_info has no "url" key for that provider), silently
+    rendering nothing.
+
+    NULL resource_type means a legacy row created before the column
+    existed — treated as file."""
     if r.resource_type == "link":
-        return r.file_url
+        return r.file_url, None
     if r.file_url.startswith(_VIDEO_SENTINEL_PREFIX):
         video = await get_video_for_owner(db, owner_type="library_resource", owner_id=r.id)
         if video is None:
-            return ""
+            return "", None
         info = await get_playback_info(db, video)
-        return info.get("url") or ""
+        video_info = LibraryVideoPlaybackInfo(**info)
+        return (info.get("url") or info.get("embed_url") or ""), video_info
     path = _lib_storage_path(r.file_url)
     if not path.startswith("http"):
-        return await storage.get_signed_url("library-resources", path, expires_in=86400)
-    return r.file_url
+        return await storage.get_signed_url("library-resources", path, expires_in=86400), None
+    return r.file_url, None
 
 
 @router.get("/library/modules", response_model=list[LibraryModuleOut])
@@ -307,9 +321,10 @@ async def list_library(db: AsyncSession = Depends(get_db), current_user: User = 
     for m in modules:
         module_resources = []
         for r in by_module.get(m.id, []):
+            file_url, video_info = await _lib_playback(db, r)
             module_resources.append(LibraryResourceOut(
                 id=r.id, title=r.title, description=r.description, format=r.format,
-                file_url=await _lib_resolve_url(db, r), resource_type=r.resource_type,
+                file_url=file_url, resource_type=r.resource_type, video_info=video_info,
             ))
         result.append(LibraryModuleOut(id=m.id, name=m.name, description=m.description, resources=module_resources))
     return result
@@ -368,6 +383,45 @@ async def add_library_link(
                               resource_type=resource.resource_type)
 
 
+@router.post("/library/video-embed", response_model=LibraryResourceOut, status_code=201)
+async def add_library_video_embed(
+    module_id: uuid.UUID,
+    title: str,
+    url: str,
+    description: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_facilitator),
+):
+    """The other half of "Video" in Add Resource — a pasted YouTube/Vimeo
+    link, alongside file upload, rather than only ever a raw upload. Kept as
+    its own endpoint (not folded into add_library_link) because it needs a
+    resource row's id up front to attach a Video to (attach_embed_link takes
+    owner_id), the same flush-before-attach shape upload_library_resource
+    already uses — a generic "link" resource never needs that, its URL IS
+    the whole resource."""
+    resource = LibraryResource(
+        title=title, description=description, format="EMBED", file_url="",
+        module_id=module_id, resource_type="file",
+    )
+    db.add(resource)
+    await db.flush()  # need resource.id as the Video owner_id below
+
+    try:
+        video = await attach_embed_link(
+            db, owner_type="library_resource", owner_id=resource.id, url=url, created_by=current_user.id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    resource.file_url = f"{_VIDEO_SENTINEL_PREFIX}{video.id}"
+    await db.commit()
+    await db.refresh(resource)
+
+    file_url, video_info = await _lib_playback(db, resource)
+    return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
+                              format=resource.format, file_url=file_url, resource_type=resource.resource_type,
+                              video_info=video_info)
+
+
 @router.post("/library", response_model=LibraryResourceOut, status_code=201)
 async def upload_library_resource(
     module_id: uuid.UUID,
@@ -396,18 +450,17 @@ async def upload_library_resource(
             created_by=current_user.id,
         )
         resource.file_url = f"{_VIDEO_SENTINEL_PREFIX}{video.id}"
-        signed_url = (await get_playback_info(db, video)).get("url") or ""
     else:
         path = f"{int(time.time())}_{file.filename}"
         stored_path = await storage.upload_to_path("library-resources", path, data, file.content_type or "application/octet-stream")
         resource.file_url = stored_path
-        signed_url = await storage.get_signed_url("library-resources", stored_path, expires_in=86400)
 
     await db.commit()
     await db.refresh(resource)
+    file_url, video_info = await _lib_playback(db, resource)
     return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
-                              format=resource.format, file_url=signed_url,
-                              resource_type=resource.resource_type)
+                              format=resource.format, file_url=file_url,
+                              resource_type=resource.resource_type, video_info=video_info)
 
 
 @router.patch("/library/{resource_id}", response_model=LibraryResourceOut)
@@ -425,11 +478,24 @@ async def update_library_resource(
         resource.title = title
     if url is not None and resource.resource_type == "link":
         resource.file_url = url
+    if url is not None and resource.format == "EMBED":
+        # A pasted-link video's URL edits through here too, not just a plain
+        # "link" resource's — attach_embed_link upserts (it's already the
+        # only Video row for this owner), so re-pasting is cheap even if the
+        # URL didn't actually change.
+        try:
+            video = await attach_embed_link(
+                db, owner_type="library_resource", owner_id=resource.id, url=url, created_by=current_user.id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        resource.file_url = f"{_VIDEO_SENTINEL_PREFIX}{video.id}"
     await db.commit()
     await db.refresh(resource)
-    resolved = await _lib_resolve_url(db, resource)
+    file_url, video_info = await _lib_playback(db, resource)
     return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
-                              format=resource.format, file_url=resolved, resource_type=resource.resource_type)
+                              format=resource.format, file_url=file_url,
+                              resource_type=resource.resource_type, video_info=video_info)
 
 
 @router.put("/library/{resource_id}/file", response_model=LibraryResourceOut)
@@ -470,20 +536,20 @@ async def replace_library_file(
             created_by=current_user.id,
         )
         resource.file_url = f"{_VIDEO_SENTINEL_PREFIX}{video.id}"
-        signed_url = (await get_playback_info(db, video)).get("url") or ""
     else:
         new_path = f"{int(time.time())}_{file.filename}"
         stored_path = await storage.upload_to_path("library-resources", new_path, data, file.content_type or "application/octet-stream")
         resource.file_url = stored_path
-        signed_url = await storage.get_signed_url("library-resources", stored_path, expires_in=86400)
 
     resource.format = fmt
     if title is not None:
         resource.title = title
     await db.commit()
     await db.refresh(resource)
+    file_url, video_info = await _lib_playback(db, resource)
     return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
-                              format=resource.format, file_url=signed_url, resource_type=resource.resource_type)
+                              format=resource.format, file_url=file_url,
+                              resource_type=resource.resource_type, video_info=video_info)
 
 
 @router.delete("/library/{resource_id}")
