@@ -43,6 +43,33 @@ class Settings(BaseSettings):
     # Losing this key means losing every stored file — back it up offline.
     STORAGE_ENCRYPTION_KEY: str = ""
 
+    # Cloudflare R2 (S3-compatible). Only read when a backend resolves to "r2";
+    # leaving these blank is what keeps every other deployment unaffected.
+    # One R2 bucket holds everything — the app's own "bucket" names become key
+    # prefixes inside it (see services/storage_r2.py), so an R2 key looks like
+    # "lms-hls/{video_id}/segment_000.ts".
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET: str = ""
+    # Defaults to https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com when blank —
+    # set explicitly only to pin a jurisdiction-specific endpoint.
+    R2_ENDPOINT_URL: str = ""
+
+    # Per-domain storage override for video bytes specifically. Blank (the
+    # default) means "follow STORAGE_BACKEND", i.e. no behaviour change at all.
+    #
+    # This exists because video is the only thing under real load: 400
+    # concurrent students pulling HLS segments through the API is ~1 Gbps and
+    # a Fernet decrypt per segment on a 4-vCPU box. Moving *just* video to R2
+    # fixes that without also relocating payment letters, signed contracts,
+    # certificates and every document bucket in the same change.
+    #
+    # It is also the rollback lever: because storage paths are identical across
+    # backends, flipping this back to "" re-serves the pre-existing local HLS
+    # tree from the same DB rows, with no migration to unwind.
+    VIDEO_STORAGE_BACKEND: str = ""
+
     # SMTP
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
