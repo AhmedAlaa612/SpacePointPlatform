@@ -17,6 +17,12 @@ frontend. #5–#6 are pre-existing issues in unrelated code (a Roadmap/Design-mi
 rode along in this diff only because `main` was behind — fix them if convenient, but they are not
 blockers for this deploy and touching them is not required to close this doc.
 
+**Branch: work on top of `claude/competition-video-optimization-cm8b21`, not `main`.** Every
+finding here references code that only exists on this branch (`swap_in_place`, `enqueue_transcode`,
+`video_migrate_to_r2.py`, the per-video `storage_backend` column, etc.) — `main` doesn't have any
+of it yet. Branch from / continue on `claude/competition-video-optimization-cm8b21` and push there,
+the same way the rest of this branch's history was built.
+
 ---
 
 ## Read first: how #1 and #2 are connected
