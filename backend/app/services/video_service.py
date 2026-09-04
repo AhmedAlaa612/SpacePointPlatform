@@ -43,7 +43,17 @@ from app.services import storage
 logger = logging.getLogger("services.video_service")
 
 SOURCE_BUCKET = "video-sources"
-HLS_BUCKET = "video-hls"
+# Unlike source_bucket (a real per-row column, correctly preserved by the
+# migration's backfill for every pre-existing row), the HLS bucket was
+# never persisted anywhere — old and new code alike just hardcode one
+# constant and assume every row's playlist_path/key_path lives under it.
+# The old services/lms/video.py used "lms-hls"; renaming this to
+# "video-hls" here broke every video migrated from before this service
+# existed (their real files still physically sit under "lms-hls" on disk/
+# in whatever bucket store is configured) — 404s/FileNotFoundErrors on
+# playback the moment this shipped. Keep the original name; it costs
+# nothing to keep calling it that even though the service is now generic.
+HLS_BUCKET = "lms-hls"
 _SEGMENT_SECONDS = 4
 
 # Same host-matching regex as frontend/src/lib/embed.ts::isKnownEmbedHost —
