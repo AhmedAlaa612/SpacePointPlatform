@@ -86,39 +86,36 @@ _TARGET_MAX_KBPS = 2500
 # extension set the same way, for the same reason).
 _EMBED_HOST_RE = re.compile(r"youtu\.be|youtube\.com|vimeo\.com", re.IGNORECASE)
 
-
 # Every new upload — any owner_type, any mode — lands here, never on local
 # disk. VPS upload was a bootstrapping default from before R2 existed; it is
 # no longer offered anywhere in the product, and this is the one place that
 # rule is actually enforced, so a frontend that forgot to remove a VPS option
-# still can't silently write one. This is deliberately NOT read from
-# VIDEO_STORAGE_BACKEND — that setting can be blank (R2 creds not deployed
-# yet) without silently reviving VPS uploads; if R2 isn't configured, a new
-# upload fails loudly instead of landing somewhere nobody intended.
+# still can't silently write one. Deliberately NOT `storage.default_video_
+# backend()` — that setting can be blank (R2 creds not deployed yet) without
+# silently reviving VPS uploads; if R2 isn't configured, a new upload fails
+# loudly instead of landing somewhere nobody intended.
 _NEW_UPLOAD_BACKEND = "r2"
 
 
 def _hls_backend(video: Video) -> str | None:
-    """The storage backend THIS video's HLS output (playlist/segments/key)
-    lives on right now — the per-row column, not a global setting. NULL means
-    local/VPS (every video that predates this column, or hasn't been migrated
-    yet); "r2" means Cloudflare R2. Reading this per row rather than off one
-    global switch is what makes migrating one video (or one course) at a time
-    possible — everything else keeps serving from wherever it already is."""
-    return video.storage_backend
+    """Where this video's HLS output (playlist, segments, key) lives.
+
+    Read from the row, never from settings — see the comment on
+    Video.storage_backend for why that distinction is the whole design."""
+    return video.storage_backend or None
 
 
 def _source_backend(video: Video) -> str | None:
-    """Where a Video's `source_bucket`/`source_path` bytes live.
+    """Where this video's `source_bucket`/`source_path` bytes live.
 
     The rule is about who reads the bytes, not what they are:
 
     - `hls_encrypted`: the source is a pre-transcode INPUT that only the ARQ
       worker ever opens. It stays on the default backend (local disk) — no
-      student request touches it, and keeping it local means a transcode does
+      student request touches it, and keeping it there means a transcode does
       not have to pull hundreds of megabytes back over the network first.
-    - `direct`: the source IS the asset the browser fetches. It belongs
-      wherever this row's student-facing video bytes live (`storage_backend`).
+    - `direct`: the source IS the asset the browser fetches, so it follows the
+      row's storage_backend like any other student-facing bytes.
 
     That distinction matters more than it looks. Served from local storage, a
     `direct` video goes through GET /files, which Fernet-decrypts the WHOLE
@@ -129,9 +126,27 @@ def _source_backend(video: Video) -> str | None:
     it can play, and range-fetches again on every seek. Against a
     non-range-serving origin each of those restarts the entire download, which
     presents as a video that flashes one frame and drops back to buffering
-    forever. An object store answers ranges natively, which is the actual
-    fix."""
+    forever. An object store answers ranges natively, which is the actual fix.
+    """
     return _hls_backend(video) if video.upload_mode == "direct" else None
+
+
+def _content_type_for(name: str) -> str:
+    """Content type to store alongside an object. Matters on an object store
+    in a way it never did locally: R2 hands this header straight to the
+    browser, with no app in between to re-infer it from the extension, and
+    hls.js/<video> reject some of what they are handed without it."""
+    if name.endswith(".ts"):
+        return "video/mp2t"
+    if name.endswith(".m3u8"):
+        return "application/vnd.apple.mpegurl"
+    if name.endswith(".bin"):
+        return "application/octet-stream"
+    return {
+        ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+        ".webm": "video/webm", ".mkv": "video/x-matroska", ".ogv": "video/ogg",
+        ".ogg": "video/ogg", ".avi": "video/x-msvideo",
+    }.get("." + name.rsplit(".", 1)[-1].lower() if "." in name else "", "video/mp4")
 
 
 def _detect_provider(url: str) -> Literal["youtube", "vimeo"] | None:
@@ -430,16 +445,16 @@ async def attach_upload(
         video = Video(id=uuid.uuid4(), owner_type=owner_type, owner_id=owner_id)
         db.add(video)
 
-    # Set before the upload below: _source_backend(video) reads both
-    # upload_mode and storage_backend off the row to decide where a `direct`
-    # video's bytes belong.
+    # Set before the upload, not after: _source_backend() reads upload_mode and
+    # storage_backend off the row to decide where the bytes go, so assigning
+    # them afterwards would upload to the wrong place.
     video.upload_mode = mode
     video.storage_backend = _NEW_UPLOAD_BACKEND
 
     suffix = Path(filename or "video.mp4").suffix or ".mp4"
     source_path = f"{video.id}/source{suffix}"
     await storage.upload_to_path(
-        SOURCE_BUCKET, source_path, file_bytes, content_type or "video/mp4",
+        SOURCE_BUCKET, source_path, file_bytes, _content_type_for(source_path),
         backend=_source_backend(video),
     )
 
@@ -458,47 +473,40 @@ async def attach_upload(
     return video
 
 
-async def enqueue_transcode(arq_redis, video_id: uuid.UUID, *, target_backend: str | None = None) -> str:
+async def enqueue_transcode(
+    arq_redis, video_id: uuid.UUID, *, target_backend: str | None = None,
+) -> str:
     """Thin wrapper so callers don't need to know the ARQ job name — one
     shared job ("transcode_video") replaces the LMS-only "transcode_lms_video".
-    `target_backend`, when given, is the migration driver's explicit "encode
-    to here" instruction (see run_encrypted_transcode) — omitted for a normal
-    fresh upload, which already has `video.storage_backend` set correctly by
-    `attach_upload`."""
+
+    `target_backend` is where the OUTPUT should land; the row is repointed
+    there only once the encode succeeds."""
     from app.workers.settings import safe_enqueue
     return await safe_enqueue(arq_redis, "transcode_video", str(video_id), target_backend)
 
 
 async def run_encrypted_transcode(
-    db: AsyncSession, video_id: uuid.UUID, *, encoder: Encoder | None = None,
-    target_backend: str | None = None,
+    db: AsyncSession, video_id: uuid.UUID, *,
+    encoder: Encoder | None = None, target_backend: str | None = None,
 ) -> None:
     """The ARQ job body for `upload_mode="hls_encrypted"` videos — same
-    download/ffprobe/ffmpeg/upload shape `services/lms/video.py::run_transcode`
-    used, generalized to work off `video_id` instead of `item_id`. Never
-    raises — a failure is recorded on the row (`failed` + `status_error`), not
-    thrown at the worker, since nothing awaits this job synchronously.
+    download/ffprobe/ffmpeg/upload/status-transition shape
+    `services/lms/video.py::run_transcode` used, generalized to work off
+    `video_id` instead of `item_id`. Never raises — a failure is recorded on
+    the row (`failed` + `status_error`), not thrown at the worker, since
+    nothing awaits this job synchronously.
 
-    Two distinct callers, two distinct safety requirements:
-
-    - A fresh upload (`video.status == "pending"`): nothing is playable yet,
-      so there is nothing to protect. Status flips pending -> processing ->
-      ready as it always has, and `target_backend` is left unset — the row's
-      own `storage_backend` (set by `attach_upload`) already says where to
-      write.
-    - A HOT re-encode of an already-`ready` video — the video-migration
-      driver's job, re-encoding old content onto R2 or refreshing an already-
-      migrated one to current targets: this video is live right now, and
-      status/storage_backend must stay exactly as they are for the entire
-      encode. The new output is written to `target_backend` at the SAME
-      prefix (a different backend is a different physical store, so this
-      never collides with the old files) while every in-flight and new
-      playback request keeps reading the OLD row untouched. Only on verified
-      success does one commit flip `playlist_path`/`key_path`/
-      `duration_seconds`/`storage_backend` together — no request can ever
-      observe a half-migrated row. A failure here changes nothing: the video
-      keeps serving from wherever it already was, and nobody watching it
-      ever knows the attempt happened."""
+    `target_backend=None` means "no override — write to wherever this row's
+    storage_backend already says", not "target the VPS explicitly". That is
+    deliberate, not just the simplest reading: this value crosses an ARQ job
+    boundary (Redis-serialized, then re-passed by transcode_video's own
+    `target_backend: str | None = None` parameter), so a sentinel object
+    identity would not survive the round trip — a fresh upload's ordinary
+    post-attach transcode (no override given) and an explicit "re-encode onto
+    the VPS" request would collapse into the same `None` on the other side,
+    silently writing a "r2"-stamped row's output to the wrong place. Rolling
+    a single video back to the VPS is `move_to_backend`'s job (a copy, not a
+    re-encode) for exactly this reason — see the migration script."""
     encode = encoder or _ffmpeg_encode_hls
 
     video = await db.get(Video, video_id)
@@ -506,18 +514,28 @@ async def run_encrypted_transcode(
         logger.warning("run_encrypted_transcode: no Video row %s", video_id)
         return
 
-    hot = video.status == "ready"
-    write_backend = target_backend if target_backend is not None else video.storage_backend
+    target = target_backend if target_backend is not None else video.storage_backend
 
-    if not hot:
+    # A video that is currently servable keeps serving while it re-encodes.
+    #
+    # `status` is what gates playback (the token endpoint 409s on anything but
+    # "ready"), so downgrading it to "processing" would take a working video
+    # away from students for the length of an encode — and, if the encode
+    # failed, leave it "failed" and unplayable even though its existing output
+    # is still sitting there intact. That is unacceptable for a re-encode of
+    # 127 already-working videos.
+    #
+    # Writing to a DIFFERENT backend is what makes this safe: the new output
+    # lands beside the old rather than over it, so until the swap at the end
+    # the row still points at bytes that are complete and correct. A first-time
+    # transcode has nothing to serve, so it takes the normal path.
+    swap_in_place = bool(video.playlist_path) and video.status == "ready" and target != video.storage_backend
+    if not swap_in_place:
         video.status = "processing"
         video.status_error = None
         await db.commit()
 
     try:
-        # Always read the pre-transcode source from wherever it actually is
-        # (never affected by target_backend — the source stays put regardless
-        # of where the OUTPUT is headed; see _source_backend's own note).
         source_bytes = await storage.download_file(video.source_bucket, video.source_path)
         with tempfile.TemporaryDirectory() as tmp:
             source_file = Path(tmp) / "source"
@@ -532,62 +550,126 @@ async def run_encrypted_transcode(
         # that predates that migration); a fresh upload has no playlist_path
         # yet and gets video.id, exactly as before.
         #
-        # Keeping the prefix stable is what makes a same-backend re-encode (or
-        # a rollback) a true no-op for anyone else: the pre-existing tree and
-        # the newly written one occupy the SAME key on their respective
-        # backends, so a row that keeps pointing at the old backend still
-        # resolves correctly, and nothing is ever stranded at a path no row
-        # points at.
+        # Keeping the prefix stable is what makes a hot re-encode's old copy a
+        # true rollback: the pre-existing tree on the OLD backend and the
+        # newly written tree on `target` occupy the SAME key, untouched by
+        # each other (different physical stores), so setting this row's
+        # storage_backend back to the old value re-serves the old output
+        # as-is. Writing to a new prefix would strand that old copy at a path
+        # nothing points at.
         prefix = video.playlist_path.rsplit("/", 1)[0] if video.playlist_path else str(video_id)
+        hls_backend = target
         for name, data in result.segments.items():
             await storage.upload_to_path(
-                HLS_BUCKET, f"{prefix}/{name}", data, "video/mp2t", backend=write_backend
+                HLS_BUCKET, f"{prefix}/{name}", data, "video/mp2t", backend=hls_backend
             )
         await storage.upload_to_path(
             HLS_BUCKET, f"{prefix}/playlist.m3u8", result.playlist,
-            "application/vnd.apple.mpegurl", backend=write_backend,
+            "application/vnd.apple.mpegurl", backend=hls_backend,
         )
         await storage.upload_to_path(
             HLS_BUCKET, f"{prefix}/key.bin", result.key,
-            "application/octet-stream", backend=write_backend,
+            "application/octet-stream", backend=hls_backend,
         )
 
-        # One commit. Whether this is a fresh upload's first-ever "ready" or a
-        # hot re-encode's cutover, nothing downstream can observe playlist_path
-        # pointing at the new output while storage_backend still says the old
-        # one (or vice versa) — the whole reason the write above happens
-        # before any of these columns change.
+        # The atomic swap. Everything above wrote to `target`; only now does
+        # the row start pointing there, in the same commit that marks it ready.
+        # Before this line the video served from its old backend; after it, the
+        # new one. There is no in-between a request can observe.
         video.playlist_path = f"{prefix}/playlist.m3u8"
         video.key_path = f"{prefix}/key.bin"
         video.duration_seconds = result.duration_seconds
+        video.storage_backend = target
         video.status = "ready"
-        video.storage_backend = write_backend
         await db.commit()
     except asyncio.CancelledError:
         # arq's job_timeout cancels the task from outside — CancelledError is
         # a BaseException (not Exception, since Python 3.8), so it would
         # otherwise skip the handler below entirely and leave the row stuck
-        # at "processing" forever with no automatic retry. A hot re-encode
-        # never set "processing" in the first place, so there is nothing to
-        # unwind — the video is exactly as playable as before this ran.
+        # at "processing" forever with no automatic retry. Record failure,
+        # then re-raise so arq's own cancellation/retry bookkeeping still
+        # sees it.
         logger.exception("Transcode cancelled (job timeout?) for video %s", video_id)
-        if not hot:
+        # Only mark it failed if it was not already serving something. A
+        # re-encode that dies must leave the working video exactly as it was.
+        if not swap_in_place:
             video.status = "failed"
-            video.status_error = "Transcode timed out or was cancelled"
-            await db.commit()
+        video.status_error = "Transcode timed out or was cancelled"
+        await db.commit()
         raise
     except Exception as exc:  # noqa: BLE001 — record on the row, never crash the worker
         logger.exception("Transcode failed for video %s", video_id)
-        if not hot:
+        if not swap_in_place:
             video.status = "failed"
-            video.status_error = str(exc)[:2000]
-            await db.commit()
-        # A hot re-encode's failure is deliberately silent to viewers: the row
-        # is untouched, so it keeps serving from its current backend exactly
-        # as it did before this attempt. status_error would otherwise
-        # overwrite a "ready" video's clean state with a failure message
-        # about a background job nobody watching it needs to know failed —
-        # the migration driver's own log output is where this belongs.
+        video.status_error = str(exc)[:2000]
+        await db.commit()
+
+
+async def move_to_backend(
+    db: AsyncSession, video: Video, target: str | None, *, dry_run: bool = False,
+) -> dict:
+    """Copy this video's student-facing bytes to `target` and repoint the row.
+
+    COPY, never move. The bytes are left on the origin backend untouched, so
+    setting `storage_backend` back is a complete, instant rollback for this one
+    video — no re-upload, no re-encode, nothing to restore. Reclaiming the old
+    copies is a separate, deliberate cleanup once a video has been watched in
+    anger from its new home.
+
+    Every object is verified by reading it back and comparing sizes before the
+    row is repointed. A half-copied video that the row already claims is on R2
+    is worse than one that was never moved: it fails at playback, for students,
+    rather than here, for us.
+
+    `target=None` means the deployment default (the VPS). Returns a summary
+    dict rather than raising on a per-object problem, so a caller moving 127
+    videos can report which ones need attention and keep going.
+    """
+    origin = video.storage_backend or None
+    if origin == (target or None):
+        return {"video_id": str(video.id), "moved": 0, "skipped": "already there"}
+
+    # (bucket, path) pairs to copy — exactly the objects a student fetches.
+    objects: list[tuple[str, str]] = []
+    if video.upload_mode == "hls_encrypted":
+        if not video.playlist_path:
+            return {"video_id": str(video.id), "error": "no playlist yet (never transcoded)"}
+        prefix = video.playlist_path.rsplit("/", 1)[0] + "/"
+        for entry in await storage.list_files(HLS_BUCKET, prefix, backend=origin):
+            if entry.get("metadata") is not None:  # a file, not a folder
+                objects.append((HLS_BUCKET, f"{prefix}{entry['name']}"))
+        if not objects:
+            return {"video_id": str(video.id), "error": f"no HLS objects under {prefix}"}
+    elif video.upload_mode == "direct":
+        if not (video.source_bucket and video.source_path):
+            return {"video_id": str(video.id), "error": "no source on file"}
+        objects.append((video.source_bucket, video.source_path))
+    else:
+        # An embed link hosts no bytes of ours; there is nothing to move.
+        return {"video_id": str(video.id), "moved": 0, "skipped": "embed link"}
+
+    if dry_run:
+        return {"video_id": str(video.id), "would_move": len(objects),
+                "from": origin or "default", "to": target or "default"}
+
+    copied = 0
+    for bucket, path in objects:
+        data = await storage.download_file(bucket, path, backend=origin)
+        await storage.upload_to_path(
+            bucket, path, data, _content_type_for(path), backend=target,
+        )
+        check = await storage.download_file(bucket, path, backend=target)
+        if len(check) != len(data):
+            return {"video_id": str(video.id), "error":
+                    f"verify failed on {path}: wrote {len(data)}, read back {len(check)}",
+                    "copied_before_failure": copied}
+        copied += 1
+
+    video.storage_backend = target or None
+    await db.commit()
+    await db.refresh(video)
+    return {"video_id": str(video.id), "moved": copied,
+            "from": origin or "default", "to": target or "default"}
 
 
 async def get_playback_info(db: AsyncSession, video: Video, *, signed_url_expires_in: int = 3600) -> dict:
@@ -596,6 +678,8 @@ async def get_playback_info(db: AsyncSession, video: Video, *, signed_url_expire
     router-owned call coupled to that feature's own access check."""
     if video.provider != "upload":
         return {"provider": video.provider, "embed_url": video.embed_url, "status": video.status}
+    # storage_backend is surfaced so authoring UIs can show where a video
+    # actually lives ("VPS" / "R2") and offer to move it.
     if video.upload_mode == "direct":
         url = await storage.resolve_url(
             video.source_bucket, video.source_path,
@@ -604,10 +688,12 @@ async def get_playback_info(db: AsyncSession, video: Video, *, signed_url_expire
         return {
             "provider": "upload", "mode": "direct", "status": video.status,
             "url": url, "duration_seconds": video.duration_seconds,
+            "storage_backend": video.storage_backend,
         }
     return {
         "provider": "upload", "mode": "hls_encrypted", "status": video.status,
         "status_error": video.status_error, "duration_seconds": video.duration_seconds,
+        "storage_backend": video.storage_backend,
     }
 
 
