@@ -2,7 +2,7 @@
 targets — incrementally, one video (or one course) at a time, with zero
 downtime.
 
-Three jobs, deliberately in one script because they share every filter and
+Four jobs, deliberately in one script because they share every filter and
 safety check.
 
   --status  Report where every video's bytes currently live (r2/vps), grouped
@@ -10,6 +10,20 @@ safety check.
             Read-only, changes nothing. Run this first and after every batch:
             it is the "can I migrate only 3 courses today" visibility this
             script exists for.
+
+  --link-legacy-library  One-time fix for a real bug in the
+            unify_video_service migration (f2c8a916e731): it backfilled a
+            `videos` row (upload_mode='direct') for every video-format
+            library_resources row, but never pointed
+            `library_resources.file_url` at it (the sentinel prefix
+            `_lib_playback()` needs to even look the row up). Until this
+            runs, any Library video uploaded before that migration serves
+            `video_info: null` — the resource's list/detail responses come
+            back 200, but the frontend requires video_info to render
+            anything for a video resource, so it shows "Couldn't load this
+            video" even though the raw file is sitting there fine. This
+            only relinks file_url; it does not compress anything — run
+            --convert --owner-type library_resource right after.
 
   --sizes   Report each video's source size vs. its current HLS output size
             (compression before/after), by listing objects in storage —
@@ -95,6 +109,10 @@ USAGE (inside the api or worker container, where the env is loaded)
     python -m scripts.video_migrate_to_r2 --sizes
     python -m scripts.video_migrate_to_r2 --sizes --owner-type library_resource
 
+    python -m scripts.video_migrate_to_r2 --link-legacy-library --dry-run
+    python -m scripts.video_migrate_to_r2 --link-legacy-library
+    python -m scripts.video_migrate_to_r2 --convert --owner-type library_resource
+
     python -m scripts.video_migrate_to_r2 --move --to r2 --dry-run
     python -m scripts.video_migrate_to_r2 --move --to r2 --limit 1     # one first
     python -m scripts.video_migrate_to_r2 --move --to r2
@@ -163,6 +181,7 @@ from arq import create_pool
 from sqlalchemy import select
 
 from app.db.session import AsyncSessionLocal
+from app.models.instructors.library import LibraryResource
 from app.models.lms import Course, CourseModule, ModuleItem
 from app.models.videos import Video
 from app.services.video_service import (
@@ -170,6 +189,12 @@ from app.services.video_service import (
 )
 from app.services import storage
 from app.workers.settings import redis_settings
+
+# Mirrors routers/instructors/facilitator.py::_VIDEO_SENTINEL_PREFIX —
+# duplicated rather than imported, same reasoning as the alembic migration's
+# own frozen copy of _lib_storage_path: a script/migration should keep
+# working even if the app module it once mirrored changes shape.
+_VIDEO_SENTINEL_PREFIX = "video-service:"
 
 
 def _label(video: Video) -> str:
@@ -285,6 +310,45 @@ async def sizes(args: argparse.Namespace) -> int:
     print(f"\nTotal: source={_fmt_mb(total_before)}  output={_fmt_mb(total_after)}"
           + (f"  ({total_after / total_before:.0%} of original, "
              f"{_fmt_mb(total_before - total_after)} saved)" if total_before else ""))
+    return 0
+
+
+async def link_legacy_library(args: argparse.Namespace) -> int:
+    async with AsyncSessionLocal() as db:
+        stmt = select(Video).where(Video.owner_type == "library_resource", Video.provider == "upload")
+        if args.video_id:
+            stmt = stmt.where(Video.id == uuid.UUID(args.video_id))
+        rows = (await db.execute(stmt)).scalars().all()
+        if args.limit:
+            rows = rows[: args.limit]
+
+        print(f"{len(rows)} library_resource video row(s) found\n")
+        linked = skipped = 0
+        for video in rows:
+            resource = (await db.execute(
+                select(LibraryResource).where(LibraryResource.id == video.owner_id)
+            )).scalars().first()
+            if resource is None:
+                print(f"  SKIP  {_label(video)}  no matching library_resources row (owner_id={video.owner_id})")
+                skipped += 1
+                continue
+            if resource.file_url.startswith(_VIDEO_SENTINEL_PREFIX):
+                skipped += 1
+                continue
+            tag = "DRY " if args.dry_run else "OK  "
+            print(f"  {tag}  {_label(video)}  {resource.title!r} file_url -> {_VIDEO_SENTINEL_PREFIX}{video.id}")
+            if not args.dry_run:
+                resource.file_url = f"{_VIDEO_SENTINEL_PREFIX}{video.id}"
+                linked += 1
+
+        if args.dry_run:
+            print("\nDRY RUN — nothing written.")
+        else:
+            await db.commit()
+            print(f"\n{linked} linked, {skipped} skipped.")
+            if linked:
+                print("These are still upload_mode='direct' (uncompressed, raw file) — compress them next:")
+                print("  python -m scripts.video_migrate_to_r2 --convert --owner-type library_resource")
     return 0
 
 
@@ -448,6 +512,8 @@ def main() -> int:
     ap.add_argument("--status", action="store_true", help="report each video's current backend, change nothing")
     ap.add_argument("--sizes", action="store_true",
                     help="report each video's source size vs. HLS output size, change nothing")
+    ap.add_argument("--link-legacy-library", action="store_true",
+                    help="one-time fix: point pre-migration library_resources.file_url at its backfilled videos row")
     ap.add_argument("--move", action="store_true",
                     help="copy videos' bytes to --to and repoint their rows")
     ap.add_argument("--to", choices=["r2", "vps"], default="r2",
@@ -468,14 +534,16 @@ def main() -> int:
                     help="report what would happen, change nothing")
     args = ap.parse_args()
 
-    modes = [args.status, args.sizes, args.move, args.convert, args.reencode]
+    modes = [args.status, args.sizes, args.link_legacy_library, args.move, args.convert, args.reencode]
     if sum(bool(m) for m in modes) != 1:
-        ap.error("pass exactly one of --status, --sizes, --move, --convert, or --reencode")
+        ap.error("pass exactly one of --status, --sizes, --link-legacy-library, --move, --convert, or --reencode")
 
     if args.status:
         return asyncio.run(status(args))
     if args.sizes:
         return asyncio.run(sizes(args))
+    if args.link_legacy_library:
+        return asyncio.run(link_legacy_library(args))
     if args.move:
         return asyncio.run(move(args))
     if args.convert:
