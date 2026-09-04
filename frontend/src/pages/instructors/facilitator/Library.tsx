@@ -96,7 +96,25 @@ export default function FacilitatorLibrary() {
 
   const [previewResource, setPreviewResource] = useState<LibraryResource | null>(null)
 
-  const { data: modules, isLoading } = useQuery({ queryKey: ["facilitator-library"], queryFn: facilitatorListLibraryApi })
+  const { data: modules, isLoading } = useQuery({
+    queryKey: ["facilitator-library"],
+    queryFn: facilitatorListLibraryApi,
+    // Poll while any resource in the list is still transcoding (hls_encrypted
+    // upload) — this used to be a non-issue when uploads flipped straight to
+    // "ready", but now there is a real async gap to bridge without a manual
+    // refresh. Whole-list refetch, not per-resource: video_info arrives
+    // bundled in this same list response, there is no per-resource detail
+    // query on this page to poll instead.
+    refetchInterval: (q) => {
+      const stillProcessing = (q.state.data ?? []).some((m) =>
+        m.resources.some((r) => {
+          const status = r.video_info?.status
+          return status && status !== "ready" && status !== "failed"
+        }),
+      )
+      return stillProcessing ? 4000 : false
+    },
+  })
 
   const createModule = useMutation({
     mutationFn: () => createLibraryModuleApi({ name: newModuleName }),

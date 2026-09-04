@@ -2,6 +2,7 @@ import time
 import uuid
 from datetime import datetime
 
+from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -24,8 +25,9 @@ from app.schemas.instructors.training import (
     TrainingVideoOut,
 )
 from app.services import storage
-from app.services.video_service import attach_embed_link, attach_upload, get_playback_info, get_video_for_owner
+from app.services.video_service import attach_embed_link, attach_upload, enqueue_transcode, get_playback_info, get_video_for_owner
 from app.services.video_service import delete as delete_video
+from app.workers.settings import get_arq_redis
 from pydantic import BaseModel
 
 
@@ -212,6 +214,7 @@ async def update_training_video(
 async def upload_training_video(
     video_id: uuid.UUID, file: UploadFile,
     db: AsyncSession = Depends(get_db), current_user: User = Depends(require_facilitator),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     video = (await db.execute(select(TrainingVideo).where(TrainingVideo.id == video_id))).scalars().first()
     if not video:
@@ -223,15 +226,16 @@ async def upload_training_video(
     if len(data) > MAX_LIBRARY_FILE_BYTES:
         raise HTTPException(status_code=413, detail="File exceeds the 4GB limit")
 
-    # A training video is a short internal walkthrough, not paid course
-    # content — "direct" (plain progressive stream, no transcode wait)
-    # rather than the encrypted-HLS pipeline course modules use, same
-    # choice as the checklist guideline video's own upload path.
-    await attach_upload(
+    # Compressed HLS, same pipeline every LMS course module video already
+    # goes through — a facilitator's phone-recorded walkthrough is easily
+    # 4K, and "direct" never compressed anything, it only ever made a raw
+    # file seekable.
+    attached = await attach_upload(
         db, owner_type="training_video", owner_id=video_id, file_bytes=data,
-        filename=file.filename or "video", content_type=file.content_type, mode="direct",
+        filename=file.filename or "video", content_type=file.content_type, mode="hls_encrypted",
         created_by=current_user.id,
     )
+    await enqueue_transcode(arq_redis, attached.id)
     await db.refresh(video)
     return TrainingVideoOut.from_orm_video(video, video_uploaded=True)
 
@@ -430,6 +434,7 @@ async def upload_library_resource(
     description: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_facilitator),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     data = await file.read()
     if len(data) > MAX_LIBRARY_FILE_BYTES:
@@ -444,12 +449,16 @@ async def upload_library_resource(
     await db.flush()  # need resource.id as the Video owner_id below
 
     if _is_video_format(fmt):
+        # Compressed HLS, same pipeline every LMS course module video already
+        # goes through — Library uploads run 4K routinely, and "direct" never
+        # compressed anything, it only ever made a raw file seekable.
         video = await attach_upload(
             db, owner_type="library_resource", owner_id=resource.id, file_bytes=data,
-            filename=file.filename or "video", content_type=file.content_type, mode="direct",
+            filename=file.filename or "video", content_type=file.content_type, mode="hls_encrypted",
             created_by=current_user.id,
         )
         resource.file_url = f"{_VIDEO_SENTINEL_PREFIX}{video.id}"
+        await enqueue_transcode(arq_redis, video.id)
     else:
         path = f"{int(time.time())}_{file.filename}"
         stored_path = await storage.upload_to_path("library-resources", path, data, file.content_type or "application/octet-stream")
@@ -505,6 +514,7 @@ async def replace_library_file(
     title: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_facilitator),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     resource = (await db.execute(select(LibraryResource).where(LibraryResource.id == resource_id))).scalars().first()
     if not resource:
@@ -532,10 +542,11 @@ async def replace_library_file(
     if _is_video_format(fmt):
         video = await attach_upload(
             db, owner_type="library_resource", owner_id=resource.id, file_bytes=data,
-            filename=file.filename or "video", content_type=file.content_type, mode="direct",
+            filename=file.filename or "video", content_type=file.content_type, mode="hls_encrypted",
             created_by=current_user.id,
         )
         resource.file_url = f"{_VIDEO_SENTINEL_PREFIX}{video.id}"
+        await enqueue_transcode(arq_redis, video.id)
     else:
         new_path = f"{int(time.time())}_{file.filename}"
         stored_path = await storage.upload_to_path("library-resources", new_path, data, file.content_type or "application/octet-stream")

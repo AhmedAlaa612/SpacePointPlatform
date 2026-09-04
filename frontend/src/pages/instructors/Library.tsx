@@ -97,6 +97,13 @@ function ResourceViewer({ resource }: { resource: LibraryResource }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ["library-resource-url", resource.id],
     queryFn: () => getLibraryResourceUrlApi(resource.id),
+    // Poll while an hls_encrypted upload is still transcoding — this used
+    // to be a non-issue when uploads flipped straight to "ready", but now
+    // there is a real async gap to bridge without a manual refresh.
+    refetchInterval: (q) => {
+      const status = q.state.data?.video_info?.status
+      return status && status !== "ready" && status !== "failed" ? 4000 : false
+    },
   })
 
   if (isLoading) return <p className="text-sm text-muted-foreground py-6">Loading document...</p>

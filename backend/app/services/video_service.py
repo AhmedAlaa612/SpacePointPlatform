@@ -672,12 +672,78 @@ async def move_to_backend(
             "from": origin or "default", "to": target or "default"}
 
 
+async def convert_to_hls_encrypted(db: AsyncSession, video: Video) -> dict:
+    """One-time mode change: a `direct`-mode video (a raw file served
+    as-is, byte-range playback only) becomes `hls_encrypted` — compressed
+    and streamed through the same pipeline every LMS course module video
+    already uses. For an existing direct upload sitting at 4K, this is the
+    actual compression step; `--move` only ever made such a file seekable,
+    never smaller.
+
+    Does not itself run ffmpeg — it repoints the row and leaves the actual
+    encode to run_encrypted_transcode, exactly like a fresh hls_encrypted
+    upload does. Caller enqueues the transcode job separately (same
+    attach_upload/enqueue_transcode split, same reason: keep this a pure
+    DB+storage primitive, testable without Redis).
+
+    The one thing this must get right that a fresh upload never has to
+    worry about: run_encrypted_transcode's source download
+    (storage.download_file(video.source_bucket, video.source_path), no
+    backend= override — see that function's body) always reads from the
+    DEPLOYMENT DEFAULT backend, because a genuine hls_encrypted upload's
+    source only ever lands there (_source_backend returns None for that
+    mode, by design — the source is a worker-only input, never worth
+    shipping to an object store). A `direct` video's source, by contrast,
+    follows ITS OWN storage_backend — which may already be "r2" if this
+    video went through `--move --to r2 --mode direct` before this
+    conversion existed. So before flipping the mode, this copies the source
+    back to the default backend under the SAME (bucket, path) key, so the
+    transcode job finds it exactly where it always expects to look. The
+    old copy on whatever backend it came from is left in place — cheap,
+    and exactly this module's usual "copy, never delete the origin until
+    something has been proven to work from the new location" posture.
+    """
+    if video.upload_mode != "direct":
+        return {"video_id": str(video.id), "error": f"not direct mode (currently {video.upload_mode})"}
+    if not (video.source_bucket and video.source_path):
+        return {"video_id": str(video.id), "error": "no source on file"}
+
+    current_backend = _source_backend(video)  # still "direct" here -> video.storage_backend
+    if current_backend is not None:
+        data = await storage.download_file(video.source_bucket, video.source_path, backend=current_backend)
+        await storage.upload_to_path(
+            video.source_bucket, video.source_path, data, _content_type_for(video.source_path),
+            backend=None,  # the default backend — where run_encrypted_transcode will look
+        )
+
+    video.upload_mode = "hls_encrypted"
+    video.status = "pending"
+    video.status_error = None
+    # storage_backend is left as-is on purpose: the moment upload_mode flips,
+    # _hls_backend reinterprets that same column as "where the HLS OUTPUT
+    # should land" rather than "where the source is" — for anything uploaded
+    # since the R2 switch it is already "r2", which is exactly right.
+    await db.commit()
+    await db.refresh(video)
+    return {"video_id": str(video.id), "converted": True}
+
+
 async def get_playback_info(db: AsyncSession, video: Video, *, signed_url_expires_in: int = 3600) -> dict:
     """Shape depends on provider/mode — deliberately never includes a token
     or a segment/key URL for hls_encrypted: token issuance stays a
-    router-owned call coupled to that feature's own access check."""
+    router-owned call coupled to that feature's own access check.
+
+    `video_id` is included in every shape (even embed, where it is not
+    strictly needed) so a caller never has to thread the id through
+    separately from this dict — the shared frontend <VideoPlayer> fetches its
+    own hls_encrypted token off `info.video_id` rather than taking a second
+    prop that could drift out of sync with which video `info` actually
+    describes."""
     if video.provider != "upload":
-        return {"provider": video.provider, "embed_url": video.embed_url, "status": video.status}
+        return {
+            "provider": video.provider, "embed_url": video.embed_url, "status": video.status,
+            "video_id": str(video.id),
+        }
     # storage_backend is surfaced so authoring UIs can show where a video
     # actually lives ("VPS" / "R2") and offer to move it.
     if video.upload_mode == "direct":
@@ -688,12 +754,12 @@ async def get_playback_info(db: AsyncSession, video: Video, *, signed_url_expire
         return {
             "provider": "upload", "mode": "direct", "status": video.status,
             "url": url, "duration_seconds": video.duration_seconds,
-            "storage_backend": video.storage_backend,
+            "storage_backend": video.storage_backend, "video_id": str(video.id),
         }
     return {
         "provider": "upload", "mode": "hls_encrypted", "status": video.status,
         "status_error": video.status_error, "duration_seconds": video.duration_seconds,
-        "storage_backend": video.storage_backend,
+        "storage_backend": video.storage_backend, "video_id": str(video.id),
     }
 
 

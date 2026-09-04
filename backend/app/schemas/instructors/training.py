@@ -73,6 +73,10 @@ class LibraryVideoPlaybackInfo(BaseModel):
     url: str | None = None
     duration_seconds: int | None = None
     status_error: str | None = None
+    # Required for hls_encrypted playback — the shared <VideoPlayer> fetches
+    # its own token off this id (GET /videos/{video_id}/token) rather than
+    # taking a separate prop that could drift out of sync with this info.
+    video_id: str | None = None
 
 
 class LibraryResourceOut(BaseModel):

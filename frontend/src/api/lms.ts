@@ -630,7 +630,9 @@ export async function getChecklistItemPdfUrlApi(assignmentId: string, itemId: st
   return data.url;
 }
 
-export async function getChecklistItemGuidelineVideoUrlApi(assignmentId: string, itemId: string): Promise<string> {
-  const { data } = await api.get<{ url: string }>(`/lms/programs/${assignmentId}/items/${itemId}/guideline-video-url`);
-  return data.url;
+export async function getChecklistItemGuidelineVideoUrlApi(
+  assignmentId: string, itemId: string,
+): Promise<{ url: string; video_info: import("@/components/video/VideoPlayer").VideoPlaybackInfo | null }> {
+  const { data } = await api.get(`/lms/programs/${assignmentId}/items/${itemId}/guideline-video-url`);
+  return data;
 }

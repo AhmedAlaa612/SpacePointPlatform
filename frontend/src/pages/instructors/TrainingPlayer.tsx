@@ -24,6 +24,13 @@ export default function TrainingPlayer() {
     queryKey: ["training-video-stream", videoId],
     queryFn: () => streamVideoApi(videoId),
     enabled: !!video?.video_uploaded,
+    // Poll while an hls_encrypted upload is still transcoding — this used
+    // to be a non-issue when uploads flipped straight to "ready", but now
+    // there is a real async gap to bridge without a manual refresh.
+    refetchInterval: (q) => {
+      const status = q.state.data?.video_info?.status
+      return status && status !== "ready" && status !== "failed" ? 4000 : false
+    },
   })
 
   if (isLoading || !video) return <Spinner />
@@ -38,9 +45,9 @@ export default function TrainingPlayer() {
       <Card className="mb-4">
         <CardContent className="p-0">
           {video.video_uploaded ? (
-            streamUrl ? (
+            streamUrl?.video_info ? (
               <VideoPlayer
-                info={{ provider: "upload", mode: "direct", status: "ready", url: streamUrl }}
+                info={streamUrl.video_info}
                 title={video.title}
                 className="aspect-video rounded-xl overflow-hidden bg-black"
               />

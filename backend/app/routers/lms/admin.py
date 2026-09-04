@@ -1667,6 +1667,7 @@ async def attach_program_item_guideline_video_embed(
 async def upload_program_item_guideline_video(
     item_id: uuid.UUID, file: UploadFile,
     db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     item = await db.get(LmsProgramItem, item_id)
     if item is None or item.guideline_kind != "video":
@@ -1678,14 +1679,16 @@ async def upload_program_item_guideline_video(
     if len(data) > MAX_ATTACHMENT_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Video exceeds the 4GB limit")
 
-    # A guideline video is a short self-check resource, not paid course
-    # content — "direct" (plain progressive stream, no transcode wait)
-    # rather than the encrypted-HLS pipeline course modules use.
-    await attach_upload(
+    # Compressed HLS, same pipeline every LMS course module video already
+    # goes through — a short self-check clip is still someone's phone
+    # recording, easily 4K, and "direct" never compressed anything, it only
+    # ever made a raw file seekable.
+    video = await attach_upload(
         db, owner_type="program_item_guideline", owner_id=item_id, file_bytes=data,
-        filename=file.filename or "video", content_type=file.content_type, mode="direct",
+        filename=file.filename or "video", content_type=file.content_type, mode="hls_encrypted",
         created_by=current.id,
     )
+    await enqueue_transcode(arq_redis, video.id)
     return await item_out(db, item)
 
 

@@ -9,7 +9,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { PdfViewer } from "@/components/documents/PdfViewer";
-import { VideoPlayer } from "@/components/video/VideoPlayer";
+import { VideoPlayer, type VideoPlaybackInfo } from "@/components/video/VideoPlayer";
 import { isKnownEmbedHost, toEmbedUrl } from "@/lib/embed";
 import { ensureAbsoluteUrl } from "@/lib/utils";
 import {
@@ -57,7 +57,7 @@ interface DrawerBodyProps {
   doWork: () => void;
   submissionReference: string | null;
   guidelineVideoUploaded: boolean;
-  guidelineVideoUrl: string | undefined;
+  guidelineVideoInfo: VideoPlaybackInfo | null | undefined;
   isAutoTracked: boolean;
   isSubmission: boolean;
   isSelfCheck: boolean;
@@ -94,7 +94,7 @@ interface DrawerBodyProps {
  * used to reach via closure is now an explicit prop instead. */
 function DrawerBody({
   item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
-  submissionReference, guidelineVideoUploaded, guidelineVideoUrl, isAutoTracked, isSubmission, isSelfCheck, done,
+  submissionReference, guidelineVideoUploaded, guidelineVideoInfo, isAutoTracked, isSubmission, isSelfCheck, done,
   awaiting, canSubmit, pastDeadline, submitUrl, setSubmitUrl, submitMutation, Icon, completeMutation,
 }: DrawerBodyProps) {
   return (
@@ -144,9 +144,9 @@ function DrawerBody({
           </div>
           {effectiveGuidelineKind === "video" ? (
             guidelineVideoUploaded ? (
-              guidelineVideoUrl ? (
+              guidelineVideoInfo ? (
                 <VideoPlayer
-                  info={{ provider: "upload", mode: "direct", status: "ready", url: guidelineVideoUrl }}
+                  info={guidelineVideoInfo}
                   title="Guideline video"
                   className="aspect-video rounded-lg overflow-hidden border border-border bg-black"
                 />
@@ -353,11 +353,19 @@ export function TaskDrawer({
     enabled: !!item && viewingPdf && effectiveGuidelineKind === "pdf",
   });
 
-  const { data: guidelineVideoUrl } = useQuery({
+  const { data: guidelineVideoResult } = useQuery({
     queryKey: ["lms-checklist-item-guideline-video-url", assignmentId, item?.id],
     queryFn: () => getChecklistItemGuidelineVideoUrlApi(assignmentId, item!.id),
     enabled: !!item && effectiveGuidelineKind === "video" && !!item.guideline_video_uploaded,
+    // Poll while an hls_encrypted upload is still transcoding — this used
+    // to be a non-issue when uploads flipped straight to "ready", but now
+    // there is a real async gap to bridge without a manual refresh.
+    refetchInterval: (q) => {
+      const status = q.state.data?.video_info?.status;
+      return status && status !== "ready" && status !== "failed" ? 4000 : false;
+    },
   });
+  const guidelineVideoInfo = guidelineVideoResult?.video_info;
 
   const completeMutation = useMutation({
     mutationFn: () => completeChecklistItem(assignmentId, item!.id),
@@ -424,7 +432,7 @@ export function TaskDrawer({
 
   const bodyProps: DrawerBodyProps = {
     item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
-    submissionReference, guidelineVideoUploaded: !!item.guideline_video_uploaded, guidelineVideoUrl, isAutoTracked,
+    submissionReference, guidelineVideoUploaded: !!item.guideline_video_uploaded, guidelineVideoInfo, isAutoTracked,
     isSubmission, isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl,
     setSubmitUrl, submitMutation, Icon, completeMutation,
   };

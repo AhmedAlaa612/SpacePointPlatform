@@ -38,6 +38,24 @@ safety check.
             all-or-nothing, so ranges are not merely unimplemented there, they
             are unimplementable. An object store answers them natively.
 
+  --convert   One-time mode change for an EXISTING `direct`-mode video (a raw
+            file served as-is — Instructor Library, facilitator training,
+            checklist guidelines) into `hls_encrypted`: compressed and
+            streamed through the same pipeline every LMS course module video
+            already uses, then enqueued for transcode same as --reencode.
+
+            Every upload endpoint for these features now requests
+            hls_encrypted directly — this is the catch-up pass for whatever
+            was uploaded before that switch, back when "direct" was the only
+            option. `--move --to r2 --mode direct` made those files
+            seekable; it never made them smaller, and Library files run 4K
+            routinely. This is the actual compression step.
+
+            Safe to run repeatedly: it filters to upload_mode="direct" and
+            each row flips out of that mode the moment it converts, so a
+            re-run only ever touches what --convert has not already reached
+            (including anything --status still shows on "vps").
+
   --reencode  Re-run the HLS transcode at the CURRENT encode targets (1080p30,
             capped CRF, 10s segments), writing the output to R2. THIS is how
             the existing library gets onto R2 — not --move.
@@ -70,6 +88,10 @@ USAGE (inside the api or worker container, where the env is loaded)
     python -m scripts.video_migrate_to_r2 --move --to r2 --limit 1     # one first
     python -m scripts.video_migrate_to_r2 --move --to r2
     python -m scripts.video_migrate_to_r2 --move --to vps --video-id <id>   # roll one back
+
+    python -m scripts.video_migrate_to_r2 --convert --dry-run
+    python -m scripts.video_migrate_to_r2 --convert --limit 1
+    python -m scripts.video_migrate_to_r2 --convert --owner-type library_resource
 
     python -m scripts.video_migrate_to_r2 --reencode --course <course_id> --dry-run
     python -m scripts.video_migrate_to_r2 --reencode --course <course_id> --limit 1
@@ -132,7 +154,7 @@ from sqlalchemy import select
 from app.db.session import AsyncSessionLocal
 from app.models.lms import Course, CourseModule, ModuleItem
 from app.models.videos import Video
-from app.services.video_service import move_to_backend
+from app.services.video_service import convert_to_hls_encrypted, move_to_backend
 from app.workers.settings import redis_settings
 
 
@@ -248,6 +270,52 @@ async def move(args: argparse.Namespace) -> int:
     return 1 if failures else 0
 
 
+async def convert(args: argparse.Namespace) -> int:
+    async with AsyncSessionLocal() as db:
+        stmt = select(Video).where(
+            Video.provider == "upload", Video.upload_mode == "direct"
+        ).order_by(Video.created_at)
+        if args.owner_type:
+            stmt = stmt.where(Video.owner_type == args.owner_type)
+        if args.video_id:
+            stmt = stmt.where(Video.id == uuid.UUID(args.video_id))
+        if args.course:
+            stmt = _scope_to_course(stmt, args.course)
+        rows = (await db.execute(stmt)).scalars().all()
+        if args.limit:
+            rows = rows[: args.limit]
+
+        print(f"{len(rows)} direct-mode video(s) to convert -> hls_encrypted, output on r2\n")
+        if not rows:
+            return 0
+
+        if args.dry_run:
+            for video in rows:
+                print(f"  DRY   {_label(video)}  source={video.source_bucket}/{video.source_path}")
+            print("\nDRY RUN — nothing converted, no row modified.")
+            return 0
+
+        failures = 0
+        redis = await create_pool(redis_settings())
+        try:
+            for video in rows:
+                result = await convert_to_hls_encrypted(db, video)
+                if "error" in result:
+                    print(f"  FAIL  {_label(video)}  {result['error']}")
+                    failures += 1
+                    continue
+                await redis.enqueue_job("transcode_video", str(video.id), "r2")
+                print(f"  QUEUED {_label(video)}  (was direct, now transcoding to hls_encrypted)")
+        finally:
+            await redis.close()
+
+    print(f"\n{len(rows) - failures} job(s) queued, {failures} failed.")
+    print("A converted video was NOT servable as direct before this queued — it stays")
+    print("unplayable until its own encode finishes (there is no prior HLS output to")
+    print("keep serving, unlike --reencode). Watch:  docker logs -f spacepoint-worker")
+    return 1 if failures else 0
+
+
 async def reencode(args: argparse.Namespace) -> int:
     async with AsyncSessionLocal() as db:
         stmt = select(Video).where(
@@ -319,6 +387,8 @@ def main() -> int:
     ap.add_argument("--to", choices=["r2", "vps"], default="r2",
                     help="--move's target backend (default: r2) — --reencode always targets r2, see NO "
                          "\"--reencode --to vps\" in the module docstring")
+    ap.add_argument("--convert", action="store_true",
+                    help="convert existing direct-mode videos to hls_encrypted and enqueue transcode")
     ap.add_argument("--reencode", action="store_true",
                     help="re-enqueue the HLS transcode for hls_encrypted videos, targeting r2")
     ap.add_argument("--course", help="restrict to one course's module_item videos (uuid)")
@@ -332,13 +402,17 @@ def main() -> int:
                     help="report what would happen, change nothing")
     args = ap.parse_args()
 
-    modes = [args.status, args.move, args.reencode]
+    modes = [args.status, args.move, args.convert, args.reencode]
     if sum(bool(m) for m in modes) != 1:
-        ap.error("pass exactly one of --status, --move, or --reencode")
+        ap.error("pass exactly one of --status, --move, --convert, or --reencode")
 
     if args.status:
         return asyncio.run(status(args))
-    return asyncio.run(move(args) if args.move else reencode(args))
+    if args.move:
+        return asyncio.run(move(args))
+    if args.convert:
+        return asyncio.run(convert(args))
+    return asyncio.run(reencode(args))
 
 
 if __name__ == "__main__":
