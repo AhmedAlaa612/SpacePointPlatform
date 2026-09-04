@@ -140,28 +140,68 @@ async def _video_from_token(db: AsyncSession, item_id: uuid.UUID, token: str) ->
     return video
 
 
-def _rewrite_playlist(raw: bytes, item_id: uuid.UUID, token: str) -> bytes:
+_KEY_URI_RE = re.compile(r'URI="[^"]*"')
+
+
+def _storage_prefix(video: Video) -> str:
+    """The storage directory this video's segments/key actually live under.
+
+    Always derived from playlist_path, NEVER assumed to equal video.id — the
+    unify_video_service migration backfilled every pre-existing video with a
+    freshly generated id while copying playlist_path verbatim, so for all ~127
+    videos that predate it the prefix is the old item_id. get_segment has
+    always done this; the R2 rewrite below must match it exactly or it signs
+    URLs for objects that do not exist."""
+    return video.playlist_path.rsplit("/", 1)[0]
+
+
+async def _rewrite_playlist(raw: bytes, video: Video, token: str, *, expires_in: int) -> bytes:
     """Stored playlists carry plain relative filenames (token-agnostic — one
     file serves every viewer). Rewritten per-request so every segment/key
-    reference carries *this* request's short-lived token (D2: never a static
-    URL).
+    reference is scoped to *this* request (D2: never a static URL).
 
-    URLs here are relative (no leading slash) rather than absolute paths —
-    the browser resolves them against wherever it fetched *this* playlist
-    from, so whatever reverse-proxy prefix got it there (e.g. nginx's
-    `/api/`, present in production, absent in local dev where the backend is
-    hit directly) carries through automatically. An absolute `/lms/videos/…`
-    path bypasses that prefix entirely — invisible in dev, breaks every
-    segment/key fetch in prod (they resolve to the site root, land in the
-    SPA's catch-all route, and hls.js fails trying to parse HTML as media)."""
-    key_line = re.compile(r'URI="[^"]*"')
-    lines = raw.decode("utf-8").splitlines()
+    Two shapes, chosen by where the HLS bytes actually live:
+
+    - Object store ("r2"): each segment line becomes an absolute presigned URL
+      straight to the store, so segments never touch this API at all. That is
+      the whole point — 400 concurrent students pulling segments through one
+      uvicorn process, each one a full read plus a Fernet decrypt, is ~1 Gbps
+      and thousands of decrypts a minute on a 4-vCPU box. Presigning is local
+      HMAC: no network call, no billed operation, ~30 signatures per playlist.
+    - Local/Supabase: unchanged relative `segment/{name}?token=` paths. Keeping
+      this path byte-identical is deliberate — flipping VIDEO_STORAGE_BACKEND
+      back is the rollback, and a rollback that also changes the playlist shape
+      is not a rollback.
+
+    The `#EXT-X-KEY` line stays relative and token-gated in BOTH shapes. The
+    AES key never moves to the object store: the segments sitting there are
+    already AES-128 encrypted, so a leaked or expired segment URL yields
+    ciphertext, and the key remains behind the same enrollment check as before.
+    That is what makes serving segments from a presigned URL safe.
+
+    Relative URLs (no leading slash) rather than absolute paths — the browser
+    resolves them against wherever it fetched *this* playlist from, so whatever
+    reverse-proxy prefix got it there (e.g. nginx's `/api/`, present in
+    production, absent in local dev where the backend is hit directly) carries
+    through automatically. An absolute `/lms/videos/…` path bypasses that prefix
+    entirely — invisible in dev, breaks every segment/key fetch in prod (they
+    resolve to the site root, land in the SPA's catch-all route, and hls.js
+    fails trying to parse HTML as media)."""
+    backend = storage.video_backend()
+    presign = backend == "r2"
+    prefix = _storage_prefix(video) if presign else None
+
     out = []
-    for line in lines:
+    for line in raw.decode("utf-8").splitlines():
         if line.startswith("#EXT-X-KEY"):
-            out.append(key_line.sub(f'URI="key?token={token}"', line))
+            out.append(_KEY_URI_RE.sub(f'URI="key?token={token}"', line))
         elif line and not line.startswith("#"):
-            out.append(f"segment/{line}?token={token}")
+            if presign:
+                out.append(await storage.get_signed_url(
+                    HLS_BUCKET, f"{prefix}/{line}", expires_in, backend=backend,
+                ))
+            else:
+                out.append(f"segment/{line}?token={token}")
         else:
             out.append(line)
     return ("\n".join(out) + "\n").encode("utf-8")
@@ -172,8 +212,17 @@ async def get_playlist(
     item_id: uuid.UUID, token: str = Query(...), db: AsyncSession = Depends(get_db),
 ):
     video = await _video_from_token(db, item_id, token)
-    raw = await storage.download_file(HLS_BUCKET, video.playlist_path)
-    return Response(content=_rewrite_playlist(raw, item_id, token), media_type="application/vnd.apple.mpegurl")
+    backend = storage.video_backend()
+    raw = await storage.download_file(HLS_BUCKET, video.playlist_path, backend=backend)
+    # Presigned segment URLs expire alongside the token that fetched this
+    # playlist, so there is one failure mode rather than two interleaved ones.
+    # The player's existing one-retry-on-network-error path re-issues the token
+    # AND refetches the playlist, which mints fresh URLs — so a student who
+    # pauses past the window gets one invisible retry, same as today.
+    rewritten = await _rewrite_playlist(
+        raw, video, token, expires_in=_VIDEO_TOKEN_MINUTES * 60
+    )
+    return Response(content=rewritten, media_type="application/vnd.apple.mpegurl")
 
 
 @router.get("/lms/videos/{item_id}/segment/{segment_name}")
@@ -183,15 +232,13 @@ async def get_segment(
     if not _SEGMENT_NAME_RE.match(segment_name):
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Segment not found")
     video = await _video_from_token(db, item_id, token)
-    # Derived from playlist_path's own directory, not video.id — a video
-    # backfilled from the old ModuleVideo table keeps its original
-    # item_id-prefixed storage layout (playlist_path/key_path copied
-    # verbatim by the migration), which doesn't equal this row's new,
-    # freshly-generated id. A video transcoded post-migration has
-    # playlist_path == f"{video.id}/playlist.m3u8", so this still resolves
-    # correctly there too.
-    prefix = video.playlist_path.rsplit("/", 1)[0]
-    data = await storage.download_file(HLS_BUCKET, f"{prefix}/{segment_name}")
+    # Still served by this API in local mode, and kept working deliberately:
+    # with VIDEO_STORAGE_BACKEND unset the playlist rewrites to these relative
+    # paths exactly as it always has, which is what makes flipping that setting
+    # back a complete rollback rather than a partial one.
+    data = await storage.download_file(
+        HLS_BUCKET, f"{_storage_prefix(video)}/{segment_name}", backend=storage.video_backend(),
+    )
     return Response(content=data, media_type="video/mp2t")
 
 
@@ -200,5 +247,5 @@ async def get_key(
     item_id: uuid.UUID, token: str = Query(...), db: AsyncSession = Depends(get_db),
 ):
     video = await _video_from_token(db, item_id, token)
-    data = await storage.download_file(HLS_BUCKET, video.key_path)
+    data = await storage.download_file(HLS_BUCKET, video.key_path, backend=storage.video_backend())
     return Response(content=data, media_type="application/octet-stream")

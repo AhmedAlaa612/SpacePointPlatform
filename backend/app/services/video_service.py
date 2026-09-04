@@ -23,6 +23,7 @@ check and a video's identity meet, which this module must not conflate.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -54,13 +55,47 @@ SOURCE_BUCKET = "video-sources"
 # playback the moment this shipped. Keep the original name; it costs
 # nothing to keep calling it that even though the service is now generic.
 HLS_BUCKET = "lms-hls"
-_SEGMENT_SECONDS = 4
+
+# 10s, raised from 4s. Cost was never the driver — R2's Class B free tier
+# swallows this library's read volume at any of these lengths. What 10s buys is
+# 2.5x fewer segment requests per playback with a first-segment download small
+# enough (~2-3MB at these bitrates) not to punish a slow connection at startup.
+# 20s was considered and rejected: with a single rendition there is no lower
+# variant for hls.js to fall back to, and a 20s segment that cannot be fetched
+# in 20s is an unrecoverable stall rather than a hiccup. Apple's own authoring
+# guidance recommends 6s; 10s is already a deliberate step past that.
+_SEGMENT_SECONDS = 10
+
+# Delivery targets for the re-encode path. Measured against the real library
+# (2026-09-04): every sampled source is 4K HEVC ~16 Mbps straight off an
+# iPhone, and _probe_is_h264_aac rejected all of them, so 119 of 127 videos
+# were being served at the old 720p/800k — visibly soft for slide and
+# screen-recorded content. 1080p at capped CRF is a large quality upgrade for
+# those, and a ~7x size reduction for the 8 H.264 sources that were sailing
+# through the remux gate untouched at full source bitrate.
+_MAX_HEIGHT = 1080
+_MAX_FPS = 30
+# The cap a source must already be under to be worth remuxing instead of
+# re-encoding, and the ceiling the encoder is allowed to spend.
+_MAX_SOURCE_KBPS = 3000
+_TARGET_MAX_KBPS = 2500
 
 # Same host-matching regex as frontend/src/lib/embed.ts::isKnownEmbedHost —
 # keep the two in sync manually (no cross-language shared source; this
 # codebase already duplicates the analogous _VIDEO_FORMATS/isVideoFormat
 # extension set the same way, for the same reason).
 _EMBED_HOST_RE = re.compile(r"youtu\.be|youtube\.com|vimeo\.com", re.IGNORECASE)
+
+
+def _hls_backend() -> str | None:
+    """The storage backend the HLS output (playlist/segments/key) lives on.
+
+    Only the HLS output moves. `source_bucket`/`source_path` stay on the
+    default backend deliberately: the sources are ~33GB that only the worker
+    ever reads, never a student request, and keeping them local means a
+    transcode does not have to pull hundreds of megabytes back over the network
+    before it can start."""
+    return storage.video_backend()
 
 
 def _detect_provider(url: str) -> Literal["youtube", "vimeo"] | None:
@@ -92,30 +127,94 @@ def _run(cmd: list[str], *, low_priority: bool = False) -> str:
     return proc.stdout
 
 
-def _probe_is_h264_aac(source: Path) -> bool:
-    try:
-        video_codec = _run([
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
-            "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(source),
-        ]).strip()
-        audio_codec = _run([
-            "ffprobe", "-v", "error", "-select_streams", "a:0",
-            "-show_entries", "stream=codec_name", "-of", "csv=p=0", str(source),
-        ]).strip()
-        return video_codec == "h264" and audio_codec == "aac"
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return False
+@dataclass
+class SourceInfo:
+    """What the remux-vs-re-encode decision needs to know about a source."""
+    vcodec: str | None = None
+    acodec: str | None = None
+    height: int | None = None
+    fps: float | None = None
+    bitrate_kbps: int | None = None
+    duration_seconds: int | None = None
 
 
-def _probe_duration(source: Path) -> int | None:
-    try:
-        out = _run([
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
-            "-of", "csv=p=0", str(source),
-        ]).strip()
-        return int(float(out))
-    except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
+def _parse_fps(rate: str | None) -> float | None:
+    """ffprobe reports r_frame_rate as a rational string ("30/1", "60000/1001")."""
+    if not rate or "/" not in rate:
         return None
+    num, _, den = rate.partition("/")
+    try:
+        return float(num) / float(den) if float(den) else None
+    except (ValueError, ZeroDivisionError):
+        return None
+
+
+def _probe_source(source: Path) -> SourceInfo:
+    """One ffprobe call for everything, replacing the three separate ones this
+    used to make (two codec probes plus a duration probe). Each probe re-opens
+    and re-parses the container; on the 200-800MB 4K sources this library
+    actually holds that was pure waste on the critical path."""
+    try:
+        raw = _run([
+            "ffprobe", "-v", "error", "-print_format", "json",
+            "-show_streams", "-show_format", str(source),
+        ])
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Unreadable/probe-less source: report nothing known. _can_copy then
+        # refuses to remux, so we re-encode — the safe direction, since a
+        # bad remux ships broken segments while a bad encode fails loudly.
+        return SourceInfo()
+
+    try:
+        probed = json.loads(raw)
+    except json.JSONDecodeError:
+        return SourceInfo()
+
+    streams = probed.get("streams") or []
+    video = next((st for st in streams if st.get("codec_type") == "video"), {})
+    audio = next((st for st in streams if st.get("codec_type") == "audio"), {})
+    fmt = probed.get("format") or {}
+
+    try:
+        duration = int(float(fmt["duration"]))
+    except (KeyError, TypeError, ValueError):
+        duration = None
+    try:
+        bitrate = int(fmt["bit_rate"]) // 1000
+    except (KeyError, TypeError, ValueError):
+        bitrate = None
+
+    return SourceInfo(
+        vcodec=video.get("codec_name"),
+        acodec=audio.get("codec_name"),
+        height=video.get("height"),
+        fps=_parse_fps(video.get("r_frame_rate")),
+        bitrate_kbps=bitrate,
+        duration_seconds=duration,
+    )
+
+
+def _can_copy(info: SourceInfo) -> bool:
+    """True when the source is ALREADY what we would have encoded anyway, so
+    remuxing it is free rather than lossy.
+
+    This used to gate on codec alone (`h264 and aac`), which meant any source
+    that happened to be H.264 was copied through at its *original* resolution
+    and bitrate. Confirmed live on 2026-09-04: 8 of 127 videos had HLS output
+    the same size as a 250-750MB source, i.e. multi-megabit streams being
+    served to students verbatim. Copying is still the right call when it
+    applies — it is seconds of CPU instead of minutes on a box shared with the
+    live API — but "is H.264" was never the question. `None` on any field means
+    the probe could not tell us, and an unknown is treated as out-of-spec."""
+    return (
+        info.vcodec == "h264"
+        and info.acodec == "aac"
+        and info.height is not None and info.height <= _MAX_HEIGHT
+        # 30fps sources probe as 30000/1001 = 29.97; allow a little headroom
+        # rather than tripping on NTSC rounding.
+        and info.fps is not None and info.fps <= _MAX_FPS + 1
+        and info.bitrate_kbps is not None and info.bitrate_kbps <= _MAX_SOURCE_KBPS
+    )
 
 
 def _ffmpeg_encode_hls_sync(source: Path) -> EncodeResult:
@@ -135,13 +234,41 @@ def _ffmpeg_encode_hls_sync(source: Path) -> EncodeResult:
         playlist_path = tmp_path / "playlist.m3u8"
         segment_pattern = str(tmp_path / "segment_%03d.ts")
 
+        info = _probe_source(source)
         codec_args = (
-            ["-c", "copy"] if _probe_is_h264_aac(source)
+            ["-c", "copy"] if _can_copy(info)
             else [
-                "-c:v", "libx264", "-vf", "scale=-2:720",
-                "-b:v", "800k", "-maxrate", "800k", "-bufsize", "1600k",
+                # Explicit stream selection. iPhone recordings — which is what
+                # this library is — carry several `mebx` timed-metadata streams
+                # alongside video and audio; none of them belong in an mpegts
+                # segment. `0:a:0?` keeps a silent source from failing outright.
+                "-map", "0:v:0", "-map", "0:a:0?",
+                # min() clamps rather than forcing: `scale=-2:1080` would
+                # UPSCALE anything already smaller, producing a bigger, softer
+                # file than the source. force_divisible_by=2 keeps both
+                # dimensions even, which H.264 4:2:0 requires.
+                "-vf",
+                f"scale='min(1920,iw)':'min({_MAX_HEIGHT},ih)'"
+                f":force_original_aspect_ratio=decrease:force_divisible_by=2,fps={_MAX_FPS}",
+                # veryfast, not fast/medium: the API and this worker share one
+                # 4-vCPU box, and the sources are 4K HEVC whose decode alone
+                # costs more than the encode. The -maxrate cap absorbs the
+                # slight bitrate cost of the faster preset.
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                "-maxrate", f"{_TARGET_MAX_KBPS}k", "-bufsize", f"{_TARGET_MAX_KBPS * 2}k",
+                # Guarantees decode on older Android/Safari, for an audience
+                # whose devices we do not control.
+                "-profile:v", "high", "-level", "4.1", "-pix_fmt", "yuv420p",
+                # Forced keyframes at exactly the segment boundary so -hls_time
+                # cuts land precisely instead of drifting to wherever the
+                # encoder's own GOP structure put the nearest keyframe. Only
+                # meaningful here — the -c copy path above cannot move existing
+                # keyframes without re-encoding, so its segments land on the
+                # first source keyframe at or after the target.
                 "-force_key_frames", f"expr:gte(t,n_forced*{_SEGMENT_SECONDS})",
-                "-c:a", "aac",
+                # Speech at 96k stereo AAC is transparent; the sources carry
+                # 128-192k of mostly-silence room tone.
+                "-c:a", "aac", "-b:a", "96k", "-ac", "2",
             ]
         )
         _run([
@@ -157,7 +284,7 @@ def _ffmpeg_encode_hls_sync(source: Path) -> EncodeResult:
             playlist=playlist_path.read_bytes(),
             segments=segments,
             key=key,
-            duration_seconds=_probe_duration(source),
+            duration_seconds=info.duration_seconds,
         )
 
 
@@ -182,9 +309,10 @@ async def _delete_storage(video: Video) -> None:
             # when there's no playlist yet (still "pending" — nothing to
             # list/delete either way).
             prefix = (video.playlist_path.rsplit("/", 1)[0] if video.playlist_path else str(video.id)) + "/"
-            for entry in await storage.list_files(HLS_BUCKET, prefix):
+            hls_backend = _hls_backend()
+            for entry in await storage.list_files(HLS_BUCKET, prefix, backend=hls_backend):
                 if entry.get("metadata") is not None:  # a file, not a folder
-                    await storage.delete_file(HLS_BUCKET, f"{prefix}{entry['name']}")
+                    await storage.delete_file(HLS_BUCKET, f"{prefix}{entry['name']}", backend=hls_backend)
         if video.source_bucket and video.source_path:
             await storage.delete_file(video.source_bucket, video.source_path)
     except Exception:  # noqa: BLE001 — cleanup is best-effort
@@ -306,13 +434,33 @@ async def run_encrypted_transcode(db: AsyncSession, video_id: uuid.UUID, *, enco
             source_file.write_bytes(source_bytes)
             result = await encode(source_file)
 
-        prefix = str(video_id)
+        # Reuse the row's established prefix rather than always writing to
+        # str(video_id), so a RE-encode overwrites in place instead of
+        # relocating. Rows backfilled by the unify_video_service migration
+        # carry an owner_id-shaped prefix (playlist_path was copied verbatim
+        # onto a freshly-generated id, so prefix != video.id for every video
+        # that predates that migration); a fresh upload has no playlist_path
+        # yet and gets video.id, exactly as before.
+        #
+        # Keeping the prefix stable is what makes the storage-backend switch a
+        # true rollback: the pre-existing local HLS tree and the newly written
+        # R2 tree occupy the SAME key, so flipping VIDEO_STORAGE_BACKEND back
+        # re-serves the old output from the same unmodified DB row. Writing to
+        # a new prefix would strand the local copy at a path nothing points at.
+        prefix = video.playlist_path.rsplit("/", 1)[0] if video.playlist_path else str(video_id)
+        hls_backend = _hls_backend()
         for name, data in result.segments.items():
-            await storage.upload_to_path(HLS_BUCKET, f"{prefix}/{name}", data, "video/mp2t")
+            await storage.upload_to_path(
+                HLS_BUCKET, f"{prefix}/{name}", data, "video/mp2t", backend=hls_backend
+            )
         await storage.upload_to_path(
-            HLS_BUCKET, f"{prefix}/playlist.m3u8", result.playlist, "application/vnd.apple.mpegurl"
+            HLS_BUCKET, f"{prefix}/playlist.m3u8", result.playlist,
+            "application/vnd.apple.mpegurl", backend=hls_backend,
         )
-        await storage.upload_to_path(HLS_BUCKET, f"{prefix}/key.bin", result.key, "application/octet-stream")
+        await storage.upload_to_path(
+            HLS_BUCKET, f"{prefix}/key.bin", result.key,
+            "application/octet-stream", backend=hls_backend,
+        )
 
         video.playlist_path = f"{prefix}/playlist.m3u8"
         video.key_path = f"{prefix}/key.bin"
