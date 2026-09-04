@@ -11,6 +11,14 @@ safety check.
             it is the "can I migrate only 3 courses today" visibility this
             script exists for.
 
+  --sizes   Report each video's source size vs. its current HLS output size
+            (compression before/after), by listing objects in storage —
+            no download, no re-encode. Works retroactively for anything
+            already converted or re-encoded: the pre-transcode source is
+            never deleted (see convert_to_hls_encrypted's own note), so
+            "before" is still sitting right there in --sizes' filters even
+            for a video migrated days ago. Read-only, changes nothing.
+
   --move    Copy a video's student-facing bytes to another backend and repoint
             its row's `storage_backend`, without re-encoding.
 
@@ -84,6 +92,9 @@ USAGE (inside the api or worker container, where the env is loaded)
     python -m scripts.video_migrate_to_r2 --status
     python -m scripts.video_migrate_to_r2 --status --course <course_id>
 
+    python -m scripts.video_migrate_to_r2 --sizes
+    python -m scripts.video_migrate_to_r2 --sizes --owner-type library_resource
+
     python -m scripts.video_migrate_to_r2 --move --to r2 --dry-run
     python -m scripts.video_migrate_to_r2 --move --to r2 --limit 1     # one first
     python -m scripts.video_migrate_to_r2 --move --to r2
@@ -154,7 +165,10 @@ from sqlalchemy import select
 from app.db.session import AsyncSessionLocal
 from app.models.lms import Course, CourseModule, ModuleItem
 from app.models.videos import Video
-from app.services.video_service import convert_to_hls_encrypted, move_to_backend
+from app.services.video_service import (
+    HLS_BUCKET, SOURCE_BUCKET, _hls_backend, _source_backend, convert_to_hls_encrypted, move_to_backend,
+)
+from app.services import storage
 from app.workers.settings import redis_settings
 
 
@@ -222,6 +236,56 @@ async def status(args: argparse.Namespace) -> int:
                 print(f"  {str(course_id)[:8]}  r2={counts['r2']:<4} vps={counts['vps']:<4}  {title}")
 
         return 0
+
+
+def _fmt_mb(n: int | None) -> str:
+    return f"{n / 1_000_000:.1f}MB" if n else "?"
+
+
+async def _dir_size(bucket: str, prefix: str, *, backend: str | None) -> int | None:
+    """Sum of every object's size directly under {bucket}/{prefix}/ — one
+    list_files call, no download. None if the prefix has nothing (or
+    doesn't exist), so a caller can tell "0 bytes" from "not there yet"."""
+    entries = await storage.list_files(bucket, f"{prefix}/", backend=backend)
+    sizes = [e["metadata"]["size"] for e in entries if e.get("metadata") is not None]
+    return sum(sizes) if sizes else None
+
+
+async def sizes(args: argparse.Namespace) -> int:
+    async with AsyncSessionLocal() as db:
+        stmt = select(Video).where(Video.provider == "upload").order_by(Video.created_at)
+        if args.owner_type:
+            stmt = stmt.where(Video.owner_type == args.owner_type)
+        if args.video_id:
+            stmt = stmt.where(Video.id == uuid.UUID(args.video_id))
+        if args.course:
+            stmt = _scope_to_course(stmt, args.course)
+        rows = (await db.execute(stmt)).scalars().all()
+        if args.limit:
+            rows = rows[: args.limit]
+
+        print(f"{len(rows)} video(s)\n")
+        total_before = total_after = 0
+        for video in rows:
+            before = None
+            if video.source_bucket and video.source_path:
+                src_prefix = video.source_path.rsplit("/", 1)[0]
+                before = await _dir_size(video.source_bucket, src_prefix, backend=_source_backend(video))
+
+            after = None
+            if video.upload_mode == "hls_encrypted" and video.playlist_path:
+                out_prefix = video.playlist_path.rsplit("/", 1)[0]
+                after = await _dir_size(HLS_BUCKET, out_prefix, backend=_hls_backend(video))
+
+            ratio = f"{after / before:.0%}" if before and after else "?"
+            print(f"  {_label(video)}  source={_fmt_mb(before):>8}  output={_fmt_mb(after):>8}  ratio={ratio}")
+            total_before += before or 0
+            total_after += after or 0
+
+    print(f"\nTotal: source={_fmt_mb(total_before)}  output={_fmt_mb(total_after)}"
+          + (f"  ({total_after / total_before:.0%} of original, "
+             f"{_fmt_mb(total_before - total_after)} saved)" if total_before else ""))
+    return 0
 
 
 async def move(args: argparse.Namespace) -> int:
@@ -382,6 +446,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--status", action="store_true", help="report each video's current backend, change nothing")
+    ap.add_argument("--sizes", action="store_true",
+                    help="report each video's source size vs. HLS output size, change nothing")
     ap.add_argument("--move", action="store_true",
                     help="copy videos' bytes to --to and repoint their rows")
     ap.add_argument("--to", choices=["r2", "vps"], default="r2",
@@ -402,12 +468,14 @@ def main() -> int:
                     help="report what would happen, change nothing")
     args = ap.parse_args()
 
-    modes = [args.status, args.move, args.convert, args.reencode]
+    modes = [args.status, args.sizes, args.move, args.convert, args.reencode]
     if sum(bool(m) for m in modes) != 1:
-        ap.error("pass exactly one of --status, --move, --convert, or --reencode")
+        ap.error("pass exactly one of --status, --sizes, --move, --convert, or --reencode")
 
     if args.status:
         return asyncio.run(status(args))
+    if args.sizes:
+        return asyncio.run(sizes(args))
     if args.move:
         return asyncio.run(move(args))
     if args.convert:
