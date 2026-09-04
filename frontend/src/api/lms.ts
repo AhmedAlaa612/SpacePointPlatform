@@ -557,6 +557,12 @@ export interface LmsProgramChecklistItem {
   gated: boolean;
   guideline_kind: "pdf" | "link" | "video" | null;
   guideline_url: string | null;
+  /** True once a `video`-kind guideline has a real file uploaded through
+   * the standardized video service — fetch the actual playback URL on
+   * demand via `getChecklistItemGuidelineVideoUrlApi`, same
+   * never-baked-in-here posture as `has_pdf`. `guideline_url` stays the
+   * pasted embed link when this is false. */
+  guideline_video_uploaded: boolean;
   /** Groups tiles into the board's row sections ("Checkpoint 1 — Learn &
    * plan"). Free text, matched by exact string. */
   checkpoint_label: string | null;
@@ -615,5 +621,10 @@ export async function submitChecklistItem(assignmentId: string, itemId: string, 
 
 export async function getChecklistItemPdfUrlApi(assignmentId: string, itemId: string): Promise<string> {
   const { data } = await api.get<{ url: string }>(`/lms/programs/${assignmentId}/items/${itemId}/pdf-url`);
+  return data.url;
+}
+
+export async function getChecklistItemGuidelineVideoUrlApi(assignmentId: string, itemId: string): Promise<string> {
+  const { data } = await api.get<{ url: string }>(`/lms/programs/${assignmentId}/items/${itemId}/guideline-video-url`);
   return data.url;
 }

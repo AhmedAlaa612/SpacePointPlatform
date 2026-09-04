@@ -23,7 +23,7 @@ Nothing here references `contacts`; everything keys on `users`, so
 `student` role (LM0-2), linked to the spine via `users.contact_id`.
 """
 
-from app.models.lms.course import Course, CourseModule, ModuleItem, ModuleVideo, VideoCheckpoint
+from app.models.lms.course import Course, CourseModule, ModuleItem, VideoCheckpoint
 from app.models.lms.enrollment import Enrollment, ItemProgress
 from app.models.lms.invite_grant import InvitationCodeGrant
 from app.models.lms.learning_path import LearningPath, LearningPathStep
@@ -38,7 +38,6 @@ __all__ = [
     "Course",
     "CourseModule",
     "ModuleItem",
-    "ModuleVideo",
     "VideoCheckpoint",
     "Enrollment",
     "ItemProgress",

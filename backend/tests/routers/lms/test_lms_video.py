@@ -1,8 +1,13 @@
 """LM1-6 tests — upload sets pending, transcode flips status via a fake
 encoder (no real ffmpeg — it only exists in the Docker image), and the
-token gate on the streaming routes. Redis-free (`client` fixture; `get_arq_redis`
-is overridden to None, so upload's dispatch reads "dropped" — that's the
-correct, already-proven-safe behavior, not a test gap, see conftest.py).
+token gate on the streaming routes. Ported to the standardized video
+service (2026-09) — `ModuleVideo` is gone, replaced by `Video`
+(owner_type="module_item"), and `create_video_token`/`decode_video_token`
+now carry a `video_id` instead of an `item_id`.
+
+Redis-free (`client` fixture; `get_arq_redis` is overridden to None, so
+upload's dispatch reads "dropped" — that's the correct, already-proven-safe
+behavior, not a test gap, see conftest.py).
 """
 
 import uuid
@@ -13,11 +18,12 @@ from fastapi import status as http_status
 from sqlalchemy import select
 
 from app.core.security import create_access_token, create_video_token
-from app.models.lms import Course, CourseModule, ModuleItem, ModuleVideo
+from app.models.lms import Course, CourseModule, ModuleItem
 from app.models.user import User
+from app.models.videos import Video
 from app.services import storage
-from app.services.lms.video import HLS_BUCKET, EncodeResult, run_transcode
 from app.services.lms import enroll
+from app.services.video_service import HLS_BUCKET, SOURCE_BUCKET, EncodeResult, run_encrypted_transcode
 
 
 async def _user(db, *, roles=None) -> User:
@@ -93,10 +99,11 @@ async def test_upload_sets_pending_and_reports_dispatch(db, client):
     assert body["dispatch"] == "dropped"
 
     video = (await db.execute(
-        select(ModuleVideo).where(ModuleVideo.item_id == item.id)
+        select(Video).where(Video.owner_type == "module_item", Video.owner_id == item.id)
     )).scalars().first()
-    assert video.transcode_status == "pending"
-    assert video.source_bucket == "lms-video-sources"
+    assert video.status == "pending"
+    assert video.upload_mode == "hls_encrypted"
+    assert video.source_bucket == SOURCE_BUCKET
 
 
 @pytest.mark.asyncio
@@ -130,20 +137,21 @@ async def _fake_encoder(source_path):
 async def test_run_transcode_flips_pending_to_ready_via_fake_encoder(db):
     ops = await _user(db, roles=["operations"])
     course, module, item = await _course_module_item(db, author=ops)
-    video = ModuleVideo(
-        id=uuid.uuid4(), item_id=item.id, source_bucket="lms-video-sources",
-        source_path=f"{item.id}/source.mp4", transcode_status="pending",
+    video = Video(
+        id=uuid.uuid4(), owner_type="module_item", owner_id=item.id, provider="upload",
+        upload_mode="hls_encrypted", source_bucket=SOURCE_BUCKET,
+        source_path=f"{item.id}/source.mp4", status="pending",
     )
     db.add(video)
     await db.commit()
-    await storage.upload_to_path("lms-video-sources", video.source_path, b"source-bytes", "video/mp4")
+    await storage.upload_to_path(SOURCE_BUCKET, video.source_path, b"source-bytes", "video/mp4")
 
-    await run_transcode(db, item.id, encoder=_fake_encoder)
+    await run_encrypted_transcode(db, video.id, encoder=_fake_encoder)
 
     await db.refresh(video)
-    assert video.transcode_status == "ready"
+    assert video.status == "ready"
     assert video.duration_seconds == 42
-    assert video.playlist_path == f"{item.id}/playlist.m3u8"
+    assert video.playlist_path == f"{video.id}/playlist.m3u8"
     stored_playlist = await storage.download_file(HLS_BUCKET, video.playlist_path)
     assert b"segment_000.ts" in stored_playlist
 
@@ -156,27 +164,29 @@ async def _failing_encoder(source_path):
 async def test_run_transcode_records_failure_on_encoder_error(db):
     ops = await _user(db, roles=["operations"])
     course, module, item = await _course_module_item(db, author=ops)
-    video = ModuleVideo(
-        id=uuid.uuid4(), item_id=item.id, source_bucket="lms-video-sources",
-        source_path=f"{item.id}/source.mp4", transcode_status="pending",
+    video = Video(
+        id=uuid.uuid4(), owner_type="module_item", owner_id=item.id, provider="upload",
+        upload_mode="hls_encrypted", source_bucket=SOURCE_BUCKET,
+        source_path=f"{item.id}/source.mp4", status="pending",
     )
     db.add(video)
     await db.commit()
-    await storage.upload_to_path("lms-video-sources", video.source_path, b"source-bytes", "video/mp4")
+    await storage.upload_to_path(SOURCE_BUCKET, video.source_path, b"source-bytes", "video/mp4")
 
-    await run_transcode(db, item.id, encoder=_failing_encoder)
+    await run_encrypted_transcode(db, video.id, encoder=_failing_encoder)
 
     await db.refresh(video)
-    assert video.transcode_status == "failed"
-    assert "ffmpeg blew up" in video.transcode_error
+    assert video.status == "failed"
+    assert "ffmpeg blew up" in video.status_error
 
 
 # ── token issuance + streaming gate ────────────────────────────────────────
 
-async def _ready_video(db, item, *, item_id=None):
-    video = ModuleVideo(
-        id=uuid.uuid4(), item_id=item.id, source_bucket="lms-video-sources",
-        source_path=f"{item.id}/source.mp4", transcode_status="ready",
+async def _ready_video(db, item) -> Video:
+    video = Video(
+        id=uuid.uuid4(), owner_type="module_item", owner_id=item.id, provider="upload",
+        upload_mode="hls_encrypted", source_bucket=SOURCE_BUCKET,
+        source_path=f"{item.id}/source.mp4", status="ready",
         playlist_path=f"{item.id}/playlist.m3u8", key_path=f"{item.id}/key.bin",
         duration_seconds=10,
     )
@@ -187,7 +197,7 @@ async def _ready_video(db, item, *, item_id=None):
         b'#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="key"\nsegment_000.ts\n#EXT-X-ENDLIST\n',
         "application/vnd.apple.mpegurl",
     )
-    await storage.upload_to_path(HLS_BUCKET, f"{item.id}/segment_000.ts", b"ts-bytes", "video/mp2t")
+    await storage.upload_to_path(HLS_BUCKET, f"{video.id}/segment_000.ts", b"ts-bytes", "video/mp2t")
     await storage.upload_to_path(HLS_BUCKET, video.key_path, b"1" * 16, "application/octet-stream")
     return video
 
@@ -205,8 +215,9 @@ async def test_token_issuance_requires_enrollment_and_ready_video(db, client):
 
     await enroll(db, user_id=student.id, course_id=course.id)
     await db.commit()
-    pending_video = ModuleVideo(
-        id=uuid.uuid4(), item_id=item.id, source_bucket="b", source_path="p", transcode_status="pending",
+    pending_video = Video(
+        id=uuid.uuid4(), owner_type="module_item", owner_id=item.id, provider="upload",
+        upload_mode="hls_encrypted", source_bucket="b", source_path="p", status="pending",
     )
     db.add(pending_video)
     await db.commit()
@@ -221,13 +232,13 @@ async def test_streaming_routes_require_a_valid_matching_unexpired_token(db, cli
     student = await _user(db, roles=["student"])
     await enroll(db, user_id=student.id, course_id=course.id)
     await db.commit()
-    await _ready_video(db, item)
+    video = await _ready_video(db, item)
     await db.commit()
 
     # valid token -> playlist rewritten with token-bearing relative URLs
     # (relative, not absolute — so they resolve correctly regardless of any
     # reverse-proxy prefix in front of the API; see _rewrite_playlist)
-    token = create_video_token(student.id, item.id)
+    token = create_video_token(student.id, video.id)
     ok = await client.get(f"/lms/videos/{item.id}/playlist", params={"token": token})
     assert ok.status_code == 200
     assert f"segment/segment_000.ts?token={token}" in ok.text
@@ -244,22 +255,24 @@ async def test_streaming_routes_require_a_valid_matching_unexpired_token(db, cli
     assert bad.status_code == http_status.HTTP_403_FORBIDDEN
 
     # expired token -> 403
-    expired = create_video_token(student.id, item.id, expires_delta=timedelta(seconds=-1))
+    expired = create_video_token(student.id, video.id, expires_delta=timedelta(seconds=-1))
     expired_resp = await client.get(f"/lms/videos/{item.id}/playlist", params={"token": expired})
     assert expired_resp.status_code == http_status.HTTP_403_FORBIDDEN
 
-    # token minted for a different item -> 403
+    # token minted for a video belonging to a different item -> 403
     other_item = ModuleItem(id=uuid.uuid4(), module_id=module.id, position=2, kind="video", content={})
     db.add(other_item)
     await db.commit()
-    wrong_item_token = create_video_token(student.id, other_item.id)
+    other_video = await _ready_video(db, other_item)
+    await db.commit()
+    wrong_item_token = create_video_token(student.id, other_video.id)
     mismatched = await client.get(f"/lms/videos/{item.id}/playlist", params={"token": wrong_item_token})
     assert mismatched.status_code == http_status.HTTP_403_FORBIDDEN
 
     # valid token, but for a student who is NOT enrolled -> 404, not 403
     stranger = await _user(db, roles=["student"])
     await db.commit()
-    stranger_token = create_video_token(stranger.id, item.id)
+    stranger_token = create_video_token(stranger.id, video.id)
     not_enrolled = await client.get(f"/lms/videos/{item.id}/playlist", params={"token": stranger_token})
     assert not_enrolled.status_code == http_status.HTTP_404_NOT_FOUND
 
@@ -270,6 +283,6 @@ async def test_streaming_routes_require_a_valid_matching_unexpired_token(db, cli
     # segment_1000.ts (B1): "%03d" in the encoder is a *minimum* width, so a
     # video past 999 segments (66m36s at 4s/segment) writes segment_1000.ts —
     # a fixed \d{3} regex 404s on it mid-playback. 4+ digits must resolve.
-    await storage.upload_to_path(HLS_BUCKET, f"{item.id}/segment_1000.ts", b"late-ts-bytes", "video/mp2t")
+    await storage.upload_to_path(HLS_BUCKET, f"{video.id}/segment_1000.ts", b"late-ts-bytes", "video/mp2t")
     late_seg = await client.get(f"/lms/videos/{item.id}/segment/segment_1000.ts", params={"token": token})
     assert late_seg.status_code == 200 and late_seg.content == b"late-ts-bytes"

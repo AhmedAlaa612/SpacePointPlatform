@@ -1,5 +1,7 @@
-"""LMS worker jobs: video transcode (LM1-6) + import-batch account sync (LM1-7)
-+ single-registration account sync (B2, 2026-08-10).
+"""LMS worker jobs: import-batch account sync (LM1-7) + single-registration
+account sync (B2, 2026-08-10). Video transcode (LM1-6) moved to
+`workers/tasks/video.py`/`services/video_service.py` (2026-09) once video
+handling was standardized across every feature, not just LMS.
 
 `sync_import_batch_lms_accounts` mirrors `workers/tasks/imports.py`'s
 `send_import_batch_emails` exactly — same contact_id lookup off the committed
@@ -25,13 +27,6 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.import_batch import ImportBatch
 from app.models.sessions.registration import Registration
 from app.services.lms.ops_integration import sync_registration_lms
-from app.services.lms.video import run_transcode
-
-
-async def transcode_lms_video(ctx, item_id: str) -> dict:
-    async with AsyncSessionLocal() as db:
-        await run_transcode(db, uuid.UUID(item_id))
-    return {"item_id": item_id}
 
 
 async def sync_registration_lms_job(ctx, registration_id: str) -> dict:

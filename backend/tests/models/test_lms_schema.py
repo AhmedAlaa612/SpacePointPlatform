@@ -22,8 +22,8 @@ from app.models.lms import (
     Enrollment,
     ItemProgress,
     ModuleItem,
-    ModuleVideo,
 )
+from app.models.videos import Video
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
@@ -154,8 +154,9 @@ async def test_full_course_tree_with_video_state(db):
     await db.flush()
 
     video_item = await _item(db, module, position=3, kind="video", content={})
-    video = ModuleVideo(
-        id=uuid.uuid4(), item_id=video_item.id,
+    video = Video(
+        id=uuid.uuid4(), owner_type="module_item", owner_id=video_item.id,
+        provider="upload", upload_mode="hls_encrypted", status="pending",
         source_bucket="lms-uploads", source_path="courses/cubesat/intro.mp4",
     )
     db.add(video)
@@ -165,7 +166,7 @@ async def test_full_course_tree_with_video_state(db):
     assert {i.position for i in items} == {1, 2, 3}
     assert course.kind == "course"              # server default
     assert course.is_published is False         # server default
-    assert video.transcode_status == "pending"  # server default
+    assert video.status == "pending"            # set explicitly by attach_upload for hls_encrypted
     assert video.playlist_path is None
 
 
@@ -368,15 +369,15 @@ async def test_video_state_is_one_row_per_item(db):
     course = await _course(db, author=author)
     module = await _module(db, course)
     item = await _item(db, module, kind="video")
-    db.add(ModuleVideo(
-        id=uuid.uuid4(), item_id=item.id,
+    db.add(Video(
+        id=uuid.uuid4(), owner_type="module_item", owner_id=item.id, provider="upload",
         source_bucket="b", source_path="p.mp4",
     ))
     await db.flush()
     with pytest.raises(IntegrityError):
         async with db.begin_nested():
-            db.add(ModuleVideo(
-                id=uuid.uuid4(), item_id=item.id,
+            db.add(Video(
+                id=uuid.uuid4(), owner_type="module_item", owner_id=item.id, provider="upload",
                 source_bucket="b", source_path="p2.mp4",
             ))
             await db.flush()
@@ -412,11 +413,17 @@ async def test_deleting_a_student_removes_enrollments_and_progress(db):
 
 @pytest.mark.asyncio
 async def test_deleting_a_course_removes_its_tree(db):
+    """`Video.owner_id` deliberately carries no DB-level FK (service-layer
+    enforced, same idiom as every other owner_type/owner_id pair) — unlike
+    the old ModuleVideo.item_id (ON DELETE CASCADE), a raw course delete does
+    *not* cascade-remove its Video row. Cleaning that up is the router's job
+    (see delete_course/delete_item in routers/lms/admin.py), not the
+    schema's — this test now pins the opposite of what it used to."""
     author = await _user(db)
     course = await _course(db, author=author)
     module = await _module(db, course)
     item = await _item(db, module)
-    video = ModuleVideo(id=uuid.uuid4(), item_id=item.id, source_bucket="b", source_path="p.mp4")
+    video = Video(id=uuid.uuid4(), owner_type="module_item", owner_id=item.id, provider="upload", source_bucket="b", source_path="p.mp4")
     db.add(video)
     await db.flush()
 
@@ -425,8 +432,9 @@ async def test_deleting_a_course_removes_its_tree(db):
 
     modules = (await db.execute(select(CourseModule).where(CourseModule.course_id == course.id))).scalars().all()
     items = (await db.execute(select(ModuleItem).where(ModuleItem.module_id == module.id))).scalars().all()
-    videos = (await db.execute(select(ModuleVideo).where(ModuleVideo.item_id == item.id))).scalars().all()
-    assert modules == [] and items == [] and videos == []
+    videos = (await db.execute(select(Video).where(Video.owner_type == "module_item", Video.owner_id == item.id))).scalars().all()
+    assert modules == [] and items == []
+    assert videos == [video]
 
 
 @pytest.mark.asyncio
@@ -505,14 +513,15 @@ async def test_real_world_values_fit_their_columns(db):
     module = await _module(db, course, title="M" * 128)
     # kind='flashcards' (10) fits VARCHAR(10)
     item = await _item(db, module, kind="flashcards")
-    db.add(ModuleVideo(
-        id=uuid.uuid4(), item_id=item.id,
+    db.add(Video(
+        id=uuid.uuid4(), owner_type="module_item", owner_id=item.id,
+        provider="upload", upload_mode="hls_encrypted",
         source_bucket="B" * 64,
         source_path="P" * 512,
         playlist_path="P" * 512,
         key_path="K" * 512,
-        # 'processing' (10) fits VARCHAR(12)
-        transcode_status="processing",
+        # 'processing' (10) fits VARCHAR(16)
+        status="processing",
     ))
     db.add(Enrollment(
         id=uuid.uuid4(), user_id=author.id, course_id=course.id,

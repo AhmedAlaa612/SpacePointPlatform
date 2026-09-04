@@ -15,13 +15,13 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
-from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ModuleVideo, VideoCheckpoint
+from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, VideoCheckpoint
 from app.models.lms.invite_grant import InvitationCodeGrant
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.missions.mission import Mission
@@ -105,6 +105,8 @@ from app.services.lms.program import (
     validate_item_refs,
 )
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
+from app.services.video_service import attach_embed_link, attach_upload, get_playback_info, get_video_for_owner
+from app.services.video_service import delete as delete_video
 
 router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
 
@@ -824,6 +826,20 @@ async def delete_course(
             detail=f"This course has {enrollment_count} enrollment(s) and can't be deleted. Unpublish it instead.",
         )
 
+    # Same orphaned-row/storage-leak concern as delete_item — `Video` rows
+    # have no DB-level FK to cascade off of ModuleItem, so every video-kind
+    # item's row (and its storage objects) needs cleaning up explicitly
+    # before the CourseModule/ModuleItem tree cascades away underneath it.
+    video_item_ids = (await db.execute(
+        select(ModuleItem.id)
+        .join(CourseModule, ModuleItem.module_id == CourseModule.id)
+        .where(CourseModule.course_id == course_id, ModuleItem.kind == "video")
+    )).scalars().all()
+    for item_id_ in video_item_ids:
+        video = await get_video_for_owner(db, owner_type="module_item", owner_id=item_id_)
+        if video is not None:
+            await delete_video(db, video)
+
     await db.delete(course)
     await db.commit()
 
@@ -973,18 +989,17 @@ async def delete_module(
 
 async def _item_admin_out(db: AsyncSession, item: ModuleItem) -> ItemAdminOut:
     """Video items store `content = {}` on the row — the real state (has the
-    upload finished transcoding, is it watchable yet) lives on `ModuleVideo`,
-    written asynchronously by the ARQ worker. Every item-returning admin
-    endpoint goes through this so the authoring UI can show it instead of
-    leaving the author to guess whether an upload actually finished."""
+    upload finished transcoding, is it watchable yet) lives on the standardized
+    `Video` row (owner_type="module_item"), written asynchronously by the ARQ
+    worker. Every item-returning admin endpoint goes through this so the
+    authoring UI can show it instead of leaving the author to guess whether
+    an upload actually finished."""
     content = dict(item.content)
     if item.kind == "video":
-        video = (await db.execute(
-            select(ModuleVideo).where(ModuleVideo.item_id == item.id)
-        )).scalars().first()
+        video = await get_video_for_owner(db, owner_type="module_item", owner_id=item.id)
         content = {
-            "transcode_status": video.transcode_status if video else None,
-            "transcode_error": video.transcode_error if video else None,
+            "transcode_status": video.status if video else None,
+            "transcode_error": video.status_error if video else None,
             "duration_seconds": video.duration_seconds if video else None,
         }
     return ItemAdminOut(
@@ -1117,6 +1132,14 @@ async def delete_item(
     item = await db.get(ModuleItem, item_id)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+    # `Video.owner_id` carries no DB-level FK (service-layer-enforced, like
+    # every other owner_type/owner_id pair) — unlike the old ModuleVideo's
+    # item_id FK (ON DELETE CASCADE), deleting the item alone would leave an
+    # orphaned Video row and its storage objects behind.
+    if item.kind == "video":
+        video = await get_video_for_owner(db, owner_type="module_item", owner_id=item.id)
+        if video is not None:
+            await delete_video(db, video)
     await db.delete(item)
     await db.commit()
 
@@ -1519,6 +1542,91 @@ async def get_program_item_pdf_url(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No PDF uploaded for this item yet")
     url = await storage.get_signed_url(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
     return {"url": url}
+
+
+# ── A `video` guideline: link (any item type) or upload (2026-09) ──────────
+# Same two-step create-item-then-attach-video shape as the PDF endpoints
+# above, through the standardized video service instead of a bespoke path —
+# this is the actual "attach a real uploaded video anywhere" capability
+# closing (previously link-only). Reuses the platform-wide 4GB upload cap
+# (MAX_ATTACHMENT_BYTES, PR #41) rather than inventing a new one.
+
+class GuidelineVideoEmbedIn(BaseModel):
+    url: str
+
+
+@router.post("/items/{item_id}/guideline/video/embed", response_model=LmsProgramItemOut)
+async def attach_program_item_guideline_video_embed(
+    item_id: uuid.UUID, body: GuidelineVideoEmbedIn,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    item = await db.get(LmsProgramItem, item_id)
+    if item is None or item.guideline_kind != "video":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video guideline item not found")
+    try:
+        await attach_embed_link(db, owner_type="program_item_guideline", owner_id=item_id, url=body.url)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return await item_out(db, item)
+
+
+@router.post(
+    "/items/{item_id}/guideline/video/upload", response_model=LmsProgramItemOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_program_item_guideline_video(
+    item_id: uuid.UUID, file: UploadFile,
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
+):
+    item = await db.get(LmsProgramItem, item_id)
+    if item is None or item.guideline_kind != "video":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video guideline item not found")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Empty upload")
+    if len(data) > MAX_ATTACHMENT_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Video exceeds the 4GB limit")
+
+    # A guideline video is a short self-check resource, not paid course
+    # content — "direct" (plain progressive stream, no transcode wait)
+    # rather than the encrypted-HLS pipeline course modules use.
+    await attach_upload(
+        db, owner_type="program_item_guideline", owner_id=item_id, file_bytes=data,
+        filename=file.filename or "video", content_type=file.content_type, mode="direct",
+        created_by=current.id,
+    )
+    return await item_out(db, item)
+
+
+@router.delete("/items/{item_id}/guideline/video", response_model=LmsProgramItemOut)
+async def delete_program_item_guideline_video(
+    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    item = await db.get(LmsProgramItem, item_id)
+    if item is None or item.guideline_kind != "video":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video guideline item not found")
+    video = await get_video_for_owner(db, owner_type="program_item_guideline", owner_id=item_id)
+    if video is not None:
+        await delete_video(db, video)
+    return await item_out(db, item)
+
+
+@router.get("/items/{item_id}/guideline/video/url")
+async def get_program_item_guideline_video_url(
+    item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+) -> dict[str, str]:
+    """Authoring-side preview for an *uploaded* video guideline — same
+    resolve-fresh posture as pdf-url above. Not needed for an embed-link
+    guideline: item_out already returns the real (public) URL for those."""
+    item = await db.get(LmsProgramItem, item_id)
+    if item is None or item.guideline_kind != "video":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video guideline item not found")
+    video = await get_video_for_owner(db, owner_type="program_item_guideline", owner_id=item_id)
+    if video is None or video.provider != "upload":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No video uploaded for this item yet")
+    info = await get_playback_info(db, video)
+    return {"url": info.get("url") or ""}
 
 
 @router.post("/programs/{lms_program_id}/items/reorder", response_model=list[LmsProgramItemOut])

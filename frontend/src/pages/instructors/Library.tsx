@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { PdfViewer } from "@/components/documents/PdfViewer"
+import { VideoPlayer } from "@/components/video/VideoPlayer"
 import { isVideoFormat } from "@/lib/utils"
 
 /** A hosted PDF opens in the no-download inline viewer instead of a
@@ -103,12 +104,9 @@ function ResourceViewer({ resource }: { resource: LibraryResource }) {
 
   if (isInlineVideo(resource)) {
     return (
-      <video
-        src={url}
-        controls
-        controlsList="nodownload noremoteplayback"
-        disablePictureInPicture
-        onContextMenu={(e) => e.preventDefault()}
+      <VideoPlayer
+        info={{ provider: "upload", mode: "direct", status: "ready", url }}
+        title={resource.title}
         autoPlay
         className="w-full flex-1 min-h-0 rounded-lg bg-black"
       />

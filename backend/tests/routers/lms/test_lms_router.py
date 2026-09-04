@@ -22,10 +22,10 @@ from app.models.lms import (
     Enrollment,
     ItemProgress,
     ModuleItem,
-    ModuleVideo,
     VideoCheckpoint,
 )
 from app.models.user import User
+from app.models.videos import Video
 from app.services.lms import enroll
 
 
@@ -420,9 +420,10 @@ async def _tree_with_quiz(db):
         ],
     })
     video = await _item(db, module, position=3, kind="video", content={})
-    video_state = ModuleVideo(
-        id=uuid.uuid4(), item_id=video.id, source_bucket="b", source_path="p.mp4",
-        transcode_status="ready", duration_seconds=42,
+    video_state = Video(
+        id=uuid.uuid4(), owner_type="module_item", owner_id=video.id,
+        provider="upload", upload_mode="hls_encrypted", source_bucket="b", source_path="p.mp4",
+        status="ready", duration_seconds=42,
     )
     db.add(video_state)
     await db.flush()

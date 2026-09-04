@@ -7,18 +7,9 @@ import type { VideoSubmission } from "@/types/instructors"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader, Spinner, StatusPill } from "@/pages/instructors/components/common"
+import { isKnownEmbedHost, toEmbedUrl } from "@/lib/embed"
 
 const MIN_WORDS = 200
-
-function extractYouTubeId(url: string): string {
-  if (!url) return ""
-  try {
-    if (url.includes("youtu.be/")) return url.split("youtu.be/")[1].split(/[?&]/)[0]
-    const m = url.match(/[?&]v=([^&]+)/)
-    if (m) return m[1]
-  } catch { /* ignore */ }
-  return ""
-}
 
 function VideoCard({ video }: { video: VideoSubmission }) {
   const qc = useQueryClient()
@@ -35,8 +26,8 @@ function VideoCard({ video }: { video: VideoSubmission }) {
     },
   })
 
-  const embedId = extractYouTubeId(video.youtube_url ?? "")
-  const embedSrc = embedId ? `https://www.youtube.com/embed/${embedId}` : null
+  const rawUrl = video.youtube_url ?? ""
+  const embedSrc = rawUrl && isKnownEmbedHost(rawUrl) ? toEmbedUrl(rawUrl) : null
 
   return (
     <Card className={video.status === "submitted" ? "border-l-4 border-l-green-500" : ""}>

@@ -13,6 +13,7 @@ from app.models.instructors.library import LibraryModule, LibraryResource
 from app.models.instructors.payment import PortalSetting
 from app.models.instructors.training import TrainingModule, TrainingVideo
 from app.models.user import User
+from app.models.videos import Video
 from app.schemas.instructors.training import (
     LibraryModuleCreate,
     LibraryModuleOut,
@@ -22,6 +23,8 @@ from app.schemas.instructors.training import (
     TrainingVideoOut,
 )
 from app.services import storage
+from app.services.video_service import attach_upload, get_playback_info, get_video_for_owner
+from app.services.video_service import delete as delete_video
 from pydantic import BaseModel
 
 
@@ -152,6 +155,11 @@ async def delete_training_module(
     module = (await db.execute(select(TrainingModule).where(TrainingModule.id == module_id))).scalars().first()
     if not module:
         raise HTTPException(status_code=404, detail="Module not found")
+    videos = (await db.execute(select(TrainingVideo).where(TrainingVideo.module_id == module_id))).scalars().all()
+    for uploaded in (await db.execute(
+        select(Video).where(Video.owner_type == "training_video", Video.owner_id.in_([v.id for v in videos]))
+    )).scalars().all():
+        await delete_video(db, uploaded)
     await db.delete(module)  # cascades to training_videos/user_training_progress
     await db.commit()
     return {"status": "deleted"}
@@ -188,9 +196,43 @@ async def update_training_video(
         video.title = title
     if url is not None:
         video.video_path = url
+        # Setting a URL supersedes any previously uploaded file — a training
+        # video is either an embed link or an upload, never both at once.
+        uploaded = await get_video_for_owner(db, owner_type="training_video", owner_id=video_id)
+        if uploaded is not None:
+            await delete_video(db, uploaded)
     await db.commit()
     await db.refresh(video)
-    return TrainingVideoOut.from_orm_video(video)
+    video_uploaded = url is None and await get_video_for_owner(db, owner_type="training_video", owner_id=video_id) is not None
+    return TrainingVideoOut.from_orm_video(video, video_uploaded=bool(video_uploaded))
+
+
+@router.post("/training/videos/{video_id}/upload", response_model=TrainingVideoOut, status_code=201)
+async def upload_training_video(
+    video_id: uuid.UUID, file: UploadFile,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_facilitator),
+):
+    video = (await db.execute(select(TrainingVideo).where(TrainingVideo.id == video_id))).scalars().first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty upload")
+    if len(data) > MAX_LIBRARY_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds the 4GB limit")
+
+    # A training video is a short internal walkthrough, not paid course
+    # content — "direct" (plain progressive stream, no transcode wait)
+    # rather than the encrypted-HLS pipeline course modules use, same
+    # choice as the checklist guideline video's own upload path.
+    await attach_upload(
+        db, owner_type="training_video", owner_id=video_id, file_bytes=data,
+        filename=file.filename or "video", content_type=file.content_type, mode="direct",
+        created_by=current_user.id,
+    )
+    await db.refresh(video)
+    return TrainingVideoOut.from_orm_video(video, video_uploaded=True)
 
 
 @router.delete("/training/videos/{video_id}")
@@ -200,6 +242,9 @@ async def delete_training_video(
     video = (await db.execute(select(TrainingVideo).where(TrainingVideo.id == video_id))).scalars().first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    uploaded = await get_video_for_owner(db, owner_type="training_video", owner_id=video_id)
+    if uploaded is not None:
+        await delete_video(db, uploaded)
     await db.delete(video)
     await db.commit()
     return {"status": "deleted"}
@@ -212,13 +257,40 @@ def _lib_storage_path(file_url: str) -> str:
     return file_url
 
 
-async def _lib_resolve_url(r: LibraryResource) -> str:
-    """Return the URL to expose in API responses: signed URL for file resources, raw URL for links.
-    NULL resource_type means a legacy row created before the column existed — treat as file."""
-    if r.resource_type != "link":
-        path = _lib_storage_path(r.file_url)
-        if not path.startswith("http"):
-            return await storage.get_signed_url("library-resources", path, expires_in=86400)
+# Same extension set routers/instructors/library.py::_VIDEO_FORMATS and
+# frontend/src/lib/utils.ts::isVideoFormat() check — duplicated rather than
+# shared, same convention _lib_storage_path already follows across these two
+# routers (format is a plain string column, not an enum either side can
+# import from).
+_VIDEO_FORMATS = {"MP4", "MOV", "WEBM", "M4V", "AVI", "MKV", "OGG", "OGV"}
+# A video LibraryResource's bytes live in the standardized `videos` table
+# (owner_type="library_resource"), not in the library-resources bucket —
+# `file_url` still can't be NULL (existing column, nullable=False, not
+# altered by this migration), so it gets this obviously-non-resolvable
+# marker instead of a real path. Never parsed as a storage path.
+_VIDEO_SENTINEL_PREFIX = "video-service:"
+
+
+def _is_video_format(fmt: str) -> bool:
+    return fmt.upper() in _VIDEO_FORMATS
+
+
+async def _lib_resolve_url(db: AsyncSession, r: LibraryResource) -> str:
+    """Return the URL to expose in API responses: signed URL for file
+    resources (routed through the standardized video service for video
+    rows), raw URL for links. NULL resource_type means a legacy row created
+    before the column existed — treat as file."""
+    if r.resource_type == "link":
+        return r.file_url
+    if r.file_url.startswith(_VIDEO_SENTINEL_PREFIX):
+        video = await get_video_for_owner(db, owner_type="library_resource", owner_id=r.id)
+        if video is None:
+            return ""
+        info = await get_playback_info(db, video)
+        return info.get("url") or ""
+    path = _lib_storage_path(r.file_url)
+    if not path.startswith("http"):
+        return await storage.get_signed_url("library-resources", path, expires_in=86400)
     return r.file_url
 
 
@@ -237,7 +309,7 @@ async def list_library(db: AsyncSession = Depends(get_db), current_user: User = 
         for r in by_module.get(m.id, []):
             module_resources.append(LibraryResourceOut(
                 id=r.id, title=r.title, description=r.description, format=r.format,
-                file_url=await _lib_resolve_url(r), resource_type=r.resource_type,
+                file_url=await _lib_resolve_url(db, r), resource_type=r.resource_type,
             ))
         result.append(LibraryModuleOut(id=m.id, name=m.name, description=m.description, resources=module_resources))
     return result
@@ -264,7 +336,12 @@ async def delete_library_module(
     resources = (await db.execute(select(LibraryResource).where(LibraryResource.module_id == module_id))).scalars().all()
     for r in resources:
         if r.resource_type == "file":
-            await storage.delete_file("library-resources", _lib_storage_path(r.file_url))
+            if r.file_url.startswith(_VIDEO_SENTINEL_PREFIX):
+                video = await get_video_for_owner(db, owner_type="library_resource", owner_id=r.id)
+                if video is not None:
+                    await delete_video(db, video)
+            else:
+                await storage.delete_file("library-resources", _lib_storage_path(r.file_url))
     await db.delete(module)
     await db.commit()
     return {"status": "deleted"}
@@ -302,18 +379,32 @@ async def upload_library_resource(
 ):
     data = await file.read()
     if len(data) > MAX_LIBRARY_FILE_BYTES:
-        raise HTTPException(status_code=413, detail="File exceeds the 500MB limit")
+        raise HTTPException(status_code=413, detail="File exceeds the 4GB limit")
     fmt = (file.filename or "").rsplit(".", 1)[-1].upper() if "." in (file.filename or "") else "FILE"
-    path = f"{int(time.time())}_{file.filename}"
-    stored_path = await storage.upload_to_path("library-resources", path, data, file.content_type or "application/octet-stream")
+
     resource = LibraryResource(
-        title=title, description=description, format=fmt, file_url=stored_path,
+        title=title, description=description, format=fmt, file_url="",
         module_id=module_id, resource_type="file",
     )
     db.add(resource)
+    await db.flush()  # need resource.id as the Video owner_id below
+
+    if _is_video_format(fmt):
+        video = await attach_upload(
+            db, owner_type="library_resource", owner_id=resource.id, file_bytes=data,
+            filename=file.filename or "video", content_type=file.content_type, mode="direct",
+            created_by=current_user.id,
+        )
+        resource.file_url = f"{_VIDEO_SENTINEL_PREFIX}{video.id}"
+        signed_url = (await get_playback_info(db, video)).get("url") or ""
+    else:
+        path = f"{int(time.time())}_{file.filename}"
+        stored_path = await storage.upload_to_path("library-resources", path, data, file.content_type or "application/octet-stream")
+        resource.file_url = stored_path
+        signed_url = await storage.get_signed_url("library-resources", stored_path, expires_in=86400)
+
     await db.commit()
     await db.refresh(resource)
-    signed_url = await storage.get_signed_url("library-resources", stored_path, expires_in=86400)
     return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
                               format=resource.format, file_url=signed_url,
                               resource_type=resource.resource_type)
@@ -336,7 +427,7 @@ async def update_library_resource(
         resource.file_url = url
     await db.commit()
     await db.refresh(resource)
-    resolved = await _lib_resolve_url(resource)
+    resolved = await _lib_resolve_url(db, resource)
     return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
                               format=resource.format, file_url=resolved, resource_type=resource.resource_type)
 
@@ -354,22 +445,43 @@ async def replace_library_file(
         raise HTTPException(status_code=404, detail="Resource not found")
     if resource.resource_type != "file":
         raise HTTPException(status_code=400, detail="Resource is not a file")
-    old_path = _lib_storage_path(resource.file_url)
+
     data = await file.read()
     if len(data) > MAX_LIBRARY_FILE_BYTES:
-        raise HTTPException(status_code=413, detail="File exceeds the 500MB limit")
+        raise HTTPException(status_code=413, detail="File exceeds the 4GB limit")
     fmt = (file.filename or "").rsplit(".", 1)[-1].upper() if "." in (file.filename or "") else resource.format
-    new_path = f"{int(time.time())}_{file.filename}"
-    stored_path = await storage.upload_to_path("library-resources", new_path, data, file.content_type or "application/octet-stream")
-    if old_path and not old_path.startswith("http"):
-        await storage.delete_file("library-resources", old_path)
-    resource.file_url = stored_path
+
+    # Clean up whatever the resource used to be before writing its new
+    # shape — a video row (video_service) or a plain library-resources file,
+    # never both left dangling regardless of what it's becoming.
+    if resource.file_url.startswith(_VIDEO_SENTINEL_PREFIX):
+        old_video = await get_video_for_owner(db, owner_type="library_resource", owner_id=resource.id)
+        if old_video is not None:
+            await delete_video(db, old_video)
+    else:
+        old_path = _lib_storage_path(resource.file_url)
+        if old_path and not old_path.startswith("http"):
+            await storage.delete_file("library-resources", old_path)
+
+    if _is_video_format(fmt):
+        video = await attach_upload(
+            db, owner_type="library_resource", owner_id=resource.id, file_bytes=data,
+            filename=file.filename or "video", content_type=file.content_type, mode="direct",
+            created_by=current_user.id,
+        )
+        resource.file_url = f"{_VIDEO_SENTINEL_PREFIX}{video.id}"
+        signed_url = (await get_playback_info(db, video)).get("url") or ""
+    else:
+        new_path = f"{int(time.time())}_{file.filename}"
+        stored_path = await storage.upload_to_path("library-resources", new_path, data, file.content_type or "application/octet-stream")
+        resource.file_url = stored_path
+        signed_url = await storage.get_signed_url("library-resources", stored_path, expires_in=86400)
+
     resource.format = fmt
     if title is not None:
         resource.title = title
     await db.commit()
     await db.refresh(resource)
-    signed_url = await storage.get_signed_url("library-resources", stored_path, expires_in=86400)
     return LibraryResourceOut(id=resource.id, title=resource.title, description=resource.description,
                               format=resource.format, file_url=signed_url, resource_type=resource.resource_type)
 
@@ -382,7 +494,12 @@ async def delete_library_resource(
     if not resource:
         raise HTTPException(status_code=404, detail="Resource not found")
     if resource.resource_type == "file":
-        await storage.delete_file("library-resources", _lib_storage_path(resource.file_url))
+        if resource.file_url.startswith(_VIDEO_SENTINEL_PREFIX):
+            video = await get_video_for_owner(db, owner_type="library_resource", owner_id=resource.id)
+            if video is not None:
+                await delete_video(db, video)
+        else:
+            await storage.delete_file("library-resources", _lib_storage_path(resource.file_url))
     await db.delete(resource)
     await db.commit()
     return {"status": "deleted"}

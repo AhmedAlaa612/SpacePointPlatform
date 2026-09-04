@@ -32,6 +32,12 @@ export const updateTrainingVideoApi = (videoId: string, params: { title?: string
 export const deleteTrainingVideoApi = (videoId: string) =>
   api.delete(`/instructors/facilitator/training/videos/${videoId}`).then((r) => r.data)
 
+export const uploadTrainingVideoApi = (videoId: string, file: File) => {
+  const form = new FormData()
+  form.append("file", file)
+  return api.post(`/instructors/facilitator/training/videos/${videoId}/upload`, form).then((r) => r.data)
+}
+
 export const facilitatorListLibraryApi = () =>
   api.get<LibraryModule[]>("/instructors/facilitator/library/modules").then((r) => r.data)
 

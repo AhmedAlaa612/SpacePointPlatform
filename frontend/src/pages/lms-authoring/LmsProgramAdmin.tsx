@@ -21,6 +21,7 @@ import {
   getMyReachableProgramsApi, getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi,
   getAssignmentItemsApi, resyncCohortProgramAssignmentsApi,
   uploadLmsProgramItemPdfApi, deleteLmsProgramItemPdfApi,
+  uploadLmsProgramItemGuidelineVideoApi, deleteLmsProgramItemGuidelineVideoApi,
   MISSION_STEP_KEYS,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType,
   type LmsProgramRosterRow, type LmsAssignmentItemDetail,
@@ -366,6 +367,8 @@ function ProgramTemplateEditor({
         onDelete={(itemId) => deleteLmsProgramItemApi(program.id, itemId).then(onChanged)}
         onUploadPdf={(itemId, file) => uploadLmsProgramItemPdfApi(itemId, file).then(onChanged)}
         onRemovePdf={(itemId) => deleteLmsProgramItemPdfApi(itemId).then(onChanged)}
+        onUploadGuidelineVideo={(itemId, file) => uploadLmsProgramItemGuidelineVideoApi(itemId, file).then(onChanged)}
+        onRemoveGuidelineVideo={(itemId) => deleteLmsProgramItemGuidelineVideoApi(itemId).then(onChanged)}
         onReorder={(itemIds) => reorderLmsProgramItemsApi(program.id, itemIds).then(onChanged)}
       />
     </div>
@@ -423,6 +426,8 @@ function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: strin
         onDelete={(itemId) => deleteCohortOverrideItemApi(cohortId, itemId).then(invalidate)}
         onUploadPdf={(itemId, file) => uploadLmsProgramItemPdfApi(itemId, file).then(invalidate)}
         onRemovePdf={(itemId) => deleteLmsProgramItemPdfApi(itemId).then(invalidate)}
+        onUploadGuidelineVideo={(itemId, file) => uploadLmsProgramItemGuidelineVideoApi(itemId, file).then(invalidate)}
+        onRemoveGuidelineVideo={(itemId) => deleteLmsProgramItemGuidelineVideoApi(itemId).then(invalidate)}
         onReorder={(itemIds) => reorderCohortOverrideItemsApi(cohortId, itemIds).then(invalidate)}
       />
     </div>
@@ -430,7 +435,8 @@ function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: strin
 }
 
 function ChecklistItemsEditor({
-  items, onAdd, onUpdate, onDelete, onUploadPdf, onRemovePdf, onReorder, readOnly, cohortId,
+  items, onAdd, onUpdate, onDelete, onUploadPdf, onRemovePdf, onUploadGuidelineVideo, onRemoveGuidelineVideo,
+  onReorder, readOnly, cohortId,
 }: {
   items: LmsProgramItem[]
   onAdd: (data: LmsProgramItemInput) => Promise<unknown>
@@ -438,6 +444,8 @@ function ChecklistItemsEditor({
   onDelete: (itemId: string) => Promise<unknown>
   onUploadPdf: (itemId: string, file: File) => Promise<unknown>
   onRemovePdf: (itemId: string) => Promise<unknown>
+  onUploadGuidelineVideo: (itemId: string, file: File) => Promise<unknown>
+  onRemoveGuidelineVideo: (itemId: string) => Promise<unknown>
   onReorder: (itemIds: string[]) => Promise<unknown>
   readOnly: boolean
   // Present only when this editor is scoped to one concrete cohort (the
@@ -511,7 +519,9 @@ function ChecklistItemsEditor({
       {displayItems.map((item) => (
         <ItemRow
           key={item.id} item={item} onUpdate={onUpdate} onDelete={onDelete}
-          onUploadPdf={onUploadPdf} onRemovePdf={onRemovePdf} readOnly={readOnly}
+          onUploadPdf={onUploadPdf} onRemovePdf={onRemovePdf}
+          onUploadGuidelineVideo={onUploadGuidelineVideo} onRemoveGuidelineVideo={onRemoveGuidelineVideo}
+          readOnly={readOnly}
           cohortId={cohortId} checkpointLabels={checkpointLabels}
           draggable={!readOnly}
           isDragging={dragId === item.id}
@@ -576,16 +586,19 @@ const ITEM_TYPE_META: Record<LmsProgramItemType, { label: string; icon: typeof B
 ) as Record<LmsProgramItemType, { label: string; icon: typeof BookOpen }>
 
 function ItemRow({
-  item, onUpdate, onDelete, onUploadPdf, onRemovePdf, readOnly, cohortId, checkpointLabels,
+  item, onUpdate, onDelete, onUploadPdf, onRemovePdf, onUploadGuidelineVideo, onRemoveGuidelineVideo,
+  readOnly, cohortId, checkpointLabels,
   draggable, isDragging, onDragStartRow, onDropRow, onDragEndRow,
 }: {
   item: LmsProgramItem
   onUpdate: (itemId: string, data: LmsProgramItemInput) => Promise<unknown>
   onDelete: (itemId: string) => Promise<unknown>
   // Optional — the mission-run-only list (ProgramMissionsPanel) never
-  // renders a `pdf` item, so it has nothing to wire these to.
+  // renders a `pdf`/video-guideline item, so it has nothing to wire these to.
   onUploadPdf?: (itemId: string, file: File) => Promise<unknown>
   onRemovePdf?: (itemId: string) => Promise<unknown>
+  onUploadGuidelineVideo?: (itemId: string, file: File) => Promise<unknown>
+  onRemoveGuidelineVideo?: (itemId: string) => Promise<unknown>
   readOnly: boolean
   cohortId?: string
   checkpointLabels?: string[]
@@ -598,12 +611,15 @@ function ItemRow({
   const [editing, setEditing] = useState(false)
   const [pdfBusy, setPdfBusy] = useState(false)
   const pdfInputRef = useRef<HTMLInputElement>(null)
+  const [videoBusy, setVideoBusy] = useState(false)
+  const videoInputRef = useRef<HTMLInputElement>(null)
   const meta = ITEM_TYPE_META[item.item_type]
   const Icon = meta.icon
   // A `pdf`-type item's own upload IS its guideline even when
   // guideline_kind isn't separately set — see services/lms/program.py's
   // note on this reuse (one file, one upload control either way).
   const showsPdfUpload = item.item_type === "pdf" || item.guideline_kind === "pdf"
+  const showsVideoUpload = item.guideline_kind === "video"
 
   if (editing) {
     return (
@@ -683,6 +699,36 @@ function ItemRow({
                   className="text-xs font-medium text-muted-foreground hover:text-red-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
                 >
                   Remove PDF
+                </button>
+              )}
+            </>
+          )}
+          {showsVideoUpload && (
+            <>
+              <input
+                ref={videoInputRef} type="file" accept="video/*" className="hidden"
+                onChange={async (e) => {
+                  const file = e.target.files?.[0]
+                  e.target.value = ""
+                  if (!file) return
+                  setVideoBusy(true)
+                  try { await onUploadGuidelineVideo?.(item.id, file) } finally { setVideoBusy(false) }
+                }}
+              />
+              <button
+                onClick={() => videoInputRef.current?.click()}
+                disabled={videoBusy}
+                className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+              >
+                {videoBusy ? "Uploading…" : item.guideline_video_uploaded ? "Replace video" : "Upload video"}
+              </button>
+              {item.guideline_video_uploaded && (
+                <button
+                  onClick={async () => { setVideoBusy(true); try { await onRemoveGuidelineVideo?.(item.id) } finally { setVideoBusy(false) } }}
+                  disabled={videoBusy}
+                  className="text-xs font-medium text-muted-foreground hover:text-red-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                >
+                  Remove video
                 </button>
               )}
             </>

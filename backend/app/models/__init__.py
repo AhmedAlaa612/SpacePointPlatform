@@ -21,6 +21,7 @@ from app.models import sessions  # noqa: F401  (V2 R1-2 — programs/cohorts/reg
 from app.models import inventory  # noqa: F401  (I1-1 — locations/items/kits/templates/stock/movements)
 from app.models import lms  # noqa: F401  (LM1-1 — courses/modules/items/videos/curriculum/enrollments/progress)
 from app.models.team import Team, TeamMember  # noqa: F401  (2026-08-17 — domain-agnostic, shared by missions/competitions)
+from app.models.videos import Video  # noqa: F401  (standardized video service — domain-agnostic, replaces ModuleVideo/guideline_url/etc.)
 from app.models import missions  # noqa: F401  (Phase 2 Stage 5 — missions/variants/prerequisites/attempts)
 from app.models import competitions  # noqa: F401  (2026-08-24 — judging: rubrics/scores/publish/judges)
 from app.models.curriculum import Prerequisite  # noqa: F401  (7B-2 — unified course/mission prerequisite DAG)
