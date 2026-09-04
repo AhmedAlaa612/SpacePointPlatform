@@ -162,7 +162,7 @@ async def _rewrite_playlist(raw: bytes, video: Video, token: str, *, expires_in:
 
     Two shapes, chosen by where the HLS bytes actually live:
 
-    - Object store ("r2"): each segment line becomes an absolute presigned URL
+    - Object store ("r2", per `video.storage_backend`): each segment line becomes an absolute presigned URL
       straight to the store, so segments never touch this API at all. That is
       the whole point — 400 concurrent students pulling segments through one
       uvicorn process, each one a full read plus a Fernet decrypt, is ~1 Gbps
@@ -187,7 +187,7 @@ async def _rewrite_playlist(raw: bytes, video: Video, token: str, *, expires_in:
     entirely — invisible in dev, breaks every segment/key fetch in prod (they
     resolve to the site root, land in the SPA's catch-all route, and hls.js
     fails trying to parse HTML as media)."""
-    backend = storage.video_backend()
+    backend = video.storage_backend or None
     presign = backend == "r2"
     prefix = _storage_prefix(video) if presign else None
 
@@ -212,8 +212,13 @@ async def get_playlist(
     item_id: uuid.UUID, token: str = Query(...), db: AsyncSession = Depends(get_db),
 ):
     video = await _video_from_token(db, item_id, token)
-    backend = storage.video_backend()
-    raw = await storage.download_file(HLS_BUCKET, video.playlist_path, backend=backend)
+    # This row's own backend — not a global setting. Two videos in the same
+    # course can legitimately be on different backends mid-migration, and each
+    # one's playlist has to be read from, and rewritten for, wherever ITS bytes
+    # actually are.
+    raw = await storage.download_file(
+        HLS_BUCKET, video.playlist_path, backend=video.storage_backend or None,
+    )
     # Presigned segment URLs expire alongside the token that fetched this
     # playlist, so there is one failure mode rather than two interleaved ones.
     # The player's existing one-retry-on-network-error path re-issues the token
@@ -237,7 +242,8 @@ async def get_segment(
     # paths exactly as it always has, which is what makes flipping that setting
     # back a complete rollback rather than a partial one.
     data = await storage.download_file(
-        HLS_BUCKET, f"{_storage_prefix(video)}/{segment_name}", backend=storage.video_backend(),
+        HLS_BUCKET, f"{_storage_prefix(video)}/{segment_name}",
+        backend=video.storage_backend or None,
     )
     return Response(content=data, media_type="video/mp2t")
 
@@ -247,5 +253,7 @@ async def get_key(
     item_id: uuid.UUID, token: str = Query(...), db: AsyncSession = Depends(get_db),
 ):
     video = await _video_from_token(db, item_id, token)
-    data = await storage.download_file(HLS_BUCKET, video.key_path, backend=storage.video_backend())
+    data = await storage.download_file(
+        HLS_BUCKET, video.key_path, backend=video.storage_backend or None,
+    )
     return Response(content=data, media_type="application/octet-stream")

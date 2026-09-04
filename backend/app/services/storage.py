@@ -24,7 +24,7 @@ Fernet decrypt per segment on a 4-vCPU box, so video moves to R2 — while
 payment letters, signed contracts, certificates and every document bucket stay
 exactly where they are, on a backend nobody has to re-verify under deadline.
 Callers that pass nothing are completely unaffected; the video path is the only
-one that passes it (see settings.VIDEO_STORAGE_BACKEND and video_backend()).
+one that passes it, reading it from `videos.storage_backend` per row.
 
 Since A2 (path-based storage), DB rows store {bucket, file_path} as the source
 of truth and the legacy *_url columns only as a fallback; readers turn them
@@ -36,12 +36,14 @@ exception — it always serves from local disk).
 from app.core.config import settings
 
 
-def video_backend() -> str | None:
-    """The backend video bytes should use, or None to follow STORAGE_BACKEND.
+def default_video_backend() -> str | None:
+    """The backend a NEWLY uploaded video should be stored on, or None for the
+    deployment default.
 
-    One helper rather than each call site reading the setting, so "what backend
-    is video on" has exactly one answer and the blank-means-inherit convention
-    can't be spelled differently in two places."""
+    Deliberately not "the backend video reads from" — that is per-video state
+    and lives on `videos.storage_backend`. This setting only supplies the
+    value stamped onto new rows, which is what makes turning it on safe: it
+    cannot affect a single video that already exists."""
     return settings.VIDEO_STORAGE_BACKEND or None
 
 
