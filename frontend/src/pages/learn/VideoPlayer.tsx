@@ -12,6 +12,13 @@ import {
 
 interface VideoPlayerProps {
   itemId: string;
+  /** The Video row's own id — required to call the generic
+   * /videos/{video_id}/... playback surface. Null only alongside
+   * transcodeStatus === null (no Video row yet, i.e. never uploaded); the
+   * transcodeStatus !== "ready" branch below already covers that case for
+   * display, this prop just needs a null-guard before it's used in a
+   * request. */
+  videoId: string | null;
   transcodeStatus: string | null;
   /** Called once, when playback reaches the end. */
   onEnded: () => void;
@@ -42,7 +49,7 @@ function formatCheckpointClock(seconds: number): string {
  * timestamp until answered or skipped — both are drawn as marks on the
  * scrubber, not hidden state.
  */
-export function VideoPlayer({ itemId, transcodeStatus, onEnded }: VideoPlayerProps) {
+export function VideoPlayer({ itemId, videoId, transcodeStatus, onEnded }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -76,9 +83,14 @@ export function VideoPlayer({ itemId, transcodeStatus, onEnded }: VideoPlayerPro
     retriedRef.current = false;
 
     async function attach() {
-      const { token } = await fetchVideoToken(itemId);
+      // No Video row yet (never uploaded) — the transcodeStatus !== "ready"
+      // render branch below already shows "still processing" for this case;
+      // this guard just keeps that from also firing a request with
+      // "undefined" in the URL.
+      if (!videoId) return;
+      const { token } = await fetchVideoToken(videoId);
       if (cancelled) return;
-      const src = videoPlaylistUrl(itemId, token);
+      const src = videoPlaylistUrl(videoId, token);
       const video = videoRef.current;
       if (!video) return;
 
@@ -140,7 +152,7 @@ export function VideoPlayer({ itemId, transcodeStatus, onEnded }: VideoPlayerPro
       hlsRef.current?.destroy();
       hlsRef.current = null;
     };
-  }, [itemId]);
+  }, [itemId, videoId]);
 
   useEffect(() => {
     const onFsChange = () => setFullscreen(document.fullscreenElement === containerRef.current);

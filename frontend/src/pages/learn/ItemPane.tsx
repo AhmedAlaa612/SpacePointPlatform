@@ -28,6 +28,7 @@ export function ItemPane({
       <VideoPlayer
         key={item.id}
         itemId={item.id}
+        videoId={item.content.video_id}
         transcodeStatus={item.content.transcode_status}
         onEnded={() => { recordProgress(item.id, "video-watched").finally(onProgressed); }}
       />

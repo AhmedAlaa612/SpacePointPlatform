@@ -822,12 +822,18 @@ async def enroll_self(
 # ── module read: student AND enrolled ───────────────────────────────────────
 
 async def _video_state(db: AsyncSession, item: ModuleItem) -> dict:
+    """Called only from module_read, which already ran _assert_enrolled — so
+    handing back the Video row's id here is not a new access grant. It's
+    what lets the player call the generic /videos/{video_id}/... surface
+    (routers/video.py) directly; that surface re-checks enrollment itself on
+    every request regardless of what this endpoint returned."""
     video = await get_video_for_owner(db, owner_type="module_item", owner_id=item.id)
     if video is None:
-        return {"transcode_status": None, "duration_seconds": None}
+        return {"transcode_status": None, "duration_seconds": None, "video_id": None}
     return {
         "transcode_status": video.status,
         "duration_seconds": video.duration_seconds,
+        "video_id": str(video.id),
     }
 
 

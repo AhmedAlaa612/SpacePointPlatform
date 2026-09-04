@@ -483,6 +483,11 @@ async def test_module_read_leaks_no_answers_and_enriches_video_state(db, client)
     assert "is_correct" not in quiz_content["questions"][0]["options"][0]
     assert by_kind["video"]["content"]["transcode_status"] == "ready"
     assert by_kind["video"]["content"]["duration_seconds"] == 42
+    # The Video row's own id — the player needs this to call the generic
+    # /videos/{video_id}/... surface (routers/video.py), which is keyed by
+    # video.id, not item.id.
+    video_id = by_kind["video"]["content"]["video_id"]
+    assert isinstance(video_id, str) and video_id
 
 
 # ── learner writes: quiz + progress ─────────────────────────────────────────
