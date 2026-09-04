@@ -320,13 +320,14 @@ export default function FacilitatorLibrary() {
 
           {addMode === "link" || (addMode === "video" && videoSource === "embed") ? (
             <input
+              key="url-input"
               className="input mb-3"
               placeholder={addMode === "video" ? "YouTube or Vimeo URL" : "URL (https://…)"}
               value={linkUrl}
               onChange={(e) => setLinkUrl(e.target.value)}
             />
           ) : (
-            <input ref={fileRef} type="file" accept={addMode === "video" ? "video/*" : undefined} className="input mb-3" />
+            <input key="file-input" ref={fileRef} type="file" accept={addMode === "video" ? "video/*" : undefined} className="input mb-3" />
           )}
 
           <Button
