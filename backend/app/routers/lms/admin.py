@@ -857,6 +857,7 @@ async def upload_course_image(
 class MigrateCourseVideosOut(BaseModel):
     queued: int
     already_on_r2: int
+    still_processing: int = 0
 
 
 @router.post("/courses/{course_id}/videos/migrate-to-r2", response_model=MigrateCourseVideosOut)
@@ -888,11 +889,15 @@ async def migrate_course_videos_to_r2(
     )).scalars().all()
 
     already_on_r2 = sum(1 for v in rows if v.storage_backend == "r2")
-    to_migrate = [v for v in rows if v.storage_backend != "r2"]
+    still_processing = sum(1 for v in rows if v.status in ("pending", "processing"))
+    to_migrate = [
+        v for v in rows
+        if v.storage_backend != "r2" and v.status not in ("pending", "processing")
+    ]
     for video in to_migrate:
         await enqueue_transcode(arq_redis, video.id, target_backend="r2")
 
-    return MigrateCourseVideosOut(queued=len(to_migrate), already_on_r2=already_on_r2)
+    return MigrateCourseVideosOut(queued=len(to_migrate), already_on_r2=already_on_r2, still_processing=still_processing)
 
 
 @router.delete("/courses/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1708,10 +1713,14 @@ async def delete_program_item_guideline_video(
 @router.get("/items/{item_id}/guideline/video/url")
 async def get_program_item_guideline_video_url(
     item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
-) -> dict[str, str]:
+):
     """Authoring-side preview for an *uploaded* video guideline — same
     resolve-fresh posture as pdf-url above. Not needed for an embed-link
-    guideline: item_out already returns the real (public) URL for those."""
+    guideline: item_out already returns the real (public) URL for those.
+
+    Finding #4: Returns video_info for all upload modes, matching student-facing
+    endpoints. HLS-encrypted videos have no "url" key in playback_info, only
+    video_id/status for token-gated playlist fetch."""
     item = await db.get(LmsProgramItem, item_id)
     if item is None or item.guideline_kind != "video":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video guideline item not found")
@@ -1719,7 +1728,7 @@ async def get_program_item_guideline_video_url(
     if video is None or video.provider != "upload":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No video uploaded for this item yet")
     info = await get_playback_info(db, video)
-    return {"url": info.get("url") or ""}
+    return {"url": info.get("url") or "", "video_info": info}
 
 
 @router.post("/programs/{lms_program_id}/items/reorder", response_model=list[LmsProgramItemOut])

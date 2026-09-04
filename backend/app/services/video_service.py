@@ -482,7 +482,10 @@ async def enqueue_transcode(
     `target_backend` is where the OUTPUT should land; the row is repointed
     there only once the encode succeeds."""
     from app.workers.settings import safe_enqueue
-    return await safe_enqueue(arq_redis, "transcode_video", str(video_id), target_backend)
+    return await safe_enqueue(
+        arq_redis, "transcode_video", str(video_id),
+        target_backend=target_backend, _queue_name="arq:queue:video"
+    )
 
 
 async def run_encrypted_transcode(
@@ -535,7 +538,21 @@ async def run_encrypted_transcode(
         video.status_error = None
         await db.commit()
 
+    lock_key = f"transcoding:{video_id}"
+    arq_redis_lock = None
     try:
+        # Set a Redis lock so deploy preflight can detect in-flight re-encodes.
+        # A swap-in-place re-encode doesn't change video.status (stays "ready"),
+        # so the DB alone can't tell idle from mid-transcode. This lock is the
+        # deploy's only signal (see ops/deploy-backend.sh preflight, finding #1).
+        from app.workers.settings import redis_settings as get_redis_settings
+        from arq.connections import create_pool
+
+        rs = get_redis_settings()
+        pool = await create_pool(rs)
+        arq_redis_lock = pool
+        await arq_redis_lock.setex(lock_key, 3600, b"1")
+
         source_bytes = await storage.download_file(video.source_bucket, video.source_path)
         with tempfile.TemporaryDirectory() as tmp:
             source_file = Path(tmp) / "source"
@@ -603,6 +620,13 @@ async def run_encrypted_transcode(
             video.status = "failed"
         video.status_error = str(exc)[:2000]
         await db.commit()
+    finally:
+        if arq_redis_lock is not None:
+            try:
+                await arq_redis_lock.delete(lock_key)
+            except Exception:
+                logger.exception("Failed to delete transcode lock for %s", video_id)
+            await arq_redis_lock.close()
 
 
 async def move_to_backend(

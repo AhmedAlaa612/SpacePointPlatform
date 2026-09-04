@@ -591,7 +591,14 @@ async def confirm_design_step(
         )
         required = {"setup"} | (dash["included_steps"] & CONFIRMABLE_STEP_KEYS)
         if required <= confirmed and dash["all_valid"]:
-            await mark_design_complete(db, attempt=attempt)
+            try:
+                await mark_design_complete(db, attempt=attempt)
+            except HTTPException:
+                # Valid when we checked above; became invalid before mark_design_complete's own
+                # recompute (concurrent edit). The step confirmation above still stands — just
+                # don't auto-finalize this time. The student (or next confirm) gets another shot.
+                # Finding #5: Don't let stale state break the step confirmation that just succeeded.
+                pass
 
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
