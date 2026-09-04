@@ -98,6 +98,32 @@ def _hls_backend() -> str | None:
     return storage.video_backend()
 
 
+def _source_backend(upload_mode: str | None) -> str | None:
+    """Where a Video's `source_bucket`/`source_path` bytes live.
+
+    The rule is about who reads the bytes, not what they are:
+
+    - `hls_encrypted`: the source is a pre-transcode INPUT that only the ARQ
+      worker ever opens. It stays on the default backend (local disk) — no
+      student request touches it, and keeping it local means a transcode does
+      not have to pull hundreds of megabytes back over the network first.
+    - `direct`: the source IS the asset the browser fetches. It belongs
+      wherever student-facing video bytes live.
+
+    That distinction matters more than it looks. Served from local storage, a
+    `direct` video goes through GET /files, which Fernet-decrypts the WHOLE
+    blob into memory and returns one non-range response — Fernet is
+    all-or-nothing, so byte ranges are not merely unimplemented there, they
+    are unimplementable. A <video> element depends on ranges: it range-fetches
+    the moov atom (at the END of any MP4 not written with +faststart) before
+    it can play, and range-fetches again on every seek. Against a
+    non-range-serving origin each of those restarts the entire download, which
+    presents as a video that flashes one frame and drops back to buffering
+    forever. An object store answers ranges natively, which is the actual
+    fix."""
+    return _hls_backend() if upload_mode == "direct" else None
+
+
 def _detect_provider(url: str) -> Literal["youtube", "vimeo"] | None:
     if not url or not _EMBED_HOST_RE.search(url):
         return None
@@ -314,7 +340,10 @@ async def _delete_storage(video: Video) -> None:
                 if entry.get("metadata") is not None:  # a file, not a folder
                     await storage.delete_file(HLS_BUCKET, f"{prefix}{entry['name']}", backend=hls_backend)
         if video.source_bucket and video.source_path:
-            await storage.delete_file(video.source_bucket, video.source_path)
+            await storage.delete_file(
+                video.source_bucket, video.source_path,
+                backend=_source_backend(video.upload_mode),
+            )
     except Exception:  # noqa: BLE001 — cleanup is best-effort
         logger.exception("Failed to clean up storage for video %s", video.id)
 
@@ -366,7 +395,8 @@ async def attach_upload(
 ) -> Video:
     """Upserts the one Video row for this owner and uploads the source bytes.
     `mode="direct"` flips straight to `status="ready"` — the uploaded file
-    IS the served asset, nothing async happens. `mode="hls_encrypted"` sets
+    IS the served asset, nothing async happens, and it lands on whichever
+    backend serves student-facing video (see _source_backend). `mode="hls_encrypted"` sets
     `status="pending"` and returns; the caller is responsible for calling
     `enqueue_transcode` separately, so this stays a pure DB+storage
     primitive, testable without a Redis dependency."""
@@ -384,7 +414,10 @@ async def attach_upload(
 
     suffix = Path(filename or "video.mp4").suffix or ".mp4"
     source_path = f"{video.id}/source{suffix}"
-    await storage.upload_to_path(SOURCE_BUCKET, source_path, file_bytes, content_type or "video/mp4")
+    await storage.upload_to_path(
+        SOURCE_BUCKET, source_path, file_bytes, content_type or "video/mp4",
+        backend=_source_backend(mode),
+    )
 
     video.provider = "upload"
     video.upload_mode = mode
@@ -493,7 +526,10 @@ async def get_playback_info(db: AsyncSession, video: Video, *, signed_url_expire
     if video.provider != "upload":
         return {"provider": video.provider, "embed_url": video.embed_url, "status": video.status}
     if video.upload_mode == "direct":
-        url = await storage.resolve_url(video.source_bucket, video.source_path, expires_in=signed_url_expires_in)
+        url = await storage.resolve_url(
+            video.source_bucket, video.source_path,
+            expires_in=signed_url_expires_in, backend=_source_backend(video.upload_mode),
+        )
         return {
             "provider": "upload", "mode": "direct", "status": video.status,
             "url": url, "duration_seconds": video.duration_seconds,
