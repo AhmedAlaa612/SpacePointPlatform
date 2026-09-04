@@ -5,6 +5,13 @@ service (2026-09) — `ModuleVideo` is gone, replaced by `Video`
 (owner_type="module_item"), and `create_video_token`/`decode_video_token`
 now carry a `video_id` instead of an `item_id`.
 
+Token issuance and streaming now go through the generic
+`routers/video.py` surface (`/videos/{video_id}/...`), keyed by
+`video.id` rather than `item.id` — `routers/lms/video.py` keeps only the
+upload endpoint. `test_token_issuance_...`/`test_streaming_routes_...`
+below exercise that generic router; the module_item enrollment check they
+cover (`_check_module_item`) lives there now, not in this app.
+
 Redis-free (`client` fixture; `get_arq_redis` is overridden to None, so
 upload's dispatch reads "dropped" — that's the correct, already-proven-safe
 behavior, not a test gap, see conftest.py).
@@ -238,19 +245,20 @@ async def test_token_issuance_requires_enrollment_and_ready_video(db, client):
     await db.commit()
 
     student = await _user(db, roles=["student"])
-    not_ready = await client.get(f"/lms/items/{item.id}/video/token", headers=_headers(student))
-    # not enrolled -> 404 before the readiness check is even reached
-    assert not_ready.status_code == http_status.HTTP_404_NOT_FOUND
-
-    await enroll(db, user_id=student.id, course_id=course.id)
-    await db.commit()
     pending_video = Video(
         id=uuid.uuid4(), owner_type="module_item", owner_id=item.id, provider="upload",
         upload_mode="hls_encrypted", source_bucket="b", source_path="p", status="pending",
     )
     db.add(pending_video)
     await db.commit()
-    still_not_ready = await client.get(f"/lms/items/{item.id}/video/token", headers=_headers(student))
+
+    not_ready = await client.get(f"/videos/{pending_video.id}/token", headers=_headers(student))
+    # not enrolled -> 404 before the readiness check is even reached
+    assert not_ready.status_code == http_status.HTTP_404_NOT_FOUND
+
+    await enroll(db, user_id=student.id, course_id=course.id)
+    await db.commit()
+    still_not_ready = await client.get(f"/videos/{pending_video.id}/token", headers=_headers(student))
     assert still_not_ready.status_code == http_status.HTTP_409_CONFLICT
 
 
@@ -266,52 +274,53 @@ async def test_streaming_routes_require_a_valid_matching_unexpired_token(db, cli
 
     # valid token -> playlist rewritten with token-bearing relative URLs
     # (relative, not absolute — so they resolve correctly regardless of any
-    # reverse-proxy prefix in front of the API; see _rewrite_playlist)
+    # reverse-proxy prefix in front of the API; see _rewrite_playlist).
+    # These routes are keyed by video.id now (routers/video.py), not item.id.
     token = create_video_token(student.id, video.id)
-    ok = await client.get(f"/lms/videos/{item.id}/playlist", params={"token": token})
+    ok = await client.get(f"/videos/{video.id}/playlist", params={"token": token})
     assert ok.status_code == 200
     assert f"segment/segment_000.ts?token={token}" in ok.text
     assert f'URI="key?token={token}"' in ok.text
 
-    seg = await client.get(f"/lms/videos/{item.id}/segment/segment_000.ts", params={"token": token})
+    seg = await client.get(f"/videos/{video.id}/segment/segment_000.ts", params={"token": token})
     assert seg.status_code == 200 and seg.content == b"ts-bytes"
 
-    key = await client.get(f"/lms/videos/{item.id}/key", params={"token": token})
+    key = await client.get(f"/videos/{video.id}/key", params={"token": token})
     assert key.status_code == 200 and key.content == b"1" * 16
 
     # garbage token -> 403
-    bad = await client.get(f"/lms/videos/{item.id}/playlist", params={"token": "not-a-real-token"})
+    bad = await client.get(f"/videos/{video.id}/playlist", params={"token": "not-a-real-token"})
     assert bad.status_code == http_status.HTTP_403_FORBIDDEN
 
     # expired token -> 403
     expired = create_video_token(student.id, video.id, expires_delta=timedelta(seconds=-1))
-    expired_resp = await client.get(f"/lms/videos/{item.id}/playlist", params={"token": expired})
+    expired_resp = await client.get(f"/videos/{video.id}/playlist", params={"token": expired})
     assert expired_resp.status_code == http_status.HTTP_403_FORBIDDEN
 
-    # token minted for a video belonging to a different item -> 403
+    # token minted for a different video -> 403 (its video_id doesn't match the URL's)
     other_item = ModuleItem(id=uuid.uuid4(), module_id=module.id, position=2, kind="video", content={})
     db.add(other_item)
     await db.commit()
     other_video = await _ready_video(db, other_item)
     await db.commit()
-    wrong_item_token = create_video_token(student.id, other_video.id)
-    mismatched = await client.get(f"/lms/videos/{item.id}/playlist", params={"token": wrong_item_token})
+    wrong_video_token = create_video_token(student.id, other_video.id)
+    mismatched = await client.get(f"/videos/{video.id}/playlist", params={"token": wrong_video_token})
     assert mismatched.status_code == http_status.HTTP_403_FORBIDDEN
 
     # valid token, but for a student who is NOT enrolled -> 404, not 403
     stranger = await _user(db, roles=["student"])
     await db.commit()
     stranger_token = create_video_token(stranger.id, video.id)
-    not_enrolled = await client.get(f"/lms/videos/{item.id}/playlist", params={"token": stranger_token})
+    not_enrolled = await client.get(f"/videos/{video.id}/playlist", params={"token": stranger_token})
     assert not_enrolled.status_code == http_status.HTTP_404_NOT_FOUND
 
     # path traversal in the segment name -> 404, never touches storage
-    traversal = await client.get(f"/lms/videos/{item.id}/segment/..%2F..%2Fetc%2Fpasswd", params={"token": token})
+    traversal = await client.get(f"/videos/{video.id}/segment/..%2F..%2Fetc%2Fpasswd", params={"token": token})
     assert traversal.status_code == http_status.HTTP_404_NOT_FOUND
 
     # segment_1000.ts (B1): "%03d" in the encoder is a *minimum* width, so a
     # video past 999 segments (66m36s at 4s/segment) writes segment_1000.ts —
     # a fixed \d{3} regex 404s on it mid-playback. 4+ digits must resolve.
     await storage.upload_to_path(HLS_BUCKET, f"{item.id}/segment_1000.ts", b"late-ts-bytes", "video/mp2t")
-    late_seg = await client.get(f"/lms/videos/{item.id}/segment/segment_1000.ts", params={"token": token})
+    late_seg = await client.get(f"/videos/{video.id}/segment/segment_1000.ts", params={"token": token})
     assert late_seg.status_code == 200 and late_seg.content == b"late-ts-bytes"

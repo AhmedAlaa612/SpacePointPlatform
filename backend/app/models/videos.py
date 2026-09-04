@@ -81,6 +81,18 @@ class Video(Base):
 
     duration_seconds = Column(Integer, nullable=True)
 
+    # Where THIS video's student-facing bytes actually live right now — the
+    # HLS output for hls_encrypted, the source file itself for direct. NULL
+    # (every pre-existing row) means local/VPS; "r2" means Cloudflare R2.
+    # Deliberately per-row, not a global setting: it is what makes migrating
+    # one video (or one course) to R2 at a time possible while everything
+    # else keeps serving from wherever it already was — no flag day, no
+    # window where every video moves at once. See video_service.py's
+    # _hls_backend/_source_backend, which read this instead of a global
+    # switch, and run_encrypted_transcode's zero-downtime re-encode path,
+    # which only writes this once the new output is verified in place.
+    storage_backend = Column(String(16), nullable=True)
+
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(

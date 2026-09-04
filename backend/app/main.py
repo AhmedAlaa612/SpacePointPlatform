@@ -25,6 +25,7 @@ from app.routers.missions import router as missions_router
 from app.routers.sessions import router as sessions_router
 from app.routers.spine import router as spine_router
 from app.routers.teams import router as teams_router
+from app.routers.video import router as video_router
 from app.workers.heartbeat import HEARTBEAT_KEY
 from app.workers.settings import redis_settings
 
@@ -137,6 +138,11 @@ app.include_router(games_router)
 
 # Competition judging domain (2026-08-24): /competitions/*
 app.include_router(competitions_router)
+
+# Standardized video service's own playback surface (2026-09): /videos/*
+# — one route for every hls_encrypted video regardless of owner_type. See
+# routers/video.py's module docstring.
+app.include_router(video_router)
 
 
 @app.get("/health", tags=["health"])
