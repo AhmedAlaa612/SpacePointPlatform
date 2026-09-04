@@ -20,6 +20,18 @@ from app.workers.tasks.video import transcode_video
 
 class WorkerSettings:
     redis_settings = redis_settings()
+    # arq defaults to 10 concurrent jobs. Every other job here is IO-bound
+    # (email, imports) and would be fine at that, but transcode_video is not:
+    # one ffmpeg encode saturates all four of this box's vCPUs, and the API
+    # shares them. Ten at once during a bulk re-encode would take the live
+    # platform down with it, and even nice -n 19 does not help when every
+    # runnable thread is an encode.
+    #
+    # Serial is also simply faster in wall-clock terms for CPU-bound work —
+    # ten encodes time-slicing four cores finish no sooner than ten in a row,
+    # they just all finish at the end instead of one at a time, so nothing is
+    # watchable until the whole batch is done.
+    max_jobs = 1
     functions = [
         send_ticket_email,
         send_import_batch_emails,

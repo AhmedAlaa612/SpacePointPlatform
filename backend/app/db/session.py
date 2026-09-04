@@ -27,6 +27,14 @@ if _is_supabase_url(settings.DATABASE_URL):
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
+    # SQLAlchemy's defaults are 5 + 10 overflow = 15 per PROCESS. That was one
+    # number when the API ran as a single uvicorn process; with --workers 3
+    # (see backend/Dockerfile) it is three independent pools, so the ceiling
+    # has to be chosen against Postgres's max_connections (100 on the VPS)
+    # rather than left implicit: 3 workers x (10 + 5) = 45, plus the ARQ worker
+    # container's own pool, plus headroom for psql/pg_dump during a deploy.
+    pool_size=10,
+    max_overflow=5,
     pool_pre_ping=True,  # idle pooled connections get silently dropped (NAT/
     # Windows network-name-no-longer-available resets) — ping before reuse
     # instead of handing out a dead connection and crashing the request.
