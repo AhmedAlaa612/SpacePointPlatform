@@ -34,7 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_lms_student
 from app.db.session import get_db
-from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, ModuleVideo, VideoCheckpoint
+from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, VideoCheckpoint
 from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.lms.program import (
     LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress, LmsProgramTeamItemProgress,
@@ -99,6 +99,7 @@ from app.services.lms.program import (
     list_student_assignments,
 )
 from app.services import storage
+from app.services.video_service import get_playback_info, get_video_for_owner
 from app.models.certificate import Certificate
 from app.models.enums import CertificateType
 
@@ -589,6 +590,25 @@ async def program_item_pdf_url(
     return {"url": url}
 
 
+@router.get("/programs/{assignment_id}/items/{item_id}/guideline-video-url")
+async def program_item_guideline_video_url(
+    assignment_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+) -> dict[str, str]:
+    """Resolved only when a student actually opens an *uploaded* video
+    guideline — an embed-link guideline never needs this, the checklist
+    payload already carries the real (public) URL in guideline_url. Same
+    posture as program_item_pdf_url above."""
+    _, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    if item.guideline_kind != "video":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No video guideline on this item")
+    video = await get_video_for_owner(db, owner_type="program_item_guideline", owner_id=item_id)
+    if video is None or video.provider != "upload":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No video uploaded for this item yet")
+    info = await get_playback_info(db, video)
+    return {"url": info.get("url") or ""}
+
+
 @router.post("/programs/{assignment_id}/items/{item_id}/complete", response_model=LmsProgramChecklistItemOut)
 async def complete_program_item(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
@@ -802,13 +822,11 @@ async def enroll_self(
 # ── module read: student AND enrolled ───────────────────────────────────────
 
 async def _video_state(db: AsyncSession, item: ModuleItem) -> dict:
-    video = (await db.execute(
-        select(ModuleVideo).where(ModuleVideo.item_id == item.id)
-    )).scalars().first()
+    video = await get_video_for_owner(db, owner_type="module_item", owner_id=item.id)
     if video is None:
         return {"transcode_status": None, "duration_seconds": None}
     return {
-        "transcode_status": video.transcode_status,
+        "transcode_status": video.status,
         "duration_seconds": video.duration_seconds,
     }
 

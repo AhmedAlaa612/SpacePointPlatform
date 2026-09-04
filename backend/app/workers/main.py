@@ -12,9 +12,10 @@ from app.workers.settings import redis_settings
 from app.workers.tasks.cohort_interest import send_cohort_interest_notifications
 from app.workers.tasks.imports import send_import_batch_emails
 from app.workers.tasks.inventory import send_inventory_reminders
-from app.workers.tasks.lms import sync_import_batch_lms_accounts, sync_registration_lms_job, transcode_lms_video
+from app.workers.tasks.lms import sync_import_batch_lms_accounts, sync_registration_lms_job
 from app.workers.tasks.staffing import send_assignment_email, send_call_invite_emails
 from app.workers.tasks.tickets import send_ticket_email
+from app.workers.tasks.video import transcode_video
 
 
 class WorkerSettings:
@@ -32,7 +33,7 @@ class WorkerSettings:
         # got killed mid-encode. Scoped to this one function so other jobs
         # keep the short default (a stuck email/import job should still be
         # caught quickly).
-        func(transcode_lms_video, timeout=3600),
+        func(transcode_video, timeout=3600),
         sync_import_batch_lms_accounts,
         sync_registration_lms_job,
         send_cohort_interest_notifications,

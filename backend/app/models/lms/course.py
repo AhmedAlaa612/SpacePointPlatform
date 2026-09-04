@@ -1,9 +1,11 @@
-"""LMS course domain (LM1-1) — courses, modules, items, and the video state row.
+"""LMS course domain (LM1-1) — courses, modules, and items.
 
 Owns the authored-side of the LMS: `courses` (catalogue rows), `course_modules`
-(ordered lessons inside a course), `module_items` (every content item of all
-four kinds — video|text|quiz|flashcards), and `module_videos` (the one row
-whose async transcode state the worker writes).
+(ordered lessons inside a course), and `module_items` (every content item of
+all four kinds — video|text|quiz|flashcards). A video item's async transcode
+state lives on the standardized `videos` table (`app/models/videos.py`,
+owner_type="module_item") rather than a table of its own — see
+`services/video_service.py`.
 
 `module_items.content` is JSONB on purpose (§2 of the LMS plan): authored
 content is read as a whole unit and never filtered or joined, so six
@@ -131,36 +133,6 @@ class ModuleItem(Base):
     title = Column(String(128), nullable=True)
     # Authored payload, shapes documented in LMS_EXECUTION_PLAN.md §2.
     content = Column(JSONB, nullable=False, default=dict)
-
-
-class ModuleVideo(Base):
-    """The async state row for a video item — the only LMS table a worker writes.
-
-    `source_bucket`/`source_path` are the original MP4 as uploaded, never
-    served to students. Once the ARQ transcode job finishes, `playlist_path`
-    (HLS .m3u8) and `key_path` (AES-128 key written through the storage facade)
-    point at ready-to-serve assets and `transcode_status` flips to `ready` /
-    `failed`. One row per item: `item_id` is UNIQUE.
-
-    `transcode_status` is the one column the player must read: anything except
-    `ready` renders a state card.
-    """
-
-    __tablename__ = "module_videos"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    item_id = Column(
-        UUID(as_uuid=True), ForeignKey("module_items.id", ondelete="CASCADE"),
-        nullable=False, unique=True,
-    )
-    source_bucket = Column(String(64), nullable=False)
-    source_path = Column(String(512), nullable=False)
-    playlist_path = Column(String(512), nullable=True)
-    key_path = Column(String(512), nullable=True)
-    duration_seconds = Column(Integer, nullable=True)
-    # pending|processing|ready|failed
-    transcode_status = Column(String(12), nullable=False, default="pending")
-    transcode_error = Column(Text, nullable=True)
 
 
 class VideoCheckpoint(Base):

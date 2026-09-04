@@ -107,6 +107,10 @@ export interface TrainingVideo {
   description: string | null
   notes: string | null
   video_url: string
+  /** True once a real file has been uploaded through the standardized
+   * video service — fetch the actual playback URL on demand via
+   * `streamVideoApi`, same posture as `has_pdf`/`guideline_video_uploaded`. */
+  video_uploaded: boolean
   sort_order: number
   is_completed: boolean
 }

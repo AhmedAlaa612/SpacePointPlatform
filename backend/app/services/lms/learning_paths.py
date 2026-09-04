@@ -23,7 +23,8 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.lms.course import Course, CourseModule, ModuleItem, ModuleVideo
+from app.models.lms.course import Course, CourseModule, ModuleItem
+from app.models.videos import Video
 from app.models.lms.learning_path import LearningPathStep
 from app.services.lms.progress import course_completion
 
@@ -45,10 +46,10 @@ async def path_total_duration_seconds(db: AsyncSession, course_ids: list[uuid.UU
     if not course_ids:
         return 0
     total = await db.scalar(
-        select(func.coalesce(func.sum(ModuleVideo.duration_seconds), 0))
-        .join(ModuleItem, ModuleItem.id == ModuleVideo.item_id)
+        select(func.coalesce(func.sum(Video.duration_seconds), 0))
+        .join(ModuleItem, ModuleItem.id == Video.owner_id)
         .join(CourseModule, CourseModule.id == ModuleItem.module_id)
-        .where(CourseModule.course_id.in_(course_ids))
+        .where(Video.owner_type == "module_item", CourseModule.course_id.in_(course_ids))
     )
     return int(total or 0)
 

@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { PdfViewer } from "@/components/documents/PdfViewer"
+import { VideoPlayer } from "@/components/video/VideoPlayer"
 import { isVideoFormat } from "@/lib/utils"
 
 const isPdf = (r: LibraryResource) => r.resource_type === "file" && r.format.toUpperCase() === "PDF"
@@ -55,12 +56,9 @@ function ResourceRow({ r, onEdit, onDelete, onPreviewPdf }: {
         </button>
       </div>
       {isVideo && (
-        <video
-          src={r.file_url}
-          controls
-          controlsList="nodownload noremoteplayback"
-          disablePictureInPicture
-          onContextMenu={(e) => e.preventDefault()}
+        <VideoPlayer
+          info={{ provider: "upload", mode: "direct", status: "ready", url: r.file_url }}
+          title={r.title}
           className="w-full max-h-64 rounded-lg bg-black"
         />
       )}

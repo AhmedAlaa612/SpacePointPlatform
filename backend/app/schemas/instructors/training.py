@@ -10,19 +10,27 @@ class TrainingVideoOut(BaseModel):
     description: Optional[str] = None
     notes: Optional[str] = None
     video_url: str = ""
+    # True once a real file has been uploaded through the standardized video
+    # service (owner_type="training_video") — video_url stays whatever
+    # embed link was set at creation (unused going forward once an upload
+    # supersedes it), same no-baked-in-signed-url posture has_pdf/
+    # guideline_video_uploaded follow. The player calls the separate
+    # resolve-url endpoint (GET .../stream) to actually view it.
+    video_uploaded: bool = False
     sort_order: int
     is_completed: bool = False
 
     model_config = {"from_attributes": True, "populate_by_name": True}
 
     @classmethod
-    def from_orm_video(cls, v: object, is_completed: bool = False) -> "TrainingVideoOut":
+    def from_orm_video(cls, v: object, is_completed: bool = False, video_uploaded: bool = False) -> "TrainingVideoOut":
         return cls(
             id=getattr(v, "id"),
             title=getattr(v, "title"),
             description=getattr(v, "description"),
             notes=getattr(v, "notes"),
             video_url=getattr(v, "video_path", "") or "",
+            video_uploaded=video_uploaded,
             sort_order=getattr(v, "sort_order"),
             is_completed=is_completed,
         )

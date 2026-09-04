@@ -41,12 +41,14 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.team import Team, TeamMember
 from app.models.user import User
+from app.models.videos import Video
 from app.schemas.lms_admin import LmsProgramItemIn, LmsProgramItemOut
 from app.services import storage
 from app.services.lms.enrollment import enroll
 from app.services.lms.progress import course_completion
 from app.services.missions import assign_mission_run
 from app.services.missions.design import service as design_service
+from app.services.video_service import get_video_for_owner
 
 # Same bucket routers/lms/admin.py's module-attachment upload already uses —
 # a `pdf` program item is just another hosted-PDF-behind-a-checklist-item,
@@ -70,6 +72,21 @@ MISSION_STEP_KEYS: frozenset[str] = frozenset({
 GUIDELINE_KINDS: frozenset[str] = frozenset({"pdf", "link", "video"})
 
 
+def _apply_guideline_video(out: LmsProgramItemOut, video: Video | None) -> None:
+    """A `video`-kind guideline's real source of truth, once uploaded/set
+    through the standardized service: a YouTube/Vimeo embed resolves
+    straight into `guideline_url` (no different from a plain pasted link —
+    nothing signed/private about a public embed URL); an uploaded file
+    instead flags `guideline_video_uploaded` and leaves `guideline_url`
+    unset, same no-baked-in-signed-url posture `has_pdf` follows."""
+    if video is None:
+        return
+    if video.provider in ("youtube", "vimeo"):
+        out.guideline_url = video.embed_url
+    elif video.provider == "upload":
+        out.guideline_video_uploaded = True
+
+
 async def item_out(db: AsyncSession, item: LmsProgramItem) -> LmsProgramItemOut:
     """Serializes one item, filling `mission_kind` off a fresh `Mission`
     lookup for a `mission_run` item — see the schema's own docstring for
@@ -79,6 +96,10 @@ async def item_out(db: AsyncSession, item: LmsProgramItem) -> LmsProgramItemOut:
     if item.mission_id is not None:
         mission = await db.get(Mission, item.mission_id)
         out.mission_kind = mission.kind if mission is not None else None
+    if item.guideline_kind == "video":
+        _apply_guideline_video(out, await get_video_for_owner(
+            db, owner_type="program_item_guideline", owner_id=item.id,
+        ))
     return out
 
 
@@ -90,12 +111,20 @@ async def items_out(db: AsyncSession, items: list[LmsProgramItem]) -> list[LmsPr
     if mission_ids:
         rows = (await db.execute(select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids)))).all()
         kinds = dict(rows)
+    video_item_ids = [i.id for i in items if i.guideline_kind == "video"]
+    videos_by_owner: dict[uuid.UUID, Video] = {}
+    if video_item_ids:
+        video_rows = (await db.execute(
+            select(Video).where(Video.owner_type == "program_item_guideline", Video.owner_id.in_(video_item_ids))
+        )).scalars().all()
+        videos_by_owner = {v.owner_id: v for v in video_rows}
     out = []
     for item in items:
         o = LmsProgramItemOut.model_validate(item)
         o.has_pdf = item.pdf_path is not None
         if item.mission_id is not None:
             o.mission_kind = kinds.get(item.mission_id)
+        _apply_guideline_video(o, videos_by_owner.get(item.id))
         out.append(o)
     return out
 
@@ -1013,6 +1042,13 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     mission_kinds = dict((await db.execute(
         select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids))
     )).all()) if mission_ids else {}
+    video_item_ids = [item.id for item, _ in pairs if item.guideline_kind == "video"]
+    guideline_videos: dict[uuid.UUID, Video] = {}
+    if video_item_ids:
+        video_rows = (await db.execute(
+            select(Video).where(Video.owner_type == "program_item_guideline", Video.owner_id.in_(video_item_ids))
+        )).scalars().all()
+        guideline_videos = {v.owner_id: v for v in video_rows}
 
     # Team-scoped items read their state from the shared team row instead
     # of the individual one materialized above — one lookup for the
@@ -1062,6 +1098,14 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             if team_progress is not None and team_progress.updated_by_user_id
             else (student_name if team_progress is None and progress.updated_at else None)
         )
+        guideline_video = guideline_videos.get(item.id)
+        guideline_url = item.guideline_url
+        guideline_video_uploaded = False
+        if guideline_video is not None:
+            if guideline_video.provider in ("youtube", "vimeo"):
+                guideline_url = guideline_video.embed_url
+            elif guideline_video.provider == "upload":
+                guideline_video_uploaded = True
         rows.append({
             "id": item.id, "position": item.position, "item_type": item.item_type,
             "title": item.title, "description": item.description,
@@ -1079,7 +1123,8 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "updated_by_name": updated_by_name,
             "updated_at": updated_at,
             "mission_step_key": item.mission_step_key, "gated": item.gated,
-            "guideline_kind": item.guideline_kind, "guideline_url": item.guideline_url,
+            "guideline_kind": item.guideline_kind, "guideline_url": guideline_url,
+            "guideline_video_uploaded": guideline_video_uploaded,
             "checkpoint_label": item.checkpoint_label,
         })
 

@@ -9,8 +9,10 @@ from app.core.dependencies import require_instructor
 from app.db.session import get_db
 from app.models.instructors.training import TrainingModule, TrainingVideo, UserTrainingProgress
 from app.models.user import User
+from app.models.videos import Video
 from app.schemas.instructors.training import TrainingModuleOut, TrainingVideoOut
 from app.services import storage
+from app.services.video_service import get_playback_info
 
 router = APIRouter(prefix="/training", tags=["instructors-training"])
 
@@ -28,6 +30,12 @@ async def list_training(db: AsyncSession = Depends(get_db), current_user: User =
         )
     )).scalars().all()
     completed_ids = {p.video_id for p in progress if p.is_completed}
+    uploaded_video_rows = (await db.execute(
+        select(Video.owner_id).where(
+            Video.owner_type == "training_video", Video.owner_id.in_([v.id for v in videos]), Video.provider == "upload",
+        )
+    )).scalars().all()
+    uploaded_ids = set(uploaded_video_rows)
 
     videos_by_module: dict[uuid.UUID, list] = {}
     for v in videos:
@@ -37,7 +45,7 @@ async def list_training(db: AsyncSession = Depends(get_db), current_user: User =
         TrainingModuleOut(
             id=m.id, title=m.title, description=m.description, sort_order=m.sort_order,
             videos=[
-                TrainingVideoOut.from_orm_video(v, is_completed=v.id in completed_ids)
+                TrainingVideoOut.from_orm_video(v, is_completed=v.id in completed_ids, video_uploaded=v.id in uploaded_ids)
                 for v in videos_by_module.get(m.id, [])
             ],
         )
@@ -52,6 +60,12 @@ async def stream_video(
     video = (await db.execute(select(TrainingVideo).where(TrainingVideo.id == video_id))).scalars().first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
+    uploaded = (await db.execute(
+        select(Video).where(Video.owner_type == "training_video", Video.owner_id == video_id, Video.provider == "upload")
+    )).scalars().first()
+    if uploaded is not None:
+        info = await get_playback_info(db, uploaded)
+        return {"url": info.get("url") or ""}
     return {"url": video.video_path}
 
 

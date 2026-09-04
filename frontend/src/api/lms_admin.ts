@@ -340,6 +340,10 @@ export interface LmsProgramItem {
   gated: boolean;
   guideline_kind: "pdf" | "link" | "video" | null;
   guideline_url: string | null;
+  /** True once a `video`-kind guideline has a real file uploaded through
+   * the standardized video service — same never-baked-in-here posture as
+   * `has_pdf`. `guideline_url` stays the pasted embed link when false. */
+  guideline_video_uploaded: boolean;
   /** Groups tiles into the board's row sections ("Checkpoint 1 — Learn &
    * plan") — free text, matched by exact string. */
   checkpoint_label: string | null;
@@ -447,6 +451,18 @@ export const deleteLmsProgramItemPdfApi = (itemId: string) =>
   api.delete<LmsProgramItem>(`/lms/admin/items/${itemId}/pdf`).then((r) => r.data);
 export const getLmsProgramItemPdfUrlApi = (itemId: string) =>
   api.get<{ url: string }>(`/lms/admin/items/${itemId}/pdf-url`).then((r) => r.data.url);
+
+export const attachLmsProgramItemGuidelineVideoEmbedApi = (itemId: string, url: string) =>
+  api.post<LmsProgramItem>(`/lms/admin/items/${itemId}/guideline/video/embed`, { url }).then((r) => r.data);
+export const uploadLmsProgramItemGuidelineVideoApi = (itemId: string, file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  return api.post<LmsProgramItem>(`/lms/admin/items/${itemId}/guideline/video/upload`, form).then((r) => r.data);
+};
+export const deleteLmsProgramItemGuidelineVideoApi = (itemId: string) =>
+  api.delete<LmsProgramItem>(`/lms/admin/items/${itemId}/guideline/video`).then((r) => r.data);
+export const getLmsProgramItemGuidelineVideoUrlApi = (itemId: string) =>
+  api.get<{ url: string }>(`/lms/admin/items/${itemId}/guideline/video/url`).then((r) => r.data.url);
 
 export const getCohortProgramOverrideApi = (cohortId: string) =>
   api.get<LmsProgramCohortEffective>(`/lms/admin/cohorts/${cohortId}/program-override`).then((r) => r.data);

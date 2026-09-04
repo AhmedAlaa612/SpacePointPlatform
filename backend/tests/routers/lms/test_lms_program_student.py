@@ -736,8 +736,11 @@ async def test_phase_item_setup_needs_self_check_after_the_design_objective_is_s
 
     after = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
     assert after.json()["items"][0]["status"] == "done"
-    # The whole-mission attempt is still just in_progress — phase completion
-    # never touches attempt.status.
+    # The whole-mission attempt is still just in_progress — confirming one
+    # step (out of several still outstanding here: components/conops/etc.
+    # were never touched) isn't enough to auto-finalize the mission. See
+    # confirm_design_step's own auto-finalize note — it only fires once
+    # every required step is confirmed AND the design is fully valid.
     attempt = await db.get(MissionAttempt, attempt_id)
     assert attempt.status == "in_progress"
 

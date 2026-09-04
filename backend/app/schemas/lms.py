@@ -474,7 +474,14 @@ class LmsProgramChecklistItemOut(BaseModel):
     mission_step_key: str | None = None
     gated: bool = False
     guideline_kind: str | None = None
+    # A YouTube/Vimeo `video` guideline resolves straight into guideline_url
+    # above (no different from a plain link — nothing signed/private about
+    # a public embed URL). An *uploaded* `video` guideline instead flips
+    # this flag and leaves guideline_url unset — the student calls the
+    # separate resolve-url endpoint to actually view it, never baked in
+    # here, same posture as `has_pdf`/the Curriculum Library's list payload.
     guideline_url: str | None = None
+    guideline_video_uploaded: bool = False
     checkpoint_label: str | None = None
     # Derived, never stored — see compute_lock_states. True iff `gated`
     # and some earlier non-optional item on this checklist isn't done yet.

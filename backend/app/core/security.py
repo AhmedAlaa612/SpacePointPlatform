@@ -47,11 +47,15 @@ def create_refresh_token(subject: Any, roles: list[str], expires_delta: timedelt
     )
 
 
-def create_video_token(user_id: Any, item_id: Any, expires_delta: timedelta | None = None) -> str:
-    """Short-lived token scoping one student to one video item (LMS D2) — never
-    a static URL. Deliberately its own "type" so it can't be replayed as an
-    access/refresh token, and carries no roles claim (it authorizes nothing
-    beyond this one item; the enrollment check still runs per request).
+def create_video_token(user_id: Any, video_id: Any, expires_delta: timedelta | None = None) -> str:
+    """Short-lived token scoping one user to one `Video` row (originally LMS
+    D2, generalized 2026-09 for the standardized video service — every
+    feature that hosts a video reuses this, not just LMS). Never a static
+    URL. Deliberately its own "type" so it can't be replayed as an
+    access/refresh token, and carries no roles claim — it authorizes nothing
+    beyond this one video; the caller's own feature-specific access check
+    (enrollment, role, etc.) still runs per request, this token only proves
+    "I was cleared a few minutes ago."
 
     The default must outlast the longest lecture *plus* any pause a student
     takes mid-way. It was 15 minutes, which silently broke every video longer
@@ -61,20 +65,20 @@ def create_video_token(user_id: Any, item_id: Any, expires_delta: timedelta | No
     tighter window still pass expires_delta."""
     payload = {
         "sub": str(user_id),
-        "item_id": str(item_id),
+        "video_id": str(video_id),
         "exp": datetime.now(timezone.utc) + (expires_delta or timedelta(hours=4)),
-        "type": "lms_video",
+        "type": "video",
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
 def decode_video_token(token: str) -> tuple[str, str]:
-    """Returns (user_id, item_id) as strings. Raises JWTError if invalid,
+    """Returns (user_id, video_id) as strings. Raises JWTError if invalid,
     expired, or not actually a video token."""
     payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-    if payload.get("type") != "lms_video":
+    if payload.get("type") != "video":
         raise JWTError("Not a video token")
-    return payload["sub"], payload["item_id"]
+    return payload["sub"], payload["video_id"]
 
 
 def create_password_set_token(user_id: Any, expires_delta: timedelta | None = None) -> str:

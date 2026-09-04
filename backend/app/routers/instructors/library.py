@@ -10,6 +10,7 @@ from app.models.instructors.library import LibraryModule, LibraryResource
 from app.models.user import User
 from app.schemas.instructors.training import LibraryModuleOut, LibraryResourceOut
 from app.services import storage
+from app.services.video_service import get_playback_info, get_video_for_owner
 
 router = APIRouter(prefix="/library", tags=["instructors-library"])
 
@@ -33,6 +34,11 @@ def _is_inline_pdf(resource: LibraryResource) -> bool:
 # already follows (format is a plain string column, not an enum either side
 # can import from).
 _VIDEO_FORMATS = {"MP4", "MOV", "WEBM", "M4V", "AVI", "MKV", "OGG", "OGV"}
+# A video LibraryResource's bytes live in the standardized `videos` table
+# (owner_type="library_resource") — file_url holds this obviously-non-
+# resolvable marker instead of a real storage path (see the same constant
+# in routers/instructors/facilitator.py, which actually writes it).
+_VIDEO_SENTINEL_PREFIX = "video-service:"
 
 
 def _is_inline_video(resource: LibraryResource) -> bool:
@@ -95,6 +101,13 @@ async def get_library_resource_url(
 
     if resource.resource_type == "link" or resource.file_url.startswith("http"):
         return {"url": resource.file_url}
+
+    if resource.file_url.startswith(_VIDEO_SENTINEL_PREFIX):
+        video = await get_video_for_owner(db, owner_type="library_resource", owner_id=resource.id)
+        if video is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Resource not found")
+        info = await get_playback_info(db, video)
+        return {"url": info.get("url") or ""}
 
     path = _lib_storage_path(resource.file_url)
     url = await storage.get_signed_url("library-resources", path, expires_in=3600)

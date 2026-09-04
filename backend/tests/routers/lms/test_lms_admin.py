@@ -15,11 +15,12 @@ from fastapi import status as http_status
 from sqlalchemy import select
 
 from app.core.security import create_access_token
-from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, ModuleVideo
+from app.models.lms import Course, CourseModule, Enrollment, ModuleItem
 from app.models.sessions.program import Program
 from app.models.user import User
+from app.models.videos import Video
 from app.services.lms import enroll
-from app.services.lms.video import EncodeResult, run_transcode
+from app.services.video_service import EncodeResult, run_encrypted_transcode
 from app.services import storage
 
 
@@ -477,8 +478,9 @@ async def _fake_encoder(source_path):
 @pytest.mark.asyncio
 async def test_video_item_exposes_transcode_status_through_admin_api(db, client):
     """The `content` column on a video ModuleItem is always `{}` — the real
-    state lives on ModuleVideo, written by the async worker. An author has no
-    other way to tell an upload is still processing vs. actually ready."""
+    state lives on the standardized `Video` row (owner_type="module_item"),
+    written by the async worker. An author has no other way to tell an
+    upload is still processing vs. actually ready."""
     ops = await _user(db)
     course = await _course(db, author=ops)
     module = await _module(db, course)
@@ -491,9 +493,10 @@ async def test_video_item_exposes_transcode_status_through_admin_api(db, client)
     # No upload yet — nothing to report.
     assert created.json()["content"] == {"transcode_status": None, "transcode_error": None, "duration_seconds": None}
 
-    video = ModuleVideo(
-        id=uuid.uuid4(), item_id=uuid.UUID(item_id), source_bucket="lms-video-sources",
-        source_path=f"{item_id}/source.mp4", transcode_status="pending",
+    video = Video(
+        id=uuid.uuid4(), owner_type="module_item", owner_id=uuid.UUID(item_id),
+        provider="upload", upload_mode="hls_encrypted", source_bucket="lms-video-sources",
+        source_path=f"{item_id}/source.mp4", status="pending",
     )
     db.add(video)
     await db.commit()
@@ -502,7 +505,7 @@ async def test_video_item_exposes_transcode_status_through_admin_api(db, client)
     pending = await client.get(f"/lms/admin/modules/{module.id}/items", headers=_headers(ops))
     assert pending.json()[0]["content"]["transcode_status"] == "pending"
 
-    await run_transcode(db, uuid.UUID(item_id), encoder=_fake_encoder)
+    await run_encrypted_transcode(db, video.id, encoder=_fake_encoder)
 
     ready = await client.get(f"/lms/admin/modules/{module.id}/items", headers=_headers(ops))
     ready_content = ready.json()[0]["content"]

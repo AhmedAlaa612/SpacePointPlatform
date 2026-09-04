@@ -572,6 +572,27 @@ async def confirm_design_step(
     if step_key not in confirmed:
         confirmed.add(step_key)
         design.confirmed_steps = sorted(confirmed)
+        await db.flush()
+
+    # Auto-finalize (2026-09): once every step this cohort's variant
+    # actually includes has been explicitly confirmed, and the design is
+    # fully valid end to end (this also covers 'downlink', which has no
+    # confirm button of its own — it isn't in CONFIRMABLE_STEP_KEYS),
+    # there's nothing left for the student to decide. Requiring a further,
+    # separate "Mark design complete" click at that point would just repeat
+    # work already done — see mark_design_complete's own docstring for what
+    # this reuses. Recomputes the dashboard rather than trusting whatever
+    # `ready` above already checked for a single step, since a non-"setup"
+    # confirm only validates that one step.
+    if attempt.status == "in_progress":
+        variant = await db.get(MissionVariant, attempt.variant_id)
+        dash = await design_service.compute_dashboard(
+            db, design=design, variant_config=(variant.config or {}) if variant else {}, attempt=attempt,
+        )
+        required = {"setup"} | (dash["included_steps"] & CONFIRMABLE_STEP_KEYS)
+        if required <= confirmed and dash["all_valid"]:
+            await mark_design_complete(db, attempt=attempt)
+
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result

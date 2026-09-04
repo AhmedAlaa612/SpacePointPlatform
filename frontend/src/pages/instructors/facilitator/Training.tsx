@@ -1,9 +1,9 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ExternalLink, Pencil, PlayCircle, Plus, Trash2 } from "lucide-react"
+import { ExternalLink, Pencil, PlayCircle, Plus, Trash2, Upload } from "lucide-react"
 import {
   createTrainingModuleApi, deleteTrainingModuleApi, deleteTrainingVideoApi,
-  facilitatorListTrainingApi, addTrainingVideoApi, updateTrainingVideoApi,
+  facilitatorListTrainingApi, addTrainingVideoApi, updateTrainingVideoApi, uploadTrainingVideoApi,
 } from "@/api/instructors/facilitator"
 import type { TrainingVideo } from "@/types/instructors"
 import { Button } from "@/components/ui/button"
@@ -13,6 +13,7 @@ import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/
 
 export default function FacilitatorTraining() {
   const qc = useQueryClient()
+  const uploadFileRef = useRef<HTMLInputElement>(null)
   const [newModuleOpen, setNewModuleOpen] = useState(false)
   const [newModuleTitle, setNewModuleTitle] = useState("")
   const [addVideoModuleId, setAddVideoModuleId] = useState<string | null>(null)
@@ -62,6 +63,14 @@ export default function FacilitatorTraining() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["facilitator-training"] }),
   })
 
+  const uploadVideo = useMutation({
+    mutationFn: (file: File) => uploadTrainingVideoApi(editVideo!.id, file),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["facilitator-training"] })
+      setEditVideo(null)
+    },
+  })
+
   function openEditVideo(v: TrainingVideo) {
     setEditVideo(v)
     setEditTitle(v.title)
@@ -99,15 +108,22 @@ export default function FacilitatorTraining() {
                 {m.videos.map((v) => (
                   <div key={v.id} className="flex items-center gap-3 p-3 rounded-lg border bg-background">
                     <PlayCircle className="text-primary shrink-0" size={18} />
-                    <a
-                      href={v.video_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0"
-                    >
-                      <span className="truncate">{v.title}</span>
-                      <ExternalLink size={12} className="shrink-0 text-muted-foreground" />
-                    </a>
+                    {v.video_uploaded ? (
+                      <span className="text-sm flex-1 truncate flex items-center gap-1.5 min-w-0">
+                        <span className="truncate">{v.title}</span>
+                        <span className="text-muted-foreground shrink-0 text-xs">(uploaded)</span>
+                      </span>
+                    ) : (
+                      <a
+                        href={v.video_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0"
+                      >
+                        <span className="truncate">{v.title}</span>
+                        <ExternalLink size={12} className="shrink-0 text-muted-foreground" />
+                      </a>
+                    )}
                     <button onClick={() => openEditVideo(v)} className="p-1 text-muted-foreground hover:text-primary">
                       <Pencil size={14} />
                     </button>
@@ -176,6 +192,22 @@ export default function FacilitatorTraining() {
             disabled={!editTitle || !editUrl || updateVideo.isPending}
           >
             {updateVideo.isPending ? "Saving…" : "Save changes"}
+          </Button>
+
+          <div className="flex items-center gap-2 my-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">or</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <input ref={uploadFileRef} type="file" accept="video/*" className="input mb-3" />
+          <Button
+            variant="outline"
+            onClick={() => { const f = uploadFileRef.current?.files?.[0]; if (f) uploadVideo.mutate(f) }}
+            disabled={uploadVideo.isPending}
+          >
+            <Upload size={14} className="mr-1.5" />
+            {uploadVideo.isPending ? "Uploading…" : "Upload a video file instead"}
           </Button>
         </DialogContent>
       </Dialog>

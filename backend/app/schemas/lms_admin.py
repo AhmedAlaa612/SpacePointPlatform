@@ -500,7 +500,13 @@ class LmsProgramItemOut(BaseModel):
     mission_step_key: str | None = None
     gated: bool = False
     guideline_kind: str | None = None
+    # A YouTube/Vimeo `video` guideline resolves straight into guideline_url
+    # above. An *uploaded* `video` guideline instead flips this flag and
+    # leaves guideline_url unset — same no-baked-in-signed-url posture
+    # `has_pdf` follows; the authoring UI calls the separate resolve-url
+    # endpoint to preview it.
     guideline_url: str | None = None
+    guideline_video_uploaded: bool = False
     checkpoint_label: str | None = None
 
 
