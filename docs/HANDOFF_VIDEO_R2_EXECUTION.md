@@ -4,11 +4,33 @@
 **Supersedes the sequencing in** `HANDOFF_VIDEO_R2_MIGRATION.md` §2–3 (that doc's *analysis* still
 holds; this one is the ordered, decision-closed version, sized for a hard deadline).
 
-**Assumes as already-done:** the video-service standardization pass (one `videos` table, one
-`backend/app/services/video_service.py`, `create_video_token`/`decode_video_token` keyed on
-`video_id`). Where this plan says `Video` / `video_service.py`, read `ModuleVideo` /
-`services/lms/video.py` if that work has not landed yet — every step here works either way, only
-the file/attribute names change.
+**Baseline:** PR #43 (`f7b2f01`, "Standardize video handling") is **merged to `main`**. Everything
+below is written against that code, verified by reading it — not against the pre-#43 shape. Names
+that changed, and that every script and snippet here already uses:
+
+| Pre-#43 | Now |
+|---|---|
+| `ModuleVideo` (table `module_videos`) | `Video` (`app/models/videos.py`, table `videos`), filtered `where(Video.owner_type == "module_item")` |
+| `.item_id` | `.owner_id` |
+| `.transcode_status` / `.transcode_error` | `.status` / `.status_error` |
+| `services/lms/video.py` (deleted) | `services/video_service.py` |
+| ARQ job `transcode_lms_video` | ARQ job `transcode_video` (`app/workers/tasks/video.py`) |
+| video JWT claim `item_id` | claim `video_id` |
+
+### Two constants that must NOT be "cleaned up"
+
+1. **`HLS_BUCKET = "lms-hls"`** in `video_service.py`. It is not a per-row DB column — both old and
+   new code hardcode it and assume every row's `playlist_path`/`key_path` lives under it. Renaming
+   it to something more generic-sounding (`video-hls`) already broke playback of every pre-existing
+   video once during #43's development; it was caught and reverted. The comment above it in the
+   merged code explains this. Leave it.
+2. **A row's storage prefix is `playlist_path`'s directory, NOT `video.id`.** The migration
+   backfilled each pre-existing video with a *freshly generated* `uuid4()` id while copying
+   `playlist_path` verbatim — so for all ~110 existing videos, `playlist_path` is
+   `{item_id}/playlist.m3u8` and `str(video.id)` is something else entirely. The merged read path
+   already does this correctly (`routers/lms/video.py:193`,
+   `video_service.py::_delete_storage`); anything new must match it. §2.4 covers the one place the
+   merged code does *not*, which matters specifically for this migration.
 
 **Decisions taken by the operator (2026-09-04), not open for re-litigation here:**
 - Students are **remote, on their own connections** — no shared venue uplink ceiling.
@@ -55,7 +77,7 @@ quality* decision, not a cost one (see §2).
 re-encodes based on **codec**, never resolution or bitrate:
 
 ```python
-# services/lms/video.py — today
+# video_service.py — as merged in #43 (ported verbatim from the deleted services/lms/video.py)
 codec_args = ["-c", "copy"] if _probe_is_h264_aac(source) else [720p @ 800k transcode]
 ```
 
@@ -83,12 +105,15 @@ import csv, json, subprocess, tempfile, asyncio, pathlib
 from app.services import storage
 from app.db.session import AsyncSessionLocal
 from sqlalchemy import select
-from app.models.lms import ModuleVideo   # or app.models.videos.Video post-standardization
+from app.models.videos import Video
 
 async def main():
     rows = []
     async with AsyncSessionLocal() as db:
-        vids = (await db.execute(select(ModuleVideo))).scalars().all()
+        vids = (await db.execute(
+            select(Video).where(Video.owner_type == "module_item",
+                                Video.upload_mode == "hls_encrypted")
+        )).scalars().all()
         for v in vids:
             if not v.source_path:
                 continue
@@ -102,13 +127,15 @@ async def main():
             vs = next((s for s in j["streams"] if s["codec_type"]=="video"), {})
             aud = next((s for s in j["streams"] if s["codec_type"]=="audio"), {})
             rows.append({
-                "item_id": str(v.item_id), "size_mb": round(len(data)/1e6,1),
+                "video_id": str(v.id), "owner_id": str(v.owner_id),
+                "prefix": (v.playlist_path or "").rsplit("/", 1)[0],
+                "size_mb": round(len(data)/1e6,1),
                 "duration_s": round(float(j["format"].get("duration",0))),
                 "vcodec": vs.get("codec_name"), "acodec": aud.get("codec_name"),
                 "width": vs.get("width"), "height": vs.get("height"),
                 "fps": vs.get("r_frame_rate"),
                 "bitrate_kbps": round(int(j["format"].get("bit_rate",0))/1000),
-                "status": v.transcode_status,
+                "status": v.status,
             })
             pathlib.Path(src).unlink(missing_ok=True)
     with open("/tmp/video_audit.csv","w",newline="") as f:
@@ -126,6 +153,7 @@ PY
 | Rows with `height > 1080` **and** `vcodec == h264` | Were copied through at full resolution. These are the worst offenders and *must* be re-encoded. |
 | Rows with `bitrate_kbps > 3000` | Same — students are downloading far more than they need. |
 | Rows already ≤1080p, h264/aac, ≤3000 kbps, ≤30 fps | **Can be `-c copy`'d — near-zero CPU.** Every row in this bucket is encode time you don't spend. |
+| `prefix` ≠ `video_id` on a row | Normal and expected — that row was backfilled by #43's migration. It is why §2.4 exists. Keep this column; §4.2 and §5.3 both use it. |
 | `fps` near 60 | Halving to 30 cuts required bitrate ~35% for identical perceived quality on lecture content. |
 
 Do not skip this. The difference between "20 rows need a real encode" and "110 rows need a real
@@ -282,7 +310,7 @@ source files buys nothing this month.
 
 ## Phase 2 — Encoder changes
 
-`backend/app/services/video_service.py` (or `services/lms/video.py` pre-standardization).
+`backend/app/services/video_service.py`.
 
 ### 2.1 Segment length — 10 seconds, not 20
 
@@ -374,6 +402,40 @@ Every difference from your `compresstest` command, and why:
 existing keyframes, so its segments land on the nearest source keyframe at or after 10s. That is
 fine and expected.
 
+### 2.4 Make the transcode's output prefix stable — required for §5.3's rollback
+
+The merged `run_encrypted_transcode` writes its output to `prefix = str(video_id)` and then sets
+`playlist_path = f"{prefix}/playlist.m3u8"` (`video_service.py:309`). That is self-consistent for a
+*fresh* upload, and the read path derives the prefix back out of `playlist_path`, so nothing is
+broken today.
+
+But it is wrong for this migration specifically. Re-encoding a **backfilled** video (all ~110 of
+them) would *move* it from `{owner_id}/…` to `{video.id}/…`. Consequences:
+
+- The old 4-second local HLS tree is orphaned at a path no DB row points at any more.
+- **§5.3's one-env-var rollback stops working** — flipping `VIDEO_STORAGE_BACKEND` back to local
+  would look for `{video.id}/playlist.m3u8` on local disk, which was never written there. 404 on
+  every video, during the event, with no quick way back.
+
+Fix it by reusing the existing prefix when there is one:
+
+```python
+# video_service.py::run_encrypted_transcode
+# Reuse the row's established prefix so a re-encode overwrites in place rather
+# than relocating. Backfilled rows carry an owner_id-shaped prefix (#43's
+# migration copied playlist_path verbatim onto a freshly-generated id); a
+# fresh upload has no playlist_path yet and gets video.id, as before. Keeping
+# the prefix stable is what lets the old local tree and the new R2 tree sit at
+# the same key, which is the whole rollback story (§5.3).
+prefix = video.playlist_path.rsplit("/", 1)[0] if video.playlist_path else str(video_id)
+```
+
+This is the **only** change this plan makes to code that shipped in #43. It is safe on its own
+(fresh uploads behave identically) and should land in the same branch as the rest, not separately.
+
+Paired constraint on §4.2: **the re-encode driver must not null `playlist_path` before enqueuing**,
+or this fix has nothing to read.
+
 ---
 
 ## Phase 3 — Serve segments from R2
@@ -400,20 +462,30 @@ the playlist's own URL and therefore keeps working behind nginx's `/api/` prefix
 existing comment in that function explains.
 
 ```python
-async def _rewrite_playlist(raw: bytes, video, token: str, *, expires_in: int) -> bytes:
+async def _rewrite_playlist(raw: bytes, video: Video, token: str, *, expires_in: int) -> bytes:
     key_line = re.compile(r'URI="[^"]*"')
+    # Same derivation as get_segment (routers/lms/video.py:193) and
+    # video_service._delete_storage — NEVER f"{video.id}/…". A row backfilled
+    # by #43's migration has a freshly-generated id that does not match its
+    # storage prefix, and assuming otherwise is exactly the bug class #43
+    # already had to fix once.
+    prefix = video.playlist_path.rsplit("/", 1)[0]
     out = []
     for line in raw.decode("utf-8").splitlines():
         if line.startswith("#EXT-X-KEY"):
             out.append(key_line.sub(f'URI="key?token={token}"', line))   # stays on the API
         elif line and not line.startswith("#"):
             out.append(await storage.get_signed_url(
-                HLS_BUCKET, f"{video.id}/{line}",
+                HLS_BUCKET, f"{prefix}/{line}",
                 expires_in=expires_in, backend=_video_backend()))
         else:
             out.append(line)
     return ("\n".join(out) + "\n").encode("utf-8")
 ```
+
+Note this makes `_rewrite_playlist` **async** and gives it the `Video` row instead of the
+`item_id`; update `get_playlist`'s call site accordingly. `item_id` was only ever used to build a
+relative URL that no longer appears in the R2 branch.
 
 Presigning is a local HMAC — no network call, nothing billed. ~30 signatures for a 5-minute lesson
 at 10s segments is microseconds.
@@ -471,12 +543,28 @@ New `backend/scripts/lms_reencode_all.py`, modelled on the existing
 `scripts/lms_retry_failed_transcodes.py`. It does **not** re-upload sources (they are already on
 the VPS) — it just resets status and enqueues:
 
+```python
+# select(Video).where(Video.owner_type == "module_item",
+#                     Video.upload_mode == "hls_encrypted")
+# optional filters: --course "name" / --only-above-1080 (join the audit CSV) / --dry-run
+for video in rows:
+    # Deliberately NOT nulling playlist_path/key_path: §2.4's stable-prefix fix
+    # reads playlist_path to decide where to write, and §5.3's rollback depends
+    # on the prefix not moving. Both paths are overwritten in place by the job.
+    video.status = "pending"
+    video.status_error = None
+    await db.commit()
+    await enqueue_transcode(arq_redis, video.id)      # -> ARQ job "transcode_video"
+    log(video.id, video.owner_id, prefix, source res/bitrate from the audit CSV, copy-vs-encode)
 ```
-for each video row (optionally --course "name" / --only-above-1080 / --dry-run):
-    video.playlist_path = None; video.key_path = None
-    video.status = "pending"; video.status_error = None
-    enqueue transcode_lms_video(video_id)
-    log item_id, source resolution/bitrate from the audit CSV, decision (copy vs encode)
+
+Before the run, **dump the columns you are about to change** — this is §5.3's other half and takes
+one command:
+
+```bash
+psql -d spacepoint_unified -c "\copy (SELECT id, owner_id, playlist_path, key_path, \
+  duration_seconds, status FROM videos WHERE owner_type='module_item') \
+  TO '/root/videos_pre_reencode.csv' CSV HEADER"
 ```
 
 Run it with `VIDEO_STORAGE_BACKEND=r2` already set on the worker container, so output lands
@@ -504,18 +592,24 @@ Keep the old local `lms-hls` tree on disk until after the competition — see §
 
 1. Re-encode a single video with `VIDEO_STORAGE_BACKEND=r2`.
 2. `GET /lms/items/{id}/video/token` → 200.
-3. `GET /lms/videos/{id}/playlist?token=…` → segment lines are absolute
+3. Pick a **backfilled** video for this test (one whose `prefix` ≠ `video_id` in the §0.1 CSV) —
+   that is the case §2.4 exists for, and the case a fresh-upload smoke test would not exercise.
+4. `GET /lms/videos/{id}/playlist?token=…` → segment lines are absolute
    `https://<account>.r2.cloudflarestorage.com/...X-Amz-Signature=...` URLs; the `#EXT-X-KEY`
    line is still relative `key?token=…`.
-4. `curl -o /dev/null -w '%{http_code} %{size_download} %{time_total}\n' '<one presigned URL>'` →
+5. `curl -o /dev/null -w '%{http_code} %{size_download} %{time_total}\n' '<one presigned URL>'` →
    200, plausible size, and note the time: **that is your students' per-segment latency with no
    CDN in front.** If it is above ~400ms consistently, revisit the bucket region (§0.2).
-5. Play it in a real browser, in an incognito window, as a real enrolled student account. Watch
+6. Play it in a real browser, in an incognito window, as a real enrolled student account. Watch
    the network tab: exactly 3 requests to `portal.spacepoint.ae`, everything else to R2.
-6. **Seek to the middle, and seek backwards.** This is where a wrong segment length or a broken
+7. **Seek to the middle, and seek backwards.** This is where a wrong segment length or a broken
    keyframe interval shows up.
-7. Confirm the LMS checkpoint overlay still pauses and resumes (unchanged code path, but it is
-   the thing most likely to have been disturbed by the standardization refactor).
+8. Confirm the LMS checkpoint overlay still pauses and resumes (unchanged code path, but it is
+   the thing most likely to have been disturbed by #43).
+9. Confirm the other three owner types still work — #43 wired `library_resource`,
+   `program_item_guideline` and `training_video` onto the same table. They use `direct`/embed
+   modes, so R2 does not touch them, but `VIDEO_STORAGE_BACKEND` does route their signed URLs if
+   their bytes ever move. Load one of each page and confirm nothing regressed.
 
 ### 5.2 Load
 
@@ -536,13 +630,26 @@ synthetic test will not catch a CORS misconfiguration or a codec-profile problem
 
 ### 5.3 Rollback
 
-This is the payoff for keeping the old segment route (§3.3) and the old local files (§4.3):
+This is the payoff for keeping the old segment route (§3.3), the old local files (§4.3), and
+above all §2.4's stable prefix:
 
 > **`VIDEO_STORAGE_BACKEND=""` in `/etc/spacepoint/env`, then recreate the containers.**
 
-Storage paths are identical (`{video_id}/playlist.m3u8`), so the same DB rows resolve against
-local disk again and playback returns to exactly today's behaviour with the old 4-second segments.
-One env var, no migration to unwind, no data to restore.
+**Why this works — and the one thing that would break it.** With §2.4 in place, a re-encode writes
+the new 10-second HLS tree to R2 under the *same* key prefix the old 4-second tree occupies on
+local disk, and `playlist_path` never changes. So the identical DB row resolves to the old local
+tree or the new R2 tree purely by which backend the facade dispatches to. One env var, nothing to
+unwind, no data to restore.
+
+**Without §2.4 this rollback silently does not exist** — the re-encode would have relocated every
+backfilled row to a `{video.id}`-shaped prefix that was never written to local disk, and flipping
+the env var would 404 all ~110 videos. If for any reason §2.4 does not land, the fallback is the
+CSV from §4.2: restore `playlist_path`/`key_path`/`duration_seconds` for the affected rows first,
+*then* flip the env var. Slower, needs psql under pressure, and is exactly the thing you do not
+want to be doing during the event — land §2.4.
+
+Rollback does not restore `duration_seconds` differences or re-mark statuses; take the §4.2 CSV
+regardless, as belt and braces.
 
 **Remember `/etc/spacepoint/env` is only read at container *creation*** (`HANDOFF_VPS_DEPLOYMENT.md`
 §2) — editing it is not enough, the containers must be recreated. Rehearse this rollback once,
@@ -551,6 +658,8 @@ before the event, so nobody is reading a handoff doc at 2am.
 ### 5.4 Go/no-go checklist
 
 - [ ] §0.1 audit run; total duration and the over-1080p count are known numbers, not guesses
+- [ ] §2.4 stable-prefix fix landed **before** any bulk re-encode (rollback depends on it)
+- [ ] §4.2 pre-re-encode CSV of `videos` taken and stored off the container
 - [ ] R2 bucket region measured from a representative connection
 - [ ] R2 CORS set and verified with a real browser (not curl — curl ignores CORS)
 - [ ] `max_jobs = 1` deployed **before** any bulk enqueue
@@ -581,7 +690,8 @@ before the event, so nobody is reading a handoff doc at 2am.
    **not** an alternative — it is rate-limited to hundreds of requests/second and Cloudflare
    documents it as not for production.
 3. **Streaming uploads.** `routers/lms/video.py` does `data = await file.read()` against a **4 GB**
-   cap — a single large upload can OOM the VPS. Stream to a temp file instead. Not a competition
+   cap, then hands the whole `bytes` object to `video_service.attach_upload` — two full copies in
+   RAM on a VPS that does not have that. Stream to a temp file instead. Not a competition
    risk if nobody uploads during the event; a real risk the moment someone does.
 4. **Move `lms-video-sources` to R2** and reclaim ~20 GB of VPS disk.
 5. Revisit `services/games/realtime.py`'s one-Redis-connection-per-student pattern only if live
