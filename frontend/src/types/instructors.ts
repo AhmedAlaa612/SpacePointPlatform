@@ -111,6 +111,10 @@ export interface TrainingVideo {
    * video service — fetch the actual playback URL on demand via
    * `streamVideoApi`, same posture as `has_pdf`/`guideline_video_uploaded`. */
   video_uploaded: boolean
+  /** True once a PDF has been uploaded for this item instead of a video —
+   * mutually exclusive with video_uploaded/an embed link. Resolved fresh
+   * via `getTrainingPdfUrlApi`, never baked in here. */
+  has_pdf: boolean
   sort_order: number
   is_completed: boolean
 }

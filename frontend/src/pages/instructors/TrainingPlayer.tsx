@@ -1,11 +1,12 @@
 import { Link, useParams } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ArrowLeft, CheckCircle2 } from "lucide-react"
-import { listTrainingApi, markVideoCompleteApi, streamVideoApi } from "@/api/instructors/training"
+import { getTrainingPdfUrlApi, listTrainingApi, markVideoCompleteApi, streamVideoApi } from "@/api/instructors/training"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { VideoPlayer } from "@/components/video/VideoPlayer"
+import { PdfViewer } from "@/components/documents/PdfViewer"
 import { isKnownEmbedHost } from "@/lib/embed"
 
 export default function TrainingPlayer() {
@@ -33,6 +34,12 @@ export default function TrainingPlayer() {
     },
   })
 
+  const { data: pdfUrl, isError: pdfError } = useQuery({
+    queryKey: ["training-pdf-url", videoId],
+    queryFn: () => getTrainingPdfUrlApi(videoId),
+    enabled: !!video?.has_pdf,
+  })
+
   if (isLoading || !video) return <Spinner />
 
   return (
@@ -43,8 +50,16 @@ export default function TrainingPlayer() {
       <PageHeader title={video.title} subtitle={video.description ?? undefined} />
 
       <Card className="mb-4">
-        <CardContent className="p-0">
-          {video.video_uploaded ? (
+        <CardContent className={video.has_pdf ? "p-4 h-[80vh] flex flex-col" : "p-0"}>
+          {video.has_pdf ? (
+            pdfError ? (
+              <p className="text-sm text-destructive py-6">Couldn't load this PDF.</p>
+            ) : !pdfUrl ? (
+              <p className="text-sm text-muted-foreground py-6">Loading document...</p>
+            ) : (
+              <PdfViewer url={pdfUrl} className="flex flex-col gap-3 flex-1 min-h-0" />
+            )
+          ) : video.video_uploaded ? (
             streamUrl?.video_info ? (
               <VideoPlayer
                 info={streamUrl.video_info}

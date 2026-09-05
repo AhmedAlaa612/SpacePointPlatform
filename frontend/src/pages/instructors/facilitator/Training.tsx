@@ -1,28 +1,47 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ExternalLink, Pencil, PlayCircle, Plus, Trash2, Upload } from "lucide-react"
+import { ExternalLink, FileText, Link2, Pencil, PlayCircle, Plus, Trash2, Upload } from "lucide-react"
 import {
   createTrainingModuleApi, deleteTrainingModuleApi, deleteTrainingVideoApi,
   facilitatorListTrainingApi, addTrainingVideoApi, updateTrainingVideoApi, uploadTrainingVideoApi,
+  uploadTrainingPdfApi, getTrainingPdfUrlApi,
 } from "@/api/instructors/facilitator"
 import type { TrainingVideo } from "@/types/instructors"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
+import { PdfViewer } from "@/components/documents/PdfViewer"
+
+function PdfPreview({ videoId }: { videoId: string }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["training-pdf-url", videoId],
+    queryFn: () => getTrainingPdfUrlApi(videoId),
+  })
+  if (isLoading) return <p className="text-sm text-muted-foreground py-6">Loading document...</p>
+  if (isError || !data) return <p className="text-sm text-destructive py-6">Couldn't load this PDF.</p>
+  return <PdfViewer url={data} className="flex flex-col gap-3 flex-1 min-h-0" />
+}
 
 export default function FacilitatorTraining() {
   const qc = useQueryClient()
   const uploadFileRef = useRef<HTMLInputElement>(null)
+  const uploadPdfRef = useRef<HTMLInputElement>(null)
+  const addFileRef = useRef<HTMLInputElement>(null)
   const [newModuleOpen, setNewModuleOpen] = useState(false)
   const [newModuleTitle, setNewModuleTitle] = useState("")
   const [addVideoModuleId, setAddVideoModuleId] = useState<string | null>(null)
+  // Mirrors the Library "Add resource" toggle — a training item is exactly
+  // one of a pasted link, an uploaded video, or an uploaded PDF.
+  const [addMode, setAddMode] = useState<"link" | "video" | "pdf">("link")
   const [videoTitle, setVideoTitle] = useState("")
   const [videoUrl, setVideoUrl] = useState("")
 
   const [editVideo, setEditVideo] = useState<TrainingVideo | null>(null)
   const [editTitle, setEditTitle] = useState("")
   const [editUrl, setEditUrl] = useState("")
+
+  const [previewVideo, setPreviewVideo] = useState<TrainingVideo | null>(null)
 
   const { data: modules, isLoading } = useQuery({ queryKey: ["facilitator-training"], queryFn: facilitatorListTrainingApi })
 
@@ -40,13 +59,26 @@ export default function FacilitatorTraining() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["facilitator-training"] }),
   })
 
+  // One action regardless of addMode: create the bare row, then — for
+  // video/pdf — immediately upload the picked file against the id just
+  // created. A single click for the facilitator even though it's two API
+  // calls, instead of "save, then go find the upload button elsewhere."
   const addVideo = useMutation({
-    mutationFn: () => addTrainingVideoApi({ moduleId: addVideoModuleId!, title: videoTitle, url: videoUrl }),
+    mutationFn: async () => {
+      const created = await addTrainingVideoApi({
+        moduleId: addVideoModuleId!, title: videoTitle, url: addMode === "link" ? videoUrl : undefined,
+      })
+      if (addMode === "video") {
+        const file = addFileRef.current?.files?.[0]
+        if (file) await uploadTrainingVideoApi(created.id, file)
+      } else if (addMode === "pdf") {
+        const file = addFileRef.current?.files?.[0]
+        if (file) await uploadTrainingPdfApi(created.id, file)
+      }
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["facilitator-training"] })
-      setAddVideoModuleId(null)
-      setVideoTitle("")
-      setVideoUrl("")
+      closeAddDialog()
     },
   })
 
@@ -70,6 +102,28 @@ export default function FacilitatorTraining() {
       setEditVideo(null)
     },
   })
+
+  const uploadPdf = useMutation({
+    mutationFn: (file: File) => uploadTrainingPdfApi(editVideo!.id, file),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["facilitator-training"] })
+      setEditVideo(null)
+    },
+  })
+
+  function openAddVideo(moduleId: string) {
+    setAddVideoModuleId(moduleId)
+    setAddMode("link")
+    setVideoTitle("")
+    setVideoUrl("")
+  }
+
+  function closeAddDialog() {
+    setAddVideoModuleId(null)
+    setAddMode("link")
+    setVideoTitle("")
+    setVideoUrl("")
+  }
 
   function openEditVideo(v: TrainingVideo) {
     setEditVideo(v)
@@ -96,7 +150,7 @@ export default function FacilitatorTraining() {
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>{m.title}</CardTitle>
                 <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setAddVideoModuleId(m.id)}>
+                  <Button size="sm" variant="outline" onClick={() => openAddVideo(m.id)}>
                     <Plus size={14} className="mr-1" /> Video
                   </Button>
                   <button onClick={() => deleteModule.mutate(m.id)} className="p-2 text-muted-foreground hover:text-destructive">
@@ -107,8 +161,17 @@ export default function FacilitatorTraining() {
               <CardContent className="space-y-2">
                 {m.videos.map((v) => (
                   <div key={v.id} className="flex items-center gap-3 p-3 rounded-lg border bg-background">
-                    <PlayCircle className="text-primary shrink-0" size={18} />
-                    {v.video_uploaded ? (
+                    {v.has_pdf ? <FileText className="text-primary shrink-0" size={18} /> : <PlayCircle className="text-primary shrink-0" size={18} />}
+                    {v.has_pdf ? (
+                      <button
+                        type="button"
+                        onClick={() => setPreviewVideo(v)}
+                        className="text-sm flex-1 truncate hover:text-primary flex items-center gap-1.5 min-w-0 text-left cursor-pointer"
+                      >
+                        <span className="truncate">{v.title}</span>
+                        <span className="text-muted-foreground shrink-0 text-xs">(PDF)</span>
+                      </button>
+                    ) : v.video_uploaded ? (
                       <span className="text-sm flex-1 truncate flex items-center gap-1.5 min-w-0">
                         <span className="truncate">{v.title}</span>
                         <span className="text-muted-foreground shrink-0 text-xs">(uploaded)</span>
@@ -148,26 +211,70 @@ export default function FacilitatorTraining() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!addVideoModuleId} onOpenChange={(open) => !open && setAddVideoModuleId(null)}>
+      <Dialog open={!!addVideoModuleId} onOpenChange={(open) => !open && closeAddDialog()}>
         <DialogContent>
           <DialogHeader><DialogTitle>Add training video</DialogTitle></DialogHeader>
+
+          <div className="flex gap-2 mb-3">
+            <button
+              onClick={() => setAddMode("link")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                addMode === "link"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <Link2 size={14} /> Embed link
+            </button>
+            <button
+              onClick={() => setAddMode("video")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                addMode === "video"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <Upload size={14} /> Upload video
+            </button>
+            <button
+              onClick={() => setAddMode("pdf")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+                addMode === "pdf"
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border text-muted-foreground hover:bg-muted"
+              }`}
+            >
+              <FileText size={14} /> Upload PDF
+            </button>
+          </div>
+
           <input
             className="input mb-3"
             placeholder="Video title"
             value={videoTitle}
             onChange={(e) => setVideoTitle(e.target.value)}
           />
-          <input
-            className="input mb-3"
-            placeholder="YouTube or video link (https://…)"
-            value={videoUrl}
-            onChange={(e) => setVideoUrl(e.target.value)}
-          />
+
+          {addMode === "link" ? (
+            <input
+              key="url-input"
+              className="input mb-3"
+              placeholder="YouTube or video link (https://…)"
+              value={videoUrl}
+              onChange={(e) => setVideoUrl(e.target.value)}
+            />
+          ) : (
+            <input
+              key="file-input"
+              ref={addFileRef} type="file" accept={addMode === "video" ? "video/*" : "application/pdf"} className="input mb-3"
+            />
+          )}
+
           <Button
             onClick={() => addVideo.mutate()}
-            disabled={!videoTitle || !videoUrl || addVideo.isPending}
+            disabled={!videoTitle || (addMode === "link" && !videoUrl) || addVideo.isPending}
           >
-            {addVideo.isPending ? "Adding…" : "Add video"}
+            {addVideo.isPending ? "Adding…" : addMode === "link" ? "Add video" : addMode === "video" ? "Upload video" : "Upload PDF"}
           </Button>
         </DialogContent>
       </Dialog>
@@ -209,6 +316,23 @@ export default function FacilitatorTraining() {
             <Upload size={14} className="mr-1.5" />
             {uploadVideo.isPending ? "Uploading…" : "Upload a video file instead"}
           </Button>
+
+          <input ref={uploadPdfRef} type="file" accept="application/pdf" className="input mb-3 mt-3" />
+          <Button
+            variant="outline"
+            onClick={() => { const f = uploadPdfRef.current?.files?.[0]; if (f) uploadPdf.mutate(f) }}
+            disabled={uploadPdf.isPending}
+          >
+            <FileText size={14} className="mr-1.5" />
+            {uploadPdf.isPending ? "Uploading…" : "Upload a PDF instead"}
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!previewVideo} onOpenChange={(open) => !open && setPreviewVideo(null)}>
+        <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] flex flex-col">
+          <DialogHeader><DialogTitle>{previewVideo?.title}</DialogTitle></DialogHeader>
+          {previewVideo && <PdfPreview videoId={previewVideo.id} />}
         </DialogContent>
       </Dialog>
     </div>

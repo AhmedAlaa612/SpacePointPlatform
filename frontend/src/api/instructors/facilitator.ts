@@ -11,7 +11,7 @@ export const deleteTrainingModuleApi = (moduleId: string) =>
   api.delete(`/instructors/facilitator/training/modules/${moduleId}`).then((r) => r.data)
 
 export const addTrainingVideoApi = (params: {
-  moduleId: string; title: string; url: string; description?: string; notes?: string; sortOrder?: number
+  moduleId: string; title: string; url?: string; description?: string; notes?: string; sortOrder?: number
 }) =>
   api.post(`/instructors/facilitator/training/videos`, {
     module_id: params.moduleId,
@@ -37,6 +37,15 @@ export const uploadTrainingVideoApi = (videoId: string, file: File) => {
   form.append("file", file)
   return api.post(`/instructors/facilitator/training/videos/${videoId}/upload`, form).then((r) => r.data)
 }
+
+export const uploadTrainingPdfApi = (videoId: string, file: File) => {
+  const form = new FormData()
+  form.append("file", file)
+  return api.post(`/instructors/facilitator/training/videos/${videoId}/pdf`, form).then((r) => r.data)
+}
+
+export const getTrainingPdfUrlApi = (videoId: string) =>
+  api.get<{ url: string }>(`/instructors/facilitator/training/videos/${videoId}/pdf/url`).then((r) => r.data.url)
 
 export const facilitatorListLibraryApi = () =>
   api.get<LibraryModule[]>("/instructors/facilitator/library/modules").then((r) => r.data)

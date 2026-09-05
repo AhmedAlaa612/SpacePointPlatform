@@ -17,6 +17,10 @@ class TrainingVideoOut(BaseModel):
     # guideline_video_uploaded follow. The player calls the separate
     # resolve-url endpoint (GET .../stream) to actually view it.
     video_uploaded: bool = False
+    # True for a PDF-format row (format="PDF") — mirrors LibraryResource's
+    # has_pdf/isInlinePdf posture exactly: no baked-in signed URL here, the
+    # player resolves one fresh (GET .../pdf/url) only once actually opened.
+    has_pdf: bool = False
     sort_order: int
     is_completed: bool = False
 
@@ -31,6 +35,7 @@ class TrainingVideoOut(BaseModel):
             notes=getattr(v, "notes"),
             video_url=getattr(v, "video_path", "") or "",
             video_uploaded=video_uploaded,
+            has_pdf=getattr(v, "format", None) == "PDF" and bool(getattr(v, "pdf_path", None)),
             sort_order=getattr(v, "sort_order"),
             is_completed=is_completed,
         )
