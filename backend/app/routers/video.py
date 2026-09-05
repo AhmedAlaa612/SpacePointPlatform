@@ -28,7 +28,7 @@ from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_active_user, require_instructor
+from app.core.dependencies import get_current_active_user, require_instructor, require_lms_content
 from app.core.security import create_video_token, decode_video_token
 from app.db.session import get_db
 from app.models.lms import CourseModule, Enrollment, ModuleItem
@@ -82,14 +82,24 @@ async def _check_program_item_guideline(db: AsyncSession, video: Video, user: Us
     not scoped to one particular assignment_id: the same checklist item (and
     so the same guideline video) can be shared across many students'
     assignments, and all any of them need to prove is "this item is on a
-    checklist actually assigned to me", not which specific assignment."""
+    checklist actually assigned to me", not which specific assignment.
+
+    Falls back to "can author checklist items at all" (same role gate
+    `upload_program_item_guideline_video` itself uses) for whoever isn't a
+    student with a progress row — the authoring UI's own "Preview" button on
+    an uploaded guideline video hits this exact endpoint, and its facilitator/
+    operations caller was never assigned the checklist item as a student."""
     exists = await db.scalar(
         select(LmsProgramItemProgress.id)
         .join(LmsProgramAssignment, LmsProgramItemProgress.assignment_id == LmsProgramAssignment.id)
         .where(LmsProgramItemProgress.item_id == video.owner_id, LmsProgramAssignment.user_id == user.id)
         .limit(1)
     )
-    if exists is None:
+    if exists is not None:
+        return
+    try:
+        await require_lms_content(current_user=user)
+    except HTTPException:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video not found")
 
 
