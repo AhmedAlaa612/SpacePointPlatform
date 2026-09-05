@@ -88,6 +88,7 @@ import Settings from "@/pages/admin/Settings";
 import AdminPrograms from "@/pages/admin/Programs";
 import AdminCohorts from "@/pages/admin/Cohorts";
 import AdminCohortDetail from "@/pages/admin/CohortDetail";
+import CohortWizard from "@/pages/admin/CohortWizard";
 import CompetitionJudging from "@/pages/admin/CompetitionJudging";
 import JudgeTeams from "@/pages/judge/JudgeTeams";
 import JudgeTeamDetail from "@/pages/judge/JudgeTeamDetail";
@@ -689,6 +690,7 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/reviews", component: Reviews }),
   createRoute({ getParentRoute: po, path: "/programs", component: AdminPrograms }),
   createRoute({ getParentRoute: po, path: "/cohorts", component: AdminCohorts }),
+  createRoute({ getParentRoute: po, path: "/cohorts/new", component: CohortWizard }),
   createRoute({ getParentRoute: po, path: "/cohorts/$cohortId", component: AdminCohortDetail }),
   createRoute({ getParentRoute: po, path: "/cohorts/$cohortId/judging", component: CompetitionJudging }),
   createRoute({ getParentRoute: po, path: "/cohorts/$cohortId/sessions/$sessionId", component: AdminSessionDetail }),
