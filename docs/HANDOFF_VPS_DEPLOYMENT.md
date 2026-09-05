@@ -3,7 +3,9 @@
 **Audience:** any agent picking up this repo cold who needs to understand what's actually running
 in production, how a change gets from a commit to a live server, and the operational gotchas that
 aren't obvious from reading the code. Written 2026-08-10 from direct, hands-on observation of a
-real deploy + a real bulk content import — not from documentation review.
+real deploy + a real bulk content import — not from documentation review. **Updated 2026-09-05**
+after the R2/video-compression rollout (PR #44 and follow-ups) actually deployed and all existing
+video content migrated — see §2, §6, §7, and the new §9.
 
 **This file deliberately contains no real secrets.** See §0.
 
@@ -39,18 +41,27 @@ in one of those files instead, not here.
 |---|---|---|
 | `spacepoint-api` | `ghcr.io/ahmedalaa612/spacepoint-api:latest` | `--network host`, `--env-file /etc/spacepoint/env`, storage volume `/var/lib/spacepoint/storage:/data/storage`. Entrypoint runs `alembic upgrade head` before `uvicorn` — migrations apply once per deploy, not on every boot. |
 | `spacepoint-worker` | same image | `arq app.workers.main.WorkerSettings` — every IO-bound job (email, LMS sync, inventory reminders, `heartbeat` cron). **Recreated fresh on every `deploy-backend.sh` run**, not just restarted — see the gotcha in §3. |
-| `spacepoint-worker-video` | same image | `arq app.workers.main.VideoWorkerSettings` — `transcode_video` only, on its own queue (`arq:queue:video`), `max_jobs=1`. **New with the R2/video-optimization branch, not yet confirmed by direct observation on the live VPS** (unlike every other row here) — first deploy of that branch is what stands this container up for the first time. Same bind-mounts/env-file/restart policy as `spacepoint-worker`; recreated the same way. If this container isn't running, `transcode_video` jobs queue and never run — uploads/re-encodes sit "pending" forever with no visible error. |
-| `spacepoint-redis` | `redis:7-alpine` | `127.0.0.1:6379`. **Not** recreated by `deploy-backend.sh` — confirmed by direct observation (uptime survives backend deploys), so the arq queue's state isn't lost on a routine deploy. |
+| `spacepoint-worker-video` | same image | `arq app.workers.main.VideoWorkerSettings` — `transcode_video` only, on its own queue (`arq:queue:video`), `max_jobs=1`. **Confirmed live** — deployed 2026-09-05, has drained every course's full re-encode/migrate-to-R2 backlog since (130 videos, ~34.6GB source → ~3GB output, see §9). Same bind-mounts/env-file/restart policy as `spacepoint-worker`; recreated the same way, but the swap order is deliberately different (stops the old container before starting the new one, not start-new-then-retire-old) — two containers both enforcing `max_jobs=1` against the same queue at once would let two encodes run concurrently. If this container isn't running, `transcode_video` jobs queue and never run — uploads/re-encodes sit "pending" forever with no visible error. |
+| `spacepoint-redis` | `redis:7-alpine` | `127.0.0.1:6379`. **Not** recreated by `deploy-backend.sh` — confirmed by direct observation (uptime survives backend deploys), so the arq queue's state isn't lost on a routine deploy. Also holds the `transcoding:{video_id}` lock keys used by `deploy-backend.sh --check`'s preflight (§3). |
 
 **Not in Docker:**
 
 - **nginx** — TLS via certbot, auto-renewing. One file per domain under
   `/etc/nginx/sites-available/`. `portal.spacepoint.ae`'s file is the canonical, confirmed-live
-  example (§4).
+  example (§4). Also carries a scoped `location ~* \.mjs$ { types { application/javascript mjs; }
+  default_type application/javascript; try_files $uri =404; }` block (added 2026-09-05, between the
+  `/files/` and `/` blocks) — without it, PDF.js's worker script (`pdf.worker.min.mjs`) is served
+  with `application/octet-stream` from the default `mime.types`, which the browser refuses to load
+  as an ES module. A regex `location` block always wins over the plain `location /` prefix block
+  regardless of file order, which is why this was scoped here instead of editing the shared system
+  `mime.types` (would affect every other app on the box).
 - **PostgreSQL 16**, port 5432 — the real database (`spacepoint_unified`) lives here. A
   *separate* PostgreSQL 17 also exists on this box on port 5433, left over from using its newer
   `pg_restore` during an earlier migration — don't confuse the two; the app only ever talks to
-  16/5432.
+  16/5432. `max_connections` bumped **100 → 150** on 2026-09-05 (`/etc/postgresql/16/main/postgresql.conf`,
+  requires a Postgres restart to take effect) to cover the second worker container: 3 uvicorn
+  workers × 15 (`pool_size=10`+`max_overflow=5`) + 2 worker containers × 15 = 75 possible app
+  connections, and 150 leaves real headroom for manual `psql`/`pg_dump` sessions on top.
 - **`/etc/spacepoint/env`** (mode `0600`) — the real env file `spacepoint-api`, `spacepoint-worker`,
   and `spacepoint-worker-video` all load via `--env-file`. Real values are outside this repo (§0). One trap:
   **this file is only read at container *creation***, so editing it and expecting the change to
@@ -175,36 +186,103 @@ active use include `lms-video-sources`, `lms-hls`, `lms-attachments`, `internshi
 (2026-08-20 — the internship request/letter domain, `HANDOFF_INTERNSHIP.md`), plus the
 pre-existing document/certificate buckets.
 
+**As of 2026-09-05, video HLS output is per-video, not per-bucket** — see §9. Every other bucket
+above (attachments, letters, documents) is still 100% local disk; only `videos.storage_backend`
+rows moved.
+
 ---
 
-## 7. Known state as of 2026-08-10
+## 7. R2 video storage (added 2026-09-05, PR #44 + follow-ups)
+
+Every video (LMS module, Library, checklist guideline, facilitator Training) now runs through the
+same `video_service` pipeline: compress to 1080p h264/aac, 10s HLS segments, and land on **one of
+two backends per row**, tracked by `videos.storage_backend` (`"r2"` or `NULL`/local) — there is no
+global on/off switch, and there never will be; it's an incremental, reversible, per-video decision.
+
+- **One R2 bucket for everything.** `storage_r2.py` maps `(app_bucket, path)` → key
+  `f"{app_bucket}/{path}"` inside a single real R2 bucket (`R2_BUCKET` in
+  `/etc/spacepoint/env`) — app-level "buckets" are just key prefixes, same convention as local
+  storage.
+- **`source_bucket`/`source_path` always point at local disk, never R2, and are never deleted** —
+  deliberate: it's the rollback path. `playlist_path`/`key_path` (the HLS output actually served to
+  students) is the only thing that differs per backend.
+- **Old local HLS output for already-migrated videos is deliberately kept on disk, not cleaned
+  up** — reclaiming that space is explicitly deferred to after the competition, not a bug or an
+  oversight if `df -h /var/lib/spacepoint` still looks full post-migration.
+- **Migration/status tool**: `python -m scripts.video_migrate_to_r2` (run inside `spacepoint-api`
+  or `spacepoint-worker`, per its own docstring) — `--status`, `--sizes` (real object sizes/ratios,
+  read-only, no download), `--convert`/`--reencode --course <id>` (enqueues onto
+  `arq:queue:video`, drained by `spacepoint-worker-video`, `max_jobs=1` so it's strictly serial —
+  batch per course, not all at once), `--move --to vps --video-id <id>` (the actual rollback path).
+  **All 130 pre-existing videos were migrated this way as of 2026-09-05** — `--sizes` showed
+  ~34.6GB source → ~3GB output (≈9% of original, ~31.6GB saved), ratios in the 6-11% range across
+  every course, all confirmed `on=r2`.
+- **Known real bug, fixed**: the migration script's `--convert`/`--reencode` originally called
+  `redis.enqueue_job()` directly without `_queue_name="arq:queue:video"`, landing jobs on the
+  default queue neither worker consumed — they'd sit at `status='pending'` indefinitely with no
+  error. Fixed in the same PR that added the script; if a job is ever seen stuck `pending` for more
+  than a couple minutes, this is the first thing to check (re-running `--reencode` for that one
+  video id re-enqueues it correctly).
+- **R2 dashboard "Metrics" tab is not real-time and is not proof of anything being wrong.**
+  `Average Storage`/`Data Retrieved` are periodic snapshots that can show `0 B` for up to ~24h
+  after a real migration, even while `Class A/B Operations` and `Request Distribution` correctly
+  show live non-zero traffic immediately. Trust `--sizes` (reads the actual bucket contents) or the
+  dashboard's **Objects** tab (real listing) over the **Metrics** tab if they ever seem to
+  disagree.
+- **CORS** on the bucket must list the real production domains (`https://portal.spacepoint.ae`,
+  `https://lms.spacepoint.ae`), not just `localhost` from local dev — otherwise hls.js fails every
+  segment fetch with a generic, misleading error. Set via Cloudflare dashboard → R2 → bucket →
+  Settings → CORS Policy.
+- See `docs/HANDOFF_VIDEO_R2_EXECUTION.md` for the original design/encode-settings rationale and
+  `docs/HANDOFF_COMPETITION_DAY_DEPLOY.md` for the runbook this was actually executed against.
+
+---
+
+## 8. Known state as of 2026-09-05
 
 A point-in-time snapshot — verify against `git log`, `docker ps`, and the actual site before
 trusting this section specifically (everything above it is architecture/mechanism and ages much
-slower than this list):
+slower than this list). Supersedes the 2026-08-10 snapshot this section used to hold; the items
+below either close out or update items from that list.
 
 - `lms.spacepoint.ae` is live, per §4's pattern.
 - LMS Phase 1 is functionally complete and deployed — course content, video pipeline, quizzes,
   PDF attachments, all live. See `HANDOFF_LMS.md` for the current architecture.
-- Introduction course: imported, transcoded, published.
-- 8 more courses (~110 videos, ~20.7GB) imported via a combined Drive folder from the boss;
-  transcoding/publish status not tracked here — check `/lms-authoring/courses` directly.
-- `client_max_body_size 50m` in nginx will `413` a video upload attempted through the browser
-  authoring UI (the bulk-import scripts are unaffected — they default to
-  `http://localhost:8000`, bypassing nginx entirely when run on the VPS itself). **Action
-  required on the VPS itself** (this file isn't tracked in-repo): bump this to `client_max_body_size
-  4g;` to match the app-level uploads, which were all raised to a 4GB ceiling
-  (`MAX_LIBRARY_FILE_BYTES`, `MAX_UPLOAD_BYTES`, `MAX_IMAGE_BYTES`, `MAX_ATTACHMENT_BYTES`,
-  `MAX_ZIP_BYTES`) — otherwise nginx still 413s large uploads before they reach the app.
-- HTTP/2 not confirmed enabled (`listen 443 ssl;` vs `listen 443 ssl http2;` on nginx 1.24).
+- **R2/video-compression rollout (PR #44 + follow-ups) is deployed and all pre-existing content
+  migrated** — all 9 courses, 130 videos, confirmed `on=r2` via `--sizes`/`--status`. See §7.
+- **Three-way Add-resource UX (Link / File-upload / Video with Upload-or-Embed) now matches
+  across Library and Training** — Training used to only support pasting a link before a separate
+  upload step existed elsewhere; it's now a single-step dialog identical in structure to
+  Library's. Both also got module-title/description edit endpoints and UI (`PATCH
+  /library/modules/{id}`, `PATCH /training/modules/{id}`).
+- `client_max_body_size` bumped to `4g` on every relevant nginx site file (was `50m`, would `413`
+  any video upload through the browser authoring UI) — **done**, no longer outstanding.
+- nginx `.mjs` MIME-type fix applied (§2) — was causing a hard PDF.js worker load failure in
+  Library's PDF viewer.
+- Postgres `max_connections` bumped 100 → 150 (§2) to cover the new second worker container.
+- HTTP/2 not confirmed enabled (`listen 443 ssl;` vs `listen 443 ssl http2;` on nginx 1.24) —
+  still an open item, not addressed by this round of work.
+- **Still outstanding, only this**: the Phase F load test from
+  `docs/HANDOFF_COMPETITION_DAY_DEPLOY.md` (synthetic concurrent-request test + a real multi-viewer
+  playback test) has not been run yet against the now-fully-migrated content. Everything else on
+  that runbook's go/no-go checklist is done.
+- Old local HLS output for already-migrated videos is still on disk (`source_bucket`/`source_path`
+  are deliberately never deleted, for rollback safety) — reclaiming that space is explicitly
+  deferred to after the competition, not an oversight.
 
 ---
 
-## 8. Related docs
+## 9. Related docs
 
 - **`docs/HANDOFF.md`** (this repo) — general repo orientation; §11 points here for deploy detail.
 - **`docs/HANDOFF_LMS.md`** (this repo) — LMS/Missions/Games architecture, including the
   TCP-congestion-control video-latency lesson (§2).
+- **`docs/HANDOFF_VIDEO_R2_EXECUTION.md`** (this repo) — original R2 design doc: encode settings,
+  segment-length reasoning, bucket-region tradeoffs. §5.3's rollback section is superseded by the
+  per-video `storage_backend` design actually shipped — see §7 above.
+- **`docs/HANDOFF_COMPETITION_DAY_DEPLOY.md`** (this repo) — the runbook this rollout was actually
+  executed against; its go/no-go checklist tracks what's still open (as of 2026-09-05, just the
+  Phase F load test).
 - **`HANDOFF_PRODUCTION_LIVE.md`, `vps_envs.md`, `secrets.md`** — real credentials and
   point-in-time infra snapshots. **Not in this repo, by design** (§0). If you're an agent without
   access to those files, the architecture in this doc is enough to reason about the system; you

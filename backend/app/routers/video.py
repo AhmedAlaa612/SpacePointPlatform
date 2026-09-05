@@ -58,21 +58,29 @@ async def _check_module_item(db: AsyncSession, video: Video, user: User) -> None
     """`owner_type="module_item"` — enrolled in the owning course. Same
     flat-404-for-both rule `_assert_enrolled` always used: "not enrolled"
     and "unknown course" must read identically, so neither leaks whether a
-    course exists at all."""
-    item = await db.get(ModuleItem, video.owner_id)
-    if item is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video not found")
-    course_module = await db.get(CourseModule, item.module_id)
-    if course_module is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video not found")
-    enrollment = (await db.execute(
-        select(Enrollment).where(
+    course exists at all.
+
+    One joined query instead of three sequential round trips (was: get
+    ModuleItem, get CourseModule, select Enrollment) — found under a
+    competition-day load test (400 concurrent `/token` calls) that this
+    endpoint's real bottleneck wasn't Postgres (confirmed idle, waiting on
+    the client) but per-request Python/ORM overhead stacking up across three
+    round trips inside uvicorn's single-threaded event loop. A missing
+    ModuleItem/CourseModule or a non-matching/inactive Enrollment all land
+    on the same empty-result 404 as before, so the flat-404 behavior is
+    unchanged — only the round-trip count is."""
+    exists = await db.scalar(
+        select(Enrollment.id)
+        .join(CourseModule, CourseModule.course_id == Enrollment.course_id)
+        .join(ModuleItem, ModuleItem.module_id == CourseModule.id)
+        .where(
+            ModuleItem.id == video.owner_id,
             Enrollment.user_id == user.id,
-            Enrollment.course_id == course_module.course_id,
             *enrollment_is_active(),
         )
-    )).scalars().first()
-    if enrollment is None:
+        .limit(1)
+    )
+    if exists is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video not found")
 
 

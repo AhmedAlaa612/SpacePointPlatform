@@ -1,7 +1,10 @@
 # Competition-day VPS deploy runbook
 
-**Status:** ready to execute. Written 2026-09-05, once PR #44 (video R2/compression work,
-`claude/competition-video-optimization-cm8b21`) is merging to `main`.
+**Status:** Phases A–E **done** — deployed and confirmed live 2026-09-05, all 130 pre-existing
+videos across all 9 courses migrated to R2 (`--sizes` confirmed ~34.6GB → ~3GB, ~9% of original,
+every row `on=r2`). **Only Phase F (load test) is still outstanding** — see the go/no-go checklist
+at the bottom. Written 2026-09-05, once PR #44 (video R2/compression work,
+`claude/competition-video-optimization-cm8b21`) merged to `main`.
 
 **Supersedes** `HANDOFF_VIDEO_R2_EXECUTION.md`'s §5.3 rollback section specifically — that section
 describes a single `VIDEO_STORAGE_BACKEND` env-var flip as "the" rollback. The design changed mid-project
@@ -240,16 +243,37 @@ bash`, then the `python -m scripts...` commands), per `video_migrate_to_r2.py`'s
 
 ## Go/no-go checklist
 
-- [ ] A1 — R2 credentials confirmed in `/etc/spacepoint/env`
-- [ ] A2 — R2 CORS covers `portal.spacepoint.ae` and `lms.spacepoint.ae`
-- [ ] A3 — nginx `client_max_body_size 4g` on every relevant site file, reloaded
-- [ ] A4 — BBR confirmed on
-- [ ] A5 — disk headroom checked
-- [ ] A6 — Postgres `max_connections` covers 75 + headroom
-- [ ] B — DB backup taken AND copied off the VPS; restore rehearsed at least once
-- [ ] C1 — GHCR image build green on the actual merge commit
-- [ ] C2 — `deploy-backend.sh --check` clean
-- [ ] C3/C4 — deployed during a quiet window; no stuck `pending` rows after
-- [ ] D — both worker containers confirmed healthy; one real upload verified per feature
-- [ ] E — migration rolled out course-by-course, `--sizes` confirms real compression
-- [ ] F — synthetic + real concurrent playback test done, before the actual event
+- [x] A1 — R2 credentials confirmed in `/etc/spacepoint/env`
+- [x] A2 — R2 CORS covers `portal.spacepoint.ae` and `lms.spacepoint.ae`
+- [x] A3 — nginx `client_max_body_size 4g` on every relevant site file, reloaded
+- [x] A4 — BBR confirmed on
+- [x] A5 — disk headroom checked
+- [x] A6 — Postgres `max_connections` covers 75 + headroom (bumped 100 → 150)
+- [x] B — DB backup taken AND copied off the VPS; restore rehearsed at least once
+- [x] C1 — GHCR image build green on the actual merge commit
+- [x] C2 — `deploy-backend.sh --check` clean
+- [x] C3/C4 — deployed during a quiet window; no stuck `pending` rows after
+- [x] D — both worker containers confirmed healthy; one real upload verified per feature
+- [x] E — migration rolled out course-by-course, `--sizes` confirms real compression
+      (all 9 courses / 130 videos done, ~34.6GB → ~3GB, ~9% of original)
+- [ ] F — synthetic + real concurrent playback test done, before the actual event — **the one
+      remaining item**
+
+Additional fixes that landed during the actual rollout, beyond what this runbook originally
+called out (all merged, all live):
+- `video_migrate_to_r2.py --convert`/`--reencode` were enqueuing to the wrong Redis queue (no
+  `_queue_name`), so jobs silently sat `pending` forever — fixed (PR #46).
+- The admin "Preview" button on a checklist guideline video 404'd for facilitator/operations
+  staff (a `require_lms_content` vs `require_instructor` role-gate mismatch) — fixed (PR #45).
+- Training's Add-resource dialog didn't match Library's link/file/video three-way toggle, and its
+  facilitator-side list never showed "(uploaded)" for a real uploaded video — both fixed (PR #47).
+- PDF.js's worker script failed to load in Library's PDF viewer (nginx `.mjs` MIME type) — fixed
+  directly on the VPS nginx config, not in this repo.
+- One miscategorized Library video moved into Training via a one-time script
+  (`scripts/move_library_video_to_training.py`, PR #48) — metadata repoint only, no re-encode.
+- Module-title/description editing added to both Library and Training (facilitator UI).
+
+**Reminder for Phase F**: the Cloudflare R2 dashboard's **Metrics** tab (Average Storage / Data
+Retrieved) lags real bucket contents by up to ~24h and can show `0 B` right after a real migration
+even while Class A/B operation counts are already correctly non-zero — don't use it to sanity-check
+the migration or the load test; use `--sizes`/`--status` or the dashboard's **Objects** tab instead.
