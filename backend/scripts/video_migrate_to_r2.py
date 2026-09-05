@@ -432,7 +432,7 @@ async def convert(args: argparse.Namespace) -> int:
                     print(f"  FAIL  {_label(video)}  {result['error']}")
                     failures += 1
                     continue
-                await redis.enqueue_job("transcode_video", str(video.id), "r2")
+                await redis.enqueue_job("transcode_video", str(video.id), "r2", _queue_name="arq:queue:video")
                 print(f"  QUEUED {_label(video)}  (was direct, now transcoding to hls_encrypted)")
         finally:
             await redis.close()
@@ -440,7 +440,7 @@ async def convert(args: argparse.Namespace) -> int:
     print(f"\n{len(rows) - failures} job(s) queued, {failures} failed.")
     print("A converted video was NOT servable as direct before this queued — it stays")
     print("unplayable until its own encode finishes (there is no prior HLS output to")
-    print("keep serving, unlike --reencode). Watch:  docker logs -f spacepoint-worker")
+    print("keep serving, unlike --reencode). Watch:  docker logs -f spacepoint-worker-video")
     return 1 if failures else 0
 
 
@@ -494,14 +494,14 @@ async def reencode(args: argparse.Namespace) -> int:
                     video.status = "pending"
                     video.status_error = None
                     await db.commit()
-                await redis.enqueue_job("transcode_video", str(video.id), target)
+                await redis.enqueue_job("transcode_video", str(video.id), target, _queue_name="arq:queue:video")
                 print(f"  QUEUED {_label(video)}"
                       f"{'  (keeps serving during encode)' if keeps_serving else ''}")
         finally:
             await redis.close()
 
     print(f"\n{len(rows)} job(s) queued. With max_jobs=1 they drain one at a time.")
-    print("Watch:  docker logs -f spacepoint-worker")
+    print("Watch:  docker logs -f spacepoint-worker-video")
     print("Poll:   psql -d spacepoint_unified -c \"SELECT storage_backend, count(*) FROM videos GROUP BY 1;\"")
     return 0
 
