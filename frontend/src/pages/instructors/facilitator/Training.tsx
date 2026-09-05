@@ -4,9 +4,9 @@ import { ExternalLink, FileText, Link2, Pencil, PlayCircle, Plus, Trash2, Upload
 import {
   createTrainingModuleApi, deleteTrainingModuleApi, deleteTrainingVideoApi,
   facilitatorListTrainingApi, addTrainingVideoApi, updateTrainingVideoApi, uploadTrainingVideoApi,
-  uploadTrainingFileApi, getTrainingFileUrlApi,
+  uploadTrainingFileApi, getTrainingFileUrlApi, updateTrainingModuleApi,
 } from "@/api/instructors/facilitator"
-import type { TrainingVideo } from "@/types/instructors"
+import type { TrainingModule, TrainingVideo } from "@/types/instructors"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -48,6 +48,9 @@ export default function FacilitatorTraining() {
   const [previewVideo, setPreviewVideo] = useState<TrainingVideo | null>(null)
   const [openingFileId, setOpeningFileId] = useState<string | null>(null)
 
+  const [editModule, setEditModule] = useState<TrainingModule | null>(null)
+  const [editModuleTitle, setEditModuleTitle] = useState("")
+
   const { data: modules, isLoading } = useQuery({ queryKey: ["facilitator-training"], queryFn: facilitatorListTrainingApi })
 
   const createModule = useMutation({
@@ -62,6 +65,14 @@ export default function FacilitatorTraining() {
   const deleteModule = useMutation({
     mutationFn: (id: string) => deleteTrainingModuleApi(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["facilitator-training"] }),
+  })
+
+  const updateModule = useMutation({
+    mutationFn: () => updateTrainingModuleApi(editModule!.id, { title: editModuleTitle }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["facilitator-training"] })
+      setEditModule(null)
+    },
   })
 
   // One action regardless of addMode: create the bare row, then — for an
@@ -138,6 +149,11 @@ export default function FacilitatorTraining() {
     setEditUrl(v.video_url)
   }
 
+  function openEditModule(m: TrainingModule) {
+    setEditModule(m)
+    setEditModuleTitle(m.title)
+  }
+
   async function openFile(v: TrainingVideo) {
     setOpeningFileId(v.id)
     try {
@@ -170,6 +186,9 @@ export default function FacilitatorTraining() {
                   <Button size="sm" variant="outline" onClick={() => openAddVideo(m.id)}>
                     <Plus size={14} className="mr-1" /> Resource
                   </Button>
+                  <button onClick={() => openEditModule(m)} className="p-2 text-muted-foreground hover:text-primary">
+                    <Pencil size={16} />
+                  </button>
                   <button onClick={() => deleteModule.mutate(m.id)} className="p-2 text-muted-foreground hover:text-destructive">
                     <Trash2 size={16} />
                   </button>
@@ -234,6 +253,16 @@ export default function FacilitatorTraining() {
           <input className="input mb-3" placeholder="Module title" value={newModuleTitle} onChange={(e) => setNewModuleTitle(e.target.value)} />
           <Button onClick={() => createModule.mutate()} disabled={!newModuleTitle || createModule.isPending}>
             {createModule.isPending ? "Creating…" : "Create"}
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editModule} onOpenChange={(open) => !open && setEditModule(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit training module</DialogTitle></DialogHeader>
+          <input className="input mb-3" placeholder="Module title" value={editModuleTitle} onChange={(e) => setEditModuleTitle(e.target.value)} />
+          <Button onClick={() => updateModule.mutate()} disabled={!editModuleTitle || updateModule.isPending}>
+            {updateModule.isPending ? "Saving…" : "Save changes"}
           </Button>
         </DialogContent>
       </Dialog>

@@ -165,6 +165,37 @@ async def create_training_module(
     return TrainingModuleOut(id=module.id, title=module.title, description=module.description, sort_order=module.sort_order, videos=[])
 
 
+@router.patch("/training/modules/{module_id}", response_model=TrainingModuleOut)
+async def update_training_module(
+    module_id: uuid.UUID,
+    title: str | None = None,
+    description: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_facilitator),
+):
+    module = (await db.execute(select(TrainingModule).where(TrainingModule.id == module_id))).scalars().first()
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+    if title is not None:
+        module.title = title
+    if description is not None:
+        module.description = description
+    await db.commit()
+    await db.refresh(module)
+    videos = (await db.execute(
+        select(TrainingVideo).where(TrainingVideo.module_id == module_id).order_by(TrainingVideo.sort_order)
+    )).scalars().all()
+    uploaded_ids = set((await db.execute(
+        select(Video.owner_id).where(
+            Video.owner_type == "training_video", Video.owner_id.in_([v.id for v in videos]), Video.provider == "upload",
+        )
+    )).scalars().all())
+    return TrainingModuleOut(
+        id=module.id, title=module.title, description=module.description, sort_order=module.sort_order,
+        videos=[TrainingVideoOut.from_orm_video(v, video_uploaded=v.id in uploaded_ids) for v in videos],
+    )
+
+
 @router.delete("/training/modules/{module_id}")
 async def delete_training_module(
     module_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_facilitator)
@@ -426,6 +457,34 @@ async def create_library_module(
     await db.commit()
     await db.refresh(module)
     return LibraryModuleOut(id=module.id, name=module.name, description=module.description, resources=[])
+
+
+@router.patch("/library/modules/{module_id}", response_model=LibraryModuleOut)
+async def update_library_module(
+    module_id: uuid.UUID,
+    name: str | None = None,
+    description: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_facilitator),
+):
+    module = (await db.execute(select(LibraryModule).where(LibraryModule.id == module_id))).scalars().first()
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+    if name is not None:
+        module.name = name
+    if description is not None:
+        module.description = description
+    await db.commit()
+    await db.refresh(module)
+    resources = (await db.execute(select(LibraryResource).where(LibraryResource.module_id == module_id))).scalars().all()
+    module_resources = []
+    for r in resources:
+        file_url, video_info = await _lib_playback(db, r)
+        module_resources.append(LibraryResourceOut(
+            id=r.id, title=r.title, description=r.description, format=r.format,
+            file_url=file_url, resource_type=r.resource_type, video_info=video_info,
+        ))
+    return LibraryModuleOut(id=module.id, name=module.name, description=module.description, resources=module_resources)
 
 
 @router.delete("/library/modules/{module_id}")

@@ -4,9 +4,9 @@ import { ExternalLink, FileText, Link2, Pencil, Plus, Trash2, Upload, Video } fr
 import {
   addLibraryLinkApi, addLibraryVideoEmbedApi, createLibraryModuleApi, deleteLibraryModuleApi,
   deleteLibraryResourceApi, facilitatorListLibraryApi, replaceLibraryFileApi, updateLibraryResourceApi,
-  uploadLibraryResourceApi,
+  uploadLibraryResourceApi, updateLibraryModuleApi,
 } from "@/api/instructors/facilitator"
-import type { LibraryResource } from "@/types/instructors"
+import type { LibraryModule, LibraryResource } from "@/types/instructors"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -96,6 +96,9 @@ export default function FacilitatorLibrary() {
 
   const [previewResource, setPreviewResource] = useState<LibraryResource | null>(null)
 
+  const [editModule, setEditModule] = useState<LibraryModule | null>(null)
+  const [editModuleName, setEditModuleName] = useState("")
+
   const { data: modules, isLoading } = useQuery({
     queryKey: ["facilitator-library"],
     queryFn: facilitatorListLibraryApi,
@@ -128,6 +131,14 @@ export default function FacilitatorLibrary() {
   const deleteModule = useMutation({
     mutationFn: (id: string) => deleteLibraryModuleApi(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["facilitator-library"] }),
+  })
+
+  const updateModule = useMutation({
+    mutationFn: () => updateLibraryModuleApi(editModule!.id, { name: editModuleName }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["facilitator-library"] })
+      setEditModule(null)
+    },
   })
 
   const addLink = useMutation({
@@ -192,6 +203,11 @@ export default function FacilitatorLibrary() {
     setEditUrl(r.file_url)
   }
 
+  function openEditModule(m: LibraryModule) {
+    setEditModule(m)
+    setEditModuleName(m.name)
+  }
+
   const isPending = addLink.isPending || uploadFile.isPending || addVideoEmbed.isPending
 
   if (isLoading) return <Spinner />
@@ -216,6 +232,9 @@ export default function FacilitatorLibrary() {
                   <Button size="sm" variant="outline" onClick={() => openAddDialog(m.id)}>
                     <Plus size={14} className="mr-1" /> Resource
                   </Button>
+                  <button onClick={() => openEditModule(m)} className="p-2 text-muted-foreground hover:text-primary">
+                    <Pencil size={16} />
+                  </button>
                   <button onClick={() => deleteModule.mutate(m.id)} className="p-2 text-muted-foreground hover:text-destructive">
                     <Trash2 size={16} />
                   </button>
@@ -244,6 +263,17 @@ export default function FacilitatorLibrary() {
           <input className="input mb-3" placeholder="Module name" value={newModuleName} onChange={(e) => setNewModuleName(e.target.value)} />
           <Button onClick={() => createModule.mutate()} disabled={!newModuleName || createModule.isPending}>
             {createModule.isPending ? "Creating…" : "Create"}
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit module dialog */}
+      <Dialog open={!!editModule} onOpenChange={(open) => !open && setEditModule(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Edit library module</DialogTitle></DialogHeader>
+          <input className="input mb-3" placeholder="Module name" value={editModuleName} onChange={(e) => setEditModuleName(e.target.value)} />
+          <Button onClick={() => updateModule.mutate()} disabled={!editModuleName || updateModule.isPending}>
+            {updateModule.isPending ? "Saving…" : "Save changes"}
           </Button>
         </DialogContent>
       </Dialog>
