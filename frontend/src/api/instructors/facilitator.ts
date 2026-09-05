@@ -7,6 +7,13 @@ export const facilitatorListTrainingApi = () =>
 export const createTrainingModuleApi = (data: { title: string; description?: string; sort_order?: number }) =>
   api.post<TrainingModule>("/instructors/facilitator/training/modules", data).then((r) => r.data)
 
+export const updateTrainingModuleApi = (moduleId: string, params: { title?: string; description?: string }) => {
+  const qs = new URLSearchParams()
+  if (params.title !== undefined) qs.set("title", params.title)
+  if (params.description !== undefined) qs.set("description", params.description)
+  return api.patch<TrainingModule>(`/instructors/facilitator/training/modules/${moduleId}?${qs}`).then((r) => r.data)
+}
+
 export const deleteTrainingModuleApi = (moduleId: string) =>
   api.delete(`/instructors/facilitator/training/modules/${moduleId}`).then((r) => r.data)
 
@@ -52,6 +59,13 @@ export const facilitatorListLibraryApi = () =>
 
 export const createLibraryModuleApi = (data: { name: string; description?: string }) =>
   api.post<LibraryModule>("/instructors/facilitator/library/modules", data).then((r) => r.data)
+
+export const updateLibraryModuleApi = (moduleId: string, params: { name?: string; description?: string }) => {
+  const qs = new URLSearchParams()
+  if (params.name !== undefined) qs.set("name", params.name)
+  if (params.description !== undefined) qs.set("description", params.description)
+  return api.patch<LibraryModule>(`/instructors/facilitator/library/modules/${moduleId}?${qs}`).then((r) => r.data)
+}
 
 export const deleteLibraryModuleApi = (moduleId: string) =>
   api.delete(`/instructors/facilitator/library/modules/${moduleId}`).then((r) => r.data)
