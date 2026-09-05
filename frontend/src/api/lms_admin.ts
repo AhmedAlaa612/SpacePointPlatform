@@ -218,8 +218,9 @@ export interface CourseVideoBackend {
 export const getCoursesVideoBackendStatusApi = () =>
   api.get<CourseVideoBackend[]>("/lms/admin/courses/video-backend-status").then((r) => r.data);
 export const migrateCourseVideosToR2Api = (courseId: string) =>
-  api.post<{ queued: number; already_on_r2: number }>(`/lms/admin/courses/${courseId}/videos/migrate-to-r2`)
-    .then((r) => r.data);
+  api.post<{ queued: number; already_on_r2: number; still_processing: number }>(
+    `/lms/admin/courses/${courseId}/videos/migrate-to-r2`,
+  ).then((r) => r.data);
 
 // ── modules ──────────────────────────────────────────────────────────────
 

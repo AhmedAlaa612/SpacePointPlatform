@@ -48,9 +48,11 @@ export default function LmsCourses() {
     onSuccess: (r) => {
       queryClient.invalidateQueries({ queryKey: ["lms-admin-courses-video-backend-status"] })
       toast.success(
-        r.queued === 0
-          ? "Already on R2 — nothing to migrate."
-          : `Queued ${r.queued} video${r.queued === 1 ? "" : "s"} for re-encode onto R2. Each one keeps playing its current version until its own encode finishes.`,
+        r.queued > 0
+          ? `Queued ${r.queued} video${r.queued === 1 ? "" : "s"} for re-encode onto R2. Each one keeps playing its current version until its own encode finishes.`
+          : r.still_processing > 0
+            ? `Nothing queued — ${r.still_processing} video${r.still_processing === 1 ? " is" : "s are"} still on its first upload transcode. Try again once ${r.still_processing === 1 ? "it finishes" : "those finish"}.`
+            : "Already on R2 — nothing to migrate.",
       )
     },
     onError: () => toast.error("Couldn't start the migration — try again."),

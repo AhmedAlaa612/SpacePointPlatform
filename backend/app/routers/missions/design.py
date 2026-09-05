@@ -18,6 +18,7 @@ solo-or-team like any other mission (`team_policy`), nothing here is
 design-specific about who may act on it.
 """
 
+import logging
 import uuid
 from datetime import date
 
@@ -89,6 +90,7 @@ from app.services.missions.gating import gate_map_for_attempt, require_step_unlo
 from app.routers.missions.student import _own_attempt
 
 router = APIRouter(prefix="/missions/design", tags=["missions-design"])
+logger = logging.getLogger(__name__)
 
 # Step keys the student can explicitly self-check (2026-09) — `setup` (no
 # `DESIGN_STEP_LABELS` row of its own, see design_state_out's own
@@ -593,12 +595,18 @@ async def confirm_design_step(
         if required <= confirmed and dash["all_valid"]:
             try:
                 await mark_design_complete(db, attempt=attempt)
-            except HTTPException:
-                # Valid when we checked above; became invalid before mark_design_complete's own
-                # recompute (concurrent edit). The step confirmation above still stands — just
-                # don't auto-finalize this time. The student (or next confirm) gets another shot.
-                # Finding #5: Don't let stale state break the step confirmation that just succeeded.
-                pass
+            except HTTPException as exc:
+                # Expected case: valid when we checked above, became invalid before
+                # mark_design_complete's own recompute (concurrent edit) — a 400. Anything
+                # else reaching here (e.g. a 409 "attempt not in_progress") would be a real
+                # bug, since we already checked attempt.status=="in_progress" above — log it
+                # so that stays debuggable instead of silently vanishing. Either way, the step
+                # confirmation above still stands; just skip auto-finalize this time. The
+                # student (or their next confirm) gets another shot at it.
+                logger.info(
+                    "Auto-finalize skipped for attempt %s after step '%s': %s %s",
+                    attempt.id, step_key, exc.status_code, exc.detail,
+                )
 
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()

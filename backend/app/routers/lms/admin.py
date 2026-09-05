@@ -888,16 +888,25 @@ async def migrate_course_videos_to_r2(
         )
     )).scalars().all()
 
-    already_on_r2 = sum(1 for v in rows if v.storage_backend == "r2")
-    still_processing = sum(1 for v in rows if v.status in ("pending", "processing"))
-    to_migrate = [
-        v for v in rows
-        if v.storage_backend != "r2" and v.status not in ("pending", "processing")
-    ]
+    # Mutually exclusive, in priority order — a still-processing row (a fresh
+    # upload's own first-ever transcode) is reported as such even though a new
+    # upload already defaults storage_backend="r2" at attach time
+    # (_NEW_UPLOAD_BACKEND), well before that transcode ever runs. Counting it
+    # in BOTH still_processing and already_on_r2 would let the three counts
+    # sum to more than len(rows) and, worse, let the admin UI report "already
+    # on R2 — nothing to migrate" for a course that actually has uploads still
+    # in flight.
+    still_processing_rows = [v for v in rows if v.status in ("pending", "processing")]
+    settled_rows = [v for v in rows if v.status not in ("pending", "processing")]
+    already_on_r2 = sum(1 for v in settled_rows if v.storage_backend == "r2")
+    to_migrate = [v for v in settled_rows if v.storage_backend != "r2"]
     for video in to_migrate:
         await enqueue_transcode(arq_redis, video.id, target_backend="r2")
 
-    return MigrateCourseVideosOut(queued=len(to_migrate), already_on_r2=already_on_r2, still_processing=still_processing)
+    return MigrateCourseVideosOut(
+        queued=len(to_migrate), already_on_r2=already_on_r2,
+        still_processing=len(still_processing_rows),
+    )
 
 
 @router.delete("/courses/{course_id}", status_code=status.HTTP_204_NO_CONTENT)

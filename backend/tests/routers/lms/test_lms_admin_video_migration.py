@@ -110,7 +110,7 @@ async def test_migrate_queues_only_vps_videos_and_reports_the_rest(db, client):
     resp = await client.post(f"/lms/admin/courses/{course.id}/videos/migrate-to-r2", headers=_headers(ops))
     assert resp.status_code == http_status.HTTP_200_OK
     body = resp.json()
-    assert body == {"queued": 1, "already_on_r2": 1}
+    assert body == {"queued": 1, "already_on_r2": 1, "still_processing": 0}
 
     # Enqueueing (dropped, no live Redis in this suite) must never itself
     # flip status/storage_backend — that swap belongs entirely to

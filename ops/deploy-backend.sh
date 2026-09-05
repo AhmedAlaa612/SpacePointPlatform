@@ -4,10 +4,10 @@
 #   sudo install -m 755 ops/deploy-backend.sh /usr/local/bin/deploy-backend.sh
 #
 # Recreates spacepoint-api (brief downtime — the container is --network host,
-# so only one can hold :8000 at a time) then swaps spacepoint-worker AND
-# spacepoint-worker-video with no downtime at all. Migrations run inside the
-# API container's own entrypoint, before uvicorn binds, so "waiting for
-# healthy" and "waiting for migrations" are the same wait.
+# so only one can hold :8000 at a time) then swaps spacepoint-worker with no
+# downtime at all. Migrations run inside the API container's own entrypoint,
+# before uvicorn binds, so "waiting for healthy" and "waiting for migrations"
+# are the same wait.
 #
 # Two worker containers, not one: spacepoint-worker runs
 # `arq app.workers.main.WorkerSettings` (IO-bound jobs — email, LMS sync,
@@ -16,6 +16,13 @@
 # its own queue) so an hour-long re-encode can't back up every other job
 # behind it. Both must be running or nothing consumes the video queue at all —
 # uploads and re-encodes would sit "pending" forever, silently.
+#
+# spacepoint-worker-video's swap has a brief GAP, not zero downtime: the old
+# container is stopped before the new one starts (queued jobs just wait — a
+# transcode is fine to be seconds late, never fine to run twice at once).
+# Two workers briefly both dequeuing the same job is exactly what max_jobs=1
+# exists to prevent, so this queue does not get the same start-new-first
+# treatment as spacepoint-worker/spacepoint-api.
 #
 #   deploy-backend.sh                 # normal deploy, auto-rollback armed
 #   deploy-backend.sh --no-rollback   # REQUIRED for destructive migrations
@@ -47,6 +54,20 @@
 # can't tell idle from mid-transcode for those. The transcode job holds a
 # `transcoding:{video_id}` Redis key for that exact window; the preflight
 # checks that too.
+#
+# ── One-time hazard: the FIRST deploy that ships arq:queue:video ───────────
+# transcode_video moved off the default arq queue and onto its own
+# (backend/app/workers/main.py — WorkerSettings no longer registers it,
+# VideoWorkerSettings does). A job enqueued moments before THIS SPECIFIC
+# deploy sits on the OLD default queue with status='pending' and no
+# transcoding:* lock yet (the lock is only set once a job starts running) —
+# neither preflight check above sees it, and after this deploy nothing
+# consumes that queue for transcode_video anymore, so it is stuck 'pending'
+# forever with no error anywhere. Not an ongoing risk (every deploy after
+# this one enqueues straight onto arq:queue:video), just this one: deploy
+# during a quiet window with no video upload/migration in flight, and
+# spot-check `SELECT id FROM videos WHERE status='pending'` right after —
+# any hit needs enqueue_transcode() called again manually for that video.
 
 set -euo pipefail
 
@@ -110,8 +131,16 @@ preflight() {
   # `transcoding:{video_id}` Redis key for that exact window instead. Queried
   # via `docker exec` into the (never-recreated) redis container rather than
   # requiring redis-cli + REDIS_URL parsing on the host itself.
-  local transcoding_locks
-  transcoding_locks=$(docker exec spacepoint-redis redis-cli --scan --pattern 'transcoding:*' 2>/dev/null | wc -l || echo "?")
+  local transcoding_locks scan_output
+  # Split into two steps rather than piping straight into `wc -l || echo "?"`:
+  # under `set -o pipefail`, a failing left-hand command still lets `wc -l`
+  # emit "0" for its empty input, so the `||` ALSO fires and the two outputs
+  # concatenate into a garbled "0\n?" that matches neither branch below.
+  if scan_output=$(docker exec spacepoint-redis redis-cli --scan --pattern 'transcoding:*' 2>/dev/null); then
+    transcoding_locks=$(echo "$scan_output" | grep -c . || true)
+  else
+    transcoding_locks="?"
+  fi
   if [ "$transcoding_locks" != "0" ] && [ "$transcoding_locks" != "?" ]; then
     echo "!! $transcoding_locks video(s) are mid-swap-in-place-reencode (e.g. a Migrate-to-R2" >&2
     echo "!! job). Their DB status still reads 'ready' — this Redis lock is the only signal." >&2
@@ -300,12 +329,30 @@ docker rename spacepoint-worker-new spacepoint-worker
 # Separate container, separate queue (arq:queue:video) — transcode_video jobs
 # never reach the main worker above, so if this one isn't running nothing
 # consumes them at all: uploads and re-encodes sit "pending" forever with no
-# error anywhere. Same zero-downtime swap as the main worker; health is arq's
-# own built-in `--check` (not /health/worker, which only reflects the main
-# worker's heartbeat key and says nothing about this queue).
-echo "==> Starting new video worker..."
+# error anywhere. Health is arq's own built-in `--check` (not /health/worker,
+# which only reflects the main worker's heartbeat key and says nothing about
+# this queue).
+#
+# NOT the same start-new-before-stop-old pattern as the main worker above.
+# That pattern is safe there because IO-bound jobs tolerate two workers
+# briefly both dequeuing from the same queue. It is NOT safe here:
+# VideoWorkerSettings.max_jobs=1 exists specifically so at most one ffmpeg
+# encode ever runs at a time on this 4-vCPU box, and two containers each
+# independently enforcing "1 at a time" against the same queue can still add
+# up to 2 concurrent encodes for the brief window both are up — exactly the
+# "melt the box" outcome that setting exists to prevent, and exactly the
+# scenario a queued bulk re-encode (the 400-student competition's actual use
+# case) would hit. So: stop (not remove) the old container first, accepting a
+# brief gap where nothing drains arq:queue:video — queued jobs simply wait,
+# nothing is lost — then start the new one. If the new one fails its health
+# check, restart the old one rather than leaving video transcoding dark.
+echo "==> Stopping old video worker (if any) before starting new — avoids two"
+echo "    containers both enforcing max_jobs=1 against the same queue at once."
 OLD_VIDEO_WORKER_EXISTS=0
-docker inspect spacepoint-worker-video >/dev/null 2>&1 && OLD_VIDEO_WORKER_EXISTS=1
+if docker inspect spacepoint-worker-video >/dev/null 2>&1; then
+  OLD_VIDEO_WORKER_EXISTS=1
+  docker stop spacepoint-worker-video >/dev/null 2>&1 || true
+fi
 
 docker rm -f spacepoint-worker-video-new 2>/dev/null || true
 docker run -d --name spacepoint-worker-video-new \
@@ -331,9 +378,14 @@ if [ "$VIDEO_WORKER_OK" -ne 1 ]; then
   echo "!! New video worker never passed its health check:" >&2
   docker logs --tail 60 spacepoint-worker-video-new >&2
   docker rm -f spacepoint-worker-video-new 2>/dev/null || true
-  [ "$OLD_VIDEO_WORKER_EXISTS" -eq 1 ] \
-    && echo "!! Old video worker was left untouched and is still running." >&2 \
-    || echo "!! There was no old video worker to fall back to — no video transcode jobs will run." >&2
+  if [ "$OLD_VIDEO_WORKER_EXISTS" -eq 1 ]; then
+    echo "!! Restarting the old video worker (it was only stopped, not removed)." >&2
+    docker start spacepoint-worker-video >/dev/null 2>&1 \
+      && echo "!! Old video worker is back up." >&2 \
+      || echo "!! Old video worker failed to restart too — no video transcode jobs will run." >&2
+  else
+    echo "!! There was no old video worker to fall back to — no video transcode jobs will run." >&2
+  fi
   # Same posture as the main worker above: API and main worker are already
   # confirmed healthy, so this failure alone does not take them back down.
   exit 1

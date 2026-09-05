@@ -538,21 +538,27 @@ async def run_encrypted_transcode(
         video.status_error = None
         await db.commit()
 
+    # Best-effort Redis lock so deploy preflight can detect in-flight re-encodes.
+    # A swap-in-place re-encode doesn't change video.status (stays "ready"), so
+    # the DB alone can't tell idle from mid-transcode. This lock is the deploy's
+    # only signal (see ops/deploy-backend.sh preflight, finding #1) — but it is
+    # deliberately isolated from the transcode itself: this function is called
+    # directly with no live Redis in the test suite (test_lms_video.py,
+    # test_lms_admin.py), and in production a Redis hiccup here must never fail
+    # an otherwise-good transcode. Never let this block raise into the try below.
     lock_key = f"transcoding:{video_id}"
     arq_redis_lock = None
     try:
-        # Set a Redis lock so deploy preflight can detect in-flight re-encodes.
-        # A swap-in-place re-encode doesn't change video.status (stays "ready"),
-        # so the DB alone can't tell idle from mid-transcode. This lock is the
-        # deploy's only signal (see ops/deploy-backend.sh preflight, finding #1).
         from app.workers.settings import redis_settings as get_redis_settings
         from arq.connections import create_pool
 
-        rs = get_redis_settings()
-        pool = await create_pool(rs)
-        arq_redis_lock = pool
+        arq_redis_lock = await create_pool(get_redis_settings())
         await arq_redis_lock.setex(lock_key, 3600, b"1")
+    except Exception:
+        logger.warning("Could not set transcode lock for %s — deploy preflight won't see this job", video_id)
+        arq_redis_lock = None
 
+    try:
         source_bytes = await storage.download_file(video.source_bucket, video.source_path)
         with tempfile.TemporaryDirectory() as tmp:
             source_file = Path(tmp) / "source"
