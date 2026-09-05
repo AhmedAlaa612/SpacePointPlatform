@@ -109,12 +109,15 @@ export interface TrainingVideo {
   video_url: string
   /** True once a real file has been uploaded through the standardized
    * video service — fetch the actual playback URL on demand via
-   * `streamVideoApi`, same posture as `has_pdf`/`guideline_video_uploaded`. */
+   * `streamVideoApi`, same posture as `format`/`guideline_video_uploaded`. */
   video_uploaded: boolean
-  /** True once a PDF has been uploaded for this item instead of a video —
-   * mutually exclusive with video_uploaded/an embed link. Resolved fresh
-   * via `getTrainingPdfUrlApi`, never baked in here. */
-  has_pdf: boolean
+  /** Set (e.g. "PDF", "PPTX") once a generic file has been uploaded for this
+   * item instead of a video — mutually exclusive with video_uploaded/a
+   * link. Same LibraryResource.format pattern: check
+   * format?.toUpperCase() === "PDF" for an inline viewer, anything else
+   * just opens as a link. Resolved fresh via `getTrainingFileUrlApi`, never
+   * baked in here. */
+  format: string | null
   sort_order: number
   is_completed: boolean
 }

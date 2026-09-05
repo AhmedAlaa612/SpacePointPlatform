@@ -42,7 +42,7 @@ export default function Training() {
                   >
                     {v.is_completed ? (
                       <CheckCircle2 className="text-green-600 shrink-0" size={20} />
-                    ) : v.has_pdf ? (
+                    ) : v.format ? (
                       <FileText className="text-primary shrink-0" size={20} />
                     ) : (
                       <PlayCircle className="text-primary shrink-0" size={20} />

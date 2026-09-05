@@ -38,14 +38,14 @@ export const uploadTrainingVideoApi = (videoId: string, file: File) => {
   return api.post(`/instructors/facilitator/training/videos/${videoId}/upload`, form).then((r) => r.data)
 }
 
-export const uploadTrainingPdfApi = (videoId: string, file: File) => {
+export const uploadTrainingFileApi = (videoId: string, file: File) => {
   const form = new FormData()
   form.append("file", file)
-  return api.post(`/instructors/facilitator/training/videos/${videoId}/pdf`, form).then((r) => r.data)
+  return api.post(`/instructors/facilitator/training/videos/${videoId}/file`, form).then((r) => r.data)
 }
 
-export const getTrainingPdfUrlApi = (videoId: string) =>
-  api.get<{ url: string }>(`/instructors/facilitator/training/videos/${videoId}/pdf/url`).then((r) => r.data.url)
+export const getTrainingFileUrlApi = (videoId: string) =>
+  api.get<{ url: string }>(`/instructors/facilitator/training/videos/${videoId}/file/url`).then((r) => r.data.url)
 
 export const facilitatorListLibraryApi = () =>
   api.get<LibraryModule[]>("/instructors/facilitator/library/modules").then((r) => r.data)

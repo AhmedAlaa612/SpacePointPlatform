@@ -214,15 +214,15 @@ async def update_training_video(
     if url is not None:
         video.video_path = url
         # Setting a URL supersedes any previously uploaded file — a training
-        # item is exactly one of embed link / uploaded video / uploaded PDF,
+        # item is exactly one of a link / uploaded video / uploaded file,
         # never more than one at once.
         uploaded = await get_video_for_owner(db, owner_type="training_video", owner_id=video_id)
         if uploaded is not None:
             await delete_video(db, uploaded)
-        if video.pdf_path:
-            await storage.delete_file("library-resources", video.pdf_path)
+        if video.file_path:
+            await storage.delete_file("library-resources", video.file_path)
         video.format = None
-        video.pdf_path = None
+        video.file_path = None
     await db.commit()
     await db.refresh(video)
     video_uploaded = url is None and await get_video_for_owner(db, owner_type="training_video", owner_id=video_id) is not None
@@ -255,26 +255,28 @@ async def upload_training_video(
         created_by=current_user.id,
     )
     await enqueue_transcode(arq_redis, attached.id)
-    # Uploading a video supersedes a previously uploaded PDF, same "exactly
+    # Uploading a video supersedes a previously uploaded file, same "exactly
     # one kind at a time" rule the URL branch above enforces.
-    if video.pdf_path:
-        await storage.delete_file("library-resources", video.pdf_path)
+    if video.file_path:
+        await storage.delete_file("library-resources", video.file_path)
     video.format = None
-    video.pdf_path = None
+    video.file_path = None
     video.video_path = None
     await db.commit()
     await db.refresh(video)
     return TrainingVideoOut.from_orm_video(video, video_uploaded=True)
 
 
-@router.post("/training/videos/{video_id}/pdf", response_model=TrainingVideoOut, status_code=201)
-async def upload_training_pdf(
+@router.post("/training/videos/{video_id}/file", response_model=TrainingVideoOut, status_code=201)
+async def upload_training_file(
     video_id: uuid.UUID, file: UploadFile,
     db: AsyncSession = Depends(get_db), current_user: User = Depends(require_facilitator),
 ):
-    """A training item can be a PDF instead of a video — same generic-file
-    posture Library resources already use (plain storage, no video-service
-    pipeline, resolved fresh on open via the /pdf/url endpoint below)."""
+    """A training item can be any uploaded file instead of a video — same
+    generic-file posture Library resources already use (plain storage, no
+    video-service pipeline; a PDF gets an inline viewer, anything else just
+    opens as a link — the frontend's own format check, mirroring
+    isInlinePdf). Resolved fresh on open via the /file/url endpoint below."""
     video = (await db.execute(select(TrainingVideo).where(TrainingVideo.id == video_id))).scalars().first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -285,37 +287,38 @@ async def upload_training_pdf(
     if len(data) > MAX_LIBRARY_FILE_BYTES:
         raise HTTPException(status_code=413, detail="File exceeds the 4GB limit")
 
-    # Uploading a PDF supersedes any previously uploaded video or embed link
-    # — exactly one kind at a time, same rule the other two branches enforce.
+    # Uploading a file supersedes any previously uploaded video or link —
+    # exactly one kind at a time, same rule the other two branches enforce.
     uploaded = await get_video_for_owner(db, owner_type="training_video", owner_id=video_id)
     if uploaded is not None:
         await delete_video(db, uploaded)
-    if video.pdf_path:
-        await storage.delete_file("library-resources", video.pdf_path)
+    if video.file_path:
+        await storage.delete_file("library-resources", video.file_path)
 
+    fmt = (file.filename or "").rsplit(".", 1)[-1].upper() if "." in (file.filename or "") else "FILE"
     path = f"{int(time.time())}_{file.filename}"
     stored_path = await storage.upload_to_path(
-        "library-resources", path, data, file.content_type or "application/pdf",
+        "library-resources", path, data, file.content_type or "application/octet-stream",
     )
-    video.format = "PDF"
-    video.pdf_path = stored_path
+    video.format = fmt
+    video.file_path = stored_path
     video.video_path = None
     await db.commit()
     await db.refresh(video)
     return TrainingVideoOut.from_orm_video(video)
 
 
-@router.get("/training/videos/{video_id}/pdf/url")
-async def get_training_pdf_url(
+@router.get("/training/videos/{video_id}/file/url")
+async def get_training_file_url(
     video_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_facilitator),
 ):
     """Resolve-fresh, same no-baked-in-signed-url posture every other file
     view in this router follows — never cached on the row or in a list
     response."""
     video = (await db.execute(select(TrainingVideo).where(TrainingVideo.id == video_id))).scalars().first()
-    if video is None or video.format != "PDF" or not video.pdf_path:
-        raise HTTPException(status_code=404, detail="No PDF uploaded for this item yet")
-    return {"url": await storage.get_signed_url("library-resources", video.pdf_path, expires_in=86400)}
+    if video is None or not video.format or not video.file_path:
+        raise HTTPException(status_code=404, detail="No file uploaded for this item yet")
+    return {"url": await storage.get_signed_url("library-resources", video.file_path, expires_in=86400)}
 
 
 @router.delete("/training/videos/{video_id}")
@@ -328,8 +331,8 @@ async def delete_training_video(
     uploaded = await get_video_for_owner(db, owner_type="training_video", owner_id=video_id)
     if uploaded is not None:
         await delete_video(db, uploaded)
-    if video.pdf_path:
-        await storage.delete_file("library-resources", video.pdf_path)
+    if video.file_path:
+        await storage.delete_file("library-resources", video.file_path)
     await db.delete(video)
     await db.commit()
     return {"status": "deleted"}

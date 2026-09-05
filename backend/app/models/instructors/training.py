@@ -26,14 +26,14 @@ class TrainingVideo(Base):
     description = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
     video_path = Column(String, nullable=True)  # embed URL, or "" once superseded by an upload
-    # NULL/"" means "video" (the original, only kind this table held) — a
-    # non-null format is the one other kind this row can be instead, same
-    # discriminator idiom LibraryResource.format already uses. A row is
-    # exactly one of: embed URL (video_path set, format NULL), uploaded video
-    # (a `videos` row, owner_type="training_video"), or an uploaded PDF
-    # (format="PDF", pdf_path set) — never more than one at a time.
+    # NULL means "no generic file" — a non-null format is any uploaded file
+    # other than a video (PDF, PPTX, anything), same discriminator idiom
+    # LibraryResource.format already uses. A row is exactly one of: a plain
+    # link (video_path set, an embed URL or any other link), an uploaded
+    # video (a `videos` row, owner_type="training_video"), or an uploaded
+    # generic file (format set, file_path set) — never more than one.
     format = Column(String(10), nullable=True)
-    pdf_path = Column(String, nullable=True)  # storage path in the "library-resources" bucket
+    file_path = Column(String, nullable=True)  # storage path in the "library-resources" bucket
     sort_order = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
