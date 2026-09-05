@@ -12,6 +12,10 @@ export const streamVideoApi = (videoId: string) =>
 export const markVideoCompleteApi = (videoId: string) =>
   api.post<{ video_id: string; is_completed: boolean }>(`/instructors/training/videos/${videoId}/complete`).then((r) => r.data)
 
+/** Resolved fresh per view, same posture as `streamVideoApi`/`getLibraryResourceUrlApi`. */
+export const getTrainingPdfUrlApi = (videoId: string) =>
+  api.get<{ url: string }>(`/instructors/training/videos/${videoId}/pdf/url`).then((r) => r.data.url)
+
 export const listLibraryApi = () =>
   api.get<LibraryModule[]>("/instructors/library").then((r) => r.data)
 
