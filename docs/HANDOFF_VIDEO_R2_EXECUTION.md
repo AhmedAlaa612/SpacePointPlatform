@@ -197,13 +197,24 @@ encode" is the difference between a 90-minute job and an overnight one on a 4-vC
 These are the items the original handoff deprioritized. At 400 concurrent they stop being
 optional. Do them in this order; each is independently deployable.
 
-1. **`arq` concurrency — do this BEFORE §4 or you will melt the box.** `WorkerSettings` sets no
-   `max_jobs`, so arq's default is **10 concurrent jobs**. Bulk-enqueuing 110 transcodes would
-   start ten ffmpeg encodes at once on 4 vCPU. In `backend/app/workers/main.py`:
+1. **`arq` concurrency — do this BEFORE §4 or you will melt the box.** ~~`WorkerSettings` sets
+   `max_jobs = 1` globally~~ — superseded (pre-deploy code review, 2026-09-04): a single worker
+   process with `max_jobs = 1` caps the *whole worker's* concurrency, so IO-bound jobs
+   (`send_ticket_email`, `sync_registration_lms_job`, etc.) queue up behind whatever transcode is
+   running, for up to its 3600s timeout. `backend/app/workers/main.py` now runs **two** worker
+   processes/containers instead of tuning one:
    ```python
-   class WorkerSettings:
-       max_jobs = 1          # ffmpeg is the only CPU-bound job here; serial is correct
+   class WorkerSettings:       # IO-bound jobs — arq's default concurrency (10)
+       functions = [send_ticket_email, sync_registration_lms_job, ...]  # transcode_video NOT here
+
+   class VideoWorkerSettings:  # transcode_video only, its own queue
+       queue_name = "arq:queue:video"
+       functions = [func(transcode_video, timeout=3600)]
+       max_jobs = 1             # ffmpeg is the only CPU-bound job here; serial is correct
    ```
+   `enqueue_transcode` routes jobs to `arq:queue:video` via `safe_enqueue`'s `_queue_name` kwarg.
+   Both containers must run in production — see `ops/deploy-backend.sh` (`spacepoint-worker` +
+   `spacepoint-worker-video`) and `docs/HANDOFF_VPS_DEPLOYMENT.md` §2/§3.
 2. **uvicorn workers.** `backend/Dockerfile` runs one process. On a 4-vCPU box:
    ```dockerfile
    CMD ["sh","-c","alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 3"]
@@ -570,9 +581,10 @@ psql -d spacepoint_unified -c "\copy (SELECT id, owner_id, playlist_path, key_pa
 Run it with `VIDEO_STORAGE_BACKEND=r2` already set on the worker container, so output lands
 directly in R2 and no second upload/migration step exists at all.
 
-**`max_jobs = 1` from §0.3 must already be deployed.** With it, the 110 jobs drain serially and
-you can watch progress with `docker logs -f spacepoint-worker` and the transcode status column in
-`/lms-authoring`.
+**The `VideoWorkerSettings`/`max_jobs = 1` split from §0.3 must already be deployed** (both
+`spacepoint-worker` and `spacepoint-worker-video` containers running). With it, the 110 jobs drain
+serially on the video queue without blocking email/LMS sync, and you can watch progress with
+`docker logs -f spacepoint-worker-video` and the transcode status column in `/lms-authoring`.
 
 ### 4.3 Do NOT migrate the old `lms-hls` files
 
@@ -662,7 +674,7 @@ before the event, so nobody is reading a handoff doc at 2am.
 - [ ] §4.2 pre-re-encode CSV of `videos` taken and stored off the container
 - [ ] R2 bucket region measured from a representative connection
 - [ ] R2 CORS set and verified with a real browser (not curl — curl ignores CORS)
-- [ ] `max_jobs = 1` deployed **before** any bulk enqueue
+- [ ] `spacepoint-worker-video` (`VideoWorkerSettings`, `max_jobs = 1`) deployed and healthy **before** any bulk enqueue
 - [ ] uvicorn `--workers 3`, DB pool sized, `max_connections` checked
 - [ ] nginx `client_max_body_size 4g`
 - [ ] BBR confirmed on
