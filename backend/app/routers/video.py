@@ -158,6 +158,26 @@ async def issue_video_token(
 
 
 async def _video_from_token(db: AsyncSession, video_id: uuid.UUID, token: str) -> Video:
+    """Playlist/segment/key all funnel through here — deliberately NOT
+    through `_load_and_check`'s owner-type access check again. That check
+    (the enrollment join, or the instructor/guideline checks) already ran
+    once, at token-mint time (`issue_video_token`), and the token itself —
+    signed with our own secret, bound to this exact user+video, short-lived —
+    IS the proof it passed. Re-running the same check on every subsequent
+    playlist/segment/key request tripled the real per-video-start DB/CPU
+    cost under concurrent load: found via a competition-day load test where
+    the realistic click->token->playlist->key sequence at 400 simulated
+    users ran to a ~13s median, despite the token endpoint alone looking
+    fine (~1.5s avg) in isolation.
+
+    Trade-off, stated plainly: revoking a student's enrollment mid-session no
+    longer cuts off an already-started playback instantly, only once the
+    token itself expires (`_VIDEO_TOKEN_MINUTES`, 4 hours) — the same
+    trade-off most short-lived signed-URL video systems make. Still checked
+    here on every call: the token's signature and expiry (forgery/tampering),
+    that it was minted for this exact video id (can't be replayed against a
+    different one), that the user row still exists (catches a deleted
+    account), and that the video is still `ready`."""
     try:
         user_id, token_video_id = decode_video_token(token)
     except JWTError:
@@ -170,8 +190,8 @@ async def _video_from_token(db: AsyncSession, video_id: uuid.UUID, token: str) -
     user = await db.get(User, uuid.UUID(user_id))
     if user is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Invalid or expired token")
-    video = await _load_and_check(db, video_id, user)
-    if video.status != "ready":
+    video = await db.get(Video, video_id)
+    if video is None or video.status != "ready":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video not found")
     return video
 
