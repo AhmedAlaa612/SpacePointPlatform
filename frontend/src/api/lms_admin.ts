@@ -1,6 +1,7 @@
 /** LMS authoring API (LM1-13) — thin wrappers over `/lms/admin/*` (LM1-5) +
  * the video upload route (LM1-6). Types mirror `schemas/lms_admin.py`. */
 import { api } from "@/api/client";
+import type { VideoPlaybackInfo } from "@/components/video/VideoPlayer";
 
 export type CourseKind = "course" | "mission";
 export type CourseLevel = "beginner" | "intermediate" | "advanced";
@@ -478,7 +479,8 @@ export const uploadLmsProgramItemGuidelineVideoApi = (itemId: string, file: File
 export const deleteLmsProgramItemGuidelineVideoApi = (itemId: string) =>
   api.delete<LmsProgramItem>(`/lms/admin/items/${itemId}/guideline/video`).then((r) => r.data);
 export const getLmsProgramItemGuidelineVideoUrlApi = (itemId: string) =>
-  api.get<{ url: string }>(`/lms/admin/items/${itemId}/guideline/video/url`).then((r) => r.data.url);
+  api.get<{ url: string; video_info: VideoPlaybackInfo }>(`/lms/admin/items/${itemId}/guideline/video/url`)
+    .then((r) => r.data);
 
 export const getCohortProgramOverrideApi = (cohortId: string) =>
   api.get<LmsProgramCohortEffective>(`/lms/admin/cohorts/${cohortId}/program-override`).then((r) => r.data);
