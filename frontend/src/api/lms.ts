@@ -74,7 +74,7 @@ export type ModuleItemContent =
   | { body: string } // text
   | { pass_threshold: number; questions: QuizQuestion[] } // quiz
   | { title: string | null; cards: { term: string; definition: string }[] } // flashcards
-  | { transcode_status: string | null; duration_seconds: number | null } // video
+  | { transcode_status: string | null; duration_seconds: number | null; video_id: string | null } // video
   | { filename: string | null; size_bytes: number | null } // attachment
   | {
       // mission (P5-5) — mission_title/mission_kind/points/attempt_status
@@ -458,18 +458,24 @@ export async function recordProgress(itemId: string, action: ProgressAction): Pr
   return data;
 }
 
-export async function fetchVideoToken(itemId: string): Promise<{ token: string; expires_in_seconds: number }> {
+// Token issuance and streaming go through the generic /videos/{video_id}/...
+// surface (routers/video.py) — keyed by the Video row's own id, not the
+// module item's id, since the same routes now serve every video-hosting
+// feature (LMS module video, checklist guidelines, library, training), each
+// with its own access check. The module item's `video_id` (in its `content`,
+// see ContentVideo) is what supplies that id here.
+export async function fetchVideoToken(videoId: string): Promise<{ token: string; expires_in_seconds: number }> {
   const { data } = await api.get<{ token: string; expires_in_seconds: number }>(
-    `/lms/items/${itemId}/video/token`,
+    `/videos/${videoId}/token`,
   );
   return data;
 }
 
 /** Absolute URL to the token-gated HLS playlist — hls.js loads this directly
  * (not through the `api` axios instance, which is for JSON calls). */
-export function videoPlaylistUrl(itemId: string, token: string): string {
+export function videoPlaylistUrl(videoId: string, token: string): string {
   const base = api.defaults.baseURL ?? "";
-  return `${base}/lms/videos/${itemId}/playlist?token=${encodeURIComponent(token)}`;
+  return `${base}/videos/${videoId}/playlist?token=${encodeURIComponent(token)}`;
 }
 
 // Leaderboard (P2-4, linked into the frontend in Live Games Phase 2C 8-2 —
@@ -624,7 +630,9 @@ export async function getChecklistItemPdfUrlApi(assignmentId: string, itemId: st
   return data.url;
 }
 
-export async function getChecklistItemGuidelineVideoUrlApi(assignmentId: string, itemId: string): Promise<string> {
-  const { data } = await api.get<{ url: string }>(`/lms/programs/${assignmentId}/items/${itemId}/guideline-video-url`);
-  return data.url;
+export async function getChecklistItemGuidelineVideoUrlApi(
+  assignmentId: string, itemId: string,
+): Promise<{ url: string; video_info: import("@/components/video/VideoPlayer").VideoPlaybackInfo | null }> {
+  const { data } = await api.get(`/lms/programs/${assignmentId}/items/${itemId}/guideline-video-url`);
+  return data;
 }

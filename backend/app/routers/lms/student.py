@@ -594,11 +594,16 @@ async def program_item_pdf_url(
 async def program_item_guideline_video_url(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
-) -> dict[str, str]:
+) -> dict:
     """Resolved only when a student actually opens an *uploaded* video
     guideline — an embed-link guideline never needs this, the checklist
     payload already carries the real (public) URL in guideline_url. Same
-    posture as program_item_pdf_url above."""
+    posture as program_item_pdf_url above.
+
+    `video_info` mirrors get_playback_info()'s shape exactly and is what the
+    frontend's shared <VideoPlayer> needs — `url` alone can't represent an
+    hls_encrypted video (no plain URL exists for one; playback needs a
+    token, fetched by the player itself off `video_info.video_id`)."""
     _, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     if item.guideline_kind != "video":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No video guideline on this item")
@@ -606,7 +611,7 @@ async def program_item_guideline_video_url(
     if video is None or video.provider != "upload":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No video uploaded for this item yet")
     info = await get_playback_info(db, video)
-    return {"url": info.get("url") or ""}
+    return {"url": info.get("url") or "", "video_info": info}
 
 
 @router.post("/programs/{assignment_id}/items/{item_id}/complete", response_model=LmsProgramChecklistItemOut)
@@ -822,12 +827,18 @@ async def enroll_self(
 # ── module read: student AND enrolled ───────────────────────────────────────
 
 async def _video_state(db: AsyncSession, item: ModuleItem) -> dict:
+    """Called only from module_read, which already ran _assert_enrolled — so
+    handing back the Video row's id here is not a new access grant. It's
+    what lets the player call the generic /videos/{video_id}/... surface
+    (routers/video.py) directly; that surface re-checks enrollment itself on
+    every request regardless of what this endpoint returned."""
     video = await get_video_for_owner(db, owner_type="module_item", owner_id=item.id)
     if video is None:
-        return {"transcode_status": None, "duration_seconds": None}
+        return {"transcode_status": None, "duration_seconds": None, "video_id": None}
     return {
         "transcode_status": video.status,
         "duration_seconds": video.duration_seconds,
+        "video_id": str(video.id),
     }
 
 

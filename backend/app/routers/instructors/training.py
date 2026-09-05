@@ -65,8 +65,12 @@ async def stream_video(
     )).scalars().first()
     if uploaded is not None:
         info = await get_playback_info(db, uploaded)
-        return {"url": info.get("url") or ""}
-    return {"url": video.video_path}
+        # video_info mirrors get_playback_info()'s shape exactly and is what
+        # the frontend's shared <VideoPlayer> needs — `url` alone can't
+        # represent an hls_encrypted video (there is no plain URL for one;
+        # playback needs a token, fetched by the player off video_info.video_id).
+        return {"url": info.get("url") or "", "video_info": info}
+    return {"url": video.video_path, "video_info": None}
 
 
 @router.post("/videos/{video_id}/complete")

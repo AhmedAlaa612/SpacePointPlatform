@@ -17,11 +17,13 @@ import { isVideoFormat } from "@/lib/utils"
  *  docstring for why a hosted PDF's `file_url` already comes back blank. */
 const isInlinePdf = (r: LibraryResource) => r.resource_type === "file" && r.format.toUpperCase() === "PDF"
 
-/** A hosted video plays inline instead of downloading — same resolve-on-open
- * posture as a hosted PDF (see routers/instructors/library.py's own
- * docstring): its `file_url` comes back blank in the list too, resolved
- * only once someone actually opens it. */
-const isInlineVideo = (r: LibraryResource) => r.resource_type === "file" && isVideoFormat(r.format)
+/** A hosted video (or an embedded one — format === "EMBED") plays inline
+ * instead of downloading — same resolve-on-open posture as a hosted PDF
+ * (see routers/instructors/library.py's own docstring): its `file_url`
+ * comes back blank in the list too, resolved only once someone actually
+ * opens it. */
+const isInlineVideo = (r: LibraryResource) =>
+  r.resource_type === "file" && (isVideoFormat(r.format) || r.format === "EMBED")
 
 export default function Library() {
   const { data: modules, isLoading } = useQuery({ queryKey: ["instructor-library"], queryFn: listLibraryApi })
@@ -92,25 +94,40 @@ export default function Library() {
 }
 
 function ResourceViewer({ resource }: { resource: LibraryResource }) {
-  const { data: url, isLoading, isError } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["library-resource-url", resource.id],
     queryFn: () => getLibraryResourceUrlApi(resource.id),
+    // Poll while an hls_encrypted upload is still transcoding — this used
+    // to be a non-issue when uploads flipped straight to "ready", but now
+    // there is a real async gap to bridge without a manual refresh.
+    refetchInterval: (q) => {
+      const status = q.state.data?.video_info?.status
+      return status && status !== "ready" && status !== "failed" ? 4000 : false
+    },
   })
 
   if (isLoading) return <p className="text-sm text-muted-foreground py-6">Loading document...</p>
-  if (isError || !url) {
-    return <p className="text-sm text-destructive py-6">Couldn't load this document.</p>
-  }
 
   if (isInlineVideo(resource)) {
+    // video_info drives an embed (iframe) vs. a direct upload (<video src>)
+    // — a bare url string can't tell those apart, and an embed has no "url"
+    // at all (only embed_url), so isError/!url here would wrongly treat a
+    // successfully embedded video as a failed load.
+    if (isError || !data?.video_info) {
+      return <p className="text-sm text-destructive py-6">Couldn't load this video.</p>
+    }
     return (
       <VideoPlayer
-        info={{ provider: "upload", mode: "direct", status: "ready", url }}
+        info={data.video_info}
         title={resource.title}
         autoPlay
         className="w-full flex-1 min-h-0 rounded-lg bg-black"
       />
     )
   }
-  return <PdfViewer url={url} className="flex flex-col gap-3 flex-1 min-h-0" />
+
+  if (isError || !data?.url) {
+    return <p className="text-sm text-destructive py-6">Couldn't load this document.</p>
+  }
+  return <PdfViewer url={data.url} className="flex flex-col gap-3 flex-1 min-h-0" />
 }

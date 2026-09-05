@@ -74,6 +74,68 @@ async def test_upload_rejects_an_oversized_file(client, db, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_video_embed_round_trips_with_playback_info(client, db):
+    """The other half of the "Video" tab in Add Resource — a pasted
+    YouTube/Vimeo link, not just a file upload. format="EMBED", and
+    video_info carries the iframe-ready shape the frontend's shared
+    <VideoPlayer> consumes directly."""
+    facilitator = await _facilitator(db)
+    module = await _module(db)
+    await db.commit()
+
+    resp = await client.post(
+        "/instructors/facilitator/library/video-embed",
+        params={"module_id": str(module.id), "title": "Intro", "url": "https://youtu.be/dQw4w9WgXcQ"},
+        headers=_headers(facilitator),
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["format"] == "EMBED"
+    assert body["resource_type"] == "file"
+    assert body["file_url"] == "https://youtu.be/dQw4w9WgXcQ"
+    assert body["video_info"]["provider"] == "youtube"
+    assert body["video_info"]["embed_url"] == "https://youtu.be/dQw4w9WgXcQ"
+    assert body["video_info"]["status"] == "ready"
+
+
+@pytest.mark.asyncio
+async def test_video_embed_rejects_an_unrecognized_host(client, db):
+    facilitator = await _facilitator(db)
+    module = await _module(db)
+    await db.commit()
+
+    resp = await client.post(
+        "/instructors/facilitator/library/video-embed",
+        params={"module_id": str(module.id), "title": "Intro", "url": "https://example.com/video.mp4"},
+        headers=_headers(facilitator),
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_uploaded_video_carries_video_info_too(client, db):
+    """Not just embeds — an uploaded video's response also carries video_info
+    now (it didn't before), which is what lets the row render through the
+    same shared <VideoPlayer> as an embed instead of a hardcoded
+    upload/direct guess."""
+    facilitator = await _facilitator(db)
+    module = await _module(db)
+    await db.commit()
+
+    resp = await client.post(
+        f"/instructors/facilitator/library?module_id={module.id}&title=Orientation",
+        headers=_headers(facilitator),
+        files={"file": ("orientation.mp4", b"\x00\x00\x00 ftypmp4 fake video bytes", "video/mp4")},
+    )
+    assert resp.status_code == 201, resp.text
+    info = resp.json()["video_info"]
+    assert info["provider"] == "upload"
+    assert info["mode"] == "direct"
+    assert info["status"] == "ready"
+    assert info["url"]
+
+
+@pytest.mark.asyncio
 async def test_replace_file_also_rejects_an_oversized_file(client, db, monkeypatch):
     facilitator = await _facilitator(db)
     module = await _module(db)

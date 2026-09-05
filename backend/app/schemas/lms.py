@@ -55,6 +55,12 @@ class ContentVideo(BaseModel):
     model_config = ConfigDict(extra="forbid")
     transcode_status: str | None = None
     duration_seconds: int | None = None
+    # The Video row's own id — needed by the player to call the generic
+    # /videos/{video_id}/token|playlist|segment|key surface (routers/video.py),
+    # which is keyed by video_id, not item_id. None only when no Video row
+    # exists yet for this item (never uploaded), same case transcode_status
+    # is already None for.
+    video_id: str | None = None
 
 
 class ContentAttachment(BaseModel):

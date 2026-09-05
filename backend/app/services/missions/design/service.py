@@ -84,9 +84,6 @@ def variant_thresholds(config: dict) -> dict:
         "transmit_power_dbm": config.get("transmit_power_dbm", 30.0),
         "good_link_margin_threshold_db": config.get("good_link_margin_threshold_db", 3.0),
         "weak_link_margin_threshold_db": config.get("weak_link_margin_threshold_db", 0.0),
-        # Design v2 (7D-2) — F8 and F7 thresholds. Variant-owned like every
-        # other limit here, never a student-editable column.
-        "max_depth_of_discharge_pct": config.get("max_depth_of_discharge_pct", 30.0),
         "required_downlink_margin_fraction": config.get("required_downlink_margin_fraction", 0.10),
     }
 

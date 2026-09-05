@@ -11,6 +11,7 @@ inside the one outer transaction this fixture rolls back at teardown.
 """
 
 import httpx
+import pytest
 import pytest_asyncio
 from arq import create_pool
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from app.core.config import settings
 from app.db.session import get_db
 from app.main import app
+from app.services import storage, storage_local
 from app.services.games.realtime import get_realtime_redis_dep
 from app.workers.settings import get_arq_redis, redis_settings
 
@@ -31,6 +33,28 @@ if not settings.REDIS_URL_TEST:
         "REDIS_URL_TEST is not set — add it to backend/.env before running tests. "
         "It must be a separate Redis logical DB index, never REDIS_URL."
     )
+
+
+@pytest.fixture(autouse=True)
+def _no_real_r2_in_tests(monkeypatch):
+    """`video_service.py` hardcodes `storage_backend="r2"` for every new
+    upload (see `_NEW_UPLOAD_BACKEND`) — deliberate for production (VPS is no
+    longer a valid upload destination), but it means any test that attaches a
+    video would otherwise reach for real Cloudflare R2 credentials this
+    environment doesn't have and must never have (the R2 secret access key
+    never belongs in CI/this repo). Route a "r2" backend through the same
+    local-disk backend every other test already uses; storage_r2.py's own
+    wire behavior (SigV4 signing, key prefixing) is not this fixture's
+    concern to re-verify."""
+    real_impl = storage._impl
+
+    def _impl(backend: str | None = None):
+        name = backend or settings.STORAGE_BACKEND
+        if name == "r2":
+            return storage_local
+        return real_impl(backend)
+
+    monkeypatch.setattr(storage, "_impl", _impl)
 
 
 @pytest_asyncio.fixture(scope="session")

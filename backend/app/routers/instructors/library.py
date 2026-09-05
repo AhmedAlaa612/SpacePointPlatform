@@ -42,11 +42,16 @@ _VIDEO_SENTINEL_PREFIX = "video-service:"
 
 
 def _is_inline_video(resource: LibraryResource) -> bool:
-    """A hosted video — plays inline via the frontend's <video> element,
-    which needs a resolved URL exactly like a hosted PDF does, for the same
-    reason: never bake a downloadable link into a list payload the browser
-    holds onto for the whole page visit."""
-    return resource.resource_type == "file" and resource.format.upper() in _VIDEO_FORMATS
+    """A hosted video OR an embedded one (format="EMBED", set by
+    facilitator.py's add_library_video_embed) — either plays inline via the
+    frontend's shared <VideoPlayer>, which needs resolved playback info
+    exactly like a hosted PDF needs a resolved URL, for the same reason:
+    never bake a downloadable link (or a raw YouTube/Vimeo URL with no
+    provider to interpret it) into a list payload the browser holds onto
+    for the whole page visit."""
+    return resource.resource_type == "file" and (
+        resource.format.upper() in _VIDEO_FORMATS or resource.format.upper() == "EMBED"
+    )
 
 
 @router.get("", response_model=list[LibraryModuleOut])
@@ -91,24 +96,31 @@ async def list_library(db: AsyncSession = Depends(get_db), current_user: User = 
 @router.get("/resources/{resource_id}/url")
 async def get_library_resource_url(
     resource_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor),
-) -> dict[str, str]:
+) -> dict:
     """Resolved only when someone actually opens a document — same posture
     as `streamVideoApi`/the LMS attachment viewer, never embedded in the
-    list above for a hosted PDF or video."""
+    list above for a hosted PDF or video.
+
+    `video_info`, present only for a video-service-backed resource, mirrors
+    get_playback_info()'s shape exactly and is what the frontend's shared
+    <VideoPlayer> needs — `url` alone can't distinguish an embed (needs an
+    <iframe>, and for one there IS no "url", only "embed_url") from a direct
+    upload (needs a plain <video src>). Returning `{"url": ""}` for an embed,
+    as this used to, meant `ResourceViewer` treated it as a failed load."""
     resource = (await db.execute(select(LibraryResource).where(LibraryResource.id == resource_id))).scalars().first()
     if resource is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Resource not found")
 
     if resource.resource_type == "link" or resource.file_url.startswith("http"):
-        return {"url": resource.file_url}
+        return {"url": resource.file_url, "video_info": None}
 
     if resource.file_url.startswith(_VIDEO_SENTINEL_PREFIX):
         video = await get_video_for_owner(db, owner_type="library_resource", owner_id=resource.id)
         if video is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Resource not found")
         info = await get_playback_info(db, video)
-        return {"url": info.get("url") or ""}
+        return {"url": info.get("url") or info.get("embed_url") or "", "video_info": info}
 
     path = _lib_storage_path(resource.file_url)
     url = await storage.get_signed_url("library-resources", path, expires_in=3600)
-    return {"url": url}
+    return {"url": url, "video_info": None}

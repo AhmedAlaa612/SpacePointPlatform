@@ -14,6 +14,7 @@ import uuid
 from pathlib import Path
 from typing import Literal
 
+from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import func, or_, select
@@ -22,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ModuleItem, VideoCheckpoint
+from app.models.videos import Video
 from app.models.lms.invite_grant import InvitationCodeGrant
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.missions.mission import Mission
@@ -105,8 +107,9 @@ from app.services.lms.program import (
     validate_item_refs,
 )
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
-from app.services.video_service import attach_embed_link, attach_upload, get_playback_info, get_video_for_owner
+from app.services.video_service import attach_embed_link, attach_upload, enqueue_transcode, get_playback_info, get_video_for_owner
 from app.services.video_service import delete as delete_video
+from app.workers.settings import get_arq_redis
 
 router = APIRouter(prefix="/lms/admin", tags=["lms-admin"])
 
@@ -692,6 +695,45 @@ async def _check_instructor(db: AsyncSession, instructor_id: uuid.UUID | None) -
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Instructor not found")
 
 
+class CourseVideoBackendOut(BaseModel):
+    course_id: uuid.UUID
+    title: str
+    r2: int
+    vps: int
+
+
+# Registered before "/courses/{course_id}" (below) — FastAPI matches routes
+# in registration order, and a path-param route registered first would
+# swallow this literal path as course_id="video-backend-status" (a 422, not
+# a 404, and this endpoint would never be reached).
+@router.get("/courses/video-backend-status", response_model=list[CourseVideoBackendOut])
+async def get_courses_video_backend_status(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """One row per course that has at least one module_item video, with a
+    count of how many of its videos are on r2 vs. still on the VPS. A course
+    with zero videos is omitted rather than shown as 0/0 — nothing to
+    migrate there."""
+    rows = (await db.execute(
+        select(Course.id, Course.title, Video.storage_backend, func.count(Video.id))
+        .join(CourseModule, CourseModule.course_id == Course.id)
+        .join(ModuleItem, ModuleItem.module_id == CourseModule.id)
+        .join(Video, (Video.owner_id == ModuleItem.id) & (Video.owner_type == "module_item"))
+        .group_by(Course.id, Course.title, Video.storage_backend)
+    )).all()
+
+    counts: dict[uuid.UUID, dict[str, object]] = {}
+    for course_id, title, backend, n in rows:
+        entry = counts.setdefault(course_id, {"title": title, "r2": 0, "vps": 0})
+        entry["r2" if backend == "r2" else "vps"] += n
+
+    return [
+        CourseVideoBackendOut(course_id=course_id, title=entry["title"], r2=entry["r2"], vps=entry["vps"])
+        for course_id, entry in counts.items()
+    ]
+
+
 @router.get("/courses", response_model=list[CourseAdminOut])
 async def list_courses(
     db: AsyncSession = Depends(get_db),
@@ -803,6 +845,68 @@ async def upload_course_image(
     await db.commit()
     await db.refresh(course)
     return await _course_admin_out(db, course)
+
+
+# ── R2 migration visibility (2026-09) ───────────────────────────────────
+# "Where does each course's video actually live right now" plus a button to
+# move one course at a time — the per-video storage_backend column exists
+# specifically to make this incremental, so the admin UI needs to expose it
+# incrementally too, not just as a global on/off. See scripts/
+# video_migrate_to_r2.py, whose --status/--reencode this mirrors as an API.
+
+class MigrateCourseVideosOut(BaseModel):
+    queued: int
+    already_on_r2: int
+    still_processing: int = 0
+
+
+@router.post("/courses/{course_id}/videos/migrate-to-r2", response_model=MigrateCourseVideosOut)
+async def migrate_course_videos_to_r2(
+    course_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
+    _: User = Depends(require_lms_content),
+):
+    """Re-encodes every not-yet-r2 video in this course onto R2, one course
+    at a time — "migrate 3 courses today, the rest later" as a button
+    instead of an SSH session. Deliberately does not touch `video.status` or
+    `video.storage_backend` here: `run_encrypted_transcode` (via
+    `enqueue_transcode`, target_backend="r2") owns that zero-downtime swap —
+    an already-`ready` video keeps serving its current output for the whole
+    re-encode and only swaps once the new output is verified in place."""
+    course = await db.get(Course, course_id)
+    if course is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+
+    rows = (await db.execute(
+        select(Video)
+        .join(ModuleItem, ModuleItem.id == Video.owner_id)
+        .join(CourseModule, CourseModule.id == ModuleItem.module_id)
+        .where(
+            Video.owner_type == "module_item", Video.upload_mode == "hls_encrypted",
+            CourseModule.course_id == course_id,
+        )
+    )).scalars().all()
+
+    # Mutually exclusive, in priority order — a still-processing row (a fresh
+    # upload's own first-ever transcode) is reported as such even though a new
+    # upload already defaults storage_backend="r2" at attach time
+    # (_NEW_UPLOAD_BACKEND), well before that transcode ever runs. Counting it
+    # in BOTH still_processing and already_on_r2 would let the three counts
+    # sum to more than len(rows) and, worse, let the admin UI report "already
+    # on R2 — nothing to migrate" for a course that actually has uploads still
+    # in flight.
+    still_processing_rows = [v for v in rows if v.status in ("pending", "processing")]
+    settled_rows = [v for v in rows if v.status not in ("pending", "processing")]
+    already_on_r2 = sum(1 for v in settled_rows if v.storage_backend == "r2")
+    to_migrate = [v for v in settled_rows if v.storage_backend != "r2"]
+    for video in to_migrate:
+        await enqueue_transcode(arq_redis, video.id, target_backend="r2")
+
+    return MigrateCourseVideosOut(
+        queued=len(to_migrate), already_on_r2=already_on_r2,
+        still_processing=len(still_processing_rows),
+    )
 
 
 @router.delete("/courses/{course_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1577,6 +1681,7 @@ async def attach_program_item_guideline_video_embed(
 async def upload_program_item_guideline_video(
     item_id: uuid.UUID, file: UploadFile,
     db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
 ):
     item = await db.get(LmsProgramItem, item_id)
     if item is None or item.guideline_kind != "video":
@@ -1588,14 +1693,16 @@ async def upload_program_item_guideline_video(
     if len(data) > MAX_ATTACHMENT_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Video exceeds the 4GB limit")
 
-    # A guideline video is a short self-check resource, not paid course
-    # content — "direct" (plain progressive stream, no transcode wait)
-    # rather than the encrypted-HLS pipeline course modules use.
-    await attach_upload(
+    # Compressed HLS, same pipeline every LMS course module video already
+    # goes through — a short self-check clip is still someone's phone
+    # recording, easily 4K, and "direct" never compressed anything, it only
+    # ever made a raw file seekable.
+    video = await attach_upload(
         db, owner_type="program_item_guideline", owner_id=item_id, file_bytes=data,
-        filename=file.filename or "video", content_type=file.content_type, mode="direct",
+        filename=file.filename or "video", content_type=file.content_type, mode="hls_encrypted",
         created_by=current.id,
     )
+    await enqueue_transcode(arq_redis, video.id)
     return await item_out(db, item)
 
 
@@ -1615,10 +1722,14 @@ async def delete_program_item_guideline_video(
 @router.get("/items/{item_id}/guideline/video/url")
 async def get_program_item_guideline_video_url(
     item_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
-) -> dict[str, str]:
+):
     """Authoring-side preview for an *uploaded* video guideline — same
     resolve-fresh posture as pdf-url above. Not needed for an embed-link
-    guideline: item_out already returns the real (public) URL for those."""
+    guideline: item_out already returns the real (public) URL for those.
+
+    Finding #4: Returns video_info for all upload modes, matching student-facing
+    endpoints. HLS-encrypted videos have no "url" key in playback_info, only
+    video_id/status for token-gated playlist fetch."""
     item = await db.get(LmsProgramItem, item_id)
     if item is None or item.guideline_kind != "video":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video guideline item not found")
@@ -1626,7 +1737,7 @@ async def get_program_item_guideline_video_url(
     if video is None or video.provider != "upload":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No video uploaded for this item yet")
     info = await get_playback_info(db, video)
-    return {"url": info.get("url") or ""}
+    return {"url": info.get("url") or "", "video_info": info}
 
 
 @router.post("/programs/{lms_program_id}/items/reorder", response_model=list[LmsProgramItemOut])

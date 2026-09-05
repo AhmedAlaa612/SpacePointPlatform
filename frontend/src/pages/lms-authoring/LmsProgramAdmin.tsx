@@ -5,6 +5,8 @@ import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText
 import { isAxiosError } from "axios"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { VideoPlayer } from "@/components/video/VideoPlayer"
 import { ConfirmDialog } from "@/pages/admin/components/common"
 import { useAuth } from "@/context/AuthContext"
 import { getProgramsApi } from "@/api/sessions/programs"
@@ -22,6 +24,7 @@ import {
   getAssignmentItemsApi, resyncCohortProgramAssignmentsApi,
   uploadLmsProgramItemPdfApi, deleteLmsProgramItemPdfApi,
   uploadLmsProgramItemGuidelineVideoApi, deleteLmsProgramItemGuidelineVideoApi,
+  getLmsProgramItemGuidelineVideoUrlApi,
   MISSION_STEP_KEYS,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType,
   type LmsProgramRosterRow, type LmsAssignmentItemDetail,
@@ -38,6 +41,25 @@ import type { Program } from "@/types/sessions"
 import type { ManagedAttempt } from "@/api/missions_manager"
 import { ensureAbsoluteUrl } from "@/lib/utils"
 import { useToast } from "@/components/ui/toast"
+
+/** Authoring-side preview for an uploaded guideline video — the same
+ * resolve-fresh-on-open posture the Library/training players already use.
+ * Polls while the upload is still transcoding, since a facilitator can open
+ * this right after uploading, well before the encode finishes. */
+function GuidelineVideoPreview({ itemId, title }: { itemId: string; title: string }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["lms-admin-guideline-video", itemId],
+    queryFn: () => getLmsProgramItemGuidelineVideoUrlApi(itemId),
+    refetchInterval: (q) => {
+      const status = q.state.data?.video_info?.status
+      return status && status !== "ready" && status !== "failed" ? 4000 : false
+    },
+  })
+
+  if (isLoading) return <p className="text-sm text-muted-foreground py-6">Loading video…</p>
+  if (isError || !data?.video_info) return <p className="text-sm text-destructive py-6">Couldn't load this video.</p>
+  return <VideoPlayer info={data.video_info} title={title} autoPlay className="w-full aspect-video rounded-lg bg-black" />
+}
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -488,6 +510,8 @@ function ChecklistItemsEditor({
   // same checkpoint doesn't drift on a typo. Order-preserving, deduped.
   const checkpointLabels = Array.from(new Set(items.map((i) => i.checkpoint_label).filter((l): l is string => !!l)))
 
+  const [previewItem, setPreviewItem] = useState<LmsProgramItem | null>(null)
+
   const [gatingAll, setGatingAll] = useState(false)
   const gateEverything = async () => {
     setGatingAll(true)
@@ -521,6 +545,7 @@ function ChecklistItemsEditor({
           key={item.id} item={item} onUpdate={onUpdate} onDelete={onDelete}
           onUploadPdf={onUploadPdf} onRemovePdf={onRemovePdf}
           onUploadGuidelineVideo={onUploadGuidelineVideo} onRemoveGuidelineVideo={onRemoveGuidelineVideo}
+          onPreviewGuidelineVideo={() => setPreviewItem(item)}
           readOnly={readOnly}
           cohortId={cohortId} checkpointLabels={checkpointLabels}
           draggable={!readOnly}
@@ -530,6 +555,13 @@ function ChecklistItemsEditor({
           onDragEndRow={() => setDragId(null)}
         />
       ))}
+
+      <Dialog open={!!previewItem} onOpenChange={(open) => !open && setPreviewItem(null)}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader><DialogTitle>{previewItem?.title}</DialogTitle></DialogHeader>
+          {previewItem && <GuidelineVideoPreview itemId={previewItem.id} title={previewItem.title} />}
+        </DialogContent>
+      </Dialog>
 
       {readOnly ? null : addingType ? (
         <ItemForm
@@ -587,6 +619,7 @@ const ITEM_TYPE_META: Record<LmsProgramItemType, { label: string; icon: typeof B
 
 function ItemRow({
   item, onUpdate, onDelete, onUploadPdf, onRemovePdf, onUploadGuidelineVideo, onRemoveGuidelineVideo,
+  onPreviewGuidelineVideo,
   readOnly, cohortId, checkpointLabels,
   draggable, isDragging, onDragStartRow, onDropRow, onDragEndRow,
 }: {
@@ -599,6 +632,7 @@ function ItemRow({
   onRemovePdf?: (itemId: string) => Promise<unknown>
   onUploadGuidelineVideo?: (itemId: string, file: File) => Promise<unknown>
   onRemoveGuidelineVideo?: (itemId: string) => Promise<unknown>
+  onPreviewGuidelineVideo?: () => void
   readOnly: boolean
   cohortId?: string
   checkpointLabels?: string[]
@@ -723,13 +757,21 @@ function ItemRow({
                 {videoBusy ? "Uploading…" : item.guideline_video_uploaded ? "Replace video" : "Upload video"}
               </button>
               {item.guideline_video_uploaded && (
-                <button
-                  onClick={async () => { setVideoBusy(true); try { await onRemoveGuidelineVideo?.(item.id) } finally { setVideoBusy(false) } }}
-                  disabled={videoBusy}
-                  className="text-xs font-medium text-muted-foreground hover:text-red-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-                >
-                  Remove video
-                </button>
+                <>
+                  <button
+                    onClick={() => onPreviewGuidelineVideo?.()}
+                    className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+                  >
+                    Preview
+                  </button>
+                  <button
+                    onClick={async () => { setVideoBusy(true); try { await onRemoveGuidelineVideo?.(item.id) } finally { setVideoBusy(false) } }}
+                    disabled={videoBusy}
+                    className="text-xs font-medium text-muted-foreground hover:text-red-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                  >
+                    Remove video
+                  </button>
+                </>
               )}
             </>
           )}

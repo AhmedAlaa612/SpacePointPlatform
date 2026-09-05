@@ -81,6 +81,30 @@ class Video(Base):
 
     duration_seconds = Column(Integer, nullable=True)
 
+    # Which storage backend THIS video's student-facing bytes are on right
+    # now. NULL (every pre-existing row) = local/VPS; "r2" = Cloudflare R2.
+    #
+    # Per-row rather than per-deployment because it is a fact about the data,
+    # not about the configuration: video A's segments can be on the VPS while
+    # video B's are on R2, and only the row knows which. Holding it in a
+    # setting instead forces an all-or-nothing cutover — "point the app at R2"
+    # would instantly break every video whose bytes have not been copied yet,
+    # with no way to move one video (or one course) and check it before
+    # moving the rest. See video_service.py's _hls_backend/_source_backend,
+    # which read this instead of a global switch, and
+    # run_encrypted_transcode's zero-downtime re-encode path, which only
+    # writes this once the new output is verified in place.
+    #
+    # For upload_mode="hls_encrypted" this governs playlist/segments/key; the
+    # pre-transcode source stays on the default backend regardless, since
+    # only the ARQ worker ever reads it. For upload_mode="direct" it governs
+    # the source, because there the source IS the asset the browser fetches.
+    #
+    # Rolling one video back is setting this back to NULL: move_to_backend
+    # copies rather than moves, so the original bytes are still where they
+    # were.
+    storage_backend = Column(String(16), nullable=True)
+
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(

@@ -2,8 +2,9 @@ import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ExternalLink, FileText, Link2, Pencil, Plus, Trash2, Upload, Video } from "lucide-react"
 import {
-  addLibraryLinkApi, createLibraryModuleApi, deleteLibraryModuleApi, deleteLibraryResourceApi,
-  facilitatorListLibraryApi, replaceLibraryFileApi, updateLibraryResourceApi, uploadLibraryResourceApi,
+  addLibraryLinkApi, addLibraryVideoEmbedApi, createLibraryModuleApi, deleteLibraryModuleApi,
+  deleteLibraryResourceApi, facilitatorListLibraryApi, replaceLibraryFileApi, updateLibraryResourceApi,
+  uploadLibraryResourceApi,
 } from "@/api/instructors/facilitator"
 import type { LibraryResource } from "@/types/instructors"
 import { Button } from "@/components/ui/button"
@@ -15,11 +16,17 @@ import { VideoPlayer } from "@/components/video/VideoPlayer"
 import { isVideoFormat } from "@/lib/utils"
 
 const isPdf = (r: LibraryResource) => r.resource_type === "file" && r.format.toUpperCase() === "PDF"
+// A video resource is either an upload (format is a real video extension,
+// isVideoFormat) or a pasted embed link (format === "EMBED", set by
+// add_library_video_embed) — both render through the same <VideoPlayer>,
+// driven entirely by r.video_info.
+const isVideoResource = (r: LibraryResource) =>
+  r.resource_type === "file" && (isVideoFormat(r.format) || r.format === "EMBED")
 
 function ResourceRow({ r, onEdit, onDelete, onPreviewPdf }: {
   r: LibraryResource; onEdit: () => void; onDelete: () => void; onPreviewPdf: () => void
 }) {
-  const isVideo = r.resource_type === "file" && isVideoFormat(r.format)
+  const isVideo = isVideoResource(r)
 
   return (
     <div className="flex flex-col gap-2 p-3 rounded-lg border bg-background">
@@ -57,7 +64,7 @@ function ResourceRow({ r, onEdit, onDelete, onPreviewPdf }: {
       </div>
       {isVideo && (
         <VideoPlayer
-          info={{ provider: "upload", mode: "direct", status: "ready", url: r.file_url }}
+          info={r.video_info ?? { provider: "upload", mode: "direct", status: "ready", url: r.file_url }}
           title={r.title}
           className="w-full max-h-64 rounded-lg bg-black"
         />
@@ -76,6 +83,10 @@ export default function FacilitatorLibrary() {
 
   const [addResourceModuleId, setAddResourceModuleId] = useState<string | null>(null)
   const [addMode, setAddMode] = useState<"link" | "file" | "video">("link")
+  // Only meaningful when addMode === "video" — a facilitator either uploads a
+  // file (transcode-free "direct" playback, same as any other video upload)
+  // or pastes a YouTube/Vimeo link (embedded, no bytes of ours to host).
+  const [videoSource, setVideoSource] = useState<"upload" | "embed">("upload")
   const [resourceTitle, setResourceTitle] = useState("")
   const [linkUrl, setLinkUrl] = useState("")
 
@@ -85,7 +96,25 @@ export default function FacilitatorLibrary() {
 
   const [previewResource, setPreviewResource] = useState<LibraryResource | null>(null)
 
-  const { data: modules, isLoading } = useQuery({ queryKey: ["facilitator-library"], queryFn: facilitatorListLibraryApi })
+  const { data: modules, isLoading } = useQuery({
+    queryKey: ["facilitator-library"],
+    queryFn: facilitatorListLibraryApi,
+    // Poll while any resource in the list is still transcoding (hls_encrypted
+    // upload) — this used to be a non-issue when uploads flipped straight to
+    // "ready", but now there is a real async gap to bridge without a manual
+    // refresh. Whole-list refetch, not per-resource: video_info arrives
+    // bundled in this same list response, there is no per-resource detail
+    // query on this page to poll instead.
+    refetchInterval: (q) => {
+      const stillProcessing = (q.state.data ?? []).some((m) =>
+        m.resources.some((r) => {
+          const status = r.video_info?.status
+          return status && status !== "ready" && status !== "failed"
+        }),
+      )
+      return stillProcessing ? 4000 : false
+    },
+  })
 
   const createModule = useMutation({
     mutationFn: () => createLibraryModuleApi({ name: newModuleName }),
@@ -111,8 +140,19 @@ export default function FacilitatorLibrary() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["facilitator-library"] }); closeAddDialog() },
   })
 
+  const addVideoEmbed = useMutation({
+    mutationFn: () => addLibraryVideoEmbedApi({ moduleId: addResourceModuleId!, title: resourceTitle, url: linkUrl }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["facilitator-library"] }); closeAddDialog() },
+  })
+
   const updateResource = useMutation({
     mutationFn: () => {
+      // format === "EMBED" before resource_type === "file": an embedded
+      // video IS resource_type "file" (it's video-service-backed, same as an
+      // upload), but there's no bytes to replace, only a URL to re-paste.
+      if (editResource!.format === "EMBED") {
+        return updateLibraryResourceApi(editResource!.id, { title: editTitle, url: editUrl })
+      }
       if (editResource!.resource_type === "file") {
         const newFile = editFileRef.current?.files?.[0]
         if (newFile) return replaceLibraryFileApi(editResource!.id, newFile, editTitle)
@@ -134,12 +174,14 @@ export default function FacilitatorLibrary() {
   function openAddDialog(moduleId: string) {
     setAddResourceModuleId(moduleId)
     setAddMode("link")
+    setVideoSource("upload")
     setResourceTitle("")
     setLinkUrl("")
   }
 
   function closeAddDialog() {
     setAddResourceModuleId(null)
+    setVideoSource("upload")
     setResourceTitle("")
     setLinkUrl("")
   }
@@ -150,7 +192,7 @@ export default function FacilitatorLibrary() {
     setEditUrl(r.file_url)
   }
 
-  const isPending = addLink.isPending || uploadFile.isPending
+  const isPending = addLink.isPending || uploadFile.isPending || addVideoEmbed.isPending
 
   if (isLoading) return <Spinner />
 
@@ -251,25 +293,62 @@ export default function FacilitatorLibrary() {
             onChange={(e) => setResourceTitle(e.target.value)}
           />
 
-          {addMode === "link" ? (
+          {addMode === "video" && (
+            <div className="flex gap-2 mb-3">
+              <button
+                onClick={() => setVideoSource("upload")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                  videoSource === "upload"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                <Upload size={12} /> Upload file
+              </button>
+              <button
+                onClick={() => setVideoSource("embed")}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                  videoSource === "embed"
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border text-muted-foreground hover:bg-muted"
+                }`}
+              >
+                <Link2 size={12} /> Embed link
+              </button>
+            </div>
+          )}
+
+          {addMode === "link" || (addMode === "video" && videoSource === "embed") ? (
             <input
+              key="url-input"
               className="input mb-3"
-              placeholder="URL (https://…)"
+              placeholder={addMode === "video" ? "YouTube or Vimeo URL" : "URL (https://…)"}
               value={linkUrl}
               onChange={(e) => setLinkUrl(e.target.value)}
             />
           ) : (
-            <input ref={fileRef} type="file" accept={addMode === "video" ? "video/*" : undefined} className="input mb-3" />
+            <input key="file-input" ref={fileRef} type="file" accept={addMode === "video" ? "video/*" : undefined} className="input mb-3" />
           )}
 
           <Button
             onClick={() => {
               if (addMode === "link") { addLink.mutate() }
+              else if (addMode === "video" && videoSource === "embed") { addVideoEmbed.mutate() }
               else { const f = fileRef.current?.files?.[0]; if (f) uploadFile.mutate(f) }
             }}
-            disabled={!resourceTitle || (addMode === "link" ? !linkUrl : false) || isPending}
+            disabled={
+              !resourceTitle
+              || (addMode === "link" || (addMode === "video" && videoSource === "embed") ? !linkUrl : false)
+              || isPending
+            }
           >
-            {isPending ? "Adding…" : addMode === "link" ? "Add link" : addMode === "video" ? "Upload video" : "Upload file"}
+            {isPending
+              ? "Adding…"
+              : addMode === "link"
+              ? "Add link"
+              : addMode === "video"
+              ? (videoSource === "embed" ? "Add embedded video" : "Upload video")
+              : "Upload file"}
           </Button>
         </DialogContent>
       </Dialog>
@@ -286,10 +365,10 @@ export default function FacilitatorLibrary() {
             onChange={(e) => setEditTitle(e.target.value)}
           />
 
-          {editResource?.resource_type === "link" ? (
+          {editResource?.resource_type === "link" || editResource?.format === "EMBED" ? (
             <input
               className="input mb-3"
-              placeholder="URL (https://…)"
+              placeholder={editResource?.format === "EMBED" ? "YouTube or Vimeo URL" : "URL (https://…)"}
               value={editUrl}
               onChange={(e) => setEditUrl(e.target.value)}
             />

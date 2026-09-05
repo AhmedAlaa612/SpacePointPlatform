@@ -38,7 +38,8 @@ in one of those files instead, not here.
 | Container | Image | Notes |
 |---|---|---|
 | `spacepoint-api` | `ghcr.io/ahmedalaa612/spacepoint-api:latest` | `--network host`, `--env-file /etc/spacepoint/env`, storage volume `/var/lib/spacepoint/storage:/data/storage`. Entrypoint runs `alembic upgrade head` before `uvicorn` — migrations apply once per deploy, not on every boot. |
-| `spacepoint-worker` | same image | `arq app.workers.main.WorkerSettings`. **Recreated fresh on every `deploy-backend.sh` run**, not just restarted — see the gotcha in §3. |
+| `spacepoint-worker` | same image | `arq app.workers.main.WorkerSettings` — every IO-bound job (email, LMS sync, inventory reminders, `heartbeat` cron). **Recreated fresh on every `deploy-backend.sh` run**, not just restarted — see the gotcha in §3. |
+| `spacepoint-worker-video` | same image | `arq app.workers.main.VideoWorkerSettings` — `transcode_video` only, on its own queue (`arq:queue:video`), `max_jobs=1`. **New with the R2/video-optimization branch, not yet confirmed by direct observation on the live VPS** (unlike every other row here) — first deploy of that branch is what stands this container up for the first time. Same bind-mounts/env-file/restart policy as `spacepoint-worker`; recreated the same way. If this container isn't running, `transcode_video` jobs queue and never run — uploads/re-encodes sit "pending" forever with no visible error. |
 | `spacepoint-redis` | `redis:7-alpine` | `127.0.0.1:6379`. **Not** recreated by `deploy-backend.sh` — confirmed by direct observation (uptime survives backend deploys), so the arq queue's state isn't lost on a routine deploy. |
 
 **Not in Docker:**
@@ -50,8 +51,8 @@ in one of those files instead, not here.
   *separate* PostgreSQL 17 also exists on this box on port 5433, left over from using its newer
   `pg_restore` during an earlier migration — don't confuse the two; the app only ever talks to
   16/5432.
-- **`/etc/spacepoint/env`** (mode `0600`) — the real env file both `spacepoint-api` and
-  `spacepoint-worker` load via `--env-file`. Real values are outside this repo (§0). One trap:
+- **`/etc/spacepoint/env`** (mode `0600`) — the real env file `spacepoint-api`, `spacepoint-worker`,
+  and `spacepoint-worker-video` all load via `--env-file`. Real values are outside this repo (§0). One trap:
   **this file is only read at container *creation***, so editing it and expecting the change to
   take effect immediately does nothing — the container needs to actually restart/recreate.
 
@@ -59,13 +60,24 @@ in one of those files instead, not here.
 
 ## 3. The deploy scripts (`/usr/local/bin/` on the VPS)
 
-**`deploy-backend.sh`** — observed output, in order:
+**`deploy-backend.sh`** — observed output, in order (steps 1-4 confirmed by direct observation;
+step 3b is new with the R2/video-optimization branch, not yet observed on a real deploy):
 1. `docker pull` the `:latest` image from GHCR.
 2. Recreate `spacepoint-api`; wait for it to report healthy (migrations run first, inside the
    container's own entrypoint, before `uvicorn` binds).
 3. Recreate `spacepoint-worker`.
+3b. Recreate `spacepoint-worker-video`, waiting on arq's own `--check` health check (not
+    `/health/worker`, which only reflects `spacepoint-worker`'s heartbeat key and says nothing
+    about the video queue).
 4. Fails loudly and doesn't leave a broken container running if the health check doesn't pass —
-   confirmed this is a real, working guard, not just a comment.
+   confirmed this is a real, working guard, not just a comment for `spacepoint-api`/`spacepoint-worker`;
+   the same pattern is now applied to `spacepoint-worker-video` but rehearse it once before trusting it.
+
+Preflight (`deploy-backend.sh --check`) also refuses to proceed if any video is mid-transcode:
+a fresh upload/transcode shows as `videos.status='processing'` in Postgres, but a swap-in-place
+re-encode (e.g. "Migrate to R2") never changes `status` — the row stays `"ready"` the whole time
+by design, so the DB check alone is blind to it. The transcode job holds a `transcoding:{video_id}`
+Redis key for that window instead; preflight checks both.
 
 **`deploy-frontend.sh`** — observed output, in order:
 1. `gh release download frontend-latest` — the one stable release tag CI republishes to every
@@ -82,8 +94,8 @@ explicitly told to) runs the script. Nothing auto-deploys on merge.
 
 ### The recurring gotcha, worth internalizing
 
-`deploy-backend.sh` recreates `spacepoint-api`/`spacepoint-worker` **fresh** — any file that
-exists only inside one of those containers' own filesystem (a `docker cp`'d staging directory, a
+`deploy-backend.sh` recreates `spacepoint-api`/`spacepoint-worker`/`spacepoint-worker-video`
+**fresh** — any file that exists only inside one of those containers' own filesystem (a `docker cp`'d staging directory, a
 copied OAuth token, anything under `/app` that isn't the bind-mounted storage volume) is gone
 after the next deploy. Hit this for real running a bulk Drive-content import mid-session: had to
 either (a) finish the whole multi-step process before deploying anything else, or (b) `docker cp`
@@ -156,8 +168,8 @@ deployed."
 ## 6. Storage
 
 `STORAGE_BACKEND=local` — files live at `/var/lib/spacepoint/storage/{bucket}/{path}` on the VPS
-**host disk**, bind-mounted into both `spacepoint-api` and `spacepoint-worker` at `/data/storage`,
-Fernet-encrypted at rest and decrypted on every read. This is real, persistent storage — **not**
+**host disk**, bind-mounted into `spacepoint-api`, `spacepoint-worker`, and `spacepoint-worker-video`
+at `/data/storage`, Fernet-encrypted at rest and decrypted on every read. This is real, persistent storage — **not**
 the ephemeral per-container filesystem from the §3 gotcha; a deploy does not touch it. Buckets in
 active use include `lms-video-sources`, `lms-hls`, `lms-attachments`, `internship-letters`
 (2026-08-20 — the internship request/letter domain, `HANDOFF_INTERNSHIP.md`), plus the

@@ -37,7 +37,7 @@ async def get_arq_redis(request: Request) -> ArqRedis | None:
 
 
 async def safe_enqueue(
-    arq_redis: ArqRedis | None, function: str, *args, **kwargs
+    arq_redis: ArqRedis | None, function: str, *args, _queue_name: str | None = None, **kwargs
 ) -> Literal["queued", "inline", "dropped"]:
     """Dispatches a background job, preferring the ARQ queue.
 
@@ -58,10 +58,16 @@ async def safe_enqueue(
 
     issue_ticket() is separately idempotent on ticket_sent_at, so this is
     belt-and-braces rather than the only guard.
+
+    _queue_name allows callers to route jobs to a specific queue (e.g.,
+    transcode_video jobs to the dedicated video queue with max_jobs=1).
     """
     if arq_redis is not None:
         try:
-            await arq_redis.enqueue_job(function, *args, **kwargs)
+            enqueue_kwargs = dict(kwargs)
+            if _queue_name is not None:
+                enqueue_kwargs['_queue_name'] = _queue_name
+            await arq_redis.enqueue_job(function, *args, **enqueue_kwargs)
             logger.info("Task %r enqueued", function)
             return "queued"
         except Exception as exc:
