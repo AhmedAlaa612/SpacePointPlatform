@@ -151,7 +151,7 @@ export default function FacilitatorTraining() {
                 <CardTitle>{m.title}</CardTitle>
                 <div className="flex gap-2">
                   <Button size="sm" variant="outline" onClick={() => openAddVideo(m.id)}>
-                    <Plus size={14} className="mr-1" /> Video
+                    <Plus size={14} className="mr-1" /> Resource
                   </Button>
                   <button onClick={() => deleteModule.mutate(m.id)} className="p-2 text-muted-foreground hover:text-destructive">
                     <Trash2 size={16} />
@@ -213,7 +213,7 @@ export default function FacilitatorTraining() {
 
       <Dialog open={!!addVideoModuleId} onOpenChange={(open) => !open && closeAddDialog()}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Add training video</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>Add training resource</DialogTitle></DialogHeader>
 
           <div className="flex gap-2 mb-3">
             <button
@@ -224,7 +224,7 @@ export default function FacilitatorTraining() {
                   : "border-border text-muted-foreground hover:bg-muted"
               }`}
             >
-              <Link2 size={14} /> Embed link
+              <Link2 size={14} /> Link
             </button>
             <button
               onClick={() => setAddMode("video")}
@@ -250,7 +250,7 @@ export default function FacilitatorTraining() {
 
           <input
             className="input mb-3"
-            placeholder="Video title"
+            placeholder="Title"
             value={videoTitle}
             onChange={(e) => setVideoTitle(e.target.value)}
           />
@@ -259,7 +259,7 @@ export default function FacilitatorTraining() {
             <input
               key="url-input"
               className="input mb-3"
-              placeholder="YouTube or video link (https://…)"
+              placeholder="Link — YouTube/Vimeo plays inline, anything else opens as a link (https://…)"
               value={videoUrl}
               onChange={(e) => setVideoUrl(e.target.value)}
             />
@@ -274,7 +274,7 @@ export default function FacilitatorTraining() {
             onClick={() => addVideo.mutate()}
             disabled={!videoTitle || (addMode === "link" && !videoUrl) || addVideo.isPending}
           >
-            {addVideo.isPending ? "Adding…" : addMode === "link" ? "Add video" : addMode === "video" ? "Upload video" : "Upload PDF"}
+            {addVideo.isPending ? "Adding…" : addMode === "link" ? "Add link" : addMode === "video" ? "Upload video" : "Upload PDF"}
           </Button>
         </DialogContent>
       </Dialog>

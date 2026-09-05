@@ -1,6 +1,6 @@
 import { Link, useParams } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, CheckCircle2 } from "lucide-react"
+import { ArrowLeft, CheckCircle2, ExternalLink } from "lucide-react"
 import { getTrainingPdfUrlApi, listTrainingApi, markVideoCompleteApi, streamVideoApi } from "@/api/instructors/training"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -77,9 +77,23 @@ export default function TrainingPlayer() {
               title={video.title}
               className="aspect-video rounded-xl overflow-hidden"
             />
+          ) : video.video_url ? (
+            // Not a recognized embed host (YouTube/Vimeo) — still a real
+            // link, just not one that plays inline. Same fallback Library
+            // already gives a plain "link" resource.
+            <div className="aspect-video flex items-center justify-center">
+              <a
+                href={video.video_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                Open link <ExternalLink size={14} />
+              </a>
+            </div>
           ) : (
             <div className="aspect-video flex items-center justify-center text-sm text-muted-foreground">
-              No video link configured.
+              No link configured.
             </div>
           )}
         </CardContent>
