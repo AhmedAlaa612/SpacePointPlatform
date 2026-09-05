@@ -698,14 +698,12 @@ function RolesChecklistStep({ cohort }: { cohort: Cohort }) {
           )}
 
           {selected ? (
-            <div className="flex flex-col" style={{ gap: 24 }}>
-              <SessionOpeningsPanel sessionId={selected.id} />
-              <div className="rounded-2xl border border-border bg-card p-4">
-                <SessionChecklistPanel sessionId={selected.id} cohortId={cohort.id} programId={cohort.program_id} />
-              </div>
+            <div className="flex flex-col" style={{ gap: 32 }}>
+              <SessionOpeningsPanel sessionId={selected.id} large />
+              <SessionChecklistPanel sessionId={selected.id} cohortId={cohort.id} programId={cohort.program_id} large />
             </div>
           ) : (
-            <CohortRolesPanel cohort={cohort} />
+            <CohortRolesPanel cohort={cohort} large />
           )}
         </div>
 
