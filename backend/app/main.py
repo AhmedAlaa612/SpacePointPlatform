@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.core.timing import TimingMiddleware
 from app.routers import admin, auth, documents, notifications
 from app.routers.apply import router as apply_router
 from app.routers.internship import router as internship_router
@@ -87,7 +88,16 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Response headers are same-origin-only to JS unless named here. Without
+    # this the timing headers below exist on the wire but are invisible to the
+    # player and to any browser-side diagnostics — which is most of their value.
+    expose_headers=["X-Process-Time", "Server-Timing"],
 )
+
+# Added last so it sits OUTERMOST: whatever it reports is the app's whole
+# footprint, CORS handling included. Anything a client observes beyond this
+# number happened outside the app — network, TLS, or nginx.
+app.add_middleware(TimingMiddleware)
 
 app.include_router(auth.router)
 app.include_router(files_router)          # public (HMAC-signed): /files/* — local storage backend

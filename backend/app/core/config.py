@@ -56,6 +56,25 @@ class Settings(BaseSettings):
     # set explicitly only to pin a jurisdiction-specific endpoint.
     R2_ENDPOINT_URL: str = ""
 
+    # boto3's HTTP connection pool, per worker process. botocore's default is
+    # 10, which is *below* anyio's default worker-thread count (40) — so under
+    # concurrency most R2 calls found the pool full, opened a throwaway
+    # connection, paid a fresh TLS handshake, and discarded it on release.
+    # Sized above the thread limiter so every thread that can be running an
+    # R2 call can also hold a keep-alive connection for it.
+    R2_MAX_POOL_CONNECTIONS: int = 64
+
+    # Seconds to cache HLS playlist/key BYTES in-process (see
+    # services/hls_cache.py). These objects are viewer-independent — one file
+    # serves every student — so 400 students starting the same video otherwise
+    # means 800 identical R2 round trips. 0 disables the cache entirely.
+    HLS_OBJECT_CACHE_SECONDS: int = 300
+
+    # Log any request whose in-app time exceeds this many seconds, with its
+    # per-phase breakdown (see core/timing.py). 0 disables the slow-request log;
+    # the X-Process-Time / Server-Timing response headers are always emitted.
+    SLOW_REQUEST_SECONDS: float = 1.0
+
     # Per-domain storage override for video bytes specifically. Blank (the
     # default) means "follow STORAGE_BACKEND", i.e. no behaviour change at all.
     #

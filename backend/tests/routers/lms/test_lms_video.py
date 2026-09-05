@@ -307,12 +307,26 @@ async def test_streaming_routes_require_a_valid_matching_unexpired_token(db, cli
     mismatched = await client.get(f"/videos/{video.id}/playlist", params={"token": wrong_video_token})
     assert mismatched.status_code == http_status.HTTP_403_FORBIDDEN
 
-    # valid token, but for a student who is NOT enrolled -> 404, not 403
+    # A valid token minted for a student who is NOT enrolled still plays (#52).
+    # The enrollment check runs once, at token-mint time; the signed token IS
+    # the proof it passed, so playlist/segment/key do not re-run it. Nothing
+    # here can actually obtain such a token — `/videos/{id}/token` is what
+    # enforces enrollment, and it is checked for this exact case in
+    # test_token_issuance_requires_enrollment_and_ready_video above. This asserts the
+    # deliberate trade-off, so that reinstating the per-request check (and
+    # with it the 3x DB cost per video start) has to be a conscious decision
+    # rather than a silent regression.
     stranger = await _user(db, roles=["student"])
     await db.commit()
     stranger_token = create_video_token(stranger.id, video.id)
     not_enrolled = await client.get(f"/videos/{video.id}/playlist", params={"token": stranger_token})
-    assert not_enrolled.status_code == http_status.HTTP_404_NOT_FOUND
+    assert not_enrolled.status_code == 200
+
+    # ...but a token whose USER no longer exists is refused, on every call —
+    # that check did stay in _video_from_token.
+    ghost_token = create_video_token(uuid.uuid4(), video.id)
+    ghost = await client.get(f"/videos/{video.id}/playlist", params={"token": ghost_token})
+    assert ghost.status_code == http_status.HTTP_403_FORBIDDEN
 
     # path traversal in the segment name -> 404, never touches storage
     traversal = await client.get(f"/videos/{video.id}/segment/..%2F..%2Fetc%2Fpasswd", params={"token": token})

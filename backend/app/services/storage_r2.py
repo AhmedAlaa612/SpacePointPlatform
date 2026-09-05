@@ -80,6 +80,13 @@ def _client():
             signature_version="s3v4",
             s3={"addressing_style": "path"},
             retries={"max_attempts": 3, "mode": "standard"},
+            # botocore defaults this to 10 — below anyio's 40 worker threads,
+            # so under load most R2 calls hit a full pool, opened a throwaway
+            # connection, paid a full TLS handshake, and discarded it on
+            # release. urllib3 does that silently (block=False), so it never
+            # surfaced as an error, only as every "warm" download costing what
+            # a cold one costs. See settings.R2_MAX_POOL_CONNECTIONS.
+            max_pool_connections=settings.R2_MAX_POOL_CONNECTIONS,
         ),
     )
 
@@ -143,6 +150,40 @@ async def get_signed_url(bucket: str, path: str, expires_in: int = 3600) -> str:
             Params={"Bucket": settings.R2_BUCKET, "Key": _key(bucket, path)},
             ExpiresIn=expires_in,
         )
+
+    return await anyio.to_thread.run_sync(_do)
+
+
+async def get_signed_urls(bucket: str, paths: list[str], expires_in: int = 3600) -> list[str]:
+    """Presign many keys in ONE thread hop.
+
+    Presigning is pure local HMAC (see get_signed_url), so the work itself is
+    microseconds — but `await anyio.to_thread.run_sync` per URL is not. Each
+    one costs a worker-thread-limiter acquisition plus a full trip around the
+    event loop, and an HLS playlist rewrite signs one URL per segment: ~5 for
+    the 50-second clip the load tests used, ~180 for a half-hour lecture at
+    10s segments. Under 400 concurrent starts the loop is deep enough that
+    those round trips, not the HMAC, are the cost — and they were being paid
+    sequentially inside the request.
+
+    Signing the whole playlist in a single hop makes that per-request cost
+    O(1) trips instead of O(segments).
+    """
+    if not paths:
+        return []
+    expires_in = min(int(expires_in), _MAX_PRESIGN_SECONDS)
+
+    def _do() -> list[str]:
+        client = _client()
+        bucket_name = settings.R2_BUCKET
+        return [
+            client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": bucket_name, "Key": _key(bucket, path)},
+                ExpiresIn=expires_in,
+            )
+            for path in paths
+        ]
 
     return await anyio.to_thread.run_sync(_do)
 
@@ -223,6 +264,7 @@ __all__ = [
     "upload_to_path",
     "delete_file",
     "get_signed_url",
+    "get_signed_urls",
     "download_file",
     "list_files",
 ]

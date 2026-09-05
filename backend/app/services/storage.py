@@ -14,6 +14,9 @@ Both backends expose the identical async interface:
     upload_to_path(bucket, path, data, content_type) -> path (str)
     delete_file(bucket, path)                      -> None
     get_signed_url(bucket, path, expires_in=3600)  -> signed URL
+    get_signed_urls(bucket, paths, expires_in=3600) -> list[signed URL]
+                                                      (optional; facade
+                                                       falls back to a loop)
     download_file(bucket, path)                    -> bytes (decrypted)
     list_files(bucket, path="")                    -> list[dict] (supabase shape)
 
@@ -83,6 +86,24 @@ async def get_signed_url(
     bucket: str, path: str, expires_in: int = 3600, *, backend: str | None = None,
 ) -> str:
     return await _impl(backend).get_signed_url(bucket, path, expires_in)
+
+
+async def get_signed_urls(
+    bucket: str, paths: list[str], expires_in: int = 3600, *, backend: str | None = None,
+) -> list[str]:
+    """Signed URLs for many paths at once, in the order given.
+
+    Only the object-store backend has a reason to implement this specially
+    (one thread hop for the whole batch instead of one per URL — see
+    storage_r2.get_signed_urls); local/Supabase fall through to the
+    single-path call, so the batch form is always safe to call and no backend
+    has to grow a function it gains nothing from.
+    """
+    impl = _impl(backend)
+    batch = getattr(impl, "get_signed_urls", None)
+    if batch is not None:
+        return await batch(bucket, paths, expires_in)
+    return [await impl.get_signed_url(bucket, path, expires_in) for path in paths]
 
 
 async def download_file(bucket: str, path: str, *, backend: str | None = None) -> bytes:
