@@ -21,7 +21,7 @@ import { ChevronDown, ChevronRight, ChevronUp, ImageIcon, Plus, Trash2 } from "l
 import type { Cohort } from "@/types/sessions"
 import type { ChecklistItem } from "@/types/sessions"
 import { getDeliveryRolesApi, getCohortOpeningsApi, getOpeningsApi, setCohortOpeningsApi } from "@/api/sessions/openings"
-import { listChecklistItemsApi, setChecklistItemsApi } from "@/api/sessions/day"
+import { listChecklistItemsApi, setChecklistItemsApi, type ChecklistScope } from "@/api/sessions/day"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
 
@@ -40,29 +40,30 @@ function toDraftLines(items: ChecklistItem[]): ChecklistDraftLine[] {
   }))
 }
 
+/** What a blank bucket falls back to, for the preview-before-you-override
+ *  display. `scope`/`ownerId` are the bucket actually being edited;
+ *  `programId` is only meaningful for `scope: "cohorts"` (a program sits
+ *  above a cohort in the chain — there's nothing above a program). */
 async function fetchFallbackChecklistItems(
-  cohortId: string,
+  scope: ChecklistScope,
+  ownerId: string,
   programId?: string,
   roleId?: string | null,
 ): Promise<ChecklistItem[]> {
   if (roleId) {
     try {
-      const cohortGeneral = await listChecklistItemsApi("cohorts", cohortId, null)
-      if (cohortGeneral.length > 0) return cohortGeneral
+      const sameLevelGeneral = await listChecklistItemsApi(scope, ownerId, null)
+      if (sameLevelGeneral.length > 0) return sameLevelGeneral
     } catch {}
+  }
 
-    if (programId) {
+  if (scope === "cohorts" && programId) {
+    if (roleId) {
       try {
         const progRole = await listChecklistItemsApi("programs", programId, roleId)
         if (progRole.length > 0) return progRole
       } catch {}
-
-      try {
-        const progGeneral = await listChecklistItemsApi("programs", programId, null)
-        if (progGeneral.length > 0) return progGeneral
-      } catch {}
     }
-  } else if (programId) {
     try {
       const progGeneral = await listChecklistItemsApi("programs", programId, null)
       if (progGeneral.length > 0) return progGeneral
@@ -157,11 +158,13 @@ function useRolesDraft(cohort: Cohort, sessionId?: string) {
 }
 
 /** One checklist bucket's editor — general (roleId omitted) or one role's
- *  own list. Lazy: only fetches once expanded (or immediately, if
- *  `forceOpen` — the large layout's always-visible "Daily checklist"). */
-function ChecklistSection({
-  cohortId, programId, roleId, label, hint, large = false, forceOpen = false,
-}: { cohortId: string; programId?: string; roleId: string | null; label: string; hint: string; large?: boolean; forceOpen?: boolean }) {
+ *  own list, at any level (`scope`/`ownerId`: a cohort's own bucket, or —
+ *  reused as-is by `ProgramRolesPanel` — a program's). Lazy: only fetches
+ *  once expanded (or immediately, if `forceOpen` — the large layout's
+ *  always-visible "Daily checklist"). */
+export function ChecklistSection({
+  scope, ownerId, programId, roleId, label, hint, large = false, forceOpen = false,
+}: { scope: ChecklistScope; ownerId: string; programId?: string; roleId: string | null; label: string; hint: string; large?: boolean; forceOpen?: boolean }) {
   const qc = useQueryClient()
   const toast = useToast()
   const [manualOpen, setManualOpen] = useState(false)
@@ -171,10 +174,10 @@ function ChecklistSection({
   const [isLoadingFallback, setIsLoadingFallback] = useState(false)
   const [error, setError] = useState("")
 
-  const queryKey = ["checklist-items", "cohorts", cohortId, roleId ?? "general"]
+  const queryKey = ["checklist-items", scope, ownerId, roleId ?? "general"]
   const { data: items = [], isLoading } = useQuery({
     queryKey,
-    queryFn: () => listChecklistItemsApi("cohorts", cohortId, roleId),
+    queryFn: () => listChecklistItemsApi(scope, ownerId, roleId),
     enabled: open,
   })
 
@@ -186,7 +189,7 @@ function ChecklistSection({
       setIsInherited(false)
     } else {
       setIsLoadingFallback(true)
-      fetchFallbackChecklistItems(cohortId, programId, roleId)
+      fetchFallbackChecklistItems(scope, ownerId, programId, roleId)
         .then((fb) => {
           setDraft(toDraftLines(fb))
           setIsInherited(fb.length > 0)
@@ -197,11 +200,11 @@ function ChecklistSection({
         })
         .finally(() => setIsLoadingFallback(false))
     }
-  }, [open, isLoading, items, draft, cohortId, programId, roleId])
+  }, [open, isLoading, items, draft, scope, ownerId, programId, roleId])
 
   const save = useMutation({
     mutationFn: () => setChecklistItemsApi(
-      "cohorts", cohortId,
+      scope, ownerId,
       (draft ?? []).map((l, i) => ({
         title: l.title, requires_proof: l.requires_proof, is_required: l.is_required, sort_order: i + 1,
       })),
@@ -453,7 +456,7 @@ function CohortRolesPanelCompact({ cohort, sessionId, data }: { cohort: Cohort; 
       </div>
 
       <ChecklistSection
-        cohortId={cohort.id} programId={cohort.program_id} roleId={null} label="General checklist"
+        scope="cohorts" ownerId={cohort.id} programId={cohort.program_id} roleId={null} label="General checklist"
         hint="Applies to any role without its own list"
       />
 
@@ -533,7 +536,7 @@ function CohortRolesPanelCompact({ cohort, sessionId, data }: { cohort: Cohort; 
               </label>
 
               <ChecklistSection
-                cohortId={cohort.id} programId={cohort.program_id} roleId={role.id} label={`${role.name} checklist`}
+                scope="cohorts" ownerId={cohort.id} programId={cohort.program_id} roleId={role.id} label={`${role.name} checklist`}
                 hint="Replaces the general checklist for this role"
               />
             </div>
@@ -680,7 +683,7 @@ function CohortRolesPanelLarge({ cohort, sessionId, data }: { cohort: Cohort; se
                   </label>
 
                   <ChecklistSection
-                    cohortId={cohort.id} programId={cohort.program_id} roleId={role.id} label={`${role.name} checklist`}
+                    scope="cohorts" ownerId={cohort.id} programId={cohort.program_id} roleId={role.id} label={`${role.name} checklist`}
                     hint="Replaces the general checklist for this role" large
                   />
                 </div>
@@ -707,7 +710,7 @@ function CohortRolesPanelLarge({ cohort, sessionId, data }: { cohort: Cohort; se
           <span style={{ fontSize: 14 }} className="text-muted-foreground">Applies to any role without its own list</span>
         </div>
         <ChecklistSection
-          cohortId={cohort.id} programId={cohort.program_id} roleId={null} label="General checklist"
+          scope="cohorts" ownerId={cohort.id} programId={cohort.program_id} roleId={null} label="General checklist"
           hint="Applies to any role without its own list" large forceOpen
         />
       </div>

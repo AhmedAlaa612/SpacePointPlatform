@@ -210,6 +210,13 @@ async def create_cohort(
 
     cohort = Cohort(id=uuid.uuid4(), **body.model_dump())
     db.add(cohort)
+    await db.flush()
+    # One-time seed from the program's role template (2026-09) — never
+    # touched again for this cohort. See ProgramOpening's docstring for why
+    # this is a copy, not a live fallback like materials/checklist use.
+    await openings_svc.copy_program_openings_to_cohort(
+        db, program_id=program.id, cohort_id=cohort.id, actor_user_id=current_user.id,
+    )
     await db.commit()
     await db.refresh(cohort)
     return await _cohort_out(db, cohort, program.name, program.code, location, program_is_competition=program.is_competition)

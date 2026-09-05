@@ -149,6 +149,56 @@ async def test_create_cohort(db, client, operations_headers):
 
 
 @pytest.mark.asyncio
+async def test_create_cohort_copies_the_programs_role_template(db, client, operations_headers):
+    """The one-time seed end to end, through the real endpoints — not just
+    the service function. See ProgramOpening's docstring for why this is a
+    copy, not the live program->cohort->session fallback checklist/materials
+    use."""
+    from app.models.sessions.delivery_role import DeliveryRole
+
+    program = await _make_program(db)
+    role = DeliveryRole(id=uuid.uuid4(), name=f"Lead {uuid.uuid4().hex[:4]}", sort_order=1)
+    db.add(role)
+    await db.flush()
+
+    put_resp = await client.put(
+        f"/sessions/programs/{program.id}/openings-defaults",
+        json={"openings": [{"role_id": str(role.id), "slots": 2, "amount_aed": "500.00"}]},
+        headers=operations_headers,
+    )
+    assert put_resp.status_code == 200, put_resp.text
+
+    create_resp = await client.post(
+        "/sessions/cohorts",
+        json={"program_id": str(program.id), "name": "Templated Cohort"},
+        headers=operations_headers,
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    cohort_id = create_resp.json()["id"]
+
+    defaults_resp = await client.get(
+        f"/sessions/cohorts/{cohort_id}/openings-defaults", headers=operations_headers,
+    )
+    assert defaults_resp.status_code == 200
+    rows = defaults_resp.json()
+    assert len(rows) == 1
+    assert rows[0]["role_id"] == str(role.id)
+    assert rows[0]["slots"] == 2
+    assert rows[0]["amount_aed"] == "500.00"
+
+    # Editing the program template afterwards must not reach this cohort.
+    await client.put(
+        f"/sessions/programs/{program.id}/openings-defaults",
+        json={"openings": [{"role_id": str(role.id), "slots": 9, "amount_aed": "999.00"}]},
+        headers=operations_headers,
+    )
+    defaults_resp = await client.get(
+        f"/sessions/cohorts/{cohort_id}/openings-defaults", headers=operations_headers,
+    )
+    assert defaults_resp.json()[0]["slots"] == 2
+
+
+@pytest.mark.asyncio
 async def test_create_cohort_missing_program_404(db, client, operations_headers):
     resp = await client.post(
         "/sessions/cohorts",

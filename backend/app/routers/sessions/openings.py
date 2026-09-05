@@ -37,6 +37,7 @@ from app.schemas.sessions.openings import (
     DeliveryRoleOut,
     DeliveryRoleUpdate,
     OpeningOut,
+    ProgramOpeningOut,
     SetOpeningsIn,
 )
 from app.services.sessions import openings as svc
@@ -158,6 +159,35 @@ async def set_cohort_openings(
     )
     await db.commit()
     return [CohortOpeningOut(**row) for row in await svc.cohort_openings(db, cohort_id)]
+
+
+# ── program-level role template (2026-09) ──────────────────────────────────
+
+@router.get("/programs/{program_id}/openings-defaults", response_model=list[ProgramOpeningOut])
+async def get_program_openings(
+    program_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_operations),
+):
+    """The template new cohorts of this program are seeded from at creation —
+    a one-time copy, not a live fallback. See `ProgramOpening`'s docstring."""
+    return [ProgramOpeningOut(**row) for row in await svc.program_openings(db, program_id)]
+
+
+@router.put("/programs/{program_id}/openings-defaults", response_model=list[ProgramOpeningOut])
+async def set_program_openings(
+    program_id: uuid.UUID,
+    body: SetOpeningsIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    await svc.set_program_openings(
+        db, program_id=program_id,
+        lines=[line.model_dump() for line in body.openings],
+        actor_user_id=current_user.id,
+    )
+    await db.commit()
+    return [ProgramOpeningOut(**row) for row in await svc.program_openings(db, program_id)]
 
 
 # ── add-ons ─────────────────────────────────────────────────────────────────
