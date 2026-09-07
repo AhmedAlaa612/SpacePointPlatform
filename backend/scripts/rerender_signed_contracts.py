@@ -103,7 +103,7 @@ async def rerender_signed_contracts(
             skipped += 1
             continue
 
-        living_area = await _resolve_living_area(db, user)
+        living_area, living_country = await _resolve_living_area(db, user)
         contract_date = format_contract_date(
             profile.instructor_since or profile.contract_signed_at.date()
         )
@@ -112,13 +112,14 @@ async def rerender_signed_contracts(
             generate_contract_pdf,
             user.full_name,
             living_area,
+            living_country,
             contract_date=contract_date,
             instructor_signature_b64=profile.contract_signature_data,
         )
 
         if dry_run:
             print(f"  WOULD REPLACE {user.full_name} -> {profile.signed_contract_path} "
-                  f"({len(pdf_bytes)} bytes, city={living_area!r}, date={contract_date!r})")
+                  f"({len(pdf_bytes)} bytes, city={living_area!r}, country={living_country!r}, date={contract_date!r})")
         else:
             url = await storage.upload_file(
                 "contracts", profile.signed_contract_path, pdf_bytes, "application/pdf"
@@ -127,7 +128,7 @@ async def rerender_signed_contracts(
             # it's still the fallback in _profile_out when path is unset.
             profile.signed_contract_url = url
             print(f"  REPLACED {user.full_name} -> {profile.signed_contract_path} "
-                  f"({len(pdf_bytes)} bytes, city={living_area!r}, date={contract_date!r})")
+                  f"({len(pdf_bytes)} bytes, city={living_area!r}, country={living_country!r}, date={contract_date!r})")
         rerendered += 1
 
     await db.flush()
