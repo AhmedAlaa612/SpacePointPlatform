@@ -372,10 +372,9 @@ async def review_applicant(
             )
 
         # Shared with the lazy/signing paths (routers/instructors/instructor.py)
-        # so a missing city is handled the same way everywhere: this must never
-        # resolve to a country name, since the contract template's own static
-        # text already appends ", United Arab Emirates" right after it.
-        living_area = await _resolve_living_area(db, user)
+        # so a missing city — and the correct residence country — is
+        # resolved the same way everywhere.
+        living_area, living_country = await _resolve_living_area(db, user)
 
         # Frozen the moment approval grants the role — this, not date.today(),
         # is what the contract's date prints from from here on (bug fix,
@@ -383,7 +382,7 @@ async def review_applicant(
         instructor_since = datetime.now(timezone.utc).date()
         contract_date = format_contract_date(instructor_since)
         contract_bytes = await asyncio.to_thread(
-            generate_contract_pdf, user.full_name, living_area, contract_date=contract_date
+            generate_contract_pdf, user.full_name, living_area, living_country, contract_date=contract_date
         )
         contract_bucket, contract_path = "contracts", f"{user_id}/agreement.pdf"
         contract_url = await storage.upload_file(contract_bucket, contract_path, contract_bytes, "application/pdf")

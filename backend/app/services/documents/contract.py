@@ -1,7 +1,7 @@
 """Instructor agreement letter — docxtpl fills DOCX template → LibreOffice → PDF.
 
 Template: app/static/templates/docx/agreement.docx
-Placeholders: {{ today }}  {{ instructor_name }}  {{ living_area }}
+Placeholders: {{ today }}  {{ instructor_name }}  {{ living_area }}  {{ living_country }}
 
 Signing (Phase 6): the template's signature block is a single paragraph with
 two tab-column "Name/Date/Signature" rows, and the SpacePoint signatory's name
@@ -107,6 +107,7 @@ def _spacepoint_signatory(text: str) -> str:
 def generate_contract_pdf(
     instructor_name: str,
     living_area: str,
+    living_country: str = "United Arab Emirates",
     *,
     contract_date: str | None = None,
     instructor_signature_b64: str | None = None,
@@ -116,7 +117,16 @@ def generate_contract_pdf(
     alike — signing does not move it (the real signing timestamp lives in
     `contract_signed_at`, not on the page). Falls back to today only if the
     caller has no date on file at all (shouldn't happen once instructor_since
-    is always set — see instructor_profile.py)."""
+    is always set — see instructor_profile.py).
+
+    `living_country` used to be static template text ("United Arab
+    Emirates") appended right after `living_area` unconditionally — wrong
+    for instructors residing outside the UAE (e.g. Egypt), whose contract
+    then read "residing in Cairo, United Arab Emirates". Callers resolve it
+    from the instructor's actual city/country (see
+    routers/instructors/instructor.py::_resolve_living_area); it defaults
+    to the UAE here only for callers that genuinely have nothing else to go
+    on."""
     today = contract_date or format_contract_date(date.today())
 
     tpl = DocxTemplate(str(_TEMPLATE))
@@ -124,6 +134,7 @@ def generate_contract_pdf(
         "today": today,
         "instructor_name": instructor_name,
         "living_area": living_area,
+        "living_country": living_country,
     })
     buf = io.BytesIO()
     tpl.save(buf)

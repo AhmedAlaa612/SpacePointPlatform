@@ -17,6 +17,13 @@ class TrainingVideoOut(BaseModel):
     # guideline_video_uploaded follow. The player calls the separate
     # resolve-url endpoint (GET .../stream) to actually view it.
     video_uploaded: bool = False
+    # Set (e.g. "PDF", "PPTX") once a generic file has been uploaded for this
+    # item instead of a video — mirrors LibraryResource.format exactly, right
+    # down to the frontend deciding inline-viewer-vs-plain-link off this
+    # same field (format.toUpperCase() === "PDF"). No baked-in signed URL
+    # here; the player resolves one fresh (GET .../file/url) only once
+    # actually opened.
+    format: Optional[str] = None
     sort_order: int
     is_completed: bool = False
 
@@ -31,6 +38,7 @@ class TrainingVideoOut(BaseModel):
             notes=getattr(v, "notes"),
             video_url=getattr(v, "video_path", "") or "",
             video_uploaded=video_uploaded,
+            format=getattr(v, "format", None) if getattr(v, "file_path", None) else None,
             sort_order=getattr(v, "sort_order"),
             is_completed=is_completed,
         )

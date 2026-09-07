@@ -34,7 +34,10 @@ from pydantic import BaseModel
 class TrainingVideoCreate(BaseModel):
     module_id: uuid.UUID
     title: str
-    url: str
+    # Blank when the facilitator means to upload a video or PDF right after
+    # creating this row instead of pasting a link — same "leave blank for a
+    # coming-soon slot" posture the checklist guideline video already uses.
+    url: str | None = None
     description: str | None = None
     notes: str | None = None
     sort_order: int = 1
@@ -128,13 +131,24 @@ async def list_training(db: AsyncSession = Depends(get_db), current_user: User =
     videos = (await db.execute(
         select(TrainingVideo).where(TrainingVideo.module_id.in_([m.id for m in modules])).order_by(TrainingVideo.sort_order)
     )).scalars().all()
+    # Same bulk lookup the instructor-facing list already does — without it
+    # video_uploaded stays False for every row here, and an uploaded (not
+    # embedded) video renders as a blank/broken link in this management list.
+    uploaded_ids = set((await db.execute(
+        select(Video.owner_id).where(
+            Video.owner_type == "training_video", Video.owner_id.in_([v.id for v in videos]), Video.provider == "upload",
+        )
+    )).scalars().all())
     by_module: dict[uuid.UUID, list] = {}
     for v in videos:
         by_module.setdefault(v.module_id, []).append(v)
     return [
         TrainingModuleOut(
             id=m.id, title=m.title, description=m.description, sort_order=m.sort_order,
-            videos=[TrainingVideoOut.from_orm_video(v) for v in by_module.get(m.id, [])],
+            videos=[
+                TrainingVideoOut.from_orm_video(v, video_uploaded=v.id in uploaded_ids)
+                for v in by_module.get(m.id, [])
+            ],
         )
         for m in modules
     ]
@@ -149,6 +163,37 @@ async def create_training_module(
     await db.commit()
     await db.refresh(module)
     return TrainingModuleOut(id=module.id, title=module.title, description=module.description, sort_order=module.sort_order, videos=[])
+
+
+@router.patch("/training/modules/{module_id}", response_model=TrainingModuleOut)
+async def update_training_module(
+    module_id: uuid.UUID,
+    title: str | None = None,
+    description: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_facilitator),
+):
+    module = (await db.execute(select(TrainingModule).where(TrainingModule.id == module_id))).scalars().first()
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+    if title is not None:
+        module.title = title
+    if description is not None:
+        module.description = description
+    await db.commit()
+    await db.refresh(module)
+    videos = (await db.execute(
+        select(TrainingVideo).where(TrainingVideo.module_id == module_id).order_by(TrainingVideo.sort_order)
+    )).scalars().all()
+    uploaded_ids = set((await db.execute(
+        select(Video.owner_id).where(
+            Video.owner_type == "training_video", Video.owner_id.in_([v.id for v in videos]), Video.provider == "upload",
+        )
+    )).scalars().all())
+    return TrainingModuleOut(
+        id=module.id, title=module.title, description=module.description, sort_order=module.sort_order,
+        videos=[TrainingVideoOut.from_orm_video(v, video_uploaded=v.id in uploaded_ids) for v in videos],
+    )
 
 
 @router.delete("/training/modules/{module_id}")
@@ -200,10 +245,15 @@ async def update_training_video(
     if url is not None:
         video.video_path = url
         # Setting a URL supersedes any previously uploaded file — a training
-        # video is either an embed link or an upload, never both at once.
+        # item is exactly one of a link / uploaded video / uploaded file,
+        # never more than one at once.
         uploaded = await get_video_for_owner(db, owner_type="training_video", owner_id=video_id)
         if uploaded is not None:
             await delete_video(db, uploaded)
+        if video.file_path:
+            await storage.delete_file("library-resources", video.file_path)
+        video.format = None
+        video.file_path = None
     await db.commit()
     await db.refresh(video)
     video_uploaded = url is None and await get_video_for_owner(db, owner_type="training_video", owner_id=video_id) is not None
@@ -236,8 +286,70 @@ async def upload_training_video(
         created_by=current_user.id,
     )
     await enqueue_transcode(arq_redis, attached.id)
+    # Uploading a video supersedes a previously uploaded file, same "exactly
+    # one kind at a time" rule the URL branch above enforces.
+    if video.file_path:
+        await storage.delete_file("library-resources", video.file_path)
+    video.format = None
+    video.file_path = None
+    video.video_path = None
+    await db.commit()
     await db.refresh(video)
     return TrainingVideoOut.from_orm_video(video, video_uploaded=True)
+
+
+@router.post("/training/videos/{video_id}/file", response_model=TrainingVideoOut, status_code=201)
+async def upload_training_file(
+    video_id: uuid.UUID, file: UploadFile,
+    db: AsyncSession = Depends(get_db), current_user: User = Depends(require_facilitator),
+):
+    """A training item can be any uploaded file instead of a video — same
+    generic-file posture Library resources already use (plain storage, no
+    video-service pipeline; a PDF gets an inline viewer, anything else just
+    opens as a link — the frontend's own format check, mirroring
+    isInlinePdf). Resolved fresh on open via the /file/url endpoint below."""
+    video = (await db.execute(select(TrainingVideo).where(TrainingVideo.id == video_id))).scalars().first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty upload")
+    if len(data) > MAX_LIBRARY_FILE_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds the 4GB limit")
+
+    # Uploading a file supersedes any previously uploaded video or link —
+    # exactly one kind at a time, same rule the other two branches enforce.
+    uploaded = await get_video_for_owner(db, owner_type="training_video", owner_id=video_id)
+    if uploaded is not None:
+        await delete_video(db, uploaded)
+    if video.file_path:
+        await storage.delete_file("library-resources", video.file_path)
+
+    fmt = (file.filename or "").rsplit(".", 1)[-1].upper() if "." in (file.filename or "") else "FILE"
+    path = f"{int(time.time())}_{file.filename}"
+    stored_path = await storage.upload_to_path(
+        "library-resources", path, data, file.content_type or "application/octet-stream",
+    )
+    video.format = fmt
+    video.file_path = stored_path
+    video.video_path = None
+    await db.commit()
+    await db.refresh(video)
+    return TrainingVideoOut.from_orm_video(video)
+
+
+@router.get("/training/videos/{video_id}/file/url")
+async def get_training_file_url(
+    video_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_facilitator),
+):
+    """Resolve-fresh, same no-baked-in-signed-url posture every other file
+    view in this router follows — never cached on the row or in a list
+    response."""
+    video = (await db.execute(select(TrainingVideo).where(TrainingVideo.id == video_id))).scalars().first()
+    if video is None or not video.format or not video.file_path:
+        raise HTTPException(status_code=404, detail="No file uploaded for this item yet")
+    return {"url": await storage.get_signed_url("library-resources", video.file_path, expires_in=86400)}
 
 
 @router.delete("/training/videos/{video_id}")
@@ -250,6 +362,8 @@ async def delete_training_video(
     uploaded = await get_video_for_owner(db, owner_type="training_video", owner_id=video_id)
     if uploaded is not None:
         await delete_video(db, uploaded)
+    if video.file_path:
+        await storage.delete_file("library-resources", video.file_path)
     await db.delete(video)
     await db.commit()
     return {"status": "deleted"}
@@ -343,6 +457,34 @@ async def create_library_module(
     await db.commit()
     await db.refresh(module)
     return LibraryModuleOut(id=module.id, name=module.name, description=module.description, resources=[])
+
+
+@router.patch("/library/modules/{module_id}", response_model=LibraryModuleOut)
+async def update_library_module(
+    module_id: uuid.UUID,
+    name: str | None = None,
+    description: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_facilitator),
+):
+    module = (await db.execute(select(LibraryModule).where(LibraryModule.id == module_id))).scalars().first()
+    if not module:
+        raise HTTPException(status_code=404, detail="Module not found")
+    if name is not None:
+        module.name = name
+    if description is not None:
+        module.description = description
+    await db.commit()
+    await db.refresh(module)
+    resources = (await db.execute(select(LibraryResource).where(LibraryResource.module_id == module_id))).scalars().all()
+    module_resources = []
+    for r in resources:
+        file_url, video_info = await _lib_playback(db, r)
+        module_resources.append(LibraryResourceOut(
+            id=r.id, title=r.title, description=r.description, format=r.format,
+            file_url=file_url, resource_type=r.resource_type, video_info=video_info,
+        ))
+    return LibraryModuleOut(id=module.id, name=module.name, description=module.description, resources=module_resources)
 
 
 @router.delete("/library/modules/{module_id}")

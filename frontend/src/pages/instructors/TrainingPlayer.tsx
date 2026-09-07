@@ -1,11 +1,12 @@
 import { Link, useParams } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, CheckCircle2 } from "lucide-react"
-import { listTrainingApi, markVideoCompleteApi, streamVideoApi } from "@/api/instructors/training"
+import { ArrowLeft, CheckCircle2, ExternalLink } from "lucide-react"
+import { getTrainingFileUrlApi, listTrainingApi, markVideoCompleteApi, streamVideoApi } from "@/api/instructors/training"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { VideoPlayer } from "@/components/video/VideoPlayer"
+import { PdfViewer } from "@/components/documents/PdfViewer"
 import { isKnownEmbedHost } from "@/lib/embed"
 
 export default function TrainingPlayer() {
@@ -33,6 +34,13 @@ export default function TrainingPlayer() {
     },
   })
 
+  const isPdf = (video?.format ?? "").toUpperCase() === "PDF"
+  const { data: fileUrl, isError: fileError } = useQuery({
+    queryKey: ["training-file-url", videoId],
+    queryFn: () => getTrainingFileUrlApi(videoId),
+    enabled: !!video?.format,
+  })
+
   if (isLoading || !video) return <Spinner />
 
   return (
@@ -43,8 +51,33 @@ export default function TrainingPlayer() {
       <PageHeader title={video.title} subtitle={video.description ?? undefined} />
 
       <Card className="mb-4">
-        <CardContent className="p-0">
-          {video.video_uploaded ? (
+        <CardContent className={isPdf ? "p-4 h-[80vh] flex flex-col" : "p-0"}>
+          {isPdf ? (
+            fileError ? (
+              <p className="text-sm text-destructive py-6">Couldn't load this PDF.</p>
+            ) : !fileUrl ? (
+              <p className="text-sm text-muted-foreground py-6">Loading document...</p>
+            ) : (
+              <PdfViewer url={fileUrl} className="flex flex-col gap-3 flex-1 min-h-0" />
+            )
+          ) : video.format ? (
+            <div className="aspect-video flex items-center justify-center">
+              {fileError ? (
+                <p className="text-sm text-destructive">Couldn't load this file.</p>
+              ) : !fileUrl ? (
+                <p className="text-sm text-muted-foreground">Loading…</p>
+              ) : (
+                <a
+                  href={fileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+                >
+                  Open {video.format} <ExternalLink size={14} />
+                </a>
+              )}
+            </div>
+          ) : video.video_uploaded ? (
             streamUrl?.video_info ? (
               <VideoPlayer
                 info={streamUrl.video_info}
@@ -62,9 +95,23 @@ export default function TrainingPlayer() {
               title={video.title}
               className="aspect-video rounded-xl overflow-hidden"
             />
+          ) : video.video_url ? (
+            // Not a recognized embed host (YouTube/Vimeo) — still a real
+            // link, just not one that plays inline. Same fallback Library
+            // already gives a plain "link" resource.
+            <div className="aspect-video flex items-center justify-center">
+              <a
+                href={video.video_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                Open link <ExternalLink size={14} />
+              </a>
+            </div>
           ) : (
             <div className="aspect-video flex items-center justify-center text-sm text-muted-foreground">
-              No video link configured.
+              No link configured.
             </div>
           )}
         </CardContent>

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { CheckCircle2, Info, PlayCircle } from "lucide-react"
+import { CheckCircle2, FileText, Info, PlayCircle } from "lucide-react"
 import { listTrainingApi } from "@/api/instructors/training"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
@@ -42,6 +42,8 @@ export default function Training() {
                   >
                     {v.is_completed ? (
                       <CheckCircle2 className="text-green-600 shrink-0" size={20} />
+                    ) : v.format ? (
+                      <FileText className="text-primary shrink-0" size={20} />
                     ) : (
                       <PlayCircle className="text-primary shrink-0" size={20} />
                     )}

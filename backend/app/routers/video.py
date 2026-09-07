@@ -58,21 +58,29 @@ async def _check_module_item(db: AsyncSession, video: Video, user: User) -> None
     """`owner_type="module_item"` — enrolled in the owning course. Same
     flat-404-for-both rule `_assert_enrolled` always used: "not enrolled"
     and "unknown course" must read identically, so neither leaks whether a
-    course exists at all."""
-    item = await db.get(ModuleItem, video.owner_id)
-    if item is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video not found")
-    course_module = await db.get(CourseModule, item.module_id)
-    if course_module is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video not found")
-    enrollment = (await db.execute(
-        select(Enrollment).where(
+    course exists at all.
+
+    One joined query instead of three sequential round trips (was: get
+    ModuleItem, get CourseModule, select Enrollment) — found under a
+    competition-day load test (400 concurrent `/token` calls) that this
+    endpoint's real bottleneck wasn't Postgres (confirmed idle, waiting on
+    the client) but per-request Python/ORM overhead stacking up across three
+    round trips inside uvicorn's single-threaded event loop. A missing
+    ModuleItem/CourseModule or a non-matching/inactive Enrollment all land
+    on the same empty-result 404 as before, so the flat-404 behavior is
+    unchanged — only the round-trip count is."""
+    exists = await db.scalar(
+        select(Enrollment.id)
+        .join(CourseModule, CourseModule.course_id == Enrollment.course_id)
+        .join(ModuleItem, ModuleItem.module_id == CourseModule.id)
+        .where(
+            ModuleItem.id == video.owner_id,
             Enrollment.user_id == user.id,
-            Enrollment.course_id == course_module.course_id,
             *enrollment_is_active(),
         )
-    )).scalars().first()
-    if enrollment is None:
+        .limit(1)
+    )
+    if exists is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video not found")
 
 
@@ -150,6 +158,26 @@ async def issue_video_token(
 
 
 async def _video_from_token(db: AsyncSession, video_id: uuid.UUID, token: str) -> Video:
+    """Playlist/segment/key all funnel through here — deliberately NOT
+    through `_load_and_check`'s owner-type access check again. That check
+    (the enrollment join, or the instructor/guideline checks) already ran
+    once, at token-mint time (`issue_video_token`), and the token itself —
+    signed with our own secret, bound to this exact user+video, short-lived —
+    IS the proof it passed. Re-running the same check on every subsequent
+    playlist/segment/key request tripled the real per-video-start DB/CPU
+    cost under concurrent load: found via a competition-day load test where
+    the realistic click->token->playlist->key sequence at 400 simulated
+    users ran to a ~13s median, despite the token endpoint alone looking
+    fine (~1.5s avg) in isolation.
+
+    Trade-off, stated plainly: revoking a student's enrollment mid-session no
+    longer cuts off an already-started playback instantly, only once the
+    token itself expires (`_VIDEO_TOKEN_MINUTES`, 4 hours) — the same
+    trade-off most short-lived signed-URL video systems make. Still checked
+    here on every call: the token's signature and expiry (forgery/tampering),
+    that it was minted for this exact video id (can't be replayed against a
+    different one), that the user row still exists (catches a deleted
+    account), and that the video is still `ready`."""
     try:
         user_id, token_video_id = decode_video_token(token)
     except JWTError:
@@ -162,8 +190,8 @@ async def _video_from_token(db: AsyncSession, video_id: uuid.UUID, token: str) -
     user = await db.get(User, uuid.UUID(user_id))
     if user is None:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Invalid or expired token")
-    video = await _load_and_check(db, video_id, user)
-    if video.status != "ready":
+    video = await db.get(Video, video_id)
+    if video is None or video.status != "ready":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Video not found")
     return video
 

@@ -73,6 +73,19 @@ async def stream_video(
     return {"url": video.video_path, "video_info": None}
 
 
+@router.get("/videos/{video_id}/file/url")
+async def get_training_file_url(
+    video_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)
+):
+    """Resolve-fresh, same posture as the facilitator-side authoring
+    endpoint of the same name — never a baked-in signed URL on the row or in
+    a list response."""
+    video = (await db.execute(select(TrainingVideo).where(TrainingVideo.id == video_id))).scalars().first()
+    if video is None or not video.format or not video.file_path:
+        raise HTTPException(status_code=404, detail="No file uploaded for this item yet")
+    return {"url": await storage.get_signed_url("library-resources", video.file_path, expires_in=86400)}
+
+
 @router.post("/videos/{video_id}/complete")
 async def mark_video_complete(
     video_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(require_instructor)

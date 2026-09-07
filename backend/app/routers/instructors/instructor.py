@@ -29,6 +29,7 @@ from app.schemas.instructors.instructor import (
     SignContractRequest,
 )
 from app.services import storage
+from app.services.countries import COUNTRY_NAMES
 from app.services.documents.contract import format_contract_date, generate_contract_pdf
 from app.services.documents.id_card import ensure_card_id, render_card_png, render_card_back_png
 from app.services.email import send_contract_signed_notification_email, send_signed_contract_email
@@ -46,25 +47,38 @@ async def _get_or_create_profile(db: AsyncSession, user_id: uuid.UUID) -> Instru
     return profile
 
 
-async def _resolve_living_area(db: AsyncSession, user: User) -> str:
-    """The CITY the contract prints as the Facilitator's residence — never a
-    country. The template's own static text already appends ", United Arab
-    Emirates" right after this value (agreement.docx paragraph 3), so if this
-    ever resolves to a country name instead of a city, the printed contract
-    reads "United Arab Emirates, United Arab Emirates" (or "Egypt, United
-    Arab Emirates" — equally wrong, just less obviously broken). Checks
-    `User.city_id`/`city_other` first — the general, structured field
+_DEFAULT_LIVING_COUNTRY = "United Arab Emirates"
+
+
+async def _resolve_living_area(db: AsyncSession, user: User) -> tuple[str, str]:
+    """The (CITY, COUNTRY) the contract prints as the Facilitator's residence.
+    Checks `User.city_id`/`city_other` first — the general, structured field
     (2026-08-08) set regardless of how the account was created — then falls
     back to `ApplicantProfile.city_of_residence_id` for instructors who went
-    through the applicant pipeline before that existed. Returns "" (not a
-    country) when no city is on file anywhere; the template renders that
-    gracefully as "residing in United Arab Emirates" with no dangling city."""
+    through the applicant pipeline before that existed.
+
+    The country is read off the resolved city's own `country` code
+    (`COUNTRY_NAMES`), or off `User.country` for a free-text `city_other` —
+    never hardcoded to the UAE. SpacePoint now onboards instructors residing
+    outside the UAE (e.g. Egypt), and the template used to append ", United
+    Arab Emirates" unconditionally, so an instructor whose city was Cairo got
+    a contract stating they reside in "Cairo, United Arab Emirates" — wrong.
+
+    When no city is on file anywhere, still prints whatever country IS on
+    file (`User.country`, then `ApplicantProfile.country`) rather than
+    defaulting to the UAE for someone who told us otherwise — a real case:
+    an instructor invited directly (never went through a city-collecting
+    form) can have `User.country` set to "Egypt" with no city anywhere, and
+    used to get a contract reading "residing in United Arab Emirates"
+    regardless. Only falls back to the UAE when there is truly nothing on
+    file. The template renders an empty city gracefully as "residing in
+    <country>" with no dangling comma."""
     if user.city_id:
         city = await db.get(City, user.city_id)
         if city:
-            return city.name
+            return city.name, COUNTRY_NAMES.get(city.country, _DEFAULT_LIVING_COUNTRY)
     if user.city_other:
-        return user.city_other
+        return user.city_other, COUNTRY_NAMES.get(user.country, _DEFAULT_LIVING_COUNTRY)
 
     applicant_profile = (await db.execute(
         select(ApplicantProfile).where(ApplicantProfile.user_id == user.id)
@@ -72,9 +86,12 @@ async def _resolve_living_area(db: AsyncSession, user: User) -> str:
     if applicant_profile and applicant_profile.city_of_residence_id:
         residence_city = await db.get(City, applicant_profile.city_of_residence_id)
         if residence_city:
-            return residence_city.name
+            return residence_city.name, COUNTRY_NAMES.get(residence_city.country, _DEFAULT_LIVING_COUNTRY)
 
-    return ""
+    country = COUNTRY_NAMES.get(user.country) or (
+        COUNTRY_NAMES.get(applicant_profile.country) if applicant_profile else None
+    )
+    return "", country or _DEFAULT_LIVING_COUNTRY
 
 
 async def _ensure_contract(db: AsyncSession, profile: InstructorProfile, user: User) -> None:
@@ -106,9 +123,11 @@ async def _ensure_contract(db: AsyncSession, profile: InstructorProfile, user: U
     final, immutable record and this function must never touch it."""
     if profile.contract_signed_at or "instructor" not in user.role_values:
         return
-    living_area = await _resolve_living_area(db, user)
+    living_area, living_country = await _resolve_living_area(db, user)
     contract_date = format_contract_date(profile.instructor_since or datetime.now(timezone.utc).date())
-    pdf_bytes = await asyncio.to_thread(generate_contract_pdf, user.full_name, living_area, contract_date=contract_date)
+    pdf_bytes = await asyncio.to_thread(
+        generate_contract_pdf, user.full_name, living_area, living_country, contract_date=contract_date
+    )
     contract_path = profile.contract_path or f"{user.id}/agreement.pdf"
     contract_url = await storage.upload_file("contracts", contract_path, pdf_bytes, "application/pdf")
     profile.contract_url = contract_url
@@ -163,7 +182,7 @@ async def sign_contract(
     if profile.contract_signed_at:
         raise HTTPException(status_code=400, detail="Contract already signed")
 
-    living_area = await _resolve_living_area(db, current_user)
+    living_area, living_country = await _resolve_living_area(db, current_user)
 
     now = datetime.now(timezone.utc)
     # The date printed on the contract is the day they BECAME an instructor,
@@ -182,6 +201,7 @@ async def sign_contract(
             generate_contract_pdf,
             current_user.full_name,
             living_area,
+            living_country,
             contract_date=contract_date,
             instructor_signature_b64=body.signature,
         )

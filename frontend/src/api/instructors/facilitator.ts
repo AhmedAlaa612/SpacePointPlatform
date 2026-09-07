@@ -7,11 +7,18 @@ export const facilitatorListTrainingApi = () =>
 export const createTrainingModuleApi = (data: { title: string; description?: string; sort_order?: number }) =>
   api.post<TrainingModule>("/instructors/facilitator/training/modules", data).then((r) => r.data)
 
+export const updateTrainingModuleApi = (moduleId: string, params: { title?: string; description?: string }) => {
+  const qs = new URLSearchParams()
+  if (params.title !== undefined) qs.set("title", params.title)
+  if (params.description !== undefined) qs.set("description", params.description)
+  return api.patch<TrainingModule>(`/instructors/facilitator/training/modules/${moduleId}?${qs}`).then((r) => r.data)
+}
+
 export const deleteTrainingModuleApi = (moduleId: string) =>
   api.delete(`/instructors/facilitator/training/modules/${moduleId}`).then((r) => r.data)
 
 export const addTrainingVideoApi = (params: {
-  moduleId: string; title: string; url: string; description?: string; notes?: string; sortOrder?: number
+  moduleId: string; title: string; url?: string; description?: string; notes?: string; sortOrder?: number
 }) =>
   api.post(`/instructors/facilitator/training/videos`, {
     module_id: params.moduleId,
@@ -38,11 +45,27 @@ export const uploadTrainingVideoApi = (videoId: string, file: File) => {
   return api.post(`/instructors/facilitator/training/videos/${videoId}/upload`, form).then((r) => r.data)
 }
 
+export const uploadTrainingFileApi = (videoId: string, file: File) => {
+  const form = new FormData()
+  form.append("file", file)
+  return api.post(`/instructors/facilitator/training/videos/${videoId}/file`, form).then((r) => r.data)
+}
+
+export const getTrainingFileUrlApi = (videoId: string) =>
+  api.get<{ url: string }>(`/instructors/facilitator/training/videos/${videoId}/file/url`).then((r) => r.data.url)
+
 export const facilitatorListLibraryApi = () =>
   api.get<LibraryModule[]>("/instructors/facilitator/library/modules").then((r) => r.data)
 
 export const createLibraryModuleApi = (data: { name: string; description?: string }) =>
   api.post<LibraryModule>("/instructors/facilitator/library/modules", data).then((r) => r.data)
+
+export const updateLibraryModuleApi = (moduleId: string, params: { name?: string; description?: string }) => {
+  const qs = new URLSearchParams()
+  if (params.name !== undefined) qs.set("name", params.name)
+  if (params.description !== undefined) qs.set("description", params.description)
+  return api.patch<LibraryModule>(`/instructors/facilitator/library/modules/${moduleId}?${qs}`).then((r) => r.data)
+}
 
 export const deleteLibraryModuleApi = (moduleId: string) =>
   api.delete(`/instructors/facilitator/library/modules/${moduleId}`).then((r) => r.data)
