@@ -121,6 +121,7 @@ function useRolesDraft(cohort: Cohort, sessionId?: string) {
         amount_aed: o?.amount_aed != null ? String(o.amount_aed) : "",
         notes: o?.notes ?? "",
         responsibilities_override: o?.responsibilities_override ?? o?.role_description ?? r.description ?? "",
+        existing: o != null,
       }
     })
 
@@ -134,7 +135,7 @@ function useRolesDraft(cohort: Cohort, sessionId?: string) {
       cohortId: cohort.id,
       openings: (draft ?? [])
         .filter((d) => !isSessionOnlyExtra(d.role_id))
-        .filter((d) => d.amount_aed !== "" || d.notes || d.responsibilities_override || d.slots !== 1)
+        .filter((d) => d.existing || d.amount_aed !== "" || d.notes || d.responsibilities_override || d.slots !== 1)
         .map((d) => ({
           role_id: d.role_id,
           slots: d.slots,
@@ -411,6 +412,10 @@ interface RoleDraft {
   amount_aed: string
   notes: string
   responsibilities_override: string
+  // Backed by a real CohortOpening row already — must always round-trip on
+  // save even if every field currently reads as a default, since dropping
+  // it here means set_cohort_openings deletes that row.
+  existing: boolean
 }
 
 export function CohortRolesPanel({ cohort, sessionId, large = false }: {

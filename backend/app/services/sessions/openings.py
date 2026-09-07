@@ -225,7 +225,7 @@ async def set_openings(
         if await db.get(DeliveryRole, role_id) is None:
             raise HTTPException(404, detail="Delivery role not found")
 
-        slots = int(line.get("slots") or 1)
+        slots = int(line["slots"]) if line.get("slots") is not None else 1
         if slots < 1:
             raise HTTPException(400, detail="An opening needs at least one slot")
         taken = assigned_by_role.get(role_id, 0)
@@ -406,7 +406,7 @@ async def set_cohort_openings(
         role_id = line["role_id"]
         if await db.get(DeliveryRole, role_id) is None:
             raise HTTPException(404, detail="Delivery role not found")
-        slots = int(line.get("slots") or 1)
+        slots = int(line["slots"]) if line.get("slots") is not None else 1
         if slots < 1:
             raise HTTPException(400, detail="An opening needs at least one slot")
 
@@ -474,7 +474,7 @@ async def set_program_openings(
         role_id = line["role_id"]
         if await db.get(DeliveryRole, role_id) is None:
             raise HTTPException(404, detail="Delivery role not found")
-        slots = int(line.get("slots") or 1)
+        slots = int(line["slots"]) if line.get("slots") is not None else 1
         if slots < 1:
             raise HTTPException(400, detail="An opening needs at least one slot")
 

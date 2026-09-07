@@ -32,6 +32,10 @@ interface RoleDraft {
   amount_aed: string
   notes: string
   responsibilities_override: string
+  // Backed by a real ProgramOpening row already — must always round-trip on
+  // save even if every field currently reads as a platform default, since
+  // dropping it here means set_program_openings deletes that row.
+  existing: boolean
 }
 
 export function ProgramRolesPanel({ program }: { program: Program }) {
@@ -57,6 +61,7 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
         amount_aed: o?.amount_aed != null ? String(o.amount_aed) : "",
         notes: o?.notes ?? "",
         responsibilities_override: o?.responsibilities_override ?? o?.role_description ?? r.description ?? "",
+        existing: o != null,
       }
     })
 
@@ -71,7 +76,7 @@ export function ProgramRolesPanel({ program }: { program: Program }) {
     mutationFn: () => setProgramOpeningsApi({
       programId: program.id,
       openings: rows
-        .filter((d) => d.amount_aed !== "" || d.notes || d.responsibilities_override || d.slots !== 1)
+        .filter((d) => d.existing || d.amount_aed !== "" || d.notes || d.responsibilities_override || d.slots !== 1)
         .map((d) => ({
           role_id: d.role_id,
           slots: d.slots,
