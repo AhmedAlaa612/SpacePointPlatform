@@ -64,9 +64,15 @@ async def _resolve_living_area(db: AsyncSession, user: User) -> tuple[str, str]:
     Arab Emirates" unconditionally, so an instructor whose city was Cairo got
     a contract stating they reside in "Cairo, United Arab Emirates" — wrong.
 
-    Returns ("", "United Arab Emirates") when no city is on file anywhere;
-    the template renders that gracefully as "residing in United Arab
-    Emirates" with no dangling city."""
+    When no city is on file anywhere, still prints whatever country IS on
+    file (`User.country`, then `ApplicantProfile.country`) rather than
+    defaulting to the UAE for someone who told us otherwise — a real case:
+    an instructor invited directly (never went through a city-collecting
+    form) can have `User.country` set to "Egypt" with no city anywhere, and
+    used to get a contract reading "residing in United Arab Emirates"
+    regardless. Only falls back to the UAE when there is truly nothing on
+    file. The template renders an empty city gracefully as "residing in
+    <country>" with no dangling comma."""
     if user.city_id:
         city = await db.get(City, user.city_id)
         if city:
@@ -82,7 +88,10 @@ async def _resolve_living_area(db: AsyncSession, user: User) -> tuple[str, str]:
         if residence_city:
             return residence_city.name, COUNTRY_NAMES.get(residence_city.country, _DEFAULT_LIVING_COUNTRY)
 
-    return "", _DEFAULT_LIVING_COUNTRY
+    country = COUNTRY_NAMES.get(user.country) or (
+        COUNTRY_NAMES.get(applicant_profile.country) if applicant_profile else None
+    )
+    return "", country or _DEFAULT_LIVING_COUNTRY
 
 
 async def _ensure_contract(db: AsyncSession, profile: InstructorProfile, user: User) -> None:
