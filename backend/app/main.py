@@ -18,6 +18,7 @@ from app.routers.ambassadors import router as ambassadors_router
 from app.routers.instructors import router as instructors_router
 from app.routers.inventory import router as inventory_router
 from app.routers.games import router as games_router
+from app.routers.instructor_assessment import router as instructor_assessment_router
 from app.services.games.realtime import get_realtime_redis
 from app.routers.competitions import router as competitions_router
 from app.routers.lms import router as lms_router
@@ -138,6 +139,9 @@ app.include_router(games_router)
 
 # Competition judging domain (2026-08-24): /competitions/*
 app.include_router(competitions_router)
+
+# Instructor assessment & performance ranking domain (2026-09): /instructor-assessment/*
+app.include_router(instructor_assessment_router)
 
 # Standardized video service's own playback surface (2026-09): /videos/*
 # — one route for every hls_encrypted video regardless of owner_type. See

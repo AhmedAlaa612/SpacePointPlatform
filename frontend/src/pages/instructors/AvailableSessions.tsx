@@ -1,6 +1,7 @@
 import { useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Calendar, Clock, ExternalLink, MapPin, Users } from "lucide-react"
+import { Calendar, ClipboardCheck, Clock, ExternalLink, MapPin, Users } from "lucide-react"
 import { listAvailableWorkApi, registerInterestApi, withdrawInterestApi } from "@/api/sessions/staffing"
 import { acceptResponsibilitiesApi, getResponsibilitiesApi } from "@/api/sessions/openings"
 import type { AvailableSession } from "@/types/sessions"
@@ -78,6 +79,7 @@ export default function AvailableSessions() {
  *  form gained on 2026-08-24. */
 function SessionCard({ s }: { s: AvailableSession }) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [note, setNote] = useState(s.my_note ?? "")
   const [concerns, setConcerns] = useState(s.my_concerns ?? "")
   const [needsTransport, setNeedsTransport] = useState(s.my_needs_transport ?? false)
@@ -207,6 +209,19 @@ function SessionCard({ s }: { s: AvailableSession }) {
             <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">You've registered interest{s.my_note ? `: "${s.my_note}"` : ""}</span>
             <Button size="sm" variant="outline" disabled={pending} onClick={() => withdraw.mutate()}>
               Withdraw
+            </Button>
+          </div>
+        ) : s.assessment_required && s.cohort_call_id ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">
+              This opportunity requires completing a short instructor assessment before applying.
+            </p>
+            <Button
+              size="sm"
+              onClick={() => void navigate({ to: `/instructors/assessment/${s.cohort_call_id}` })}
+              className="self-start gap-1.5"
+            >
+              <ClipboardCheck size={14} /> Take Assessment
             </Button>
           </div>
         ) : (

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, Banknote, CheckCircle2, MapPin } from "lucide-react"
+import { AlertTriangle, Banknote, CheckCircle2, LineChart, MapPin } from "lucide-react"
 import { getAdminInstructorBankDetailsApi, listAdminInstructorsApi } from "@/api/instructors/admin"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import { Button } from "@/components/ui/button"
@@ -41,6 +42,7 @@ function BankDetailsDialog({ userId, name, onClose }: { userId: string; name: st
 }
 
 export default function InstructorsAdminInstructors() {
+  const navigate = useNavigate()
   const { data: instructors, isLoading } = useQuery({ queryKey: ["admin-instructors"], queryFn: listAdminInstructorsApi })
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
   const [bankDetailsFor, setBankDetailsFor] = useState<{ id: string; name: string } | null>(null)
@@ -169,6 +171,13 @@ export default function InstructorsAdminInstructors() {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={(e) => { e.stopPropagation(); void navigate({ to: `/instructors/admin/instructors/${i.id}/performance` }) }}
+                >
+                  <LineChart size={14} className="mr-1.5" /> Performance
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"
