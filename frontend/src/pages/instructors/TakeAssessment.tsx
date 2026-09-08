@@ -167,18 +167,8 @@ function Results({ result, onDone }: { result: AttemptResult; onDone: () => void
         <p className="text-sm font-mono text-muted-foreground mt-1">{pct}%</p>
       </div>
 
-      {result.critical_total ? (
-        <div className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-left">
-          <AlertTriangle size={20} className="text-amber-600 dark:text-amber-400 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold">Critical questions: {result.critical_correct} / {result.critical_total} correct</p>
-            <p className="text-xs text-muted-foreground">Reported alongside your score — not a separate pass/fail gate.</p>
-          </div>
-        </div>
-      ) : null}
-
       <p className="text-xs text-muted-foreground">
-        Saved to your assessment history. This score contributes to your Instructor Priority Score for this opportunity.
+        This score contributes to your Instructor Priority Score for this opportunity.
       </p>
 
       <button
