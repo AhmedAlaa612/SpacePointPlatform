@@ -30,6 +30,8 @@ export interface AssessmentConfig {
   description?: string | null;
   is_active: boolean;
   created_at?: string | null;
+  draw_size: number;
+  critical_floor: number;
   question_count: number;
   category_counts: Record<string, number>;
   critical_count: number;
@@ -67,6 +69,20 @@ export interface Attempt {
   questions: AttemptQuestion[];
 }
 
+// Revealed only after the whole attempt is submitted — see the backend's
+// get_attempt_review docstring for why this never shows up mid-quiz.
+export interface AttemptQuestionReview {
+  question_id: string;
+  category: string;
+  prompt: string;
+  options: string[];
+  selected_index: number | null;
+  correct_index: number;
+  is_correct: boolean;
+  critical: boolean;
+  rationale?: string | null;
+}
+
 export interface AttemptResult {
   id: string;
   status: "in_progress" | "submitted";
@@ -76,6 +92,7 @@ export interface AttemptResult {
   critical_total: number | null;
   category_breakdown: Record<string, { correct: number; total: number }> | null;
   submitted_at?: string | null;
+  questions: AttemptQuestionReview[];
 }
 
 // ── post-program rating ─────────────────────────────────────────────────
@@ -142,6 +159,8 @@ export interface RatingHistoryEntry {
   overall_rating: number;
   recommended?: boolean | null;
   flag: RatingFlag;
+  strengths?: string | null;
+  areas_for_improvement?: string | null;
   submitted_at?: string | null;
 }
 

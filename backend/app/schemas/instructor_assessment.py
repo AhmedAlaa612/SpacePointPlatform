@@ -72,12 +72,28 @@ class AssessmentQuestionImportOut(BaseModel):
 class AssessmentConfigCreate(BaseModel):
     name: str
     description: str | None = None
+    draw_size: int = Field(default=15, ge=1)
+    critical_floor: int = Field(default=3, ge=0)
+
+    @model_validator(mode="after")
+    def _validate_floor(self) -> "AssessmentConfigCreate":
+        if self.critical_floor > self.draw_size:
+            raise ValueError("critical_floor can't exceed draw_size")
+        return self
 
 
 class AssessmentConfigUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     is_active: bool | None = None
+    draw_size: int | None = Field(default=None, ge=1)
+    critical_floor: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _validate_floor(self) -> "AssessmentConfigUpdate":
+        if self.draw_size is not None and self.critical_floor is not None and self.critical_floor > self.draw_size:
+            raise ValueError("critical_floor can't exceed draw_size")
+        return self
 
 
 class AssessmentConfigOut(BaseModel):
@@ -86,6 +102,8 @@ class AssessmentConfigOut(BaseModel):
     description: str | None
     is_active: bool
     created_at: datetime | None
+    draw_size: int
+    critical_floor: int
     question_count: int
     category_counts: dict[str, int]
     critical_count: int
@@ -135,6 +153,20 @@ class AttemptAnswerIn(BaseModel):
     answers: dict[str, int | None]
 
 
+class AttemptQuestionReviewOut(BaseModel):
+    """Revealed only after the whole attempt is submitted — see
+    `services/instructor_assessment/attempts.py::get_attempt_review`."""
+    question_id: UUID
+    category: str
+    prompt: str
+    options: list[str]
+    selected_index: int | None
+    correct_index: int
+    is_correct: bool
+    critical: bool
+    rationale: str | None
+
+
 class AttemptResultOut(BaseModel):
     id: UUID
     status: Literal["in_progress", "submitted"]
@@ -144,6 +176,7 @@ class AttemptResultOut(BaseModel):
     critical_total: int | None
     category_breakdown: dict[str, dict[str, int]] | None
     submitted_at: datetime | None
+    questions: list[AttemptQuestionReviewOut]
 
 
 # ── post-program rating ─────────────────────────────────────────────────
@@ -224,6 +257,8 @@ class RatingHistoryEntryOut(BaseModel):
     overall_rating: float
     recommended: bool | None
     flag: Literal["none", "exceptional", "concern"]
+    strengths: str | None
+    areas_for_improvement: str | None
     submitted_at: datetime | None
 
 

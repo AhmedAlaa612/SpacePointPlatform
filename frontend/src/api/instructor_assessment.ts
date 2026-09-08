@@ -21,14 +21,16 @@ import type {
 export const listAssessmentConfigsApi = () =>
   api.get<AssessmentConfig[]>("/instructor-assessment/admin/configs").then((r) => r.data);
 
-export const createAssessmentConfigApi = (data: { name: string; description?: string | null }) =>
-  api.post<AssessmentConfig>("/instructor-assessment/admin/configs", data).then((r) => r.data);
+export const createAssessmentConfigApi = (
+  data: { name: string; description?: string | null; draw_size?: number; critical_floor?: number },
+) => api.post<AssessmentConfig>("/instructor-assessment/admin/configs", data).then((r) => r.data);
 
 export const getAssessmentConfigApi = (configId: string) =>
   api.get<AssessmentConfigDetail>(`/instructor-assessment/admin/configs/${configId}`).then((r) => r.data);
 
 export const updateAssessmentConfigApi = (
-  configId: string, data: Partial<{ name: string; description: string | null; is_active: boolean }>,
+  configId: string,
+  data: Partial<{ name: string; description: string | null; is_active: boolean; draw_size: number; critical_floor: number }>,
 ) => api.patch<AssessmentConfig>(`/instructor-assessment/admin/configs/${configId}`, data).then((r) => r.data);
 
 export interface AssessmentQuestionInput {
@@ -87,6 +89,18 @@ export const getMyAssessmentAttemptApi = (cohortCallId: string) =>
 
 export const submitAssessmentAttemptApi = (attemptId: string, answers: Record<string, number | null>) =>
   api.post<AttemptResult>(`/instructor-assessment/attempts/${attemptId}/submit`, { answers }).then((r) => r.data);
+
+// ── attempts (ops-facing "view answers" drill-down) ─────────────────────
+
+export const getAttemptReviewForSessionApi = (sessionId: string, userId: string) =>
+  api.get<AttemptResult>(
+    `/instructor-assessment/attempts/sessions/${sessionId}/instructors/${userId}/review`,
+  ).then((r) => r.data);
+
+export const getAttemptReviewForCohortCallApi = (cohortCallId: string, userId: string) =>
+  api.get<AttemptResult>(
+    `/instructor-assessment/attempts/cohort-calls/${cohortCallId}/instructors/${userId}/review`,
+  ).then((r) => r.data);
 
 // ── post-program rating ─────────────────────────────────────────────────
 

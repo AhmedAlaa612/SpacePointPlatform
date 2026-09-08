@@ -4,15 +4,20 @@ __init__.py` for the domain overview.
 
 Draw algorithm (locked in with the operator):
 1. Shuffle categories; round-robin one *critical*-flagged question at a
-   time (random pick within category) until a floor of `CRITICAL_FLOOR` is
-   reached — critical questions cluster in only a few categories, so a
+   time (random pick within category) until the config's `critical_floor`
+   is reached — critical questions cluster in only a few categories, so a
    flat random draw could plausibly land zero of them.
 2. Shuffle categories again; round-robin one not-yet-used question per
    category (any critical status) for the remaining slots, skipping
-   exhausted categories, until `DRAW_SIZE` total.
+   exhausted categories, until the config's `draw_size` total.
 3. Shuffle the final set into presentation order; each question's own
    options get an independently shuffled order, persisted alongside the
    draw so a page refresh mid-attempt never reshuffles anything.
+
+`draw_size`/`critical_floor` are per-`AssessmentConfig` (2026-09) — DRAW_SIZE/
+CRITICAL_FLOOR below are only the fallback for a config row that somehow has
+neither loaded (never true in practice; the column has a NOT NULL default),
+and match the model column defaults exactly.
 """
 
 from __future__ import annotations
@@ -30,12 +35,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instructor_assessment.assignment import AssessmentCohortAssignment
 from app.models.instructor_assessment.attempt import AssessmentAnswer, AssessmentAttempt
-from app.models.instructor_assessment.config import AssessmentQuestion
+from app.models.instructor_assessment.config import AssessmentConfig, AssessmentQuestion
 from app.models.sessions.cohort_call import CohortCall
 from app.models.user import User
 
-CRITICAL_FLOOR = 3
-DRAW_SIZE = 15
+CRITICAL_FLOOR = 3  # fallback only — see module docstring
+DRAW_SIZE = 15  # fallback only — see module docstring
 
 
 async def get_assignment_for_cohort_call(db: AsyncSession, cohort_call_id: UUID) -> Optional[AssessmentCohortAssignment]:
@@ -80,7 +85,18 @@ def _round_robin_draw(
     return drawn
 
 
-async def draw_questions(db: AsyncSession, config_id: UUID) -> list[AssessmentQuestion]:
+async def draw_questions(
+    db: AsyncSession, config_id: UUID, *, config: Optional[AssessmentConfig] = None,
+) -> list[AssessmentQuestion]:
+    """`config` may be passed in pre-fetched (`start_attempt` already needs
+    the row for `draw_size`/`total`) to avoid loading it twice; a caller
+    that only has the id (e.g. a test exercising the draw in isolation) gets
+    it fetched here instead."""
+    if config is None:
+        config = await db.get(AssessmentConfig, config_id)
+    draw_size = config.draw_size if config is not None else DRAW_SIZE
+    critical_floor = config.critical_floor if config is not None else CRITICAL_FLOOR
+
     questions = (await db.execute(
         select(AssessmentQuestion).where(
             AssessmentQuestion.config_id == config_id, AssessmentQuestion.is_active.is_(True),
@@ -96,8 +112,8 @@ async def draw_questions(db: AsyncSession, config_id: UUID) -> list[AssessmentQu
     critical_available = sum(len(qs) for qs in critical_by_category.values())
 
     exclude_ids: set[UUID] = set()
-    critical_drawn = _round_robin_draw(critical_by_category, min(CRITICAL_FLOOR, critical_available), exclude_ids)
-    normal_drawn = _round_robin_draw(by_category, DRAW_SIZE - len(critical_drawn), exclude_ids)
+    critical_drawn = _round_robin_draw(critical_by_category, min(critical_floor, critical_available), exclude_ids)
+    normal_drawn = _round_robin_draw(by_category, draw_size - len(critical_drawn), exclude_ids)
 
     drawn = critical_drawn + normal_drawn
     random.shuffle(drawn)
@@ -136,8 +152,10 @@ async def start_attempt(db: AsyncSession, *, cohort_call_id: UUID, user: User) -
     if assignment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No assessment is required for this opportunity")
 
-    questions = await draw_questions(db, assignment.config_id)
-    if len(questions) < DRAW_SIZE:
+    config = await db.get(AssessmentConfig, assignment.config_id)
+    draw_size = config.draw_size if config is not None else DRAW_SIZE
+    questions = await draw_questions(db, assignment.config_id, config=config)
+    if len(questions) < draw_size:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail="The question bank doesn't have enough active questions to draw a full assessment",
@@ -145,7 +163,7 @@ async def start_attempt(db: AsyncSession, *, cohort_call_id: UUID, user: User) -
 
     attempt = AssessmentAttempt(
         id=uuid.uuid4(), config_id=assignment.config_id, cohort_call_id=cohort_call_id, user_id=user.id,
-        question_order=_build_question_order(questions), status="in_progress", total=DRAW_SIZE,
+        question_order=_build_question_order(questions), status="in_progress", total=draw_size,
     )
     # Two tabs (or a refresh racing the first request) can both pass the
     # `existing is None` check above — the SAVEPOINT confines a lost race to
@@ -247,3 +265,42 @@ async def submit_attempt(db: AsyncSession, attempt: AssessmentAttempt, answers: 
     attempt.submitted_at = datetime.now(timezone.utc)
     await db.flush()
     return attempt
+
+
+async def get_attempt_review(db: AsyncSession, attempt: AssessmentAttempt) -> list[dict]:
+    """Per-question review — correct answer + rationale revealed alongside
+    each question. Only ever call this on an already-`submitted` attempt: it
+    reads the persisted `AssessmentAnswer` rows for grading, and calling it
+    mid-attempt would hand the instructor the correct answers to questions
+    they haven't answered yet (the whole reason this isn't shown live during
+    the quiz — one wrong pick shouldn't tip off the next 14)."""
+    question_ids = [uuid.UUID(o["question_id"]) for o in attempt.question_order]
+    rows = (await db.execute(
+        select(AssessmentQuestion).where(AssessmentQuestion.id.in_(question_ids))
+    )).scalars().all()
+    by_id = {q.id: q for q in rows}
+
+    answers = (await db.execute(
+        select(AssessmentAnswer).where(AssessmentAnswer.attempt_id == attempt.id)
+    )).scalars().all()
+    answers_by_qid = {a.question_id: a for a in answers}
+
+    out = []
+    for entry in attempt.question_order:
+        qid = uuid.UUID(entry["question_id"])
+        q = by_id.get(qid)
+        option_order: list[int] = entry["option_order"]
+        if q is None or max(option_order, default=-1) >= len(q.options):
+            continue  # same skip as get_attempt_questions/submit_attempt — shape changed since the draw
+        answer = answers_by_qid.get(qid)
+        correct_original_index = next(i for i, o in enumerate(q.options) if o.get("is_correct"))
+        out.append({
+            "question_id": q.id, "category": q.category, "prompt": q.prompt,
+            "options": [q.options[i]["text"] for i in option_order],
+            "selected_index": option_order.index(answer.selected_option_index)
+            if answer and answer.selected_option_index is not None else None,
+            "correct_index": option_order.index(correct_original_index),
+            "is_correct": bool(answer and answer.is_correct),
+            "critical": q.critical, "rationale": q.rationale,
+        })
+    return out

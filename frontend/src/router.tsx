@@ -480,14 +480,27 @@ const ambassadorsRoutes = [
 const instructorsLayoutRoute = createRoute({
   getParentRoute: () => authLayoutRoute,
   path: "/instructors",
-  beforeLoad: () => {
+  beforeLoad: ({ location }) => {
     // No token means bare /instructors (the only path the parent authLayoutRoute
     // lets through unauthenticated) — defer to authLayoutRoute's component, which
     // renders the public InstructorsLanding page directly instead of this subtree.
     if (!tokens.access) return;
     const role = localStorage.getItem("active_role");
     if (role !== "instructor" && role !== "facilitator" && role !== "applicant" && role !== "admin") {
-      throw redirect({ to: "/" });
+      // Operations manages the instructor-assessment gate and ratings (the same
+      // role the backend already requires on those endpoints — require_operations),
+      // so it gets into just those subpaths rather than the whole instructor
+      // section (personal dashboards, training, payments, etc. stay admin-only).
+      const opsAllowedPaths = [
+        "/instructors/admin/assessment-questions",
+        "/instructors/admin/ratings/",
+        "/instructors/assessment/",
+      ];
+      const opsAllowed = role === "operations" && (
+        opsAllowedPaths.some((p) => location.pathname.startsWith(p)) ||
+        /^\/instructors\/admin\/instructors\/[^/]+\/performance$/.test(location.pathname)
+      );
+      if (!opsAllowed) throw redirect({ to: "/" });
     }
   },
   component: () => <Outlet />,

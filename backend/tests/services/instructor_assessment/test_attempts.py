@@ -77,6 +77,7 @@ async def _make_config_with_questions(db, shape: dict[str, tuple[int, int]] = _B
                     {"text": "C", "is_correct": False}, {"text": "D", "is_correct": False},
                 ],
                 critical=i < critical_count, is_active=True,
+                rationale=f"Why A is correct for {category} #{i}",
             ))
     await db.flush()
     return config
@@ -110,6 +111,23 @@ async def test_draw_questions_errors_gracefully_when_bank_too_small(db):
     config = await _make_config_with_questions(db, shape={"Only Category": (5, 1)})
     drawn = await attempts_svc.draw_questions(db, config.id)
     assert len(drawn) == 5  # fewer than DRAW_SIZE exist — draws everything available, doesn't crash
+
+
+@pytest.mark.asyncio
+async def test_draw_questions_respects_per_config_draw_size(db):
+    """draw_size/critical_floor are per-AssessmentConfig (2026-09), not the
+    module's DRAW_SIZE/CRITICAL_FLOOR constants — a config that opts into a
+    shorter quiz with a different critical mix must get exactly that."""
+    config = await _make_config_with_questions(db)
+    config.draw_size = 8
+    config.critical_floor = 2
+    await db.flush()
+
+    drawn = await attempts_svc.draw_questions(db, config.id)
+
+    assert len(drawn) == 8
+    assert len({q.id for q in drawn}) == 8
+    assert len([q for q in drawn if q.critical]) >= 2
 
 
 # ── get-or-create attempt semantics ──────────────────────────────────────
@@ -175,6 +193,44 @@ async def test_submit_attempt_grades_against_shuffled_option_order(db):
     result = await attempts_svc.submit_attempt(db, attempt, answers)
     assert result.score == attempts_svc.DRAW_SIZE
     assert result.status == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_get_attempt_review_reveals_correct_answer_and_rationale(db):
+    """The review is what makes a wrong pick worth something — it must
+    surface the correct answer's DISPLAYED position (not its original
+    index) and the authored rationale, and it must reflect what the
+    instructor actually picked, right or wrong."""
+    cohort = await _make_cohort(db)
+    call = await _make_cohort_call(db, cohort)
+    config = await _make_config_with_questions(db, shape={"Only": (attempts_svc.DRAW_SIZE, 0)})
+    db.add(AssessmentCohortAssignment(id=uuid.uuid4(), cohort_id=cohort.id, config_id=config.id))
+    await db.flush()
+    user = await _make_user(db)
+
+    attempt = await attempts_svc.start_attempt(db, cohort_call_id=call.id, user=user)
+
+    # Get the first question right, deliberately miss the second.
+    entries = attempt.question_order
+    answers = {entries[0]["question_id"]: entries[0]["option_order"].index(0)}
+    wrong_position = next(i for i in range(4) if i != entries[1]["option_order"].index(0))
+    answers[entries[1]["question_id"]] = wrong_position
+
+    result = await attempts_svc.submit_attempt(db, attempt, answers)
+    review = await attempts_svc.get_attempt_review(db, result)
+
+    by_qid = {str(r["question_id"]): r for r in review}
+    first = by_qid[entries[0]["question_id"]]
+    second = by_qid[entries[1]["question_id"]]
+
+    assert first["is_correct"] is True
+    assert first["selected_index"] == first["correct_index"]
+    assert first["rationale"]
+
+    assert second["is_correct"] is False
+    assert second["selected_index"] == wrong_position
+    assert second["selected_index"] != second["correct_index"]
+    assert second["correct_index"] == entries[1]["option_order"].index(0)
 
 
 @pytest.mark.asyncio

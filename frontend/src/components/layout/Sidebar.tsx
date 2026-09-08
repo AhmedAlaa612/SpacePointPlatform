@@ -294,6 +294,13 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
         mk("Learn", "/learn"),
       ];
     }
+    if (activeRole === "operations") {
+      // Operations only ever lands in /instructors/* via a direct link from a
+      // cohort (rate an instructor, manage the question bank, preview the
+      // assessment) — the rest of this section (personal dashboards,
+      // training, payments) isn't theirs, so there's no full nav here.
+      return [mk("Back to Operations", "/operations/dashboard")];
+    }
     return [
       mk("Overview", "/instructors/dashboard"),
       mk("Sessions", "/instructors/my-sessions"),

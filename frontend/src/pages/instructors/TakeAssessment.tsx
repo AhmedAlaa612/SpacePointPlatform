@@ -1,9 +1,10 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { AlertTriangle, CheckCircle2 } from "lucide-react"
 import { Spinner } from "@/components/ui/primitives"
 import { Progress } from "@/components/ui/progress"
+import { QuestionReviewList } from "@/components/AssessmentReview"
 import {
   getMyAssessmentAttemptApi,
   startAssessmentAttemptApi,
@@ -80,18 +81,47 @@ function AlreadySubmittedNotice() {
   )
 }
 
+/** The set of 15 questions and their option order are pinned server-side —
+ *  a refresh never reshuffles them — but which ones you'd already answered
+ *  used to live only in this component's state, so a refresh sent you back
+ *  to question 1. Mirrored into localStorage (keyed by attemptId) so a
+ *  refresh resumes exactly where you left off; cleared once submitted. */
+function progressKey(attemptId: string) {
+  return `ia-attempt-progress:${attemptId}`
+}
+
 function QuestionFlow({ attemptId, questions, onFinished }: {
   attemptId: string
   questions: { question_id: string; category: string; prompt: string; options: string[]; critical: boolean }[]
   onFinished: () => void
 }) {
-  const [index, setIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, number | null>>({})
+  const [index, setIndex] = useState<number>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(progressKey(attemptId)) ?? "null") as { index?: number } | null
+      return Math.min(Math.max(saved?.index ?? 0, 0), questions.length - 1)
+    } catch { return 0 }
+  })
+  const [answers, setAnswers] = useState<Record<string, number | null>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(progressKey(attemptId)) ?? "null") as
+        { answers?: Record<string, number | null> } | null
+      return saved?.answers ?? {}
+    } catch { return {} }
+  })
   const [result, setResult] = useState<AttemptResult | null>(null)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(progressKey(attemptId), JSON.stringify({ index, answers }))
+    } catch { /* private browsing, quota, etc. — progress just won't survive a refresh */ }
+  }, [attemptId, index, answers])
 
   const submitMutation = useMutation({
     mutationFn: () => submitAssessmentAttemptApi(attemptId, answers),
-    onSuccess: setResult,
+    onSuccess: (data) => {
+      try { localStorage.removeItem(progressKey(attemptId)) } catch { /* nothing to clean up then */ }
+      setResult(data)
+    },
   })
 
   if (result) return <Results result={result} onDone={onFinished} />
@@ -160,25 +190,15 @@ function QuestionFlow({ attemptId, questions, onFinished }: {
 function Results({ result, onDone }: { result: AttemptResult; onDone: () => void }) {
   const pct = result.total ? Math.round(((result.score ?? 0) / result.total) * 100) : 0
   return (
-    <div className="max-w-3xl mx-auto flex flex-col items-center gap-6 py-4 sm:py-6 text-center">
-      <div>
+    <div className="max-w-3xl mx-auto flex flex-col items-center gap-6 py-4 sm:py-6">
+      <div className="text-center">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">Assessment complete</p>
         <p className="font-display text-5xl font-bold mt-2">{result.score} / {result.total}</p>
         <p className="text-sm font-mono text-muted-foreground mt-1">{pct}%</p>
       </div>
 
-      {result.critical_total ? (
-        <div className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-left">
-          <AlertTriangle size={20} className="text-amber-600 dark:text-amber-400 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold">Critical questions: {result.critical_correct} / {result.critical_total} correct</p>
-            <p className="text-xs text-muted-foreground">Reported alongside your score — not a separate pass/fail gate.</p>
-          </div>
-        </div>
-      ) : null}
-
-      <p className="text-xs text-muted-foreground">
-        Saved to your assessment history. This score contributes to your Instructor Priority Score for this opportunity.
+      <p className="text-xs text-muted-foreground text-center">
+        This score contributes to your Instructor Priority Score for this opportunity.
       </p>
 
       <button
@@ -187,6 +207,13 @@ function Results({ result, onDone }: { result: AttemptResult; onDone: () => void
       >
         Return to Available Sessions
       </button>
+
+      {result.questions.length > 0 && (
+        <div className="w-full flex flex-col gap-3 pt-4 border-t border-border">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Review your answers</p>
+          <QuestionReviewList questions={result.questions} />
+        </div>
+      )}
     </div>
   )
 }

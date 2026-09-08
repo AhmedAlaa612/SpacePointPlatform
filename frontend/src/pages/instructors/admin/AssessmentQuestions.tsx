@@ -12,6 +12,7 @@ import {
   getAssessmentConfigApi,
   importAssessmentQuestionsApi,
   listAssessmentConfigsApi,
+  updateAssessmentConfigApi,
   updateAssessmentQuestionApi,
 } from "@/api/instructor_assessment"
 import type { AssessmentConfig, AssessmentQuestion } from "@/types/instructor_assessment"
@@ -34,6 +35,8 @@ export default function AssessmentQuestions() {
   const [createConfigOpen, setCreateConfigOpen] = useState(false)
   const [configName, setConfigName] = useState("")
   const [configDescription, setConfigDescription] = useState("")
+  const [configDrawSize, setConfigDrawSize] = useState(15)
+  const [configCriticalFloor, setConfigCriticalFloor] = useState(3)
 
   const { data: configs = [], isLoading: configsLoading } = useQuery<AssessmentConfig[]>({
     queryKey: ["assessment-configs"],
@@ -41,9 +44,13 @@ export default function AssessmentQuestions() {
   })
 
   const createConfigMutation = useMutation({
-    mutationFn: () => createAssessmentConfigApi({ name: configName, description: configDescription || null }),
+    mutationFn: () => createAssessmentConfigApi({
+      name: configName, description: configDescription || null,
+      draw_size: configDrawSize, critical_floor: configCriticalFloor,
+    }),
     onSuccess: (config) => {
       setCreateConfigOpen(false); setConfigName(""); setConfigDescription("")
+      setConfigDrawSize(15); setConfigCriticalFloor(3)
       queryClient.invalidateQueries({ queryKey: ["assessment-configs"] })
       setSelectedConfigId(config.id)
     },
@@ -106,15 +113,86 @@ export default function AssessmentQuestions() {
                 className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary resize-none"
               />
             </Field>
+            <div className="flex gap-3">
+              <Field label="Questions per attempt">
+                <input
+                  type="number" min={1} value={configDrawSize}
+                  onChange={(e) => setConfigDrawSize(Number(e.target.value))}
+                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary tabular-nums"
+                />
+              </Field>
+              <Field label="Minimum critical questions">
+                <input
+                  type="number" min={0} value={configCriticalFloor}
+                  onChange={(e) => setConfigCriticalFloor(Number(e.target.value))}
+                  className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary tabular-nums"
+                />
+              </Field>
+            </div>
+            {configCriticalFloor > configDrawSize && (
+              <p className="text-xs text-red-600 dark:text-red-400">
+                Minimum critical questions can't exceed questions per attempt.
+              </p>
+            )}
             <ModalActions
               onCancel={() => setCreateConfigOpen(false)}
               onConfirm={() => configName.trim() && createConfigMutation.mutate()}
               loading={createConfigMutation.isPending}
-              disabled={!configName.trim()}
+              disabled={!configName.trim() || configDrawSize < 1 || configCriticalFloor < 0 || configCriticalFloor > configDrawSize}
               label="Create"
             />
           </div>
         </Modal>
+      )}
+    </div>
+  )
+}
+
+/** How many questions an attempt draws, and how many of those must be
+ *  critical — per-config (2026-09), previously a platform-wide constant.
+ *  Local state seeded once from `config` at mount; the parent remounts this
+ *  (via `key={config.id}`) whenever a different config is selected, so it
+ *  never needs an effect to resync when the selection changes. */
+function DrawSettingsPanel({ config, onSaved }: { config: AssessmentConfig; onSaved: () => void }) {
+  const [drawSize, setDrawSize] = useState(config.draw_size)
+  const [criticalFloor, setCriticalFloor] = useState(config.critical_floor)
+  const [saved, setSaved] = useState(false)
+
+  const mutation = useMutation({
+    mutationFn: () => updateAssessmentConfigApi(config.id, { draw_size: drawSize, critical_floor: criticalFloor }),
+    onSuccess: () => { setSaved(true); onSaved() },
+  })
+
+  const dirty = drawSize !== config.draw_size || criticalFloor !== config.critical_floor
+  const invalid = drawSize < 1 || criticalFloor < 0 || criticalFloor > drawSize
+
+  return (
+    <div className="rounded-2xl border border-border bg-card p-4 flex flex-wrap items-end gap-3">
+      <Field label="Questions per attempt">
+        <input
+          type="number" min={1} value={drawSize}
+          onChange={(e) => { setSaved(false); setDrawSize(Number(e.target.value)) }}
+          className="w-32 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm tabular-nums"
+        />
+      </Field>
+      <Field label="Minimum critical questions">
+        <input
+          type="number" min={0} value={criticalFloor}
+          onChange={(e) => { setSaved(false); setCriticalFloor(Number(e.target.value)) }}
+          className="w-32 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm tabular-nums"
+        />
+      </Field>
+      <button
+        onClick={() => mutation.mutate()}
+        disabled={!dirty || invalid || mutation.isPending}
+        className="h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-40"
+      >
+        {mutation.isPending ? "Saving…" : saved && !dirty ? "Saved" : "Save"}
+      </button>
+      {invalid && (
+        <p className="text-xs text-red-600 dark:text-red-400 w-full">
+          Minimum critical questions can't exceed questions per attempt.
+        </p>
       )}
     </div>
   )
@@ -157,6 +235,8 @@ function AssessmentConfigDetail({ config }: { config: AssessmentConfig }) {
         <StatCard icon={<AlertTriangle size={18} />} label="Critical" value={detail.critical_count}
           sub={detail.question_count ? `${Math.round((detail.critical_count / detail.question_count) * 100)}%` : undefined} />
       </div>
+
+      <DrawSettingsPanel key={detail.id} config={detail} onSaved={invalidate} />
 
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">

@@ -26,6 +26,7 @@ import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPane
 import { Modal, ConfirmDialog, IconBadge, Spinner, PageHeader } from "@/pages/admin/components/common"
 import { InheritedFrom } from "@/pages/admin/components/InheritedFrom"
 import { UserProfileModal } from "@/components/UserProfileModal"
+import { AssessmentReviewModal } from "@/components/AssessmentReview"
 import { useToast } from "@/components/ui/toast"
 import { Card } from "@/components/ui/card"
 import { cn, getErrorMessage } from "@/lib/utils"
@@ -381,6 +382,141 @@ function SessionDetailView({ cohort, session, onChanged, onDeleted }: {
   )
 }
 
+/** Full detail for one row of the eligible-instructor roster — badges, note,
+ *  concerns, the ranking breakdown, and (added 2026-09) the assessment
+ *  "View answers" drill-down, all in one dialog instead of packed into the
+ *  row itself. Mirrors CohortStaffingPanel.tsx's ApplicantDetailModal so
+ *  the two staffing screens read the same way. */
+function EligibleInstructorDetailModal({
+  instructor, assignedRole, deliveryRoles, rolesLoaded, roleId, onRoleChange, onAssign, assignPending,
+  onClose, onOpenProfile, onViewAnswers,
+}: {
+  instructor: EligibleInstructor
+  assignedRole: string | null
+  deliveryRoles: { id: string; name: string }[]
+  rolesLoaded: boolean
+  roleId: string
+  onRoleChange: (roleId: string) => void
+  onAssign: () => void
+  assignPending: boolean
+  onClose: () => void
+  onOpenProfile: (userId: string) => void
+  onViewAnswers: () => void
+}) {
+  return (
+    <Modal onClose={onClose} title={`Instructor Details — ${instructor.full_name || instructor.email}`} maxWidth="max-w-lg">
+      <div className="flex flex-col gap-4 py-1">
+        <div className="p-3.5 rounded-xl border border-border bg-card flex flex-col gap-2">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <button
+                type="button"
+                onClick={() => { onClose(); onOpenProfile(instructor.user_id) }}
+                className="font-semibold text-base text-foreground hover:text-primary hover:underline text-left"
+              >
+                {instructor.full_name || instructor.email}
+              </button>
+              <p className="text-xs text-muted-foreground">{instructor.email}</p>
+            </div>
+            {instructor.interest_role_name && (
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
+                Applied for: {instructor.interest_role_name}
+              </span>
+            )}
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {instructor.available_in_city && <IconBadge icon={MapPin} label="works in this city" tone="good" />}
+            {instructor.needs_transport && <IconBadge icon={Bus} label="needs transport" />}
+            {instructor.travelling_from_other_city && <IconBadge icon={Plane} label="another city" />}
+          </div>
+        </div>
+
+        {instructor.priority_score != null && (
+          <div className="flex flex-col gap-1.5 p-3 rounded-xl border border-border bg-card">
+            <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Ranking</p>
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">Priority {instructor.priority_score}</span>
+              {instructor.quiz_score != null && (
+                <span>
+                  Quiz {instructor.quiz_score}%
+                  {instructor.quiz_critical_total ? ` (${instructor.quiz_critical_correct}/${instructor.quiz_critical_total} critical)` : ""}
+                </span>
+              )}
+              {instructor.total_sessions_delivered != null && (
+                <span>{instructor.total_sessions_delivered} sessions · {instructor.total_hours_delivered}h</span>
+              )}
+              {instructor.average_rating != null && <span>Avg {instructor.average_rating}/5</span>}
+              {instructor.recent_rating != null && <span>Recent {instructor.recent_rating}/5</span>}
+            </div>
+          </div>
+        )}
+
+        {instructor.note && (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Cover Letter / Note</p>
+            <div className="p-3 rounded-xl border border-border bg-card text-xs text-foreground whitespace-pre-line leading-relaxed">
+              {instructor.note}
+            </div>
+          </div>
+        )}
+
+        {instructor.concerns && (
+          <div className="flex flex-col gap-1.5">
+            <p className="text-xs font-semibold text-foreground uppercase tracking-wide">Constraints &amp; Support Needed</p>
+            <div className="p-3 rounded-xl border border-border bg-card text-xs text-foreground whitespace-pre-line leading-relaxed">
+              {instructor.concerns}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-border">
+        {!assignedRole ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={roleId}
+              onChange={(e) => onRoleChange(e.target.value)}
+              disabled={!rolesLoaded}
+              className="h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer disabled:opacity-50"
+            >
+              {deliveryRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+            <button
+              onClick={onAssign}
+              disabled={!rolesLoaded || !roleId || assignPending}
+              className="h-9 px-4 bg-primary text-primary-foreground text-xs font-semibold rounded-lg hover:opacity-90 transition-colors disabled:opacity-50"
+            >
+              {assignPending ? "Assigning…" : "Assign"}
+            </button>
+          </div>
+        ) : (
+          <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+            Assigned · {assignedRole}
+          </span>
+        )}
+
+        <div className="flex items-center gap-2 ml-auto">
+          {instructor.quiz_score != null && (
+            <button
+              onClick={() => { onClose(); onViewAnswers() }}
+              className="h-9 px-3 border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              View answers
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="h-9 px-3 text-xs font-medium text-muted-foreground hover:bg-muted rounded-lg transition-colors"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
 /* ================================================================== */
 /* Staffing — everything about who runs this session, in one card.     */
 /* 2026-08-02: absorbed the separate "Instructor(s)" section that used */
@@ -409,6 +545,8 @@ function StaffingSection({ cohort, session, onChanged }: {
   // once both the roster and delivery roles have loaded.
   const [rowRoleIds, setRowRoleIds] = useState<Record<string, string>>({})
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
+  const [detailUser, setDetailUser] = useState<EligibleInstructor | null>(null)
+  const [reviewTarget, setReviewTarget] = useState<{ userId: string; name: string } | null>(null)
   const [error, setError] = useState("")
   const [lastResult, setLastResult] = useState<{ assigned: number; withoutInterest: number } | null>(null)
 
@@ -773,22 +911,6 @@ function StaffingSection({ cohort, session, onChanged }: {
                             {u.recent_rating != null && <span>Recent {u.recent_rating}/5</span>}
                           </div>
                         )}
-                        {(u.needs_transport || u.travelling_from_other_city) && (
-                          <div className="flex flex-wrap gap-1.5 mt-1">
-                            {u.needs_transport && <IconBadge icon={Bus} label="needs transport" />}
-                            {u.travelling_from_other_city && <IconBadge icon={Plane} label="another city" />}
-                          </div>
-                        )}
-                        {u.note && (
-                          <p className="text-xs text-foreground/90 italic bg-muted/50 px-2.5 py-1 rounded-lg mt-1 border border-border/50">
-                            "{u.note}"
-                          </p>
-                        )}
-                        {u.concerns && (
-                          <p className="text-xs text-foreground/90 whitespace-pre-line bg-muted/50 px-2.5 py-1 rounded-lg mt-1 border border-border/50">
-                            {u.concerns}
-                          </p>
-                        )}
                       </div>
                     </div>
 
@@ -816,6 +938,12 @@ function StaffingSection({ cohort, session, onChanged }: {
                           </button>
                         </>
                       )}
+                      <button
+                        onClick={() => setDetailUser(u)}
+                        className="h-8 px-3 border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors"
+                      >
+                        Details
+                      </button>
                     </div>
                   </div>
                   )
@@ -868,6 +996,33 @@ function StaffingSection({ cohort, session, onChanged }: {
       {error && <p className="text-xs text-red-500 mt-2">{error}</p>}
 
       {profileUserId && <UserProfileModal userId={profileUserId} onClose={() => setProfileUserId(null)} />}
+
+      {detailUser && (
+        <EligibleInstructorDetailModal
+          instructor={detailUser}
+          assignedRole={session.instructors.find((i) => i.user_id === detailUser.user_id)?.role ?? null}
+          deliveryRoles={deliveryRoles}
+          rolesLoaded={rolesLoaded}
+          roleId={rowRoleIds[detailUser.user_id] ?? ""}
+          onRoleChange={(newRoleId) => setRowRoleIds((prev) => ({ ...prev, [detailUser.user_id]: newRoleId }))}
+          onAssign={() => assignSingleMutation.mutate({ userId: detailUser.user_id, assignRole: rowRoleIds[detailUser.user_id] })}
+          assignPending={assignSingleMutation.isPending}
+          onClose={() => setDetailUser(null)}
+          onOpenProfile={(userId) => setProfileUserId(userId)}
+          onViewAnswers={() => setReviewTarget({ userId: detailUser.user_id, name: detailUser.full_name || detailUser.email })}
+        />
+      )}
+
+      {reviewTarget && (
+        <AssessmentReviewModal
+          title={`${reviewTarget.name}'s Assessment`}
+          scope="session"
+          id={session.id}
+          userId={reviewTarget.userId}
+          onClose={() => setReviewTarget(null)}
+        />
+      )}
+
       {openCallModalTarget && (
         <TargetedOpenCallModal
           sessionId={session.id}

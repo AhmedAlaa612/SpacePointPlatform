@@ -22,7 +22,7 @@ import { getLocationsApi, getWarehousesApi, createLocationApi, getCitiesApi } fr
 import {
   createCohortApi, updateCohortApi, generateSessionsApi, getSessionsApi, addSessionApi, deleteSessionApi,
 } from "@/api/sessions/cohorts"
-import { getCohortOpeningsApi, getMaterialsApi } from "@/api/sessions/openings"
+import { getCohortOpeningsApi, getDeliveryRolesApi, getMaterialsApi, setCohortOpeningsApi } from "@/api/sessions/openings"
 import { Spinner } from "@/pages/admin/components/common"
 import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
 import { SessionOpeningsPanel } from "@/pages/admin/components/SessionOpeningsPanel"
@@ -88,6 +88,17 @@ export default function CohortWizard() {
   const [cohort, setCohort] = useState<Cohort | null>(null)
 
   const [basicsForm, setBasicsForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: false })
+  // The Roles & checklist step (2026-09 fix): the panel shows every active
+  // Delivery Settings role as a live preview before anything is saved — if
+  // nobody clicks its own "Save roles" button, no CohortOpening row ever
+  // gets created, and every session in the cohort ends up with no roles to
+  // staff at all (openings_for_session has no fallback below the cohort
+  // tier). `ensure()` persists real rows for whatever's currently shown —
+  // each role at its own live defaults (null rate/notes/override, so it
+  // still inherits DeliveryRole changes exactly like a row someone saved by
+  // hand would) — the moment the wizard actually leaves this step, whether
+  // by clicking Continue or Skip. It's a no-op once anything already exists.
+  const [rolesForm, setRolesForm] = useState<{ ensure: () => Promise<void> }>({ ensure: async () => {} })
 
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -99,11 +110,13 @@ export default function CohortWizard() {
   const program = programs.find((p) => p.id === cohort?.program_id)
 
   const goStep = (i: number) => setStep(Math.max(0, Math.min(LAST_STEP, i)))
-  const advance = () => {
+  const advance = async () => {
+    if (step === 2) await rolesForm.ensure()
     setSkipped((s) => { const n = { ...s }; delete n[step]; return n })
     goStep(step + 1)
   }
-  const skipThis = () => {
+  const skipThis = async () => {
+    if (step === 2) await rolesForm.ensure()
     setSkipped((s) => ({ ...s, [step]: true }))
     goStep(step + 1)
   }
@@ -147,7 +160,7 @@ export default function CohortWizard() {
           />
         )}
         {step === 1 && cohort && <SessionsStep cohort={cohort} />}
-        {step === 2 && cohort && <RolesChecklistStep cohort={cohort} />}
+        {step === 2 && cohort && <RolesChecklistStep cohort={cohort} onFormChange={setRolesForm} />}
         {step === 3 && cohort && (
           <>
             <StepIntro
@@ -681,12 +694,46 @@ function SessionsList({ sessions, isLoading, onRemove, countLabel, count }: {
 
 /* ═══════════════════ Step 3 — Roles & checklist ════════════════════════ */
 
-function RolesChecklistStep({ cohort }: { cohort: Cohort }) {
+function RolesChecklistStep({ cohort, onFormChange }: {
+  cohort: Cohort
+  onFormChange: (form: { ensure: () => Promise<void> }) => void
+}) {
+  const qc = useQueryClient()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const { data: sessions = [], isLoading } = useQuery({
     queryKey: ["wizard-sessions", cohort.id], queryFn: () => getSessionsApi(cohort.id),
   })
   const selected = sessions.find((s) => s.id === selectedId) ?? null
+
+  // Same query key CohortRolesPanel's own useRolesDraft uses — shared cache,
+  // not a second network round trip.
+  const { data: openings = [] } = useQuery({
+    queryKey: ["cohort-openings-defaults", cohort.id], queryFn: () => getCohortOpeningsApi(cohort.id),
+  })
+  const { data: roles = [] } = useQuery({
+    queryKey: ["delivery-roles"], queryFn: () => getDeliveryRolesApi(),
+  })
+
+  useEffect(() => {
+    onFormChange({
+      ensure: async () => {
+        // Something already exists (saved by hand, or a previous visit to
+        // this step already ensured it) — never overwrite a real choice
+        // with blanket defaults.
+        if (openings.length > 0) return
+        const active = roles.filter((r) => r.is_active)
+        if (active.length === 0) return
+        await setCohortOpeningsApi({
+          cohortId: cohort.id,
+          openings: active.map((r) => ({
+            role_id: r.id, slots: 1, amount_aed: null, notes: null, responsibilities_override: null,
+          })),
+        })
+        qc.invalidateQueries({ queryKey: ["cohort-openings-defaults", cohort.id] })
+      },
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cohort.id, openings, roles])
 
   return (
     <div className="flex flex-col" style={{ gap: 28 }}>
