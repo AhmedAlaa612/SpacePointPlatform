@@ -26,6 +26,8 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.schemas.sessions.cohorts import BulkActionError, SessionInstructorOut, SessionOut
+from app.services.instructor_assessment.gate import is_assessment_required, resolve_cohort_call_id_for_session
+from app.services.instructor_assessment.ranking import get_active_weights, get_ranking_fields
 from app.services.sessions import openings as openings_svc
 from app.schemas.sessions.staffing import (
     AddonSummary,
@@ -341,8 +343,18 @@ async def list_available_sessions(
             if a["user_id"] is None and a["status"] == "agreed"
         ]
         location = await staffing.resolve_session_location_display(db, s, c)
+        cohort_call_id = await resolve_cohort_call_id_for_session(db, s.id)
+        # Grandfathered: an instructor who already registered interest never
+        # needs to take a newly-assigned assessment (same rule
+        # register_interest itself enforces).
+        assessment_required = (
+            interest is None
+            and cohort_call_id is not None
+            and await is_assessment_required(db, cohort_call_id, current_user.id)
+        )
         out.append(AvailableSessionOut(
             session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,
+            cohort_call_id=cohort_call_id, assessment_required=assessment_required,
             title=s.title,
             location=location["name"], meeting_date=s.meeting_date, starts_at=s.starts_at,
             interested_count=count, my_interest=interest is not None,
@@ -468,7 +480,14 @@ async def list_cohort_call_interest(
     rows = await cohort_staffing.list_cohort_call_interest(
         db, cohort_id=cohort_id, cohort_call_id=cohort_call_id
     )
-    return [CohortCallInterestOut(**r) for r in rows]
+    weights = await get_active_weights(db)
+    out = []
+    for r in rows:
+        ranking_fields = await get_ranking_fields(
+            db, user_id=r["user_id"], cohort_call_id=cohort_call_id, weights=weights,
+        )
+        out.append(CohortCallInterestOut(**r, **ranking_fields))
+    return out
 
 
 @router.post("/cohorts/{cohort_id}/staffing/select", response_model=list[CohortSelectionOut])
@@ -669,10 +688,27 @@ async def list_eligible_instructors(
     current_user: User = Depends(require_operations),
 ):
     """Full instructor|facilitator roster for the ops select screen — not
-    interest-only (operator requirement 2026-07-24)."""
+    interest-only (operator requirement 2026-07-24).
+
+    Instructor assessment/performance/priority-score columns (2026-09) are
+    computed only for instructors who actually registered interest — this
+    screen's ranking columns are about *this opportunity's applicants*, not
+    every instructor account on the platform, and skipping the rest avoids
+    running several extra queries per uninterested row on a large roster.
+    """
     rows = await staffing.list_eligible_instructors(db, session_id)
-    return [
-        EligibleInstructorOut(
+    cohort_call_id = await resolve_cohort_call_id_for_session(db, session_id)
+    weights = await get_active_weights(db) if cohort_call_id is not None else {}
+
+    out = []
+    for u, interest, role_name, available_in_city in rows:
+        ranking_fields: dict = {}
+        if interest is not None and cohort_call_id is not None:
+            ranking_fields = await get_ranking_fields(
+                db, user_id=u.id, cohort_call_id=cohort_call_id, weights=weights,
+            )
+
+        out.append(EligibleInstructorOut(
             user_id=u.id, full_name=u.full_name or u.email, email=u.email, photo_url=u.photo_url,
             interested=interest is not None, note=interest.note if interest else None,
             interest_role_id=interest.role_id if interest else None,
@@ -682,9 +718,9 @@ async def list_eligible_instructors(
             needs_ops_support=interest.needs_ops_support if interest else False,
             travelling_from_other_city=interest.travelling_from_other_city if interest else False,
             concerns=interest.concerns if interest else None,
-        )
-        for u, interest, role_name, available_in_city in rows
-    ]
+            **ranking_fields,
+        ))
+    return out
 
 
 @router.post("/{session_id}/staffing/select", response_model=SelectInstructorsResponse)

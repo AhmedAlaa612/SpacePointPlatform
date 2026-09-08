@@ -11,8 +11,9 @@
  * the fact. The backend enforces it too, with a 409 naming the clash.
  */
 import { useEffect, useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Calendar, Clock, ExternalLink, MapPin, Users } from "lucide-react"
+import { Calendar, ClipboardCheck, Clock, ExternalLink, MapPin, Users } from "lucide-react"
 import {
   registerCohortInterestApi,
   withdrawCohortInterestApi,
@@ -43,6 +44,7 @@ function formatRange(from: string, to: string) {
 
 export default function CohortCallCard({ c }: { c: AvailableCohortCall }) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [roleId, setRoleId] = useState<string | null>(
     c.my_role_id ?? c.openings.find((o) => o.remaining > 0)?.role_id ?? c.openings[0]?.role_id ?? null,
   )
@@ -232,6 +234,19 @@ export default function CohortCallCard({ c }: { c: AvailableCohortCall }) {
               Withdraw
             </Button>
             {error && <p className="text-xs text-red-600 dark:text-red-400 w-full">{error}</p>}
+          </div>
+        ) : c.assessment_required ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-muted-foreground">
+              This opportunity requires completing a short instructor assessment before applying.
+            </p>
+            <Button
+              size="sm"
+              onClick={() => void navigate({ to: `/instructors/assessment/${c.cohort_call_id}` })}
+              className="self-start gap-1.5"
+            >
+              <ClipboardCheck size={14} /> Take Assessment
+            </Button>
           </div>
         ) : (
           <div className="flex flex-col gap-2">

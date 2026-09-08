@@ -167,6 +167,18 @@ export interface EligibleInstructor {
   needs_ops_support?: boolean;
   travelling_from_other_city?: boolean;
   concerns?: string | null;
+
+  /** Instructor assessment & performance ranking (2026-09) — computed only
+   *  for instructors who registered interest (`interested: true`); null for
+   *  the rest of the full roster. See services/instructor_assessment/ranking.py. */
+  quiz_score?: number | null;
+  quiz_critical_correct?: number | null;
+  quiz_critical_total?: number | null;
+  total_sessions_delivered?: number | null;
+  total_hours_delivered?: number | null;
+  average_rating?: number | null;
+  recent_rating?: number | null;
+  priority_score?: number | null;
 }
 
 export interface SelectInstructorsResult {
@@ -193,6 +205,11 @@ export interface AvailableSession {
   my_needs_ops_support?: boolean;
   my_travelling_from_other_city?: boolean;
   my_concerns?: string | null;
+
+  /** Instructor assessment (2026-09) — the opportunity to route to when
+   *  taking the assessment, and whether this instructor still needs to. */
+  cohort_call_id?: string | null;
+  assessment_required?: boolean;
 
   /** I5-5 — what an instructor needs to decide. None of this reached them
    *  before: they got a cohort name, a date and a place. */
@@ -509,6 +526,9 @@ export interface AvailableCohortCall {
   my_needs_ops_support: boolean;
   my_travelling_from_other_city: boolean;
   my_concerns?: string | null;
+
+  /** Instructor assessment (2026-09) — see AvailableSession's same-named field. */
+  assessment_required?: boolean;
 }
 
 /** Two lists on purpose: a cohort call is one decision about a run of days,
@@ -550,6 +570,17 @@ export interface CohortCallApplicant {
   status: string;
   already_assigned: boolean;
   created_at?: string | null;
+
+  /** Instructor assessment & performance ranking (2026-09) — see
+   *  EligibleInstructor's same-named fields above. */
+  quiz_score?: number | null;
+  quiz_critical_correct?: number | null;
+  quiz_critical_total?: number | null;
+  total_sessions_delivered?: number | null;
+  total_hours_delivered?: number | null;
+  average_rating?: number | null;
+  recent_rating?: number | null;
+  priority_score?: number | null;
 }
 
 export interface CohortAssignment {

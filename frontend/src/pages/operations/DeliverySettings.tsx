@@ -9,6 +9,8 @@ import {
   updateDeliveryRoleApi,
 } from "@/api/sessions/openings"
 import { Spinner } from "@/pages/admin/components/common"
+import { getActiveRankingWeightsApi, updateRankingWeightsApi } from "@/api/instructor_assessment"
+import { RANKING_FACTORS, type RankingFactorKey, type RankingWeightProfile } from "@/types/instructor_assessment"
 
 /**
  * Delivery roles and the responsibilities text (I5-3, I5-5).
@@ -208,7 +210,84 @@ export default function DeliverySettings() {
         </button>
       </section>
 
+      <RankingWeightsSection />
+
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
     </div>
+  )
+}
+
+/** The configurable blend behind the instructor Priority Score (2026-09) —
+ *  a small settings surface, not a dedicated feature. Weights don't need to
+ *  sum to 100; the blend normalizes over whichever factors have data for a
+ *  given instructor. Fetches first, then mounts the form seeded from the
+ *  active profile — the form's own state is only ever initialized once, at
+ *  mount, never synced in from a later-arriving query via an effect. */
+function RankingWeightsSection() {
+  const { data: profile, isLoading } = useQuery({
+    queryKey: ["ranking-weights"], queryFn: getActiveRankingWeightsApi,
+  })
+
+  if (isLoading || !profile) return <Spinner />
+
+  return <RankingWeightsForm profile={profile} />
+}
+
+function RankingWeightsForm({ profile }: { profile: RankingWeightProfile }) {
+  const qc = useQueryClient()
+  const [weights, setWeights] = useState<Partial<Record<RankingFactorKey, number>>>(profile.factor_weights)
+  const [saved, setSaved] = useState(false)
+
+  const save = useMutation({
+    mutationFn: () => updateRankingWeightsApi({
+      name: profile.name,
+      factor_weights: (weights ?? {}) as Record<string, number>,
+    }),
+    onSuccess: () => {
+      setSaved(true)
+      qc.invalidateQueries({ queryKey: ["ranking-weights"] })
+    },
+  })
+
+  const total = Object.values(weights).reduce((sum, v) => sum + (v ?? 0), 0)
+
+  return (
+    <section className="rounded-2xl border border-border bg-card p-4 flex flex-col gap-3">
+      <div>
+        <p className="text-sm font-semibold text-foreground">Instructor Priority Score weights</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          How much each factor counts toward the Priority Score shown on the instructor selection screen.
+          A factor with no data yet for a given instructor (e.g. no rating history) is left out of their
+          blend rather than counted as zero — weights don't need to add up to exactly 100.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {RANKING_FACTORS.map((f) => (
+          <label key={f.key} className="flex items-center justify-between gap-3 text-sm">
+            <span>{f.label}</span>
+            <span className="flex items-center gap-1.5">
+              <input
+                type="number" min={0} max={100} step="1"
+                value={weights[f.key] ?? 0}
+                onChange={(e) => { setSaved(false); setWeights((prev) => ({ ...prev, [f.key]: Number(e.target.value) })) }}
+                className="w-20 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-sm tabular-nums text-right"
+              />
+              <span className="text-xs text-muted-foreground">%</span>
+            </span>
+          </label>
+        ))}
+      </div>
+
+      <p className="text-xs text-muted-foreground">Total: {total}%</p>
+
+      <button
+        onClick={() => save.mutate()}
+        disabled={save.isPending}
+        className="h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-40 w-fit"
+      >
+        {save.isPending ? "Saving…" : saved ? "Saved" : "Save weights"}
+      </button>
+    </section>
   )
 }
