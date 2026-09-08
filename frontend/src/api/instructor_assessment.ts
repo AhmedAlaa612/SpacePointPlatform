@@ -90,6 +90,18 @@ export const getMyAssessmentAttemptApi = (cohortCallId: string) =>
 export const submitAssessmentAttemptApi = (attemptId: string, answers: Record<string, number | null>) =>
   api.post<AttemptResult>(`/instructor-assessment/attempts/${attemptId}/submit`, { answers }).then((r) => r.data);
 
+// ── attempts (ops-facing "view answers" drill-down) ─────────────────────
+
+export const getAttemptReviewForSessionApi = (sessionId: string, userId: string) =>
+  api.get<AttemptResult>(
+    `/instructor-assessment/attempts/sessions/${sessionId}/instructors/${userId}/review`,
+  ).then((r) => r.data);
+
+export const getAttemptReviewForCohortCallApi = (cohortCallId: string, userId: string) =>
+  api.get<AttemptResult>(
+    `/instructor-assessment/attempts/cohort-calls/${cohortCallId}/instructors/${userId}/review`,
+  ).then((r) => r.data);
+
 // ── post-program rating ─────────────────────────────────────────────────
 
 export const getInstructorRatingApi = (cohortId: string, instructorUserId: string) =>

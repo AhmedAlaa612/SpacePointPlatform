@@ -4,6 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { AlertTriangle, CheckCircle2 } from "lucide-react"
 import { Spinner } from "@/components/ui/primitives"
 import { Progress } from "@/components/ui/progress"
+import { QuestionReviewList } from "@/components/AssessmentReview"
 import {
   getMyAssessmentAttemptApi,
   startAssessmentAttemptApi,
@@ -210,65 +211,7 @@ function Results({ result, onDone }: { result: AttemptResult; onDone: () => void
       {result.questions.length > 0 && (
         <div className="w-full flex flex-col gap-3 pt-4 border-t border-border">
           <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Review your answers</p>
-          {result.questions.map((q, i) => (
-            <div
-              key={q.question_id}
-              className={`rounded-2xl border p-4 flex flex-col gap-2 text-left ${
-                q.is_correct ? "border-border bg-card" : "border-red-500/30 bg-red-500/5"
-              }`}
-            >
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-mono text-muted-foreground">Q{i + 1}</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-border text-muted-foreground">
-                  {q.category}
-                </span>
-                {q.is_correct ? (
-                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle2 size={10} /> Correct
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-500 text-white">
-                    Incorrect
-                  </span>
-                )}
-              </div>
-
-              <p className="text-sm font-medium leading-snug">{q.prompt}</p>
-              {q.selected_index === null && (
-                <p className="text-xs text-muted-foreground italic">You didn't answer this one.</p>
-              )}
-
-              <div className="flex flex-col gap-1">
-                {q.options.map((text, oi) => {
-                  const isSelected = q.selected_index === oi
-                  const isCorrectOption = q.correct_index === oi
-                  return (
-                    <div
-                      key={oi}
-                      className={`px-3 py-1.5 rounded-lg text-xs flex items-center gap-2 ${
-                        isCorrectOption
-                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
-                          : isSelected
-                          ? "bg-red-500/10 text-red-700 dark:text-red-400"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      <span className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-semibold shrink-0 bg-muted">
-                        {String.fromCharCode(65 + oi)}
-                      </span>
-                      <span className="flex-1">{text}</span>
-                      {isCorrectOption && <span className="text-[10px] shrink-0">Correct answer</span>}
-                      {isSelected && !isCorrectOption && <span className="text-[10px] shrink-0">Your answer</span>}
-                    </div>
-                  )
-                })}
-              </div>
-
-              {q.rationale && (
-                <p className="text-xs text-muted-foreground border-t border-border pt-2 mt-1">{q.rationale}</p>
-              )}
-            </div>
-          ))}
+          <QuestionReviewList questions={result.questions} />
         </div>
       )}
     </div>

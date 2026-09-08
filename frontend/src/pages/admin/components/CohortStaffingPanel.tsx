@@ -14,6 +14,7 @@ import type { Cohort, CohortCallApplicant } from "@/types/sessions"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog, IconBadge as Badge, Modal, Spinner } from "@/pages/admin/components/common"
 import { UserProfileModal } from "@/components/UserProfileModal"
+import { AssessmentReviewModal } from "@/components/AssessmentReview"
 import { cn, getErrorMessage } from "@/lib/utils"
 
 function ApplicantDetailModal({
@@ -24,6 +25,7 @@ function ApplicantDetailModal({
   onOpenProfile,
   onAssignSingle,
   assignSinglePending,
+  onViewAnswers,
 }: {
   applicant: CohortCallApplicant
   callSessions: { session_id: string; title?: string | null; meeting_date: string; starts_at?: string | null }[]
@@ -32,6 +34,7 @@ function ApplicantDetailModal({
   onOpenProfile: (userId: string) => void
   onAssignSingle: (userId: string, roleId?: string) => void
   assignSinglePending: boolean
+  onViewAnswers: (userId: string, name: string) => void
 }) {
   const [modalRoleId, setModalRoleId] = useState<string>(applicant.role_id ?? deliveryRoles[0]?.id ?? "")
 
@@ -149,6 +152,15 @@ function ApplicantDetailModal({
         )}
 
         <div className="flex items-center gap-2 ml-auto">
+          {applicant.quiz_score != null && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { onClose(); onViewAnswers(applicant.user_id, applicant.full_name) }}
+            >
+              View answers
+            </Button>
+          )}
           <Button
             size="sm"
             variant="outline"
@@ -175,6 +187,7 @@ export default function CohortStaffingPanel({ cohort }: { cohort: Cohort }) {
   const [removing, setRemoving] = useState<{ userId: string; name: string } | null>(null)
   const [selectedProfileUserId, setSelectedProfileUserId] = useState<string | null>(null)
   const [selectedApplicantDetail, setSelectedApplicantDetail] = useState<CohortCallApplicant | null>(null)
+  const [reviewTarget, setReviewTarget] = useState<{ userId: string; name: string } | null>(null)
 
   const deliveryRoles = useQuery({
     queryKey: ["delivery-roles"],
@@ -480,6 +493,17 @@ export default function CohortStaffingPanel({ cohort }: { cohort: Cohort }) {
           onOpenProfile={(userId) => setSelectedProfileUserId(userId)}
           onAssignSingle={(userId, roleId) => assignSingle.mutate({ userId, roleId })}
           assignSinglePending={assignSingle.isPending}
+          onViewAnswers={(userId, name) => setReviewTarget({ userId, name })}
+        />
+      )}
+
+      {reviewTarget && activeCallId && (
+        <AssessmentReviewModal
+          title={`${reviewTarget.name}'s Assessment`}
+          scope="cohort-call"
+          id={activeCallId}
+          userId={reviewTarget.userId}
+          onClose={() => setReviewTarget(null)}
         />
       )}
 
