@@ -51,7 +51,7 @@ export default function RateInstructor() {
 function AlreadySubmittedNotice({ instructorUserId }: { instructorUserId: string }) {
   const navigate = useNavigate()
   return (
-    <div className="max-w-lg mx-auto flex flex-col gap-3 py-16 text-center">
+    <div className="max-w-3xl mx-auto flex flex-col gap-3 py-16 text-center">
       <p className="text-sm font-semibold">This rating has already been submitted and can't be edited.</p>
       <Button variant="outline" onClick={() => void navigate({ to: `/instructors/admin/instructors/${instructorUserId}/performance` })}>
         View performance profile
@@ -101,7 +101,7 @@ function RatingForm({ cohortId, instructorUserId, instructorName, existing }: {
   })
 
   return (
-    <div className="max-w-xl mx-auto flex flex-col gap-6">
+    <div className="max-w-3xl lg:max-w-4xl mx-auto flex flex-col gap-6">
       <Button variant="outline" size="sm" onClick={() => window.history.back()} className="self-start gap-1.5">
         <ArrowLeft size={14} /> Back
       </Button>
