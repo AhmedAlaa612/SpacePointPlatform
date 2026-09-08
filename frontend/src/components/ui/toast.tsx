@@ -22,7 +22,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = React.useState<ToastItem[]>([])
 
   const push = React.useCallback((variant: ToastVariant, message: string) => {
-    setItems((prev) => [...prev, { id: nextId++, message, variant }])
+    const id = nextId++
+    setItems((prev) => [...prev, { id, message, variant }])
+    setTimeout(() => {
+      setItems((prev) => prev.filter((i) => i.id !== id))
+    }, 3000)
   }, [])
 
   // Delay the state removal past onOpenChange(false) so the data-closed
@@ -41,11 +45,12 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <ToastContext.Provider value={api}>
-      <ToastPrimitive.Provider swipeDirection="right" duration={4000}>
+      <ToastPrimitive.Provider swipeDirection="right" duration={3000}>
         {children}
         {items.map((item) => (
           <ToastPrimitive.Root
             key={item.id}
+            duration={3000}
             onOpenChange={(open) => { if (!open) dismiss(item.id) }}
             className={cn(
               "flex items-center justify-between gap-3 rounded-2xl bg-popover/95 backdrop-blur-2xl p-3 pl-4 text-xs/relaxed shadow-2xl ring-1 data-open:animate-in data-open:slide-in-from-bottom-2 data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0 data-swipe-end:animate-out",

@@ -1,16 +1,10 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Check, Pencil, Plus, Trash2, X } from "lucide-react"
+import { Trash2 } from "lucide-react"
 import {
-  createAddonApi,
-  decideAddonApi,
-  deleteAddonApi,
-  getAddonsApi,
   getDeliveryRolesApi,
   getOpeningsApi,
   setOpeningsApi,
-  updateAddonApi,
-  type SessionAddon,
 } from "@/api/sessions/openings"
 import { useToast } from "@/components/ui/toast"
 import { InheritedBadge } from "@/pages/admin/components/InheritedFrom"
@@ -18,9 +12,7 @@ import { cn } from "@/lib/utils"
 
 const OUTFIT = "'Outfit', ui-sans-serif, system-ui, sans-serif"
 
-/** Compact (default, unchanged) vs. the Cohort Wizard's bigger scale —
- *  see CohortRolesPanel.tsx's docstring for why this is a prop rather than
- *  a fork: same data and saves, only the sizing differs. */
+/** Compact (default, unchanged) vs. the Cohort Wizard's bigger scale */
 function sizes(large: boolean) {
   return {
     wrap: large ? "rounded-2xl border border-border bg-card p-6 flex flex-col gap-5" : "rounded-2xl border border-border bg-card p-4 flex flex-col gap-3",
@@ -35,31 +27,9 @@ function sizes(large: boolean) {
     select: large ? "h-12 px-3 border border-border bg-background text-foreground rounded-xl text-base" : "h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm",
     primaryBtn: large ? "h-12 px-6 bg-primary text-primary-foreground rounded-xl font-semibold hover:opacity-90 disabled:opacity-40 transition-opacity" : "h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-40",
     cancelBtn: large ? "h-12 px-4 text-base text-muted-foreground hover:text-foreground" : "h-9 px-3 text-sm text-muted-foreground hover:text-foreground",
-    addonsLabel: large ? "text-sm font-semibold text-muted-foreground uppercase tracking-wide" : "text-xs font-semibold text-muted-foreground",
   }
 }
 
-/**
- * The offer, per role (I5-4) and its add-ons (§G-addons) — on the ops session
- * view.
- *
- * An offer is not one number on a session: this session needs 1 Lead
- * Facilitator and 2 Assistants. Slots remaining falls out of assignments, so
- * nothing here is stored twice.
- *
- * No per-session rate here (2026-08-30, removed by request): a role's pay
- * always comes from the cohort's Roles tab (or the role's own platform
- * default when the cohort hasn't set one) — never something typed on one
- * session. Removing the field from this form isn't enough on its own, since
- * saving still snapshots every visible role's line: `amount_aed` is always
- * sent as `null` below so a session's own opening rows never carry a rate of
- * their own, whatever role composition ops saves here.
- *
- * Add-ons sit underneath because they are the same conversation. Anything ops
- * adds here is `agreed` on arrival; anything an instructor raised shows as
- * `proposed` with approve/decline, because the person asking is never the
- * person approving.
- */
 export function SessionOpeningsPanel({ sessionId, large = false }: { sessionId: string; large?: boolean }) {
   const t = sizes(large)
   const qc = useQueryClient()
@@ -75,11 +45,7 @@ export function SessionOpeningsPanel({ sessionId, large = false }: { sessionId: 
   const { data: openings = [] } = useQuery({
     queryKey: ["session-openings", sessionId], queryFn: () => getOpeningsApi(sessionId),
   })
-  const { data: addons = [] } = useQuery({
-    queryKey: ["session-addons", sessionId], queryFn: () => getAddonsApi(sessionId),
-  })
 
-  // Seed the editable draft from the server once it's loaded.
   useEffect(() => {
     if (draft === null && openings.length) {
       setDraft(openings.map((o) => ({
@@ -95,7 +61,6 @@ export function SessionOpeningsPanel({ sessionId, large = false }: { sessionId: 
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["session-openings", sessionId] })
-    qc.invalidateQueries({ queryKey: ["session-addons", sessionId] })
     qc.invalidateQueries({ queryKey: ["admin-cohorts"] })
   }
   const onError = (e: any) => setError(e?.response?.data?.detail ?? "Could not save that")
@@ -106,8 +71,6 @@ export function SessionOpeningsPanel({ sessionId, large = false }: { sessionId: 
       openings: rows.map((d) => ({
         role_id: d.role_id,
         slots: d.slots,
-        // Never a session-specific rate (2026-08-30) — pay always comes from
-        // the cohort's Roles tab or the role's own platform default.
         amount_aed: null,
         notes: d.notes || null,
       })),
@@ -115,54 +78,12 @@ export function SessionOpeningsPanel({ sessionId, large = false }: { sessionId: 
     onSuccess: (data) => {
       toast.success("Openings saved")
       setError("")
-      // Prime the cache with the mutation's own (authoritative) response
-      // *before* clearing the draft — invalidate()'s refetch is async, and
-      // without this the re-seeding effect below would fire first against
-      // the still-stale pre-save `openings`, resurrecting a row that was
-      // just removed.
       qc.setQueryData(["session-openings", sessionId], data)
       setDraft(null)
       invalidate()
     },
     onError,
   })
-
-  const [addonDesc, setAddonDesc] = useState("")
-  const [addonAmount, setAddonAmount] = useState("")
-  const [addonRoleId, setAddonRoleId] = useState("")
-  const addAddon = useMutation({
-    mutationFn: () => createAddonApi({
-      sessionId, description: addonDesc, amount_aed: Number(addonAmount) || 0, source: "offer",
-      role_id: addonRoleId || null,
-    }),
-    onSuccess: () => { toast.success("Add-on added"); setAddonDesc(""); setAddonAmount(""); setAddonRoleId(""); invalidate() },
-    onError,
-  })
-  const decide = useMutation({
-    mutationFn: decideAddonApi,
-    onSuccess: (_data, variables) => { toast.success(variables.status === "agreed" ? "Add-on agreed" : "Add-on declined"); invalidate() },
-    onError,
-  })
-
-  const [editingAddon, setEditingAddon] = useState<string | null>(null)
-  const [editDesc, setEditDesc] = useState("")
-  const [editAmount, setEditAmount] = useState("")
-  const updateAddon = useMutation({
-    mutationFn: updateAddonApi,
-    onSuccess: () => { toast.success("Add-on updated"); setEditingAddon(null); invalidate() },
-    onError,
-  })
-  const removeAddon = useMutation({
-    mutationFn: deleteAddonApi,
-    onSuccess: () => { toast.success("Add-on removed"); invalidate() },
-    onError,
-  })
-
-  const startEditingAddon = (a: SessionAddon) => {
-    setEditingAddon(a.id)
-    setEditDesc(a.description)
-    setEditAmount(String(a.amount_aed))
-  }
 
   const inherited = openings.some((o) => o.inherited)
 
@@ -171,7 +92,6 @@ export function SessionOpeningsPanel({ sessionId, large = false }: { sessionId: 
       <div>
         <div className="flex items-center gap-2 flex-wrap">
           <p className={t.title} style={large ? { fontFamily: OUTFIT } : undefined}>What this session is offering</p>
-          {/* Shared pill, not this panel's own purple one (2026-08-02). */}
           <InheritedBadge overridden={!inherited && openings.length > 0} />
         </div>
         <p className={t.desc}>
@@ -254,108 +174,6 @@ export function SessionOpeningsPanel({ sessionId, large = false }: { sessionId: 
             Cancel
           </button>
         )}
-      </div>
-
-      <div className={cn("border-t border-border flex flex-col gap-2", large ? "pt-5" : "pt-3")}>
-        <p className={t.addonsLabel}>Add-ons</p>
-        {addons.map((a) => editingAddon === a.id ? (
-          <div key={a.id} className="flex items-center gap-2">
-            <input
-              value={editDesc} onChange={(e) => setEditDesc(e.target.value)}
-              className="flex-1 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
-            />
-            <input
-              type="number" min={0} value={editAmount}
-              onChange={(e) => setEditAmount(e.target.value)}
-              className="!w-24 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
-            />
-            <button
-              onClick={() => updateAddon.mutate({
-                addonId: a.id, description: editDesc, amount_aed: Number(editAmount) || 0,
-              })}
-              disabled={!editDesc || updateAddon.isPending}
-              className="h-9 px-3 bg-primary text-primary-foreground text-sm rounded-lg hover:opacity-90 disabled:opacity-40"
-            >
-              Save
-            </button>
-            <button
-              onClick={() => setEditingAddon(null)}
-              className="h-9 px-2 text-sm text-muted-foreground hover:text-foreground"
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <div key={a.id} className="flex items-center justify-between gap-3 text-sm">
-            <span className="text-foreground truncate">
-              {a.description}
-              <span className="text-xs text-muted-foreground">
-                {" "}· AED {Number(a.amount_aed).toLocaleString()}
-                {a.user_name && ` · ${a.user_name}`}
-                {a.role_name && !a.user_name && ` · ${a.role_name}`}
-              </span>
-            </span>
-            <span className="flex items-center gap-1.5 shrink-0">
-              {a.status === "proposed" && (
-                <>
-                  <span className="text-xs text-amber-700 dark:text-amber-400">requested</span>
-                  <button
-                    onClick={() => decide.mutate({ addonId: a.id, status: "agreed" })}
-                    className="p-1 text-emerald-600 hover:opacity-80" aria-label="Agree"
-                  ><Check size={15} /></button>
-                  <button
-                    onClick={() => decide.mutate({ addonId: a.id, status: "declined" })}
-                    className="p-1 text-muted-foreground hover:text-red-600" aria-label="Decline"
-                  ><X size={15} /></button>
-                </>
-              )}
-              {a.status !== "proposed" && (
-                <span className={a.status === "agreed"
-                  ? "text-xs text-emerald-600 dark:text-emerald-400"
-                  : "text-xs text-muted-foreground line-through"}>
-                  {a.status}
-                </span>
-              )}
-              <button
-                onClick={() => startEditingAddon(a)}
-                className="p-1 text-muted-foreground hover:text-foreground" aria-label="Edit add-on"
-              ><Pencil size={13} /></button>
-              <button
-                onClick={() => removeAddon.mutate(a.id)}
-                disabled={removeAddon.isPending}
-                className="p-1 text-muted-foreground hover:text-red-600" aria-label="Remove add-on"
-              ><Trash2 size={13} /></button>
-            </span>
-          </div>
-        ))}
-        {addons.length === 0 && (
-          <p className="text-sm text-muted-foreground">Nothing extra on this session.</p>
-        )}
-
-        <div className="flex items-center gap-2 flex-wrap">
-          <input
-            placeholder="Poster printing" value={addonDesc}
-            onChange={(e) => setAddonDesc(e.target.value)}
-            className="flex-1 min-w-[8rem] h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
-          />
-          <input
-            type="number" min={0} placeholder="AED" value={addonAmount}
-            onChange={(e) => setAddonAmount(e.target.value)}
-            className="!w-24 h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right tabular-nums"
-          />
-          <select
-            value={addonRoleId} onChange={(e) => setAddonRoleId(e.target.value)}
-            className="h-9 px-2 border border-border bg-background text-foreground rounded-lg text-sm"
-          >
-            <option value="">All roles</option>
-            {roles.map((r) => <option key={r.id} value={r.id}>{r.name} only</option>)}
-          </select>
-          <button
-            onClick={() => addAddon.mutate()}
-            disabled={!addonDesc || addAddon.isPending}
-            className="h-9 px-3 border border-border text-foreground text-sm rounded-lg hover:bg-muted disabled:opacity-40"
-          ><Plus size={14} /></button>
-        </div>
       </div>
 
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
