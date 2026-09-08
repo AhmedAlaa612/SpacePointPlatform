@@ -15,6 +15,7 @@ import {
   updateAssessmentQuestionApi,
 } from "@/api/instructor_assessment"
 import type { AssessmentConfig, AssessmentQuestion } from "@/types/instructor_assessment"
+import { cn, getErrorMessage } from "@/lib/utils"
 
 const EMPTY_OPTIONS = [
   { text: "", is_correct: true },
@@ -58,7 +59,7 @@ export default function AssessmentQuestions() {
         action={
           <button
             onClick={() => setCreateConfigOpen(true)}
-            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
+            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors shrink-0"
           >
             <Plus size={14} /> New assessment
           </button>
@@ -150,22 +151,22 @@ function AssessmentConfigDetail({ config }: { config: AssessmentConfig }) {
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <StatCard icon={<Plus size={18} />} label="Total questions" value={detail.question_count} />
         <StatCard icon={<Plus size={18} />} label="Categories" value={Object.keys(detail.category_counts).length} />
         <StatCard icon={<AlertTriangle size={18} />} label="Critical" value={detail.critical_count}
           sub={detail.question_count ? `${Math.round((detail.critical_count / detail.question_count) * 100)}%` : undefined} />
       </div>
 
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => void downloadAssessmentQuestionsTemplateApi()}
-            className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 h-9 px-3 border border-border rounded-xl text-xs sm:text-sm font-medium text-foreground hover:bg-muted transition-colors"
           >
             <Download size={14} /> Download template
           </button>
-          <label className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer">
+          <label className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 h-9 px-3 border border-border rounded-xl text-xs sm:text-sm font-medium text-foreground hover:bg-muted transition-colors cursor-pointer">
             <Upload size={14} /> Import from Excel
             <input
               type="file" accept=".xlsx" className="hidden"
@@ -175,7 +176,7 @@ function AssessmentConfigDetail({ config }: { config: AssessmentConfig }) {
         </div>
         <button
           onClick={() => setAdding(true)}
-          className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
+          className="flex items-center justify-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-xs sm:text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
         >
           <Plus size={14} /> Add question
         </button>
@@ -191,43 +192,93 @@ function AssessmentConfigDetail({ config }: { config: AssessmentConfig }) {
       {detail.questions.length === 0 ? (
         <EmptyState title="No questions yet" hint="Add one, or import from Excel." />
       ) : (
-        <div className="rounded-2xl border border-border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="text-left font-medium px-4 py-2">Category</th>
-                <th className="text-left font-medium px-4 py-2">Question</th>
-                <th className="text-left font-medium px-4 py-2">Critical</th>
-                <th className="text-left font-medium px-4 py-2">Status</th>
-                <th className="text-left font-medium px-4 py-2">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.questions.map((q) => (
-                <tr key={q.id} className={`border-t border-border ${q.critical ? "bg-red-500/5" : ""}`}>
-                  <td className="px-4 py-2 whitespace-nowrap">{q.category}</td>
-                  <td className="px-4 py-2 max-w-md truncate">{q.prompt}</td>
-                  <td className="px-4 py-2">
-                    {q.critical ? (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-500 text-white">CRITICAL</span>
-                    ) : <span className="text-muted-foreground">—</span>}
-                  </td>
-                  <td className="px-4 py-2">{q.is_active ? "Active" : "Inactive"}</td>
-                  <td className="px-4 py-2">
-                    <div className="flex items-center gap-1">
-                      <button onClick={() => setEditing(q)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted">
-                        <Pencil size={13} />
-                      </button>
-                      <button onClick={() => setDeleting(q)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-muted">
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  </td>
+        <>
+          {/* Mobile View: Stacked Cards */}
+          <div className="flex flex-col gap-3 sm:hidden">
+            {detail.questions.map((q) => (
+              <div
+                key={q.id}
+                className={cn(
+                  "flex flex-col gap-2.5 p-4 rounded-xl border border-border bg-card shadow-sm",
+                  q.critical && "border-red-500/40 bg-red-500/5",
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded bg-muted text-muted-foreground truncate">
+                    {q.category}
+                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {q.critical && (
+                      <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-500 text-white">
+                        CRITICAL
+                      </span>
+                    )}
+                    <span className={cn(
+                      "text-[10px] font-medium px-1.5 py-0.5 rounded",
+                      q.is_active ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" : "bg-muted text-muted-foreground"
+                    )}>
+                      {q.is_active ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-sm font-medium text-foreground leading-snug">{q.prompt}</p>
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/50">
+                  <button
+                    onClick={() => setEditing(q)}
+                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted border border-border transition-colors"
+                  >
+                    <Pencil size={12} /> Edit
+                  </button>
+                  <button
+                    onClick={() => setDeleting(q)}
+                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-medium text-destructive hover:bg-destructive/10 border border-destructive/20 transition-colors"
+                  >
+                    <Trash2 size={12} /> Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Desktop View: Table with horizontal scroll */}
+          <div className="hidden sm:block rounded-2xl border border-border overflow-x-auto">
+            <table className="w-full text-sm min-w-[600px]">
+              <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="text-left font-medium px-4 py-2.5">Category</th>
+                  <th className="text-left font-medium px-4 py-2.5">Question</th>
+                  <th className="text-left font-medium px-4 py-2.5">Critical</th>
+                  <th className="text-left font-medium px-4 py-2.5">Status</th>
+                  <th className="text-left font-medium px-4 py-2.5">Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {detail.questions.map((q) => (
+                  <tr key={q.id} className={cn("border-t border-border transition-colors hover:bg-muted/20", q.critical && "bg-red-500/5")}>
+                    <td className="px-4 py-2.5 whitespace-nowrap text-xs font-medium text-muted-foreground">{q.category}</td>
+                    <td className="px-4 py-2.5 max-w-md truncate font-medium text-foreground">{q.prompt}</td>
+                    <td className="px-4 py-2.5">
+                      {q.critical ? (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-500 text-white">CRITICAL</span>
+                      ) : <span className="text-muted-foreground">—</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs">{q.is_active ? "Active" : "Inactive"}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => setEditing(q)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                          <Pencil size={13} />
+                        </button>
+                        <button onClick={() => setDeleting(q)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-muted transition-colors">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {(adding || editing) && (
