@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { Link } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { CheckCircle2 } from "lucide-react"
 import { Spinner } from "@/components/ui/primitives"
@@ -45,9 +46,14 @@ export function AssessmentAssignmentPanel({ cohortId }: { cohortId: string }) {
   return (
     <div className="flex flex-col gap-4 py-4">
       <div>
-        <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground mb-1 block">
-          Assessment config
-        </label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="text-xs font-medium uppercase tracking-wider text-muted-foreground block">
+            Assessment config
+          </label>
+          <Link to="/instructors/admin/assessment-questions" className="text-xs text-primary hover:underline">
+            Manage question bank →
+          </Link>
+        </div>
         <select
           value={currentValue}
           onChange={(e) => {

@@ -25,6 +25,7 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.instructor_assessment.assignment import AssessmentCohortAssignment
@@ -115,15 +116,19 @@ def _build_question_order(questions: list[AssessmentQuestion]) -> list[dict]:
     return order
 
 
+async def _existing_attempt(db: AsyncSession, cohort_call_id: UUID, user_id: UUID) -> Optional[AssessmentAttempt]:
+    return (await db.execute(
+        select(AssessmentAttempt).where(
+            AssessmentAttempt.cohort_call_id == cohort_call_id, AssessmentAttempt.user_id == user_id,
+        )
+    )).scalars().first()
+
+
 async def start_attempt(db: AsyncSession, *, cohort_call_id: UUID, user: User) -> AssessmentAttempt:
     """Get-or-create — a page refresh mid-attempt must never reshuffle the
     questions or answer options out from under the instructor (same reason
     the LMS quiz's `quiz_question_order` exists)."""
-    existing = (await db.execute(
-        select(AssessmentAttempt).where(
-            AssessmentAttempt.cohort_call_id == cohort_call_id, AssessmentAttempt.user_id == user.id,
-        )
-    )).scalars().first()
+    existing = await _existing_attempt(db, cohort_call_id, user.id)
     if existing is not None:
         return existing
 
@@ -142,8 +147,15 @@ async def start_attempt(db: AsyncSession, *, cohort_call_id: UUID, user: User) -
         id=uuid.uuid4(), config_id=assignment.config_id, cohort_call_id=cohort_call_id, user_id=user.id,
         question_order=_build_question_order(questions), status="in_progress", total=DRAW_SIZE,
     )
-    db.add(attempt)
-    await db.flush()
+    # Two tabs (or a refresh racing the first request) can both pass the
+    # `existing is None` check above — the SAVEPOINT confines a lost race to
+    # this insert instead of poisoning the caller's whole transaction, same
+    # pattern as lms/quiz.py::_create_progress_row.
+    try:
+        async with db.begin_nested():
+            db.add(attempt)
+    except IntegrityError:
+        attempt = await _existing_attempt(db, cohort_call_id, user.id)
     return attempt
 
 
@@ -167,9 +179,10 @@ async def get_attempt_questions(db: AsyncSession, attempt: AssessmentAttempt) ->
     out = []
     for entry in attempt.question_order:
         q = by_id.get(uuid.UUID(entry["question_id"]))
-        if q is None:
-            continue  # question deactivated/removed since the draw — skip rather than error
-        ordered_options = [q.options[i]["text"] for i in entry["option_order"]]
+        option_order: list[int] = entry["option_order"]
+        if q is None or max(option_order, default=-1) >= len(q.options):
+            continue  # deactivated, removed, or edited to fewer options since the draw — skip rather than error
+        ordered_options = [q.options[i]["text"] for i in option_order]
         out.append({
             "question_id": q.id, "category": q.category, "prompt": q.prompt,
             "options": ordered_options, "critical": q.critical,
@@ -199,9 +212,9 @@ async def submit_attempt(db: AsyncSession, attempt: AssessmentAttempt, answers: 
     for entry in attempt.question_order:
         qid = uuid.UUID(entry["question_id"])
         q = by_id.get(qid)
-        if q is None:
-            continue
         option_order: list[int] = entry["option_order"]
+        if q is None or max(option_order, default=-1) >= len(q.options):
+            continue  # deactivated, removed, or edited to fewer options since the draw — skip rather than error
         selected_position = answers.get(str(qid))
         selected_original_index = (
             option_order[selected_position]

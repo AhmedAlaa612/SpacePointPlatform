@@ -39,7 +39,7 @@ class AssessmentQuestionIn(BaseModel):
 class AssessmentQuestionUpdate(BaseModel):
     category: str | None = None
     prompt: str | None = None
-    options: list[AssessmentQuestionOptionIn] | None = None
+    options: list[AssessmentQuestionOptionIn] | None = Field(default=None, min_length=2)
     critical: bool | None = None
     rationale: str | None = None
     is_active: bool | None = None

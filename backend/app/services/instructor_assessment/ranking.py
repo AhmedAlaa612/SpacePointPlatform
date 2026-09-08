@@ -78,22 +78,27 @@ async def compute_relevant_experience_score(
     return min(exact * 25, 75) + min(same_type * 5, 25)
 
 
-async def compute_priority_score(
-    db: AsyncSession, *, user_id: UUID, cohort_call_id: UUID, weights: dict[str, float],
-    perf: Optional[dict] = None,
-) -> Optional[float]:
-    """`perf` may be passed in pre-fetched (the caller likely already needed
-    `get_performance` for its own display columns) to avoid computing it
-    twice per instructor on a roster."""
-    if not weights:
-        return None
-
-    attempt = (await db.execute(
+async def _submitted_attempt(db: AsyncSession, user_id: UUID, cohort_call_id: UUID) -> Optional[AssessmentAttempt]:
+    return (await db.execute(
         select(AssessmentAttempt).where(
             AssessmentAttempt.cohort_call_id == cohort_call_id, AssessmentAttempt.user_id == user_id,
             AssessmentAttempt.status == "submitted",
         )
     )).scalars().first()
+
+
+async def compute_priority_score(
+    db: AsyncSession, *, user_id: UUID, cohort_call_id: UUID, weights: dict[str, float],
+    perf: Optional[dict] = None, attempt: Optional[AssessmentAttempt] = None,
+) -> Optional[float]:
+    """`perf` and `attempt` may be passed in pre-fetched (the caller likely
+    already needed both for its own display columns) to avoid querying
+    either twice per instructor on a roster."""
+    if not weights:
+        return None
+
+    if attempt is None:
+        attempt = await _submitted_attempt(db, user_id, cohort_call_id)
     assessment_score = (attempt.score / attempt.total * 100) if attempt and attempt.total else None
 
     if perf is None:
@@ -128,3 +133,26 @@ async def compute_priority_score(
     if total_weight == 0:
         return None
     return round(weighted_sum / total_weight, 1)
+
+
+async def get_ranking_fields(db: AsyncSession, *, user_id: UUID, cohort_call_id: UUID, weights: dict[str, float]) -> dict:
+    """The quiz/performance/priority-score columns shown on both the
+    cohort-call applicant table and the single-session eligible-instructor
+    table — assembled once so the two screens can't drift out of sync with
+    each other, and so `attempt`/`perf` are each fetched only once per row
+    rather than once per column that needs them."""
+    attempt = await _submitted_attempt(db, user_id, cohort_call_id)
+    perf = await get_performance(db, user_id)
+    recent_trend = perf["recent_rating_trend"]
+    return {
+        "quiz_score": round(attempt.score / attempt.total * 100) if attempt and attempt.total else None,
+        "quiz_critical_correct": attempt.critical_correct if attempt else None,
+        "quiz_critical_total": attempt.critical_total if attempt else None,
+        "total_sessions_delivered": perf["total_sessions_delivered"],
+        "total_hours_delivered": perf["total_hours_delivered"],
+        "average_rating": perf["average_rating"],
+        "recent_rating": recent_trend[-1] if recent_trend else None,
+        "priority_score": await compute_priority_score(
+            db, user_id=user_id, cohort_call_id=cohort_call_id, weights=weights, perf=perf, attempt=attempt,
+        ),
+    }

@@ -7,6 +7,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_instructor_or_facilitator
@@ -72,7 +73,18 @@ async def submit(
 ):
     attempt = await _attempt_or_404(db, attempt_id, current)
     attempt = await submit_attempt(db, attempt, body.answers)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Two concurrent submits (a double-click) can both pass the
+        # not-yet-submitted check before either commits — the loser's
+        # AssessmentAnswer inserts collide with the winner's. Rolling back
+        # expires our in-memory attempt, so re-fetching gives the winner's
+        # committed, already-graded result rather than a 500.
+        await db.rollback()
+        attempt = await _attempt_or_404(db, attempt_id, current)
+        if attempt.status != "submitted":
+            raise HTTPException(status.HTTP_409_CONFLICT, detail="This attempt is already submitted") from None
     return AttemptResultOut(
         id=attempt.id, status=attempt.status, score=attempt.score, total=attempt.total,
         critical_correct=attempt.critical_correct, critical_total=attempt.critical_total,

@@ -21,15 +21,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_instructor_or_facilitator, require_operations
 from app.db.session import get_db
-from app.models.instructor_assessment.attempt import AssessmentAttempt
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.schemas.sessions.cohorts import BulkActionError, SessionInstructorOut, SessionOut
 from app.services.instructor_assessment.gate import is_assessment_required, resolve_cohort_call_id_for_session
-from app.services.instructor_assessment.performance import get_performance
-from app.services.instructor_assessment.ranking import compute_priority_score, get_active_weights
+from app.services.instructor_assessment.ranking import get_active_weights, get_ranking_fields
 from app.services.sessions import openings as openings_svc
 from app.schemas.sessions.staffing import (
     AddonSummary,
@@ -485,27 +483,10 @@ async def list_cohort_call_interest(
     weights = await get_active_weights(db)
     out = []
     for r in rows:
-        attempt = (await db.execute(
-            select(AssessmentAttempt).where(
-                AssessmentAttempt.cohort_call_id == cohort_call_id, AssessmentAttempt.user_id == r["user_id"],
-                AssessmentAttempt.status == "submitted",
-            )
-        )).scalars().first()
-        perf = await get_performance(db, r["user_id"])
-        recent_trend = perf["recent_rating_trend"]
-        out.append(CohortCallInterestOut(
-            **r,
-            quiz_score=round(attempt.score / attempt.total * 100) if attempt and attempt.total else None,
-            quiz_critical_correct=attempt.critical_correct if attempt else None,
-            quiz_critical_total=attempt.critical_total if attempt else None,
-            total_sessions_delivered=perf["total_sessions_delivered"],
-            total_hours_delivered=perf["total_hours_delivered"],
-            average_rating=perf["average_rating"],
-            recent_rating=recent_trend[-1] if recent_trend else None,
-            priority_score=await compute_priority_score(
-                db, user_id=r["user_id"], cohort_call_id=cohort_call_id, weights=weights, perf=perf,
-            ),
-        ))
+        ranking_fields = await get_ranking_fields(
+            db, user_id=r["user_id"], cohort_call_id=cohort_call_id, weights=weights,
+        )
+        out.append(CohortCallInterestOut(**r, **ranking_fields))
     return out
 
 
@@ -723,26 +704,9 @@ async def list_eligible_instructors(
     for u, interest, role_name, available_in_city in rows:
         ranking_fields: dict = {}
         if interest is not None and cohort_call_id is not None:
-            attempt = (await db.execute(
-                select(AssessmentAttempt).where(
-                    AssessmentAttempt.cohort_call_id == cohort_call_id, AssessmentAttempt.user_id == u.id,
-                    AssessmentAttempt.status == "submitted",
-                )
-            )).scalars().first()
-            perf = await get_performance(db, u.id)
-            recent_trend = perf["recent_rating_trend"]
-            ranking_fields = {
-                "quiz_score": round(attempt.score / attempt.total * 100) if attempt and attempt.total else None,
-                "quiz_critical_correct": attempt.critical_correct if attempt else None,
-                "quiz_critical_total": attempt.critical_total if attempt else None,
-                "total_sessions_delivered": perf["total_sessions_delivered"],
-                "total_hours_delivered": perf["total_hours_delivered"],
-                "average_rating": perf["average_rating"],
-                "recent_rating": recent_trend[-1] if recent_trend else None,
-                "priority_score": await compute_priority_score(
-                    db, user_id=u.id, cohort_call_id=cohort_call_id, weights=weights, perf=perf,
-                ),
-            }
+            ranking_fields = await get_ranking_fields(
+                db, user_id=u.id, cohort_call_id=cohort_call_id, weights=weights,
+            )
 
         out.append(EligibleInstructorOut(
             user_id=u.id, full_name=u.full_name or u.email, email=u.email, photo_url=u.photo_url,

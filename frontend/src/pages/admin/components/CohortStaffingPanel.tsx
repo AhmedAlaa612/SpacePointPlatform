@@ -1,6 +1,7 @@
 import { useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Bus, Check, CheckCircle2, LifeBuoy, MapPin, Plane, Trash2, XCircle } from "lucide-react"
+import { Bus, Check, CheckCircle2, LifeBuoy, MapPin, Plane, Star, Trash2, XCircle } from "lucide-react"
 import { getDeliveryRolesApi, type DeliveryRole } from "@/api/sessions/openings"
 import {
   listCohortApplicantsApi,
@@ -166,6 +167,7 @@ function ApplicantDetailModal({
 
 export default function CohortStaffingPanel({ cohort }: { cohort: Cohort }) {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const [callId, setCallId] = useState<string | null>(null)
   const [selected, setSelected] = useState<string[]>([])
   const [overrideRoleId, setOverrideRoleId] = useState<string | null>(null)
@@ -433,14 +435,26 @@ export default function CohortStaffingPanel({ cohort }: { cohort: Cohort }) {
                         : a.rate_aed != null ? `AED ${a.rate_aed.toLocaleString()}/session` : "—"}
                     </td>
                     <td className="py-2 pr-3 text-right">
-                      <button
-                        type="button"
-                        className="text-muted-foreground hover:text-red-600 transition-colors"
-                        title="Remove from this cohort"
-                        onClick={() => setRemoving({ userId: a.user_id, name: a.full_name })}
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-primary transition-colors"
+                          title="Rate this instructor's performance"
+                          onClick={() => void navigate({
+                            to: `/instructors/admin/ratings/${cohort.id}/${a.user_id}`,
+                          })}
+                        >
+                          <Star size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-red-600 transition-colors"
+                          title="Remove from this cohort"
+                          onClick={() => setRemoving({ userId: a.user_id, name: a.full_name })}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

@@ -51,9 +51,11 @@ async def _config_or_404(db: AsyncSession, config_id: uuid.UUID) -> AssessmentCo
 
 
 async def _config_out(db: AsyncSession, config: AssessmentConfig) -> AssessmentConfigOut:
+    # Counts the whole bank (active + inactive) to match AssessmentConfigDetailOut.questions
+    # below — this is the authoring view. draw_questions() is what filters to is_active.
     rows = (await db.execute(
         select(AssessmentQuestion.category, AssessmentQuestion.critical)
-        .where(AssessmentQuestion.config_id == config.id, AssessmentQuestion.is_active.is_(True))
+        .where(AssessmentQuestion.config_id == config.id)
     )).all()
     category_counts: dict[str, int] = {}
     critical_count = 0
