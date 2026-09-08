@@ -75,6 +75,10 @@ import InstructorMySessions from "@/pages/instructors/MySessions";
 import InstructorSessionDetail from "@/pages/instructors/SessionDetail";
 import GameLiveConsole from "@/pages/instructors/GameLiveConsole";
 import InstructorMyHoldings from "@/pages/instructors/MyHoldings";
+import TakeAssessment from "@/pages/instructors/TakeAssessment";
+import AssessmentQuestionsAdmin from "@/pages/instructors/admin/AssessmentQuestions";
+import InstructorPerformance from "@/pages/instructors/admin/InstructorPerformance";
+import RateInstructor from "@/pages/instructors/admin/RateInstructor";
 
 // Admin hub
 import AdminHub from "@/pages/admin/Dashboard";
@@ -529,6 +533,7 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/my-holdings", component: InstructorMyHoldings }),
   createRoute({ getParentRoute: pi, path: "/sessions/$sessionId", component: InstructorSessionDetail }),
   createRoute({ getParentRoute: pi, path: "/game-runs/$runId", component: GameLiveConsole }),
+  createRoute({ getParentRoute: pi, path: "/assessment/$cohortCallId", component: TakeAssessment }),
   createRoute({
     getParentRoute: pi,
     path: "/admin",
@@ -541,6 +546,9 @@ const instructorsRoutes = [
   createRoute({ getParentRoute: pi, path: "/admin/applicants/$userId", component: ApplicantReviewPage }),
   createRoute({ getParentRoute: pi, path: "/admin/invitations", component: InstructorsAdminInvitations }),
   createRoute({ getParentRoute: pi, path: "/admin/instructors", component: InstructorsAdminInstructors }),
+  createRoute({ getParentRoute: pi, path: "/admin/instructors/$userId/performance", component: InstructorPerformance }),
+  createRoute({ getParentRoute: pi, path: "/admin/ratings/$cohortId/$instructorUserId", component: RateInstructor }),
+  createRoute({ getParentRoute: pi, path: "/admin/assessment-questions", component: AssessmentQuestionsAdmin }),
   createRoute({ getParentRoute: pi, path: "/admin/facilitators", component: InstructorsAdminFacilitators }),
   createRoute({ getParentRoute: pi, path: "/admin/payments", component: InstructorsAdminPayments }),
   createRoute({ getParentRoute: pi, path: "/admin/certificates", component: InstructorsAdminCertificates }),

@@ -21,11 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_instructor_or_facilitator, require_operations
 from app.db.session import get_db
+from app.models.instructor_assessment.attempt import AssessmentAttempt
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 from app.schemas.sessions.cohorts import BulkActionError, SessionInstructorOut, SessionOut
+from app.services.instructor_assessment.gate import is_assessment_required, resolve_cohort_call_id_for_session
+from app.services.instructor_assessment.performance import get_performance
+from app.services.instructor_assessment.ranking import compute_priority_score, get_active_weights
 from app.services.sessions import openings as openings_svc
 from app.schemas.sessions.staffing import (
     AddonSummary,
@@ -341,8 +345,18 @@ async def list_available_sessions(
             if a["user_id"] is None and a["status"] == "agreed"
         ]
         location = await staffing.resolve_session_location_display(db, s, c)
+        cohort_call_id = await resolve_cohort_call_id_for_session(db, s.id)
+        # Grandfathered: an instructor who already registered interest never
+        # needs to take a newly-assigned assessment (same rule
+        # register_interest itself enforces).
+        assessment_required = (
+            interest is None
+            and cohort_call_id is not None
+            and await is_assessment_required(db, cohort_call_id, current_user.id)
+        )
         out.append(AvailableSessionOut(
             session_id=s.id, cohort_id=c.id, cohort_name=c.name, program_name=p.name,
+            cohort_call_id=cohort_call_id, assessment_required=assessment_required,
             title=s.title,
             location=location["name"], meeting_date=s.meeting_date, starts_at=s.starts_at,
             interested_count=count, my_interest=interest is not None,
@@ -468,7 +482,31 @@ async def list_cohort_call_interest(
     rows = await cohort_staffing.list_cohort_call_interest(
         db, cohort_id=cohort_id, cohort_call_id=cohort_call_id
     )
-    return [CohortCallInterestOut(**r) for r in rows]
+    weights = await get_active_weights(db)
+    out = []
+    for r in rows:
+        attempt = (await db.execute(
+            select(AssessmentAttempt).where(
+                AssessmentAttempt.cohort_call_id == cohort_call_id, AssessmentAttempt.user_id == r["user_id"],
+                AssessmentAttempt.status == "submitted",
+            )
+        )).scalars().first()
+        perf = await get_performance(db, r["user_id"])
+        recent_trend = perf["recent_rating_trend"]
+        out.append(CohortCallInterestOut(
+            **r,
+            quiz_score=round(attempt.score / attempt.total * 100) if attempt and attempt.total else None,
+            quiz_critical_correct=attempt.critical_correct if attempt else None,
+            quiz_critical_total=attempt.critical_total if attempt else None,
+            total_sessions_delivered=perf["total_sessions_delivered"],
+            total_hours_delivered=perf["total_hours_delivered"],
+            average_rating=perf["average_rating"],
+            recent_rating=recent_trend[-1] if recent_trend else None,
+            priority_score=await compute_priority_score(
+                db, user_id=r["user_id"], cohort_call_id=cohort_call_id, weights=weights, perf=perf,
+            ),
+        ))
+    return out
 
 
 @router.post("/cohorts/{cohort_id}/staffing/select", response_model=list[CohortSelectionOut])
@@ -669,10 +707,44 @@ async def list_eligible_instructors(
     current_user: User = Depends(require_operations),
 ):
     """Full instructor|facilitator roster for the ops select screen — not
-    interest-only (operator requirement 2026-07-24)."""
+    interest-only (operator requirement 2026-07-24).
+
+    Instructor assessment/performance/priority-score columns (2026-09) are
+    computed only for instructors who actually registered interest — this
+    screen's ranking columns are about *this opportunity's applicants*, not
+    every instructor account on the platform, and skipping the rest avoids
+    running several extra queries per uninterested row on a large roster.
+    """
     rows = await staffing.list_eligible_instructors(db, session_id)
-    return [
-        EligibleInstructorOut(
+    cohort_call_id = await resolve_cohort_call_id_for_session(db, session_id)
+    weights = await get_active_weights(db) if cohort_call_id is not None else {}
+
+    out = []
+    for u, interest, role_name, available_in_city in rows:
+        ranking_fields: dict = {}
+        if interest is not None and cohort_call_id is not None:
+            attempt = (await db.execute(
+                select(AssessmentAttempt).where(
+                    AssessmentAttempt.cohort_call_id == cohort_call_id, AssessmentAttempt.user_id == u.id,
+                    AssessmentAttempt.status == "submitted",
+                )
+            )).scalars().first()
+            perf = await get_performance(db, u.id)
+            recent_trend = perf["recent_rating_trend"]
+            ranking_fields = {
+                "quiz_score": round(attempt.score / attempt.total * 100) if attempt and attempt.total else None,
+                "quiz_critical_correct": attempt.critical_correct if attempt else None,
+                "quiz_critical_total": attempt.critical_total if attempt else None,
+                "total_sessions_delivered": perf["total_sessions_delivered"],
+                "total_hours_delivered": perf["total_hours_delivered"],
+                "average_rating": perf["average_rating"],
+                "recent_rating": recent_trend[-1] if recent_trend else None,
+                "priority_score": await compute_priority_score(
+                    db, user_id=u.id, cohort_call_id=cohort_call_id, weights=weights, perf=perf,
+                ),
+            }
+
+        out.append(EligibleInstructorOut(
             user_id=u.id, full_name=u.full_name or u.email, email=u.email, photo_url=u.photo_url,
             interested=interest is not None, note=interest.note if interest else None,
             interest_role_id=interest.role_id if interest else None,
@@ -682,9 +754,9 @@ async def list_eligible_instructors(
             needs_ops_support=interest.needs_ops_support if interest else False,
             travelling_from_other_city=interest.travelling_from_other_city if interest else False,
             concerns=interest.concerns if interest else None,
-        )
-        for u, interest, role_name, available_in_city in rows
-    ]
+            **ranking_fields,
+        ))
+    return out
 
 
 @router.post("/{session_id}/staffing/select", response_model=SelectInstructorsResponse)

@@ -281,6 +281,7 @@ export default function CohortStaffingPanel({ cohort }: { cohort: Cohort }) {
                   <th className="py-2 pr-3">Instructor</th>
                   <th className="py-2 pr-3">Role</th>
                   <th className="py-2 pr-3">Sessions</th>
+                  <th className="py-2 pr-3">Priority</th>
                   <th className="py-2 pr-3 text-right">Details</th>
                 </tr>
               </thead>
@@ -315,6 +316,16 @@ export default function CohortStaffingPanel({ cohort }: { cohort: Cohort }) {
                     <td className="py-2 pr-3 whitespace-nowrap tabular-nums pt-2.5">
                       <span className="font-semibold text-foreground">{r.session_count}</span>
                       <span className="text-muted-foreground text-xs">/{totalCallSessions} sessions</span>
+                    </td>
+                    <td className="py-2 pr-3 whitespace-nowrap tabular-nums pt-2.5">
+                      {r.priority_score != null ? (
+                        <span className="font-semibold text-foreground">{r.priority_score}</span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                      {r.quiz_score != null && (
+                        <p className="text-[11px] text-muted-foreground font-normal">Quiz {r.quiz_score}%</p>
+                      )}
                     </td>
                     <td className="py-2 pr-3 text-right whitespace-nowrap pt-2">
                       <Button

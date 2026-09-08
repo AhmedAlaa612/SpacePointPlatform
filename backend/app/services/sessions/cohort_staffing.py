@@ -48,6 +48,7 @@ from app.models.sessions.program import Program
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.sessions.session_call import SessionCall
 from app.models.user import User
+from app.services.instructor_assessment.gate import assert_assessment_passed, is_assessment_required
 from app.services.sessions import staffing
 from app.services.sessions.journey import get_responsibilities_for_role
 from app.services.sessions.openings import openings_for_session
@@ -231,6 +232,9 @@ async def list_available_cohort_calls(db: AsyncSession, user: User) -> list[dict
             select(func.count()).select_from(CohortCallInterest)
             .where(CohortCallInterest.cohort_call_id == call.id)
         ) or 0
+        # Grandfathered: an instructor who already answered this call never
+        # needs to take a newly-assigned assessment.
+        assessment_required = mine is None and await is_assessment_required(db, call.id, user.id)
 
         out.append({
             "cohort_call_id": call.id,
@@ -271,6 +275,7 @@ async def list_available_cohort_calls(db: AsyncSession, user: User) -> list[dict
             "my_needs_ops_support": mine.needs_ops_support if mine else False,
             "my_travelling_from_other_city": mine.travelling_from_other_city if mine else False,
             "my_concerns": mine.concerns if mine else None,
+            "assessment_required": assessment_required,
         })
     return out
 
@@ -331,6 +336,12 @@ async def register_cohort_interest(
         )
     )).scalars().first()
     if interest is None:
+        # Instructor assessment gate (2026-09) — only for a first-time
+        # registration on this call. An instructor who already answered
+        # before this cohort opted into an assessment is never retroactively
+        # required to take one (same grandfathering `staffing.register_interest`
+        # applies to the single-session path).
+        await assert_assessment_passed(db, cohort_call_id, user.id)
         interest = CohortCallInterest(
             id=uuid4(), cohort_call_id=cohort_call_id, cohort_id=cohort_id, user_id=user.id,
         )
