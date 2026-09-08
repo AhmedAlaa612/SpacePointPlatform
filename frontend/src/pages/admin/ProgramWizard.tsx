@@ -1,8 +1,7 @@
 /** Full-page guided program setup (replaces the flat "New program" modal for
- *  creation) — same shell and visual scale as `CohortWizard.tsx`, ported from
- *  the same approved Claude Design export. Shorter than the cohort wizard:
- *  a program has no sessions of its own, so there's no Sessions step and no
- *  per-session override view on the Roles step.
+ *  creation) — same shell and visual scale as `CohortWizard.tsx`.
+ *  Shorter than the cohort wizard: a program has no sessions of its own,
+ *  so there's no Sessions step and no per-session override view on the Roles step.
  *
  *  Deliberately NOT a draft-then-submit wizard: the program is created as
  *  soon as step 1 is confirmed, and every step after that reads/writes the
@@ -24,7 +23,7 @@ import { cn, getErrorMessage } from "@/lib/utils"
 const STEP_LABELS = ["Program basics", "Roles & checklist", "Materials", "Review & finish"]
 const LAST_STEP = STEP_LABELS.length - 1
 const OUTFIT = "'Outfit', ui-sans-serif, system-ui, sans-serif"
-const CARD_SHADOW = "0 3px 0 hsl(var(--border)), 0 12px 24px -14px rgba(40,16,80,.28)"
+const CARD_SHADOW = "0 3px 0 hsl(var(--border)), 0 10px 20px -5px rgba(0,0,0,.35), 0 2px 6px -1px rgba(0,0,0,.20)"
 
 const PROGRAM_TYPES: ProgramType[] = ["workshop", "course", "info_session", "competition"]
 const PROGRAM_TYPE_LABEL: Record<ProgramType, string> = {
@@ -35,18 +34,16 @@ const COMPLETION_RULE_LABEL: Record<CompletionRuleType, string> = {
 }
 
 /* ═══════════════════════════ Shared chrome bits ═════════════════════════ */
-/* (Same three pieces as CohortWizard.tsx — kept local rather than shared
- *  since the wizard shell itself isn't a reusable component.) */
 
 function StepIntro({ eyebrow, title, lede, ledeWidth = 62, right }: {
   eyebrow: string; title: string; lede?: string; ledeWidth?: number; right?: ReactNode
 }) {
   return (
-    <div className="flex items-end justify-between flex-wrap" style={{ gap: 40, marginBottom: 44 }}>
-      <div className="flex flex-col" style={{ gap: 14, minWidth: 0 }}>
-        <p style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em" }} className="text-primary m-0">{eyebrow}</p>
-        <h2 style={{ fontFamily: OUTFIT, fontSize: 52, fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.05 }} className="text-foreground m-0">{title}</h2>
-        {lede && <p style={{ fontSize: 18, maxWidth: `${ledeWidth}ch`, textWrap: "pretty" }} className="text-muted-foreground m-0">{lede}</p>}
+    <div className="flex items-end justify-between flex-wrap" style={{ gap: 20, marginBottom: 28 }}>
+      <div className="flex flex-col" style={{ gap: 6, minWidth: 0 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-primary m-0">{eyebrow}</p>
+        <h2 style={{ fontFamily: OUTFIT, fontSize: 32, fontWeight: 600, letterSpacing: "-0.025em", lineHeight: 1.15 }} className="text-foreground m-0">{title}</h2>
+        {lede && <p style={{ fontSize: 15, maxWidth: `${ledeWidth}ch`, textWrap: "pretty" }} className="text-muted-foreground m-0">{lede}</p>}
       </div>
       {right}
     </div>
@@ -55,19 +52,19 @@ function StepIntro({ eyebrow, title, lede, ledeWidth = 62, right }: {
 
 function BigField({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <label className="flex flex-col" style={{ gap: 12 }}>
-      <span style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em" }} className="text-muted-foreground">{label}</span>
+    <label className="flex flex-col" style={{ gap: 6 }}>
+      <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">{label}</span>
       {children}
-      {hint && <span style={{ fontSize: 14 }} className="text-muted-foreground">{hint}</span>}
+      {hint && <span style={{ fontSize: 13 }} className="text-muted-foreground">{hint}</span>}
     </label>
   )
 }
 
 const bigInput: React.CSSProperties = {
-  height: 56, padding: "0 20px", borderRadius: 16, fontSize: 17, width: "100%", boxSizing: "border-box",
+  height: 42, padding: "0 14px", borderRadius: 10, fontSize: 14, width: "100%", boxSizing: "border-box",
 }
 const heroInput: React.CSSProperties = {
-  height: 64, padding: "0 22px", borderRadius: 16, fontFamily: OUTFIT, fontSize: 24, fontWeight: 500, width: "100%", boxSizing: "border-box",
+  height: 46, padding: "0 16px", borderRadius: 10, fontFamily: OUTFIT, fontSize: 17, fontWeight: 500, width: "100%", boxSizing: "border-box",
 }
 
 export default function ProgramWizard() {
@@ -76,6 +73,7 @@ export default function ProgramWizard() {
   const [step, setStep] = useState(0)
   const [skipped, setSkipped] = useState<Record<number, boolean>>({})
   const [program, setProgram] = useState<Program | null>(null)
+  const [basicsForm, setBasicsForm] = useState<{ save: () => void; isPending: boolean; canSubmit: boolean }>({ save: () => {}, isPending: false, canSubmit: false })
 
   useEffect(() => {
     const prev = document.body.style.overflow
@@ -96,36 +94,36 @@ export default function ProgramWizard() {
   const canBack = step > 0
 
   return (
-    <div className="fixed inset-0 z-50 bg-background flex flex-col" style={{ fontSize: 16, lineHeight: 1.55 }}>
+    <div className="fixed inset-0 z-50 bg-background flex flex-col" style={{ fontSize: 14, lineHeight: 1.5 }}>
       <header
         className="shrink-0 flex items-center justify-between border-b border-border bg-card"
-        style={{ padding: "26px 56px", gap: 48 }}
+        style={{ padding: "16px 40px", gap: 32 }}
       >
         <div style={{ minWidth: 0 }}>
           <h1
-            style={{ fontFamily: OUTFIT, fontSize: 28, fontWeight: 600, letterSpacing: "-0.03em", lineHeight: 1.2 }}
+            style={{ fontFamily: OUTFIT, fontSize: 20, fontWeight: 600, letterSpacing: "-0.02em", lineHeight: 1.2 }}
             className="text-foreground m-0 truncate"
           >
             Setting up: {program?.name || "New Program"}
           </h1>
-          <p style={{ fontSize: 15, margin: "6px 0 0" }} className="text-muted-foreground">
+          <p style={{ fontSize: 13, margin: "2px 0 0" }} className="text-muted-foreground">
             Step {step + 1} of {STEP_LABELS.length} — {STEP_LABELS[step]}
           </p>
         </div>
-        <div className="flex items-center shrink-0" style={{ gap: 32 }}>
+        <div className="flex items-center shrink-0" style={{ gap: 24 }}>
           <StepDots steps={STEP_LABELS} current={step} skipped={skipped} onGo={(i) => { if (i <= step || program) goStep(i) }} />
           <button
             onClick={() => navigate({ to: "/operations/programs" })}
-            style={{ width: 44, height: 44 }}
+            style={{ width: 36, height: 36 }}
             className="rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
             aria-label="Close"
-          ><X size={22} /></button>
+          ><X size={18} /></button>
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto" style={{ padding: "56px 56px 72px" }}>
+      <div className="flex-1 overflow-y-auto" style={{ padding: "32px 40px 48px" }}>
         {step === 0 && (
-          <BasicsStep program={program} onSaved={(p) => { setProgram(p); advance() }} />
+          <BasicsStep program={program} onSaved={(p) => { setProgram(p); advance() }} onFormChange={setBasicsForm} />
         )}
         {step === 1 && program && (
           <>
@@ -150,32 +148,32 @@ export default function ProgramWizard() {
 
       <footer
         className="shrink-0 flex items-center justify-between border-t border-border bg-card"
-        style={{ padding: "20px 56px" }}
+        style={{ padding: "14px 40px" }}
       >
         <div>
           {canBack && (
             <button
               onClick={() => goStep(step - 1)}
-              style={{ height: 52, padding: "0 20px", borderRadius: 14, fontSize: 16, fontWeight: 500 }}
+              style={{ height: 40, padding: "0 16px", borderRadius: 8, fontSize: 14, fontWeight: 500 }}
               className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             ><ChevronLeft size={16} /> Back</button>
           )}
         </div>
-        <div className="flex flex-col items-end" style={{ gap: 8 }}>
-          <div className="flex items-center" style={{ gap: 20 }}>
+        <div className="flex flex-col items-end" style={{ gap: 4 }}>
+          <div className="flex items-center" style={{ gap: 16 }}>
             {canSkip && (
               <button
                 onClick={skipThis}
-                style={{ height: 52, padding: "0 18px", fontSize: 16, fontWeight: 400, textDecoration: "underline", textDecorationColor: "hsl(var(--border))", textUnderlineOffset: 4 }}
+                style={{ height: 40, padding: "0 14px", fontSize: 14, fontWeight: 400, textDecoration: "underline", textDecorationColor: "hsl(var(--border))", textUnderlineOffset: 4 }}
                 className="text-muted-foreground hover:text-foreground transition-colors"
               >Skip for now</button>
             )}
             {step < LAST_STEP ? (
-              <WizardContinueButton step={step} program={program} onContinue={advance} />
+              <WizardContinueButton step={step} program={program} onContinue={advance} basicsForm={basicsForm} />
             ) : (
               <button
                 onClick={() => navigate({ to: "/operations/programs" })}
-                style={{ height: 52, padding: "0 40px", borderRadius: 14, fontFamily: OUTFIT, fontSize: 18, fontWeight: 600 }}
+                style={{ height: 40, padding: "0 28px", borderRadius: 8, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600 }}
                 className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
               >Done</button>
             )}
@@ -189,19 +187,28 @@ export default function ProgramWizard() {
 }
 
 function SkipNote({ children }: { children: ReactNode }) {
-  return <p style={{ fontSize: 15, margin: 0 }} className="text-muted-foreground">{children}</p>
+  return <p style={{ fontSize: 13, margin: 0 }} className="text-muted-foreground">{children}</p>
 }
 
-/** Step 1's own Continue is a plain button (advance() is enough — the form
- *  fields underneath already saved via BasicsStep's own submit). Steps 2-3
- *  have nothing that must complete before moving on. */
-function WizardContinueButton({ step, program, onContinue }: { step: number; program: Program | null; onContinue: () => void }) {
-  if (step === 0) return null // BasicsStep renders its own Continue (it must create/save first)
+function WizardContinueButton({ step, program, onContinue, basicsForm }: {
+  step: number; program: Program | null; onContinue: () => void;
+  basicsForm: { save: () => void; isPending: boolean; canSubmit: boolean }
+}) {
+  if (step === 0) {
+    return (
+      <button
+        onClick={basicsForm.save}
+        disabled={!basicsForm.canSubmit || basicsForm.isPending}
+        style={{ height: 40, padding: "0 28px", borderRadius: 8, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600 }}
+        className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+      >{basicsForm.isPending ? "…" : "Continue"}</button>
+    )
+  }
   return (
     <button
       onClick={onContinue}
       disabled={!program}
-      style={{ height: 52, padding: "0 40px", borderRadius: 14, fontFamily: OUTFIT, fontSize: 18, fontWeight: 600 }}
+      style={{ height: 40, padding: "0 28px", borderRadius: 8, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600 }}
       className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
     >Continue</button>
   )
@@ -211,7 +218,7 @@ function StepDots({ steps, current, skipped, onGo }: {
   steps: string[]; current: number; skipped: Record<number, boolean>; onGo: (i: number) => void
 }) {
   return (
-    <div className="flex items-center" style={{ gap: 14 }}>
+    <div className="flex items-center" style={{ gap: 10 }}>
       {steps.map((label, i) => {
         const isCurrent = i === current
         const isSkipped = !!skipped[i] && !isCurrent
@@ -224,17 +231,17 @@ function StepDots({ steps, current, skipped, onGo }: {
             onClick={() => onGo(i)}
             style={
               isCurrent
-                ? { width: 34, height: 34, background: "hsl(var(--primary))", boxShadow: "0 0 0 6px hsl(var(--primary) / 0.10)" }
+                ? { width: 26, height: 26, background: "hsl(var(--primary))", boxShadow: "0 0 0 4px hsl(var(--primary) / 0.12)" }
                 : isDone
-                ? { width: 26, height: 26, background: "hsl(var(--muted-foreground) / 0.4)" }
+                ? { width: 22, height: 22, background: "hsl(var(--muted-foreground) / 0.4)" }
                 : isSkipped
-                ? { width: 26, height: 26, border: "2px solid hsl(var(--muted-foreground) / 0.5)" }
-                : { width: 26, height: 26, border: "2px solid hsl(var(--border))" }
+                ? { width: 22, height: 22, border: "2px solid hsl(var(--muted-foreground) / 0.5)" }
+                : { width: 22, height: 22, border: "2px solid hsl(var(--border))" }
             }
             className="rounded-full flex items-center justify-center shrink-0 transition-all"
           >
-            {isDone && <Check size={15} className="text-card" strokeWidth={3} />}
-            {isSkipped && <span style={{ width: 12, height: 2 }} className="block bg-muted-foreground/70 rotate-45 rounded-full" />}
+            {isDone && <Check size={13} className="text-card" strokeWidth={3} />}
+            {isSkipped && <span style={{ width: 10, height: 2 }} className="block bg-muted-foreground/70 rotate-45 rounded-full" />}
           </button>
         )
       })}
@@ -244,7 +251,10 @@ function StepDots({ steps, current, skipped, onGo }: {
 
 /* ════════════════════════ Step 1 — Program basics ═══════════════════════ */
 
-function BasicsStep({ program, onSaved }: { program: Program | null; onSaved: (p: Program) => void }) {
+function BasicsStep({ program, onSaved, onFormChange }: {
+  program: Program | null; onSaved: (p: Program) => void;
+  onFormChange: (form: { save: () => void; isPending: boolean; canSubmit: boolean }) => void
+}) {
   const toast = useToast()
   const qc = useQueryClient()
   const [code, setCode] = useState(program?.code ?? "")
@@ -279,16 +289,35 @@ function BasicsStep({ program, onSaved }: { program: Program | null; onSaved: (p
     onError: (e: any) => setError(getErrorMessage(e, "Failed to save program")),
   })
 
+  const canSubmit = Boolean(name.trim() && code.trim())
+
+  useEffect(() => {
+    onFormChange({
+      save: () => { setError(""); save.mutate() },
+      isPending: save.isPending,
+      canSubmit,
+    })
+  }, [name, code, programType, pricingModel, price, defaultCapacity, description, completionRuleType, completionRuleValue, save.isPending, canSubmit])
+
   const selectStyle: React.CSSProperties = { ...bigInput, cursor: "pointer" }
 
   return (
-    <div className="flex flex-col" style={{ gap: 44 }}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (canSubmit && !save.isPending) {
+          setError("")
+          save.mutate()
+        }
+      }}
+      className="flex flex-col" style={{ gap: 28 }}
+    >
       <StepIntro
         eyebrow="Program basics" title="What is this program?"
         lede="Everything here becomes the default for every cohort you run under it. You can change any of it later."
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "32px 40px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "20px 24px" }}>
         <div style={{ gridColumn: "span 2" }}>
           <BigField label="Program name">
             <input
@@ -309,17 +338,17 @@ function BasicsStep({ program, onSaved }: { program: Program | null; onSaved: (p
             {PROGRAM_TYPES.map((t) => <option key={t} value={t}>{PROGRAM_TYPE_LABEL[t]}</option>)}
           </select>
           {programType === "competition" && (
-            <p style={{ fontSize: 14, margin: "8px 0 0" }} className="text-muted-foreground">Enables the judging tools (rubric, judges, leaderboard) on this program's cohorts.</p>
+            <p style={{ fontSize: 13, margin: "6px 0 0" }} className="text-muted-foreground">Enables the judging tools (rubric, judges, leaderboard) on this program's cohorts.</p>
           )}
         </BigField>
 
         <BigField label="Pricing model">
-          <div className="flex bg-muted" style={{ height: 56, padding: 5, gap: 5, borderRadius: 16 }}>
+          <div className="flex bg-muted" style={{ height: 42, padding: 3, gap: 3, borderRadius: 10 }}>
             <button type="button" onClick={() => setPricingModel("free")}
-              style={{ flex: 1, borderRadius: 12, fontSize: 16, fontWeight: 600 }}
+              style={{ flex: 1, borderRadius: 8, fontSize: 14, fontWeight: 600 }}
               className={cn("transition-colors", pricingModel === "free" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground")}>Free</button>
             <button type="button" onClick={() => setPricingModel("paid")}
-              style={{ flex: 1, borderRadius: 12, fontSize: 16, fontWeight: 600 }}
+              style={{ flex: 1, borderRadius: 8, fontSize: 14, fontWeight: 600 }}
               className={cn("transition-colors", pricingModel === "paid" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground")}>Paid</button>
           </div>
         </BigField>
@@ -338,24 +367,24 @@ function BasicsStep({ program, onSaved }: { program: Program | null; onSaved: (p
 
         <div style={{ gridColumn: "span 2" }}>
           <BigField label="Completion requirement">
-            <div className="flex" style={{ gap: 16 }}>
+            <div className="flex" style={{ gap: 12 }}>
               <select value={completionRuleType} onChange={(e) => setCompletionRuleType(e.target.value as CompletionRuleType)}
                 style={{ ...selectStyle, flex: 1 }} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors">
                 {(["percentage", "session_count"] as CompletionRuleType[]).map((t) => <option key={t} value={t}>{COMPLETION_RULE_LABEL[t]}</option>)}
               </select>
-              <div className="relative shrink-0" style={{ width: 160 }}>
+              <div className="relative shrink-0" style={{ width: 140 }}>
                 <input
                   value={completionRuleValue} onChange={(e) => setCompletionRuleValue(e.target.value)}
                   type="number" min={0} max={completionRuleType === "percentage" ? 100 : undefined}
                   placeholder={completionRuleType === "percentage" ? "70" : "5"}
-                  style={{ ...bigInput, paddingRight: 68 }} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+                  style={{ ...bigInput, paddingRight: 56 }} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
                 />
-                <span style={{ fontSize: 13, fontWeight: 600 }} className="absolute right-5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
+                <span style={{ fontSize: 12, fontWeight: 600 }} className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none">
                   {completionRuleType === "percentage" ? "%" : "sessions"}
                 </span>
               </div>
             </div>
-            <p style={{ fontSize: 15, margin: "8px 0 0" }} className="text-muted-foreground">
+            <p style={{ fontSize: 13, margin: "6px 0 0" }} className="text-muted-foreground">
               {completionRuleType === "percentage"
                 ? "A student must attend at least this % of a cohort's sessions to auto-earn a certificate."
                 : "A student must attend at least this many sessions to auto-earn a certificate."}{" "}Ops can still hand a certificate to anyone manually.
@@ -367,24 +396,15 @@ function BasicsStep({ program, onSaved }: { program: Program | null; onSaved: (p
           <BigField label="Description (optional)">
             <textarea
               value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
-              style={{ padding: "14px 20px", borderRadius: 16, fontSize: 16, lineHeight: 1.55, width: "100%", boxSizing: "border-box" }}
+              style={{ padding: "10px 14px", borderRadius: 10, fontSize: 14, lineHeight: 1.5, width: "100%", boxSizing: "border-box" }}
               className="border border-border bg-background text-foreground resize-y focus:outline-none focus:border-primary transition-colors"
             />
           </BigField>
         </div>
       </div>
 
-      {error && <p style={{ fontSize: 15 }} className="text-red-500">{error}</p>}
-
-      <div className="flex justify-end" style={{ paddingTop: 8 }}>
-        <button
-          onClick={() => { setError(""); save.mutate() }}
-          disabled={!name.trim() || !code.trim() || save.isPending}
-          style={{ height: 52, padding: "0 40px", borderRadius: 14, fontFamily: OUTFIT, fontSize: 18, fontWeight: 600 }}
-          className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
-        >{save.isPending ? "…" : "Continue"}</button>
-      </div>
-    </div>
+      {error && <p style={{ fontSize: 14 }} className="text-red-500">{error}</p>}
+    </form>
   )
 }
 
@@ -411,23 +431,23 @@ function ReviewStep({ program }: { program: Program }) {
   ]
 
   return (
-    <div className="flex flex-col" style={{ gap: 40 }}>
-      <div className="flex items-end justify-between flex-wrap" style={{ gap: 40 }}>
-        <div className="flex flex-col" style={{ gap: 14 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em" }} className="text-primary m-0">Review &amp; create</p>
-          <h2 style={{ fontFamily: OUTFIT, fontSize: 56, fontWeight: 600, letterSpacing: "-0.035em", lineHeight: 1.05 }} className="text-foreground m-0">{program.name}</h2>
-          <p style={{ fontSize: 18 }} className="text-muted-foreground m-0">{program.code}</p>
+    <div className="flex flex-col" style={{ gap: 28 }}>
+      <div className="flex items-end justify-between flex-wrap" style={{ gap: 20 }}>
+        <div className="flex flex-col" style={{ gap: 6 }}>
+          <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-primary m-0">Review &amp; create</p>
+          <h2 style={{ fontFamily: OUTFIT, fontSize: 32, fontWeight: 600, letterSpacing: "-0.025em", lineHeight: 1.15 }} className="text-foreground m-0">{program.name}</h2>
+          <p style={{ fontSize: 15 }} className="text-muted-foreground m-0">{program.code}</p>
         </div>
-        <p style={{ fontSize: 15, maxWidth: "34ch", margin: "0 0 6px" }} className="text-muted-foreground">You can change anything later from the Programs page.</p>
+        <p style={{ fontSize: 13, maxWidth: "34ch", margin: "0 0 4px" }} className="text-muted-foreground">You can change anything later from the Programs page.</p>
       </div>
 
-      <div className="flex flex-col" style={{ gap: 14, padding: "2px 6px 6px 2px" }}>
+      <div className="flex flex-col" style={{ gap: 10, padding: "2px 4px 4px 2px" }}>
         {rows.map((r) => (
           <div key={r.label}
-            style={{ display: "grid", gridTemplateColumns: "280px minmax(0,1fr) auto", gap: 32, alignItems: "center", padding: "24px 28px", borderRadius: 16, boxShadow: CARD_SHADOW }}
+            style={{ display: "grid", gridTemplateColumns: "220px minmax(0,1fr)", gap: 20, alignItems: "center", padding: "14px 18px", borderRadius: 10, boxShadow: CARD_SHADOW }}
             className="border border-border bg-card">
-            <span style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em" }} className="text-muted-foreground">{r.label}</span>
-            <span style={{ fontSize: 19 }} className="text-foreground">{r.value}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">{r.label}</span>
+            <span style={{ fontSize: 15 }} className="text-foreground">{r.value}</span>
           </div>
         ))}
       </div>
