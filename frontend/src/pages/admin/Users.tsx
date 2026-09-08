@@ -155,21 +155,21 @@ export default function Users() {
           {filteredUsers.map((u) => (
             <div
               key={u.id}
-              className="flex items-center justify-between p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors"
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 bg-card border border-border rounded-2xl hover:border-muted-foreground/30 transition-colors"
             >
               <button
                 onClick={() => setProfileUserId(u.id)}
                 className="flex items-center gap-3 min-w-0 text-left hover:opacity-80 transition-opacity"
               >
-                <div className="w-9 h-9 rounded-full bg-foreground text-background text-xs font-semibold flex items-center justify-center flex-shrink-0 overflow-hidden">
+                <div className="w-10 h-10 rounded-full bg-foreground text-background text-xs font-semibold flex items-center justify-center flex-shrink-0 overflow-hidden">
                   {u.photo_url ? (
                     <img src={u.photo_url} alt={u.full_name} className="w-full h-full object-cover" />
                   ) : (
                     u.full_name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase()
                   )}
                 </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <p className="text-sm font-medium text-foreground truncate">{u.full_name}</p>
                     {u.card_id && (
                       <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-primary/10 text-primary shrink-0">
@@ -183,9 +183,17 @@ export default function Users() {
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground truncate">{u.email}</p>
+                  <div className="flex sm:hidden flex-wrap gap-1 mt-1.5">
+                    {u.roles.map((r) => (
+                      <span key={r} className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${roleBadgeColor[r]}`}>
+                        {ROLE_LABEL[r]}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </button>
-              <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+
+              <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0 pt-2.5 sm:pt-0 border-t sm:border-t-0 border-border/40">
                 <div className="hidden sm:flex flex-wrap gap-1 justify-end max-w-[220px]">
                   {u.roles.map((r) => (
                     <span key={r} className={`text-xs font-semibold px-2 py-0.5 rounded-full ${roleBadgeColor[r]}`}>
@@ -193,44 +201,49 @@ export default function Users() {
                     </span>
                   ))}
                 </div>
-                <button
-                  onClick={() => setChangePasswordUser(u)}
-                  className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Change password
-                </button>
-                <button
-                  onClick={() => setEditUser(u)}
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                  title="Edit user"
-                >
-                  <Pencil size={14} />
-                </button>
-                <button
-                  onClick={() => setDocumentsUser(u)}
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                  title="Documents"
-                >
-                  <FileText size={14} />
-                </button>
-                <button
-                  onClick={() => {
-                    const next = u.status === "active" ? "inactive" : "active"
-                    if (confirm(`${next === "inactive" ? "Deactivate" : "Reactivate"} ${u.full_name}?`)) {
-                      statusMutation.mutate({ id: u.id, status: next })
-                    }
-                  }}
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
-                  title={u.status === "active" ? "Deactivate" : "Reactivate"}
-                >
-                  {u.status === "active" ? <UserX size={14} /> : <UserCheck size={14} />}
-                </button>
-                <button
-                  onClick={() => { if (confirm(`Delete ${u.full_name}?`)) deleteMutation.mutate(u.id) }}
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex items-center gap-1 sm:gap-1.5 w-full sm:w-auto justify-between sm:justify-start">
+                  <button
+                    onClick={() => setChangePasswordUser(u)}
+                    className="px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground bg-muted/40 sm:bg-transparent rounded-lg sm:rounded-none transition-colors"
+                  >
+                    Change password
+                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setEditUser(u)}
+                      className="p-2 sm:p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      title="Edit user"
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      onClick={() => setDocumentsUser(u)}
+                      className="p-2 sm:p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      title="Documents"
+                    >
+                      <FileText size={15} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        const next = u.status === "active" ? "inactive" : "active"
+                        if (confirm(`${next === "inactive" ? "Deactivate" : "Reactivate"} ${u.full_name}?`)) {
+                          statusMutation.mutate({ id: u.id, status: next })
+                        }
+                      }}
+                      className="p-2 sm:p-1.5 rounded-lg text-muted-foreground hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
+                      title={u.status === "active" ? "Deactivate" : "Reactivate"}
+                    >
+                      {u.status === "active" ? <UserX size={15} /> : <UserCheck size={15} />}
+                    </button>
+                    <button
+                      onClick={() => { if (confirm(`Delete ${u.full_name}?`)) deleteMutation.mutate(u.id) }}
+                      className="p-2 sm:p-1.5 rounded-lg text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-colors"
+                      title="Delete user"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           ))}
