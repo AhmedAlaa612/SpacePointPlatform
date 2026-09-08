@@ -40,7 +40,7 @@ export default function TakeAssessment() {
 
   if (!started && !attempt) {
     return (
-      <div className="max-w-lg mx-auto flex flex-col gap-6 py-2 sm:py-4">
+      <div className="max-w-3xl mx-auto flex flex-col gap-6 py-2 sm:py-4">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight">Instructor Scenario Assessment</h1>
           <p className="text-sm text-muted-foreground mt-2">
@@ -72,7 +72,7 @@ export default function TakeAssessment() {
 
 function AlreadySubmittedNotice() {
   return (
-    <div className="max-w-lg mx-auto flex flex-col items-center gap-3 py-4 sm:py-6 text-center">
+    <div className="max-w-3xl mx-auto flex flex-col items-center gap-3 py-4 sm:py-6 text-center">
       <CheckCircle2 size={32} className="text-emerald-600 dark:text-emerald-400" />
       <h1 className="font-display text-xl font-bold">Assessment already submitted</h1>
       <p className="text-sm text-muted-foreground">You've already completed this assessment for this opportunity.</p>
@@ -101,7 +101,7 @@ function QuestionFlow({ attemptId, questions, onFinished }: {
   const isLast = index === questions.length - 1
 
   return (
-    <div className="max-w-lg mx-auto flex flex-col gap-4 py-2 sm:py-4">
+    <div className="max-w-3xl mx-auto flex flex-col gap-4 py-2 sm:py-4">
       <div className="flex items-center gap-3">
         <span className="text-xs font-mono text-muted-foreground whitespace-nowrap">
           Card {String(index + 1).padStart(2, "0")} / {questions.length}
@@ -160,7 +160,7 @@ function QuestionFlow({ attemptId, questions, onFinished }: {
 function Results({ result, onDone }: { result: AttemptResult; onDone: () => void }) {
   const pct = result.total ? Math.round(((result.score ?? 0) / result.total) * 100) : 0
   return (
-    <div className="max-w-lg mx-auto flex flex-col items-center gap-6 py-4 sm:py-6 text-center">
+    <div className="max-w-3xl mx-auto flex flex-col items-center gap-6 py-4 sm:py-6 text-center">
       <div>
         <p className="text-xs uppercase tracking-wide text-muted-foreground">Assessment complete</p>
         <p className="font-display text-5xl font-bold mt-2">{result.score} / {result.total}</p>
