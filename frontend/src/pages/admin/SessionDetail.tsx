@@ -757,6 +757,22 @@ function StaffingSection({ cohort, session, onChanged }: {
                         {u.interest_role_name && (
                           <p className="text-[11px] text-primary/80 truncate">Applied for: {u.interest_role_name}</p>
                         )}
+                        {u.priority_score != null && (
+                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1 text-[11px] text-muted-foreground">
+                            <span className="font-semibold text-foreground">Priority {u.priority_score}</span>
+                            {u.quiz_score != null && (
+                              <span>
+                                Quiz {u.quiz_score}%
+                                {u.quiz_critical_total ? ` (${u.quiz_critical_correct}/${u.quiz_critical_total} critical)` : ""}
+                              </span>
+                            )}
+                            {u.total_sessions_delivered != null && (
+                              <span>{u.total_sessions_delivered} sessions · {u.total_hours_delivered}h</span>
+                            )}
+                            {u.average_rating != null && <span>Avg {u.average_rating}/5</span>}
+                            {u.recent_rating != null && <span>Recent {u.recent_rating}/5</span>}
+                          </div>
+                        )}
                         {(u.needs_transport || u.travelling_from_other_city) && (
                           <div className="flex flex-wrap gap-1.5 mt-1">
                             {u.needs_transport && <IconBadge icon={Bus} label="needs transport" />}

@@ -40,6 +40,7 @@ from app.models.sessions.session import Session, SessionCallTarget, SessionInstr
 from app.models.sessions.session_call import SessionCall
 from app.models.sessions.opening import SessionOpening
 from app.services.sessions.openings import fully_staffed, lead_role_id, set_openings_open
+from app.services.instructor_assessment.gate import assert_assessment_passed, resolve_cohort_call_id_for_session
 from app.models.spine.touchpoint import Touchpoint
 from app.models.user import User
 
@@ -726,6 +727,13 @@ async def register_interest(
         existing.concerns = concerns
         await db.flush()
         return existing
+
+    # Instructor assessment gate (2026-09) — only for a *new* interest row.
+    # An instructor already registered before this cohort opted into an
+    # assessment is never retroactively required to take one (the `existing`
+    # branch above returns before reaching here).
+    cohort_call_id = await resolve_cohort_call_id_for_session(db, session_id)
+    await assert_assessment_passed(db, cohort_call_id, user.id)
 
     interest = InstructorInterest(
         id=uuid4(), session_id=session_id, user_id=user.id, note=note, role_id=role_id,

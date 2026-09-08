@@ -26,4 +26,5 @@ from app.models import missions  # noqa: F401  (Phase 2 Stage 5 — missions/var
 from app.models import competitions  # noqa: F401  (2026-08-24 — judging: rubrics/scores/publish/judges)
 from app.models.curriculum import Prerequisite  # noqa: F401  (7B-2 — unified course/mission prerequisite DAG)
 from app.models import games  # noqa: F401  (Live Games Phase 2C — Kahoot-style live quiz)
+from app.models import instructor_assessment  # noqa: F401  (2026-09 — instructor assessment & performance ranking)
 

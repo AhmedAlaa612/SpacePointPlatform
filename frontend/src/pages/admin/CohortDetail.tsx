@@ -17,6 +17,7 @@ import CohortStaffingPanel from "@/pages/admin/components/CohortStaffingPanel"
 import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPanel"
 import { CohortKitsPanel } from "@/pages/admin/components/CohortKitsPanel"
 import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
+import { AssessmentAssignmentPanel } from "@/pages/admin/components/AssessmentAssignmentPanel"
 import { SessionsTable } from "@/pages/admin/components/SessionsTable"
 import {
   getCohortApi, getSessionsApi,
@@ -49,7 +50,7 @@ const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 /** Sessions and Students are the daily work; Setup is the stuff you touch
  *  once when the cohort is created (2026-08-02). Setup used to sit *between*
  *  the two daily ones, which is what made the page feel endless. */
-type CohortTab = "sessions" | "roles" | "staffing" | "students" | "setup"
+type CohortTab = "sessions" | "roles" | "staffing" | "assessment" | "students" | "setup"
 const TABS: { key: CohortTab; label: string }[] = [
   { key: "sessions", label: "Sessions" },
   // Roles moved out of Staffing (2026-08-28): rate, responsibilities and the
@@ -60,6 +61,11 @@ const TABS: { key: CohortTab; label: string }[] = [
   // reading the applicant table and seeing who ended up staffed are one job,
   // and they were buried under a table that had grown to own the whole tab.
   { key: "staffing", label: "Staffing" },
+  // Instructor assessment (2026-09) — whether applying to this cohort's
+  // open calls requires passing an assessment first, and which one. Its own
+  // tab rather than folded into Roles/Staffing: it's a one-time on/off
+  // decision about the cohort, not part of running a specific call.
+  { key: "assessment", label: "Assessment" },
   { key: "students", label: "Students" },
   { key: "setup", label: "Setup" },
 ]
@@ -453,6 +459,14 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       <div className="space-y-5">
         <Card className="px-4">
           <CohortRolesPanel cohort={cohort} />
+        </Card>
+      </div>
+      )}
+
+      {tab === "assessment" && (
+      <div className="space-y-5">
+        <Card className="px-4">
+          <AssessmentAssignmentPanel cohortId={cohort.id} />
         </Card>
       </div>
       )}

@@ -66,6 +66,21 @@ class EligibleInstructorOut(BaseModel):
     travelling_from_other_city: bool = False
     concerns: str | None = None
 
+    # Instructor assessment & performance ranking (2026-09) — computed only
+    # for instructors who actually registered interest (`interested=True`);
+    # left None for the rest of the full roster, matching the "for this
+    # opportunity's applicants" scope the ranking screen is actually for
+    # rather than every instructor account on the platform. All derived at
+    # read time — see services/instructor_assessment/ranking.py.
+    quiz_score: int | None = None  # percentage, 0-100
+    quiz_critical_correct: int | None = None
+    quiz_critical_total: int | None = None
+    total_sessions_delivered: int | None = None
+    total_hours_delivered: float | None = None
+    average_rating: float | None = None
+    recent_rating: float | None = None
+    priority_score: float | None = None
+
 
 class SelectInstructorsRequest(BaseModel):
     user_ids: list[UUID]
@@ -168,6 +183,14 @@ class AvailableSessionOut(BaseModel):
     my_needs_ops_support: bool = False
     my_travelling_from_other_city: bool = False
     my_concerns: str | None = None
+
+    # Instructor assessment (2026-09) — the cohort_call this session's open
+    # call belongs to (see services/instructor_assessment/gate.py), and
+    # whether *this instructor* still needs to pass an assigned assessment
+    # before registering interest here. False for every cohort that never
+    # opted in — the existing apply flow is untouched by default.
+    cohort_call_id: UUID | None = None
+    assessment_required: bool = False
 
     # I5-5 — everything below is what an instructor needs to decide, and none
     # of it reached them before: they got a cohort name, a date and a place.
@@ -280,6 +303,10 @@ class AvailableCohortCallOut(BaseModel):
     my_travelling_from_other_city: bool = False
     my_concerns: str | None = None
 
+    # Instructor assessment (2026-09) — see AvailableSessionOut's same-named
+    # field above.
+    assessment_required: bool = False
+
 
 class AvailableWorkOut(BaseModel):
     """Everything an instructor can apply for right now.
@@ -332,6 +359,18 @@ class CohortCallInterestOut(BaseModel):
     status: str
     already_assigned: bool = False
     created_at: datetime | None = None
+
+    # Instructor assessment & performance ranking (2026-09) — see
+    # EligibleInstructorOut above for the same fields' meaning; computed the
+    # same way, live, per services/instructor_assessment/ranking.py.
+    quiz_score: int | None = None
+    quiz_critical_correct: int | None = None
+    quiz_critical_total: int | None = None
+    total_sessions_delivered: int | None = None
+    total_hours_delivered: float | None = None
+    average_rating: float | None = None
+    recent_rating: float | None = None
+    priority_score: float | None = None
 
 
 class SelectForCohortRequest(BaseModel):
