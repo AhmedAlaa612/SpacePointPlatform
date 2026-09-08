@@ -15,7 +15,7 @@ import {
   updateAssessmentQuestionApi,
 } from "@/api/instructor_assessment"
 import type { AssessmentConfig, AssessmentQuestion } from "@/types/instructor_assessment"
-import { cn, getErrorMessage } from "@/lib/utils"
+import { cn } from "@/lib/utils"
 
 const EMPTY_OPTIONS = [
   { text: "", is_correct: true },
