@@ -159,6 +159,8 @@ export interface RatingHistoryEntry {
   overall_rating: number;
   recommended?: boolean | null;
   flag: RatingFlag;
+  strengths?: string | null;
+  areas_for_improvement?: string | null;
   submitted_at?: string | null;
 }
 

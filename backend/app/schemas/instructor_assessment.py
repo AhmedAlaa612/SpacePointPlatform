@@ -257,6 +257,8 @@ class RatingHistoryEntryOut(BaseModel):
     overall_rating: float
     recommended: bool | None
     flag: Literal["none", "exceptional", "concern"]
+    strengths: str | None
+    areas_for_improvement: str | None
     submitted_at: datetime | None
 
 
