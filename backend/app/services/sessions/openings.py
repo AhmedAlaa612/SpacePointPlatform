@@ -21,6 +21,7 @@ from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.instructor_interest import InstructorInterest
 from app.models.sessions.opening import SessionAddon, SessionOpening
 from app.models.sessions.program import Program
+from app.models.sessions.program_opening import ProgramOpening
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
 
@@ -224,7 +225,7 @@ async def set_openings(
         if await db.get(DeliveryRole, role_id) is None:
             raise HTTPException(404, detail="Delivery role not found")
 
-        slots = int(line.get("slots") or 1)
+        slots = int(line["slots"]) if line.get("slots") is not None else 1
         if slots < 1:
             raise HTTPException(400, detail="An opening needs at least one slot")
         taken = assigned_by_role.get(role_id, 0)
@@ -405,7 +406,7 @@ async def set_cohort_openings(
         role_id = line["role_id"]
         if await db.get(DeliveryRole, role_id) is None:
             raise HTTPException(404, detail="Delivery role not found")
-        slots = int(line.get("slots") or 1)
+        slots = int(line["slots"]) if line.get("slots") is not None else 1
         if slots < 1:
             raise HTTPException(400, detail="An opening needs at least one slot")
 
@@ -445,6 +446,93 @@ async def cohort_openings(db: AsyncSession, cohort_id: uuid.UUID) -> list[dict]:
         }
         for o, role in rows
     ]
+
+
+# ── program-level role template (2026-09) ───────────────────────────────────
+
+async def set_program_openings(
+    db: AsyncSession, *, program_id: uuid.UUID, lines: list[dict], actor_user_id: uuid.UUID
+) -> list[ProgramOpening]:
+    """Replace the whole template. Same no-assignments-to-orphan reasoning as
+    `set_cohort_openings` — nothing reads this at request time, so there is
+    nothing here for a change to break out from under."""
+    if await db.get(Program, program_id) is None:
+        raise HTTPException(404, detail="Program not found")
+
+    existing = {
+        o.role_id: o for o in (await db.execute(
+            select(ProgramOpening).where(ProgramOpening.program_id == program_id)
+        )).scalars().all()
+    }
+    wanted_role_ids = {line["role_id"] for line in lines}
+    for role_id, opening in list(existing.items()):
+        if role_id not in wanted_role_ids:
+            await db.delete(opening)
+
+    out = []
+    for line in lines:
+        role_id = line["role_id"]
+        if await db.get(DeliveryRole, role_id) is None:
+            raise HTTPException(404, detail="Delivery role not found")
+        slots = int(line["slots"]) if line.get("slots") is not None else 1
+        if slots < 1:
+            raise HTTPException(400, detail="An opening needs at least one slot")
+
+        opening = existing.get(role_id)
+        if opening is None:
+            opening = ProgramOpening(
+                id=uuid.uuid4(), program_id=program_id, role_id=role_id, created_by=actor_user_id,
+            )
+            db.add(opening)
+        opening.slots = slots
+        opening.amount_aed = line.get("amount_aed")
+        opening.notes = line.get("notes")
+        opening.responsibilities_override = line.get("responsibilities_override")
+        out.append(opening)
+
+    await db.flush()
+    return out
+
+
+async def program_openings(db: AsyncSession, program_id: uuid.UUID) -> list[dict]:
+    rows = (await db.execute(
+        select(ProgramOpening, DeliveryRole)
+        .join(DeliveryRole, DeliveryRole.id == ProgramOpening.role_id)
+        .where(ProgramOpening.program_id == program_id)
+        .order_by(DeliveryRole.sort_order)
+    )).all()
+    return [
+        {
+            "id": o.id, "program_id": o.program_id, "role_id": role.id, "role_name": role.name,
+            "slots": o.slots, "amount_aed": o.amount_aed, "notes": o.notes,
+            "role_default_rate_aed": role.default_rate_aed,
+            "responsibilities_override": o.responsibilities_override,
+            "role_description": role.description,
+        }
+        for o, role in rows
+    ]
+
+
+async def copy_program_openings_to_cohort(
+    db: AsyncSession, *, program_id: uuid.UUID, cohort_id: uuid.UUID, actor_user_id: uuid.UUID,
+) -> None:
+    """Seed a brand-new cohort's `CohortOpening` rows from its program's
+    template — once, at creation (`create_cohort`). Never called again for
+    this cohort: see `ProgramOpening`'s docstring for why this is a copy and
+    not a live fallback. A program with no template rows leaves the new
+    cohort exactly as it is today — nothing to copy, nothing changes."""
+    rows = (await db.execute(
+        select(ProgramOpening).where(ProgramOpening.program_id == program_id)
+    )).scalars().all()
+    for row in rows:
+        db.add(CohortOpening(
+            id=uuid.uuid4(), cohort_id=cohort_id, role_id=row.role_id,
+            slots=row.slots, amount_aed=row.amount_aed, notes=row.notes,
+            responsibilities_override=row.responsibilities_override,
+            created_by=actor_user_id,
+        ))
+    if rows:
+        await db.flush()
 
 
 async def set_openings_open(

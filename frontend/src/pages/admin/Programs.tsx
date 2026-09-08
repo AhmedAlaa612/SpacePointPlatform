@@ -1,9 +1,12 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Plus, Pencil, Trash2 } from "lucide-react"
+import { useNavigate } from "@tanstack/react-router"
+import { Plus, Pencil, Trash2, ListChecks } from "lucide-react"
 import type { Program, ProgramType, PricingModel, CompletionRuleType } from "@/types/sessions"
 import { getProgramsApi, createProgramApi, updateProgramApi, deleteProgramApi } from "@/api/sessions/programs"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
+import { ProgramRolesPanel } from "@/pages/admin/components/ProgramRolesPanel"
+import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 
 const PROGRAM_TYPES: ProgramType[] = ["workshop", "course", "info_session", "competition"]
 const PRICING_MODELS: PricingModel[] = ["paid", "free"]
@@ -30,9 +33,10 @@ const COMPLETION_RULE_LABEL: Record<CompletionRuleType, string> = {
 /* Programs page                                                       */
 /* ================================================================== */
 export default function Programs() {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [createOpen, setCreateOpen] = useState(false)
   const [editProgram, setEditProgram] = useState<Program | null>(null)
+  const [rolesProgram, setRolesProgram] = useState<Program | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   // The API refuses to delete a program that has cohorts (it would cascade
@@ -62,7 +66,7 @@ export default function Programs() {
           <p className="text-sm text-muted-foreground mt-0.5">Workshop/course/info-session templates that cohorts run against</p>
         </div>
         <button
-          onClick={() => setCreateOpen(true)}
+          onClick={() => navigate({ to: "/operations/programs/new" })}
           className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
         >
           <Plus size={14} /> New program
@@ -95,6 +99,13 @@ export default function Programs() {
             </div>
             <div className="flex items-center gap-1 flex-shrink-0 ml-3">
               <button
+                onClick={() => setRolesProgram(p)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title="Roles, checklist & materials"
+              >
+                <ListChecks size={14} />
+              </button>
+              <button
                 onClick={() => setEditProgram(p)}
                 className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                 title="Edit program"
@@ -123,18 +134,27 @@ export default function Programs() {
         )}
       </div>
 
-      {createOpen && (
-        <ProgramModal
-          onClose={() => setCreateOpen(false)}
-          onSuccess={() => { queryClient.invalidateQueries({ queryKey: ["sessions-programs"] }); setCreateOpen(false) }}
-        />
-      )}
       {editProgram && (
         <ProgramModal
           program={editProgram}
           onClose={() => setEditProgram(null)}
           onSuccess={() => { queryClient.invalidateQueries({ queryKey: ["sessions-programs"] }); setEditProgram(null) }}
         />
+      )}
+
+      {rolesProgram && (
+        <Modal
+          title={`Roles, checklist & materials — ${rolesProgram.name}`}
+          onClose={() => setRolesProgram(null)}
+          maxWidth="sm:max-w-3xl max-w-3xl"
+        >
+          <div className="flex flex-col gap-8">
+            <ProgramRolesPanel program={rolesProgram} />
+            <div className="pt-4 border-t border-border">
+              <MaterialsPanel owner={{ program_id: rolesProgram.id }} />
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )

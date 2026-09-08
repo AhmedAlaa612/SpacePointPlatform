@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { Link } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { Plus, Pencil, Trash2, Search, X } from "lucide-react"
 import type { Cohort, CohortStatus, CohortVisibility, Program } from "@/types/sessions"
 import { getProgramsApi } from "@/api/sessions/programs"
@@ -74,11 +74,11 @@ function groupOf(c: Cohort): CohortGroup {
 export default function Cohorts() {
   const queryClient = useQueryClient()
   const toast = useToast()
+  const navigate = useNavigate()
   const [programFilter, setProgramFilter] = useState("")
   const [statusFilter, setStatusFilter] = useState<CohortStatus | "">("")
   const [search, setSearch] = useState("")
   const [showPast, setShowPast] = useState(false)
-  const [createOpen, setCreateOpen] = useState(false)
   const [editCohort, setEditCohort] = useState<Cohort | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<Cohort | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -130,7 +130,7 @@ export default function Cohorts() {
         subtitle="Real runs of a program — dates, capacity, and the registration desk"
         action={
           <button
-            onClick={() => setCreateOpen(true)}
+            onClick={() => navigate({ to: "/operations/cohorts/new" })}
             className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors"
           >
             <Plus size={14} /> New cohort
@@ -211,13 +211,6 @@ export default function Cohorts() {
         </div>
       )}
 
-      {createOpen && (
-        <CohortModal
-          programs={programs}
-          onClose={() => setCreateOpen(false)}
-          onSuccess={() => { queryClient.invalidateQueries({ queryKey: ["sessions-cohorts"] }); setCreateOpen(false) }}
-        />
-      )}
       {editCohort && (
         <CohortModal
           programs={programs} cohort={editCohort}

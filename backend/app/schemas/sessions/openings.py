@@ -106,6 +106,25 @@ class CohortOpeningOut(BaseModel):
     role_description: str | None = None
 
 
+# ── program-level role template (2026-09) ───────────────────────────────────
+
+class ProgramOpeningOut(BaseModel):
+    """One-time seed for a new cohort's `CohortOpening` rows — see
+    `ProgramOpening`'s own docstring for why this isn't live-resolved the
+    way `CohortOpening` -> `SessionOpening` is."""
+
+    id: UUID
+    program_id: UUID
+    role_id: UUID
+    role_name: str
+    slots: int
+    amount_aed: Decimal | None = None
+    notes: str | None = None
+    role_default_rate_aed: Decimal | None = None
+    responsibilities_override: str | None = None
+    role_description: str | None = None
+
+
 # ── add-ons (§G-addons) ─────────────────────────────────────────────────────
 
 AddonSource = Literal["offer", "interest", "invite", "survey", "payment"]

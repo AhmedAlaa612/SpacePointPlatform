@@ -311,6 +311,78 @@ async def test_cohort_opening_round_trips_the_responsibilities_override(db):
     assert out[0]["responsibilities_override"] is None
 
 
+# ── program-level role template (2026-09) ───────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_copying_program_openings_seeds_a_new_cohorts_template(db):
+    """The one thing this table exists for: a new cohort starts with the
+    program's roles, copied once."""
+    ops = await _user(db, "operations")
+    role = await _role(db, "Lead", 1)
+    program, cohort, _s = await _chain(db)
+
+    await svc.set_program_openings(
+        db, program_id=program.id, actor_user_id=ops.id,
+        lines=[{
+            "role_id": role.id, "slots": 2, "amount_aed": Decimal("500"),
+            "notes": "bring a van", "responsibilities_override": "Runs the whole day",
+        }],
+    )
+
+    await svc.copy_program_openings_to_cohort(
+        db, program_id=program.id, cohort_id=cohort.id, actor_user_id=ops.id,
+    )
+
+    out = await svc.cohort_openings(db, cohort.id)
+    assert len(out) == 1
+    assert out[0]["role_id"] == role.id
+    assert out[0]["slots"] == 2
+    assert out[0]["amount_aed"] == Decimal("500")
+    assert out[0]["notes"] == "bring a van"
+    assert out[0]["responsibilities_override"] == "Runs the whole day"
+
+
+@pytest.mark.asyncio
+async def test_editing_the_program_template_never_reaches_a_cohort_that_already_copied_it(db):
+    """The deliberate difference from checklist/materials: this is a copy,
+    not a live fallback. A cohort's roles are its own from creation on."""
+    ops = await _user(db, "operations")
+    role = await _role(db, "Lead", 1)
+    program, cohort, _s = await _chain(db)
+
+    await svc.set_program_openings(
+        db, program_id=program.id, actor_user_id=ops.id,
+        lines=[{"role_id": role.id, "slots": 1, "amount_aed": Decimal("100")}],
+    )
+    await svc.copy_program_openings_to_cohort(
+        db, program_id=program.id, cohort_id=cohort.id, actor_user_id=ops.id,
+    )
+
+    # Now change the program's template after the copy already happened.
+    await svc.set_program_openings(
+        db, program_id=program.id, actor_user_id=ops.id,
+        lines=[{"role_id": role.id, "slots": 9, "amount_aed": Decimal("999")}],
+    )
+
+    out = await svc.cohort_openings(db, cohort.id)
+    assert out[0]["slots"] == 1
+    assert out[0]["amount_aed"] == Decimal("100")
+
+
+@pytest.mark.asyncio
+async def test_copying_an_empty_program_template_leaves_the_cohort_with_nothing(db):
+    """A program with no template rows changes nothing — a cohort behaves
+    exactly as it does today when nobody has set up openings anywhere."""
+    ops = await _user(db, "operations")
+    program, cohort, _s = await _chain(db)
+
+    await svc.copy_program_openings_to_cohort(
+        db, program_id=program.id, cohort_id=cohort.id, actor_user_id=ops.id,
+    )
+
+    assert await svc.cohort_openings(db, cohort.id) == []
+
+
 # ── §G-addons ───────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

@@ -57,6 +57,23 @@ export interface CohortOpening {
   role_description?: string | null
 }
 
+/** A program's default role template (2026-09) — what a new cohort's
+ *  CohortOpening rows are copied from once, at creation. Editing this
+ *  afterwards never reaches a cohort that already exists — see the backend
+ *  ProgramOpening model's docstring. Same shape as CohortOpening. */
+export interface ProgramOpening {
+  id: string
+  program_id: string
+  role_id: string
+  role_name: string
+  slots: number
+  amount_aed: string | number | null
+  notes: string | null
+  role_default_rate_aed?: number | null
+  responsibilities_override: string | null
+  role_description?: string | null
+}
+
 export type AddonSource = "offer" | "interest" | "invite" | "survey" | "payment"
 export type AddonStatus = "proposed" | "agreed" | "declined"
 
@@ -127,6 +144,22 @@ export const setCohortOpeningsApi = ({ cohortId, openings }: {
     responsibilities_override?: string | null
   }[]
 }) => api.put<CohortOpening[]>(`/sessions/cohorts/${cohortId}/openings-defaults`, { openings }).then((r) => r.data)
+
+/* ── program-level role template (2026-09) ───────────────────────────────── */
+
+export const getProgramOpeningsApi = (programId: string) =>
+  api.get<ProgramOpening[]>(`/sessions/programs/${programId}/openings-defaults`).then((r) => r.data)
+
+export const setProgramOpeningsApi = ({ programId, openings }: {
+  programId: string
+  openings: {
+    role_id: string
+    slots: number
+    amount_aed?: number | null
+    notes?: string | null
+    responsibilities_override?: string | null
+  }[]
+}) => api.put<ProgramOpening[]>(`/sessions/programs/${programId}/openings-defaults`, { openings }).then((r) => r.data)
 
 /* ── add-ons ───────────────────────────────────────────────────────────── */
 

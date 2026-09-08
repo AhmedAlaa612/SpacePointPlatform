@@ -7,16 +7,25 @@
  *  endpoint. Checklist is a separate bucket entirely — its own endpoint,
  *  its own save — because a role can have zero, one, or many items and
  *  editing it is a whole-list replace, not a single-row field.
+ *
+ *  `large` (2026-09) renders the same data with the Cohort Wizard's bigger,
+ *  collapsible-role-card visual language instead of the compact admin-table
+ *  one — the wizard's own look, ported from the approved design, without
+ *  changing how this panel looks on the plain cohort "Roles" tab that
+ *  doesn't pass it. Data fetching/saving is identical either way; only the
+ *  two render paths differ.
  */
-import { useEffect, useState } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ChevronDown, ChevronRight, ImageIcon, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, ChevronRight, ChevronUp, ImageIcon, Plus, Trash2 } from "lucide-react"
 import type { Cohort } from "@/types/sessions"
 import type { ChecklistItem } from "@/types/sessions"
 import { getDeliveryRolesApi, getCohortOpeningsApi, getOpeningsApi, setCohortOpeningsApi } from "@/api/sessions/openings"
-import { listChecklistItemsApi, setChecklistItemsApi } from "@/api/sessions/day"
+import { listChecklistItemsApi, setChecklistItemsApi, type ChecklistScope } from "@/api/sessions/day"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
+
+const OUTFIT = "'Outfit', ui-sans-serif, system-ui, sans-serif"
 
 type ChecklistDraftLine = {
   key: string
@@ -31,29 +40,30 @@ function toDraftLines(items: ChecklistItem[]): ChecklistDraftLine[] {
   }))
 }
 
+/** What a blank bucket falls back to, for the preview-before-you-override
+ *  display. `scope`/`ownerId` are the bucket actually being edited;
+ *  `programId` is only meaningful for `scope: "cohorts"` (a program sits
+ *  above a cohort in the chain — there's nothing above a program). */
 async function fetchFallbackChecklistItems(
-  cohortId: string,
+  scope: ChecklistScope,
+  ownerId: string,
   programId?: string,
   roleId?: string | null,
 ): Promise<ChecklistItem[]> {
   if (roleId) {
     try {
-      const cohortGeneral = await listChecklistItemsApi("cohorts", cohortId, null)
-      if (cohortGeneral.length > 0) return cohortGeneral
+      const sameLevelGeneral = await listChecklistItemsApi(scope, ownerId, null)
+      if (sameLevelGeneral.length > 0) return sameLevelGeneral
     } catch {}
+  }
 
-    if (programId) {
+  if (scope === "cohorts" && programId) {
+    if (roleId) {
       try {
         const progRole = await listChecklistItemsApi("programs", programId, roleId)
         if (progRole.length > 0) return progRole
       } catch {}
-
-      try {
-        const progGeneral = await listChecklistItemsApi("programs", programId, null)
-        if (progGeneral.length > 0) return progGeneral
-      } catch {}
     }
-  } else if (programId) {
     try {
       const progGeneral = await listChecklistItemsApi("programs", programId, null)
       if (progGeneral.length > 0) return progGeneral
@@ -62,23 +72,113 @@ async function fetchFallbackChecklistItems(
   return []
 }
 
-/** One checklist bucket's editor — general (roleId omitted) or one role's
- *  own list. Lazy: only fetches once expanded. */
-function ChecklistSection({
-  cohortId, programId, roleId, label, hint,
-}: { cohortId: string; programId?: string; roleId: string | null; label: string; hint: string }) {
+/** The data + mutation logic shared by both render sizes — nothing here
+ *  changes between compact and large, only how it's drawn. */
+function useRolesDraft(cohort: Cohort, sessionId?: string) {
   const qc = useQueryClient()
   const toast = useToast()
-  const [open, setOpen] = useState(false)
+  const [error, setError] = useState("")
+  const [draft, setDraft] = useState<RoleDraft[] | null>(null)
+
+  const { data: roles = [] } = useQuery({
+    queryKey: ["delivery-roles"],
+    queryFn: () => getDeliveryRolesApi(),
+  })
+  const { data: openings = [], isLoading } = useQuery({
+    queryKey: ["cohort-openings-defaults", cohort.id],
+    queryFn: () => getCohortOpeningsApi(cohort.id),
+  })
+  // Shares its cache with SessionOpeningsPanel (same query key) when scoped
+  // to a session — same reasoning as Reviews.tsx's shared "day-reviews" key.
+  const { data: sessionOpenings, isLoading: sessionLoading } = useQuery({
+    queryKey: ["session-openings", sessionId],
+    queryFn: () => getOpeningsApi(sessionId!),
+    enabled: !!sessionId,
+  })
+  const sessionRoleIds = sessionId ? new Set((sessionOpenings ?? []).map((o) => o.role_id)) : null
+  // A role that's only visible here because *this session* added it as a
+  // one-off — the cohort's own template (`openings`) has no row for it.
+  // Saving anything on its card must never create one: that would silently
+  // hand the role to every other session that's still inheriting the
+  // cohort template wholesale, turning a single session's extra into a
+  // cohort-wide default nobody asked for.
+  const cohortRoleIds = new Set(openings.map((o) => o.role_id))
+  const isSessionOnlyExtra = (roleId: string) =>
+    !!sessionRoleIds && sessionRoleIds.has(roleId) && !cohortRoleIds.has(roleId)
+
+  // Deliberately unfiltered by session — saving is a whole-cohort replace
+  // (setCohortOpeningsApi deletes any role not present in the payload), so
+  // the draft must carry every active role even when the render below only
+  // *shows* the ones this session offers. Filtering here would silently
+  // wipe out another session's role configuration on save.
+  const toDraft = () => roles
+    .filter((r) => r.is_active)
+    .map((r) => {
+      const o = openings.find((x) => x.role_id === r.id)
+      return {
+        role_id: r.id,
+        slots: o?.slots ?? 1,
+        amount_aed: o?.amount_aed != null ? String(o.amount_aed) : "",
+        notes: o?.notes ?? "",
+        responsibilities_override: o?.responsibilities_override ?? o?.role_description ?? r.description ?? "",
+        existing: o != null,
+      }
+    })
+
+  useEffect(() => {
+    if (roles.length && !isLoading && !sessionLoading) setDraft(toDraft())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roles, openings, isLoading, sessionOpenings, sessionLoading])
+
+  const save = useMutation({
+    mutationFn: () => setCohortOpeningsApi({
+      cohortId: cohort.id,
+      openings: (draft ?? [])
+        .filter((d) => !isSessionOnlyExtra(d.role_id))
+        .filter((d) => d.existing || d.amount_aed !== "" || d.notes || d.responsibilities_override || d.slots !== 1)
+        .map((d) => ({
+          role_id: d.role_id,
+          slots: d.slots,
+          amount_aed: d.amount_aed === "" ? null : Number(d.amount_aed),
+          notes: d.notes || null,
+          responsibilities_override: d.responsibilities_override || null,
+        })),
+    }),
+    onSuccess: () => {
+      toast.success("Roles saved")
+      setError("")
+      qc.invalidateQueries({ queryKey: ["cohort-openings-defaults", cohort.id] })
+    },
+    onError: (e: any) => setError(getErrorMessage(e, "Could not save roles")),
+  })
+
+  return {
+    roles, draft, setDraft, isLoading: isLoading || sessionLoading || draft === null,
+    sessionRoleIds, isSessionOnlyExtra, save, error, setError,
+  }
+}
+
+/** One checklist bucket's editor — general (roleId omitted) or one role's
+ *  own list, at any level (`scope`/`ownerId`: a cohort's own bucket, or —
+ *  reused as-is by `ProgramRolesPanel` — a program's). Lazy: only fetches
+ *  once expanded (or immediately, if `forceOpen` — the large layout's
+ *  always-visible "Daily checklist"). */
+export function ChecklistSection({
+  scope, ownerId, programId, roleId, label, hint, large = false, forceOpen = false,
+}: { scope: ChecklistScope; ownerId: string; programId?: string; roleId: string | null; label: string; hint: string; large?: boolean; forceOpen?: boolean }) {
+  const qc = useQueryClient()
+  const toast = useToast()
+  const [manualOpen, setManualOpen] = useState(false)
+  const open = forceOpen || manualOpen
   const [draft, setDraft] = useState<ChecklistDraftLine[] | null>(null)
   const [isInherited, setIsInherited] = useState(false)
   const [isLoadingFallback, setIsLoadingFallback] = useState(false)
   const [error, setError] = useState("")
 
-  const queryKey = ["checklist-items", "cohorts", cohortId, roleId ?? "general"]
+  const queryKey = ["checklist-items", scope, ownerId, roleId ?? "general"]
   const { data: items = [], isLoading } = useQuery({
     queryKey,
-    queryFn: () => listChecklistItemsApi("cohorts", cohortId, roleId),
+    queryFn: () => listChecklistItemsApi(scope, ownerId, roleId),
     enabled: open,
   })
 
@@ -90,7 +190,7 @@ function ChecklistSection({
       setIsInherited(false)
     } else {
       setIsLoadingFallback(true)
-      fetchFallbackChecklistItems(cohortId, programId, roleId)
+      fetchFallbackChecklistItems(scope, ownerId, programId, roleId)
         .then((fb) => {
           setDraft(toDraftLines(fb))
           setIsInherited(fb.length > 0)
@@ -101,11 +201,11 @@ function ChecklistSection({
         })
         .finally(() => setIsLoadingFallback(false))
     }
-  }, [open, isLoading, items, draft, cohortId, programId, roleId])
+  }, [open, isLoading, items, draft, scope, ownerId, programId, roleId])
 
   const save = useMutation({
     mutationFn: () => setChecklistItemsApi(
-      "cohorts", cohortId,
+      scope, ownerId,
       (draft ?? []).map((l, i) => ({
         title: l.title, requires_proof: l.requires_proof, is_required: l.is_required, sort_order: i + 1,
       })),
@@ -123,11 +223,98 @@ function ChecklistSection({
   const rows = draft ?? []
   const savedCount = open ? rows.length : undefined
 
+  if (large) {
+    return (
+      <div className="flex flex-col" style={{ gap: 16 }}>
+        {!forceOpen && (
+          <button type="button" onClick={() => setManualOpen((v) => !v)} className="flex items-center justify-between text-left">
+            <span style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em" }} className="flex items-center gap-2 text-muted-foreground">
+              {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />} {label}
+              {savedCount !== undefined && <span>&middot; {savedCount} item{savedCount === 1 ? "" : "s"}</span>}
+            </span>
+            <span style={{ fontSize: 14 }} className="text-muted-foreground">{hint}</span>
+          </button>
+        )}
+        {open && (
+          isLoading || isLoadingFallback || draft === null ? (
+            <p style={{ fontSize: 16 }} className="text-muted-foreground">Loading&hellip;</p>
+          ) : (
+            <div className="flex flex-col" style={{ gap: 12 }}>
+              {isInherited && rows.length > 0 && (
+                <p style={{ fontSize: 14 }} className="text-muted-foreground italic">
+                  Showing default inherited items. Edit and save to set a custom override for this cohort.
+                </p>
+              )}
+              {rows.length === 0 && (
+                <p style={{ fontSize: 15 }} className="text-muted-foreground">
+                  Nothing set here yet &mdash; falls back to {roleId ? "the general checklist" : "the level above"}.
+                </p>
+              )}
+              {rows.map((line, i) => (
+                <div key={line.key} style={{ padding: "18px 22px", borderRadius: 16 }} className="flex items-center gap-4 border border-border bg-card">
+                  <span style={{ fontSize: 17, flex: 1 }}>
+                    <input
+                      value={line.title}
+                      placeholder="Checklist item"
+                      onChange={(e) => setDraft(rows.map((r, j) => j === i ? { ...r, title: e.target.value } : r))}
+                      style={{ fontSize: 17, height: 40 }}
+                      className="w-full px-3 border border-border bg-background text-foreground rounded-xl focus:outline-none focus:border-primary transition-colors"
+                    />
+                  </span>
+                  <label className="flex items-center gap-1.5 text-muted-foreground cursor-pointer whitespace-nowrap" style={{ fontSize: 14 }}>
+                    <input
+                      type="checkbox"
+                      checked={line.is_required}
+                      onChange={(e) => setDraft(rows.map((r, j) => j === i ? { ...r, is_required: e.target.checked } : r))}
+                    />
+                    Required
+                  </label>
+                  <label className="flex items-center gap-1.5 text-muted-foreground cursor-pointer whitespace-nowrap" style={{ fontSize: 14 }}>
+                    <input
+                      type="checkbox"
+                      checked={line.requires_proof}
+                      onChange={(e) => setDraft(rows.map((r, j) => j === i ? { ...r, requires_proof: e.target.checked } : r))}
+                    />
+                    <ImageIcon size={14} /> Needs photo
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setDraft(rows.filter((_, j) => j !== i))}
+                    className="text-muted-foreground hover:text-red-600 transition-colors shrink-0"
+                    aria-label="Remove item"
+                  ><Trash2 size={16} /></button>
+                </div>
+              ))}
+              <div className="flex items-center" style={{ gap: 12, paddingTop: 4 }}>
+                <button
+                  type="button"
+                  onClick={() => setDraft([...rows, {
+                    key: `new-${Date.now()}-${rows.length}`, title: "", requires_proof: false, is_required: true,
+                  }])}
+                  style={{ height: 44, padding: "0 20px", borderRadius: 14, fontSize: 15, fontWeight: 500 }}
+                  className="flex items-center gap-2 text-muted-foreground hover:text-foreground hover:bg-muted border border-dashed border-border transition-colors"
+                ><Plus size={15} /> Add item</button>
+                <button
+                  type="button"
+                  onClick={() => { setError(""); save.mutate() }}
+                  disabled={save.isPending}
+                  style={{ height: 44, padding: "0 22px", borderRadius: 14, fontSize: 15, fontWeight: 600 }}
+                  className="bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity"
+                >{save.isPending ? "Saving…" : "Save checklist"}</button>
+              </div>
+              {error && <p style={{ fontSize: 14 }} className="text-red-600 dark:text-red-400">{error}</p>}
+            </div>
+          )
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="border border-dashed border-border rounded-lg">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setManualOpen((v) => !v)}
         className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left"
       >
         <span className="flex items-center gap-1.5 text-xs">
@@ -225,9 +412,13 @@ interface RoleDraft {
   amount_aed: string
   notes: string
   responsibilities_override: string
+  // Backed by a real CohortOpening row already — must always round-trip on
+  // save even if every field currently reads as a default, since dropping
+  // it here means set_cohort_openings deletes that row.
+  existing: boolean
 }
 
-export function CohortRolesPanel({ cohort, sessionId }: {
+export function CohortRolesPanel({ cohort, sessionId, large = false }: {
   cohort: Cohort
   /** Scopes the role list to what this one session actually offers (its own
    *  openings, inherited from the cohort template when it hasn't overridden
@@ -239,88 +430,24 @@ export function CohortRolesPanel({ cohort, sessionId }: {
    *  hasn't used yet) is the point — it's where defaults get set up ahead
    *  of time. */
   sessionId?: string
+  /** The Cohort Wizard's bigger, collapsible-card look instead of the
+   *  compact admin-table one. Same data, same saves — see file docstring. */
+  large?: boolean
 }) {
-  const qc = useQueryClient()
-  const toast = useToast()
-  const [error, setError] = useState("")
-  const [draft, setDraft] = useState<RoleDraft[] | null>(null)
-
-  const { data: roles = [] } = useQuery({
-    queryKey: ["delivery-roles"],
-    queryFn: () => getDeliveryRolesApi(),
-  })
-  const { data: openings = [], isLoading } = useQuery({
-    queryKey: ["cohort-openings-defaults", cohort.id],
-    queryFn: () => getCohortOpeningsApi(cohort.id),
-  })
-  // Shares its cache with SessionOpeningsPanel (same query key) when scoped
-  // to a session — same reasoning as Reviews.tsx's shared "day-reviews" key.
-  const { data: sessionOpenings, isLoading: sessionLoading } = useQuery({
-    queryKey: ["session-openings", sessionId],
-    queryFn: () => getOpeningsApi(sessionId!),
-    enabled: !!sessionId,
-  })
-  const sessionRoleIds = sessionId ? new Set((sessionOpenings ?? []).map((o) => o.role_id)) : null
-  // A role that's only visible here because *this session* added it as a
-  // one-off — the cohort's own template (`openings`) has no row for it.
-  // Saving anything on its card must never create one: that would silently
-  // hand the role to every other session that's still inheriting the
-  // cohort template wholesale, turning a single session's extra into a
-  // cohort-wide default nobody asked for.
-  const cohortRoleIds = new Set(openings.map((o) => o.role_id))
-  const isSessionOnlyExtra = (roleId: string) =>
-    !!sessionRoleIds && sessionRoleIds.has(roleId) && !cohortRoleIds.has(roleId)
-
-  // Deliberately unfiltered by session — saving is a whole-cohort replace
-  // (setCohortOpeningsApi deletes any role not present in the payload), so
-  // the draft must carry every active role even when the render below only
-  // *shows* the ones this session offers. Filtering here would silently
-  // wipe out another session's role configuration on save.
-  const toDraft = () => roles
-    .filter((r) => r.is_active)
-    .map((r) => {
-      const o = openings.find((x) => x.role_id === r.id)
-      return {
-        role_id: r.id,
-        slots: o?.slots ?? 1,
-        amount_aed: o?.amount_aed != null ? String(o.amount_aed) : "",
-        notes: o?.notes ?? "",
-        responsibilities_override: o?.responsibilities_override ?? o?.role_description ?? r.description ?? "",
-      }
-    })
-
-  useEffect(() => {
-    if (roles.length && !isLoading && !sessionLoading) setDraft(toDraft())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roles, openings, isLoading, sessionOpenings, sessionLoading])
-
-  const rows = draft ?? []
-
-  const save = useMutation({
-    mutationFn: () => setCohortOpeningsApi({
-      cohortId: cohort.id,
-      openings: rows
-        .filter((d) => !isSessionOnlyExtra(d.role_id))
-        .filter((d) => d.amount_aed !== "" || d.notes || d.responsibilities_override || d.slots !== 1)
-        .map((d) => ({
-          role_id: d.role_id,
-          slots: d.slots,
-          amount_aed: d.amount_aed === "" ? null : Number(d.amount_aed),
-          notes: d.notes || null,
-          responsibilities_override: d.responsibilities_override || null,
-        })),
-    }),
-    onSuccess: () => {
-      toast.success("Roles saved")
-      setError("")
-      qc.invalidateQueries({ queryKey: ["cohort-openings-defaults", cohort.id] })
-    },
-    onError: (e: any) => setError(getErrorMessage(e, "Could not save roles")),
-  })
-
-  if (isLoading || sessionLoading || draft === null) {
-    return <p className="text-xs text-muted-foreground py-1">Loading roles…</p>
+  const data = useRolesDraft(cohort, sessionId)
+  if (data.isLoading) {
+    return <p className={large ? "text-base text-muted-foreground py-1" : "text-xs text-muted-foreground py-1"}>Loading roles…</p>
   }
+  return large
+    ? <CohortRolesPanelLarge cohort={cohort} sessionId={sessionId} data={data} />
+    : <CohortRolesPanelCompact cohort={cohort} sessionId={sessionId} data={data} />
+}
+
+type RolesData = ReturnType<typeof useRolesDraft>
+
+function CohortRolesPanelCompact({ cohort, sessionId, data }: { cohort: Cohort; sessionId?: string; data: RolesData }) {
+  const { roles, draft, setDraft, sessionRoleIds, isSessionOnlyExtra, save, error, setError } = data
+  const rows = draft ?? []
 
   return (
     <div className="flex flex-col gap-4 py-1">
@@ -334,16 +461,12 @@ export function CohortRolesPanel({ cohort, sessionId }: {
       </div>
 
       <ChecklistSection
-        cohortId={cohort.id} programId={cohort.program_id} roleId={null} label="General checklist"
+        scope="cohorts" ownerId={cohort.id} programId={cohort.program_id} roleId={null} label="General checklist"
         hint="Applies to any role without its own list"
       />
 
       <div className="flex flex-col gap-3">
         {rows.map((d, i) => {
-          // `i` stays the true index into `rows` (the full, unfiltered
-          // draft) even though a session-scoped view skips rendering some
-          // of them — every onChange below writes back through that same
-          // index, so a hidden role's draft entry is never touched.
           if (sessionRoleIds && !sessionRoleIds.has(d.role_id)) return null
           const role = roles.find((r) => r.id === d.role_id)
           if (!role) return null
@@ -418,7 +541,7 @@ export function CohortRolesPanel({ cohort, sessionId }: {
               </label>
 
               <ChecklistSection
-                cohortId={cohort.id} programId={cohort.program_id} roleId={role.id} label={`${role.name} checklist`}
+                scope="cohorts" ownerId={cohort.id} programId={cohort.program_id} roleId={role.id} label={`${role.name} checklist`}
                 hint="Replaces the general checklist for this role"
               />
             </div>
@@ -437,6 +560,165 @@ export function CohortRolesPanel({ cohort, sessionId }: {
         </button>
       </div>
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  )
+}
+
+/** The wizard's collapsible-card look: a role shows just its name, blurb and
+ *  rate until you open "Rate, responsibilities & checklist" — matching the
+ *  approved design instead of showing every editable field at once. */
+function CohortRolesPanelLarge({ cohort, sessionId, data }: { cohort: Cohort; sessionId?: string; data: RolesData }) {
+  const { roles, draft, setDraft, sessionRoleIds, isSessionOnlyExtra, save, error, setError } = data
+  const [openRoleId, setOpenRoleId] = useState<string | null>(null)
+  const rows = draft ?? []
+  const label = (text: string): ReactNode => (
+    <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" }} className="text-muted-foreground">{text}</span>
+  )
+  const bigField: React.CSSProperties = { height: 48, padding: "0 16px", borderRadius: 14, fontSize: 17, width: "100%", boxSizing: "border-box" }
+
+  return (
+    <div className="flex flex-col" style={{ gap: 28 }}>
+      <div className="flex flex-col" style={{ gap: 20 }}>
+        <div className="flex items-baseline justify-between flex-wrap" style={{ gap: 16 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em" }} className="text-muted-foreground">Roles</span>
+          <span style={{ fontSize: 15 }} className="text-muted-foreground">
+            {sessionId ? "Turn a role off for this day on its own offer above." : "The cohort's default staffing. Every session inherits it."}
+          </span>
+        </div>
+
+        {rows.map((d, i) => {
+          if (sessionRoleIds && !sessionRoleIds.has(d.role_id)) return null
+          const role = roles.find((r) => r.id === d.role_id)
+          if (!role) return null
+
+          if (isSessionOnlyExtra(d.role_id)) {
+            return (
+              <div key={d.role_id} style={{ borderRadius: 18, padding: "24px 28px" }} className="border border-dashed border-border">
+                <span style={{ fontFamily: OUTFIT, fontSize: 22, fontWeight: 600 }} className="text-foreground">{role.name}</span>
+                <p style={{ fontSize: 16, marginTop: 8 }} className="text-muted-foreground">
+                  Added just for this session — its rate and slots are set on the session&rsquo;s own offer above.
+                  Add it on the cohort&rsquo;s own Roles step first if you want a shared responsibilities override or checklist for it.
+                </p>
+              </div>
+            )
+          }
+
+          const open = openRoleId === role.id
+          return (
+            <div key={d.role_id}
+              style={{ borderRadius: 18, padding: "24px 28px", boxShadow: "0 3px 0 hsl(var(--border)), 0 12px 24px -14px rgba(40,16,80,.28)" }}
+              className={open ? "flex flex-col border-[1.5px] border-primary bg-card" : "flex flex-col border border-border bg-card"}
+            >
+              <div className="flex items-start justify-between" style={{ gap: 24 }}>
+                <div className="flex flex-col" style={{ gap: 8, minWidth: 0 }}>
+                  <span style={{ fontFamily: OUTFIT, fontSize: 22, fontWeight: 600 }} className="text-foreground">{role.name}</span>
+                  <p style={{ fontSize: 16, textWrap: "pretty" }} className="text-muted-foreground m-0">
+                    {d.responsibilities_override || role.description || "No default text set for this role."}
+                  </p>
+                </div>
+                <div className="flex flex-col items-end shrink-0" style={{ gap: 6 }}>
+                  <span style={{ fontFamily: OUTFIT, fontSize: 24, fontWeight: 600, letterSpacing: "-0.02em" }} className="text-foreground tabular-nums">
+                    {d.amount_aed ? `AED ${d.amount_aed}` : role.default_rate_aed != null ? `AED ${role.default_rate_aed}` : "No rate set"}
+                  </span>
+                  <span style={{ fontSize: 14 }} className="text-muted-foreground">per session &middot; {d.slots} slot{d.slots === 1 ? "" : "s"}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between" style={{ gap: 16, paddingTop: 14, marginTop: 14, borderTop: "1px solid hsl(var(--border))" }}>
+                <span style={{ fontSize: 15 }} className="text-muted-foreground">
+                  {sessionId ? "Rate follows the cohort's Roles step." : "Applies to every session, unless one overrides it."}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setOpenRoleId(open ? null : role.id)}
+                  style={{ height: 38, padding: "0 14px", borderRadius: 12, fontSize: 15, fontWeight: 600 }}
+                  className="flex items-center gap-2 text-primary hover:bg-primary/10 transition-colors"
+                >
+                  Rate, responsibilities &amp; checklist {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </button>
+              </div>
+
+              {open && (
+                <div className="flex flex-col" style={{ gap: 20, paddingTop: 20, marginTop: 6, borderTop: "1px dashed hsl(var(--border))" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 16 }}>
+                    <label className="flex flex-col" style={{ gap: 8 }}>
+                      {label("Rate / session (AED)")}
+                      <input
+                        type="number" min={0}
+                        placeholder={role.default_rate_aed != null ? `Default: ${role.default_rate_aed}` : "No default set"}
+                        value={d.amount_aed}
+                        onChange={(e) => setDraft(rows.map((x, j) => j === i ? { ...x, amount_aed: e.target.value } : x))}
+                        style={{ ...bigField, fontFamily: OUTFIT, fontWeight: 600 }} className="border border-border bg-background text-foreground tabular-nums focus:outline-none focus:border-primary transition-colors"
+                      />
+                    </label>
+                    <label className="flex flex-col" style={{ gap: 8 }}>
+                      {label("Slots")}
+                      <input
+                        type="number" min={1}
+                        value={d.slots}
+                        onChange={(e) => setDraft(rows.map((x, j) =>
+                          j === i ? { ...x, slots: Math.max(1, Number(e.target.value) || 1) } : x))}
+                        style={{ ...bigField, fontFamily: OUTFIT, fontWeight: 600 }} className="border border-border bg-background text-foreground tabular-nums focus:outline-none focus:border-primary transition-colors"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="flex flex-col" style={{ gap: 8 }}>
+                    {label("Responsibilities override")}
+                    <textarea
+                      rows={3}
+                      placeholder={role.description ? `Default: ${role.description}` : "No default text set for this role"}
+                      value={d.responsibilities_override}
+                      onChange={(e) => setDraft(rows.map((x, j) =>
+                        j === i ? { ...x, responsibilities_override: e.target.value } : x))}
+                      style={{ padding: "14px 16px", borderRadius: 14, fontSize: 16, lineHeight: 1.55, width: "100%", boxSizing: "border-box" }}
+                      className="border border-border bg-background text-foreground resize-y focus:outline-none focus:border-primary transition-colors"
+                    />
+                    <span style={{ fontSize: 14 }} className="text-muted-foreground">Leave as-is to keep the program default.</span>
+                  </label>
+
+                  <label className="flex flex-col" style={{ gap: 8 }}>
+                    {label("Notes")}
+                    <input
+                      placeholder="Optional"
+                      value={d.notes}
+                      onChange={(e) => setDraft(rows.map((x, j) => j === i ? { ...x, notes: e.target.value } : x))}
+                      style={bigField} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors"
+                    />
+                  </label>
+
+                  <ChecklistSection
+                    scope="cohorts" ownerId={cohort.id} programId={cohort.program_id} roleId={role.id} label={`${role.name} checklist`}
+                    hint="Replaces the general checklist for this role" large
+                  />
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => { setError(""); save.mutate() }}
+            disabled={save.isPending}
+            style={{ height: 48, padding: "0 28px", borderRadius: 14, fontFamily: OUTFIT, fontSize: 16, fontWeight: 600 }}
+            className="bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-40 transition-opacity"
+          >{save.isPending ? "Saving…" : "Save roles"}</button>
+        </div>
+        {error && <p style={{ fontSize: 15 }} className="text-red-600 dark:text-red-400">{error}</p>}
+      </div>
+
+      <div className="flex flex-col" style={{ gap: 20 }}>
+        <div className="flex items-baseline justify-between" style={{ gap: 16 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.09em" }} className="text-muted-foreground">Daily checklist</span>
+          <span style={{ fontSize: 14 }} className="text-muted-foreground">Applies to any role without its own list</span>
+        </div>
+        <ChecklistSection
+          scope="cohorts" ownerId={cohort.id} programId={cohort.program_id} roleId={null} label="General checklist"
+          hint="Applies to any role without its own list" large forceOpen
+        />
+      </div>
     </div>
   )
 }
