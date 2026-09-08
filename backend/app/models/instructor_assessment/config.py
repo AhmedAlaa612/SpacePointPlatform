@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
@@ -26,6 +26,13 @@ class AssessmentConfig(Base):
     description = Column(Text, nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     is_active = Column(Boolean, nullable=False, default=True)
+    # How many questions an attempt draws, and the floor of those that must be
+    # critical-flagged — configurable per bank (2026-09) rather than the
+    # platform-wide constant this started as; these two numbers are also this
+    # module's defaults for a config that predates the column (see the
+    # matching migration's server_default).
+    draw_size = Column(Integer, nullable=False, default=15, server_default="15")
+    critical_floor = Column(Integer, nullable=False, default=3, server_default="3")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

@@ -21,14 +21,16 @@ import type {
 export const listAssessmentConfigsApi = () =>
   api.get<AssessmentConfig[]>("/instructor-assessment/admin/configs").then((r) => r.data);
 
-export const createAssessmentConfigApi = (data: { name: string; description?: string | null }) =>
-  api.post<AssessmentConfig>("/instructor-assessment/admin/configs", data).then((r) => r.data);
+export const createAssessmentConfigApi = (
+  data: { name: string; description?: string | null; draw_size?: number; critical_floor?: number },
+) => api.post<AssessmentConfig>("/instructor-assessment/admin/configs", data).then((r) => r.data);
 
 export const getAssessmentConfigApi = (configId: string) =>
   api.get<AssessmentConfigDetail>(`/instructor-assessment/admin/configs/${configId}`).then((r) => r.data);
 
 export const updateAssessmentConfigApi = (
-  configId: string, data: Partial<{ name: string; description: string | null; is_active: boolean }>,
+  configId: string,
+  data: Partial<{ name: string; description: string | null; is_active: boolean; draw_size: number; critical_floor: number }>,
 ) => api.patch<AssessmentConfig>(`/instructor-assessment/admin/configs/${configId}`, data).then((r) => r.data);
 
 export interface AssessmentQuestionInput {

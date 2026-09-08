@@ -72,12 +72,28 @@ class AssessmentQuestionImportOut(BaseModel):
 class AssessmentConfigCreate(BaseModel):
     name: str
     description: str | None = None
+    draw_size: int = Field(default=15, ge=1)
+    critical_floor: int = Field(default=3, ge=0)
+
+    @model_validator(mode="after")
+    def _validate_floor(self) -> "AssessmentConfigCreate":
+        if self.critical_floor > self.draw_size:
+            raise ValueError("critical_floor can't exceed draw_size")
+        return self
 
 
 class AssessmentConfigUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     is_active: bool | None = None
+    draw_size: int | None = Field(default=None, ge=1)
+    critical_floor: int | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _validate_floor(self) -> "AssessmentConfigUpdate":
+        if self.draw_size is not None and self.critical_floor is not None and self.critical_floor > self.draw_size:
+            raise ValueError("critical_floor can't exceed draw_size")
+        return self
 
 
 class AssessmentConfigOut(BaseModel):
@@ -86,6 +102,8 @@ class AssessmentConfigOut(BaseModel):
     description: str | None
     is_active: bool
     created_at: datetime | None
+    draw_size: int
+    critical_floor: int
     question_count: int
     category_counts: dict[str, int]
     critical_count: int

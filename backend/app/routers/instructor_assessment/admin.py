@@ -65,8 +65,8 @@ async def _config_out(db: AsyncSession, config: AssessmentConfig) -> AssessmentC
             critical_count += 1
     return AssessmentConfigOut(
         id=config.id, name=config.name, description=config.description, is_active=config.is_active,
-        created_at=config.created_at, question_count=len(rows),
-        category_counts=category_counts, critical_count=critical_count,
+        created_at=config.created_at, draw_size=config.draw_size, critical_floor=config.critical_floor,
+        question_count=len(rows), category_counts=category_counts, critical_count=critical_count,
     )
 
 
@@ -105,6 +105,11 @@ async def update_config(config_id: uuid.UUID, body: AssessmentConfigUpdate, db: 
     config = await _config_or_404(db, config_id)
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(config, field, value)
+    if config.critical_floor > config.draw_size:
+        # Body-level validation only catches this when both fields are sent
+        # together — a partial update changing just one needs the merged
+        # result checked against the row's other, unmentioned value.
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="critical_floor can't exceed draw_size")
     await db.commit()
     await db.refresh(config)
     return await _config_out(db, config)

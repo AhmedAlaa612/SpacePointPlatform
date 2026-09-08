@@ -112,6 +112,23 @@ async def test_draw_questions_errors_gracefully_when_bank_too_small(db):
     assert len(drawn) == 5  # fewer than DRAW_SIZE exist — draws everything available, doesn't crash
 
 
+@pytest.mark.asyncio
+async def test_draw_questions_respects_per_config_draw_size(db):
+    """draw_size/critical_floor are per-AssessmentConfig (2026-09), not the
+    module's DRAW_SIZE/CRITICAL_FLOOR constants — a config that opts into a
+    shorter quiz with a different critical mix must get exactly that."""
+    config = await _make_config_with_questions(db)
+    config.draw_size = 8
+    config.critical_floor = 2
+    await db.flush()
+
+    drawn = await attempts_svc.draw_questions(db, config.id)
+
+    assert len(drawn) == 8
+    assert len({q.id for q in drawn}) == 8
+    assert len([q for q in drawn if q.critical]) >= 2
+
+
 # ── get-or-create attempt semantics ──────────────────────────────────────
 
 @pytest.mark.asyncio

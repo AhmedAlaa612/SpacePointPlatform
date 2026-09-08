@@ -30,6 +30,8 @@ export interface AssessmentConfig {
   description?: string | null;
   is_active: boolean;
   created_at?: string | null;
+  draw_size: number;
+  critical_floor: number;
   question_count: number;
   category_counts: Record<string, number>;
   critical_count: number;
