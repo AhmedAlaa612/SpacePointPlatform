@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { AlertTriangle, CheckCircle2 } from "lucide-react"
@@ -80,18 +80,47 @@ function AlreadySubmittedNotice() {
   )
 }
 
+/** The set of 15 questions and their option order are pinned server-side —
+ *  a refresh never reshuffles them — but which ones you'd already answered
+ *  used to live only in this component's state, so a refresh sent you back
+ *  to question 1. Mirrored into localStorage (keyed by attemptId) so a
+ *  refresh resumes exactly where you left off; cleared once submitted. */
+function progressKey(attemptId: string) {
+  return `ia-attempt-progress:${attemptId}`
+}
+
 function QuestionFlow({ attemptId, questions, onFinished }: {
   attemptId: string
   questions: { question_id: string; category: string; prompt: string; options: string[]; critical: boolean }[]
   onFinished: () => void
 }) {
-  const [index, setIndex] = useState(0)
-  const [answers, setAnswers] = useState<Record<string, number | null>>({})
+  const [index, setIndex] = useState<number>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(progressKey(attemptId)) ?? "null") as { index?: number } | null
+      return Math.min(Math.max(saved?.index ?? 0, 0), questions.length - 1)
+    } catch { return 0 }
+  })
+  const [answers, setAnswers] = useState<Record<string, number | null>>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(progressKey(attemptId)) ?? "null") as
+        { answers?: Record<string, number | null> } | null
+      return saved?.answers ?? {}
+    } catch { return {} }
+  })
   const [result, setResult] = useState<AttemptResult | null>(null)
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(progressKey(attemptId), JSON.stringify({ index, answers }))
+    } catch { /* private browsing, quota, etc. — progress just won't survive a refresh */ }
+  }, [attemptId, index, answers])
 
   const submitMutation = useMutation({
     mutationFn: () => submitAssessmentAttemptApi(attemptId, answers),
-    onSuccess: setResult,
+    onSuccess: (data) => {
+      try { localStorage.removeItem(progressKey(attemptId)) } catch { /* nothing to clean up then */ }
+      setResult(data)
+    },
   })
 
   if (result) return <Results result={result} onDone={onFinished} />
@@ -160,14 +189,14 @@ function QuestionFlow({ attemptId, questions, onFinished }: {
 function Results({ result, onDone }: { result: AttemptResult; onDone: () => void }) {
   const pct = result.total ? Math.round(((result.score ?? 0) / result.total) * 100) : 0
   return (
-    <div className="max-w-lg mx-auto flex flex-col items-center gap-6 py-10 text-center">
-      <div>
+    <div className="max-w-lg mx-auto flex flex-col items-center gap-6 py-10">
+      <div className="text-center">
         <p className="text-xs uppercase tracking-wide text-muted-foreground">Assessment complete</p>
         <p className="font-display text-5xl font-bold mt-2">{result.score} / {result.total}</p>
         <p className="text-sm font-mono text-muted-foreground mt-1">{pct}%</p>
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="text-xs text-muted-foreground text-center">
         This score contributes to your Instructor Priority Score for this opportunity.
       </p>
 
@@ -177,6 +206,71 @@ function Results({ result, onDone }: { result: AttemptResult; onDone: () => void
       >
         Return to Available Sessions
       </button>
+
+      {result.questions.length > 0 && (
+        <div className="w-full flex flex-col gap-3 pt-4 border-t border-border">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Review your answers</p>
+          {result.questions.map((q, i) => (
+            <div
+              key={q.question_id}
+              className={`rounded-2xl border p-4 flex flex-col gap-2 text-left ${
+                q.is_correct ? "border-border bg-card" : "border-red-500/30 bg-red-500/5"
+              }`}
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-mono text-muted-foreground">Q{i + 1}</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-border text-muted-foreground">
+                  {q.category}
+                </span>
+                {q.is_correct ? (
+                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 size={10} /> Correct
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-500 text-white">
+                    Incorrect
+                  </span>
+                )}
+              </div>
+
+              <p className="text-sm font-medium leading-snug">{q.prompt}</p>
+              {q.selected_index === null && (
+                <p className="text-xs text-muted-foreground italic">You didn't answer this one.</p>
+              )}
+
+              <div className="flex flex-col gap-1">
+                {q.options.map((text, oi) => {
+                  const isSelected = q.selected_index === oi
+                  const isCorrectOption = q.correct_index === oi
+                  return (
+                    <div
+                      key={oi}
+                      className={`px-3 py-1.5 rounded-lg text-xs flex items-center gap-2 ${
+                        isCorrectOption
+                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
+                          : isSelected
+                          ? "bg-red-500/10 text-red-700 dark:text-red-400"
+                          : "text-muted-foreground"
+                      }`}
+                    >
+                      <span className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-semibold shrink-0 bg-muted">
+                        {String.fromCharCode(65 + oi)}
+                      </span>
+                      <span className="flex-1">{text}</span>
+                      {isCorrectOption && <span className="text-[10px] shrink-0">Correct answer</span>}
+                      {isSelected && !isCorrectOption && <span className="text-[10px] shrink-0">Your answer</span>}
+                    </div>
+                  )
+                })}
+              </div>
+
+              {q.rationale && (
+                <p className="text-xs text-muted-foreground border-t border-border pt-2 mt-1">{q.rationale}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -153,6 +153,20 @@ class AttemptAnswerIn(BaseModel):
     answers: dict[str, int | None]
 
 
+class AttemptQuestionReviewOut(BaseModel):
+    """Revealed only after the whole attempt is submitted — see
+    `services/instructor_assessment/attempts.py::get_attempt_review`."""
+    question_id: UUID
+    category: str
+    prompt: str
+    options: list[str]
+    selected_index: int | None
+    correct_index: int
+    is_correct: bool
+    critical: bool
+    rationale: str | None
+
+
 class AttemptResultOut(BaseModel):
     id: UUID
     status: Literal["in_progress", "submitted"]
@@ -162,6 +176,7 @@ class AttemptResultOut(BaseModel):
     critical_total: int | None
     category_breakdown: dict[str, dict[str, int]] | None
     submitted_at: datetime | None
+    questions: list[AttemptQuestionReviewOut]
 
 
 # ── post-program rating ─────────────────────────────────────────────────

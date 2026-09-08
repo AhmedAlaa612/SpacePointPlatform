@@ -265,3 +265,42 @@ async def submit_attempt(db: AsyncSession, attempt: AssessmentAttempt, answers: 
     attempt.submitted_at = datetime.now(timezone.utc)
     await db.flush()
     return attempt
+
+
+async def get_attempt_review(db: AsyncSession, attempt: AssessmentAttempt) -> list[dict]:
+    """Per-question review — correct answer + rationale revealed alongside
+    each question. Only ever call this on an already-`submitted` attempt: it
+    reads the persisted `AssessmentAnswer` rows for grading, and calling it
+    mid-attempt would hand the instructor the correct answers to questions
+    they haven't answered yet (the whole reason this isn't shown live during
+    the quiz — one wrong pick shouldn't tip off the next 14)."""
+    question_ids = [uuid.UUID(o["question_id"]) for o in attempt.question_order]
+    rows = (await db.execute(
+        select(AssessmentQuestion).where(AssessmentQuestion.id.in_(question_ids))
+    )).scalars().all()
+    by_id = {q.id: q for q in rows}
+
+    answers = (await db.execute(
+        select(AssessmentAnswer).where(AssessmentAnswer.attempt_id == attempt.id)
+    )).scalars().all()
+    answers_by_qid = {a.question_id: a for a in answers}
+
+    out = []
+    for entry in attempt.question_order:
+        qid = uuid.UUID(entry["question_id"])
+        q = by_id.get(qid)
+        option_order: list[int] = entry["option_order"]
+        if q is None or max(option_order, default=-1) >= len(q.options):
+            continue  # same skip as get_attempt_questions/submit_attempt — shape changed since the draw
+        answer = answers_by_qid.get(qid)
+        correct_original_index = next(i for i, o in enumerate(q.options) if o.get("is_correct"))
+        out.append({
+            "question_id": q.id, "category": q.category, "prompt": q.prompt,
+            "options": [q.options[i]["text"] for i in option_order],
+            "selected_index": option_order.index(answer.selected_option_index)
+            if answer and answer.selected_option_index is not None else None,
+            "correct_index": option_order.index(correct_original_index),
+            "is_correct": bool(answer and answer.is_correct),
+            "critical": q.critical, "rationale": q.rationale,
+        })
+    return out

@@ -14,9 +14,16 @@ from app.core.dependencies import require_instructor_or_facilitator
 from app.db.session import get_db
 from app.models.instructor_assessment.attempt import AssessmentAttempt
 from app.models.user import User
-from app.schemas.instructor_assessment import AttemptAnswerIn, AttemptOut, AttemptQuestionOut, AttemptResultOut
+from app.schemas.instructor_assessment import (
+    AttemptAnswerIn,
+    AttemptOut,
+    AttemptQuestionOut,
+    AttemptQuestionReviewOut,
+    AttemptResultOut,
+)
 from app.services.instructor_assessment.attempts import (
     get_attempt_questions,
+    get_attempt_review,
     get_own_attempt,
     start_attempt,
     submit_attempt,
@@ -85,8 +92,10 @@ async def submit(
         attempt = await _attempt_or_404(db, attempt_id, current)
         if attempt.status != "submitted":
             raise HTTPException(status.HTTP_409_CONFLICT, detail="This attempt is already submitted") from None
+    review = await get_attempt_review(db, attempt)
     return AttemptResultOut(
         id=attempt.id, status=attempt.status, score=attempt.score, total=attempt.total,
         critical_correct=attempt.critical_correct, critical_total=attempt.critical_total,
         category_breakdown=attempt.category_breakdown, submitted_at=attempt.submitted_at,
+        questions=[AttemptQuestionReviewOut(**q) for q in review],
     )

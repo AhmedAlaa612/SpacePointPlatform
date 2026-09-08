@@ -69,6 +69,20 @@ export interface Attempt {
   questions: AttemptQuestion[];
 }
 
+// Revealed only after the whole attempt is submitted — see the backend's
+// get_attempt_review docstring for why this never shows up mid-quiz.
+export interface AttemptQuestionReview {
+  question_id: string;
+  category: string;
+  prompt: string;
+  options: string[];
+  selected_index: number | null;
+  correct_index: number;
+  is_correct: boolean;
+  critical: boolean;
+  rationale?: string | null;
+}
+
 export interface AttemptResult {
   id: string;
   status: "in_progress" | "submitted";
@@ -78,6 +92,7 @@ export interface AttemptResult {
   critical_total: number | null;
   category_breakdown: Record<string, { correct: number; total: number }> | null;
   submitted_at?: string | null;
+  questions: AttemptQuestionReview[];
 }
 
 // ── post-program rating ─────────────────────────────────────────────────
