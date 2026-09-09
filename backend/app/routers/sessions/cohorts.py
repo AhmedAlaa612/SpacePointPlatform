@@ -661,7 +661,7 @@ async def assign_instructor(
     # instructor finds out regardless of which path put them on the session.
     if is_new_assignment:
         cohort = await db.get(Cohort, cohort_id)
-        location = await staffing_svc.resolve_session_location_display(db, session, cohort)
+        location = await resolve_session_location_display(db, session, cohort)
         where = f" at {location['name']}" if location["name"] else ""
         if location["address"]:
             where += f", {location['address']}"
