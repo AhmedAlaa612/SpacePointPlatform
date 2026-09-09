@@ -4,7 +4,7 @@ import { isAxiosError } from "axios"
 import { ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Clock, Download, Pencil, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
-import { ConfirmDialog } from "@/pages/admin/components/common"
+import { ConfirmDialog, Modal } from "@/pages/admin/components/common"
 import {
   addCohortQuizTemplateQuestionApi, createCohortQuizQuestionApi, createCohortQuizTemplateApi,
   downloadCohortQuizQuestionTemplateApi, generateCohortQuizTemplateQuestionsApi, getCohortQuizTemplateApi,
@@ -241,58 +241,92 @@ function QuestionForm({
     }
   }
 
-  const inputCls = "w-full h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
+  const inputCls = "w-full h-10 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
 
   return (
-    <div className="flex flex-col gap-2.5 p-4 border border-primary/30 bg-primary/5 rounded-xl">
-      <div className="flex gap-2.5">
-        <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Topic (e.g. EPS)" className={inputCls} />
-        <input value={subtopic} onChange={(e) => setSubtopic(e.target.value)} placeholder="Subtopic (optional)" className={inputCls} />
-      </div>
-      <div className="flex gap-2.5">
-        <select value={difficulty} onChange={(e) => setDifficulty(e.target.value as CohortQuizDifficulty)} className={`${inputCls} cursor-pointer`}>
-          {DIFFICULTIES.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
-        <input
-          type="number" min={1} value={timeLimitSeconds} onChange={(e) => setTimeLimitSeconds(Number(e.target.value) || 15)}
-          placeholder="Time limit (sec)" className={inputCls}
-        />
-      </div>
-      <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Question prompt" rows={2} className={`${inputCls} h-auto py-2 resize-none`} />
-      <div className="flex flex-col gap-1.5">
-        <label className="text-[11px] font-medium text-muted-foreground">Options — pick the correct one</label>
-        {options.map((o, i) => (
-          <div key={i} className="flex items-center gap-2">
-            <input type="radio" checked={o.is_correct} onChange={() => setCorrect(i)} />
-            <input value={o.text} onChange={(e) => setOptionText(i, e.target.value)} placeholder={`Option ${String.fromCharCode(65 + i)}`} className={inputCls} />
-            {options.length > 2 && (
-              <button onClick={() => setOptions((prev) => prev.filter((_, idx) => idx !== i))} className="p-1 text-muted-foreground hover:text-red-600">
-                <X size={14} />
-              </button>
-            )}
+    <Modal
+      title={initial ? "Edit Question" : "New Question"}
+      onClose={onCancel}
+      maxWidth="sm:max-w-xl max-w-xl"
+    >
+      <div className="flex flex-col gap-3.5 pt-1">
+        <div className="flex gap-2.5">
+          <div className="flex-1 flex flex-col gap-1">
+            <label className="text-xs font-semibold text-foreground">Topic</label>
+            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. EPS" className={inputCls} />
           </div>
-        ))}
-        {options.length < 4 && (
-          <button
-            onClick={() => setOptions((prev) => [...prev, { text: "", is_correct: false }])}
-            className="text-xs text-primary hover:underline w-fit"
-          >
-            + Add option
-          </button>
-        )}
+          <div className="flex-1 flex flex-col gap-1">
+            <label className="text-xs font-semibold text-foreground">Subtopic (optional)</label>
+            <input value={subtopic} onChange={(e) => setSubtopic(e.target.value)} placeholder="e.g. Solar panels" className={inputCls} />
+          </div>
+        </div>
+
+        <div className="flex gap-2.5">
+          <div className="flex-1 flex flex-col gap-1">
+            <label className="text-xs font-semibold text-foreground">Difficulty</label>
+            <select value={difficulty} onChange={(e) => setDifficulty(e.target.value as CohortQuizDifficulty)} className={`${inputCls} cursor-pointer`}>
+              {DIFFICULTIES.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </div>
+          <div className="flex-1 flex flex-col gap-1">
+            <label className="text-xs font-semibold text-foreground">Time limit (seconds)</label>
+            <input
+              type="number" min={1} value={timeLimitSeconds} onChange={(e) => setTimeLimitSeconds(Number(e.target.value) || 15)}
+              placeholder="15" className={inputCls}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold text-foreground">Question Prompt</label>
+          <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Type the question prompt here…" rows={3} className={`${inputCls} h-auto py-2.5 resize-none`} />
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label className="text-xs font-semibold text-foreground">Options (select radio for correct answer)</label>
+          {options.map((o, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                type="radio" name="correct-option" checked={o.is_correct} onChange={() => setCorrect(i)}
+                className="w-4 h-4 text-primary cursor-pointer shrink-0" title="Mark as correct answer"
+              />
+              <span className="text-xs font-bold text-muted-foreground w-4 shrink-0">{String.fromCharCode(65 + i)}</span>
+              <input value={o.text} onChange={(e) => setOptionText(i, e.target.value)} placeholder={`Option ${String.fromCharCode(65 + i)} text`} className={inputCls} />
+              {options.length > 2 && (
+                <button onClick={() => setOptions((prev) => prev.filter((_, idx) => idx !== i))} className="p-2 text-muted-foreground hover:text-red-600 rounded-lg hover:bg-muted transition-colors shrink-0">
+                  <X size={15} />
+                </button>
+              )}
+            </div>
+          ))}
+          {options.length < 4 && (
+            <button
+              onClick={() => setOptions((prev) => [...prev, { text: "", is_correct: false }])}
+              className="text-xs font-semibold text-primary hover:underline w-fit mt-0.5"
+            >
+              + Add option
+            </button>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-semibold text-foreground">Explanation (optional)</label>
+          <textarea
+            value={explanation} onChange={(e) => setExplanation(e.target.value)} placeholder="Explanation shown to students after submitting their answer…"
+            rows={2} className={`${inputCls} h-auto py-2 resize-none`}
+          />
+        </div>
+
+        {error && <p className="text-xs font-medium text-destructive">{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-3 border-t border-border mt-1">
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          <Button onClick={() => void save()} disabled={saving}>
+            {saving ? "Saving…" : initial ? "Save changes" : "Create question"}
+          </Button>
+        </div>
       </div>
-      <textarea
-        value={explanation} onChange={(e) => setExplanation(e.target.value)} placeholder="Explanation (optional, shown after submit)"
-        rows={2} className={`${inputCls} h-auto py-2 resize-none`}
-      />
-      {error && <p className="text-xs text-destructive">{error}</p>}
-      <div className="flex gap-2">
-        <Button onClick={() => void save()} disabled={saving}>
-          {saving ? "Saving…" : initial ? "Save changes" : "Save question"}
-        </Button>
-        <Button variant="outline" onClick={onCancel}>Cancel</Button>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
