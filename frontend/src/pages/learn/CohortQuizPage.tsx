@@ -160,7 +160,7 @@ export default function CohortQuizPage() {
 
   if (attemptErrored) {
     return (
-      <div className="mx-auto max-w-[420px] px-5 py-16 flex flex-col items-center gap-4 text-center">
+      <div className="mx-auto max-w-xl px-5 py-16 flex flex-col items-center gap-4 text-center">
         <p className="text-sm text-muted-foreground">{errorDetail(attemptError, "Couldn't load this quiz.")}</p>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => void refetchAttempt()}>Try again</Button>
@@ -178,7 +178,7 @@ export default function CohortQuizPage() {
     if (resultLoading && !resultData) return <div className="p-8"><Spinner /></div>
     if (!resultData) return null
     return (
-      <div className="mx-auto max-w-[560px] px-5 py-8 flex flex-col gap-6">
+      <div className="mx-auto max-w-3xl lg:max-w-4xl px-5 py-8 flex flex-col gap-6">
         <div className="flex flex-col items-center gap-2 text-center">
           <Trophy className="size-9 text-primary" />
           <h1 className="font-display text-2xl font-extrabold">Quiz complete!</h1>
@@ -263,7 +263,7 @@ export default function CohortQuizPage() {
   if (!question) return null
 
   return (
-    <div className="mx-auto max-w-[560px] px-5 py-8 flex flex-col gap-6">
+    <div className="mx-auto max-w-3xl lg:max-w-4xl px-5 py-8 flex flex-col gap-6">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
           Question {index + 1} of {attempt.questions.length}
@@ -275,7 +275,7 @@ export default function CohortQuizPage() {
           />
         )}
       </div>
-      <h1 className="font-display text-xl font-bold leading-snug">{question.prompt}</h1>
+      <h1 className="font-display text-xl sm:text-2xl font-bold leading-snug">{question.prompt}</h1>
       <div className="grid grid-cols-1 gap-3">
         {question.options.map((text, i) => {
           const isMine = selected === i
@@ -284,14 +284,14 @@ export default function CohortQuizPage() {
               key={i}
               onClick={() => recordAnswer(i, false)}
               disabled={locked}
-              className={`h-16 px-5 rounded-2xl border-2 text-left text-base font-semibold text-foreground transition-all flex items-center gap-3 ${
+              className={`min-h-[64px] py-3.5 px-5 rounded-2xl border-2 text-left text-base font-semibold text-foreground transition-all flex items-center gap-4 ${
                 isMine ? "border-primary bg-primary/10" : "border-border bg-card"
               } ${!locked ? "hover:border-primary/50 active:scale-[0.98]" : "disabled:opacity-60"}`}
             >
-              <span className="w-7 h-7 flex-none flex items-center justify-center rounded-lg border-2 border-current text-xs">
+              <span className="w-8 h-8 flex-none flex items-center justify-center rounded-xl border-2 border-current text-sm font-extrabold">
                 {String.fromCharCode(65 + i)}
               </span>
-              <span className="flex-1">{text}</span>
+              <span className="flex-1 text-base leading-snug">{text}</span>
             </button>
           )
         })}
