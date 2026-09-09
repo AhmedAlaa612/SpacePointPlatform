@@ -153,7 +153,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     if (activeRole === "instructor") {
       return [
         mk("Programs", "/lms-authoring/curriculum"),
-        mk("Back", "/instructors/dashboard"),
+        mk("Instructors", "/instructors/dashboard"),
       ];
     }
     return [
