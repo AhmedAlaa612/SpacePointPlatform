@@ -301,6 +301,7 @@ async def course_detail(
                 locked=row["locked"],
                 mandatory_total=row["mandatory_total"],
                 mandatory_completed=row["mandatory_completed"],
+                total_items=row.get("total_items", 0),
             )
             for row in locks
         ],

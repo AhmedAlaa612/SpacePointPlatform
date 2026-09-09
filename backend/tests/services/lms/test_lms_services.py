@@ -476,6 +476,41 @@ async def test_course_completion_is_derived_from_all_modules(db):
     assert result["completed"] is True
 
 
+@pytest.mark.asyncio
+async def test_empty_module_is_not_completed(db):
+    course = await _course(db)
+    m1 = await _module(db, course, position=1)
+    m2 = await _module(db, course, position=2)
+    item = await _item(db, m1, position=1, kind="text", content={"body": "Hello"})
+    student = await _user(db)
+
+    await item_progress(db, user_id=student.id, item_id=item.id, action="text-viewed")
+
+    result = await course_completion(db, user_id=student.id, course_id=course.id)
+    assert result["modules"][0]["completed"] is True
+    assert result["modules"][0]["total_items"] == 1
+    assert result["modules"][1]["completed"] is False
+    assert result["modules"][1]["total_items"] == 0
+    assert result["completed"] is False
+
+    batch = await batch_course_completion(db, user_ids=[student.id], course_id=course.id)
+    assert batch[student.id]["modules_done"] == 1
+    assert batch[student.id]["modules_total"] == 2
+    assert batch[student.id]["pct"] == 50
+
+    # Once m2 has content (even purely optional), it becomes complete
+    await _item(db, m2, position=1, kind="text", is_required=False, content={"body": "Bonus"})
+    result = await course_completion(db, user_id=student.id, course_id=course.id)
+    assert result["modules"][1]["completed"] is True
+    assert result["modules"][1]["total_items"] == 1
+    assert result["completed"] is True
+
+    batch = await batch_course_completion(db, user_ids=[student.id], course_id=course.id)
+    assert batch[student.id]["modules_done"] == 2
+    assert batch[student.id]["modules_total"] == 2
+    assert batch[student.id]["pct"] == 100
+
+
 # ── batch_course_completion: same rule, one call for many students (7B-1) ──
 
 @pytest.mark.asyncio

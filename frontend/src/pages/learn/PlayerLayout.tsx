@@ -87,7 +87,8 @@ export function PlayerLayout({
           <div className="flex flex-col">
             {course.modules.map((module) => {
               const items = (modulesData[module.module_id] ?? previewData[module.module_id])?.items ?? [];
-              const done = module.mandatory_total > 0 && module.mandatory_completed >= module.mandatory_total;
+              const hasItems = (module.total_items ?? (items.length > 0 ? items.length : module.mandatory_total > 0 ? 1 : 0)) > 0;
+              const done = hasItems && (module.mandatory_total === 0 || module.mandatory_completed >= module.mandatory_total);
               const isOpen = openModuleId === module.module_id;
               const isPreviewLoading = previewLoadingId === module.module_id;
               return (
