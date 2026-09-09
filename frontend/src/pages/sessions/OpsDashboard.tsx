@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { BookOpen, CalendarDays, DollarSign, GraduationCap, Target, TrendingUp, Users } from "lucide-react"
+import { BookOpen, CalendarDays, GraduationCap, Target, TrendingUp, Users } from "lucide-react"
 import { getOpsDashboardApi, type OpsDashboardData } from "@/api/sessions/dashboard"
 import { Card, CardContent } from "@/components/ui/card"
 import { PageHeader, Spinner } from "@/pages/instructors/components/common"
@@ -15,7 +15,7 @@ interface KpiCardProps {
 
 function KpiCard({ label, value, icon, trend, to }: KpiCardProps) {
   const card = (
-    <Card className={`transition-all shadow-sm ${to ? "hover:border-primary/50 cursor-pointer" : "hover:border-primary/30"}`}>
+    <Card className={`h-full transition-all shadow-sm ${to ? "hover:border-primary/50 cursor-pointer" : "hover:border-primary/30"}`}>
       <CardContent className="p-5 flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{label}</p>
@@ -28,10 +28,7 @@ function KpiCard({ label, value, icon, trend, to }: KpiCardProps) {
       </CardContent>
     </Card>
   )
-  // Every KPI that has somewhere sensible to go now goes there (2026-08-02) —
-  // the dashboard used to be a wall of numbers with nothing clickable, so
-  // "Open Staffing Calls: 3" left you to go find those three yourself.
-  return to ? <Link to={to}>{card}</Link> : card
+  return to ? <Link to={to} className="block h-full">{card}</Link> : card
 }
 
 interface KpiDef {
@@ -71,13 +68,6 @@ const KPI_DEFINITIONS: KpiDef[] = [
     format: (v) => `${(Number(v) * 100).toFixed(1)}%`,
   },
   {
-    key: "unpaid_count",
-    label: "Unpaid Registrations",
-    icon: <DollarSign size={20} />,
-    format: (v) => `${v}`,
-    trend: (data) => `Total: AED ${data.unpaid_sum}`,
-  },
-  {
     key: "registrations_7d",
     label: "New Registrations (7d)",
     icon: <Users size={20} />,
@@ -110,16 +100,17 @@ export default function OpsDashboard() {
       ) : isError || !data ? (
         <p className="mt-12 text-sm text-destructive">Could not load dashboard data. {error instanceof Error ? error.message : ""}</p>
       ) : (
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="mt-6 flex flex-wrap justify-center gap-4">
           {KPI_DEFINITIONS.map((def) => (
-            <KpiCard
-              key={def.key}
-              label={def.label}
-              value={def.format(data[def.key])}
-              icon={def.icon}
-              trend={def.trend ? def.trend(data) : undefined}
-              to={def.to}
-            />
+            <div key={def.key} className="w-full sm:w-[calc(50%-0.5rem)] lg:w-[calc(33.333%-0.75rem)] xl:w-[calc(25%-0.75rem)]">
+              <KpiCard
+                label={def.label}
+                value={def.format(data[def.key])}
+                icon={def.icon}
+                trend={def.trend ? def.trend(data) : undefined}
+                to={def.to}
+              />
+            </div>
           ))}
         </div>
       )}
