@@ -19,6 +19,14 @@ function errorDetail(err: unknown, fallback: string): string {
   return fallback
 }
 
+function formatDurationMinSec(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes === 0) return `${seconds}s`
+  if (seconds === 0) return `${minutes}m`
+  return `${minutes}m ${seconds}s`
+}
+
 const DIFFICULTIES: CohortQuizDifficulty[] = ["Easy", "Medium", "Hard"]
 
 /** Facilitator authoring for the cohort knowledge quiz (2026-09) — the
@@ -458,10 +466,50 @@ function TemplateDetail({ templateId }: { templateId: string }) {
 
   if (isLoading || !template) return <Spinner />
 
+  // Stats over the template's active questions — everything they need
+  // (topic, difficulty, time_limit_seconds) already comes back on
+  // `template.questions`, so this is a pure client-side derivation, no
+  // extra endpoint. Retired questions are excluded, matching the
+  // active-only `question_count` the badges elsewhere already show.
+  const activeQuestions = template.questions.filter((tq) => tq.question.is_active)
+  const totalSeconds = activeQuestions.reduce((sum, tq) => sum + tq.question.time_limit_seconds, 0)
+  const countBy = <K extends string>(pick: (tq: (typeof activeQuestions)[number]) => K) => {
+    const counts = new Map<K, number>()
+    for (const tq of activeQuestions) counts.set(pick(tq), (counts.get(pick(tq)) ?? 0) + 1)
+    return counts
+  }
+  const topicCounts = countBy((tq) => tq.question.topic)
+  const difficultyCounts = countBy((tq) => tq.question.difficulty as CohortQuizDifficulty)
+
   return (
     <div className="flex flex-col gap-3">
       <h3 className="text-sm font-semibold text-foreground">{template.name}</h3>
       {template.description && <p className="text-xs text-muted-foreground">{template.description}</p>}
+
+      {activeQuestions.length > 0 && (
+        <div className="flex flex-col gap-2 p-3 bg-muted/30 border border-border rounded-xl text-xs">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="font-semibold text-foreground">
+              {activeQuestions.length} question{activeQuestions.length === 1 ? "" : "s"}
+            </span>
+            <span className="text-muted-foreground">~{formatDurationMinSec(totalSeconds)} total</span>
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {Array.from(topicCounts.entries()).map(([topic, count]) => (
+              <span key={topic} className="px-2 py-0.5 rounded-full border border-border text-muted-foreground">
+                {topic} <span className="text-foreground font-medium">{count}</span>
+              </span>
+            ))}
+          </div>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {DIFFICULTIES.filter((d) => difficultyCounts.has(d)).map((d) => (
+              <span key={d} className="px-2 py-0.5 rounded-full border border-border text-muted-foreground">
+                {d} <span className="text-foreground font-medium">{difficultyCounts.get(d)}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center gap-2">
         <select value={topicFilter} onChange={(e) => setTopicFilter(e.target.value)} className="h-9 px-3 border border-border bg-card text-foreground rounded-lg text-sm cursor-pointer">
