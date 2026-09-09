@@ -1,7 +1,7 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { isAxiosError } from "axios"
-import { ArrowDown, ArrowUp, Download, Pencil, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react"
+import { ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ChevronUp, Clock, Download, Pencil, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/pages/admin/components/common"
@@ -414,15 +414,21 @@ function TemplateDetail({ templateId }: { templateId: string }) {
   const [generateCount, setGenerateCount] = useState(10)
   const [generateTopics, setGenerateTopics] = useState<string[]>([])
   const [confirmGenerate, setConfirmGenerate] = useState(false)
+  const [editingQuestion, setEditingQuestion] = useState<CohortQuizQuestion | null>(null)
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
+
+  const toggleCollapse = (id: string) => {
+    setCollapsedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   const { data: template, isLoading } = useQuery({
     queryKey: ["cohort-quiz-template", templateId], queryFn: () => getCohortQuizTemplateApi(templateId),
   })
-  // "active" (vs. QuestionBankTab's "all" above) — see that query's own
-  // comment on why these must not share a cache key. Fetched unfiltered —
-  // both the "add one question" picker (topic-filtered client-side below)
-  // and the generate panel's topic checkboxes (which need every active
-  // topic regardless of that filter) read from this one query.
   const { data: allActiveBank = [] } = useQuery({
     queryKey: ["cohort-quiz-questions", "active", ""],
     queryFn: () => listCohortQuizQuestionsApi({ is_active: true }),
@@ -466,11 +472,6 @@ function TemplateDetail({ templateId }: { templateId: string }) {
 
   if (isLoading || !template) return <Spinner />
 
-  // Stats over the template's active questions — everything they need
-  // (topic, difficulty, time_limit_seconds) already comes back on
-  // `template.questions`, so this is a pure client-side derivation, no
-  // extra endpoint. Retired questions are excluded, matching the
-  // active-only `question_count` the badges elsewhere already show.
   const activeQuestions = template.questions.filter((tq) => tq.question.is_active)
   const totalSeconds = activeQuestions.reduce((sum, tq) => sum + tq.question.time_limit_seconds, 0)
   const countBy = <K extends string>(pick: (tq: (typeof activeQuestions)[number]) => K) => {
@@ -488,6 +489,19 @@ function TemplateDetail({ templateId }: { templateId: string }) {
         {template.description && <p className="text-xs text-muted-foreground mt-0.5">{template.description}</p>}
       </div>
 
+      {editingQuestion && (
+        <QuestionForm
+          initial={editingQuestion}
+          onCancel={() => setEditingQuestion(null)}
+          onSaved={() => {
+            setEditingQuestion(null)
+            invalidate()
+            queryClient.invalidateQueries({ queryKey: ["cohort-quiz-questions"] })
+          }}
+        />
+      )}
+
+      {/* 1. Stats Overview Card */}
       {activeQuestions.length > 0 && (
         <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 flex flex-col gap-4 shadow-sm">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pb-4 border-b border-border">
@@ -539,45 +553,8 @@ function TemplateDetail({ templateId }: { templateId: string }) {
         </div>
       )}
 
-      <div className="rounded-2xl border border-border bg-card p-4 flex flex-col sm:flex-row items-stretch sm:items-end gap-3 shadow-xs">
-        <div className="w-full sm:w-48 shrink-0 flex flex-col gap-1.5">
-          <label className="text-xs font-semibold text-foreground">Filter topic</label>
-          <select
-            value={topicFilter}
-            onChange={(e) => setTopicFilter(e.target.value)}
-            className="h-11 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
-          >
-            <option value="">All topics ({allTopics.length})</option>
-            {allTopics.map((t) => <option key={t} value={t}>{t}</option>)}
-          </select>
-        </div>
-
-        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
-          <label className="text-xs font-semibold text-foreground">Select question from bank</label>
-          <select
-            value={pickerQuestionId}
-            onChange={(e) => setPickerQuestionId(e.target.value)}
-            className="h-11 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer truncate"
-          >
-            <option value="">Add a question ({pickable.length} available)…</option>
-            {pickable.map((q) => (
-              <option key={q.id} value={q.id}>
-                [{q.topic} - {q.difficulty}] {q.prompt.length > 70 ? q.prompt.slice(0, 70) + "…" : q.prompt}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <Button
-          onClick={() => pickerQuestionId && addMutation.mutate(pickerQuestionId)}
-          disabled={!pickerQuestionId || addMutation.isPending}
-          className="h-11 px-5 rounded-xl font-semibold text-sm gap-2 shrink-0"
-        >
-          <Plus size={16} /> Add Question
-        </Button>
-      </div>
-
-      <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl">
+      {/* 2. Regenerate Whole Set Card (Placed directly under Stats) */}
+      <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl shadow-xs">
         <div>
           <p className="text-sm font-semibold text-foreground">
             {template.questions.length > 0 ? "Regenerate whole set" : "Auto-generate starting question set"}
@@ -633,6 +610,45 @@ function TemplateDetail({ templateId }: { templateId: string }) {
         )}
       </div>
 
+      {/* 3. Filter Topic & Add Question from Bank */}
+      <div className="rounded-2xl border border-border bg-card p-4 flex flex-col sm:flex-row items-stretch sm:items-end gap-3 shadow-xs">
+        <div className="w-full sm:w-48 shrink-0 flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-foreground">Filter topic</label>
+          <select
+            value={topicFilter}
+            onChange={(e) => setTopicFilter(e.target.value)}
+            className="h-11 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          >
+            <option value="">All topics ({allTopics.length})</option>
+            {allTopics.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+
+        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+          <label className="text-xs font-semibold text-foreground">Select question from bank</label>
+          <select
+            value={pickerQuestionId}
+            onChange={(e) => setPickerQuestionId(e.target.value)}
+            className="h-11 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer truncate"
+          >
+            <option value="">Add a question ({pickable.length} available)…</option>
+            {pickable.map((q) => (
+              <option key={q.id} value={q.id}>
+                [{q.topic} - {q.difficulty}] {q.prompt.length > 70 ? q.prompt.slice(0, 70) + "…" : q.prompt}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <Button
+          onClick={() => pickerQuestionId && addMutation.mutate(pickerQuestionId)}
+          disabled={!pickerQuestionId || addMutation.isPending}
+          className="h-11 px-5 rounded-xl font-semibold text-sm gap-2 shrink-0"
+        >
+          <Plus size={16} /> Add Question
+        </Button>
+      </div>
+
       {confirmGenerate && (
         <ConfirmDialog
           title="Replace this template's question set?"
@@ -645,33 +661,158 @@ function TemplateDetail({ templateId }: { templateId: string }) {
         />
       )}
 
+      {/* 4. Detailed & Expandable Question Cards List */}
       {template.questions.length === 0 ? (
-        <EmptyState title="No questions yet" hint="Pick some from the bank above." />
+        <EmptyState title="No questions yet" hint="Pick some from the bank above or auto-generate a set." />
       ) : (
-        <div className="flex flex-col gap-2">
-          {template.questions.map((tq, i) => (
-            <div key={tq.id} className={`flex items-center gap-2 p-3 bg-card border rounded-xl ${tq.question.is_active ? "border-border" : "border-amber-500/40"}`}>
-              <div className="flex flex-col">
-                <button onClick={() => move(i, -1)} disabled={i === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-30"><ArrowUp size={12} /></button>
-                <button onClick={() => move(i, 1)} disabled={i === template.questions.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-30"><ArrowDown size={12} /></button>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-border text-muted-foreground">{tq.question.topic}</span>
-                  <span className="text-[10px] text-muted-foreground">{tq.question.time_limit_seconds}s</span>
-                  {!tq.question.is_active && (
-                    <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-500 border border-amber-500/30 rounded px-1.5 py-0.5">
-                      retired — won't be served
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Questions on this template ({template.questions.length})
+            </span>
+            <button
+              onClick={() => {
+                if (collapsedIds.size === template.questions.length) setCollapsedIds(new Set())
+                else setCollapsedIds(new Set(template.questions.map((tq) => tq.id)))
+              }}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              {collapsedIds.size === template.questions.length ? "Expand all" : "Collapse all"}
+            </button>
+          </div>
+
+          {template.questions.map((tq, i) => {
+            const q = tq.question
+            const isCollapsed = collapsedIds.has(tq.id)
+            const difficultyColor =
+              q.difficulty === "Easy"
+                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                : q.difficulty === "Medium"
+                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                : "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
+
+            return (
+              <div
+                key={tq.id}
+                className={`flex flex-col gap-3 p-4 bg-card border rounded-2xl transition-all shadow-xs ${
+                  !q.is_active ? "border-amber-500/40 opacity-70" : "border-border hover:border-primary/40"
+                }`}
+              >
+                {/* Header Bar */}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap min-w-0">
+                    <div className="flex flex-col shrink-0">
+                      <button onClick={() => move(i, -1)} disabled={i === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0.5" title="Move up">
+                        <ArrowUp size={13} />
+                      </button>
+                      <button onClick={() => move(i, 1)} disabled={i === template.questions.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-20 p-0.5" title="Move down">
+                        <ArrowDown size={13} />
+                      </button>
+                    </div>
+
+                    <span className="text-xs font-mono font-bold text-muted-foreground shrink-0">
+                      #{String(i + 1).padStart(2, "0")}
                     </span>
-                  )}
+
+                    <span className="text-[11px] font-semibold uppercase tracking-wide px-2.5 py-0.5 rounded-full border border-border bg-muted/40 text-foreground">
+                      {q.topic}
+                    </span>
+
+                    {q.subtopic && (
+                      <span className="text-[11px] font-medium px-2 py-0.5 rounded-full border border-border text-muted-foreground">
+                        {q.subtopic}
+                      </span>
+                    )}
+
+                    <span className={`text-[11px] font-semibold uppercase tracking-wide px-2.5 py-0.5 rounded-full border ${difficultyColor}`}>
+                      {q.difficulty}
+                    </span>
+
+                    <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground px-2 py-0.5 rounded-md bg-muted/30">
+                      <Clock size={12} /> {q.time_limit_seconds}s
+                    </span>
+
+                    {!q.is_active && (
+                      <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-500 border border-amber-500/30 rounded px-1.5 py-0.5">
+                        retired
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => setEditingQuestion(q)}
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                      title="Edit question & timing"
+                    >
+                      <Pencil size={13} /> Edit
+                    </button>
+                    <button
+                      onClick={() => toggleCollapse(tq.id)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      title={isCollapsed ? "Show options & details" : "Hide options"}
+                    >
+                      {isCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
+                    </button>
+                    <button
+                      onClick={() => removeMutation.mutate(tq.id)}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+                      title="Remove from template"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
                 </div>
-                <p className="text-sm text-foreground truncate">{tq.question.prompt}</p>
+
+                {/* Prompt */}
+                <p className="text-sm font-semibold text-foreground leading-relaxed">
+                  {q.prompt}
+                </p>
+
+                {/* Options & Answer key */}
+                {!isCollapsed && (
+                  <div className="flex flex-col gap-2 pt-1 border-t border-border/50 mt-1">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Options & Answer Key</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {q.options.map((opt, optIdx) => (
+                        <div
+                          key={optIdx}
+                          className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-xs leading-relaxed transition-all ${
+                            opt.is_correct
+                              ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-950 dark:text-emerald-200 font-medium"
+                              : "border-border bg-background/60 text-foreground/80"
+                          }`}
+                        >
+                          <span
+                            className={`w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0 mt-0.5 ${
+                              opt.is_correct
+                                ? "bg-emerald-500 text-white"
+                                : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {String.fromCharCode(65 + optIdx)}
+                          </span>
+                          <span className="flex-1 min-w-0">{opt.text}</span>
+                          {opt.is_correct && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+                              <CheckCircle2 size={12} /> Correct
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {q.explanation && (
+                      <div className="p-2.5 rounded-xl bg-muted/40 border border-border text-xs text-muted-foreground mt-1">
+                        <span className="font-semibold text-foreground">Explanation: </span>
+                        {q.explanation}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <button onClick={() => removeMutation.mutate(tq.id)} className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0">
-                <X size={14} />
-              </button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
