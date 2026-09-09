@@ -37,7 +37,8 @@ import { ImportListModal } from "@/pages/admin/components/ImportList"
 import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
 import { cn, getErrorMessage } from "@/lib/utils"
-import { listLmsProgramsApi, createLmsProgramApi, type LmsProgram } from "@/api/lms_admin"
+import { listLmsProgramsApi, createLmsProgramApi, getCohortProgramOverrideApi, type LmsProgram } from "@/api/lms_admin"
+import { CohortOverrideEditor } from "@/pages/lms-authoring/components/LmsChecklistAuthoring"
 
 const STEP_LABELS = ["Cohort basics", "Sessions", "Roles & checklist", "LMS Checklist", "Materials", "Staffing", "Students", "Review & finish"]
 const LAST_STEP = STEP_LABELS.length - 1
@@ -171,8 +172,8 @@ export default function CohortWizard() {
         {step === 3 && cohort && program && (
           <>
             <StepIntro
-              eyebrow="LMS Checklist" title="Does this program have a checklist yet?" ledeWidth={70}
-              lede="The checklist itself belongs to the program, not this cohort — every cohort of a program shares it. This cohort can still get its own tweaks later from its own LMS tab."
+              eyebrow="LMS Checklist" title="What does this cohort's checklist look like?" ledeWidth={70}
+              lede="If the program has no checklist yet, create one first. Then build this cohort's own checklist below — it starts as a copy of the program's, and editing it here only affects this cohort."
             />
             <LmsChecklistStep cohort={cohort} program={program} />
           </>
@@ -890,21 +891,11 @@ function LmsChecklistStep({ cohort, program }: { cohort: Cohort; program: Progra
     )
   }
 
-  return (
-    <div
-      style={{ padding: "16px 20px", borderRadius: 10, boxShadow: CARD_SHADOW }}
-      className="border border-border bg-card flex flex-col gap-1.5 w-fit"
-    >
-      <p style={{ fontSize: 15 }} className="text-foreground m-0">
-        {effective.items.length === 0
-          ? "This program's checklist exists but has no steps yet."
-          : `This program's checklist has ${effective.items.length} step${effective.items.length === 1 ? "" : "s"}.`}
-      </p>
-      <p style={{ fontSize: 13 }} className="text-muted-foreground m-0">
-        Cohort-specific tweaks happen later, from {cohort.name || "this cohort"}&rsquo;s own LMS tab.
-      </p>
-    </div>
-  )
+  // A checklist exists for the program — build/edit *this cohort's* own
+  // checklist right here, same component CohortDetail.tsx's LMS tab uses.
+  // Starts as an editable view of the program's own checklist; editing
+  // anything forks a real per-cohort override server-side, transparently.
+  return <CohortOverrideEditor cohortId={cohort.id} isStaff readOnly={false} />
 }
 
 /* ═══════════════════════════ Step 6 — Staffing ══════════════════════════ */
@@ -1050,10 +1041,10 @@ function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) 
   const { data: sessions = [] } = useQuery({ queryKey: ["wizard-sessions", cohort.id], queryFn: () => getSessionsApi(cohort.id) })
   const { data: openings = [] } = useQuery({ queryKey: ["cohort-openings-defaults", cohort.id], queryFn: () => getCohortOpeningsApi(cohort.id) })
   const { data: materials = [] } = useQuery({ queryKey: ["materials", JSON.stringify({ cohort_id: cohort.id })], queryFn: () => getMaterialsApi({ cohort_id: cohort.id }) })
-  const { data: lmsPrograms = [] } = useQuery<LmsProgram[]>({
-    queryKey: ["lms-program-for-program", program?.id], queryFn: () => listLmsProgramsApi(program!.id), enabled: !!program,
+  const { data: override } = useQuery({
+    queryKey: ["lms-cohort-override", cohort.id], queryFn: () => getCohortProgramOverrideApi(cohort.id),
+    retry: false,
   })
-  const lmsProgram = lmsPrograms[0]
   const { data: assignments = [] } = useQuery<CohortAssignment[]>({
     queryKey: ["cohort-assignments", cohort.id], queryFn: () => listCohortAssignmentsApi(cohort.id),
   })
@@ -1080,7 +1071,8 @@ function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) 
     },
     {
       label: "LMS Checklist",
-      value: !lmsProgram ? "Not set up yet — this cohort's students will see an empty checklist" : `${lmsProgram.items.length} step${lmsProgram.items.length === 1 ? "" : "s"} (shared with every cohort of this program)`,
+      value: !override ? "Not set up yet — this cohort's students will see an empty checklist"
+        : `${override.items.length} step${override.items.length === 1 ? "" : "s"}${override.is_inherited ? " (shared with every cohort of this program)" : " (customized for this cohort)"}`,
     },
     {
       label: "Materials",

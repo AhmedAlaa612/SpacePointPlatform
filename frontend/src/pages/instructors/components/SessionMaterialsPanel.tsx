@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { ChevronDown, FileText, Link2, Paperclip } from "lucide-react"
 import { getSessionMaterialsApi } from "@/api/sessions/openings"
 import { Card, CardContent } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import { cn, ensureAbsoluteUrl } from "@/lib/utils"
 
 /**
  * What this session's instructor should read before teaching (I5-6).
@@ -49,7 +49,7 @@ export function SessionMaterialsPanel({ sessionId }: { sessionId: string }) {
             {data.materials.map((m) => (
               <a
                 key={m.id}
-                href={m.url ?? "#"}
+                href={m.url ? ensureAbsoluteUrl(m.url) : "#"}
                 target="_blank"
                 rel="noreferrer"
                 className="flex items-center gap-2 rounded-xl border border-border bg-background/50 px-3 py-2 hover:bg-muted/60 transition-colors"
