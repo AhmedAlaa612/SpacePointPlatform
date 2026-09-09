@@ -78,17 +78,19 @@ ARABIC_INDIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 
 
 def normalize_phone(raw: str | None, default_region: str = "AE") -> str | None:
-    """E.164 phone, or None if it can't be parsed as a valid number."""
+    """E.164 phone, or fallback cleaned digits string if it can't be strictly parsed, or None if empty/no digits."""
     if not raw or not raw.strip():
         return None
     cleaned = raw.translate(ARABIC_INDIC_DIGITS).strip()
+    if not any(c.isdigit() for c in cleaned):
+        return None
     try:
         parsed = phonenumbers.parse(cleaned, default_region)
-    except NumberParseException:
-        return None
-    if not phonenumbers.is_valid_number(parsed):
-        return None
-    return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+        if phonenumbers.is_possible_number(parsed) or phonenumbers.is_valid_number(parsed):
+            return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+    except Exception:
+        pass
+    return cleaned
 
 
 def normalize_email(email: str | None) -> str | None:
@@ -135,7 +137,8 @@ async def find_candidates(
 class IdentityEvaluation:
     outcome: Literal["EXACT_MERGE", "REVIEW", "NEW"]
     contact_id: Optional[UUID] = None
-    matched_via: Optional[Literal["email", "phone"]] = None
+    matched_via: Optional[Literal["email", "phone", "both"]] = None
+    secondary_matched_id: Optional[UUID] = None
 
 
 async def evaluate(db: AsyncSession, phone: str | None, email: str | None) -> IdentityEvaluation:
@@ -151,11 +154,40 @@ async def evaluate(db: AsyncSession, phone: str | None, email: str | None) -> Id
     fields, never inferred here.
     """
     candidates = await find_candidates(db, phone, email)
-    if "email" in candidates:
-        return IdentityEvaluation("EXACT_MERGE", candidates["email"], "email")
-    if "phone" in candidates:
-        return IdentityEvaluation("REVIEW", candidates["phone"], "phone")
-    return IdentityEvaluation("NEW")
+    has_email_match = "email" in candidates
+    has_phone_match = "phone" in candidates
+
+    if not has_email_match and not has_phone_match:
+        return IdentityEvaluation(outcome="NEW")
+
+    if has_email_match and not has_phone_match:
+        return IdentityEvaluation(
+            outcome="EXACT_MERGE",
+            contact_id=candidates["email"],
+            matched_via="email",
+        )
+
+    if not has_email_match and has_phone_match:
+        return IdentityEvaluation(
+            outcome="REVIEW",
+            contact_id=candidates["phone"],
+            matched_via="phone",
+        )
+
+    # Both match — same contact, or two different contacts sharing details?
+    if candidates["email"] == candidates["phone"]:
+        return IdentityEvaluation(
+            outcome="EXACT_MERGE",
+            contact_id=candidates["email"],
+            matched_via="both",
+        )
+
+    return IdentityEvaluation(
+        outcome="REVIEW",
+        contact_id=candidates["phone"],
+        matched_via="phone",
+        secondary_matched_id=candidates["email"],
+    )
 
 
 async def ensure_alias(db: AsyncSession, contact_id: UUID, alias_type: Literal["email", "phone"], value: str) -> None:
@@ -247,9 +279,13 @@ async def resolve_or_create_contact(
         norm_phone = normalize_phone(phone)
         if norm_phone:
             await ensure_alias(db, contact.id, "phone", norm_phone)
+            if contact.primary_phone_e164 is None:
+                contact.primary_phone_e164 = norm_phone
         norm_email = normalize_email(email)
         if norm_email:
             await ensure_alias(db, contact.id, "email", norm_email)
+            if contact.email is None:
+                contact.email = norm_email
         # Gap-fill only — never overwrite what the contact already has,
         # matching merge_contacts' existing gap-fill convention for scalar
         # fields elsewhere in this module.
