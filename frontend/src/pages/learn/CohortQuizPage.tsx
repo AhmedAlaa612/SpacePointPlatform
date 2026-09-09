@@ -40,9 +40,10 @@ function Countdown({ seconds, questionKey, onExpire }: { seconds: number; questi
   }, [questionKey, seconds])
 
   return (
-    <span className={`font-display text-xl font-extrabold ${remaining <= 5 ? "text-destructive" : "text-foreground"}`}>
-      {remaining}s
-    </span>
+    <div className={`flex items-center gap-2 font-display text-3xl sm:text-4xl font-black tracking-tight ${remaining <= 5 ? "text-destructive animate-pulse" : "text-foreground"}`}>
+      <Clock className={`size-6 sm:size-7 ${remaining <= 5 ? "text-destructive" : "text-primary"}`} />
+      <span>{remaining}s</span>
+    </div>
   )
 }
 
@@ -264,10 +265,30 @@ export default function CohortQuizPage() {
 
   return (
     <div className="mx-auto max-w-3xl lg:max-w-4xl px-5 py-8 flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-          Question {index + 1} of {attempt.questions.length}
-        </span>
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            Question {index + 1} of {attempt.questions.length}
+          </span>
+          <div className="flex items-center gap-1.5">
+            {attempt.questions.map((_, i) => {
+              const isCurrent = i === index
+              const isPast = i < index
+              return (
+                <div
+                  key={i}
+                  className={`h-2.5 rounded-full transition-all duration-300 ${
+                    isCurrent
+                      ? "w-7 bg-primary ring-2 ring-primary/30"
+                      : isPast
+                      ? "w-2.5 bg-primary/60"
+                      : "w-2.5 bg-muted-foreground/25 dark:bg-muted-foreground/20"
+                  }`}
+                />
+              )
+            })}
+          </div>
+        </div>
         {!locked && (
           <Countdown
             seconds={question.time_limit_seconds} questionKey={question.question_id}
@@ -275,7 +296,7 @@ export default function CohortQuizPage() {
           />
         )}
       </div>
-      <h1 className="font-display text-xl sm:text-2xl font-bold leading-snug">{question.prompt}</h1>
+      <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-extrabold leading-tight tracking-tight text-foreground">{question.prompt}</h1>
       <div className="grid grid-cols-1 gap-3">
         {question.options.map((text, i) => {
           const isMine = selected === i
