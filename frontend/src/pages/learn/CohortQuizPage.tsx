@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
 import { isAxiosError } from "axios"
-import { CheckCircle2, Clock, Trophy, XCircle } from "lucide-react"
+import { AlertCircle, CheckCircle2, Clock, Lightbulb, Sparkles, Trophy, XCircle } from "lucide-react"
 import { getCohortQuizResultApi, startCohortQuizApi, submitCohortQuizApi } from "@/api/cohort_quiz"
 import type { CohortQuizAnswerInput } from "@/types/cohort_quiz"
 import { Spinner } from "@/components/ui/primitives"
@@ -51,17 +51,22 @@ function TopicBreakdownBars({ breakdown }: { breakdown: Record<string, { correct
   const topics = Object.entries(breakdown)
   if (topics.length === 0) return null
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-3">
       {topics.map(([topic, { correct, total }]) => {
         const pct = total > 0 ? Math.round((correct / total) * 100) : 0
         return (
-          <div key={topic} className="flex flex-col gap-1">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-foreground">{topic}</span>
-              <span className="text-muted-foreground">{correct}/{total}</span>
+          <div key={topic} className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between text-sm sm:text-base">
+              <span className="font-semibold text-foreground">{topic}</span>
+              <span className="text-xs font-mono font-bold text-muted-foreground bg-muted px-2.5 py-0.5 rounded-md border border-border/40">
+                {correct}/{total}
+              </span>
             </div>
-            <div className="h-2 rounded-full bg-muted overflow-hidden">
-              <div className="h-full bg-primary rounded-full" style={{ width: `${pct}%` }} />
+            <div className="h-3 rounded-full bg-muted overflow-hidden p-0.5 border border-border/30">
+              <div
+                className="h-full bg-primary rounded-full transition-all duration-500"
+                style={{ width: `${pct}%` }}
+              />
             </div>
           </div>
         )
@@ -179,80 +184,126 @@ export default function CohortQuizPage() {
     if (resultLoading && !resultData) return <div className="p-8"><Spinner /></div>
     if (!resultData) return null
     return (
-      <div className="mx-auto max-w-3xl lg:max-w-4xl px-5 py-8 flex flex-col gap-6">
-        <div className="flex flex-col items-center gap-2 text-center">
-          <Trophy className="size-9 text-primary" />
-          <h1 className="font-display text-2xl font-extrabold">Quiz complete!</h1>
-          <p className="font-display text-3xl font-extrabold text-primary">{resultData.score} / {resultData.total}</p>
+      <div className="mx-auto max-w-3xl lg:max-w-4xl px-5 py-8 flex flex-col gap-8">
+        <div className="flex flex-col items-center gap-3 text-center py-4">
+          <div className="size-16 rounded-3xl bg-primary/10 border-2 border-primary/30 flex items-center justify-center shadow-xl shadow-black/20">
+            <Trophy className="size-8 text-primary" />
+          </div>
+          <h1 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight">Quiz complete!</h1>
+          <p className="font-display text-5xl sm:text-6xl font-black text-primary">
+            {resultData.score} / {resultData.total}
+          </p>
         </div>
 
         {resultData.topic_breakdown && (
-          <div className="flex flex-col gap-2 p-4 rounded-2xl border border-border bg-card">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">By topic</p>
+          <div className="flex flex-col gap-3 p-5 sm:p-6 rounded-2xl border-2 border-border bg-card shadow-xl shadow-black/20">
+            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+              <Sparkles size={14} className="text-primary" /> Performance by topic
+            </p>
             <TopicBreakdownBars breakdown={resultData.topic_breakdown} />
           </div>
         )}
 
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-5">
+          <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground px-1">
+            Question breakdown ({resultData.questions.length} questions)
+          </h2>
           {resultData.questions.map((q, i) => (
             <div
               key={q.question_id}
-              className={`rounded-2xl border p-4 flex flex-col gap-2 text-left ${
-                q.is_correct ? "border-border bg-card" : "border-red-500/30 bg-red-500/5"
+              className={`rounded-2xl border-2 p-5 sm:p-6 flex flex-col gap-4 text-left shadow-xl shadow-black/20 transition-all ${
+                q.is_correct
+                  ? "border-emerald-500/40 bg-card hover:border-emerald-500/60"
+                  : "border-red-500/40 bg-card hover:border-red-500/60"
               }`}
             >
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-mono text-muted-foreground">Q{i + 1}</span>
-                <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border border-border text-muted-foreground">
-                  {q.topic}
-                </span>
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-lg bg-muted text-foreground border border-border/50">
+                    Q{i + 1}
+                  </span>
+                  <span className="text-xs font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full border border-border bg-muted/50 text-muted-foreground">
+                    {q.topic}
+                  </span>
+                </div>
                 {q.is_correct ? (
-                  <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle2 size={10} /> Correct
+                  <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border-2 border-emerald-500/30">
+                    <CheckCircle2 size={13} /> Correct
                   </span>
                 ) : (
-                  <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-red-500 text-white">
-                    Incorrect
+                  <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-red-500/15 text-red-400 border-2 border-red-500/30">
+                    <XCircle size={13} /> Incorrect
                   </span>
                 )}
               </div>
-              <p className="text-sm font-medium leading-snug">{q.prompt}</p>
-              {q.selected_index === null && <p className="text-xs text-muted-foreground italic">Left unanswered.</p>}
-              <div className="flex flex-col gap-1">
+
+              <p className="text-base sm:text-lg font-bold leading-relaxed text-foreground">{q.prompt}</p>
+
+              {q.selected_index === null && (
+                <p className="text-sm text-amber-500/90 font-medium italic flex items-center gap-1.5">
+                  <AlertCircle size={14} /> Left unanswered.
+                </p>
+              )}
+
+              <div className="flex flex-col gap-2.5 pt-1">
                 {q.options.map((text, oi) => {
                   const isSelected = q.selected_index === oi
                   const isCorrectOption = q.correct_index === oi
                   return (
                     <div
                       key={oi}
-                      className={`px-3 py-1.5 rounded-lg text-xs flex items-center gap-2 ${
+                      className={`px-4 py-3.5 rounded-xl text-sm sm:text-base flex items-center gap-3.5 transition-all ${
                         isCorrectOption
-                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
+                          ? "bg-emerald-500/15 text-emerald-400 dark:text-emerald-300 font-semibold border-2 border-emerald-500/40"
                           : isSelected
-                          ? "bg-red-500/10 text-red-700 dark:text-red-400"
-                          : "text-muted-foreground"
+                          ? "bg-red-500/15 text-red-400 dark:text-red-300 font-semibold border-2 border-red-500/40"
+                          : "bg-muted/40 text-muted-foreground border border-border/40"
                       }`}
                     >
-                      <span className="w-4 h-4 rounded flex items-center justify-center text-[10px] font-semibold shrink-0 bg-muted">
+                      <span
+                        className={`w-7 h-7 rounded-lg text-xs font-extrabold flex items-center justify-center shrink-0 ${
+                          isCorrectOption
+                            ? "bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
+                            : isSelected
+                            ? "bg-red-500/25 text-red-300 border border-red-500/30"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
                         {String.fromCharCode(65 + oi)}
                       </span>
-                      <span className="flex-1">{text}</span>
-                      {isCorrectOption && <span className="text-[10px] shrink-0">Correct answer</span>}
-                      {isSelected && !isCorrectOption && <span className="text-[10px] shrink-0">Your answer</span>}
+                      <span className="flex-1 leading-snug">{text}</span>
+                      {isCorrectOption && (
+                        <span className="text-xs font-bold shrink-0 px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                          Correct answer
+                        </span>
+                      )}
+                      {isSelected && !isCorrectOption && (
+                        <span className="text-xs font-bold shrink-0 px-2.5 py-1 rounded-lg bg-red-500/20 text-red-300 border border-red-500/30">
+                          Your answer
+                        </span>
+                      )}
                     </div>
                   )
                 })}
               </div>
-              {q.explanation && <p className="text-xs text-muted-foreground border-t border-border pt-2 mt-1">{q.explanation}</p>}
+
+              {q.explanation && (
+                <div className="mt-1 p-4 rounded-xl bg-muted/50 border border-border/60 flex flex-col gap-1.5">
+                  <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Lightbulb size={14} className="text-amber-400 shrink-0" /> Explanation
+                  </p>
+                  <p className="text-xs sm:text-sm text-foreground/90 leading-relaxed font-medium">{q.explanation}</p>
+                </div>
+              )}
             </div>
           ))}
         </div>
 
-        <div className="flex flex-col gap-2 pt-2">
-          <Button onClick={() => void navigate({ to: "/learn/catalog" })} className="h-12 text-base">
+        <div className="flex flex-col sm:flex-row gap-3 pt-2">
+          <Button onClick={() => void navigate({ to: "/learn/catalog" })} className="h-12 text-base font-bold flex-1">
             Browse courses
           </Button>
-          <Button variant="outline" onClick={() => void navigate({ to: `/learn/checklists/${assignmentId}` })} className="h-12 text-base">
+          <Button variant="outline" onClick={() => void navigate({ to: `/learn/checklists/${assignmentId}` })} className="h-12 text-base font-bold flex-1">
             Back to your program
           </Button>
         </div>
