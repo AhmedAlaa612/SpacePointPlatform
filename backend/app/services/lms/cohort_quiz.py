@@ -451,6 +451,7 @@ async def submit_attempt(db: AsyncSession, attempt: CohortQuizAttempt, answers: 
     # "score / total" never counts a question that was never actually
     # served (see `_resolve_question_order`'s own docstring).
     skipped = len(attempt.question_order) - len(resolved)
+    new_answers = []
     for entry, q in resolved:
         qid = q.id
         option_order: list[int] = entry["option_order"]
@@ -470,19 +471,33 @@ async def submit_attempt(db: AsyncSession, attempt: CohortQuizAttempt, answers: 
         if is_correct:
             bucket["correct"] += 1
 
-        db.add(CohortQuizAnswer(
+        new_answers.append(CohortQuizAnswer(
             id=uuid.uuid4(), attempt_id=attempt.id, question_id=qid, topic=q.topic,
             selected_option_index=selected_original_index, is_correct=is_correct,
             timed_out=bool(answer.timed_out) if answer else True,
             time_taken_seconds=answer.time_taken_seconds if answer else None,
         ))
 
-    attempt.status = "submitted"
-    attempt.score = score
-    attempt.total -= skipped
-    attempt.topic_breakdown = topic_breakdown
-    attempt.submitted_at = datetime.now(timezone.utc)
-    await db.flush()
+    # Two concurrent submits for the same attempt (double-click, or a retry
+    # racing a slow first response) can both pass the `status == "submitted"`
+    # check above before either flushes — the real guard is
+    # `uq_cohort_quiz_answer_attempt_question`; same SAVEPOINT idiom
+    # `add_template_question`/`generate_template_questions`/`start_attempt`
+    # use for their own races, so a lost race gets the same clean 409
+    # instead of an unhandled IntegrityError.
+    try:
+        async with db.begin_nested():
+            db.add_all(new_answers)
+            attempt.status = "submitted"
+            attempt.score = score
+            attempt.total -= skipped
+            attempt.topic_breakdown = topic_breakdown
+            attempt.submitted_at = datetime.now(timezone.utc)
+            await db.flush()
+    except IntegrityError as e:
+        if "uq_cohort_quiz_answer_attempt_question" not in str(e.orig):
+            raise
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This quiz is already submitted")
     return attempt
 
 

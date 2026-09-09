@@ -419,6 +419,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Documents", "/admin/documents"),
       mk("Applications", "/admin/applications"),
       mk("Role Requests", "/admin/role-requests"),
+      LMS_GROUP,
       mk("Learn", "/learn"),
       mk("Settings", "/admin/settings"),
       mk("Operations", "/operations/dashboard"),

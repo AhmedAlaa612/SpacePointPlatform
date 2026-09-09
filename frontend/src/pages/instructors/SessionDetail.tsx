@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import {
   ArrowLeft, BookOpen, Calendar, Camera, CheckCircle2, ChevronDown,
-  Download, ExternalLink, FileText, ImageIcon, MapPin, Play, QrCode, Search, Send, X,
+  Download, ExternalLink, FileText, ImageIcon, MapPin, Play, QrCode, Search, Send, UserX, X,
 } from "lucide-react"
 import {
   getSessionDeliveryApi, markAttendanceApi, markSessionDoneApi, scanAttendanceApi, startSessionApi,
@@ -55,6 +55,8 @@ export default function SessionDetail() {
   const [dayNotes, setDayNotes] = useState("")
   const [dayError, setDayError] = useState("")
   const [checkInError, setCheckInError] = useState("")
+  const [askingAbsence, setAskingAbsence] = useState(false)
+  const [absenceReason, setAbsenceReason] = useState("")
   const busyRef = useRef(false)
   // The same ticket held in front of the camera is re-detected every frame.
   // Remembering the last one stops a second request firing for it at all,
@@ -95,7 +97,7 @@ export default function SessionDetail() {
   })
   const checkIn = useMutation({
     mutationFn: (v: { att: AttendanceStatus; reason?: string }) => checkInApi(sessionId, v.att, v.reason),
-    onSuccess: () => { setCheckInError(""); invalidate() },
+    onSuccess: () => { setCheckInError(""); setAskingAbsence(false); invalidate() },
     onError: (e) => setCheckInError(getErrorMessage(e, "Couldn't record that")),
   })
   // Complete session = the one action the instructor sees. Under the hood it
@@ -281,19 +283,48 @@ export default function SessionDetail() {
                   ) : t.att_status === "absent" ? (
                     <span className="text-[11px] font-bold text-amber-500 shrink-0 ml-1">Absent</span>
                   ) : t.is_me ? (
-                    <Button
-                      size="sm"
-                      disabled={checkIn.isPending}
-                      onClick={() => checkIn.mutate({ att: "present" })}
-                      className="h-7 px-3 text-xs font-bold rounded-lg gap-1 shrink-0 ml-1"
-                    >
-                      <CheckCircle2 size={13} /> Check in
-                    </Button>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                      <Button
+                        size="sm"
+                        disabled={checkIn.isPending}
+                        onClick={() => checkIn.mutate({ att: "present" })}
+                        className="h-7 px-3 text-xs font-bold rounded-lg gap-1"
+                      >
+                        <CheckCircle2 size={13} /> Check in
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={checkIn.isPending}
+                        onClick={() => setAskingAbsence((v) => !v)}
+                        className="h-7 px-3 text-xs font-bold rounded-lg gap-1"
+                      >
+                        <UserX size={13} /> Can't attend
+                      </Button>
+                    </div>
                   ) : (
                     <span className="text-[11px] font-medium text-amber-500 shrink-0 ml-1">Not checked in</span>
                   )}
                 </div>
               ))}
+              {askingAbsence && (
+                <div className="flex flex-col sm:flex-row gap-2 w-full">
+                  <input
+                    className="input flex-1 h-9 text-sm"
+                    placeholder="Reason (exam, medical appointment…)"
+                    value={absenceReason}
+                    onChange={(e) => setAbsenceReason(e.target.value)}
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={checkIn.isPending}
+                    onClick={() => checkIn.mutate({ att: "absent", reason: absenceReason || undefined })}
+                  >
+                    Confirm absence
+                  </Button>
+                </div>
+              )}
               {checkInError && <p className="text-xs text-red-600 dark:text-red-400 w-full">{checkInError}</p>}
             </div>
           )}
