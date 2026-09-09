@@ -78,7 +78,7 @@ ARABIC_INDIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
 
 
 def normalize_phone(raw: str | None, default_region: str = "AE") -> str | None:
-    """E.164 phone, or fallback cleaned digits string if it can't be strictly parsed, or None if empty/no digits."""
+    """E.164 phone if valid, or original cleaned string if invalid/non-standard, or None if empty/no digits."""
     if not raw or not raw.strip():
         return None
     cleaned = raw.translate(ARABIC_INDIC_DIGITS).strip()
@@ -86,7 +86,7 @@ def normalize_phone(raw: str | None, default_region: str = "AE") -> str | None:
         return None
     try:
         parsed = phonenumbers.parse(cleaned, default_region)
-        if phonenumbers.is_possible_number(parsed) or phonenumbers.is_valid_number(parsed):
+        if phonenumbers.is_valid_number(parsed):
             return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
     except Exception:
         pass

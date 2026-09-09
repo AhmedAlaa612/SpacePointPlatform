@@ -72,7 +72,7 @@ export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess }: {
           </Field>
           <Field label="Phone">
             <input
-              value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="050 000 0000"
+              value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+971 50 123 4567 or +20 10 1234 5678"
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
             />
           </Field>
@@ -137,7 +137,7 @@ export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess }: {
           </Field>
           <Field label="Parent/guardian phone">
             <input
-              value={parentPhone} onChange={(e) => setParentPhone(e.target.value)}
+              value={parentPhone} onChange={(e) => setParentPhone(e.target.value)} placeholder="+971 50 123 4567"
               className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
             />
           </Field>
