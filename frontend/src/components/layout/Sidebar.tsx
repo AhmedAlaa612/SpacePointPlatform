@@ -81,9 +81,14 @@ const ICONS: Record<string, LucideIcon> = {
   "Reviews": ListChecks,
   "Sessions Calendar": CalendarDays,
   Training: PlayCircle,
+  "Instructor Training": PlayCircle,
   "SatKit Training": PlayCircle,
   Library: BookOpen,
+  "Instructor Library": BookOpen,
   "Library Resources": BookOpen,
+  "Instructor Assessment": ListChecks,
+  "Instructor Applications": ClipboardList,
+  "Facilitator ID": CreditCard,
   Payments: Wallet,
   Status: Activity,
   Videos: Video,
@@ -277,15 +282,15 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     if (activeRole === "facilitator") {
       return [
         mk("Sessions", "/instructors/my-sessions"),
-        mk("My Kits & Items", "/instructors/my-holdings"),
-        mk("Training", "/instructors/facilitator/training"),
-        mk("Library", "/instructors/facilitator/library"),
+        mk("Instructor Training", "/instructors/facilitator/training"),
+        mk("Instructor Library", "/instructors/facilitator/library"),
+        mk("Instructor Assessment", "/instructors/admin/assessment-questions"),
+        mk("Instructor Applications", "/instructors/facilitator/application"),
         mk("LMS", "/lms-authoring/courses"),
-        mk("Assessment Questions", "/instructors/admin/assessment-questions"),
-        mk("Learn", "/learn"),
         mk("Personal Documents", "/instructors/personal-documents"),
-        mk("Instructor ID Card", "/instructors/id-card"),
-        mk("Application", "/instructors/facilitator/application"),
+        mk("Learn", "/learn"),
+        mk("Facilitator ID", "/instructors/id-card"),
+        mk("My Kits & Items", "/instructors/my-holdings"),
       ];
     }
     if (activeRole === "applicant") {
@@ -385,16 +390,18 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   if (activeRole === "facilitator") {
     return [
       mk("Available Sessions", "/instructors/available-sessions"),
-      mk("My Sessions", "/instructors/my-sessions"),
-      mk("My Kits & Items", "/instructors/my-holdings"),
+      mk("Sessions", "/instructors/my-sessions"),
       mk("Sessions Calendar", "/sessions/calendar"),
-      mk("Training", "/instructors/facilitator/training"),
-      mk("Library", "/instructors/facilitator/library"),
+      mk("Instructor Training", "/instructors/facilitator/training"),
+      mk("Instructor Library", "/instructors/facilitator/library"),
+      mk("Instructor Assessment", "/instructors/admin/assessment-questions"),
+      mk("Instructor Applications", "/instructors/facilitator/application"),
       mk("LMS", "/lms-authoring/courses"),
-      mk("Learn", "/learn"),
       mk("Personal Documents", "/instructors/personal-documents"),
+      mk("Learn", "/learn"),
+      mk("Facilitator ID", "/instructors/id-card"),
       mk("Profile & Settings", "/instructors/profile"),
-      mk("Application", "/instructors/facilitator/application"),
+      mk("My Kits & Items", "/instructors/my-holdings"),
     ];
   }
   if (activeRole === "admin") {
