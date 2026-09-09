@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Check, ChevronLeft, ChevronRight, Lock, Plus, Trash2, X } from "lucide-react"
+import { Check, ChevronLeft, ChevronRight, Lock, Mail, Pencil, Phone, Plus, Trash2, X } from "lucide-react"
 import type { Cohort, CohortAssignment, CohortVisibility, Program, Registration, Session } from "@/types/sessions"
 import type { City, Location, Warehouse } from "@/types/inventory"
 import { getProgramsApi } from "@/api/sessions/programs"
@@ -33,6 +33,7 @@ import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { BulkAssignInstructorModal } from "@/pages/admin/components/BulkAssignInstructorModal"
 import { BulkOpenCallModal } from "@/pages/admin/components/BulkOpenCallModal"
 import { DeskRegisterModal } from "@/pages/admin/components/DeskRegisterModal"
+import { EditStudentModal } from "@/pages/admin/components/EditStudentModal"
 import { ImportListModal } from "@/pages/admin/components/ImportList"
 import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
@@ -1102,9 +1103,11 @@ function StudentsStep({ cohort }: { cohort: Cohort }) {
     queryKey: ["wizard-registrations", cohort.id], queryFn: () => getRegistrationsApi(cohort.id),
   })
   const [modal, setModal] = useState<"desk" | "import" | null>(null)
+  const [editingRegistration, setEditingRegistration] = useState<Registration | null>(null)
 
   const done = () => {
     setModal(null)
+    setEditingRegistration(null)
     void queryClient.invalidateQueries({ queryKey: ["wizard-registrations", cohort.id] })
   }
 
@@ -1130,11 +1133,53 @@ function StudentsStep({ cohort }: { cohort: Cohort }) {
         {registrations.length === 0 ? (
           <p style={{ fontSize: 14 }} className="text-muted-foreground m-0">Nobody registered yet.</p>
         ) : (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {registrations.map((r) => (
-              <span key={r.id} style={{ height: 32, padding: "0 12px", borderRadius: 8, fontSize: 13 }} className="border border-border bg-card text-foreground flex items-center">
-                {r.student_name}
-              </span>
+              <div
+                key={r.id}
+                onClick={() => setEditingRegistration(r)}
+                className="border border-border bg-card hover:border-primary/50 hover:shadow-xs cursor-pointer rounded-xl p-4 flex flex-col gap-3 transition-all group relative"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-sm shrink-0 uppercase">
+                      {r.student_name ? r.student_name.charAt(0) : "S"}
+                    </div>
+                    <span style={{ fontFamily: OUTFIT }} className="font-semibold text-base text-foreground truncate group-hover:text-primary transition-colors">
+                      {r.student_name}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {r.status && (
+                      <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-muted text-muted-foreground border border-border shrink-0 capitalize">
+                        {r.status.replace(/_/g, " ")}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEditingRegistration(r)
+                      }}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-70 group-hover:opacity-100"
+                      title="Edit student info"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5 text-sm text-muted-foreground pt-1.5 border-t border-border/50">
+                  <div className="flex items-center gap-2 text-xs">
+                    <Mail className="w-3.5 h-3.5 shrink-0 text-muted-foreground/70" />
+                    <span className="truncate">{r.student_email || "No email address"}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <Phone className="w-3.5 h-3.5 shrink-0 text-muted-foreground/70" />
+                    <span>{r.student_phone || "No phone number"}</span>
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
         )}
@@ -1142,6 +1187,13 @@ function StudentsStep({ cohort }: { cohort: Cohort }) {
 
       {modal === "desk" && <DeskRegisterModal cohort={cohort} sessions={sessions} onClose={() => setModal(null)} onSuccess={done} />}
       {modal === "import" && <ImportListModal cohort={cohort} onClose={() => setModal(null)} onImported={done} />}
+      {editingRegistration && (
+        <EditStudentModal
+          registration={editingRegistration}
+          onClose={() => setEditingRegistration(null)}
+          onSuccess={done}
+        />
+      )}
     </div>
   )
 }
