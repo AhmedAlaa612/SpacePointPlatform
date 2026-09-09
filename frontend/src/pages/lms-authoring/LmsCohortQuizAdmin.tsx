@@ -482,63 +482,122 @@ function TemplateDetail({ templateId }: { templateId: string }) {
   const difficultyCounts = countBy((tq) => tq.question.difficulty as CohortQuizDifficulty)
 
   return (
-    <div className="flex flex-col gap-3">
-      <h3 className="text-sm font-semibold text-foreground">{template.name}</h3>
-      {template.description && <p className="text-xs text-muted-foreground">{template.description}</p>}
+    <div className="flex flex-col gap-4">
+      <div>
+        <h3 className="text-base font-bold text-foreground">{template.name}</h3>
+        {template.description && <p className="text-xs text-muted-foreground mt-0.5">{template.description}</p>}
+      </div>
 
       {activeQuestions.length > 0 && (
-        <div className="flex flex-col gap-2 p-3 bg-muted/30 border border-border rounded-xl text-xs">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="font-semibold text-foreground">
-              {activeQuestions.length} question{activeQuestions.length === 1 ? "" : "s"}
-            </span>
-            <span className="text-muted-foreground">~{formatDurationMinSec(totalSeconds)} total</span>
+        <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 flex flex-col gap-4 shadow-sm">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pb-4 border-b border-border">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Total Questions</span>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-3xl font-extrabold font-display text-foreground">{activeQuestions.length}</span>
+                <span className="text-xs text-muted-foreground font-medium">questions</span>
+              </div>
+            </div>
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Est. Duration</span>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-3xl font-extrabold font-display text-primary">~{formatDurationMinSec(totalSeconds)}</span>
+              </div>
+            </div>
+            <div className="flex flex-col gap-1.5 col-span-2 sm:col-span-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Difficulty Balance</span>
+              <div className="flex items-center gap-2 flex-wrap">
+                {DIFFICULTIES.map((d) => {
+                  const count = difficultyCounts.get(d) ?? 0
+                  const badgeColor =
+                    d === "Easy"
+                      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                      : d === "Medium"
+                      ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                      : "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                  return (
+                    <span key={d} className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl border text-xs font-semibold ${badgeColor}`}>
+                      {d}: <span className="font-bold text-sm">{count}</span>
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {Array.from(topicCounts.entries()).map(([topic, count]) => (
-              <span key={topic} className="px-2 py-0.5 rounded-full border border-border text-muted-foreground">
-                {topic} <span className="text-foreground font-medium">{count}</span>
-              </span>
-            ))}
-          </div>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {DIFFICULTIES.filter((d) => difficultyCounts.has(d)).map((d) => (
-              <span key={d} className="px-2 py-0.5 rounded-full border border-border text-muted-foreground">
-                {d} <span className="text-foreground font-medium">{difficultyCounts.get(d)}</span>
-              </span>
-            ))}
+
+          <div className="flex flex-col gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Topic Coverage</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              {Array.from(topicCounts.entries()).map(([topic, count]) => (
+                <span key={topic} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-border bg-background/80 text-foreground text-xs font-medium shadow-xs">
+                  <span>{topic}</span>
+                  <span className="px-2 py-0.5 rounded-md bg-primary/10 text-primary font-bold text-xs">{count}</span>
+                </span>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      <div className="flex items-center gap-2">
-        <select value={topicFilter} onChange={(e) => setTopicFilter(e.target.value)} className="h-9 px-3 border border-border bg-card text-foreground rounded-lg text-sm cursor-pointer">
-          <option value="">All topics</option>
-          {allTopics.map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <select value={pickerQuestionId} onChange={(e) => setPickerQuestionId(e.target.value)} className="flex-1 h-9 px-3 border border-border bg-card text-foreground rounded-lg text-sm cursor-pointer">
-          <option value="">Add a question…</option>
-          {pickable.map((q) => <option key={q.id} value={q.id}>[{q.topic}] {q.prompt.slice(0, 60)}</option>)}
-        </select>
+      <div className="rounded-2xl border border-border bg-card p-4 flex flex-col sm:flex-row items-stretch sm:items-end gap-3 shadow-xs">
+        <div className="w-full sm:w-48 shrink-0 flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-foreground">Filter topic</label>
+          <select
+            value={topicFilter}
+            onChange={(e) => setTopicFilter(e.target.value)}
+            className="h-11 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          >
+            <option value="">All topics ({allTopics.length})</option>
+            {allTopics.map((t) => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+
+        <div className="flex-1 flex flex-col gap-1.5 min-w-0">
+          <label className="text-xs font-semibold text-foreground">Select question from bank</label>
+          <select
+            value={pickerQuestionId}
+            onChange={(e) => setPickerQuestionId(e.target.value)}
+            className="h-11 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer truncate"
+          >
+            <option value="">Add a question ({pickable.length} available)…</option>
+            {pickable.map((q) => (
+              <option key={q.id} value={q.id}>
+                [{q.topic} - {q.difficulty}] {q.prompt.length > 70 ? q.prompt.slice(0, 70) + "…" : q.prompt}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <Button
           onClick={() => pickerQuestionId && addMutation.mutate(pickerQuestionId)}
           disabled={!pickerQuestionId || addMutation.isPending}
+          className="h-11 px-5 rounded-xl font-semibold text-sm gap-2 shrink-0"
         >
-          <Plus size={14} />
+          <Plus size={16} /> Add Question
         </Button>
       </div>
 
-      <div className="flex flex-col gap-2 p-3 bg-muted/30 border border-border rounded-xl">
-        <p className="text-xs font-semibold text-foreground">
-          {template.questions.length > 0 ? "Regenerate the whole set" : "Or auto-generate a starting set"}
-        </p>
-        <div className="flex items-center gap-2 flex-wrap">
-          <input
-            type="number" min={1} max={200} value={generateCount}
-            onChange={(e) => setGenerateCount(Math.min(200, Math.max(1, Number(e.target.value) || 1)))}
-            className="w-20 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm"
-          />
-          <span className="text-xs text-muted-foreground">questions, spread across:</span>
+      <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl">
+        <div>
+          <p className="text-sm font-semibold text-foreground">
+            {template.questions.length > 0 ? "Regenerate whole set" : "Auto-generate starting question set"}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {template.questions.length > 0
+              ? "Replaces the template's current question list entirely with a new random selection."
+              : "Automatically draws a balanced mix of active questions from the selected topics."}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground font-medium">Draw</span>
+            <input
+              type="number" min={1} max={200} value={generateCount}
+              onChange={(e) => setGenerateCount(Math.min(200, Math.max(1, Number(e.target.value) || 1)))}
+              className="w-20 h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm font-semibold tabular-nums text-center"
+            />
+            <span className="text-xs text-muted-foreground font-medium">questions across:</span>
+          </div>
           <div className="flex items-center gap-1.5 flex-wrap">
             {allTopics.length === 0 ? (
               <span className="text-xs text-muted-foreground italic">no active questions in the bank yet</span>
@@ -546,7 +605,7 @@ function TemplateDetail({ templateId }: { templateId: string }) {
               <button
                 key={topic}
                 onClick={() => toggleGenerateTopic(topic)}
-                className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors cursor-pointer ${
+                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border transition-colors cursor-pointer ${
                   generateTopics.includes(topic)
                     ? "border-primary bg-primary/10 text-primary"
                     : "border-border text-muted-foreground hover:border-primary/40"
@@ -557,17 +616,16 @@ function TemplateDetail({ templateId }: { templateId: string }) {
             ))}
           </div>
         </div>
-        <span className="text-[11px] text-muted-foreground">
-          {generateTopics.length === 0 ? "No topics selected — draws from all of them." : null}
-          {template.questions.length > 0 && " This replaces the template's current question list entirely."}
+        <span className="text-xs text-muted-foreground">
+          {generateTopics.length === 0 ? "No topics selected — draws from all available topics." : null}
         </span>
         <Button
           variant="outline"
           onClick={() => (template.questions.length > 0 ? setConfirmGenerate(true) : generateMutation.mutate())}
           disabled={allTopics.length === 0 || generateMutation.isPending}
-          className="w-fit"
+          className="w-fit h-10 px-4 rounded-xl text-sm font-medium gap-2"
         >
-          <RefreshCw size={14} className="mr-1.5" />
+          <RefreshCw size={15} />
           {generateMutation.isPending ? "Generating…" : template.questions.length > 0 ? "Regenerate" : "Generate"}
         </Button>
         {generateMutation.isError && (
