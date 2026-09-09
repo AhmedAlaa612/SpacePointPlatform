@@ -33,10 +33,12 @@ from app.schemas.lms_admin import (
     EnrollmentAdminOut, LmsProgramCohortEffectiveOut, LmsProgramItemIn, LmsProgramItemOut, LmsProgramOut,
     StudentProfileOut, StudentProgramOut,
 )
+from app.schemas.lms_cohort_quiz import CohortQuizTopicBreakdownOut
 from app.schemas.lms_instructor import (
     CourseProgressOut, LmsAssignmentItemDetailOut, LmsProgramRosterRowOut, ModuleProgressOut, QuizProgressOut,
 )
 from app.schemas.lms_progress_grid import StudentDesignRunsOut
+from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services.lms.admin_progress import student_design_runs
 from app.services.lms.instructor_progress import student_course_progress
 from app.services.lms.my_programs import my_programs
@@ -227,7 +229,7 @@ async def update_cohort_override_item(
     await _enforce_instructor_item_scope(db, current=current, item_type=item.item_type)
     guard_locked_submission_scope(item, body)
     validate_item_payload(body)
-    await validate_item_refs(db, body)
+    await validate_item_refs(db, body, require_active_quiz=False)
     await check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body, exclude_item_id=item.id)
     for field, value in body.model_dump(exclude={"position"}).items():
         setattr(item, field, value)
@@ -334,6 +336,21 @@ async def student_design_runs_route(
     if user is None or "student" not in user.role_values:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
     return await student_design_runs(db, user_id=user_id)
+
+
+@router.get("/students/{user_id}/quiz-breakdown", response_model=CohortQuizTopicBreakdownOut)
+async def student_quiz_breakdown_route(
+    user_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Cohort-scoped mirror of the ops-only `admin.py` endpoint of the same
+    name — same 404-unless-in-one-of-the-instructor's-cohorts posture as
+    every other student endpoint in this file."""
+    await _require_student_access(db, user_id=user_id, current=current)
+    user = await db.get(User, user_id)
+    if user is None or "student" not in user.role_values:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    breakdown = await cohort_quiz_service.get_student_topic_breakdown(db, user_id)
+    return CohortQuizTopicBreakdownOut(topic_breakdown=breakdown)
 
 
 @router.get("/students/{user_id}/courses/{course_id}/progress", response_model=CourseProgressOut)

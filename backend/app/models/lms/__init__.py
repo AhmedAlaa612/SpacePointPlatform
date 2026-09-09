@@ -17,12 +17,22 @@
 - `lms_program_team_item_progress` — the Competition domain's team-scoped
   twin of `lms_program_item_progress` (2026-08-24), for `LmsProgramItem`
   rows with `scope="team"`. See `HANDOFF_COMPETITIONS.md`.
+- `cohort_quiz_questions` / `cohort_quiz_templates` /
+  `cohort_quiz_template_questions` / `cohort_quiz_attempts` /
+  `cohort_quiz_answers` (2026-09) — the per-cohort timed knowledge quiz,
+  a fixed cross-topic question set behind the checklist's `quiz` item
+  type. See `app/models/lms/cohort_quiz.py`'s own docstring for how this
+  differs from the in-course module quiz and the instructor-assessment
+  domain.
 
 Nothing here references `contacts`; everything keys on `users`, so
 `MERGE_FK_REGISTRY` is untouched. A student is a `users` row with the
 `student` role (LM0-2), linked to the spine via `users.contact_id`.
 """
 
+from app.models.lms.cohort_quiz import (
+    CohortQuizAnswer, CohortQuizAttempt, CohortQuizQuestion, CohortQuizTemplate, CohortQuizTemplateQuestion,
+)
 from app.models.lms.course import Course, CourseModule, ModuleItem, VideoCheckpoint
 from app.models.lms.enrollment import Enrollment, ItemProgress
 from app.models.lms.invite_grant import InvitationCodeGrant
@@ -35,6 +45,11 @@ from app.models.lms.program import (
 from app.models.lms.purchase import Purchase
 
 __all__ = [
+    "CohortQuizQuestion",
+    "CohortQuizTemplate",
+    "CohortQuizTemplateQuestion",
+    "CohortQuizAttempt",
+    "CohortQuizAnswer",
     "Course",
     "CourseModule",
     "ModuleItem",

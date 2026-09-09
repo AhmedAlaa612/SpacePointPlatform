@@ -155,6 +155,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Learning Paths", "/lms-authoring/learning-paths"),
       mk("Programs", "/lms-authoring/curriculum"),
       mk("Live Quiz", "/lms-authoring/games"),
+      mk("Quiz Bank", "/lms-authoring/quiz-bank"),
       mk("Missions", "/lms-authoring/missions"),
       mk("Students", "/lms-authoring/students"),
       mk("Invite Codes", "/lms-authoring/invite-codes"),

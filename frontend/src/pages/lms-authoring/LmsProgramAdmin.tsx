@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight, ImagePlus, Calendar } from "lucide-react"
+import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight, ImagePlus, Calendar, HelpCircle } from "lucide-react"
 import { isAxiosError } from "axios"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -36,6 +36,7 @@ import {
   type InstructorCohort,
 } from "@/api/missionsInstructor"
 import { fetchMissionCatalog } from "@/api/missions"
+import { listCohortQuizTemplatesApi } from "@/api/cohort_quiz"
 import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
 import type { Program } from "@/types/sessions"
 import type { ManagedAttempt } from "@/api/missions_manager"
@@ -92,6 +93,7 @@ function itemToInput(item: LmsProgramItem): LmsProgramItemInput {
     external_url: item.external_url, submission_prompt: item.submission_prompt,
     deadline_at: item.deadline_at, session_date: item.session_date, session_starts_at: item.session_starts_at,
     session_location: item.session_location, session_meeting_url: item.session_meeting_url,
+    cohort_quiz_template_id: item.cohort_quiz_template_id,
     mission_step_key: item.mission_step_key, gated: item.gated, guideline_kind: item.guideline_kind,
     guideline_url: item.guideline_url, checkpoint_label: item.checkpoint_label,
   }
@@ -105,6 +107,7 @@ const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeof BookO
   { value: "pdf", label: "PDF", icon: FileText },
   { value: "manual", label: "Manual check-off", icon: ClipboardCheck },
   { value: "session", label: "Session", icon: Calendar },
+  { value: "quiz", label: "Quiz", icon: HelpCircle },
 ]
 
 // Mirrors the server-side rule in services/lms/program.py: only a
@@ -701,6 +704,15 @@ function ItemRow({
           {item.item_type === "pdf" && !item.has_pdf && (
             <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-500 border border-amber-500/30 rounded px-1.5 py-0.5">no PDF uploaded</span>
           )}
+          {item.item_type === "quiz" && (
+            item.cohort_quiz_question_count ? (
+              <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                {item.cohort_quiz_question_count} question{item.cohort_quiz_question_count === 1 ? "" : "s"}
+              </span>
+            ) : (
+              <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-500 border border-amber-500/30 rounded px-1.5 py-0.5">no questions</span>
+            )
+          )}
         </div>
         {item.checkpoint_label && <div className="text-xs text-muted-foreground">{item.checkpoint_label}</div>}
         <div className="text-xs text-muted-foreground">{meta.label}</div>
@@ -843,11 +855,15 @@ function ItemForm({
   const [guidelineKind, setGuidelineKind] = useState<"" | "pdf" | "link" | "video">(initial?.guideline_kind ?? "")
   const [guidelineUrl, setGuidelineUrl] = useState(initial?.guideline_url ?? "")
   const [checkpointLabel, setCheckpointLabel] = useState(initial?.checkpoint_label ?? "")
+  const [cohortQuizTemplateId, setCohortQuizTemplateId] = useState(initial?.cohort_quiz_template_id ?? "")
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
   const { data: courses = [] } = useQuery({ queryKey: ["lms-admin-courses"], queryFn: listCoursesApi, enabled: itemType === "course" })
   const { data: missions = [] } = useQuery({ queryKey: ["missions-admin-full"], queryFn: listMissionsAdminFullApi, enabled: itemType === "mission_run" })
+  const { data: quizTemplates = [] } = useQuery({
+    queryKey: ["cohort-quiz-templates"], queryFn: listCohortQuizTemplatesApi, enabled: itemType === "quiz",
+  })
   const selectedMission = missions.find((m) => m.id === missionId)
   const { data: cohortSessions = [] } = useQuery({
     queryKey: ["cohort-sessions-for-prefill", cohortId],
@@ -882,6 +898,7 @@ function ItemForm({
     if (itemType === "mission_run" && !missionId) { setError("Pick a mission"); return }
     if (itemType === "external_link" && !externalUrl.trim()) { setError("A link is required"); return }
     if (itemType === "submission" && !externalUrl.trim() && !submissionPrompt.trim()) { setError("Add a link or a submission prompt"); return }
+    if (itemType === "quiz" && !cohortQuizTemplateId) { setError("Pick a quiz template"); return }
     if (guidelineKind === "link" && !guidelineUrl.trim()) { setError("A link guideline needs a URL"); return }
 
     setSaving(true)
@@ -903,6 +920,7 @@ function ItemForm({
         session_starts_at: itemType === "session" ? (sessionStartsAt || null) : null,
         session_location: itemType === "session" ? (sessionLocation.trim() || null) : null,
         session_meeting_url: itemType === "session" ? (sessionMeetingUrl.trim() || null) : null,
+        cohort_quiz_template_id: itemType === "quiz" ? cohortQuizTemplateId : null,
         mission_step_key: isDesignMission && missionStepKey ? missionStepKey : null,
         gated,
         guideline_kind: guidelineKind || null,
@@ -1030,6 +1048,32 @@ function ItemForm({
             </span>
           </div>
         </>
+      )}
+
+      {itemType === "quiz" && (
+        <div className="flex flex-col gap-1">
+          <select
+            value={cohortQuizTemplateId} onChange={(e) => setCohortQuizTemplateId(e.target.value)}
+            className={`${inputCls} cursor-pointer`}
+          >
+            <option value="">Select a quiz template…</option>
+            {quizTemplates
+              // Hide retired templates from new picks — except whichever
+              // one this item already points at, so an existing (now
+              // stale) selection stays visible and clearly labeled rather
+              // than silently vanishing from the list.
+              .filter((t) => t.is_active || t.id === cohortQuizTemplateId)
+              .map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} ({t.question_count} question{t.question_count === 1 ? "" : "s"}){!t.is_active ? " — retired" : ""}
+                </option>
+              ))}
+          </select>
+          <span className="text-[11px] text-muted-foreground">
+            Every student on this checklist gets the exact same, fixed question set — build/edit templates on the
+            Quiz Bank page.
+          </span>
+        </div>
       )}
 
       {/* Roadmap board (2026-09) — checkpoint grouping + the task drawer's

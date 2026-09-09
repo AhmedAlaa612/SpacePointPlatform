@@ -86,6 +86,9 @@ from app.schemas.lms_admin import (
     VideoCheckpointCreate,
     VideoCheckpointUpdate,
 )
+from app.schemas.lms_cohort_quiz import (
+    CohortQuizTopicBreakdownOut,
+)
 from app.schemas.curriculum import PrerequisiteEdgeIn, PrerequisiteEdgeOut
 from app.schemas.lms_progress_grid import (
     CourseOverviewRowOut, CourseProgressAllOut, MissionOverviewRowOut, MissionProgressAllOut, ProgressGridOut,
@@ -98,6 +101,7 @@ from app.services.lms.admin_progress import (
     cohort_progress_grid, course_progress_all, courses_overview, mission_progress_all, missions_overview,
     student_design_runs,
 )
+from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
 from app.services.lms.program import (
@@ -556,6 +560,23 @@ async def student_design_runs_route(
     if user is None or "student" not in user.role_values:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
     return await student_design_runs(db, user_id=user_id)
+
+
+@router.get("/students/{user_id}/quiz-breakdown", response_model=CohortQuizTopicBreakdownOut)
+async def student_quiz_breakdown(
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Strengths/weaknesses by topic, summed live across every submitted
+    cohort-quiz attempt this student has — see
+    `services/lms/cohort_quiz.py::get_student_topic_breakdown`. Never
+    cached, same posture as instructor_assessment's own performance read."""
+    user = await db.get(User, user_id)
+    if user is None or "student" not in user.role_values:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    breakdown = await cohort_quiz_service.get_student_topic_breakdown(db, user_id)
+    return CohortQuizTopicBreakdownOut(topic_breakdown=breakdown)
 
 
 # ── progress grid (7B-1, Missions Phase 2B) ─────────────────────────────────
@@ -1553,7 +1574,7 @@ async def update_lms_program_item(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
     guard_locked_submission_scope(item, body)
     validate_item_payload(body)
-    await validate_item_refs(db, body)
+    await validate_item_refs(db, body, require_active_quiz=False)
     await check_item_conflicts(db, owner_type="program", owner_id=lms_program_id, body=body, exclude_item_id=item.id)
     for field, value in body.model_dump(exclude={"position"}).items():
         setattr(item, field, value)
@@ -1852,7 +1873,7 @@ async def update_cohort_override_item(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
     guard_locked_submission_scope(item, body)
     validate_item_payload(body)
-    await validate_item_refs(db, body)
+    await validate_item_refs(db, body, require_active_quiz=False)
     await check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body, exclude_item_id=item.id)
     for field, value in body.model_dump(exclude={"position"}).items():
         setattr(item, field, value)

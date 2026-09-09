@@ -85,10 +85,10 @@ class LmsProgramItem(Base):
     `owner_id` points at the matching `lms_programs.id` or
     `lms_program_cohort_overrides.id` — polymorphic, not DB-enforced (see
     module docstring). Exactly one of `course_id`/`mission_id`/
-    `external_url`/`submission_prompt`/`pdf_path` is populated, matching
-    `item_type`; the service layer enforces this, not a CHECK constraint,
-    same convention `module_items.content` already follows for its own
-    type-keyed payload.
+    `external_url`/`submission_prompt`/`pdf_path`/`cohort_quiz_template_id`
+    is populated, matching `item_type`; the service layer enforces this,
+    not a CHECK constraint, same convention `module_items.content` already
+    follows for its own type-keyed payload.
     """
 
     __tablename__ = "lms_program_items"
@@ -190,6 +190,18 @@ class LmsProgramItem(Base):
     # "authoring convenience, not a real entity" posture as everywhere
     # else in this table that isn't a real FK.
     checkpoint_label = Column(String(120), nullable=True)
+
+    # A `quiz` item's fixed question set (2026-09) — see
+    # `app/models/lms/cohort_quiz.py`. Every student assigned this checklist
+    # item takes the same template; the per-student result lives in
+    # `cohort_quiz_attempts`, keyed on this item's id, not on this column.
+    # RESTRICT, not CASCADE (unlike course_id/mission_id above) — a quiz
+    # template is retire-never-delete, same as `CohortQuizAttempt.
+    # cohort_quiz_template_id`'s own FK; a checklist item pointing at one
+    # must never silently disappear because the template row was deleted.
+    cohort_quiz_template_id = Column(
+        UUID(as_uuid=True), ForeignKey("cohort_quiz_templates.id", ondelete="RESTRICT"), nullable=True,
+    )
 
 
 class LmsProgramAssignment(Base):

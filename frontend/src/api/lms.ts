@@ -515,7 +515,7 @@ export async function submitCheckpointAnswer(
 // new checklist entity, `lms_program_assignments`. Mounted at
 // /learn/checklists to keep well clear of that existing route.
 
-export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session";
+export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz";
 export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
 
 export type LmsProgramItemScope = "individual" | "team";
