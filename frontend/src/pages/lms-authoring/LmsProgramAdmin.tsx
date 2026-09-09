@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight, ImagePlus, Calendar, HelpCircle, RotateCcw, Clock, CheckCircle2, XCircle } from "lucide-react"
+import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight, ImagePlus, Calendar, HelpCircle, RotateCcw, Clock, CheckCircle2, XCircle, Award, Circle, ExternalLink, Eye, Play } from "lucide-react"
 import { isAxiosError } from "axios"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -1508,40 +1508,71 @@ function ProgressRow({
     enabled: open && !!cohortId,
   })
 
+  // Get student initials for avatar placeholder
+  const initials = (row.student_name || "S").split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
+
   return (
-    <div className="border border-border rounded-xl overflow-hidden">
-      <div className="flex items-center gap-4 p-3 bg-card">
+    <div className="border-2 border-border/80 rounded-2xl bg-card shadow-md transition-all hover:border-primary/40 overflow-hidden">
+      <div className="flex items-center gap-4 p-4 sm:p-5">
         <button
           onClick={() => cohortId && setOpen((v) => !v)}
-          className="shrink-0 text-muted-foreground"
+          className="p-2 rounded-xl bg-muted/60 hover:bg-muted text-muted-foreground transition-colors shrink-0 cursor-pointer disabled:opacity-40"
           disabled={!cohortId}
           title={cohortId ? "Show item detail" : "Pick a cohort to see item detail"}
         >
-          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </button>
+
+        <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-sm shrink-0">
+          {initials}
+        </div>
+
         <button
           onClick={() => void navigate({ to: `/lms-authoring/students/${row.user_id}` })}
-          className="min-w-0 flex-1 text-left hover:opacity-80 transition-opacity cursor-pointer"
+          className="min-w-0 flex-1 text-left group cursor-pointer"
         >
-          <div className="text-sm font-medium text-foreground truncate underline decoration-dotted underline-offset-2">{row.student_name}</div>
-          <div className="text-xs text-muted-foreground truncate">{row.name}</div>
-        </button>
-        <div className="flex flex-col gap-1 w-40 shrink-0">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>{row.items_done}/{row.items_total}</span>
-            <span>{row.pct}%</span>
+          <div className="text-base font-bold text-foreground group-hover:text-primary transition-colors truncate">
+            {row.student_name}
           </div>
-          <div className="h-1.5 rounded-full bg-muted relative overflow-hidden">
-            <div className={`absolute inset-y-0 left-0 rounded-full ${row.pct === 100 ? "bg-emerald-500" : "bg-primary"}`} style={{ width: `${row.pct}%` }} />
+          <div className="text-xs font-medium text-muted-foreground truncate flex items-center gap-1.5 mt-0.5">
+            <BookOpen size={12} className="shrink-0 text-muted-foreground/70" />
+            <span>{row.name}</span>
+          </div>
+        </button>
+
+        <div className="flex flex-col gap-1.5 w-44 sm:w-56 shrink-0">
+          <div className="flex items-center justify-between text-xs font-mono font-bold">
+            <span className="text-muted-foreground">{row.items_done} / {row.items_total} completed</span>
+            <span className={row.pct === 100 ? "text-emerald-500 font-extrabold" : "text-foreground"}>{row.pct}%</span>
+          </div>
+          <div className="h-2.5 rounded-full bg-muted p-0.5 border border-border/40 overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${row.pct === 100 ? "bg-emerald-500" : "bg-primary"}`}
+              style={{ width: `${row.pct}%` }}
+            />
           </div>
         </div>
+
         {row.certificate_required && (
-          <span className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide rounded-md px-2 py-1 ${
-            row.certificate_earned ? "bg-emerald-500/10 text-emerald-600" : "bg-muted text-muted-foreground"}`}
-          >
-            {row.certificate_earned ? "Certified" : "Not certified"}
+          <span className={`shrink-0 text-xs font-bold px-3 py-1 rounded-xl flex items-center gap-1.5 ${
+            row.certificate_earned
+              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+              : "bg-muted/80 text-muted-foreground border border-border/50"
+          }`}>
+            {row.certificate_earned ? (
+              <>
+                <CheckCircle2 size={13} className="text-emerald-500" />
+                Certified
+              </>
+            ) : (
+              <>
+                <Award size={13} className="text-muted-foreground/60" />
+                Not certified
+              </>
+            )}
           </span>
         )}
+
         {row.pending_confirmations.length > 0 && (
           <div className="flex flex-wrap gap-1.5 shrink-0 max-w-[220px] justify-end">
             {row.pending_confirmations.map((p) => (
@@ -1550,18 +1581,26 @@ function ProgressRow({
                 disabled={confirmPending || !cohortId}
                 onClick={() => onConfirm(p.item_id)}
                 title={p.title}
+                className="h-8 text-xs font-bold border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
               >
-                Confirm: {p.title.length > 18 ? `${p.title.slice(0, 18)}…` : p.title}
+                Confirm: {p.title.length > 16 ? `${p.title.slice(0, 16)}…` : p.title}
               </Button>
             ))}
           </div>
         )}
       </div>
+
       {open && (
-        <div className="p-3 border-t border-border bg-background flex flex-col gap-1.5">
-          {itemsLoading ? <Spinner /> : (items ?? []).map((item) => (
-            <AssignmentItemRow key={item.item_id} item={item} cohortId={cohortId} assignmentId={row.assignment_id} />
-          ))}
+        <div className="p-4 sm:p-5 border-t-2 border-border/60 bg-muted/20 flex flex-col gap-2.5">
+          {itemsLoading ? (
+            <div className="py-4"><Spinner /></div>
+          ) : (items ?? []).length === 0 ? (
+            <p className="text-xs text-muted-foreground italic py-2">No items found for this student checklist.</p>
+          ) : (
+            (items ?? []).map((item) => (
+              <AssignmentItemRow key={item.item_id} item={item} cohortId={cohortId} assignmentId={row.assignment_id} />
+            ))
+          )}
         </div>
       )}
     </div>
@@ -1593,60 +1632,100 @@ function AssignmentItemRow({
       setConfirmReset(false)
       void queryClient.invalidateQueries({ queryKey: ["assignment-items", cohortId, assignmentId] })
       void queryClient.invalidateQueries({ queryKey: ["cohort-quiz-review", cohortId, assignmentId, item.item_id] })
-      // The roster row's own pct/"Certified" badge is a separate query —
-      // a reset can drop a checklist item back to not-done, so it must
-      // refresh too, not just this expanded item-detail panel.
       void queryClient.invalidateQueries({ queryKey: ["instructor-program-progress", cohortId] })
     },
   })
 
+  const isDone = item.status === "done"
+  const isAwaiting = item.status === "awaiting_confirmation"
+
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center gap-3 text-xs">
-        <span className={`w-2 h-2 rounded-full shrink-0 ${item.status === "done" ? "bg-emerald-500" : item.status === "awaiting_confirmation" ? "bg-amber-500" : "bg-muted-foreground/30"}`} />
-        <span className="flex-1 text-foreground truncate">{item.title}</span>
-        <span className="text-muted-foreground shrink-0">{item.status.replace("_", " ")}</span>
+    <div className="flex flex-col gap-2">
+      <div className="p-3.5 rounded-xl bg-card border border-border/60 shadow-sm flex items-center gap-3.5 hover:border-border transition-all">
+        {isDone ? (
+          <div className="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
+            <CheckCircle2 size={15} />
+          </div>
+        ) : isAwaiting ? (
+          <div className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-400 flex items-center justify-center border border-amber-500/30 shrink-0">
+            <Clock size={15} />
+          </div>
+        ) : (
+          <div className="w-7 h-7 rounded-lg bg-muted text-muted-foreground flex items-center justify-center border border-border/50 shrink-0">
+            <Circle size={15} />
+          </div>
+        )}
+
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-foreground truncate">{item.title}</div>
+        </div>
+
+        <span className={`text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-md shrink-0 ${
+          isDone ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : isAwaiting ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" : "bg-muted text-muted-foreground border border-border/40"
+        }`}>
+          {item.status.replace("_", " ")}
+        </span>
+
         {item.submitted_url && (
-          <a href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" className="text-primary underline shrink-0">
-            submission
+          <a
+            href={ensureAbsoluteUrl(item.submitted_url)}
+            target="_blank"
+            rel="noreferrer"
+            className="h-8 px-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-bold flex items-center gap-1.5 hover:bg-primary/20 transition-colors shrink-0"
+          >
+            <ExternalLink size={13} /> Submission
           </a>
         )}
+
         {canViewRun && (
-          <button
+          <Button
+            size="sm"
+            variant="outline"
             onClick={() => setShowRun((v) => !v)}
-            className="text-primary underline shrink-0 cursor-pointer"
+            className="h-8 text-xs font-semibold gap-1.5 shrink-0"
           >
-            {showRun ? "hide run" : "view run"}
-          </button>
+            <Play size={13} className="text-primary" />
+            {showRun ? "Hide run" : "View run"}
+          </Button>
         )}
-        {isQuiz && item.status === "done" && cohortId && (
-          <button
+
+        {isQuiz && isDone && cohortId && (
+          <Button
+            size="sm"
+            variant="outline"
             onClick={() => setShowQuizReview((v) => !v)}
-            className="text-primary underline shrink-0 cursor-pointer"
+            className="h-8 text-xs font-semibold gap-1.5 shrink-0"
           >
-            {showQuizReview ? "hide answers" : "view answers"}
-          </button>
+            <Eye size={13} className="text-primary" />
+            {showQuizReview ? "Hide answers" : "View answers"}
+          </Button>
         )}
+
         {isQuiz && cohortId && (
-          <button
+          <Button
+            size="sm"
+            variant="ghost"
             onClick={() => setConfirmReset(true)}
-            className="flex items-center gap-1 text-muted-foreground hover:text-destructive shrink-0 cursor-pointer"
+            className="h-8 text-xs font-semibold text-muted-foreground hover:text-destructive hover:bg-destructive/10 gap-1.5 shrink-0"
             title="Let this student retake the quiz"
           >
-            <RotateCcw size={12} /> Reset
-          </button>
+            <RotateCcw size={13} /> Reset
+          </Button>
         )}
       </div>
+
       {canViewRun && showRun && (
-        <div className="mt-1.5 border border-border rounded-lg bg-card">
+        <div className="mt-1 border-2 border-border rounded-xl bg-card p-2 shadow-lg">
           <DesignRunDetail attemptId={item.mission_attempt_id as string} />
         </div>
       )}
+
       {isQuiz && showQuizReview && cohortId && (
-        <div className="mt-1.5">
+        <div className="mt-1 border-2 border-border rounded-xl bg-card p-3 shadow-lg">
           <QuizAnswersReview cohortId={cohortId} assignmentId={assignmentId} itemId={item.item_id} />
         </div>
       )}
+
       {confirmReset && (
         <ConfirmDialog
           title="Reset this student's quiz?"
@@ -1658,8 +1737,9 @@ function AssignmentItemRow({
           onConfirm={() => resetMutation.mutate()}
         />
       )}
+
       {resetMutation.isError && (
-        <p className="text-xs text-destructive mt-1">{errorDetail(resetMutation.error, "Couldn't reset this quiz")}</p>
+        <p className="text-xs text-destructive mt-1 font-medium">{errorDetail(resetMutation.error, "Couldn't reset this quiz")}</p>
       )}
     </div>
   )
