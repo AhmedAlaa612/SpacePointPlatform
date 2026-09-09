@@ -92,6 +92,7 @@ async def get_performance(db: AsyncSession, user_id: UUID) -> dict:
             "rater_name": rater_name,
             "overall_rating": overall_rating(rating.dimension_scores),
             "recommended": rating.recommended, "flag": rating.flag,
+            "strengths": rating.strengths, "areas_for_improvement": rating.areas_for_improvement,
             "submitted_at": rating.submitted_at,
         }
         for rating, cohort_name, program_name, rater_name in rating_rows

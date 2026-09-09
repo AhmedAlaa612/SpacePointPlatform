@@ -70,51 +70,86 @@ export default function InstructorPerformance() {
         </div>
       )}
 
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div className="rounded-2xl bg-card/70 dark:bg-card/60 backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/10 p-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Quiz / assessment history</h3>
-          {perf.quiz_history.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No assessments taken yet.</p>
-          ) : (
-            <table className="w-full text-xs">
-              <thead className="text-muted-foreground uppercase tracking-wide">
-                <tr><th className="text-left font-medium py-1">Program</th><th className="text-left font-medium py-1">Score</th><th className="text-left font-medium py-1">Critical</th></tr>
-              </thead>
-              <tbody>
-                {perf.quiz_history.map((q) => (
-                  <tr key={q.attempt_id} className="border-t border-border">
-                    <td className="py-1.5">{q.program_name}</td>
-                    <td className="py-1.5">{q.score}/{q.total} ({q.total ? Math.round(((q.score ?? 0) / q.total) * 100) : 0}%)</td>
-                    <td className="py-1.5">{q.critical_correct}/{q.critical_total}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+      <div className="rounded-2xl bg-card/70 dark:bg-card/60 backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/10 p-5">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Quiz / assessment history</h3>
+        {perf.quiz_history.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No assessments taken yet.</p>
+        ) : (
+          <table className="w-full text-xs">
+            <thead className="text-muted-foreground uppercase tracking-wide">
+              <tr><th className="text-left font-medium py-1">Program</th><th className="text-left font-medium py-1">Score</th><th className="text-left font-medium py-1">Critical</th></tr>
+            </thead>
+            <tbody>
+              {perf.quiz_history.map((q) => (
+                <tr key={q.attempt_id} className="border-t border-border">
+                  <td className="py-1.5">{q.program_name}</td>
+                  <td className="py-1.5">{q.score}/{q.total} ({q.total ? Math.round(((q.score ?? 0) / q.total) * 100) : 0}%)</td>
+                  <td className="py-1.5">{q.critical_correct}/{q.critical_total}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
 
-        <div className="rounded-2xl bg-card/70 dark:bg-card/60 backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/10 p-5">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Rating history</h3>
-          {perf.rating_history.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No post-program ratings yet.</p>
-          ) : (
-            <table className="w-full text-xs">
-              <thead className="text-muted-foreground uppercase tracking-wide">
-                <tr><th className="text-left font-medium py-1">Program</th><th className="text-left font-medium py-1">Rater</th><th className="text-left font-medium py-1">Overall</th><th className="text-left font-medium py-1">Recommended</th></tr>
-              </thead>
-              <tbody>
-                {perf.rating_history.map((r) => (
-                  <tr key={r.rating_id} className="border-t border-border">
-                    <td className="py-1.5">{r.program_name}</td>
-                    <td className="py-1.5">{r.rater_name ?? "—"}</td>
-                    <td className="py-1.5">{r.overall_rating}</td>
-                    <td className="py-1.5">{r.recommended === null ? "—" : r.recommended ? "Yes" : "No"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+      <div className="rounded-2xl bg-card/70 dark:bg-card/60 backdrop-blur-xl ring-1 ring-black/5 dark:ring-white/10 p-5">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">Rating history</h3>
+        {perf.rating_history.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No post-program ratings yet.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {perf.rating_history.map((r) => (
+              <div key={r.rating_id} className="rounded-xl border border-border p-3 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{r.program_name}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {r.rater_name ? `Rated by ${r.rater_name}` : "Rated"}
+                      {r.submitted_at && ` · ${new Date(r.submitted_at).toLocaleDateString()}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+                      {r.overall_rating} / 5
+                    </span>
+                    {r.recommended != null && (
+                      <span
+                        className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${
+                          r.recommended
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                            : "bg-red-500/10 text-red-600 dark:text-red-400"
+                        }`}
+                      >
+                        {r.recommended ? "Recommended" : "Not recommended"}
+                      </span>
+                    )}
+                    {r.flag !== "none" && (
+                      <span
+                        className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${
+                          r.flag === "exceptional"
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                            : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                        }`}
+                      >
+                        {r.flag === "exceptional" ? "Exceptional" : "Concern"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {r.strengths && (
+                  <p className="text-xs text-foreground/90">
+                    <span className="font-medium text-muted-foreground">Strengths: </span>{r.strengths}
+                  </p>
+                )}
+                {r.areas_for_improvement && (
+                  <p className="text-xs text-foreground/90">
+                    <span className="font-medium text-muted-foreground">Areas for improvement: </span>{r.areas_for_improvement}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

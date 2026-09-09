@@ -55,7 +55,7 @@ export function DomainIcon({ className }: { className?: string }) {
       />
       {label && (
         <text
-          transform="translate(324 51)"
+          transform="translate(340 51)"
           fill="currentColor"
           fontFamily="Just Another Hand"
           fontSize="70"
