@@ -317,7 +317,7 @@ export default function GamePlay() {
               />
             )}
           </div>
-          <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-extrabold leading-tight tracking-tight text-foreground">{question.prompt}</h1>
+          <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-semibold leading-tight tracking-normal text-foreground">{question.prompt}</h1>
           <div className="grid grid-cols-1 gap-3">
             {question.options.map((o, i) => {
               const result = revealResults?.[i]

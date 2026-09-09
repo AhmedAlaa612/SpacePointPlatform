@@ -237,7 +237,7 @@ export default function CohortQuizPage() {
                 )}
               </div>
 
-              <p className="text-base sm:text-lg font-bold leading-relaxed text-foreground">{q.prompt}</p>
+              <p className="text-base sm:text-lg font-semibold leading-relaxed text-foreground">{q.prompt}</p>
 
               {q.selected_index === null && (
                 <p className="text-sm text-amber-500/90 font-medium italic flex items-center gap-1.5">
@@ -254,14 +254,14 @@ export default function CohortQuizPage() {
                       key={oi}
                       className={`px-4 py-3.5 rounded-xl text-sm sm:text-base flex items-center gap-3.5 transition-all ${
                         isCorrectOption
-                          ? "bg-emerald-500/15 text-emerald-400 dark:text-emerald-300 font-semibold border-2 border-emerald-500/40"
+                          ? "bg-emerald-500/15 text-emerald-400 dark:text-emerald-300 font-medium border-2 border-emerald-500/40"
                           : isSelected
-                          ? "bg-red-500/15 text-red-400 dark:text-red-300 font-semibold border-2 border-red-500/40"
+                          ? "bg-red-500/15 text-red-400 dark:text-red-300 font-medium border-2 border-red-500/40"
                           : "bg-muted/40 text-muted-foreground border border-border/40"
                       }`}
                     >
                       <span
-                        className={`w-7 h-7 rounded-lg text-xs font-extrabold flex items-center justify-center shrink-0 ${
+                        className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 ${
                           isCorrectOption
                             ? "bg-emerald-500/25 text-emerald-300 border border-emerald-500/30"
                             : isSelected
@@ -347,7 +347,7 @@ export default function CohortQuizPage() {
           />
         )}
       </div>
-      <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-extrabold leading-tight tracking-tight text-foreground">{question.prompt}</h1>
+      <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-semibold leading-tight tracking-normal text-foreground">{question.prompt}</h1>
       <div className="grid grid-cols-1 gap-3">
         {question.options.map((text, i) => {
           const isMine = selected === i
@@ -356,11 +356,11 @@ export default function CohortQuizPage() {
               key={i}
               onClick={() => recordAnswer(i, false)}
               disabled={locked}
-              className={`min-h-[64px] py-3.5 px-5 rounded-2xl border-2 text-left text-base font-semibold text-foreground transition-all flex items-center gap-4 ${
+              className={`min-h-[64px] py-3.5 px-5 rounded-2xl border-2 text-left text-base font-medium text-foreground transition-all flex items-center gap-4 ${
                 isMine ? "border-primary bg-primary/10" : "border-border bg-card"
               } ${!locked ? "hover:border-primary/50 active:scale-[0.98]" : "disabled:opacity-60"}`}
             >
-              <span className="w-8 h-8 flex-none flex items-center justify-center rounded-xl border-2 border-current text-sm font-extrabold">
+              <span className="w-8 h-8 flex-none flex items-center justify-center rounded-xl border-2 border-current text-sm font-bold">
                 {String.fromCharCode(65 + i)}
               </span>
               <span className="flex-1 text-base leading-snug">{text}</span>
