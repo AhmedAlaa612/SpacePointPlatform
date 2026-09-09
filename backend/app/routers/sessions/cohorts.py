@@ -54,7 +54,7 @@ from app.models.inventory.kit import Kit
 from app.models.inventory.movement import Movement
 from app.models.inventory.session_kit import KitCheck, SessionKit
 from app.services.sessions import openings as openings_svc
-from app.services.sessions import staffing as staffing_svc
+from app.models.enums import UserRole
 from app.models.spine.contact import Contact, ContactRelationship
 from app.models.spine.organization import Organization
 from app.models.user import User
@@ -1121,10 +1121,15 @@ async def delete_registration(
     contact_id = registration.contact_id
 
     if delete_contact:
-        linked_users = await db.scalar(
-            select(func.count()).select_from(User).where(User.contact_id == contact_id)
+        linked_users = (await db.execute(
+            select(User).where(User.contact_id == contact_id)
+        )).scalars().all()
+
+        has_staff_account = any(
+            any(r != UserRole.student and r != "student" for r in (u.roles or []))
+            for u in linked_users
         )
-        if linked_users:
+        if has_staff_account:
             raise HTTPException(
                 status.HTTP_409_CONFLICT,
                 detail=(
@@ -1156,6 +1161,13 @@ async def delete_registration(
     await db.flush()
 
     if delete_contact:
+        student_users = (await db.execute(
+            select(User).where(User.contact_id == contact_id)
+        )).scalars().all()
+        for u in student_users:
+            await db.delete(u)
+        await db.flush()
+
         contact = await db.get(Contact, contact_id)
         if contact is not None:
             await db.delete(contact)

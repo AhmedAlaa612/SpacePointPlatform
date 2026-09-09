@@ -35,6 +35,7 @@ export interface ModuleLock {
   locked: boolean;
   mandatory_total: number;
   mandatory_completed: number;
+  total_items?: number;
 }
 
 export interface CourseDetail {

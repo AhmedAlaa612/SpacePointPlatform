@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Check, ChevronLeft, ChevronRight, Lock, Plus, Trash2, X } from "lucide-react"
+import { Check, ChevronLeft, ChevronRight, Lock, Mail, Pencil, Phone, Plus, Trash2, X } from "lucide-react"
 import type { Cohort, CohortAssignment, CohortVisibility, Program, Registration, Session } from "@/types/sessions"
 import type { City, Location, Warehouse } from "@/types/inventory"
 import { getProgramsApi } from "@/api/sessions/programs"
@@ -24,7 +24,7 @@ import {
   getRegistrationsApi,
 } from "@/api/sessions/cohorts"
 import { getCohortOpeningsApi, getDeliveryRolesApi, getMaterialsApi, setCohortOpeningsApi } from "@/api/sessions/openings"
-import { listCohortAssignmentsApi } from "@/api/sessions/staffing"
+import { listCohortAssignmentsApi, listCohortCallsApi, type CohortCall } from "@/api/sessions/staffing"
 import { Spinner, EmptyState } from "@/pages/admin/components/common"
 import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
 import { SessionOpeningsPanel } from "@/pages/admin/components/SessionOpeningsPanel"
@@ -33,6 +33,7 @@ import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { BulkAssignInstructorModal } from "@/pages/admin/components/BulkAssignInstructorModal"
 import { BulkOpenCallModal } from "@/pages/admin/components/BulkOpenCallModal"
 import { DeskRegisterModal } from "@/pages/admin/components/DeskRegisterModal"
+import { EditStudentModal } from "@/pages/admin/components/EditStudentModal"
 import { ImportListModal } from "@/pages/admin/components/ImportList"
 import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
@@ -172,8 +173,8 @@ export default function CohortWizard() {
         {step === 3 && cohort && program && (
           <>
             <StepIntro
-              eyebrow="LMS Checklist" title="What does this cohort's checklist look like?" ledeWidth={70}
-              lede="If the program has no checklist yet, create one first. Then build this cohort's own checklist below — it starts as a copy of the program's, and editing it here only affects this cohort."
+              eyebrow="LMS Checklist" title="What does students' checklist look like?" ledeWidth={70}
+              lede="Build the cohort's checklist below — it starts as a copy of the program's, and editing it here only affects this cohort."
             />
             <LmsChecklistStep cohort={cohort} program={program} />
           </>
@@ -202,7 +203,7 @@ export default function CohortWizard() {
         {step === 6 && cohort && (
           <>
             <StepIntro
-              eyebrow="Students" title="Who's coming?" ledeWidth={70}
+              eyebrow="Students" title="Who is registered?" ledeWidth={70}
               lede="Add students one at a time, or import a whole list at once."
             />
             <StudentsStep cohort={cohort} />
@@ -895,7 +896,7 @@ function LmsChecklistStep({ cohort, program }: { cohort: Cohort; program: Progra
   // checklist right here, same component CohortDetail.tsx's LMS tab uses.
   // Starts as an editable view of the program's own checklist; editing
   // anything forks a real per-cohort override server-side, transparently.
-  return <CohortOverrideEditor cohortId={cohort.id} isStaff readOnly={false} />
+  return <CohortOverrideEditor cohortId={cohort.id} isStaff readOnly={false} hideResync />
 }
 
 /* ═══════════════════════════ Step 6 — Staffing ══════════════════════════ */
@@ -909,6 +910,9 @@ function StaffingStep({ cohort }: { cohort: Cohort }) {
   const { data: assignments = [] } = useQuery<CohortAssignment[]>({
     queryKey: ["cohort-assignments", cohort.id], queryFn: () => listCohortAssignmentsApi(cohort.id),
   })
+  const { data: calls = [] } = useQuery<CohortCall[]>({
+    queryKey: ["cohort-calls", cohort.id], queryFn: () => listCohortCallsApi(cohort.id),
+  })
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
   const [modal, setModal] = useState<"assign" | "call" | null>(null)
 
@@ -917,8 +921,31 @@ function StaffingStep({ cohort }: { cohort: Cohort }) {
 
   const done = () => {
     setModal(null)
+    void queryClient.invalidateQueries({ queryKey: ["wizard-sessions", cohort.id] })
     void queryClient.invalidateQueries({ queryKey: ["cohort-assignments", cohort.id] })
+    void queryClient.invalidateQueries({ queryKey: ["cohort-calls", cohort.id] })
   }
+
+  // Aggregate session instructor assignments by (userName + roleName)
+  const aggregatedStaffing = useMemo(() => {
+    const map = new Map<string, { userName: string; roleName: string; sessionIds: Set<string> }>()
+    for (const s of sessions) {
+      for (const i of s.instructors ?? []) {
+        const key = `${i.full_name.toLowerCase().trim()}||${(i.role || "").toLowerCase().trim()}`
+        const existing = map.get(key)
+        if (existing) {
+          existing.sessionIds.add(s.id)
+        } else {
+          map.set(key, {
+            userName: i.full_name,
+            roleName: i.role,
+            sessionIds: new Set([s.id]),
+          })
+        }
+      }
+    }
+    return Array.from(map.values())
+  }, [sessions])
 
   if (sessions.length === 0) {
     return <EmptyState title="No sessions yet" hint="Add sessions on the Sessions step first — there's nothing to staff yet." />
@@ -926,48 +953,131 @@ function StaffingStep({ cohort }: { cohort: Cohort }) {
 
   return (
     <div className="flex flex-col" style={{ gap: 20 }}>
-      <div className="flex flex-wrap gap-1.5">
-        {sessions.map((s) => (
-          <button
-            key={s.id} type="button" onClick={() => toggleSession(s.id)}
-            style={{ height: 36, padding: "0 12px", borderRadius: 10, fontSize: 13, fontWeight: 500 }}
-            className={cn(
-              "border transition-colors",
-              selectedSessionIds.includes(s.id) ? "bg-primary text-primary-foreground border-primary" : "border-border text-foreground hover:bg-muted",
-            )}
-          >
-            {s.meeting_date}{s.title ? ` · ${s.title}` : ""}
-          </button>
-        ))}
+      <div className="flex flex-wrap gap-2">
+        {sessions.map((s) => {
+          const isSelected = selectedSessionIds.includes(s.id)
+          const staffedNames = s.instructors?.map((i) => i.full_name).join(", ")
+          const isOpenCall = s.staffing_status === "open_call"
+          return (
+            <button
+              key={s.id} type="button" onClick={() => toggleSession(s.id)}
+              style={{ height: 38, padding: "0 14px", borderRadius: 10, fontSize: 13, fontWeight: 500 }}
+              className={cn(
+                "border transition-all flex items-center gap-2 cursor-pointer select-none",
+                isSelected
+                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                  : "border-border bg-card text-foreground hover:bg-muted"
+              )}
+            >
+              <span>{s.meeting_date}{s.title ? ` · ${s.title}` : ""}</span>
+              {staffedNames && (
+                <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", isSelected ? "bg-primary-foreground/20 text-primary-foreground" : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20")}>
+                  ✓ {staffedNames}
+                </span>
+              )}
+              {!staffedNames && isOpenCall && (
+                <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", isSelected ? "bg-primary-foreground/20 text-primary-foreground" : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20")}>
+                  Call open
+                </span>
+              )}
+            </button>
+          )
+        })}
       </div>
 
-      <div className="flex" style={{ gap: 12 }}>
+      <div className="flex gap-3">
         <button
           onClick={() => setModal("assign")}
           disabled={selectedSessionIds.length === 0}
-          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600 }}
-          className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
-        >Assign instructor…</button>
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontFamily: OUTFIT, fontSize: 14, fontWeight: 600 }}
+          className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
+        >Assign instructor ({selectedSessionIds.length})</button>
         <button
           onClick={() => setModal("call")}
           disabled={selectedSessionIds.length === 0}
-          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontSize: 15, fontWeight: 500 }}
-          className="border border-border text-foreground hover:bg-muted transition-colors disabled:opacity-50"
-        >Open a call…</button>
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontSize: 14, fontWeight: 500 }}
+          className="border border-border bg-card text-foreground hover:bg-muted transition-colors disabled:opacity-50 cursor-pointer"
+        >Open a call ({selectedSessionIds.length})</button>
       </div>
 
-      <div className="flex flex-col" style={{ gap: 8 }}>
+      {calls.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">
+            Open Calls ({calls.length})
+          </span>
+          <div className="flex flex-col gap-2">
+            {calls.map((c) => (
+              <div key={c.id} className="border border-border bg-card rounded-xl p-3 flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-foreground truncate">
+                      {c.label || "Grouped Session Call"}
+                    </span>
+                    <span className={cn(
+                      "text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0",
+                      c.status === "open"
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                        : "bg-muted text-muted-foreground border-border"
+                    )}>
+                      {c.status === "open" ? "Open" : "Closed"}
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground truncate">
+                    {c.sessions.length} session(s): {c.sessions.map((s) => s.meeting_date).join(", ")}
+                    {c.target_user_ids.length > 0 ? ` · Restricted to ${c.target_user_ids.length} instructor(s)` : " · Public call"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
         <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">
           Staffed so far
         </span>
-        {assignments.length === 0 ? (
+        {aggregatedStaffing.length === 0 && assignments.length === 0 && calls.length === 0 ? (
           <p style={{ fontSize: 14 }} className="text-muted-foreground m-0">Nobody staffed yet.</p>
         ) : (
-          <div className="flex flex-col" style={{ gap: 6 }}>
+          <div className="flex flex-col gap-2.5">
+            {aggregatedStaffing.map((item) => (
+              <div key={item.userName + item.roleName} className="border border-border bg-card rounded-xl p-3.5 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-semibold text-foreground truncate">{item.userName}</span>
+                  <span className="text-xs font-semibold px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
+                    {item.roleName}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {sessions.map((s) => {
+                    const isAssigned = item.sessionIds.has(s.id)
+                    return (
+                      <span
+                        key={s.id}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-xs border transition-all select-none",
+                          isAssigned
+                            ? "bg-primary/20 text-primary border-primary/30 font-semibold shadow-2xs"
+                            : "bg-muted/30 text-muted-foreground/50 border-border/30 opacity-50"
+                        )}
+                      >
+                        {s.meeting_date}{s.title ? ` · ${s.title}` : ""}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
             {assignments.map((a) => (
-              <div key={a.id} style={{ padding: "10px 14px", borderRadius: 8 }} className="border border-border bg-card flex items-center justify-between">
-                <span style={{ fontSize: 14 }} className="text-foreground">{a.full_name}</span>
-                <span style={{ fontSize: 13 }} className="text-muted-foreground">{a.role_name}</span>
+              <div key={a.id} className="border border-border bg-card rounded-xl px-4 py-3 flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-sm font-semibold text-foreground">{a.full_name}</span>
+                  <span className="text-xs text-muted-foreground">Cohort Roster</span>
+                </div>
+                <span className="text-xs font-semibold px-3 py-1 rounded-lg bg-muted text-muted-foreground border border-border">
+                  {a.role_name}
+                </span>
               </div>
             ))}
           </div>
@@ -993,9 +1103,11 @@ function StudentsStep({ cohort }: { cohort: Cohort }) {
     queryKey: ["wizard-registrations", cohort.id], queryFn: () => getRegistrationsApi(cohort.id),
   })
   const [modal, setModal] = useState<"desk" | "import" | null>(null)
+  const [editingRegistration, setEditingRegistration] = useState<Registration | null>(null)
 
   const done = () => {
     setModal(null)
+    setEditingRegistration(null)
     void queryClient.invalidateQueries({ queryKey: ["wizard-registrations", cohort.id] })
   }
 
@@ -1021,11 +1133,53 @@ function StudentsStep({ cohort }: { cohort: Cohort }) {
         {registrations.length === 0 ? (
           <p style={{ fontSize: 14 }} className="text-muted-foreground m-0">Nobody registered yet.</p>
         ) : (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {registrations.map((r) => (
-              <span key={r.id} style={{ height: 32, padding: "0 12px", borderRadius: 8, fontSize: 13 }} className="border border-border bg-card text-foreground flex items-center">
-                {r.student_name}
-              </span>
+              <div
+                key={r.id}
+                onClick={() => setEditingRegistration(r)}
+                className="border border-border bg-card hover:border-primary/50 hover:shadow-xs cursor-pointer rounded-xl p-4 flex flex-col gap-3 transition-all group relative"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-sm shrink-0 uppercase">
+                      {r.student_name ? r.student_name.charAt(0) : "S"}
+                    </div>
+                    <span style={{ fontFamily: OUTFIT }} className="font-semibold text-base text-foreground truncate group-hover:text-primary transition-colors">
+                      {r.student_name}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {r.status && (
+                      <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-muted text-muted-foreground border border-border shrink-0 capitalize">
+                        {r.status.replace(/_/g, " ")}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEditingRegistration(r)
+                      }}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-70 group-hover:opacity-100"
+                      title="Edit student info"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5 text-sm text-muted-foreground pt-1.5 border-t border-border/50">
+                  <div className="flex items-center gap-2 text-xs">
+                    <Mail className="w-3.5 h-3.5 shrink-0 text-muted-foreground/70" />
+                    <span className="truncate">{r.student_email || "No email address"}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <Phone className="w-3.5 h-3.5 shrink-0 text-muted-foreground/70" />
+                    <span>{r.student_phone || "No phone number"}</span>
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
         )}
@@ -1033,6 +1187,13 @@ function StudentsStep({ cohort }: { cohort: Cohort }) {
 
       {modal === "desk" && <DeskRegisterModal cohort={cohort} sessions={sessions} onClose={() => setModal(null)} onSuccess={done} />}
       {modal === "import" && <ImportListModal cohort={cohort} onClose={() => setModal(null)} onImported={done} />}
+      {editingRegistration && (
+        <EditStudentModal
+          registration={editingRegistration}
+          onClose={() => setEditingRegistration(null)}
+          onSuccess={done}
+        />
+      )}
     </div>
   )
 }
@@ -1047,6 +1208,9 @@ function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) 
   })
   const { data: assignments = [] } = useQuery<CohortAssignment[]>({
     queryKey: ["cohort-assignments", cohort.id], queryFn: () => listCohortAssignmentsApi(cohort.id),
+  })
+  const { data: calls = [] } = useQuery<CohortCall[]>({
+    queryKey: ["cohort-calls", cohort.id], queryFn: () => listCohortCallsApi(cohort.id),
   })
   const { data: registrations = [] } = useQuery<Registration[]>({
     queryKey: ["wizard-registrations", cohort.id], queryFn: () => getRegistrationsApi(cohort.id),
@@ -1080,7 +1244,16 @@ function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) 
     },
     {
       label: "Staffing",
-      value: assignments.length === 0 ? "Nobody staffed yet" : `${assignments.length} instructor${assignments.length === 1 ? "" : "s"} staffed`,
+      value: (() => {
+        const sessionInstructorsCount = sessions.reduce((acc, s) => acc + (s.instructors?.length ?? 0), 0)
+        const callsCount = calls.length
+        if (sessionInstructorsCount === 0 && assignments.length === 0 && callsCount === 0) return "Nobody staffed yet"
+        const parts: string[] = []
+        if (sessionInstructorsCount > 0) parts.push(`${sessionInstructorsCount} instructor assignment${sessionInstructorsCount === 1 ? "" : "s"}`)
+        if (assignments.length > 0) parts.push(`${assignments.length} roster instructor${assignments.length === 1 ? "" : "s"}`)
+        if (callsCount > 0) parts.push(`${callsCount} open call${callsCount === 1 ? "" : "s"}`)
+        return parts.join(", ")
+      })(),
     },
     {
       label: "Students",

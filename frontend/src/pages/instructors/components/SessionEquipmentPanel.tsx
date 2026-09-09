@@ -73,61 +73,47 @@ export function SessionEquipmentPanel({
 
   return (
     <Card>
-      <CardContent className="p-4 flex flex-col gap-3">
+      <CardContent className="p-3.5 flex flex-col gap-2.5">
         <div className="flex items-center justify-between gap-2">
-          <p className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <Backpack size={15} /> Extra equipment
+          <p className="flex items-center gap-2 text-xs font-bold text-foreground uppercase tracking-wider">
+            <Backpack size={14} className="text-muted-foreground" /> Extra equipment
           </p>
-          {data.outstanding_count > 0 && (
-            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
-              {data.outstanding_count} still out with you
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {data.outstanding_count > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                {data.outstanding_count} with you
+              </span>
+            )}
+            <Button size="sm" variant="outline" onClick={() => setAdding(true)} className="h-7 text-xs font-medium px-2.5">
+              <Plus size={13} className="mr-1" /> Add item
+            </Button>
+            {data.outstanding_count > 0 && (
+              <Button size="sm" variant="outline" onClick={() => setReturning(true)} className="h-7 text-xs font-medium px-2.5">
+                Return
+              </Button>
+            )}
+          </div>
         </div>
 
-        {data.lines.length === 0 ? (
-          <p className="text-xs text-muted-foreground -mt-1">
-            Besides your kit — did you take anything else, like a speaker, a charger, or stickers?
-            {data.warehouse_name && ` Picked up from ${data.warehouse_name}.`}
-          </p>
-        ) : (
-          <div className="flex flex-col gap-2">
+        {data.lines.length > 0 && (
+          <div className="flex flex-col gap-1.5">
             {data.lines.map((line) => (
               <div
                 key={line.item_id}
-                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-background/50 px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 px-3 py-1.5 text-xs"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground truncate">{line.item_name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    Took {line.qty_taken}
-                    {line.qty_returned > 0 && ` · brought back ${line.qty_returned}`}
-                  </p>
-                </div>
-                <span className="text-xs shrink-0 font-medium">
+                <span className="font-semibold text-foreground truncate">{line.item_name}</span>
+                <span className="shrink-0 font-medium">
                   {line.outstanding > 0 ? (
-                    <span className="text-amber-700 dark:text-amber-400">
-                      {line.outstanding} with you
-                    </span>
+                    <span className="text-amber-400 font-bold">{line.outstanding} with you</span>
                   ) : (
-                    <span className="text-emerald-600 dark:text-emerald-400">All back</span>
+                    <span className="text-emerald-400">Returned</span>
                   )}
                 </span>
               </div>
             ))}
           </div>
         )}
-
-        <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
-            <Plus size={14} className="mr-1.5" /> I took something extra
-          </Button>
-          {data.outstanding_count > 0 && (
-            <Button size="sm" variant="outline" onClick={() => setReturning(true)}>
-              Mark returned
-            </Button>
-          )}
-        </div>
 
         <SessionNotes sessionId={sessionId} cohortId={cohortId} notes={notes} onSaved={onChanged} />
       </CardContent>
@@ -157,19 +143,6 @@ export function SessionEquipmentPanel({
 
 /**
  * The catch-all comment box (operator, 2026-07-30).
- *
- * Its immediate job is to absorb what the rest of this panel cannot model:
- * equipment search can only offer what `stock_levels` knows about, so until
- * ops has entered the co-working stock, "I took a speaker that isn't in the
- * list" has nowhere to go. Without this the fact is just lost — and a system
- * that silently drops what people tell it is how the last one ended up with
- * four empty tables.
- *
- * One text area, saved on blur. Deliberately not a comment log: the ask was
- * for something simple, and the known cost — a lead and a co-instructor
- * saving at the same moment overwrite each other — was accepted for that
- * simplicity. Saving on blur rather than per keystroke is the only mitigation
- * that costs nothing.
  */
 function SessionNotes({ sessionId, cohortId, notes, onSaved }: {
   sessionId: string
@@ -197,9 +170,6 @@ function SessionNotes({ sessionId, cohortId, notes, onSaved }: {
       setError(e?.response?.data?.detail ?? "Could not save that note"),
   })
 
-  // Not every item taken is on the shelf — some instructors just write what
-  // they took here and attach a photo as proof, rather than going through
-  // the structured "I took something extra" flow.
   const savePhoto = useMutation({
     mutationFn: (file: File) =>
       uploadSessionReportApi(cohortId, { file, sessionId, notes: textRef.current?.value || undefined }),
@@ -211,71 +181,86 @@ function SessionNotes({ sessionId, cohortId, notes, onSaved }: {
   })
 
   return (
-    <div className="flex flex-col gap-1.5 border-t border-border pt-3">
-      <label htmlFor={`notes-${sessionId}`} className="text-xs font-medium text-foreground">
-        Comments
-      </label>
-      <textarea
-        ref={textRef}
-        id={`notes-${sessionId}`}
-        defaultValue={notes ?? ""}
-        rows={3}
-        placeholder="Anything worth noting — including things you took that aren't in the list yet."
-        onFocus={() => setSaved(false)}
-        onBlur={(e) => {
-          if (e.target.value !== (notes ?? "")) save.mutate(e.target.value)
-        }}
-        className="w-full px-3 py-2 border border-border bg-background text-foreground rounded-xl text-sm resize-y"
-      />
-      <p className="text-xs text-muted-foreground">
-        {save.isPending
-          ? "Saving…"
-          : saved
-            ? "Saved — operations will see this on the session."
-            : "Operations reads this on the session."}
-      </p>
+    <div className="flex flex-col gap-1.5 border-t border-border/50 pt-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <label htmlFor={`notes-${sessionId}`} className="text-xs font-semibold text-muted-foreground">
+          Comments / Session Notes
+        </label>
+        <span className="text-[11px] text-muted-foreground/70">
+          {save.isPending ? "Saving…" : saved ? "Saved" : ""}
+        </span>
+      </div>
 
-      <div className="flex items-center gap-2 mt-0.5">
-        {photoPreview ? (
-          <div className="relative w-16 h-16 shrink-0">
-            <img src={photoPreview} alt="Proof" className="w-16 h-16 object-cover rounded-lg border border-border" />
+      <div className="flex items-center gap-2">
+        <textarea
+          ref={textRef}
+          id={`notes-${sessionId}`}
+          defaultValue={notes ?? ""}
+          rows={1}
+          placeholder="Add comments for operations (e.g. extra items taken, issues, notes)…"
+          onFocus={() => setSaved(false)}
+          onBlur={(e) => {
+            if (e.target.value !== (notes ?? "")) save.mutate(e.target.value)
+          }}
+          className="flex-1 px-3 py-2 border border-border bg-background text-foreground rounded-lg text-xs min-h-[38px] max-h-[120px] focus:min-h-[70px] transition-all duration-200 resize-y"
+        />
+
+        {!photoPreview && (
+          <button
+            type="button"
+            onClick={() => photoInputRef.current?.click()}
+            className="h-[38px] px-2.5 rounded-lg border border-border bg-muted/40 hover:bg-muted text-muted-foreground hover:text-foreground text-xs font-semibold flex items-center gap-1.5 transition-colors shrink-0 cursor-pointer"
+            title="Attach a proof photo"
+          >
+            <Camera size={14} />
+            <span className="hidden sm:inline">Photo</span>
+          </button>
+        )}
+      </div>
+
+      {photoPreview && (
+        <div className="flex items-center gap-2 mt-1">
+          <div className="relative w-12 h-12 shrink-0">
+            <img src={photoPreview} alt="Proof" className="w-12 h-12 object-cover rounded-lg border border-border" />
             {!savePhoto.isPending && (
               <button
                 type="button"
                 onClick={() => { setPhoto(null); setPhotoPreview(null); setPhotoSaved(false); if (photoInputRef.current) photoInputRef.current.value = "" }}
-                className="absolute -top-1.5 -right-1.5 w-4.5 h-4.5 rounded-full bg-background border border-border flex items-center justify-center text-muted-foreground hover:text-foreground"
+                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-background border border-border flex items-center justify-center text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 <X size={10} />
               </button>
             )}
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => photoInputRef.current?.click()}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-dashed border-border rounded-xl px-3 py-2"
-          >
-            <Camera size={14} /> Attach a proof photo
-          </button>
-        )}
-        <input
-          ref={photoInputRef} type="file" accept="image/*" capture="environment" className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0] ?? null
-            setPhoto(file)
-            setPhotoSaved(false)
-            setPhotoPreview(file ? URL.createObjectURL(file) : null)
-            if (file) { setError(""); savePhoto.mutate(file) }
-          }}
-        />
-        {photo && (
-          <span className="text-xs text-muted-foreground">
-            {savePhoto.isPending ? "Uploading…" : photoSaved ? "Attached — operations will see this." : ""}
-          </span>
-        )}
-      </div>
+          {savePhoto.isPending ? (
+            <span className="text-xs text-muted-foreground">Uploading photo…</span>
+          ) : photoSaved ? (
+            <span className="text-xs text-emerald-400 font-semibold">Photo attached</span>
+          ) : (
+            <Button size="sm" variant="outline" className="h-7 text-xs font-semibold" onClick={() => photo && savePhoto.mutate(photo)}>
+              Save photo
+            </Button>
+          )}
+        </div>
+      )}
 
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) {
+            setPhoto(file)
+            setPhotoPreview(URL.createObjectURL(file))
+            setPhotoSaved(false)
+            setError("")
+            savePhoto.mutate(file)
+          }
+        }}
+      />
+      {error && <p className="text-xs text-red-500 mt-0.5">{error}</p>}
     </div>
   )
 }

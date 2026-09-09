@@ -50,8 +50,9 @@ import { cn } from "@/lib/utils";
 
 interface NavItem {
   label: string;
-  to: string;
+  to?: string;
   icon: LucideIcon;
+  children?: NavItem[];
 }
 
 /** Per-label icon lookup so the (verbatim) nav-link branching stays terse. */
@@ -64,6 +65,7 @@ const ICONS: Record<string, LucideIcon> = {
   "User Management": Users,
   Documents: FileText,
   "Personal Documents": FileText,
+  "Students Progress": FileText,
   Applications: ClipboardList,
   Settings: SettingsIcon,
   "Profile & Settings": UserCog,
@@ -80,9 +82,15 @@ const ICONS: Record<string, LucideIcon> = {
   "Reviews": ListChecks,
   "Sessions Calendar": CalendarDays,
   Training: PlayCircle,
+  "Instructor Training": PlayCircle,
   "SatKit Training": PlayCircle,
   Library: BookOpen,
+  "Instructor Library": BookOpen,
   "Library Resources": BookOpen,
+  "Instructor Assessment": ListChecks,
+  Assessment: ListChecks,
+  "Instructor Applications": ClipboardList,
+  "Facilitator ID": CreditCard,
   Payments: Wallet,
   Status: Activity,
   Videos: Video,
@@ -91,6 +99,7 @@ const ICONS: Record<string, LucideIcon> = {
   Applicants: ClipboardList,
   "Invitation Codes": Ticket,
   Instructors: Users,
+  LMS: BookOpen,
   Facilitators: Users,
   Certificates: Award,
   Titles: Award,
@@ -101,6 +110,7 @@ const ICONS: Record<string, LucideIcon> = {
   "Merge Reviews": GitMerge,
   "Check-in": QrCode,
   Operations: Warehouse,
+  Inventory: Warehouse,
   "Admin Hub": UserCog,
   Kits: Boxes,
   "My Kits & Items": Boxes,
@@ -111,17 +121,49 @@ const ICONS: Record<string, LucideIcon> = {
   Learn: GraduationCap,
   Students: Users,
   "Invite Codes": Ticket,
+  Courses: BookOpen,
+  "Learning Paths": GitMerge,
+  "Live Quiz": PlayCircle,
+  "Quiz Bank": ListChecks,
+  Missions: Target,
+  Progress: Activity,
+  "Component library": Boxes,
 };
 
-/** Inventory nav, shared by every role that can see it (I1-4). */
-const INVENTORY_NAV = [
-  ["Kits", "/operations/inventory"],
-  ["Stock", "/operations/inventory/stock"],
-  ["Fulfilment", "/operations/inventory/fulfilment"],
-  ["Catalogue", "/operations/inventory/catalog"],
-] as const;
-
 const mk = (label: string, to: string): NavItem => ({ label, to, icon: ICONS[label] ?? FileText });
+const mkGroup = (label: string, to: string | undefined, children: NavItem[]): NavItem => ({
+  label,
+  to,
+  icon: ICONS[label] ?? Users,
+  children,
+});
+
+const LMS_GROUP = mkGroup("LMS", undefined, [
+  mk("Courses", "/lms-authoring/courses"),
+  mk("Learning Paths", "/lms-authoring/learning-paths"),
+  mk("Programs", "/lms-authoring/curriculum"),
+  mk("Live Quiz", "/lms-authoring/games"),
+  mk("Quiz Bank", "/lms-authoring/quiz-bank"),
+  mk("Missions", "/lms-authoring/missions"),
+  mk("Students", "/lms-authoring/students"),
+  mk("Invite Codes", "/lms-authoring/invite-codes"),
+  mk("Progress", "/lms-authoring/progress"),
+  mk("Component library", "/lms-authoring/design-library"),
+]);
+
+const INVENTORY_GROUP = mkGroup("Inventory", undefined, [
+  mk("Kits", "/operations/inventory"),
+  mk("Stock", "/operations/inventory/stock"),
+  mk("Fulfilment", "/operations/inventory/fulfilment"),
+  mk("Catalogue", "/operations/inventory/catalog"),
+]);
+
+const PROGRAMS_GROUP = mkGroup("Programs", undefined, [
+  mk("Programs", "/operations/programs"),
+  mk("Cohorts", "/operations/cohorts"),
+  mk("Reviews", "/operations/reviews"),
+  mk("Delivery Settings", "/operations/delivery-settings"),
+]);
 
 const DOMAIN_TITLE: Record<string, string> = {
   interns: "Interns",
@@ -140,33 +182,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   // LM1-13: shared by operations + facilitator (backend's require_lms_content),
   // its own top-level path so one URL space works for both roles rather than
   // duplicating pages under /operations and /instructors.
-  if (pathname.startsWith("/lms-authoring")) {
-    // A plain instructor's backend access (require_instructor_missions) is
-    // cohort-scoped and Programs-only — every other tab here 403s for them,
-    // so show just their one real entry point instead of the full staff nav.
-    if (activeRole === "instructor") {
-      return [
-        mk("Programs", "/lms-authoring/curriculum"),
-        mk("Back", "/instructors/dashboard"),
-      ];
-    }
-    return [
-      mk("Courses", "/lms-authoring/courses"),
-      mk("Learning Paths", "/lms-authoring/learning-paths"),
-      mk("Programs", "/lms-authoring/curriculum"),
-      mk("Live Quiz", "/lms-authoring/games"),
-      mk("Quiz Bank", "/lms-authoring/quiz-bank"),
-      mk("Missions", "/lms-authoring/missions"),
-      mk("Students", "/lms-authoring/students"),
-      mk("Invite Codes", "/lms-authoring/invite-codes"),
-      mk("Progress", "/lms-authoring/progress"),
-      mk("Component library", "/lms-authoring/design-library"),
-      mk(
-        "Back",
-        activeRole === "facilitator" ? "/instructors/facilitator/training" : "/operations/dashboard",
-      ),
-    ];
-  }
+
   // V2 S6-2: operations domain — dedicated sidebar, no longer piggybacking on admin.
   if (pathname.startsWith("/operations")) {
     // I1-4: a storekeeper restocks, receives, and (2026-08-27) reads
@@ -180,7 +196,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     // stay off this nav entirely; those aren't the storekeeper's job.
     if (activeRole === "storekeeper") {
       return [
-        ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+        INVENTORY_GROUP,
         mk("Learn", "/learn"),
         mk("Profile & Settings", "/operations/profile"),
       ];
@@ -191,21 +207,18 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     // and registrations still aren't theirs — those stay ops-only.
     if (activeRole === "coo") {
       return [
-        ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+        INVENTORY_GROUP,
         mk("Learn", "/learn"),
         mk("Profile & Settings", "/operations/profile"),
       ];
     }
     return [
       mk("Dashboard", "/operations/dashboard"),
-      mk("Programs", "/operations/programs"),
-      mk("Cohorts", "/operations/cohorts"),
-      mk("Reviews", "/operations/reviews"),
-      mk("Sessions Calendar", "/operations/calendar"),
-      mk("LMS", "/lms-authoring/courses"),
+      PROGRAMS_GROUP,
+      LMS_GROUP,
+      INVENTORY_GROUP,
       mk("Learn", "/learn"),
-      mk("Delivery Settings", "/operations/delivery-settings"),
-      ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+      mk("Sessions Calendar", "/operations/calendar"),
     ];
   }
   if (pathname.startsWith("/admin")) {
@@ -276,15 +289,17 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
     if (activeRole === "facilitator") {
       return [
         mk("Sessions", "/instructors/my-sessions"),
-        mk("My Kits & Items", "/instructors/my-holdings"),
-        mk("Training", "/instructors/facilitator/training"),
-        mk("Library", "/instructors/facilitator/library"),
-        mk("LMS", "/lms-authoring/courses"),
-        mk("Assessment Questions", "/instructors/admin/assessment-questions"),
-        mk("Learn", "/learn"),
+        mkGroup("Instructors", undefined, [
+          mk("Training", "/instructors/facilitator/training"),
+          mk("Library", "/instructors/facilitator/library"),
+          mk("Assessment", "/instructors/admin/assessment-questions"),
+          mk("Applications", "/instructors/facilitator/application"),
+        ]),
+        LMS_GROUP,
         mk("Personal Documents", "/instructors/personal-documents"),
-        mk("Instructor ID Card", "/instructors/id-card"),
-        mk("Application", "/instructors/facilitator/application"),
+        mk("Learn", "/learn"),
+        mk("Facilitator ID", "/instructors/id-card"),
+        mk("My Kits & Items", "/instructors/my-holdings"),
       ];
     }
     if (activeRole === "applicant") {
@@ -306,12 +321,12 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Overview", "/instructors/dashboard"),
       mk("Sessions", "/instructors/my-sessions"),
       mk("Library Resources", "/instructors/library"),
-      mk("Personal Documents", "/instructors/personal-documents"),
-      mk("Instructor ID Card", "/instructors/id-card"),
-      mk("Payments", "/instructors/payments"),
-      mk("LMS Programs", "/lms-authoring/curriculum"),
-      mk("Learn", "/learn"),
       mk("SatKit Training", "/instructors/training"),
+      mk("Personal Documents", "/instructors/personal-documents"),
+      mk("Payments", "/instructors/payments"),
+      mk("Learn", "/learn"),
+      mk("Students Progress", "/lms-authoring/curriculum"),
+      mk("Instructor ID Card", "/instructors/id-card"),
       mk("My Kits & Items", "/instructors/my-holdings"),
     ];
   }
@@ -372,28 +387,29 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       mk("Overview", "/instructors/dashboard"),
       mk("Sessions", "/instructors/my-sessions"),
       mk("Library Resources", "/instructors/library"),
-      mk("Personal Documents", "/instructors/personal-documents"),
-      mk("Instructor ID Card", "/instructors/id-card"),
-      mk("Payments", "/instructors/payments"),
-      mk("LMS Programs", "/lms-authoring/curriculum"),
-      mk("Learn", "/learn"),
       mk("SatKit Training", "/instructors/training"),
+      mk("Personal Documents", "/instructors/personal-documents"),
+      mk("Payments", "/instructors/payments"),
+      mk("Learn", "/learn"),
+      mk("Students Progress", "/lms-authoring/curriculum"),
+      mk("Instructor ID Card", "/instructors/id-card"),
       mk("My Kits & Items", "/instructors/my-holdings"),
     ];
   }
   if (activeRole === "facilitator") {
     return [
-      mk("Available Sessions", "/instructors/available-sessions"),
-      mk("My Sessions", "/instructors/my-sessions"),
-      mk("My Kits & Items", "/instructors/my-holdings"),
-      mk("Sessions Calendar", "/sessions/calendar"),
-      mk("Training", "/instructors/facilitator/training"),
-      mk("Library", "/instructors/facilitator/library"),
-      mk("LMS", "/lms-authoring/courses"),
-      mk("Learn", "/learn"),
+      mk("Sessions", "/instructors/my-sessions"),
+      mkGroup("Instructors", undefined, [
+        mk("Training", "/instructors/facilitator/training"),
+        mk("Library", "/instructors/facilitator/library"),
+        mk("Assessment", "/instructors/admin/assessment-questions"),
+        mk("Applications", "/instructors/facilitator/application"),
+      ]),
+      LMS_GROUP,
       mk("Personal Documents", "/instructors/personal-documents"),
-      mk("Profile & Settings", "/instructors/profile"),
-      mk("Application", "/instructors/facilitator/application"),
+      mk("Learn", "/learn"),
+      mk("Facilitator ID", "/instructors/id-card"),
+      mk("My Kits & Items", "/instructors/my-holdings"),
     ];
   }
   if (activeRole === "admin") {
@@ -411,26 +427,23 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   if (activeRole === "operations") {
     return [
       mk("Dashboard", "/operations/dashboard"),
-      mk("Programs", "/operations/programs"),
-      mk("Cohorts", "/operations/cohorts"),
-      mk("Reviews", "/operations/reviews"),
-      mk("Sessions Calendar", "/operations/calendar"),
-      mk("LMS", "/lms-authoring/courses"),
+      PROGRAMS_GROUP,
+      LMS_GROUP,
+      INVENTORY_GROUP,
       mk("Learn", "/learn"),
-      mk("Delivery Settings", "/operations/delivery-settings"),
-      ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+      mk("Sessions Calendar", "/operations/calendar"),
     ];
   }
   if (activeRole === "storekeeper") {
     return [
-      ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+      INVENTORY_GROUP,
       mk("Learn", "/learn"),
       mk("Profile & Settings", "/operations/profile"),
     ];
   }
   if (activeRole === "coo") {
     return [
-      ...INVENTORY_NAV.map(([label, to]) => mk(label, to)),
+      INVENTORY_GROUP,
       mk("Learn", "/learn"),
       mk("Profile & Settings", "/operations/profile"),
     ];
@@ -452,8 +465,10 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
   return [];
 }
 
-const isActive = (pathname: string, to: string) =>
-  to === "/interns" || to === "/ambassadors" || to === "/admin" || to === "/instructors/dashboard"
+const isActive = (pathname: string, to?: string) =>
+  !to || to === "#"
+    ? false
+    : to === "/interns" || to === "/ambassadors" || to === "/admin" || to === "/instructors/dashboard"
     ? pathname === to
     : pathname.startsWith(to);
 
@@ -622,6 +637,101 @@ function Avatar({ to, size = "md" }: { to: string; size?: "sm" | "md" }) {
   );
 }
 
+function NavLinkItem({
+  item,
+  pathname,
+  pendingSignature,
+  onNavigate,
+}: {
+  item: NavItem;
+  pathname: string;
+  pendingSignature: number;
+  onNavigate?: () => void;
+}) {
+  const isChildActive = item.children?.some((c) => c.to && isActive(pathname, c.to)) ?? false;
+  const isSelfActive = item.to ? isActive(pathname, item.to) : false;
+  const [open, setOpen] = useState(isChildActive || isSelfActive);
+
+  useEffect(() => {
+    if (isChildActive || isSelfActive) {
+      setOpen(true);
+    }
+  }, [isChildActive, isSelfActive]);
+
+  const Icon = item.icon;
+  const showBadge = item.to === "/instructors/payments" && pendingSignature > 0;
+
+  if (item.children && item.children.length > 0) {
+    return (
+      <div className="space-y-1">
+        <div
+          className={cn(
+            "flex items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm transition-all cursor-pointer select-none",
+            isSelfActive || isChildActive
+              ? "border border-primary/30 bg-primary/10 font-semibold text-primary"
+              : "border border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+          )}
+          onClick={() => setOpen((v) => !v)}
+        >
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <Icon className="h-5 w-5 shrink-0" />
+            <span className="truncate">{item.label}</span>
+          </div>
+          <ChevronDown
+            className={cn("h-4 w-4 shrink-0 transition-transform duration-200 text-muted-foreground", !open && "-rotate-90")}
+          />
+        </div>
+
+        {open && (
+          <div className="pl-4 space-y-1 border-l-2 border-primary/30 ml-6 my-1">
+            {item.children.map((child) => {
+              const childActive = child.to ? isActive(pathname, child.to) : false;
+              const ChildIcon = child.icon;
+              return (
+                <Link
+                  key={child.label + (child.to ?? "")}
+                  to={child.to ?? "#"}
+                  onClick={onNavigate}
+                  className={cn(
+                    "flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs transition-all",
+                    childActive
+                      ? "bg-primary/20 font-semibold text-primary"
+                      : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+                  )}
+                >
+                  <ChildIcon className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{child.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <Link
+      to={item.to ?? "#"}
+      onClick={onNavigate}
+      className={cn(
+        "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
+        isSelfActive
+          ? "border border-primary/30 bg-primary/10 font-semibold text-primary"
+          : "border border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
+      )}
+    >
+      <Icon className="h-5 w-5 shrink-0" />
+      <span className="truncate">{item.label}</span>
+      {showBadge && (
+        <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-black">
+          {pendingSignature}
+        </span>
+      )}
+    </Link>
+  );
+}
+
 function NavLinks({
   items,
   pathname,
@@ -635,32 +745,15 @@ function NavLinks({
 }) {
   return (
     <>
-      {items.map((l) => {
-        const active = isActive(pathname, l.to);
-        const Icon = l.icon;
-        const showBadge = l.to === "/instructors/payments" && pendingSignature > 0;
-        return (
-          <Link
-            key={l.to}
-            to={l.to}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 rounded-xl px-4 py-3 text-sm transition-all",
-              active
-                ? "border border-primary/30 bg-primary/10 font-semibold text-primary"
-                : "border border-transparent text-muted-foreground hover:bg-foreground/5 hover:text-foreground",
-            )}
-          >
-            <Icon className="h-5 w-5 shrink-0" />
-            <span className="truncate">{l.label}</span>
-            {showBadge && (
-              <span className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-black">
-                {pendingSignature}
-              </span>
-            )}
-          </Link>
-        );
-      })}
+      {items.map((l) => (
+        <NavLinkItem
+          key={l.label + (l.to ?? "")}
+          item={l}
+          pathname={pathname}
+          pendingSignature={pendingSignature}
+          onNavigate={onNavigate}
+        />
+      ))}
     </>
   );
 }

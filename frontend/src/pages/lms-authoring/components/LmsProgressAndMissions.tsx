@@ -1,9 +1,9 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
   Plus, X, BookOpen, Rocket, ChevronDown, ChevronRight, RotateCcw, Clock, CheckCircle2, XCircle,
-  Award, Circle, ExternalLink, Eye, Play,
+  Award, Circle, ExternalLink, Eye, Play, Search,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -335,6 +335,7 @@ function GatesTab({ cohortId, missionId }: { cohortId: string; missionId: string
 export function ProgressPanel({
   cohortId, lmsProgramId, scopeLabel,
 }: { cohortId?: string; lmsProgramId?: string; scopeLabel: string }) {
+  const [search, setSearch] = useState("")
   const queryClient = useQueryClient()
   const queryKey = cohortId ? ["instructor-program-progress", cohortId] : ["instructor-program-wide-progress", lmsProgramId]
   const { data: rows, isLoading } = useQuery({
@@ -348,20 +349,45 @@ export function ProgressPanel({
     onSuccess: () => void queryClient.invalidateQueries({ queryKey }),
   })
 
+  const filteredRows = useMemo(() => {
+    if (!rows) return []
+    if (!search.trim()) return rows
+    const q = search.toLowerCase()
+    return rows.filter((r) => r.student_name.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)))
+  }, [rows, search])
+
   if (isLoading) return <Spinner />
   if (!rows || rows.length === 0) {
     return <EmptyState title="No students assigned this checklist yet" hint={`Showing ${scopeLabel}.`} />
   }
 
   return (
-    <div className="flex flex-col gap-2">
-      {rows.map((row) => (
-        <ProgressRow
-          key={row.assignment_id} row={row} cohortId={cohortId}
-          onConfirm={(itemId) => cohortId && confirmMutation.mutate({ assignmentCohortId: cohortId, assignmentId: row.assignment_id, itemId })}
-          confirmPending={confirmMutation.isPending}
-        />
-      ))}
+    <div className="flex flex-col gap-3">
+      {rows.length > 0 && (
+        <div className="relative w-full sm:w-64 self-end">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by student name…"
+            className="h-8 w-full pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
+          />
+        </div>
+      )}
+
+      {filteredRows.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-6">No students match "{search}"</p>
+      ) : (
+        <div className="max-h-96 overflow-y-auto pr-1 flex flex-col gap-2">
+          {filteredRows.map((row) => (
+            <ProgressRow
+              key={row.assignment_id} row={row} cohortId={cohortId}
+              onConfirm={(itemId) => cohortId && confirmMutation.mutate({ assignmentCohortId: cohortId, assignmentId: row.assignment_id, itemId })}
+              confirmPending={confirmMutation.isPending}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

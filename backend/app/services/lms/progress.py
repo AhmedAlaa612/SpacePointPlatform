@@ -145,6 +145,7 @@ async def _module_progress(
             "position": m.position,
             "mandatory_total": len(mandatory),
             "mandatory_completed": completed,
+            "total_items": len(by_module.get(m.id, [])),
         })
     return rows
 
@@ -169,13 +170,16 @@ async def course_completion(
     db: AsyncSession, *, user_id: uuid.UUID, course_id: uuid.UUID
 ) -> dict:
     """Derived completion: a module is done when every mandatory item in it is
-    completed; the course is done when every module is done. Returns the
-    per-module tallies alongside the overall flag so the instructor view
-    (LM1-10) can render progress, not just the final state."""
+    completed; the course is done when every module is done. An empty module (0
+    items) is not completed. Returns the per-module tallies alongside the
+    overall flag so the instructor view (LM1-10) can render progress, not just
+    the final state."""
     rows = await _module_progress(db, user_id, course_id)
     for row in rows:
-        row["completed"] = row["mandatory_total"] == 0 or (
-            row["mandatory_completed"] == row["mandatory_total"]
+        row["completed"] = row["total_items"] > 0 and (
+            row["mandatory_total"] == 0 or (
+                row["mandatory_completed"] == row["mandatory_total"]
+            )
         )
     return {
         "course_id": course_id,
@@ -222,12 +226,18 @@ async def batch_course_completion(
             if status in COMPLETED_STATUSES:
                 completed_by_user.setdefault(uid, set()).add(item_id)
 
+    items_count_by_module: dict[uuid.UUID, int] = {}
+    for i in items:
+        items_count_by_module[i.module_id] = items_count_by_module.get(i.module_id, 0) + 1
+
     result: dict[uuid.UUID, dict] = {}
     for uid in user_ids:
         done = completed_by_user.get(uid, set())
         modules_done = sum(
             1 for m in modules
-            if not mandatory_by_module.get(m.id) or all(iid in done for iid in mandatory_by_module[m.id])
+            if items_count_by_module.get(m.id, 0) > 0 and (
+                not mandatory_by_module.get(m.id) or all(iid in done for iid in mandatory_by_module[m.id])
+            )
         )
         modules_total = len(modules)
         result[uid] = {

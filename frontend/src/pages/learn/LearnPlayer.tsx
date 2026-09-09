@@ -124,14 +124,22 @@ export default function LearnPlayer() {
   // "already done" reading. Only wired up when this course was opened from
   // a checklist tile (`?program=`).
   const wasCourseDoneRef = useRef<boolean | null>(null);
+  const celebrationShownRef = useRef(false);
   const [showCourseCelebration, setShowCourseCelebration] = useState(false);
   useEffect(() => {
     if (!search.program) return;
-    const done = flat.length > 0 && selectedItemId === null;
+    if (flat.length === 0) return;
+    const done = selectedItemId === null;
     const was = wasCourseDoneRef.current;
     wasCourseDoneRef.current = done;
-    if (was === null || was === done || !done) return;
-    setShowCourseCelebration(true);
+    if (was === null) {
+      if (done) celebrationShownRef.current = true;
+      return;
+    }
+    if (!was && done && !celebrationShownRef.current) {
+      celebrationShownRef.current = true;
+      setShowCourseCelebration(true);
+    }
   }, [flat.length, selectedItemId, search.program]);
 
   const handleProgressed = useCallback(async () => {
