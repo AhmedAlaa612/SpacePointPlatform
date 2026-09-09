@@ -216,6 +216,55 @@ async def test_admin_can_author_a_bank_question_and_build_a_template(db, client)
     list_resp = await client.get("/lms/admin/cohort-quiz/templates", headers=_headers(facilitator))
     assert any(t["id"] == template_id and t["question_count"] == 1 for t in list_resp.json())
 
+    edit_resp = await client.patch(
+        f"/lms/admin/cohort-quiz/questions/{question_id}", headers=_headers(facilitator),
+        json={"prompt": "What does the acronym ADCS stand for?", "time_limit_seconds": 45},
+    )
+    assert edit_resp.status_code == 200
+    assert edit_resp.json()["prompt"] == "What does the acronym ADCS stand for?"
+    assert edit_resp.json()["time_limit_seconds"] == 45
+    assert edit_resp.json()["topic"] == "ADCS"  # untouched fields survive a partial PATCH
+
+
+@pytest.mark.asyncio
+async def test_admin_can_generate_and_regenerate_a_templates_question_set(db, client):
+    facilitator = await _staff(db, roles=("facilitator",))
+    await db.commit()
+
+    for i in range(6):
+        resp = await client.post(
+            "/lms/admin/cohort-quiz/questions", headers=_headers(facilitator),
+            json={
+                "topic": "EPS" if i % 2 == 0 else "ADCS", "difficulty": "Easy", "time_limit_seconds": 15,
+                "prompt": f"Question {i}",
+                "options": [{"text": "A", "is_correct": True}, {"text": "B", "is_correct": False}],
+            },
+        )
+        assert resp.status_code == 201
+
+    template_resp = await client.post(
+        "/lms/admin/cohort-quiz/templates", headers=_headers(facilitator), json={"name": "Generated Template"},
+    )
+    template_id = template_resp.json()["id"]
+
+    generate_resp = await client.post(
+        f"/lms/admin/cohort-quiz/templates/{template_id}/generate",
+        headers=_headers(facilitator), json={"count": 4},
+    )
+    assert generate_resp.status_code == 200
+    first_set = generate_resp.json()
+    assert first_set["question_count"] == 4
+
+    # "Regenerate" is the same call again — the set can change.
+    regenerate_resp = await client.post(
+        f"/lms/admin/cohort-quiz/templates/{template_id}/generate",
+        headers=_headers(facilitator), json={"count": 3, "topics": ["EPS"]},
+    )
+    assert regenerate_resp.status_code == 200
+    second_set = regenerate_resp.json()
+    assert second_set["question_count"] == 3
+    assert all(q["question"]["topic"] == "EPS" for q in second_set["questions"])
+
 
 @pytest.mark.asyncio
 async def test_a_retired_template_cannot_be_assigned_to_a_new_item_but_stays_editable_on_an_existing_one(db, client):

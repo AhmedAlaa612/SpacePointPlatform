@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import delete as sa_delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -41,11 +41,31 @@ async def create_question(
     return question
 
 
+async def _question_in_an_in_progress_attempt(db: AsyncSession, question_id: uuid.UUID) -> bool:
+    """Whether any not-yet-submitted attempt has already drawn this
+    question — grading and review both read `CohortQuizQuestion.options`
+    live (only presentation order is frozen in `question_order`), so
+    changing which option is correct — or the options themselves — while
+    a student is mid-quiz would silently regrade their answer against
+    content they never actually saw."""
+    orders = (await db.execute(
+        select(CohortQuizAttempt.question_order).where(CohortQuizAttempt.status == "in_progress")
+    )).scalars().all()
+    qid = str(question_id)
+    return any(entry.get("question_id") == qid for order in orders for entry in order)
+
+
 async def update_question(
     db: AsyncSession, question: CohortQuizQuestion, body: CohortQuizQuestionUpdate,
 ) -> CohortQuizQuestion:
     data = body.model_dump(exclude_unset=True)
     if "options" in data and data["options"] is not None:
+        if await _question_in_an_in_progress_attempt(db, question.id):
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail="A student has this question open in an in-progress quiz attempt right now — "
+                       "its options can't be changed until they submit (or you can wait and retry).",
+            )
         data["options"] = [o.model_dump() for o in body.options]
     for field, value in data.items():
         setattr(question, field, value)
@@ -218,6 +238,83 @@ async def reorder_template_questions(
         .where(CohortQuizTemplateQuestion.template_id == template_id)
         .order_by(CohortQuizTemplateQuestion.position)
     )).scalars().all()
+
+
+async def generate_template_questions(
+    db: AsyncSession, *, template_id: uuid.UUID, count: int, topics: list[str] | None = None,
+) -> list[CohortQuizTemplateQuestion]:
+    """Bulk auto-populate a template's fixed question set — replaces
+    whatever's currently on it. A facilitator-authoring convenience (a fast
+    starting point instead of hand-picking one question at a time), not a
+    per-student draw: the template's set is still fixed once generated,
+    same "identical set for every student" rule this domain always
+    follows (see this module's own docstring). "Regenerate" in the admin
+    UI is just calling this again for a different random pick.
+
+    Round-robins across topics for spread rather than pure random (a flat
+    random draw could plausibly land entirely in one topic) — same idiom
+    `services/instructor_assessment/attempts.py::_round_robin_draw` uses,
+    simplified (no critical-floor tier here). Only draws from active
+    questions, same as `start_attempt`."""
+    q = select(CohortQuizQuestion).where(CohortQuizQuestion.is_active.is_(True))
+    if topics:
+        q = q.where(CohortQuizQuestion.topic.in_(topics))
+    pool = (await db.execute(q)).scalars().all()
+    if not pool:
+        # Checked before touching the existing rows — a topic filter that
+        # matches nothing (a typo, an all-retired topic) must not wipe a
+        # template's current question set for zero replacement.
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="No active questions match the selected topics")
+
+    by_topic: dict[str, list[CohortQuizQuestion]] = {}
+    for question in pool:
+        by_topic.setdefault(question.topic, []).append(question)
+    topic_names = list(by_topic.keys())
+    random.shuffle(topic_names)
+    for questions in by_topic.values():
+        random.shuffle(questions)
+
+    drawn: list[CohortQuizQuestion] = []
+    while len(drawn) < count:
+        progressed = False
+        for topic in topic_names:
+            if len(drawn) >= count:
+                break
+            bucket = by_topic[topic]
+            if bucket:
+                drawn.append(bucket.pop())
+                progressed = True
+        if not progressed:
+            break  # every topic's pool is exhausted — fewer than `count` exist, draw what there is
+    random.shuffle(drawn)
+
+    # Delete-then-insert, wrapped in a SAVEPOINT — two concurrent
+    # generate/regenerate calls on the same template would otherwise both
+    # delete the same rows and then collide inserting fresh ones at the
+    # same positions. Same guard idiom `add_template_question` uses for
+    # its own race, including the narrow re-raise: only swallow the
+    # specific expected constraint, not any IntegrityError (a hard-deleted
+    # question between the SELECT above and this flush, say, should
+    # surface as itself, not a misleading "try again").
+    try:
+        async with db.begin_nested():
+            await db.execute(
+                sa_delete(CohortQuizTemplateQuestion).where(CohortQuizTemplateQuestion.template_id == template_id)
+            )
+            rows = [
+                CohortQuizTemplateQuestion(id=uuid.uuid4(), template_id=template_id, question_id=question.id, position=i)
+                for i, question in enumerate(drawn, start=1)
+            ]
+            db.add_all(rows)
+            await db.flush()
+    except IntegrityError as e:
+        if "uq_cohort_quiz_template_question_position" not in str(e.orig) and "uq_cohort_quiz_template_question_unique" not in str(e.orig):
+            raise
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Another update to this template's questions happened at the same time — try again",
+        )
+    return rows
 
 
 # ── attempts (student-facing) ────────────────────────────────────────────

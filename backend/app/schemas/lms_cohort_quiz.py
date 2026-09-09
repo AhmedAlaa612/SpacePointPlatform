@@ -127,6 +127,15 @@ class CohortQuizTemplateReorderIn(BaseModel):
     template_question_ids: list[UUID]
 
 
+class CohortQuizTemplateGenerateIn(BaseModel):
+    # Replaces the template's entire current question list with a fresh
+    # round-robin-across-topics pick — "Regenerate" in the admin UI is
+    # just calling this again.
+    count: int = Field(gt=0, le=200)
+    # None means draw from every active topic in the bank.
+    topics: list[str] | None = None
+
+
 # ── attempts (student-facing) ───────────────────────────────────────────
 
 class CohortQuizAttemptQuestionOut(BaseModel):

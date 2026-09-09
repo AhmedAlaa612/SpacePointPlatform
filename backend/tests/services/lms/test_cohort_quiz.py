@@ -8,12 +8,17 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.models.lms.cohort_quiz import CohortQuizAttempt
+from app.models.lms.cohort_quiz import CohortQuizAttempt, CohortQuizQuestion
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
-from app.schemas.lms_cohort_quiz import CohortQuizQuestionIn, CohortQuizQuestionOptionIn, CohortQuizTemplateCreate
+from app.schemas.lms_cohort_quiz import (
+    CohortQuizQuestionIn,
+    CohortQuizQuestionOptionIn,
+    CohortQuizQuestionUpdate,
+    CohortQuizTemplateCreate,
+)
 from app.services.lms import cohort_quiz as svc
 
 
@@ -139,6 +144,82 @@ async def test_reorder_template_questions_rejects_a_mismatched_set(db):
 
 
 @pytest.mark.asyncio
+async def test_generate_template_questions_replaces_the_existing_set_with_a_spread_across_topics(db):
+    user = await _make_user(db)
+    # A hand-picked question already on the template — generate must
+    # replace the *row*, not add to it. (Its underlying question is still
+    # a valid active candidate, so asserting it can't be re-drawn by
+    # question_id would be flaky — round-robin can legitimately pick it
+    # again. What must hold deterministically is that the old
+    # CohortQuizTemplateQuestion row is gone, replaced by a fresh one.)
+    template, _existing = await _make_template_with_questions(db, user=user, topics=["EPS"])
+    old_row_ids = {r.id for r in await svc.get_template_questions(db, template.id)}
+
+    for topic in ["EPS", "ADCS", "CDHS"]:
+        for _ in range(3):
+            await svc.create_question(db, body=_question_body(topic), created_by=user.id)
+
+    rows = await svc.generate_template_questions(db, template_id=template.id, count=6)
+
+    assert len(rows) == 6
+    positions = [r.position for r in rows]
+    assert positions == list(range(1, 7))
+    new_row_ids = {r.id for r in rows}
+    assert old_row_ids.isdisjoint(new_row_ids)  # the old row was deleted, not reused
+
+    generated_questions = (await db.execute(
+        select(CohortQuizQuestion).where(CohortQuizQuestion.id.in_({r.question_id for r in rows}))
+    )).scalars().all()
+    topics_drawn = {q.topic for q in generated_questions}
+    assert len(topics_drawn) >= 2  # round-robin spreads across topics, not all from one
+
+
+@pytest.mark.asyncio
+async def test_generate_template_questions_respects_a_topic_filter(db):
+    user = await _make_user(db)
+    template = await svc.create_template(db, body=CohortQuizTemplateCreate(name="Filtered"), created_by=user.id)
+    for topic in ["EPS", "ADCS"]:
+        for _ in range(2):
+            await svc.create_question(db, body=_question_body(topic), created_by=user.id)
+
+    rows = await svc.generate_template_questions(db, template_id=template.id, count=10, topics=["EPS"])
+
+    assert len(rows) == 2  # only 2 EPS questions exist — draws what's there, doesn't error
+    generated_questions = (await db.execute(
+        select(CohortQuizQuestion).where(CohortQuizQuestion.id.in_([r.question_id for r in rows]))
+    )).scalars().all()
+    assert all(q.topic == "EPS" for q in generated_questions)
+
+
+@pytest.mark.asyncio
+async def test_generate_template_questions_only_draws_active_questions(db):
+    user = await _make_user(db)
+    template, questions = await _make_template_with_questions(db, user=user, topics=["EPS"])
+    inactive = await svc.create_question(db, body=_question_body("EPS"), created_by=user.id)
+    inactive.is_active = False
+    await db.flush()
+
+    rows = await svc.generate_template_questions(db, template_id=template.id, count=5)
+
+    assert inactive.id not in {r.question_id for r in rows}
+
+
+@pytest.mark.asyncio
+async def test_generate_template_questions_rejects_a_topic_filter_matching_nothing_without_wiping_the_template(db):
+    """A typo'd or all-retired topic filter must not delete the existing
+    set for zero replacement — the guard has to run before any deletes."""
+    user = await _make_user(db)
+    template, existing = await _make_template_with_questions(db, user=user, topics=["EPS"])
+
+    with pytest.raises(HTTPException) as exc:
+        await svc.generate_template_questions(db, template_id=template.id, count=5, topics=["Nonexistent Topic"])
+    assert exc.value.status_code == 409
+
+    surviving = await svc.get_template_questions(db, template.id)
+    assert [r.question_id for r in surviving] == [existing[0].id]  # untouched
+
+
+@pytest.mark.asyncio
 async def test_question_count_for_template_only_counts_active_questions(db):
     """The count must match what start_attempt will actually draw — never
     overstate a quiz that's had questions retired out from under it."""
@@ -152,6 +233,62 @@ async def test_question_count_for_template_only_counts_active_questions(db):
 
     counts = await svc.question_counts_for_templates(db, [template.id])
     assert counts[template.id] == 2
+
+
+@pytest.mark.asyncio
+async def test_update_question_rejects_option_changes_while_an_attempt_has_it_in_progress(db):
+    """Grading and review both read `CohortQuizQuestion.options` live (only
+    presentation order is frozen at start time) — changing options out from
+    under a student mid-quiz would silently regrade against content they
+    never saw."""
+    user = await _make_user(db)
+    cohort = await _make_cohort(db)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=cohort.program_id, name="Quiz Program 9")
+    db.add(lms_program)
+    await db.flush()
+    template, questions = await _make_template_with_questions(db, user=user, topics=["EPS"])
+    item = await _quiz_item(db, lms_program=lms_program, template_id=template.id)
+    student = await _make_user(db, roles=["student"])
+
+    await svc.start_attempt(db, item=item, user_id=student.id, cohort_id=cohort.id)
+
+    with pytest.raises(HTTPException) as exc:
+        await svc.update_question(
+            db, questions[0],
+            CohortQuizQuestionUpdate(options=[
+                CohortQuizQuestionOptionIn(text="A", is_correct=True),
+                CohortQuizQuestionOptionIn(text="B", is_correct=False),
+            ]),
+        )
+    assert exc.value.status_code == 409
+
+    # Non-option fields are untouched by the guard.
+    updated = await svc.update_question(db, questions[0], CohortQuizQuestionUpdate(subtopic="Renamed"))
+    assert updated.subtopic == "Renamed"
+
+
+@pytest.mark.asyncio
+async def test_update_question_allows_option_changes_once_no_attempt_is_in_progress(db):
+    user = await _make_user(db)
+    cohort = await _make_cohort(db)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=cohort.program_id, name="Quiz Program 10")
+    db.add(lms_program)
+    await db.flush()
+    template, questions = await _make_template_with_questions(db, user=user, topics=["EPS"])
+    item = await _quiz_item(db, lms_program=lms_program, template_id=template.id)
+    student = await _make_user(db, roles=["student"])
+
+    attempt = await svc.start_attempt(db, item=item, user_id=student.id, cohort_id=cohort.id)
+    await svc.submit_attempt(db, attempt, [])
+
+    updated = await svc.update_question(
+        db, questions[0],
+        CohortQuizQuestionUpdate(options=[
+            CohortQuizQuestionOptionIn(text="X", is_correct=True),
+            CohortQuizQuestionOptionIn(text="Y", is_correct=False),
+        ]),
+    )
+    assert [o["text"] for o in updated.options] == ["X", "Y"]
 
 
 # ── get-or-create attempt semantics ──────────────────────────────────────

@@ -1,17 +1,18 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { isAxiosError } from "axios"
-import { ArrowDown, ArrowUp, Download, Plus, Trash2, Upload, X } from "lucide-react"
+import { ArrowDown, ArrowUp, Download, Pencil, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
 import { ConfirmDialog } from "@/pages/admin/components/common"
 import {
   addCohortQuizTemplateQuestionApi, createCohortQuizQuestionApi, createCohortQuizTemplateApi,
-  downloadCohortQuizQuestionTemplateApi, getCohortQuizTemplateApi, importCohortQuizQuestionsApi,
-  listCohortQuizQuestionsApi, listCohortQuizTemplatesApi, removeCohortQuizTemplateQuestionApi,
-  reorderCohortQuizTemplateQuestionsApi, retireCohortQuizQuestionApi, type CohortQuizQuestionInput,
+  downloadCohortQuizQuestionTemplateApi, generateCohortQuizTemplateQuestionsApi, getCohortQuizTemplateApi,
+  importCohortQuizQuestionsApi, listCohortQuizQuestionsApi, listCohortQuizTemplatesApi,
+  removeCohortQuizTemplateQuestionApi, reorderCohortQuizTemplateQuestionsApi, retireCohortQuizQuestionApi,
+  updateCohortQuizQuestionApi, type CohortQuizQuestionInput,
 } from "@/api/cohort_quiz"
-import type { CohortQuizDifficulty } from "@/types/cohort_quiz"
+import type { CohortQuizDifficulty, CohortQuizQuestion } from "@/types/cohort_quiz"
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -57,6 +58,7 @@ function QuestionBankTab() {
   const queryClient = useQueryClient()
   const [topicFilter, setTopicFilter] = useState("")
   const [adding, setAdding] = useState(false)
+  const [editingQuestion, setEditingQuestion] = useState<CohortQuizQuestion | null>(null)
   const [confirmRetireId, setConfirmRetireId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [importMessage, setImportMessage] = useState("")
@@ -120,6 +122,13 @@ function QuestionBankTab() {
       )}
 
       {adding && <QuestionForm onCancel={() => setAdding(false)} onSaved={() => { setAdding(false); invalidate() }} />}
+      {editingQuestion && (
+        <QuestionForm
+          initial={editingQuestion}
+          onCancel={() => setEditingQuestion(null)}
+          onSaved={() => { setEditingQuestion(null); invalidate() }}
+        />
+      )}
 
       {isLoading ? <Spinner /> : questions.length === 0 ? (
         <EmptyState title="No questions yet" hint="Add one, or import the boss's xlsx bank." />
@@ -136,15 +145,24 @@ function QuestionBankTab() {
                 </div>
                 <p className="text-sm text-foreground">{q.prompt}</p>
               </div>
-              {q.is_active && (
+              <div className="flex items-center gap-1 shrink-0">
                 <button
-                  onClick={() => setConfirmRetireId(q.id)}
-                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0"
-                  title="Retire"
+                  onClick={() => setEditingQuestion(q)}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                  title="Edit"
                 >
-                  <Trash2 size={14} />
+                  <Pencil size={14} />
                 </button>
-              )}
+                {q.is_active && (
+                  <button
+                    onClick={() => setConfirmRetireId(q.id)}
+                    className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
+                    title="Retire"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
@@ -165,14 +183,23 @@ function QuestionBankTab() {
   )
 }
 
-function QuestionForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: () => void }) {
-  const [topic, setTopic] = useState("")
-  const [subtopic, setSubtopic] = useState("")
-  const [difficulty, setDifficulty] = useState<CohortQuizDifficulty>("Easy")
-  const [timeLimitSeconds, setTimeLimitSeconds] = useState(15)
-  const [prompt, setPrompt] = useState("")
-  const [options, setOptions] = useState([{ text: "", is_correct: true }, { text: "", is_correct: false }])
-  const [explanation, setExplanation] = useState("")
+function QuestionForm({
+  initial, onCancel, onSaved,
+}: {
+  initial?: CohortQuizQuestion
+  onCancel: () => void
+  onSaved: () => void
+}) {
+  const [topic, setTopic] = useState(initial?.topic ?? "")
+  const [subtopic, setSubtopic] = useState(initial?.subtopic ?? "")
+  const [difficulty, setDifficulty] = useState<CohortQuizDifficulty>(initial?.difficulty ?? "Easy")
+  const [timeLimitSeconds, setTimeLimitSeconds] = useState(initial?.time_limit_seconds ?? 15)
+  const [prompt, setPrompt] = useState(initial?.prompt ?? "")
+  const [options, setOptions] = useState(
+    initial?.options.map((o) => ({ text: o.text, is_correct: o.is_correct }))
+    ?? [{ text: "", is_correct: true }, { text: "", is_correct: false }],
+  )
+  const [explanation, setExplanation] = useState(initial?.explanation ?? "")
   const [error, setError] = useState("")
   const [saving, setSaving] = useState(false)
 
@@ -193,7 +220,11 @@ function QuestionForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: ()
         prompt: prompt.trim(), options: options.map((o) => ({ text: o.text.trim(), is_correct: o.is_correct })),
         explanation: explanation.trim() || null,
       }
-      await createCohortQuizQuestionApi(body)
+      if (initial) {
+        await updateCohortQuizQuestionApi(initial.id, body)
+      } else {
+        await createCohortQuizQuestionApi(body)
+      }
       onSaved()
     } catch (e) {
       setError(errorDetail(e, "Failed to save"))
@@ -248,7 +279,9 @@ function QuestionForm({ onCancel, onSaved }: { onCancel: () => void; onSaved: ()
       />
       {error && <p className="text-xs text-destructive">{error}</p>}
       <div className="flex gap-2">
-        <Button onClick={() => void save()} disabled={saving}>{saving ? "Saving…" : "Save question"}</Button>
+        <Button onClick={() => void save()} disabled={saving}>
+          {saving ? "Saving…" : initial ? "Save changes" : "Save question"}
+        </Button>
         <Button variant="outline" onClick={onCancel}>Cancel</Button>
       </div>
     </div>
@@ -314,17 +347,24 @@ function TemplateDetail({ templateId }: { templateId: string }) {
   const queryClient = useQueryClient()
   const [topicFilter, setTopicFilter] = useState("")
   const [pickerQuestionId, setPickerQuestionId] = useState("")
+  const [generateCount, setGenerateCount] = useState(10)
+  const [generateTopics, setGenerateTopics] = useState<string[]>([])
+  const [confirmGenerate, setConfirmGenerate] = useState(false)
 
   const { data: template, isLoading } = useQuery({
     queryKey: ["cohort-quiz-template", templateId], queryFn: () => getCohortQuizTemplateApi(templateId),
   })
-  const { data: bank = [] } = useQuery({
-    // "active" (vs. QuestionBankTab's "all" above) — see that query's own
-    // comment on why these must not share a cache key.
-    queryKey: ["cohort-quiz-questions", "active", topicFilter],
-    queryFn: () => listCohortQuizQuestionsApi(topicFilter ? { topic: topicFilter, is_active: true } : { is_active: true }),
+  // "active" (vs. QuestionBankTab's "all" above) — see that query's own
+  // comment on why these must not share a cache key. Fetched unfiltered —
+  // both the "add one question" picker (topic-filtered client-side below)
+  // and the generate panel's topic checkboxes (which need every active
+  // topic regardless of that filter) read from this one query.
+  const { data: allActiveBank = [] } = useQuery({
+    queryKey: ["cohort-quiz-questions", "active", ""],
+    queryFn: () => listCohortQuizQuestionsApi({ is_active: true }),
   })
-  const topics = Array.from(new Set(bank.map((q) => q.topic))).sort()
+  const bank = topicFilter ? allActiveBank.filter((q) => q.topic === topicFilter) : allActiveBank
+  const allTopics = Array.from(new Set(allActiveBank.map((q) => q.topic))).sort()
   const alreadyOnTemplate = new Set((template?.questions ?? []).map((tq) => tq.question.id))
   const pickable = bank.filter((q) => !alreadyOnTemplate.has(q.id))
 
@@ -342,6 +382,12 @@ function TemplateDetail({ templateId }: { templateId: string }) {
     mutationFn: (ids: string[]) => reorderCohortQuizTemplateQuestionsApi(templateId, ids),
     onSuccess: invalidate,
   })
+  const generateMutation = useMutation({
+    mutationFn: () => generateCohortQuizTemplateQuestionsApi(templateId, {
+      count: generateCount, topics: generateTopics.length > 0 ? generateTopics : null,
+    }),
+    onSuccess: () => { invalidate(); setConfirmGenerate(false) },
+  })
 
   const move = (index: number, direction: -1 | 1) => {
     if (!template) return
@@ -351,6 +397,8 @@ function TemplateDetail({ templateId }: { templateId: string }) {
     ;[ids[index], ids[target]] = [ids[target], ids[index]]
     reorderMutation.mutate(ids)
   }
+  const toggleGenerateTopic = (topic: string) =>
+    setGenerateTopics((prev) => (prev.includes(topic) ? prev.filter((t) => t !== topic) : [...prev, topic]))
 
   if (isLoading || !template) return <Spinner />
 
@@ -362,7 +410,7 @@ function TemplateDetail({ templateId }: { templateId: string }) {
       <div className="flex items-center gap-2">
         <select value={topicFilter} onChange={(e) => setTopicFilter(e.target.value)} className="h-9 px-3 border border-border bg-card text-foreground rounded-lg text-sm cursor-pointer">
           <option value="">All topics</option>
-          {topics.map((t) => <option key={t} value={t}>{t}</option>)}
+          {allTopics.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
         <select value={pickerQuestionId} onChange={(e) => setPickerQuestionId(e.target.value)} className="flex-1 h-9 px-3 border border-border bg-card text-foreground rounded-lg text-sm cursor-pointer">
           <option value="">Add a question…</option>
@@ -375,6 +423,65 @@ function TemplateDetail({ templateId }: { templateId: string }) {
           <Plus size={14} />
         </Button>
       </div>
+
+      <div className="flex flex-col gap-2 p-3 bg-muted/30 border border-border rounded-xl">
+        <p className="text-xs font-semibold text-foreground">
+          {template.questions.length > 0 ? "Regenerate the whole set" : "Or auto-generate a starting set"}
+        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="number" min={1} max={200} value={generateCount}
+            onChange={(e) => setGenerateCount(Math.min(200, Math.max(1, Number(e.target.value) || 1)))}
+            className="w-20 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm"
+          />
+          <span className="text-xs text-muted-foreground">questions, spread across:</span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {allTopics.length === 0 ? (
+              <span className="text-xs text-muted-foreground italic">no active questions in the bank yet</span>
+            ) : allTopics.map((topic) => (
+              <button
+                key={topic}
+                onClick={() => toggleGenerateTopic(topic)}
+                className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors cursor-pointer ${
+                  generateTopics.includes(topic)
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:border-primary/40"
+                }`}
+              >
+                {topic}
+              </button>
+            ))}
+          </div>
+        </div>
+        <span className="text-[11px] text-muted-foreground">
+          {generateTopics.length === 0 ? "No topics selected — draws from all of them." : null}
+          {template.questions.length > 0 && " This replaces the template's current question list entirely."}
+        </span>
+        <Button
+          variant="outline"
+          onClick={() => (template.questions.length > 0 ? setConfirmGenerate(true) : generateMutation.mutate())}
+          disabled={allTopics.length === 0 || generateMutation.isPending}
+          className="w-fit"
+        >
+          <RefreshCw size={14} className="mr-1.5" />
+          {generateMutation.isPending ? "Generating…" : template.questions.length > 0 ? "Regenerate" : "Generate"}
+        </Button>
+        {generateMutation.isError && (
+          <p className="text-xs text-destructive">{errorDetail(generateMutation.error, "Couldn't generate questions.")}</p>
+        )}
+      </div>
+
+      {confirmGenerate && (
+        <ConfirmDialog
+          title="Replace this template's question set?"
+          description={`This deletes all ${template.questions.length} current question(s) on this template and picks ${generateCount} new one(s) at random. Any student who already started this quiz keeps their own frozen set — this only affects new attempts.`}
+          confirmLabel="Regenerate"
+          destructive
+          pending={generateMutation.isPending}
+          onCancel={() => setConfirmGenerate(false)}
+          onConfirm={() => generateMutation.mutate()}
+        />
+      )}
 
       {template.questions.length === 0 ? (
         <EmptyState title="No questions yet" hint="Pick some from the bank above." />

@@ -91,6 +91,13 @@ export const reorderCohortQuizTemplateQuestionsApi = (templateId: string, templa
     { template_question_ids: templateQuestionIds },
   ).then((r) => r.data);
 
+/** Auto-populates the template's fixed question set (replacing whatever's
+ *  currently on it) with a round-robin spread across topics. "Regenerate"
+ *  in the UI is just calling this again for a different random pick. */
+export const generateCohortQuizTemplateQuestionsApi = (
+  templateId: string, data: { count: number; topics?: string[] | null },
+) => api.post<CohortQuizTemplateDetail>(`/lms/admin/cohort-quiz/templates/${templateId}/generate`, data).then((r) => r.data);
+
 // ── student: taking the quiz ─────────────────────────────────────────────
 
 export const startCohortQuizApi = (assignmentId: string, itemId: string) =>

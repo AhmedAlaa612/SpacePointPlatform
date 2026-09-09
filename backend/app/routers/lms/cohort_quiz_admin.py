@@ -23,8 +23,9 @@ from app.models.lms.cohort_quiz import CohortQuizQuestion, CohortQuizTemplate
 from app.models.user import User
 from app.schemas.lms_cohort_quiz import (
     CohortQuizQuestionImportOut, CohortQuizQuestionIn, CohortQuizQuestionOut, CohortQuizQuestionUpdate,
-    CohortQuizTemplateCreate, CohortQuizTemplateDetailOut, CohortQuizTemplateOut, CohortQuizTemplateQuestionIn,
-    CohortQuizTemplateQuestionOut, CohortQuizTemplateReorderIn, CohortQuizTemplateUpdate,
+    CohortQuizTemplateCreate, CohortQuizTemplateDetailOut, CohortQuizTemplateGenerateIn, CohortQuizTemplateOut,
+    CohortQuizTemplateQuestionIn, CohortQuizTemplateQuestionOut, CohortQuizTemplateReorderIn,
+    CohortQuizTemplateUpdate,
 )
 from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services.lms.cohort_quiz_importer import (
@@ -249,5 +250,24 @@ async def reorder_template_questions(
             status.HTTP_400_BAD_REQUEST,
             detail="template_question_ids must match the template's current question set exactly",
         )
+    await db.commit()
+    return await _template_detail_out(db, template)
+
+
+@router.post("/templates/{template_id}/generate", response_model=CohortQuizTemplateDetailOut)
+async def generate_template_questions(
+    template_id: uuid.UUID, body: CohortQuizTemplateGenerateIn,
+    db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    """Auto-populate the template's fixed question set — replaces
+    whatever's on it. "Regenerate" in the admin UI is the same call again
+    for a different random pick; the facilitator can still hand-edit the
+    result afterward (add/remove/reorder)."""
+    template = await db.get(CohortQuizTemplate, template_id)
+    if template is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Quiz template not found")
+    await cohort_quiz_service.generate_template_questions(
+        db, template_id=template_id, count=body.count, topics=body.topics,
+    )
     await db.commit()
     return await _template_detail_out(db, template)
