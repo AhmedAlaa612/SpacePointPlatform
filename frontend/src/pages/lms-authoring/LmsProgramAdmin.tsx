@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight, ImagePlus, Calendar, HelpCircle } from "lucide-react"
+import { Plus, X, GripVertical, BookOpen, Rocket, Link2, Upload, Users, FileText, ClipboardCheck, ChevronDown, ChevronRight, ImagePlus, Calendar, HelpCircle, RotateCcw, Clock, CheckCircle2, XCircle } from "lucide-react"
 import { isAxiosError } from "axios"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -36,7 +36,7 @@ import {
   type InstructorCohort,
 } from "@/api/missionsInstructor"
 import { fetchMissionCatalog } from "@/api/missions"
-import { listCohortQuizTemplatesApi } from "@/api/cohort_quiz"
+import { getInstructorCohortQuizReviewApi, listCohortQuizTemplatesApi, resetCohortQuizAttemptApi } from "@/api/cohort_quiz"
 import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
 import type { Program } from "@/types/sessions"
 import type { ManagedAttempt } from "@/api/missions_manager"
@@ -1559,7 +1559,9 @@ function ProgressRow({
       </div>
       {open && (
         <div className="p-3 border-t border-border bg-background flex flex-col gap-1.5">
-          {itemsLoading ? <Spinner /> : (items ?? []).map((item) => <AssignmentItemRow key={item.item_id} item={item} />)}
+          {itemsLoading ? <Spinner /> : (items ?? []).map((item) => (
+            <AssignmentItemRow key={item.item_id} item={item} cohortId={cohortId} assignmentId={row.assignment_id} />
+          ))}
         </div>
       )}
     </div>
@@ -1570,10 +1572,33 @@ function ProgressRow({
  * item carries `mission_attempt_id` once the student has an attempt, so it
  * gets the same "view their run" toggle as the Review queue
  * (`DesignRunDetail`, wired 2026-08-30) instead of leaving "done" as a dead
- * end with nothing to click. */
-function AssignmentItemRow({ item }: { item: LmsAssignmentItemDetail }) {
+ * end with nothing to click. A `quiz` item gets the same idea (2026-09):
+ * "view answers" once submitted (per-question correct/incorrect, response
+ * time, what was left unanswered), plus a "Reset" ops/instructor can use
+ * any time to let the student retake it — deletes the attempt so their
+ * next visit starts fresh. */
+function AssignmentItemRow({
+  item, cohortId, assignmentId,
+}: { item: LmsAssignmentItemDetail; cohortId?: string; assignmentId: string }) {
+  const queryClient = useQueryClient()
   const [showRun, setShowRun] = useState(false)
+  const [showQuizReview, setShowQuizReview] = useState(false)
+  const [confirmReset, setConfirmReset] = useState(false)
   const canViewRun = item.item_type === "mission_run" && !!item.mission_attempt_id
+  const isQuiz = item.item_type === "quiz"
+
+  const resetMutation = useMutation({
+    mutationFn: () => resetCohortQuizAttemptApi(cohortId as string, assignmentId, item.item_id),
+    onSuccess: () => {
+      setConfirmReset(false)
+      void queryClient.invalidateQueries({ queryKey: ["assignment-items", cohortId, assignmentId] })
+      void queryClient.invalidateQueries({ queryKey: ["cohort-quiz-review", cohortId, assignmentId, item.item_id] })
+      // The roster row's own pct/"Certified" badge is a separate query —
+      // a reset can drop a checklist item back to not-done, so it must
+      // refresh too, not just this expanded item-detail panel.
+      void queryClient.invalidateQueries({ queryKey: ["instructor-program-progress", cohortId] })
+    },
+  })
 
   return (
     <div className="flex flex-col">
@@ -1594,12 +1619,123 @@ function AssignmentItemRow({ item }: { item: LmsAssignmentItemDetail }) {
             {showRun ? "hide run" : "view run"}
           </button>
         )}
+        {isQuiz && item.status === "done" && cohortId && (
+          <button
+            onClick={() => setShowQuizReview((v) => !v)}
+            className="text-primary underline shrink-0 cursor-pointer"
+          >
+            {showQuizReview ? "hide answers" : "view answers"}
+          </button>
+        )}
+        {isQuiz && cohortId && (
+          <button
+            onClick={() => setConfirmReset(true)}
+            className="flex items-center gap-1 text-muted-foreground hover:text-destructive shrink-0 cursor-pointer"
+            title="Let this student retake the quiz"
+          >
+            <RotateCcw size={12} /> Reset
+          </button>
+        )}
       </div>
       {canViewRun && showRun && (
         <div className="mt-1.5 border border-border rounded-lg bg-card">
           <DesignRunDetail attemptId={item.mission_attempt_id as string} />
         </div>
       )}
+      {isQuiz && showQuizReview && cohortId && (
+        <div className="mt-1.5">
+          <QuizAnswersReview cohortId={cohortId} assignmentId={assignmentId} itemId={item.item_id} />
+        </div>
+      )}
+      {confirmReset && (
+        <ConfirmDialog
+          title="Reset this student's quiz?"
+          description="This deletes their attempt (answers included) so their next visit starts a brand-new one — a fresh question order and fresh timers. This can't be undone."
+          confirmLabel="Reset"
+          destructive
+          pending={resetMutation.isPending}
+          onCancel={() => setConfirmReset(false)}
+          onConfirm={() => resetMutation.mutate()}
+        />
+      )}
+      {resetMutation.isError && (
+        <p className="text-xs text-destructive mt-1">{errorDetail(resetMutation.error, "Couldn't reset this quiz")}</p>
+      )}
+    </div>
+  )
+}
+
+/** The ops/instructor drill-in on one student's quiz answers — per-question
+ * correct/incorrect, how long they took, and what they left unanswered
+ * (`selected_index: null`), all of which feeds the evaluation the same way
+ * a mission run's detail does. */
+function QuizAnswersReview({ cohortId, assignmentId, itemId }: { cohortId: string; assignmentId: string; itemId: string }) {
+  const { data: result, isLoading, isError, error } = useQuery({
+    queryKey: ["cohort-quiz-review", cohortId, assignmentId, itemId],
+    queryFn: () => getInstructorCohortQuizReviewApi(cohortId, assignmentId, itemId),
+  })
+
+  if (isLoading) return <div className="p-3"><Spinner /></div>
+  if (isError) {
+    return <p className="p-3 text-xs text-destructive">{errorDetail(error, "Couldn't load this student's answers")}</p>
+  }
+  if (!result) return null
+
+  return (
+    <div className="border border-border rounded-lg bg-card p-3 flex flex-col gap-3">
+      <div className="flex items-center gap-3 text-xs font-semibold text-foreground">
+        <span>{result.score} / {result.total} correct</span>
+        {result.topic_breakdown && (
+          <span className="text-muted-foreground font-normal">
+            {Object.entries(result.topic_breakdown).map(([topic, { correct, total }]) => `${topic} ${correct}/${total}`).join(" · ")}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-col gap-2">
+        {result.questions.map((q, i) => (
+          <div
+            key={q.question_id}
+            className={`rounded-lg border p-2.5 flex flex-col gap-1.5 ${
+              q.is_correct ? "border-border bg-background" : "border-red-500/30 bg-red-500/5"
+            }`}
+          >
+            <div className="flex items-center gap-2 flex-wrap text-[11px]">
+              <span className="font-mono text-muted-foreground">Q{i + 1}</span>
+              <span className="px-1.5 py-0.5 rounded-full border border-border text-muted-foreground uppercase tracking-wide">{q.topic}</span>
+              {q.is_correct ? (
+                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold"><CheckCircle2 size={11} /> Correct</span>
+              ) : (
+                <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-semibold"><XCircle size={11} /> Incorrect</span>
+              )}
+              {q.selected_index === null && (
+                <span className="text-muted-foreground italic">— left unanswered{q.timed_out ? " (timed out)" : ""}</span>
+              )}
+              {q.time_taken_seconds != null && (
+                <span className="flex items-center gap-1 text-muted-foreground ml-auto"><Clock size={11} /> {q.time_taken_seconds}s</span>
+              )}
+            </div>
+            <p className="text-xs font-medium text-foreground">{q.prompt}</p>
+            <div className="flex flex-col gap-0.5">
+              {q.options.map((text, oi) => (
+                <div
+                  key={oi}
+                  className={`px-2 py-1 rounded text-[11px] ${
+                    oi === q.correct_index
+                      ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 font-medium"
+                      : oi === q.selected_index
+                      ? "bg-red-500/10 text-red-700 dark:text-red-400"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {text}
+                  {oi === q.correct_index && <span className="ml-1.5 text-[10px]">(correct)</span>}
+                  {oi === q.selected_index && oi !== q.correct_index && <span className="ml-1.5 text-[10px]">(their answer)</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

@@ -503,13 +503,83 @@ async def test_get_attempt_review_reveals_correct_answer_and_explanation(db):
     attempt = await svc.start_attempt(db, item=item, user_id=student.id, cohort_id=cohort.id)
     entry = attempt.question_order[0]
     wrong_position = 1 - entry["option_order"].index(0)
-    await svc.submit_attempt(db, attempt, [_Answer(uuid.UUID(entry["question_id"]), wrong_position)])
+    await svc.submit_attempt(db, attempt, [
+        _Answer(uuid.UUID(entry["question_id"]), wrong_position, time_taken_seconds=7),
+    ])
 
     review = await svc.get_attempt_review(db, attempt)
     assert review[0]["is_correct"] is False
     assert review[0]["explanation"] == "A is correct because of reasons."
     assert review[0]["selected_index"] == wrong_position
     assert review[0]["correct_index"] != wrong_position
+    assert review[0]["time_taken_seconds"] == 7
+    assert review[0]["timed_out"] is False
+
+
+@pytest.mark.asyncio
+async def test_get_attempt_review_flags_a_timed_out_question_as_unanswered(db):
+    """`selected_index` alone already means "left unanswered" — `timed_out`
+    just distinguishes *why*, for the ops/instructor review (vs. some
+    hypothetical future explicit skip)."""
+    user = await _make_user(db)
+    cohort = await _make_cohort(db)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=cohort.program_id, name="Quiz Program 11")
+    db.add(lms_program)
+    await db.flush()
+    template, _ = await _make_template_with_questions(db, user=user, topics=["EPS"])
+    item = await _quiz_item(db, lms_program=lms_program, template_id=template.id)
+    student = await _make_user(db, roles=["student"])
+
+    attempt = await svc.start_attempt(db, item=item, user_id=student.id, cohort_id=cohort.id)
+    entry = attempt.question_order[0]
+    await svc.submit_attempt(db, attempt, [
+        _Answer(uuid.UUID(entry["question_id"]), None, timed_out=True, time_taken_seconds=15),
+    ])
+
+    review = await svc.get_attempt_review(db, attempt)
+    assert review[0]["selected_index"] is None
+    assert review[0]["timed_out"] is True
+    assert review[0]["time_taken_seconds"] == 15
+
+
+# ── ops/instructor reset ──────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_reset_attempt_deletes_it_so_the_next_start_is_brand_new(db):
+    user = await _make_user(db)
+    cohort = await _make_cohort(db)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=cohort.program_id, name="Quiz Program 12")
+    db.add(lms_program)
+    await db.flush()
+    template, _ = await _make_template_with_questions(db, user=user, topics=["EPS"])
+    item = await _quiz_item(db, lms_program=lms_program, template_id=template.id)
+    student = await _make_user(db, roles=["student"])
+
+    first = await svc.start_attempt(db, item=item, user_id=student.id, cohort_id=cohort.id)
+    await svc.submit_attempt(db, first, [])
+
+    deleted = await svc.reset_attempt(db, program_item_id=item.id, user_id=student.id)
+    assert deleted is True
+    assert await svc.get_own_attempt(db, program_item_id=item.id, user_id=student.id) is None
+
+    second = await svc.start_attempt(db, item=item, user_id=student.id, cohort_id=cohort.id)
+    assert second.id != first.id
+    assert second.status == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_reset_attempt_on_a_student_who_never_started_is_a_noop(db):
+    user = await _make_user(db)
+    cohort = await _make_cohort(db)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=cohort.program_id, name="Quiz Program 13")
+    db.add(lms_program)
+    await db.flush()
+    template, _ = await _make_template_with_questions(db, user=user, topics=["EPS"])
+    item = await _quiz_item(db, lms_program=lms_program, template_id=template.id)
+    student = await _make_user(db, roles=["student"])
+
+    deleted = await svc.reset_attempt(db, program_item_id=item.id, user_id=student.id)
+    assert deleted is False
 
 
 # ── strengths & weaknesses ────────────────────────────────────────────────

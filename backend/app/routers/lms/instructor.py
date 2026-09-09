@@ -24,7 +24,7 @@ from app.core.dependencies import get_current_active_user, require_instructor_mi
 from app.db.session import get_db
 from app.models.lms.course import Course
 from app.models.lms.enrollment import Enrollment
-from app.models.lms.program import LmsProgram, LmsProgramItem
+from app.models.lms.program import LmsProgram, LmsProgramAssignment, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.user import User
@@ -33,7 +33,7 @@ from app.schemas.lms_admin import (
     EnrollmentAdminOut, LmsProgramCohortEffectiveOut, LmsProgramItemIn, LmsProgramItemOut, LmsProgramOut,
     StudentProfileOut, StudentProgramOut,
 )
-from app.schemas.lms_cohort_quiz import CohortQuizTopicBreakdownOut
+from app.schemas.lms_cohort_quiz import CohortQuizResultOut, CohortQuizTopicBreakdownOut
 from app.schemas.lms_instructor import (
     CourseProgressOut, LmsAssignmentItemDetailOut, LmsProgramRosterRowOut, ModuleProgressOut, QuizProgressOut,
 )
@@ -103,6 +103,56 @@ async def assignment_items(
     confirmation the roster already shows — for the "detailed submissions"
     drill-in (operator ask, 2026-08-22)."""
     await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    items = await assignment_item_detail(db, assignment_id=assignment_id)
+    if items is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
+    return items
+
+
+@router.get(
+    "/cohorts/{cohort_id}/program-progress/{assignment_id}/items/{item_id}/quiz/review",
+    response_model=CohortQuizResultOut,
+)
+async def instructor_quiz_review(
+    cohort_id: uuid.UUID, assignment_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Ops/instructor drill-in on one student's quiz answers — per-question
+    correct/incorrect, response time, and explanation, plus what they left
+    unanswered (`selected_index: null`). Mirrors the student's own
+    `GET /lms/programs/{assignment_id}/items/{item_id}/quiz/result`, just
+    reached by (assignment, item) instead of the caller's own user id."""
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    assignment = await db.get(LmsProgramAssignment, assignment_id)
+    item = await db.get(LmsProgramItem, item_id)
+    if assignment is None or item is None or item.item_type != "quiz":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Quiz item not found")
+    attempt = await cohort_quiz_service.get_own_attempt(db, program_item_id=item_id, user_id=assignment.user_id)
+    if attempt is None or attempt.status != "submitted":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This student hasn't submitted the quiz yet")
+    review = await cohort_quiz_service.get_attempt_review(db, attempt)
+    return cohort_quiz_service.result_out(attempt, review)
+
+
+@router.post(
+    "/cohorts/{cohort_id}/program-progress/{assignment_id}/items/{item_id}/quiz/reset",
+    response_model=list[LmsAssignmentItemDetailOut],
+)
+async def instructor_reset_quiz(
+    cohort_id: uuid.UUID, assignment_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Ops/instructor "let them retake" — deletes the student's attempt
+    (in-progress or submitted) so their next visit starts a brand-new one:
+    fresh question order, fresh per-question timers. The checklist item
+    reverts to not-done, same as any other auto-tracked item un-completing."""
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    assignment = await db.get(LmsProgramAssignment, assignment_id)
+    item = await db.get(LmsProgramItem, item_id)
+    if assignment is None or item is None or item.item_type != "quiz":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Quiz item not found")
+    await cohort_quiz_service.reset_attempt(db, program_item_id=item_id, user_id=assignment.user_id)
+    await db.commit()
     items = await assignment_item_detail(db, assignment_id=assignment_id)
     if items is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")

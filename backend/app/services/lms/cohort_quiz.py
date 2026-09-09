@@ -21,7 +21,10 @@ from app.models.lms.cohort_quiz import (
     CohortQuizAnswer, CohortQuizAttempt, CohortQuizQuestion, CohortQuizTemplate, CohortQuizTemplateQuestion,
 )
 from app.models.lms.program import LmsProgramItem
-from app.schemas.lms_cohort_quiz import CohortQuizQuestionIn, CohortQuizQuestionUpdate, CohortQuizTemplateCreate, CohortQuizTemplateUpdate
+from app.schemas.lms_cohort_quiz import (
+    CohortQuizQuestionIn, CohortQuizQuestionReviewOut, CohortQuizQuestionUpdate, CohortQuizResultOut,
+    CohortQuizTemplateCreate, CohortQuizTemplateUpdate,
+)
 
 
 # ── question bank ────────────────────────────────────────────────────────
@@ -516,8 +519,39 @@ async def get_attempt_review(db: AsyncSession, attempt: CohortQuizAttempt) -> li
             "correct_index": option_order.index(correct_original_index),
             "is_correct": answer.is_correct,
             "explanation": q.explanation,
+            "time_taken_seconds": answer.time_taken_seconds,
+            "timed_out": answer.timed_out,
         })
     return out
+
+
+def result_out(attempt: CohortQuizAttempt, review: list[dict]) -> CohortQuizResultOut:
+    """Shared by the student's own `/quiz/result` and `/quiz/submit`
+    routes and the ops/instructor review endpoint — same attempt, same
+    shape, just reached by a different lookup (current user vs. an
+    assignment's student)."""
+    return CohortQuizResultOut(
+        id=attempt.id, status=attempt.status, score=attempt.score, total=attempt.total,
+        topic_breakdown=attempt.topic_breakdown, submitted_at=attempt.submitted_at,
+        questions=[CohortQuizQuestionReviewOut(**r) for r in review],
+    )
+
+
+async def reset_attempt(db: AsyncSession, *, program_item_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+    """Ops/instructor "let them retake" action — deletes the student's
+    attempt (cascading to its answers) so their next visit to this quiz
+    starts a brand-new one: fresh `CohortQuizAttempt` row, fresh
+    `question_order`, fresh per-question timers. The checklist item
+    reverts to not-done on the next `refresh_item_progress` call, same as
+    any other auto-tracked item that un-completes. Works on an
+    in-progress attempt too (unsticking one), not just a submitted one.
+    Returns False if the student never started this quiz at all."""
+    attempt = await get_own_attempt(db, program_item_id=program_item_id, user_id=user_id)
+    if attempt is None:
+        return False
+    await db.delete(attempt)
+    await db.flush()
+    return True
 
 
 # ── strengths & weaknesses (read-only, derived) ─────────────────────────

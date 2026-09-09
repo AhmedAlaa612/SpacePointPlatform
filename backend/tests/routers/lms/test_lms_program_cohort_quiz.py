@@ -320,3 +320,104 @@ async def test_student_quiz_breakdown_endpoint_reflects_a_submitted_attempt(db, 
     resp = await client.get(f"/lms/admin/students/{student.id}/quiz-breakdown", headers=_headers(author))
     assert resp.status_code == 200
     assert resp.json()["topic_breakdown"]["EPS"] == {"correct": 1, "total": 1}
+
+
+# ── ops/instructor review + reset ────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_instructor_can_review_a_students_quiz_answers(db, client):
+    author = await _staff(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    template_id = await _template_with_one_question(db, author=author)
+    item = await _quiz_item(db, lms_program=lms_program, template_id=template_id)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    start_resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/quiz/start", headers=_headers(student),
+    )
+    question = start_resp.json()["questions"][0]
+    correct_position = question["options"].index("Solar panels")
+    wrong_position = 1 - correct_position
+    await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/quiz/submit", headers=_headers(student),
+        json={"answers": [{
+            "question_id": question["question_id"], "selected_option_index": wrong_position,
+            "time_taken_seconds": 9,
+        }]},
+    )
+
+    resp = await client.get(
+        f"/lms/instructor/cohorts/{cohort.id}/program-progress/{assignment.id}/items/{item.id}/quiz/review",
+        headers=_headers(author),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "submitted"
+    assert body["questions"][0]["is_correct"] is False
+    assert body["questions"][0]["time_taken_seconds"] == 9
+    assert body["questions"][0]["timed_out"] is False
+    assert body["questions"][0]["correct_index"] == correct_position
+
+
+@pytest.mark.asyncio
+async def test_instructor_review_404s_before_the_student_submits(db, client):
+    author = await _staff(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    template_id = await _template_with_one_question(db, author=author)
+    item = await _quiz_item(db, lms_program=lms_program, template_id=template_id)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.get(
+        f"/lms/instructor/cohorts/{cohort.id}/program-progress/{assignment.id}/items/{item.id}/quiz/review",
+        headers=_headers(author),
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_instructor_can_reset_a_students_quiz_and_it_reverts_to_not_done(db, client):
+    author = await _staff(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    template_id = await _template_with_one_question(db, author=author)
+    item = await _quiz_item(db, lms_program=lms_program, template_id=template_id)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    start_resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/quiz/start", headers=_headers(student),
+    )
+    question = start_resp.json()["questions"][0]
+    correct_position = question["options"].index("Solar panels")
+    await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/quiz/submit", headers=_headers(student),
+        json={"answers": [{"question_id": question["question_id"], "selected_option_index": correct_position}]},
+    )
+    checklist = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    assert next(i for i in checklist.json()["items"] if i["id"] == str(item.id))["status"] == "done"
+
+    reset_resp = await client.post(
+        f"/lms/instructor/cohorts/{cohort.id}/program-progress/{assignment.id}/items/{item.id}/quiz/reset",
+        headers=_headers(author),
+    )
+    assert reset_resp.status_code == 200
+    reset_item = next(i for i in reset_resp.json() if i["item_id"] == str(item.id))
+    assert reset_item["status"] != "done"
+
+    checklist_after = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    assert next(i for i in checklist_after.json()["items"] if i["id"] == str(item.id))["status"] != "done"
+
+    # And the student can actually take it again — get-or-create makes a
+    # brand-new attempt now that the old one is gone.
+    restart_resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/quiz/start", headers=_headers(student),
+    )
+    assert restart_resp.status_code == 200
+    assert restart_resp.json()["status"] == "in_progress"

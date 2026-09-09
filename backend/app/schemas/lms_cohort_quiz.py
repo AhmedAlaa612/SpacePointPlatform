@@ -183,6 +183,13 @@ class CohortQuizQuestionReviewOut(BaseModel):
     correct_index: int
     is_correct: bool
     explanation: str | None
+    # How long the student took (client-tracked, never server-validated —
+    # same trust posture the rest of this domain's timing already has) and
+    # whether it was a timeout auto-submit rather than an explicit pick.
+    # `selected_index is None` alone already means "left unanswered"; this
+    # just distinguishes *why* for the ops/instructor review.
+    time_taken_seconds: int | None = None
+    timed_out: bool = False
 
 
 class CohortQuizResultOut(BaseModel):

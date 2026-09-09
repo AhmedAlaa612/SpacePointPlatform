@@ -75,8 +75,7 @@ from app.schemas.lms import (
     VideoCheckpointOut,
 )
 from app.schemas.lms_cohort_quiz import (
-    CohortQuizAttemptOut, CohortQuizAttemptQuestionOut, CohortQuizQuestionReviewOut, CohortQuizResultOut,
-    CohortQuizSubmitIn,
+    CohortQuizAttemptOut, CohortQuizAttemptQuestionOut, CohortQuizResultOut, CohortQuizSubmitIn,
 )
 from app.services.lms import (
     check_quiz_answer,
@@ -683,14 +682,6 @@ async def submit_program_item(
     return await _checklist_item_out(db, item=item, target=target)
 
 
-def _cohort_quiz_result_out(attempt, review: list[dict]) -> CohortQuizResultOut:
-    return CohortQuizResultOut(
-        id=attempt.id, status=attempt.status, score=attempt.score, total=attempt.total,
-        topic_breakdown=attempt.topic_breakdown, submitted_at=attempt.submitted_at,
-        questions=[CohortQuizQuestionReviewOut(**r) for r in review],
-    )
-
-
 @router.post("/programs/{assignment_id}/items/{item_id}/quiz/start", response_model=CohortQuizAttemptOut)
 async def start_cohort_quiz(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
@@ -739,7 +730,7 @@ async def submit_cohort_quiz(
     await refresh_item_progress(db, progress=progress, item=item, user_id=current.id)
     await db.commit()
     review = await cohort_quiz_service.get_attempt_review(db, attempt)
-    return _cohort_quiz_result_out(attempt, review)
+    return cohort_quiz_service.result_out(attempt, review)
 
 
 @router.get("/programs/{assignment_id}/items/{item_id}/quiz/result", response_model=CohortQuizResultOut)
@@ -754,7 +745,7 @@ async def get_cohort_quiz_result(
     if attempt is None or attempt.status != "submitted":
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No submitted attempt yet")
     review = await cohort_quiz_service.get_attempt_review(db, attempt)
-    return _cohort_quiz_result_out(attempt, review)
+    return cohort_quiz_service.result_out(attempt, review)
 
 
 @router.get("/my-activity", response_model=list[ActivityItemOut])

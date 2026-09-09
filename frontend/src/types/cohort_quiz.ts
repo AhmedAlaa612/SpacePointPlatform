@@ -91,6 +91,8 @@ export interface CohortQuizQuestionReview {
   correct_index: number;
   is_correct: boolean;
   explanation?: string | null;
+  time_taken_seconds?: number | null;
+  timed_out?: boolean;
 }
 
 export interface CohortQuizResult {

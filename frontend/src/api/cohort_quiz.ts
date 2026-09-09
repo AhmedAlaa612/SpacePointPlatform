@@ -110,3 +110,22 @@ export const submitCohortQuizApi = (assignmentId: string, itemId: string, answer
 
 export const getCohortQuizResultApi = (assignmentId: string, itemId: string) =>
   api.get<CohortQuizResult>(`/lms/programs/${assignmentId}/items/${itemId}/quiz/result`).then((r) => r.data);
+
+// ── ops/instructor: reviewing + resetting a student's attempt ───────────
+
+/** Per-question answers, response time, and what was left unanswered —
+ * the ops/instructor drill-in from the Progress panel. 404s until the
+ * student has actually submitted. */
+export const getInstructorCohortQuizReviewApi = (cohortId: string, assignmentId: string, itemId: string) =>
+  api.get<CohortQuizResult>(
+    `/lms/instructor/cohorts/${cohortId}/program-progress/${assignmentId}/items/${itemId}/quiz/review`,
+  ).then((r) => r.data);
+
+/** Deletes the student's attempt (in-progress or submitted) so their next
+ * visit starts a brand-new one — "let them retake". Returns every item on
+ * the assignment (same shape as `getAssignmentItemsApi`) so the caller can
+ * refresh the row without a second round-trip. */
+export const resetCohortQuizAttemptApi = (cohortId: string, assignmentId: string, itemId: string) =>
+  api.post(
+    `/lms/instructor/cohorts/${cohortId}/program-progress/${assignmentId}/items/${itemId}/quiz/reset`,
+  ).then((r) => r.data);
