@@ -196,7 +196,7 @@ function QuestionForm({
 }: {
   initial?: CohortQuizQuestion
   onCancel: () => void
-  onSaved: () => void
+  onSaved: (createdQuestion?: CohortQuizQuestion) => void
 }) {
   const [topic, setTopic] = useState(initial?.topic ?? "")
   const [subtopic, setSubtopic] = useState(initial?.subtopic ?? "")
@@ -230,10 +230,11 @@ function QuestionForm({
       }
       if (initial) {
         await updateCohortQuizQuestionApi(initial.id, body)
+        onSaved()
       } else {
-        await createCohortQuizQuestionApi(body)
+        const created = await createCohortQuizQuestionApi(body)
+        onSaved(created)
       }
-      onSaved()
     } catch (e) {
       setError(errorDetail(e, "Failed to save"))
     } finally {
@@ -449,6 +450,7 @@ function TemplateDetail({ templateId }: { templateId: string }) {
   const [generateTopics, setGenerateTopics] = useState<string[]>([])
   const [confirmGenerate, setConfirmGenerate] = useState(false)
   const [editingQuestion, setEditingQuestion] = useState<CohortQuizQuestion | null>(null)
+  const [creatingNewQuestion, setCreatingNewQuestion] = useState(false)
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set())
 
   const toggleCollapse = (id: string) => {
@@ -529,6 +531,24 @@ function TemplateDetail({ templateId }: { templateId: string }) {
           onCancel={() => setEditingQuestion(null)}
           onSaved={() => {
             setEditingQuestion(null)
+            invalidate()
+            queryClient.invalidateQueries({ queryKey: ["cohort-quiz-questions"] })
+          }}
+        />
+      )}
+
+      {creatingNewQuestion && (
+        <QuestionForm
+          onCancel={() => setCreatingNewQuestion(false)}
+          onSaved={async (createdQuestion) => {
+            if (createdQuestion) {
+              try {
+                await addCohortQuizTemplateQuestionApi(templateId, createdQuestion.id)
+              } catch (e) {
+                // handle if already on template
+              }
+            }
+            setCreatingNewQuestion(false)
             invalidate()
             queryClient.invalidateQueries({ queryKey: ["cohort-quiz-questions"] })
           }}
@@ -644,14 +664,14 @@ function TemplateDetail({ templateId }: { templateId: string }) {
         )}
       </div>
 
-      {/* 3. Filter Topic & Add Question from Bank */}
+      {/* 3. Filter Topic, Add Question from Bank & Create New Question */}
       <div className="rounded-2xl border border-border bg-card p-4 flex flex-col sm:flex-row items-stretch sm:items-end gap-3 shadow-xs">
-        <div className="w-full sm:w-48 shrink-0 flex flex-col gap-1.5">
+        <div className="w-full sm:w-44 shrink-0 flex flex-col gap-1.5">
           <label className="text-xs font-semibold text-foreground">Filter topic</label>
           <select
             value={topicFilter}
             onChange={(e) => setTopicFilter(e.target.value)}
-            className="h-11 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            className="h-11 px-3 border border-border bg-background text-foreground rounded-xl text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer"
           >
             <option value="">All topics ({allTopics.length})</option>
             {allTopics.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -665,22 +685,31 @@ function TemplateDetail({ templateId }: { templateId: string }) {
             onChange={(e) => setPickerQuestionId(e.target.value)}
             className="h-11 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm font-medium focus:outline-none focus:border-primary transition-colors cursor-pointer truncate"
           >
-            <option value="">Add a question ({pickable.length} available)…</option>
+            <option value="">Add from bank ({pickable.length} available)…</option>
             {pickable.map((q) => (
               <option key={q.id} value={q.id}>
-                [{q.topic} - {q.difficulty}] {q.prompt.length > 70 ? q.prompt.slice(0, 70) + "…" : q.prompt}
+                [{q.topic} - {q.difficulty}] {q.prompt.length > 60 ? q.prompt.slice(0, 60) + "…" : q.prompt}
               </option>
             ))}
           </select>
         </div>
 
-        <Button
-          onClick={() => pickerQuestionId && addMutation.mutate(pickerQuestionId)}
-          disabled={!pickerQuestionId || addMutation.isPending}
-          className="h-11 px-5 rounded-xl font-semibold text-sm gap-2 shrink-0"
-        >
-          <Plus size={16} /> Add Question
-        </Button>
+        <div className="flex items-center gap-2 shrink-0 flex-wrap sm:flex-nowrap">
+          <Button
+            onClick={() => pickerQuestionId && addMutation.mutate(pickerQuestionId)}
+            disabled={!pickerQuestionId || addMutation.isPending}
+            className="h-11 px-4 rounded-xl font-semibold text-sm gap-1.5"
+          >
+            <Plus size={16} /> Add From Bank
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setCreatingNewQuestion(true)}
+            className="h-11 px-4 rounded-xl font-semibold text-sm gap-1.5 border-primary/40 text-primary hover:bg-primary/10"
+          >
+            <Plus size={16} /> Create New Question
+          </Button>
+        </div>
       </div>
 
       {confirmGenerate && (
