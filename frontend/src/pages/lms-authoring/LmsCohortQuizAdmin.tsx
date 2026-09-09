@@ -198,7 +198,19 @@ function QuestionForm({
   onCancel: () => void
   onSaved: (createdQuestion?: CohortQuizQuestion) => void
 }) {
+  const { data: bankQuestions = [] } = useQuery({
+    queryKey: ["cohort-quiz-questions", "all", ""],
+    queryFn: () => listCohortQuizQuestionsApi(),
+  })
+  const existingTopics = Array.from(
+    new Set(bankQuestions.map((q) => q.topic).filter((t): t is string => Boolean(t && t.trim()))),
+  ).sort()
+
   const [topic, setTopic] = useState(initial?.topic ?? "")
+  const [isCustomTopic, setIsCustomTopic] = useState(() => {
+    if (!initial?.topic) return false
+    return existingTopics.length > 0 && !existingTopics.includes(initial.topic)
+  })
   const [subtopic, setSubtopic] = useState(initial?.subtopic ?? "")
   const [difficulty, setDifficulty] = useState<CohortQuizDifficulty>(initial?.difficulty ?? "Easy")
   const [timeLimitSeconds, setTimeLimitSeconds] = useState(initial?.time_limit_seconds ?? 15)
@@ -253,8 +265,52 @@ function QuestionForm({
       <div className="flex flex-col gap-3.5 pt-1">
         <div className="flex gap-2.5">
           <div className="flex-1 flex flex-col gap-1">
-            <label className="text-xs font-semibold text-foreground">Topic</label>
-            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="e.g. EPS" className={inputCls} />
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-foreground">Topic</label>
+              {isCustomTopic && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCustomTopic(false)
+                    setTopic(existingTopics[0] ?? "")
+                  }}
+                  className="text-[11px] text-primary hover:underline cursor-pointer"
+                >
+                  ← Select existing
+                </button>
+              )}
+            </div>
+            {isCustomTopic ? (
+              <input
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="Type new topic (e.g. EPS)"
+                className={inputCls}
+                autoFocus
+              />
+            ) : (
+              <select
+                value={topic}
+                onChange={(e) => {
+                  if (e.target.value === "__NEW__") {
+                    setIsCustomTopic(true)
+                    setTopic("")
+                  } else {
+                    setTopic(e.target.value)
+                  }
+                }}
+                className={`${inputCls} cursor-pointer`}
+              >
+                <option value="">Select a topic…</option>
+                {topic && !existingTopics.includes(topic) && (
+                  <option value={topic}>{topic}</option>
+                )}
+                {existingTopics.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+                <option value="__NEW__">+ Add new topic…</option>
+              </select>
+            )}
           </div>
           <div className="flex-1 flex flex-col gap-1">
             <label className="text-xs font-semibold text-foreground">Subtopic (optional)</label>
