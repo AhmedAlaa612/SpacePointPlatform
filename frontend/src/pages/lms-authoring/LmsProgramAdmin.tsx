@@ -854,6 +854,19 @@ function ItemForm({
   const [gated, setGated] = useState(initial?.gated ?? false)
   const [guidelineKind, setGuidelineKind] = useState<"" | "pdf" | "link" | "video">(initial?.guideline_kind ?? "")
   const [guidelineUrl, setGuidelineUrl] = useState(initial?.guideline_url ?? "")
+  // A `video` guideline supports the same two paths a course lesson video
+  // does — self-host (upload, transcoded to HLS) or a plain embeddable
+  // link (YouTube, Vimeo, anything else with a public embed URL) — but
+  // used to only ever surface the link field here, with a label
+  // ("Video (YouTube/Vimeo)") that read as embed-only even though the
+  // "Upload video" button on the item's own row (after saving) always
+  // worked too. This toggle makes both paths visible up front instead of
+  // one being a hidden feature. Defaults to whichever this item already
+  // has: an existing embed URL means "embed", anything else (including a
+  // brand-new item) means "upload".
+  const [videoMode, setVideoMode] = useState<"upload" | "embed">(
+    initial?.guideline_kind === "video" && initial?.guideline_url ? "embed" : "upload",
+  )
   const [checkpointLabel, setCheckpointLabel] = useState(initial?.checkpoint_label ?? "")
   const [cohortQuizTemplateId, setCohortQuizTemplateId] = useState(initial?.cohort_quiz_template_id ?? "")
   const [saving, setSaving] = useState(false)
@@ -900,6 +913,9 @@ function ItemForm({
     if (itemType === "submission" && !externalUrl.trim() && !submissionPrompt.trim()) { setError("Add a link or a submission prompt"); return }
     if (itemType === "quiz" && !cohortQuizTemplateId) { setError("Pick a quiz template"); return }
     if (guidelineKind === "link" && !guidelineUrl.trim()) { setError("A link guideline needs a URL"); return }
+    if (guidelineKind === "video" && videoMode === "embed" && !guidelineUrl.trim()) {
+      setError("Add an embed link, or switch to Upload"); return
+    }
 
     setSaving(true)
     try {
@@ -924,7 +940,9 @@ function ItemForm({
         mission_step_key: isDesignMission && missionStepKey ? missionStepKey : null,
         gated,
         guideline_kind: guidelineKind || null,
-        guideline_url: guidelineKind === "link" || guidelineKind === "video" ? (guidelineUrl.trim() || null) : null,
+        guideline_url: guidelineKind === "link" ? (guidelineUrl.trim() || null)
+          : guidelineKind === "video" && videoMode === "embed" ? (guidelineUrl.trim() || null)
+          : null,
         checkpoint_label: checkpointLabel.trim() || null,
       })
     } catch (e: unknown) {
@@ -1102,19 +1120,48 @@ function ItemForm({
           <option value="">No guideline</option>
           <option value="pdf">PDF</option>
           <option value="link">Link</option>
-          <option value="video">Video (YouTube/Vimeo)</option>
+          <option value="video">Video</option>
         </select>
         {guidelineKind === "pdf" && (
           <p className="text-xs text-muted-foreground">
             {initial ? "Upload the PDF on this step's row after saving." : "Upload the PDF after saving this step — see the \"Upload PDF\" button on its row."}
           </p>
         )}
-        {(guidelineKind === "link" || guidelineKind === "video") && (
+        {guidelineKind === "link" && (
           <input
             value={guidelineUrl} onChange={(e) => setGuidelineUrl(e.target.value)}
-            placeholder={guidelineKind === "video" ? "https://youtube.com/... (leave blank for a coming-soon slot)" : "https://…"}
+            placeholder="https://…"
             className={inputCls}
           />
+        )}
+        {guidelineKind === "video" && (
+          <>
+            <div className="flex gap-1.5">
+              {(["upload", "embed"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setVideoMode(mode)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border cursor-pointer transition-colors ${
+                    videoMode === mode ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"
+                  }`}
+                >
+                  {mode === "upload" ? "Upload a file" : "Embed a link"}
+                </button>
+              ))}
+            </div>
+            {videoMode === "upload" ? (
+              <p className="text-xs text-muted-foreground">
+                {initial ? "Upload the video on this step's row after saving." : "Upload the video after saving this step — see the \"Upload video\" button on its row."}
+              </p>
+            ) : (
+              <input
+                value={guidelineUrl} onChange={(e) => setGuidelineUrl(e.target.value)}
+                placeholder="https://… (YouTube, Vimeo, or any embeddable video link)"
+                className={inputCls}
+              />
+            )}
+          </>
         )}
       </div>
 
