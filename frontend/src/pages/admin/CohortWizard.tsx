@@ -31,8 +31,9 @@ import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
 import { cn, getErrorMessage } from "@/lib/utils"
+import { listLmsProgramsApi, createLmsProgramApi, type LmsProgram } from "@/api/lms_admin"
 
-const STEP_LABELS = ["Cohort basics", "Sessions", "Roles & checklist", "Materials", "Review & finish"]
+const STEP_LABELS = ["Cohort basics", "Sessions", "Roles & checklist", "LMS Checklist", "Materials", "Review & finish"]
 const LAST_STEP = STEP_LABELS.length - 1
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] // index = backend's 0..6 (Monday first)
 const OUTFIT = "'Outfit', ui-sans-serif, system-ui, sans-serif"
@@ -161,7 +162,16 @@ export default function CohortWizard() {
         )}
         {step === 1 && cohort && <SessionsStep cohort={cohort} />}
         {step === 2 && cohort && <RolesChecklistStep cohort={cohort} onFormChange={setRolesForm} />}
-        {step === 3 && cohort && (
+        {step === 3 && cohort && program && (
+          <>
+            <StepIntro
+              eyebrow="LMS Checklist" title="Does this program have a checklist yet?" ledeWidth={70}
+              lede="The checklist itself belongs to the program, not this cohort — every cohort of a program shares it. This cohort can still get its own tweaks later from its own LMS tab."
+            />
+            <LmsChecklistStep cohort={cohort} program={program} />
+          </>
+        )}
+        {step === 4 && cohort && (
           <>
             <StepIntro
               eyebrow="Materials" title="What instructors open on the day" ledeWidth={70}
@@ -173,7 +183,7 @@ export default function CohortWizard() {
             />
           </>
         )}
-        {step === 4 && cohort && <ReviewStep cohort={cohort} program={program} />}
+        {step === 5 && cohort && <ReviewStep cohort={cohort} program={program} />}
       </div>
 
       <footer
@@ -210,7 +220,8 @@ export default function CohortWizard() {
           </div>
           {step === 1 && <SkipNote>You can add sessions later from the cohort page.</SkipNote>}
           {step === 2 && <SkipNote>Every session uses the cohort&rsquo;s roles and checklist until you override one.</SkipNote>}
-          {step === 3 && <SkipNote>Sessions will use the program&rsquo;s materials.</SkipNote>}
+          {step === 3 && <SkipNote>You can set this up later from the program or this cohort&rsquo;s own LMS tab.</SkipNote>}
+          {step === 4 && <SkipNote>Sessions will use the program&rsquo;s materials.</SkipNote>}
         </div>
       </footer>
     </div>
@@ -811,10 +822,73 @@ function RolesChecklistStep({ cohort, onFormChange }: {
 
 /* ══════════════════════ Step 5 — Review & finish ═══════════════════════ */
 
+/** Lighter than `ProgramWizard.tsx`'s own `LmsChecklistStep` — the real
+ * checklist lives on the program (`LmsProgram.program_id` is unique, shared
+ * by every cohort of it), so there's nothing cohort-specific to author
+ * here. Just: does one exist yet, and if not, a single one-click "create
+ * an empty shell" action — no name field, no item authoring. Building the
+ * actual checklist happens on the Program wizard/page, or per-cohort tweaks
+ * later from this cohort's own LMS tab (`CohortDetail.tsx`). */
+function LmsChecklistStep({ cohort, program }: { cohort: Cohort; program: Program }) {
+  const queryClient = useQueryClient()
+  const { data: found = [], isLoading } = useQuery<LmsProgram[]>({
+    queryKey: ["lms-program-for-program", program.id], queryFn: () => listLmsProgramsApi(program.id),
+  })
+  const [created, setCreated] = useState<LmsProgram | null>(null)
+  const effective = created ?? found[0] ?? null
+
+  const createMutation = useMutation({
+    mutationFn: () => createLmsProgramApi({ program_id: program.id, name: `${program.name} Checklist` }),
+    onSuccess: (p) => {
+      setCreated(p)
+      void queryClient.invalidateQueries({ queryKey: ["lms-program-for-program", program.id] })
+    },
+  })
+
+  if (isLoading) return <Spinner />
+
+  if (!effective) {
+    return (
+      <div className="flex flex-col" style={{ gap: 16, maxWidth: "60ch" }}>
+        <p style={{ fontSize: 15 }} className="text-muted-foreground m-0">This program has no LMS checklist yet.</p>
+        <button
+          onClick={() => createMutation.mutate()}
+          disabled={createMutation.isPending}
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600, width: "fit-content" }}
+          className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+        >
+          <Plus size={15} className="inline mr-1.5" style={{ verticalAlign: -2 }} />
+          {createMutation.isPending ? "Creating…" : "Create an empty LMS checklist for this program"}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div
+      style={{ padding: "16px 20px", borderRadius: 10, boxShadow: CARD_SHADOW }}
+      className="border border-border bg-card flex flex-col gap-1.5 w-fit"
+    >
+      <p style={{ fontSize: 15 }} className="text-foreground m-0">
+        {effective.items.length === 0
+          ? "This program's checklist exists but has no steps yet."
+          : `This program's checklist has ${effective.items.length} step${effective.items.length === 1 ? "" : "s"}.`}
+      </p>
+      <p style={{ fontSize: 13 }} className="text-muted-foreground m-0">
+        Cohort-specific tweaks happen later, from {cohort.name || "this cohort"}&rsquo;s own LMS tab.
+      </p>
+    </div>
+  )
+}
+
 function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) {
   const { data: sessions = [] } = useQuery({ queryKey: ["wizard-sessions", cohort.id], queryFn: () => getSessionsApi(cohort.id) })
   const { data: openings = [] } = useQuery({ queryKey: ["cohort-openings-defaults", cohort.id], queryFn: () => getCohortOpeningsApi(cohort.id) })
   const { data: materials = [] } = useQuery({ queryKey: ["materials", JSON.stringify({ cohort_id: cohort.id })], queryFn: () => getMaterialsApi({ cohort_id: cohort.id }) })
+  const { data: lmsPrograms = [] } = useQuery<LmsProgram[]>({
+    queryKey: ["lms-program-for-program", program?.id], queryFn: () => listLmsProgramsApi(program!.id), enabled: !!program,
+  })
+  const lmsProgram = lmsPrograms[0]
 
   const sorted = sessions.slice().sort((a, b) => a.meeting_date.localeCompare(b.meeting_date))
   const rows: { label: string; value: string }[] = [
@@ -832,6 +906,10 @@ function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) 
     {
       label: "Roles & checklist",
       value: openings.length === 0 ? "Using program/platform defaults" : `${openings.length} role${openings.length === 1 ? "" : "s"} customized for this cohort`,
+    },
+    {
+      label: "LMS Checklist",
+      value: !lmsProgram ? "Not set up yet — this cohort's students will see an empty checklist" : `${lmsProgram.items.length} step${lmsProgram.items.length === 1 ? "" : "s"} (shared with every cohort of this program)`,
     },
     {
       label: "Materials",

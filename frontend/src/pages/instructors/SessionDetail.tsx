@@ -38,6 +38,7 @@ import { SessionKitsPanel } from "@/pages/instructors/components/SessionKitsPane
 import { SessionEquipmentPanel } from "@/pages/instructors/components/SessionEquipmentPanel"
 import { SessionMaterialsPanel } from "@/pages/instructors/components/SessionMaterialsPanel"
 import { SessionGamesPanel } from "@/pages/instructors/components/SessionGamesPanel"
+import { ProgressPanel } from "@/pages/lms-authoring/components/LmsProgressAndMissions"
 
 export default function SessionDetail() {
   const { sessionId } = useParams({ strict: false }) as { sessionId: string }
@@ -414,6 +415,18 @@ export default function SessionDetail() {
                   )}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          {/* LMS progress for this cohort's students (2026-09) — the same
+              roster/checklist-item detail `/lms-authoring` shows, embedded
+              here so an instructor never has to leave the session portal to
+              confirm an item, review a quiz, or reset one. `s.cohort_id`
+              already comes back on the delivery payload — no extra fetch. */}
+          <Card>
+            <CardContent className="p-4 flex flex-col gap-3">
+              <p className="text-sm font-semibold text-foreground">Student LMS progress</p>
+              <ProgressPanel cohortId={s.cohort_id} scopeLabel={s.cohort_name} />
             </CardContent>
           </Card>
 

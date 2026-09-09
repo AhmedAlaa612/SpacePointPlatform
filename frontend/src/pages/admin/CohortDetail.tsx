@@ -18,6 +18,7 @@ import CohortDayReviewsPanel from "@/pages/admin/components/CohortDayReviewsPane
 import { CohortKitsPanel } from "@/pages/admin/components/CohortKitsPanel"
 import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
 import { AssessmentAssignmentPanel } from "@/pages/admin/components/AssessmentAssignmentPanel"
+import { LmsCohortSection } from "@/pages/lms-authoring/components/LmsCohortSection"
 import { SessionsTable } from "@/pages/admin/components/SessionsTable"
 import {
   getCohortApi, getSessionsApi,
@@ -50,7 +51,7 @@ const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Satur
 /** Sessions and Students are the daily work; Setup is the stuff you touch
  *  once when the cohort is created (2026-08-02). Setup used to sit *between*
  *  the two daily ones, which is what made the page feel endless. */
-type CohortTab = "sessions" | "roles" | "staffing" | "assessment" | "students" | "setup"
+type CohortTab = "sessions" | "roles" | "staffing" | "assessment" | "lms" | "students" | "setup"
 const TABS: { key: CohortTab; label: string }[] = [
   { key: "sessions", label: "Sessions" },
   // Roles moved out of Staffing (2026-08-28): rate, responsibilities and the
@@ -66,6 +67,10 @@ const TABS: { key: CohortTab; label: string }[] = [
   // tab rather than folded into Roles/Staffing: it's a one-time on/off
   // decision about the cohort, not part of running a specific call.
   { key: "assessment", label: "Assessment" },
+  // LMS checklist/missions/progress/review (2026-09) — the exact same
+  // cohort-scope views `/lms-authoring` already shows, embedded here so
+  // ops never has to leave the cohort page for LMS-checklist work.
+  { key: "lms", label: "LMS" },
   { key: "students", label: "Students" },
   { key: "setup", label: "Setup" },
 ]
@@ -467,6 +472,14 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       <div className="space-y-5">
         <Card className="px-4">
           <AssessmentAssignmentPanel cohortId={cohort.id} />
+        </Card>
+      </div>
+      )}
+
+      {tab === "lms" && (
+      <div className="space-y-5">
+        <Card className="px-4">
+          <LmsCohortSection cohortId={cohort.id} cohortName={cohort.name} />
         </Card>
       </div>
       )}
