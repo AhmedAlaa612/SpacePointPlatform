@@ -3,8 +3,8 @@ import { createPortal } from "react-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import {
-  ArrowLeft, BookOpen, Calendar, Camera, CheckCircle2,
-  Download, ExternalLink, FileText, ImageIcon, MapPin, QrCode, Send, X,
+  ArrowLeft, BookOpen, Calendar, Camera, CheckCircle2, ChevronDown,
+  Download, ExternalLink, FileText, ImageIcon, MapPin, Play, QrCode, Search, Send, X,
 } from "lucide-react"
 import {
   getSessionDeliveryApi, markAttendanceApi, markSessionDoneApi, scanAttendanceApi, startSessionApi,
@@ -44,6 +44,7 @@ export default function SessionDetail() {
   const { sessionId } = useParams({ strict: false }) as { sessionId: string }
   const qc = useQueryClient()
   const [scannerOpen, setScannerOpen] = useState(false)
+  const [attendanceOpen, setAttendanceOpen] = useState(true)
   const [scanning, setScanning] = useState(false)
   const [scanFeedback, setScanFeedback] = useState<{ kind: "ok" | "info" | "error"; text: string } | null>(null)
   const [rosterSearch, setRosterSearch] = useState("")
@@ -206,42 +207,211 @@ export default function SessionDetail() {
         <ArrowLeft size={14} /> My sessions
       </Link>
 
-      <div className="flex items-start justify-between gap-3 flex-wrap">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <PageHeader
           title={s.title || s.program_name}
           subtitle={s.title ? `${s.program_name} · ${s.cohort_name}` : s.cohort_name}
         />
-        <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full shrink-0", statusPill.cls)}>{statusPill.text}</span>
+        <div className="flex items-center gap-3 flex-wrap shrink-0">
+          <span className={cn("text-xs font-semibold px-2.5 py-1 rounded-full shrink-0", statusPill.cls)}>{statusPill.text}</span>
+          {!isStarted && !isCompleted && (
+            <Button
+              size="default"
+              disabled={start.isPending}
+              onClick={() => start.mutate()}
+              className="h-11 px-6 text-sm font-bold rounded-xl shadow-lg bg-primary text-black hover:opacity-90 transition-all flex items-center gap-2"
+            >
+              <Play size={16} fill="currentColor" />
+              {start.isPending ? "Starting…" : "Start session"}
+            </Button>
+          )}
+        </div>
       </div>
 
+      {/* ── Combined Session Info & Team Header Card ──────────────────── */}
       <Card>
-        <CardContent className="p-4 flex flex-col gap-2">
-          <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-            <Calendar size={14} />
-            {new Date(s.meeting_date).toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
-            {s.starts_at ? ` · ${s.starts_at.slice(0, 5)}` : ""}
-          </span>
-          {s.location && (
-            <span className="flex items-center gap-1.5 text-sm text-muted-foreground"><MapPin size={14} /> {s.location}</span>
-          )}
-          {s.location_address && (
-            <span className="flex items-center gap-1.5 text-sm text-muted-foreground pl-[26px] -mt-1">{s.location_address}</span>
-          )}
-          {s.location_maps_url && (
-            <a
-              href={s.location_maps_url} target="_blank" rel="noreferrer"
-              className="flex items-center gap-1 pl-[26px] -mt-1 text-sm font-medium text-primary hover:underline w-fit"
-            >
-              Open in maps <ExternalLink size={12} />
-            </a>
+        <CardContent className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          {/* Left side: Date, time, location */}
+          <div className="flex flex-col gap-1 min-w-0">
+            <div className="flex items-center gap-2 text-sm font-semibold text-foreground flex-wrap">
+              <span className="flex items-center gap-1.5">
+                <Calendar size={15} className="text-primary shrink-0" />
+                {new Date(s.meeting_date).toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
+                {s.starts_at ? ` · ${s.starts_at.slice(0, 5)}` : ""}
+              </span>
+            </div>
+            {s.location && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground flex-wrap mt-0.5">
+                <MapPin size={13} className="shrink-0" />
+                <span>{s.location}{s.location_address ? ` — ${s.location_address}` : ""}</span>
+                {s.location_maps_url && (
+                  <a
+                    href={s.location_maps_url} target="_blank" rel="noreferrer"
+                    className="inline-flex items-center gap-0.5 text-xs font-medium text-primary hover:underline ml-1"
+                  >
+                    Maps <ExternalLink size={11} />
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Right side: Team Members & Check-in */}
+          {s.teammates.length > 0 && (
+            <div className="flex items-center gap-2.5 flex-wrap border-t md:border-t-0 md:border-l border-border pt-3 md:pt-0 md:pl-4">
+              <span className="text-xs font-medium text-muted-foreground mr-1 hidden sm:inline">Team:</span>
+              {s.teammates.map((t) => (
+                <div key={t.user_id} className="flex items-center gap-2 bg-muted/40 px-2.5 py-1.5 rounded-xl border border-border/60">
+                  <div className={cn(
+                    "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                    t.att_status === "present" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+                  )}>
+                    {t.full_name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className="font-semibold text-foreground">
+                      {t.is_me ? "You" : t.full_name}
+                    </span>
+                    <span className="text-muted-foreground text-[11px]">({t.role_name})</span>
+                  </div>
+                  {t.att_status === "present" ? (
+                    <span className="text-[11px] font-bold text-emerald-500 flex items-center gap-1 shrink-0 ml-1">
+                      <CheckCircle2 size={13} /> Checked in
+                    </span>
+                  ) : t.att_status === "absent" ? (
+                    <span className="text-[11px] font-bold text-amber-500 shrink-0 ml-1">Absent</span>
+                  ) : t.is_me ? (
+                    <Button
+                      size="sm"
+                      disabled={checkIn.isPending}
+                      onClick={() => checkIn.mutate({ att: "present" })}
+                      className="h-7 px-3 text-xs font-bold rounded-lg gap-1 shrink-0 ml-1"
+                    >
+                      <CheckCircle2 size={13} /> Check in
+                    </Button>
+                  ) : (
+                    <span className="text-[11px] font-medium text-amber-500 shrink-0 ml-1">Not checked in</span>
+                  )}
+                </div>
+              ))}
+              {checkInError && <p className="text-xs text-red-600 dark:text-red-400 w-full">{checkInError}</p>}
+            </div>
           )}
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_400px] gap-5 items-start">
         {/* ── main column — one continuous scroll ─────────────────────── */}
         <div className="flex flex-col gap-4 min-w-0">
-          {/* Before you start: material + the game, always visible */}
+          {/* 1. Attendance (collapsible) */}
+          <Card>
+            <CardContent className="p-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setAttendanceOpen((v) => !v)}
+                  className="flex items-center gap-2 text-left group select-none"
+                >
+                  <ChevronDown className={cn("size-4 text-muted-foreground transition-transform duration-200 group-hover:text-foreground", !attendanceOpen && "-rotate-90")} />
+                  <p className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+                    {isStarted ? `Attendance — ${presentCount} present / ${s.roster.length} registered` : `Students expected (${s.roster.length})`}
+                  </p>
+                </button>
+                {isStarted && attendanceOpen && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setScannerOpen((v) => !v)}
+                    className="h-16 w-16 shrink-0 flex-col gap-1 px-1 text-[11px] leading-tight whitespace-normal"
+                  >
+                    <QrCode size={22} /> {scannerOpen ? "Close" : "Scan QR"}
+                  </Button>
+                )}
+              </div>
+
+              {attendanceOpen && (
+                <>
+                  {scannerOpen && (
+                    <Card>
+                      <CardContent className="p-3 flex flex-col gap-2">
+                        {cameraError ? (
+                          <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-red-400/50 bg-red-500/5 p-6 text-center">
+                            <Camera className="text-red-500" size={28} />
+                            <p className="text-sm font-medium text-foreground">{cameraError}</p>
+                          </div>
+                        ) : (
+                          <div className="relative aspect-square max-h-80 overflow-hidden rounded-xl border border-border bg-black mx-auto w-full max-w-xs">
+                            {scannerMode === "native" ? (
+                              <video ref={videoRef} className="h-full w-full object-cover" playsInline muted autoPlay />
+                            ) : (
+                              <div id="session-delivery-qr-reader" className="h-full w-full [&_video]:!h-full [&_video]:!w-full [&_video]:object-cover" />
+                            )}
+                            <div className="pointer-events-none absolute inset-6 rounded-2xl border-4 border-white/70" />
+                          </div>
+                        )}
+                        {scanFeedback && (
+                          <p className={cn(
+                            "text-center text-sm font-semibold",
+                            scanFeedback.kind === "ok" && "text-emerald-600 dark:text-emerald-400",
+                            scanFeedback.kind === "info" && "text-amber-600 dark:text-amber-400",
+                            scanFeedback.kind === "error" && "text-red-500",
+                          )}>
+                            {scanFeedback.text}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {isCompleted && (
+                    <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-2">
+                      <span>Session completed — attendance is locked. Contact Operations to request changes.</span>
+                    </div>
+                  )}
+                  {lockHint && (
+                    <p className="text-xs text-amber-700 dark:text-amber-400">{lockHint}</p>
+                  )}
+
+                  {s.roster.length > 0 && (
+                    <div className="relative w-full sm:w-64 self-end">
+                      <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                      <input
+                        value={rosterSearch}
+                        onChange={(e) => setRosterSearch(e.target.value)}
+                        placeholder="Search by student name…"
+                        className="h-8 w-full pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
+                      />
+                    </div>
+                  )}
+
+                  {s.roster.length === 0 ? (
+                    <EmptyState title="No students registered" hint="Registrations for this session will show up here." />
+                  ) : (
+                    <div className="max-h-80 overflow-y-auto pr-1 flex flex-col gap-1.5 border border-border/50 rounded-xl p-1.5 bg-muted/10">
+                      {filteredRoster.length === 0 ? (
+                        <p className="text-xs text-muted-foreground text-center py-6">No students match "{rosterSearch}"</p>
+                      ) : (
+                        filteredRoster.map((entry) => (
+                          <RosterRow
+                            key={entry.registration_id}
+                            entry={entry}
+                            locked={isCompleted ? "completed" : !isStarted ? "not_started" : undefined}
+                            pending={mark.isPending && mark.variables?.registrationId === entry.registration_id}
+                            onMark={(status) => {
+                              if (!isStarted) { setLockHint("Start the session first."); return }
+                              mark.mutate({ registrationId: entry.registration_id, status })
+                            }}
+                            onSelectStudent={() => entry.student_user_id ? setProfileUserId(entry.student_user_id) : setSelectedStudent(entry)}
+                          />
+                        ))
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* 2. Materials (collapsible) */}
           {(s.material_url) && (
             <Card>
               <CardContent className="p-4 flex flex-col gap-2">
@@ -256,159 +426,11 @@ export default function SessionDetail() {
             </Card>
           )}
           <SessionMaterialsPanel sessionId={sessionId} />
+
+          {/* 3. Live Games */}
           <SessionGamesPanel sessionId={sessionId} />
 
-          {/* Teammates — everyone on this session, and their check-in state.
-              The instructor's own check-in lives right here too, next to
-              their own row, instead of a separate "Today" panel up top. */}
-          <Card>
-            <CardContent className="p-4 flex flex-col gap-3">
-              <p className="text-sm font-semibold text-foreground">Team on this session</p>
-              <div className="flex flex-col gap-2">
-                {s.teammates.map((t) => (
-                  <div key={t.user_id} className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <div className={cn(
-                        "w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0",
-                        t.att_status === "present" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
-                      )}>
-                        {t.full_name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
-                      </div>
-                      <span className="text-sm font-medium text-foreground">
-                        {t.is_me ? "You" : t.full_name} · {t.role_name}
-                      </span>
-                    </div>
-                    {t.att_status === "present" ? (
-                      <span className="text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
-                        <CheckCircle2 size={13} className="text-emerald-500" />
-                        Checked in{t.checked_in_at ? ` · ${new Date(t.checked_in_at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}` : ""}
-                      </span>
-                    ) : t.att_status === "absent" ? (
-                      <span className="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30">Absent</span>
-                    ) : t.is_me ? (
-                      <Button
-                        size="default"
-                        disabled={checkIn.isPending}
-                        onClick={() => checkIn.mutate({ att: "present" })}
-                        className="h-10 px-5 text-sm font-bold rounded-xl gap-2 shadow-md"
-                      >
-                        <CheckCircle2 size={16} /> I'm here
-                      </Button>
-                    ) : (
-                      <span className="text-xs font-bold px-3 py-1.5 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30">Not checked in yet</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-              {checkInError && <p className="text-xs text-red-600 dark:text-red-400">{checkInError}</p>}
-            </CardContent>
-          </Card>
-
-          <SessionKitsPanel sessionId={sessionId} stage="pre" onChanged={invalidate} />
-          <SessionEquipmentPanel sessionId={sessionId} cohortId={s.cohort_id} notes={s.notes} onChanged={invalidate} />
-
-          {/* Attendance */}
-          <Card>
-            <CardContent className="p-4 flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <p className="text-sm font-semibold text-foreground">
-                  {isStarted ? `Attendance — ${presentCount} present / ${s.roster.length} registered` : `Students expected (${s.roster.length})`}
-                </p>
-                {isStarted ? (
-                  <Button
-                    variant="outline"
-                    onClick={() => setScannerOpen((v) => !v)}
-                    className="h-16 w-16 shrink-0 flex-col gap-1 px-1 text-[11px] leading-tight whitespace-normal"
-                  >
-                    <QrCode size={22} /> {scannerOpen ? "Close" : "Scan QR"}
-                  </Button>
-                ) : (
-                  <Button disabled={start.isPending} onClick={() => start.mutate()}>
-                    {start.isPending ? "Starting…" : "Start session"}
-                  </Button>
-                )}
-              </div>
-
-              {scannerOpen && (
-                <Card>
-                  <CardContent className="p-3 flex flex-col gap-2">
-                    {cameraError ? (
-                      <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-red-400/50 bg-red-500/5 p-6 text-center">
-                        <Camera className="text-red-500" size={28} />
-                        <p className="text-sm font-medium text-foreground">{cameraError}</p>
-                      </div>
-                    ) : (
-                      <div className="relative aspect-square max-h-80 overflow-hidden rounded-xl border border-border bg-black mx-auto w-full max-w-xs">
-                        {scannerMode === "native" ? (
-                          <video ref={videoRef} className="h-full w-full object-cover" playsInline muted autoPlay />
-                        ) : (
-                          <div id="session-delivery-qr-reader" className="h-full w-full [&_video]:!h-full [&_video]:!w-full [&_video]:object-cover" />
-                        )}
-                        <div className="pointer-events-none absolute inset-6 rounded-2xl border-4 border-white/70" />
-                      </div>
-                    )}
-                    {scanFeedback && (
-                      <p className={cn(
-                        "text-center text-sm font-semibold",
-                        scanFeedback.kind === "ok" && "text-emerald-600 dark:text-emerald-400",
-                        scanFeedback.kind === "info" && "text-amber-600 dark:text-amber-400",
-                        scanFeedback.kind === "error" && "text-red-500",
-                      )}>
-                        {scanFeedback.text}
-                      </p>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {isCompleted && (
-                <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-xs text-amber-600 dark:text-amber-400 font-medium flex items-center gap-2">
-                  <span>Session completed — attendance is locked. Contact Operations to request changes.</span>
-                </div>
-              )}
-              {lockHint && (
-                <p className="text-xs text-amber-700 dark:text-amber-400">{lockHint}</p>
-              )}
-
-              {s.roster.length > 0 && isStarted && (
-                <input
-                  value={rosterSearch} onChange={(e) => setRosterSearch(e.target.value)}
-                  placeholder="Search by name…"
-                  className="h-8 w-full sm:w-56 px-2.5 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors self-end"
-                />
-              )}
-
-              {s.roster.length === 0 ? (
-                <EmptyState title="No students registered" hint="Registrations for this session will show up here." />
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {(isStarted ? filteredRoster : s.roster).length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">No students match "{rosterSearch}"</p>
-                  ) : (
-                    (isStarted ? filteredRoster : s.roster).map((entry) => (
-                      <RosterRow
-                        key={entry.registration_id}
-                        entry={entry}
-                        locked={isCompleted ? "completed" : !isStarted ? "not_started" : undefined}
-                        pending={mark.isPending && mark.variables?.registrationId === entry.registration_id}
-                        onMark={(status) => {
-                          if (!isStarted) { setLockHint("Start the session first."); return }
-                          mark.mutate({ registrationId: entry.registration_id, status })
-                        }}
-                        onSelectStudent={() => entry.student_user_id ? setProfileUserId(entry.student_user_id) : setSelectedStudent(entry)}
-                      />
-                    ))
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* LMS progress for this cohort's students (2026-09) — the same
-              roster/checklist-item detail `/lms-authoring` shows, embedded
-              here so an instructor never has to leave the session portal to
-              confirm an item, review a quiz, or reset one. `s.cohort_id`
-              already comes back on the delivery payload — no extra fetch. */}
+          {/* 4. Student LMS progress */}
           <Card>
             <CardContent className="p-4 flex flex-col gap-3">
               <p className="text-sm font-semibold text-foreground">Student LMS progress</p>
@@ -416,7 +438,7 @@ export default function SessionDetail() {
             </CardContent>
           </Card>
 
-          {/* Wrap-up: report + photo proof, once the session has started */}
+          {/* 5. Uploads */}
           {isStarted && (
             <>
               <SessionKitsPanel sessionId={sessionId} stage="post" locked={isCompleted} onChanged={invalidate} />
@@ -460,6 +482,10 @@ export default function SessionDetail() {
               </Card>
             </>
           )}
+
+          {/* 6. Extra Equipment & Notes */}
+          <SessionKitsPanel sessionId={sessionId} stage="pre" onChanged={invalidate} />
+          <SessionEquipmentPanel sessionId={sessionId} cohortId={s.cohort_id} notes={s.notes} onChanged={invalidate} />
         </div>
 
         {/* ── sticky right rail — the checklist, visible from the start ─ */}
@@ -685,45 +711,54 @@ function RosterRow({ entry, locked, pending, onMark, onSelectStudent }: {
   onSelectStudent: () => void
 }) {
   return (
-    <Card>
-      <CardContent className="p-3 flex flex-col gap-2">
-        <div className="min-w-0 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={onSelectStudent}
-            className="text-left group/name hover:underline"
-          >
-            <p className="text-sm font-semibold text-foreground group-hover/name:text-primary transition-colors">{entry.student_name}</p>
-            {entry.student_phone && <p className="text-xs text-muted-foreground">{entry.student_phone}</p>}
-          </button>
-          {entry.att_method === "qr" && (
-            <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground"><QrCode size={11} /> via QR scan</span>
-          )}
-        </div>
-        {locked === "not_started" ? (
-          <p className="text-xs text-muted-foreground">Attendance opens once the session starts.</p>
-        ) : (
-          <div className="grid grid-cols-2 gap-1.5 max-w-[220px] mx-auto w-full">
-            {STATUS_OPTIONS.map((opt) => {
-              const active = entry.att_status === opt.value
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  disabled={pending || locked === "completed"}
-                  onClick={() => onMark(opt.value)}
-                  className={cn(
-                    "min-h-[44px] rounded-xl border text-xs font-semibold transition-colors disabled:opacity-50",
-                    active ? opt.activeClass : "bg-background border-border text-foreground hover:border-primary/50",
-                  )}
-                >
-                  {opt.label}
-                </button>
-              )
-            })}
-          </div>
+    <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-lg border border-border/70 bg-card hover:bg-muted/40 transition-colors shrink-0">
+      <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap sm:flex-nowrap">
+        <button
+          type="button"
+          onClick={onSelectStudent}
+          className="text-left group/name hover:underline min-w-0"
+        >
+          <span className="text-xs font-semibold text-foreground group-hover/name:text-primary transition-colors truncate">
+            {entry.student_name}
+          </span>
+        </button>
+        {entry.student_phone && (
+          <span className="text-[11px] text-muted-foreground truncate hidden sm:inline">
+            · {entry.student_phone}
+          </span>
         )}
-      </CardContent>
-    </Card>
+        {entry.att_method === "qr" && (
+          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">
+            <QrCode size={10} /> QR
+          </span>
+        )}
+      </div>
+
+      {locked === "not_started" ? (
+        <span className="text-[11px] text-muted-foreground shrink-0 font-medium bg-muted/50 px-2.5 py-1 rounded-md">
+          Attendance opens once session starts
+        </span>
+      ) : (
+        <div className="flex items-center gap-1 shrink-0">
+          {STATUS_OPTIONS.map((opt) => {
+            const active = entry.att_status === opt.value
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                disabled={pending || locked === "completed"}
+                onClick={() => onMark(opt.value)}
+                className={cn(
+                  "px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors disabled:opacity-50 border",
+                  active ? opt.activeClass : "bg-background border-border text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                )}
+              >
+                {opt.label}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
