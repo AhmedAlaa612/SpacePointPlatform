@@ -10,6 +10,7 @@ import {
 } from "@/api/sessions/openings"
 import { useToast } from "@/components/ui/toast"
 import { InheritedBadge } from "@/pages/admin/components/InheritedFrom"
+import { ensureAbsoluteUrl } from "@/lib/utils"
 
 /**
  * Teaching materials at one level of program → cohort → session (I5-6).
@@ -87,7 +88,7 @@ export function MaterialsPanel({ owner, inheritedNote, level }: {
               {m.filename ? <FileText size={14} className="shrink-0 text-muted-foreground" />
                           : <Link2 size={14} className="shrink-0 text-muted-foreground" />}
               {m.url ? (
-                <a href={m.url} target="_blank" rel="noreferrer"
+                <a href={ensureAbsoluteUrl(m.url)} target="_blank" rel="noreferrer"
                    className="text-sm text-foreground truncate hover:underline">{m.title}</a>
               ) : (
                 <span className="text-sm text-foreground truncate">{m.title}</span>

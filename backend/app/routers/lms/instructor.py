@@ -24,7 +24,7 @@ from app.core.dependencies import get_current_active_user, require_instructor_mi
 from app.db.session import get_db
 from app.models.lms.course import Course
 from app.models.lms.enrollment import Enrollment
-from app.models.lms.program import LmsProgram, LmsProgramItem
+from app.models.lms.program import LmsProgram, LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.user import User
@@ -33,10 +33,12 @@ from app.schemas.lms_admin import (
     EnrollmentAdminOut, LmsProgramCohortEffectiveOut, LmsProgramItemIn, LmsProgramItemOut, LmsProgramOut,
     StudentProfileOut, StudentProgramOut,
 )
+from app.schemas.lms_cohort_quiz import CohortQuizResultOut, CohortQuizTopicBreakdownOut
 from app.schemas.lms_instructor import (
     CourseProgressOut, LmsAssignmentItemDetailOut, LmsProgramRosterRowOut, ModuleProgressOut, QuizProgressOut,
 )
 from app.schemas.lms_progress_grid import StudentDesignRunsOut
+from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services.lms.admin_progress import student_design_runs
 from app.services.lms.instructor_progress import student_course_progress
 from app.services.lms.my_programs import my_programs
@@ -101,6 +103,79 @@ async def assignment_items(
     confirmation the roster already shows — for the "detailed submissions"
     drill-in (operator ask, 2026-08-22)."""
     await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    items = await assignment_item_detail(db, assignment_id=assignment_id)
+    if items is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
+    return items
+
+
+async def _cohort_quiz_assignment_item(
+    db: AsyncSession, *, cohort_id: uuid.UUID, assignment_id: uuid.UUID, item_id: uuid.UUID,
+) -> tuple[LmsProgramAssignment, LmsProgramItem]:
+    """Resolves (assignment, item) for the two quiz routes below, the same
+    way `student.py`'s own `_own_progress_row` resolves its pair — checking
+    `assignment.cohort_id == cohort_id` (the caller only ever has
+    `require_cohort_access`-verified access to *that* cohort, not to
+    whichever cohort `assignment_id` actually belongs to) and that a real
+    `LmsProgramItemProgress` row ties `item_id` to this exact assignment's
+    own checklist, rather than trusting a same-shaped id pair from an
+    unrelated program/cohort the caller has no business reading."""
+    assignment = await db.get(LmsProgramAssignment, assignment_id)
+    item = await db.get(LmsProgramItem, item_id)
+    if assignment is None or item is None or item.item_type != "quiz" or assignment.cohort_id != cohort_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Quiz item not found")
+    linked = await db.scalar(
+        select(LmsProgramItemProgress.id).where(
+            LmsProgramItemProgress.assignment_id == assignment_id, LmsProgramItemProgress.item_id == item_id,
+        )
+    )
+    if linked is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Quiz item not found")
+    return assignment, item
+
+
+@router.get(
+    "/cohorts/{cohort_id}/program-progress/{assignment_id}/items/{item_id}/quiz/review",
+    response_model=CohortQuizResultOut,
+)
+async def instructor_quiz_review(
+    cohort_id: uuid.UUID, assignment_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Ops/instructor drill-in on one student's quiz answers — per-question
+    correct/incorrect, response time, and explanation, plus what they left
+    unanswered (`selected_index: null`). Mirrors the student's own
+    `GET /lms/programs/{assignment_id}/items/{item_id}/quiz/result`, just
+    reached by (assignment, item) instead of the caller's own user id."""
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    assignment, _ = await _cohort_quiz_assignment_item(
+        db, cohort_id=cohort_id, assignment_id=assignment_id, item_id=item_id,
+    )
+    attempt = await cohort_quiz_service.get_own_attempt(db, program_item_id=item_id, user_id=assignment.user_id)
+    if attempt is None or attempt.status != "submitted":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This student hasn't submitted the quiz yet")
+    review = await cohort_quiz_service.get_attempt_review(db, attempt)
+    return cohort_quiz_service.result_out(attempt, review)
+
+
+@router.post(
+    "/cohorts/{cohort_id}/program-progress/{assignment_id}/items/{item_id}/quiz/reset",
+    response_model=list[LmsAssignmentItemDetailOut],
+)
+async def instructor_reset_quiz(
+    cohort_id: uuid.UUID, assignment_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Ops/instructor "let them retake" — deletes the student's attempt
+    (in-progress or submitted) so their next visit starts a brand-new one:
+    fresh question order, fresh per-question timers. The checklist item
+    reverts to not-done, same as any other auto-tracked item un-completing."""
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    assignment, _ = await _cohort_quiz_assignment_item(
+        db, cohort_id=cohort_id, assignment_id=assignment_id, item_id=item_id,
+    )
+    await cohort_quiz_service.reset_attempt(db, program_item_id=item_id, user_id=assignment.user_id)
+    await db.commit()
     items = await assignment_item_detail(db, assignment_id=assignment_id)
     if items is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assignment not found")
@@ -227,7 +302,7 @@ async def update_cohort_override_item(
     await _enforce_instructor_item_scope(db, current=current, item_type=item.item_type)
     guard_locked_submission_scope(item, body)
     validate_item_payload(body)
-    await validate_item_refs(db, body)
+    await validate_item_refs(db, body, require_active_quiz=False)
     await check_item_conflicts(db, owner_type="cohort_override", owner_id=override.id, body=body, exclude_item_id=item.id)
     for field, value in body.model_dump(exclude={"position"}).items():
         setattr(item, field, value)
@@ -334,6 +409,21 @@ async def student_design_runs_route(
     if user is None or "student" not in user.role_values:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
     return await student_design_runs(db, user_id=user_id)
+
+
+@router.get("/students/{user_id}/quiz-breakdown", response_model=CohortQuizTopicBreakdownOut)
+async def student_quiz_breakdown_route(
+    user_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Cohort-scoped mirror of the ops-only `admin.py` endpoint of the same
+    name — same 404-unless-in-one-of-the-instructor's-cohorts posture as
+    every other student endpoint in this file."""
+    await _require_student_access(db, user_id=user_id, current=current)
+    user = await db.get(User, user_id)
+    if user is None or "student" not in user.role_values:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Student not found")
+    breakdown = await cohort_quiz_service.get_student_topic_breakdown(db, user_id)
+    return CohortQuizTopicBreakdownOut(topic_breakdown=breakdown)
 
 
 @router.get("/students/{user_id}/courses/{course_id}/progress", response_model=CourseProgressOut)

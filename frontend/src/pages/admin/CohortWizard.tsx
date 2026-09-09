@@ -14,25 +14,34 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Check, ChevronLeft, ChevronRight, Lock, Plus, Trash2, X } from "lucide-react"
-import type { Cohort, CohortVisibility, Program, Session } from "@/types/sessions"
+import { Check, ChevronLeft, ChevronRight, Lock, Mail, Pencil, Phone, Plus, Trash2, X } from "lucide-react"
+import type { Cohort, CohortAssignment, CohortVisibility, Program, Registration, Session } from "@/types/sessions"
 import type { City, Location, Warehouse } from "@/types/inventory"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { getLocationsApi, getWarehousesApi, createLocationApi, getCitiesApi } from "@/api/inventory"
 import {
   createCohortApi, updateCohortApi, generateSessionsApi, getSessionsApi, addSessionApi, deleteSessionApi,
+  getRegistrationsApi,
 } from "@/api/sessions/cohorts"
 import { getCohortOpeningsApi, getDeliveryRolesApi, getMaterialsApi, setCohortOpeningsApi } from "@/api/sessions/openings"
-import { Spinner } from "@/pages/admin/components/common"
+import { listCohortAssignmentsApi, listCohortCallsApi, type CohortCall } from "@/api/sessions/staffing"
+import { Spinner, EmptyState } from "@/pages/admin/components/common"
 import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
 import { SessionOpeningsPanel } from "@/pages/admin/components/SessionOpeningsPanel"
 import { SessionChecklistPanel } from "@/pages/admin/components/SessionChecklistPanel"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
+import { BulkAssignInstructorModal } from "@/pages/admin/components/BulkAssignInstructorModal"
+import { BulkOpenCallModal } from "@/pages/admin/components/BulkOpenCallModal"
+import { DeskRegisterModal } from "@/pages/admin/components/DeskRegisterModal"
+import { EditStudentModal } from "@/pages/admin/components/EditStudentModal"
+import { ImportListModal } from "@/pages/admin/components/ImportList"
 import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
 import { cn, getErrorMessage } from "@/lib/utils"
+import { listLmsProgramsApi, createLmsProgramApi, getCohortProgramOverrideApi, type LmsProgram } from "@/api/lms_admin"
+import { CohortOverrideEditor } from "@/pages/lms-authoring/components/LmsChecklistAuthoring"
 
-const STEP_LABELS = ["Cohort basics", "Sessions", "Roles & checklist", "Materials", "Review & finish"]
+const STEP_LABELS = ["Cohort basics", "Sessions", "Roles & checklist", "LMS Checklist", "Materials", "Staffing", "Students", "Review & finish"]
 const LAST_STEP = STEP_LABELS.length - 1
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] // index = backend's 0..6 (Monday first)
 const OUTFIT = "'Outfit', ui-sans-serif, system-ui, sans-serif"
@@ -161,7 +170,16 @@ export default function CohortWizard() {
         )}
         {step === 1 && cohort && <SessionsStep cohort={cohort} />}
         {step === 2 && cohort && <RolesChecklistStep cohort={cohort} onFormChange={setRolesForm} />}
-        {step === 3 && cohort && (
+        {step === 3 && cohort && program && (
+          <>
+            <StepIntro
+              eyebrow="LMS Checklist" title="What does students' checklist look like?" ledeWidth={70}
+              lede="Build the cohort's checklist below — it starts as a copy of the program's, and editing it here only affects this cohort."
+            />
+            <LmsChecklistStep cohort={cohort} program={program} />
+          </>
+        )}
+        {step === 4 && cohort && (
           <>
             <StepIntro
               eyebrow="Materials" title="What instructors open on the day" ledeWidth={70}
@@ -173,7 +191,25 @@ export default function CohortWizard() {
             />
           </>
         )}
-        {step === 4 && cohort && <ReviewStep cohort={cohort} program={program} />}
+        {step === 5 && cohort && (
+          <>
+            <StepIntro
+              eyebrow="Staffing" title="Who's running each session?" ledeWidth={70}
+              lede="Assign an instructor directly, or open a call and staff it from whoever applies — both work the same way they do from the cohort page."
+            />
+            <StaffingStep cohort={cohort} />
+          </>
+        )}
+        {step === 6 && cohort && (
+          <>
+            <StepIntro
+              eyebrow="Students" title="Who is registered?" ledeWidth={70}
+              lede="Add students one at a time, or import a whole list at once."
+            />
+            <StudentsStep cohort={cohort} />
+          </>
+        )}
+        {step === 7 && cohort && <ReviewStep cohort={cohort} program={program} />}
       </div>
 
       <footer
@@ -210,7 +246,10 @@ export default function CohortWizard() {
           </div>
           {step === 1 && <SkipNote>You can add sessions later from the cohort page.</SkipNote>}
           {step === 2 && <SkipNote>Every session uses the cohort&rsquo;s roles and checklist until you override one.</SkipNote>}
-          {step === 3 && <SkipNote>Sessions will use the program&rsquo;s materials.</SkipNote>}
+          {step === 3 && <SkipNote>You can set this up later from the program or this cohort&rsquo;s own LMS tab.</SkipNote>}
+          {step === 4 && <SkipNote>Sessions will use the program&rsquo;s materials.</SkipNote>}
+          {step === 5 && <SkipNote>You can staff sessions any time from the cohort&rsquo;s Staffing tab.</SkipNote>}
+          {step === 6 && <SkipNote>You can add students any time from the cohort&rsquo;s Students tab.</SkipNote>}
         </div>
       </footer>
     </div>
@@ -811,10 +850,371 @@ function RolesChecklistStep({ cohort, onFormChange }: {
 
 /* ══════════════════════ Step 5 — Review & finish ═══════════════════════ */
 
+/** Lighter than `ProgramWizard.tsx`'s own `LmsChecklistStep` — the real
+ * checklist lives on the program (`LmsProgram.program_id` is unique, shared
+ * by every cohort of it), so there's nothing cohort-specific to author
+ * here. Just: does one exist yet, and if not, a single one-click "create
+ * an empty shell" action — no name field, no item authoring. Building the
+ * actual checklist happens on the Program wizard/page, or per-cohort tweaks
+ * later from this cohort's own LMS tab (`CohortDetail.tsx`). */
+function LmsChecklistStep({ cohort, program }: { cohort: Cohort; program: Program }) {
+  const queryClient = useQueryClient()
+  const { data: found = [], isLoading } = useQuery<LmsProgram[]>({
+    queryKey: ["lms-program-for-program", program.id], queryFn: () => listLmsProgramsApi(program.id),
+  })
+  const [created, setCreated] = useState<LmsProgram | null>(null)
+  const effective = created ?? found[0] ?? null
+
+  const createMutation = useMutation({
+    mutationFn: () => createLmsProgramApi({ program_id: program.id, name: `${program.name} Checklist` }),
+    onSuccess: (p) => {
+      setCreated(p)
+      void queryClient.invalidateQueries({ queryKey: ["lms-program-for-program", program.id] })
+    },
+  })
+
+  if (isLoading) return <Spinner />
+
+  if (!effective) {
+    return (
+      <div className="flex flex-col" style={{ gap: 16, maxWidth: "60ch" }}>
+        <p style={{ fontSize: 15 }} className="text-muted-foreground m-0">This program has no LMS checklist yet.</p>
+        <button
+          onClick={() => createMutation.mutate()}
+          disabled={createMutation.isPending}
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600, width: "fit-content" }}
+          className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+        >
+          <Plus size={15} className="inline mr-1.5" style={{ verticalAlign: -2 }} />
+          {createMutation.isPending ? "Creating…" : "Create an empty LMS checklist for this program"}
+        </button>
+      </div>
+    )
+  }
+
+  // A checklist exists for the program — build/edit *this cohort's* own
+  // checklist right here, same component CohortDetail.tsx's LMS tab uses.
+  // Starts as an editable view of the program's own checklist; editing
+  // anything forks a real per-cohort override server-side, transparently.
+  return <CohortOverrideEditor cohortId={cohort.id} isStaff readOnly={false} hideResync />
+}
+
+/* ═══════════════════════════ Step 6 — Staffing ══════════════════════════ */
+/* The two direct-action entry points, same modals the cohort page's       */
+/* Sessions-tab bulk toolbar already uses — not the full applicant/call    */
+/* review flow, which stays on the cohort page.                            */
+
+function StaffingStep({ cohort }: { cohort: Cohort }) {
+  const queryClient = useQueryClient()
+  const { data: sessions = [] } = useQuery({ queryKey: ["wizard-sessions", cohort.id], queryFn: () => getSessionsApi(cohort.id) })
+  const { data: assignments = [] } = useQuery<CohortAssignment[]>({
+    queryKey: ["cohort-assignments", cohort.id], queryFn: () => listCohortAssignmentsApi(cohort.id),
+  })
+  const { data: calls = [] } = useQuery<CohortCall[]>({
+    queryKey: ["cohort-calls", cohort.id], queryFn: () => listCohortCallsApi(cohort.id),
+  })
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
+  const [modal, setModal] = useState<"assign" | "call" | null>(null)
+
+  const toggleSession = (id: string) =>
+    setSelectedSessionIds((prev) => prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id])
+
+  const done = () => {
+    setModal(null)
+    void queryClient.invalidateQueries({ queryKey: ["wizard-sessions", cohort.id] })
+    void queryClient.invalidateQueries({ queryKey: ["cohort-assignments", cohort.id] })
+    void queryClient.invalidateQueries({ queryKey: ["cohort-calls", cohort.id] })
+  }
+
+  // Aggregate session instructor assignments by (userName + roleName)
+  const aggregatedStaffing = useMemo(() => {
+    const map = new Map<string, { userName: string; roleName: string; sessionIds: Set<string> }>()
+    for (const s of sessions) {
+      for (const i of s.instructors ?? []) {
+        const key = `${i.full_name.toLowerCase().trim()}||${(i.role || "").toLowerCase().trim()}`
+        const existing = map.get(key)
+        if (existing) {
+          existing.sessionIds.add(s.id)
+        } else {
+          map.set(key, {
+            userName: i.full_name,
+            roleName: i.role,
+            sessionIds: new Set([s.id]),
+          })
+        }
+      }
+    }
+    return Array.from(map.values())
+  }, [sessions])
+
+  if (sessions.length === 0) {
+    return <EmptyState title="No sessions yet" hint="Add sessions on the Sessions step first — there's nothing to staff yet." />
+  }
+
+  return (
+    <div className="flex flex-col" style={{ gap: 20 }}>
+      <div className="flex flex-wrap gap-2">
+        {sessions.map((s) => {
+          const isSelected = selectedSessionIds.includes(s.id)
+          const staffedNames = s.instructors?.map((i) => i.full_name).join(", ")
+          const isOpenCall = s.staffing_status === "open_call"
+          return (
+            <button
+              key={s.id} type="button" onClick={() => toggleSession(s.id)}
+              style={{ height: 38, padding: "0 14px", borderRadius: 10, fontSize: 13, fontWeight: 500 }}
+              className={cn(
+                "border transition-all flex items-center gap-2 cursor-pointer select-none",
+                isSelected
+                  ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                  : "border-border bg-card text-foreground hover:bg-muted"
+              )}
+            >
+              <span>{s.meeting_date}{s.title ? ` · ${s.title}` : ""}</span>
+              {staffedNames && (
+                <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", isSelected ? "bg-primary-foreground/20 text-primary-foreground" : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20")}>
+                  ✓ {staffedNames}
+                </span>
+              )}
+              {!staffedNames && isOpenCall && (
+                <span className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", isSelected ? "bg-primary-foreground/20 text-primary-foreground" : "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/20")}>
+                  Call open
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          onClick={() => setModal("assign")}
+          disabled={selectedSessionIds.length === 0}
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontFamily: OUTFIT, fontSize: 14, fontWeight: 600 }}
+          className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 cursor-pointer"
+        >Assign instructor ({selectedSessionIds.length})</button>
+        <button
+          onClick={() => setModal("call")}
+          disabled={selectedSessionIds.length === 0}
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontSize: 14, fontWeight: 500 }}
+          className="border border-border bg-card text-foreground hover:bg-muted transition-colors disabled:opacity-50 cursor-pointer"
+        >Open a call ({selectedSessionIds.length})</button>
+      </div>
+
+      {calls.length > 0 && (
+        <div className="flex flex-col gap-2">
+          <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">
+            Open Calls ({calls.length})
+          </span>
+          <div className="flex flex-col gap-2">
+            {calls.map((c) => (
+              <div key={c.id} className="border border-border bg-card rounded-xl p-3 flex items-center justify-between gap-3">
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-foreground truncate">
+                      {c.label || "Grouped Session Call"}
+                    </span>
+                    <span className={cn(
+                      "text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0",
+                      c.status === "open"
+                        ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+                        : "bg-muted text-muted-foreground border-border"
+                    )}>
+                      {c.status === "open" ? "Open" : "Closed"}
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground truncate">
+                    {c.sessions.length} session(s): {c.sessions.map((s) => s.meeting_date).join(", ")}
+                    {c.target_user_ids.length > 0 ? ` · Restricted to ${c.target_user_ids.length} instructor(s)` : " · Public call"}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">
+          Staffed so far
+        </span>
+        {aggregatedStaffing.length === 0 && assignments.length === 0 && calls.length === 0 ? (
+          <p style={{ fontSize: 14 }} className="text-muted-foreground m-0">Nobody staffed yet.</p>
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            {aggregatedStaffing.map((item) => (
+              <div key={item.userName + item.roleName} className="border border-border bg-card rounded-xl p-3.5 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-sm font-semibold text-foreground truncate">{item.userName}</span>
+                  <span className="text-xs font-semibold px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 shrink-0">
+                    {item.roleName}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {sessions.map((s) => {
+                    const isAssigned = item.sessionIds.has(s.id)
+                    return (
+                      <span
+                        key={s.id}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-xs border transition-all select-none",
+                          isAssigned
+                            ? "bg-primary/20 text-primary border-primary/30 font-semibold shadow-2xs"
+                            : "bg-muted/30 text-muted-foreground/50 border-border/30 opacity-50"
+                        )}
+                      >
+                        {s.meeting_date}{s.title ? ` · ${s.title}` : ""}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+            {assignments.map((a) => (
+              <div key={a.id} className="border border-border bg-card rounded-xl px-4 py-3 flex items-center justify-between">
+                <div className="flex flex-col">
+                  <span className="text-sm font-semibold text-foreground">{a.full_name}</span>
+                  <span className="text-xs text-muted-foreground">Cohort Roster</span>
+                </div>
+                <span className="text-xs font-semibold px-3 py-1 rounded-lg bg-muted text-muted-foreground border border-border">
+                  {a.role_name}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {modal === "assign" && (
+        <BulkAssignInstructorModal cohort={cohort} sessionIds={selectedSessionIds} onClose={() => setModal(null)} onDone={done} />
+      )}
+      {modal === "call" && (
+        <BulkOpenCallModal cohort={cohort} sessionIds={selectedSessionIds} onClose={() => setModal(null)} onDone={done} />
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════ Step 7 — Students ══════════════════════════ */
+
+function StudentsStep({ cohort }: { cohort: Cohort }) {
+  const queryClient = useQueryClient()
+  const { data: sessions = [] } = useQuery({ queryKey: ["wizard-sessions", cohort.id], queryFn: () => getSessionsApi(cohort.id) })
+  const { data: registrations = [] } = useQuery<Registration[]>({
+    queryKey: ["wizard-registrations", cohort.id], queryFn: () => getRegistrationsApi(cohort.id),
+  })
+  const [modal, setModal] = useState<"desk" | "import" | null>(null)
+  const [editingRegistration, setEditingRegistration] = useState<Registration | null>(null)
+
+  const done = () => {
+    setModal(null)
+    setEditingRegistration(null)
+    void queryClient.invalidateQueries({ queryKey: ["wizard-registrations", cohort.id] })
+  }
+
+  return (
+    <div className="flex flex-col" style={{ gap: 20 }}>
+      <div className="flex" style={{ gap: 12 }}>
+        <button
+          onClick={() => setModal("desk")}
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600 }}
+          className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+        >Add a student…</button>
+        <button
+          onClick={() => setModal("import")}
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontSize: 15, fontWeight: 500 }}
+          className="border border-border text-foreground hover:bg-muted transition-colors"
+        >Import a list…</button>
+      </div>
+
+      <div className="flex flex-col" style={{ gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">
+          Registered so far ({registrations.length})
+        </span>
+        {registrations.length === 0 ? (
+          <p style={{ fontSize: 14 }} className="text-muted-foreground m-0">Nobody registered yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {registrations.map((r) => (
+              <div
+                key={r.id}
+                onClick={() => setEditingRegistration(r)}
+                className="border border-border bg-card hover:border-primary/50 hover:shadow-xs cursor-pointer rounded-xl p-4 flex flex-col gap-3 transition-all group relative"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-9 h-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-semibold text-sm shrink-0 uppercase">
+                      {r.student_name ? r.student_name.charAt(0) : "S"}
+                    </div>
+                    <span style={{ fontFamily: OUTFIT }} className="font-semibold text-base text-foreground truncate group-hover:text-primary transition-colors">
+                      {r.student_name}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {r.status && (
+                      <span className="text-xs font-medium px-2.5 py-1 rounded-full bg-muted text-muted-foreground border border-border shrink-0 capitalize">
+                        {r.status.replace(/_/g, " ")}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setEditingRegistration(r)
+                      }}
+                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors opacity-70 group-hover:opacity-100"
+                      title="Edit student info"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5 text-sm text-muted-foreground pt-1.5 border-t border-border/50">
+                  <div className="flex items-center gap-2 text-xs">
+                    <Mail className="w-3.5 h-3.5 shrink-0 text-muted-foreground/70" />
+                    <span className="truncate">{r.student_email || "No email address"}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs">
+                    <Phone className="w-3.5 h-3.5 shrink-0 text-muted-foreground/70" />
+                    <span>{r.student_phone || "No phone number"}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {modal === "desk" && <DeskRegisterModal cohort={cohort} sessions={sessions} onClose={() => setModal(null)} onSuccess={done} />}
+      {modal === "import" && <ImportListModal cohort={cohort} onClose={() => setModal(null)} onImported={done} />}
+      {editingRegistration && (
+        <EditStudentModal
+          registration={editingRegistration}
+          onClose={() => setEditingRegistration(null)}
+          onSuccess={done}
+        />
+      )}
+    </div>
+  )
+}
+
 function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) {
   const { data: sessions = [] } = useQuery({ queryKey: ["wizard-sessions", cohort.id], queryFn: () => getSessionsApi(cohort.id) })
   const { data: openings = [] } = useQuery({ queryKey: ["cohort-openings-defaults", cohort.id], queryFn: () => getCohortOpeningsApi(cohort.id) })
   const { data: materials = [] } = useQuery({ queryKey: ["materials", JSON.stringify({ cohort_id: cohort.id })], queryFn: () => getMaterialsApi({ cohort_id: cohort.id }) })
+  const { data: override } = useQuery({
+    queryKey: ["lms-cohort-override", cohort.id], queryFn: () => getCohortProgramOverrideApi(cohort.id),
+    retry: false,
+  })
+  const { data: assignments = [] } = useQuery<CohortAssignment[]>({
+    queryKey: ["cohort-assignments", cohort.id], queryFn: () => listCohortAssignmentsApi(cohort.id),
+  })
+  const { data: calls = [] } = useQuery<CohortCall[]>({
+    queryKey: ["cohort-calls", cohort.id], queryFn: () => listCohortCallsApi(cohort.id),
+  })
+  const { data: registrations = [] } = useQuery<Registration[]>({
+    queryKey: ["wizard-registrations", cohort.id], queryFn: () => getRegistrationsApi(cohort.id),
+  })
 
   const sorted = sessions.slice().sort((a, b) => a.meeting_date.localeCompare(b.meeting_date))
   const rows: { label: string; value: string }[] = [
@@ -834,8 +1234,30 @@ function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) 
       value: openings.length === 0 ? "Using program/platform defaults" : `${openings.length} role${openings.length === 1 ? "" : "s"} customized for this cohort`,
     },
     {
+      label: "LMS Checklist",
+      value: !override ? "Not set up yet — this cohort's students will see an empty checklist"
+        : `${override.items.length} step${override.items.length === 1 ? "" : "s"}${override.is_inherited ? " (shared with every cohort of this program)" : " (customized for this cohort)"}`,
+    },
+    {
       label: "Materials",
       value: materials.length === 0 ? "Inherited from program" : `${materials.length} item${materials.length === 1 ? "" : "s"} set for this cohort`,
+    },
+    {
+      label: "Staffing",
+      value: (() => {
+        const sessionInstructorsCount = sessions.reduce((acc, s) => acc + (s.instructors?.length ?? 0), 0)
+        const callsCount = calls.length
+        if (sessionInstructorsCount === 0 && assignments.length === 0 && callsCount === 0) return "Nobody staffed yet"
+        const parts: string[] = []
+        if (sessionInstructorsCount > 0) parts.push(`${sessionInstructorsCount} instructor assignment${sessionInstructorsCount === 1 ? "" : "s"}`)
+        if (assignments.length > 0) parts.push(`${assignments.length} roster instructor${assignments.length === 1 ? "" : "s"}`)
+        if (callsCount > 0) parts.push(`${callsCount} open call${callsCount === 1 ? "" : "s"}`)
+        return parts.join(", ")
+      })(),
+    },
+    {
+      label: "Students",
+      value: registrations.length === 0 ? "Nobody registered yet" : `${registrations.length} student${registrations.length === 1 ? "" : "s"} registered`,
     },
   ]
 

@@ -313,7 +313,7 @@ export const deleteCheckpointApi = (id: string) => api.delete<void>(`/lms/admin/
 // Replaces the old program_curriculum flat course list (above, removed) —
 // see backend/app/models/lms/program.py's module docstring for the full shape.
 
-export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session";
+export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz";
 /** individual (default): per-student progress. team: the whole Team shares
  * one progress row — only valid for submission/external_link/manual items
  * (enforced server-side in services/lms/program.py). */
@@ -349,6 +349,10 @@ export interface LmsProgramItem {
   session_starts_at: string | null;
   session_location: string | null;
   session_meeting_url: string | null;
+  /** A `quiz` item's fixed question set — see `app/models/lms/cohort_quiz.py`. */
+  cohort_quiz_template_id: string | null;
+  /** "N questions" badge — only populated for a `quiz` item. */
+  cohort_quiz_question_count: number | null;
   // ── Roadmap board (2026-09) ────────────────────────────────────────────
   /** Which single Madar design phase a `mission_run` item targets — null
    * means the whole mission. See MISSION_STEP_KEYS below. */
@@ -402,6 +406,7 @@ export interface LmsProgramItemInput {
   session_starts_at?: string | null;
   session_location?: string | null;
   session_meeting_url?: string | null;
+  cohort_quiz_template_id?: string | null;
   position?: number | null;
   mission_step_key?: string | null;
   gated?: boolean;
@@ -735,6 +740,18 @@ export interface StudentDesignRunsOut {
 
 export const getStudentDesignRunsApi = (userId: string) =>
   api.get<StudentDesignRunsOut>(`/lms/admin/students/${userId}/design-runs`).then((r) => r.data);
+
+// ── cohort-quiz strengths/weaknesses (2026-09) ──────────────────────────────
+
+export interface CohortQuizTopicBreakdown {
+  topic_breakdown: Record<string, { correct: number; total: number }>;
+}
+
+export const getStudentQuizBreakdownApi = (userId: string) =>
+  api.get<CohortQuizTopicBreakdown>(`/lms/admin/students/${userId}/quiz-breakdown`).then((r) => r.data);
+
+export const getStudentQuizBreakdownInstructorApi = (userId: string) =>
+  api.get<CohortQuizTopicBreakdown>(`/lms/instructor/students/${userId}/quiz-breakdown`).then((r) => r.data);
 
 export const listLearningPathsApi = () =>
   api.get<AdminLearningPath[]>("/lms/admin/learning-paths").then((r) => r.data);

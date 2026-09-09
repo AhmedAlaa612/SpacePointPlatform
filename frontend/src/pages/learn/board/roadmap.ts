@@ -1,5 +1,5 @@
 import {
-  BatteryCharging, BookOpen, Calendar, Cpu, FileText, Layout, Link2, Lock, Rocket, Scale, Target, Upload,
+  BatteryCharging, BookOpen, Calendar, Cpu, FileText, HelpCircle, Layout, Link2, Lock, Rocket, Scale, Target, Upload,
   ClipboardCheck, ClipboardList, type LucideIcon,
 } from "lucide-react";
 import type { LmsProgramChecklistItem } from "@/api/lms";
@@ -94,7 +94,7 @@ export const STEP_ICON: Record<MissionStepKey, LucideIcon> = {
 
 const ITEM_TYPE_ICON: Record<LmsProgramChecklistItem["item_type"], LucideIcon> = {
   course: BookOpen, mission_run: Rocket, external_link: Link2, submission: Upload,
-  pdf: FileText, manual: ClipboardCheck, session: Calendar,
+  pdf: FileText, manual: ClipboardCheck, session: Calendar, quiz: HelpCircle,
 };
 
 /** Locked tiles always render `lock` regardless of type (README: "locked
@@ -144,6 +144,7 @@ export type NavTarget =
   | { kind: "operate"; attemptId: string }
   | { kind: "mission"; missionId: string }
   | { kind: "external"; url: string }
+  | { kind: "quiz"; itemId: string }
   | { kind: "drawer" } // submission / pdf / manual / session — open the task drawer, no direct nav
   | { kind: "none" };
 
@@ -163,6 +164,7 @@ export function navTargetFor(item: LmsProgramChecklistItem): NavTarget {
     if (item.mission_id) return { kind: "mission", missionId: item.mission_id };
   }
   if (item.item_type === "external_link" && item.external_url) return { kind: "external", url: item.external_url };
+  if (item.item_type === "quiz") return { kind: "quiz", itemId: item.id };
   if (item.item_type === "submission" || item.item_type === "pdf" || item.item_type === "manual" || item.item_type === "session") {
     return { kind: "drawer" };
   }

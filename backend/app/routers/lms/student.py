@@ -74,6 +74,9 @@ from app.schemas.lms import (
     QuizReviewOut,
     VideoCheckpointOut,
 )
+from app.schemas.lms_cohort_quiz import (
+    CohortQuizAttemptOut, CohortQuizAttemptQuestionOut, CohortQuizResultOut, CohortQuizSubmitIn,
+)
 from app.services.lms import (
     check_quiz_answer,
     course_completion,
@@ -96,8 +99,9 @@ from app.services.lms.leaderboard import leaderboard
 from app.services.lms.my_programs import my_programs
 from app.services.lms.program import (
     PROGRAM_ITEM_PDF_BUCKET, checklist_item_locked, checklist_item_write_target, get_student_checklist,
-    list_student_assignments,
+    list_student_assignments, refresh_item_progress,
 )
+from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services import storage
 from app.services.video_service import get_playback_info, get_video_for_owner
 from app.models.certificate import Certificate
@@ -297,6 +301,7 @@ async def course_detail(
                 locked=row["locked"],
                 mandatory_total=row["mandatory_total"],
                 mandatory_completed=row["mandatory_completed"],
+                total_items=row.get("total_items", 0),
             )
             for row in locks
         ],
@@ -626,7 +631,7 @@ async def complete_program_item(
     A `scope="team"` item writes to the shared team row (any teammate can
     call this), not the caller's own individual row."""
     assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
-    if item.item_type in ("course", "mission_run"):
+    if item.item_type in ("course", "mission_run", "quiz"):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is tracked automatically")
     if await checklist_item_locked(db, assignment=assignment, item=item):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
@@ -676,6 +681,72 @@ async def submit_program_item(
     await db.commit()
     await db.refresh(target)
     return await _checklist_item_out(db, item=item, target=target)
+
+
+@router.post("/programs/{assignment_id}/items/{item_id}/quiz/start", response_model=CohortQuizAttemptOut)
+async def start_cohort_quiz(
+    assignment_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+):
+    """Get-or-create the student's one attempt at this checklist item's
+    quiz — a page refresh never reshuffles it (see
+    `services/lms/cohort_quiz.py::start_attempt`). Returns the existing
+    attempt (in whatever state) if one already exists, so a student who
+    already submitted gets their own record back rather than a 409."""
+    assignment, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    if item.item_type != "quiz":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is not a quiz")
+    if await checklist_item_locked(db, assignment=assignment, item=item):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
+    attempt = await cohort_quiz_service.start_attempt(db, item=item, user_id=current.id, cohort_id=assignment.cohort_id)
+    await db.commit()
+    questions = await cohort_quiz_service.get_attempt_questions(db, attempt)
+    return CohortQuizAttemptOut(
+        id=attempt.id, program_item_id=attempt.program_item_id, status=attempt.status, total=attempt.total,
+        questions=[CohortQuizAttemptQuestionOut(**q) for q in questions],
+    )
+
+
+@router.post("/programs/{assignment_id}/items/{item_id}/quiz/submit", response_model=CohortQuizResultOut)
+async def submit_cohort_quiz(
+    assignment_id: uuid.UUID, item_id: uuid.UUID, body: CohortQuizSubmitIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+):
+    """All the student's answers at once (client-tracked per-question
+    timing included) — grades, flips the checklist item to done via
+    `refresh_item_progress` (done on submission alone, score never gates
+    it — this is a diagnostic, not a pass/fail step)."""
+    assignment, item, progress = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    if item.item_type != "quiz":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is not a quiz")
+    # Re-checked here too, not just in start_cohort_quiz — the item's
+    # gating can change between start and submit (same defensive posture
+    # submit_program_item takes for a submission item).
+    if await checklist_item_locked(db, assignment=assignment, item=item):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
+    attempt = await cohort_quiz_service.get_own_attempt(db, program_item_id=item_id, user_id=current.id)
+    if attempt is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Start the quiz before submitting it")
+    attempt = await cohort_quiz_service.submit_attempt(db, attempt, body.answers)
+    await refresh_item_progress(db, progress=progress, item=item, user_id=current.id)
+    await db.commit()
+    review = await cohort_quiz_service.get_attempt_review(db, attempt)
+    return cohort_quiz_service.result_out(attempt, review)
+
+
+@router.get("/programs/{assignment_id}/items/{item_id}/quiz/result", response_model=CohortQuizResultOut)
+async def get_cohort_quiz_result(
+    assignment_id: uuid.UUID, item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+):
+    _, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    if item.item_type != "quiz":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item is not a quiz")
+    attempt = await cohort_quiz_service.get_own_attempt(db, program_item_id=item_id, user_id=current.id)
+    if attempt is None or attempt.status != "submitted":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No submitted attempt yet")
+    review = await cohort_quiz_service.get_attempt_review(db, attempt)
+    return cohort_quiz_service.result_out(attempt, review)
 
 
 @router.get("/my-activity", response_model=list[ActivityItemOut])

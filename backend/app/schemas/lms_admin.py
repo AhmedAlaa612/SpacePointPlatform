@@ -430,7 +430,7 @@ class ItemReorderIn(BaseModel):
 
 # ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
 
-LmsProgramItemType = Literal["course", "mission_run", "external_link", "submission", "pdf", "manual", "session"]
+LmsProgramItemType = Literal["course", "mission_run", "external_link", "submission", "pdf", "manual", "session", "quiz"]
 # individual (default) tracks per-student, exactly as every item did before
 # this existed. team means the whole `Team` shares one progress row — a
 # competition's link-only deliverables. See LmsProgramItem.scope's docstring.
@@ -457,6 +457,9 @@ class LmsProgramItemIn(BaseModel):
     session_starts_at: time | None = None
     session_location: str | None = None
     session_meeting_url: str | None = None
+    # A `quiz` item's fixed question set — see LmsProgramItem's own field
+    # comment and app/models/lms/cohort_quiz.py.
+    cohort_quiz_template_id: UUID | None = None
     position: int | None = None
     # ── Roadmap board (2026-09) — see LmsProgramItem's own field comments.
     mission_step_key: str | None = None
@@ -497,6 +500,10 @@ class LmsProgramItemOut(BaseModel):
     session_starts_at: time | None = None
     session_location: str | None = None
     session_meeting_url: str | None = None
+    cohort_quiz_template_id: UUID | None = None
+    # Populated only for a `quiz` item — the authoring UI's "N questions"
+    # badge. None for every other item type.
+    cohort_quiz_question_count: int | None = None
     mission_step_key: str | None = None
     gated: bool = False
     guideline_kind: str | None = None

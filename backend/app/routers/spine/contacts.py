@@ -39,7 +39,7 @@ from app.schemas.spine.contacts import (
     OrganizationUpdate,
 )
 from app.services.lms.ops_integration import get_or_create_student_account, send_set_password_email
-from app.services.spine.identity import resolve_or_create_organization
+from app.services.spine.identity import ensure_alias, normalize_email, normalize_phone, resolve_or_create_organization
 from app.services.spine.learning_panel import build_learning_panel
 from app.services.spine.role_history import record_role_diff
 
@@ -202,6 +202,16 @@ async def update_contact(
 
     updates = body.model_dump(exclude_unset=True)
     roles_before = list(contact.contact_roles or []) if "contact_roles" in updates else None
+
+    if "primary_phone_e164" in updates and updates["primary_phone_e164"]:
+        norm_phone = normalize_phone(updates["primary_phone_e164"]) or updates["primary_phone_e164"]
+        updates["primary_phone_e164"] = norm_phone
+        await ensure_alias(db, contact.id, "phone", norm_phone)
+
+    if "email" in updates and updates["email"]:
+        norm_email = normalize_email(updates["email"]) or updates["email"]
+        updates["email"] = norm_email
+        await ensure_alias(db, contact.id, "email", norm_email)
 
     # Not a real column — resolve-or-create by name, gap-fill only (a blank
     # value never clears an existing organization_id).

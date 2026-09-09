@@ -30,6 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.certificate import Certificate
+from app.models.lms.cohort_quiz import CohortQuizAttempt, CohortQuizTemplate
 from app.models.lms.course import Course
 from app.models.lms.program import (
     LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem, LmsProgramItemProgress,
@@ -44,6 +45,7 @@ from app.models.user import User
 from app.models.videos import Video
 from app.schemas.lms_admin import LmsProgramItemIn, LmsProgramItemOut
 from app.services import storage
+from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services.lms.enrollment import enroll
 from app.services.lms.progress import course_completion
 from app.services.missions import assign_mission_run
@@ -55,7 +57,7 @@ from app.services.video_service import get_video_for_owner
 # no reason for a second bucket.
 PROGRAM_ITEM_PDF_BUCKET = "lms-attachments"
 
-AUTO_TRACKED_TYPES = {"course", "mission_run"}
+AUTO_TRACKED_TYPES = {"course", "mission_run", "quiz"}
 
 # Roadmap board (2026-09) — the vocabulary a `mission_run` item's
 # `mission_step_key` can name. Eight of these mirror
@@ -96,6 +98,15 @@ async def item_out(db: AsyncSession, item: LmsProgramItem) -> LmsProgramItemOut:
     if item.mission_id is not None:
         mission = await db.get(Mission, item.mission_id)
         out.mission_kind = mission.kind if mission is not None else None
+    if item.cohort_quiz_template_id is not None:
+        # Active questions only — matches what `cohort_quiz.start_attempt`
+        # will actually draw, so this badge never overstates a quiz that's
+        # had questions retired out from under it. Reuses the same counter
+        # `cohort_quiz_admin.py`'s template views call, rather than a second
+        # copy of the join+filter that could drift out of sync with it.
+        out.cohort_quiz_question_count = await cohort_quiz_service.question_count_for_template(
+            db, item.cohort_quiz_template_id,
+        )
     if item.guideline_kind == "video":
         _apply_guideline_video(out, await get_video_for_owner(
             db, owner_type="program_item_guideline", owner_id=item.id,
@@ -111,6 +122,8 @@ async def items_out(db: AsyncSession, items: list[LmsProgramItem]) -> list[LmsPr
     if mission_ids:
         rows = (await db.execute(select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids)))).all()
         kinds = dict(rows)
+    quiz_template_ids = {i.cohort_quiz_template_id for i in items if i.cohort_quiz_template_id is not None}
+    quiz_counts = await cohort_quiz_service.question_counts_for_templates(db, list(quiz_template_ids))
     video_item_ids = [i.id for i in items if i.guideline_kind == "video"]
     videos_by_owner: dict[uuid.UUID, Video] = {}
     if video_item_ids:
@@ -124,6 +137,8 @@ async def items_out(db: AsyncSession, items: list[LmsProgramItem]) -> list[LmsPr
         o.has_pdf = item.pdf_path is not None
         if item.mission_id is not None:
             o.mission_kind = kinds.get(item.mission_id)
+        if item.cohort_quiz_template_id is not None:
+            o.cohort_quiz_question_count = quiz_counts.get(item.cohort_quiz_template_id, 0)
         _apply_guideline_video(o, videos_by_owner.get(item.id))
         out.append(o)
     return out
@@ -148,6 +163,7 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         # Every field is optional — an admin can leave date/location/link
         # blank and just have a titled placeholder, same posture as manual.
         "session": True,
+        "quiz": body.cohort_quiz_template_id is not None,
     }
     if not required[body.item_type]:
         raise HTTPException(
@@ -210,9 +226,21 @@ def guard_locked_submission_scope(item: LmsProgramItem, body: LmsProgramItemIn) 
         )
 
 
-async def validate_item_refs(db: AsyncSession, body: LmsProgramItemIn) -> None:
+async def validate_item_refs(db: AsyncSession, body: LmsProgramItemIn, *, require_active_quiz: bool = True) -> None:
+    """`require_active_quiz` gates the retired-template check — True for
+    creating a new item (never let ops pick an already-retired template),
+    False for editing an existing one (an item that already points at a
+    template retired *after* assignment must stay editable for its other
+    fields — retiring a template stops new checklist items from picking
+    it, it doesn't freeze whatever already has it)."""
     if body.course_id is not None and await db.get(Course, body.course_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
+    if body.cohort_quiz_template_id is not None:
+        template = await db.get(CohortQuizTemplate, body.cohort_quiz_template_id)
+        if template is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Quiz template not found")
+        if require_active_quiz and not template.is_active:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This quiz template has been retired")
     if body.mission_id is not None:
         mission = await db.get(Mission, body.mission_id)
         if mission is None:
@@ -477,6 +505,7 @@ async def fork_cohort_override(
             pdf_path=copy_pdf_path, deadline_at=item.deadline_at,
             session_date=item.session_date, session_starts_at=item.session_starts_at,
             session_location=item.session_location, session_meeting_url=item.session_meeting_url,
+            cohort_quiz_template_id=item.cohort_quiz_template_id,
         )
         db.add(copy)
         id_map[item.id] = copy.id
@@ -777,6 +806,19 @@ async def _mission_run_item_done(
     return ready and mission_step_key in dash["_confirmed_steps"]
 
 
+async def _cohort_quiz_item_done(db: AsyncSession, *, program_item_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+    """A quiz item is "done" once submitted — this is framed as a
+    diagnostic, not a pass/fail gate, so score never factors in here (see
+    `app/models/lms/cohort_quiz.py`'s own note on that)."""
+    return bool(await db.scalar(
+        select(CohortQuizAttempt.id).where(
+            CohortQuizAttempt.program_item_id == program_item_id,
+            CohortQuizAttempt.user_id == user_id,
+            CohortQuizAttempt.status == "submitted",
+        )
+    ))
+
+
 async def refresh_item_progress(
     db: AsyncSession, *, progress: LmsProgramItemProgress, item: LmsProgramItem, user_id: uuid.UUID,
     dashboard_cache: dict[uuid.UUID, dict | None] | None = None,
@@ -799,11 +841,13 @@ async def refresh_item_progress(
 
     if item.item_type == "course":
         done = await _course_item_done(db, user_id=user_id, course_id=item.course_id) if item.course_id else False
-    else:
+    elif item.item_type == "mission_run":
         done = await _mission_run_item_done(
             db, mission_attempt_id=progress.mission_attempt_id, mission_step_key=item.mission_step_key,
             dashboard_cache=dashboard_cache if dashboard_cache is not None else {},
         )
+    else:  # "quiz"
+        done = await _cohort_quiz_item_done(db, program_item_id=item.id, user_id=user_id)
 
     if done and progress.status != "done":
         progress.status = "done"

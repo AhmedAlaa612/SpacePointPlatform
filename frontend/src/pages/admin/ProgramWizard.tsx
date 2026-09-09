@@ -19,8 +19,11 @@ import { ProgramRolesPanel } from "@/pages/admin/components/ProgramRolesPanel"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { useToast } from "@/components/ui/toast"
 import { cn, getErrorMessage } from "@/lib/utils"
+import { listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, type LmsProgram } from "@/api/lms_admin"
+import { CreateChecklistPrompt, ProgramTemplateEditor } from "@/pages/lms-authoring/components/LmsChecklistAuthoring"
+import { Spinner } from "@/pages/admin/components/common"
 
-const STEP_LABELS = ["Program basics", "Roles & checklist", "Materials", "Review & finish"]
+const STEP_LABELS = ["Program basics", "Roles & checklist", "LMS Checklist", "Materials", "Review & finish"]
 const LAST_STEP = STEP_LABELS.length - 1
 const OUTFIT = "'Outfit', ui-sans-serif, system-ui, sans-serif"
 const CARD_SHADOW = "0 3px 0 hsl(var(--border)), 0 10px 20px -5px rgba(0,0,0,.35), 0 2px 6px -1px rgba(0,0,0,.20)"
@@ -137,13 +140,22 @@ export default function ProgramWizard() {
         {step === 2 && program && (
           <>
             <StepIntro
+              eyebrow="LMS Checklist" title="What does a student need to complete?" ledeWidth={70}
+              lede="Every cohort of this program shares this one checklist — courses, mission runs, quizzes, submissions, whatever this program needs done. Edit it any time from the Programs page or a cohort's own LMS tab."
+            />
+            <LmsChecklistStep program={program} />
+          </>
+        )}
+        {step === 3 && program && (
+          <>
+            <StepIntro
               eyebrow="Materials" title="What instructors open on the day" ledeWidth={70}
               lede="Cohorts and sessions inherit these live unless one of them sets its own — unlike roles, materials still follow the program as it changes."
             />
             <MaterialsPanel owner={{ program_id: program.id }} />
           </>
         )}
-        {step === 3 && program && <ReviewStep program={program} />}
+        {step === 4 && program && <ReviewStep program={program} />}
       </div>
 
       <footer
@@ -179,7 +191,8 @@ export default function ProgramWizard() {
             )}
           </div>
           {step === 1 && <SkipNote>You can set roles later — cohorts will offer no roles until you do.</SkipNote>}
-          {step === 2 && <SkipNote>Cohorts and sessions will simply have no materials until you add some.</SkipNote>}
+          {step === 2 && <SkipNote>You can create this checklist later — students won't see one until it exists.</SkipNote>}
+          {step === 3 && <SkipNote>Cohorts and sessions will simply have no materials until you add some.</SkipNote>}
         </div>
       </footer>
     </div>
@@ -408,11 +421,47 @@ function BasicsStep({ program, onSaved, onFormChange }: {
   )
 }
 
-/* ══════════════════════ Step 4 — Review & finish ═══════════════════════ */
+/* ═══════════════════════ Step 3 — LMS Checklist ═════════════════════════ */
+
+/** Mirrors `ProgramWorkspace`'s own program-scope branch in
+ * `LmsProgramAdmin.tsx` (create-prompt, then full inline authoring) — no
+ * `isStaff`/`scope` machinery needed here, since this wizard is inherently
+ * staff-only and `program.id` is already the real Sessions Program id. */
+function LmsChecklistStep({ program }: { program: Program }) {
+  const queryClient = useQueryClient()
+  const { data: found = [], isLoading } = useQuery<LmsProgram[]>({
+    queryKey: ["lms-program-for-program", program.id], queryFn: () => listLmsProgramsApi(program.id),
+  })
+  const [created, setCreated] = useState<LmsProgram | null>(null)
+  const effective = created ?? found[0] ?? null
+
+  const createMutation = useMutation({
+    mutationFn: (name: string) => createLmsProgramApi({ program_id: program.id, name }),
+    onSuccess: (p) => setCreated(p),
+  })
+
+  const refresh = async () => {
+    const fresh = await getLmsProgramApi(effective!.id)
+    setCreated(fresh)
+    void queryClient.invalidateQueries({ queryKey: ["lms-program-for-program", program.id] })
+  }
+
+  if (isLoading) return <Spinner />
+  if (!effective) {
+    return <CreateChecklistPrompt onCreate={(name) => createMutation.mutate(name)} pending={createMutation.isPending} />
+  }
+  return <ProgramTemplateEditor program={effective} onChanged={refresh} readOnly={false} />
+}
+
+/* ══════════════════════ Step 5 — Review & finish ═══════════════════════ */
 
 function ReviewStep({ program }: { program: Program }) {
   const { data: openings = [] } = useQuery({ queryKey: ["program-openings-defaults", program.id], queryFn: () => getProgramOpeningsApi(program.id) })
   const { data: materials = [] } = useQuery({ queryKey: ["materials", JSON.stringify({ program_id: program.id })], queryFn: () => getMaterialsApi({ program_id: program.id }) })
+  const { data: lmsPrograms = [] } = useQuery<LmsProgram[]>({
+    queryKey: ["lms-program-for-program", program.id], queryFn: () => listLmsProgramsApi(program.id),
+  })
+  const lmsProgram = lmsPrograms[0]
 
   const rows: { label: string; value: string }[] = [
     { label: "Name", value: program.name },
@@ -423,6 +472,12 @@ function ReviewStep({ program }: { program: Program }) {
     {
       label: "Roles & checklist",
       value: openings.length === 0 ? "No roles set yet — new cohorts will offer none until you add some" : `${openings.length} role${openings.length === 1 ? "" : "s"} templated, copied into every new cohort`,
+    },
+    {
+      label: "LMS Checklist",
+      value: !lmsProgram
+        ? "Not set up yet — students will see an empty checklist"
+        : `${lmsProgram.items.length} step${lmsProgram.items.length === 1 ? "" : "s"} — shared by every cohort of this program`,
     },
     {
       label: "Materials",

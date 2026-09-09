@@ -191,6 +191,7 @@ class ModuleLockOut(BaseModel):
     locked: bool
     mandatory_total: int
     mandatory_completed: int
+    total_items: int = 0
 
 
 class CourseDetailOut(BaseModel):

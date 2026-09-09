@@ -147,6 +147,7 @@ import GamePlay from "@/pages/learn/GamePlay";
 import LearnProgram from "@/pages/learn/LearnProgram";
 import LearnChecklists from "@/pages/learn/LearnChecklists";
 import RoadmapBoard from "@/pages/learn/board/RoadmapBoard";
+import CohortQuizPage from "@/pages/learn/CohortQuizPage";
 import MissionCatalog from "@/pages/learn/MissionCatalog";
 import MissionPage from "@/pages/learn/MissionPage";
 import DesignMissionPage from "@/pages/learn/DesignMissionPage";
@@ -172,6 +173,7 @@ import LmsStudentDetail from "@/pages/lms-authoring/LmsStudentDetail";
 import LmsInviteCodes from "@/pages/lms-authoring/LmsInviteCodes";
 import LmsGames from "@/pages/lms-authoring/LmsGames";
 import LmsGameDetail from "@/pages/lms-authoring/LmsGameDetail";
+import LmsCohortQuizAdmin from "@/pages/lms-authoring/LmsCohortQuizAdmin";
 
 const rootRoute = createRootRoute({ component: () => <Outlet /> });
 
@@ -803,6 +805,7 @@ const lmsAuthoringRoutes = [
   createRoute({ getParentRoute: pla, path: "/invite-codes", component: LmsInviteCodes }),
   createRoute({ getParentRoute: pla, path: "/games", component: LmsGames }),
   createRoute({ getParentRoute: pla, path: "/games/$gameId", component: LmsGameDetail }),
+  createRoute({ getParentRoute: pla, path: "/quiz-bank", component: LmsCohortQuizAdmin }),
 ];
 
 // Apply routes — all use shared ApplyFlow (instructor uses InstructorApply for its own pipeline)
@@ -1010,6 +1013,16 @@ const learnChecklistRoute = createRoute({
   component: RoadmapBoard,
 });
 
+// Cohort knowledge quiz (2026-09) — a `quiz` checklist item's task-drawer
+// nav target. Keyed on both ids (not just item_id) since the student-facing
+// start/submit/result endpoints are scoped under the assignment, same as
+// every other checklist item action.
+const learnCohortQuizRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/checklists/$assignmentId/quiz/$itemId",
+  component: CohortQuizPage,
+});
+
 // Student profile (design 2a/2b, 2026-08-08).
 const learnProfileRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
@@ -1128,7 +1141,7 @@ const routeTree = rootRoute.addChildren([
   learnLayoutRoute.addChildren([
     learnLandingRoute, learnHomeRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
     learnCheckoutSuccessRoute,
-    learnPathsRoute, learnPathRoute, learnChecklistsRoute, learnChecklistRoute,
+    learnPathsRoute, learnPathRoute, learnChecklistsRoute, learnChecklistRoute, learnCohortQuizRoute,
     learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
     learnGamesRoute, learnGamePlayRoute,
     learnMissionsRoute, learnDesignBriefingRoute, learnDesignMissionRoute, learnOperateBriefingRoute,

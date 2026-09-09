@@ -49,8 +49,9 @@ function Countdown({ seconds, questionKey, onExpire }: { seconds: number; questi
   }, [questionKey, seconds])
 
   return (
-    <div className={`text-2xl font-display font-extrabold ${remaining <= 5 ? "text-destructive" : "text-foreground"}`}>
-      {remaining}s
+    <div className={`flex items-center gap-2 font-display text-3xl sm:text-4xl font-black tracking-tight ${remaining <= 5 ? "text-destructive animate-pulse" : "text-foreground"}`}>
+      <Clock className={`size-6 sm:size-7 ${remaining <= 5 ? "text-destructive" : "text-primary"}`} />
+      <span>{remaining}s</span>
     </div>
   )
 }
@@ -221,7 +222,7 @@ export default function GamePlay() {
   const myNickname = me?.nickname ?? currentUser?.nickname ?? currentUser?.full_name ?? "You"
 
   return (
-    <div className="mx-auto max-w-[520px] px-5 py-6 sm:py-10 flex flex-col gap-6 min-h-[70vh]">
+    <div className="mx-auto max-w-3xl lg:max-w-4xl px-5 py-6 sm:py-10 flex flex-col gap-6 min-h-[70vh]">
       {phase === "join" && (
         <div className="flex flex-col items-center gap-5 text-center pt-10">
           <Trophy className="size-10 text-primary" />
@@ -284,10 +285,31 @@ export default function GamePlay() {
 
       {phase === "question" && question && (
         <div className="flex flex-col gap-6">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-              Question {question.position} of {run.total_questions}
-            </span>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                Question {question.position} of {run.total_questions}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {Array.from({ length: run.total_questions }).map((_, i) => {
+                  const qPos = i + 1
+                  const isCurrent = qPos === question.position
+                  const isPast = qPos < question.position
+                  return (
+                    <div
+                      key={i}
+                      className={`h-2.5 rounded-full transition-all duration-300 ${
+                        isCurrent
+                          ? "w-7 bg-primary ring-2 ring-primary/30"
+                          : isPast
+                          ? "w-2.5 bg-primary/60"
+                          : "w-2.5 bg-muted-foreground/25 dark:bg-muted-foreground/20"
+                      }`}
+                    />
+                  )
+                })}
+              </div>
+            </div>
             {!locked && (
               <Countdown
                 seconds={question.time_limit_seconds} questionKey={question.id}
@@ -295,7 +317,7 @@ export default function GamePlay() {
               />
             )}
           </div>
-          <h1 className="font-display text-xl font-bold leading-snug">{question.prompt}</h1>
+          <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-semibold leading-tight tracking-normal text-foreground">{question.prompt}</h1>
           <div className="grid grid-cols-1 gap-3">
             {question.options.map((o, i) => {
               const result = revealResults?.[i]
@@ -312,14 +334,14 @@ export default function GamePlay() {
                   key={i}
                   onClick={() => !locked && !answer.isPending && answer.mutate(i)}
                   disabled={locked || answer.isPending}
-                  className={`h-16 px-5 rounded-2xl border-2 text-left text-base font-semibold text-foreground transition-all flex items-center gap-3 ${colorClass} ${
+                  className={`min-h-[64px] py-3.5 px-5 rounded-2xl border-2 text-left text-base font-semibold text-foreground transition-all flex items-center gap-4 ${colorClass} ${
                     !locked ? "hover:border-primary/50 active:scale-[0.98] disabled:opacity-60" : ""
                   }`}
                 >
-                  <span className="w-7 h-7 flex-none flex items-center justify-center rounded-lg border-2 border-current text-xs">
+                  <span className="w-8 h-8 flex-none flex items-center justify-center rounded-xl border-2 border-current text-sm font-extrabold">
                     {String.fromCharCode(65 + i)}
                   </span>
-                  <span className="flex-1">{o.text}</span>
+                  <span className="flex-1 text-base leading-snug">{o.text}</span>
                   {revealed && result?.is_correct && <CheckCircle2 size={18} className="text-emerald-500 shrink-0" />}
                   {revealed && isMine && result && !result.is_correct && <XCircle size={18} className="text-destructive shrink-0" />}
                 </button>

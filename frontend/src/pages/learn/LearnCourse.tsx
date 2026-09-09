@@ -99,7 +99,10 @@ export default function LearnCourse() {
   if (error) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-destructive">{error}</p></div>;
   if (!course) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
-  const modulesDone = course.modules.filter((m) => m.mandatory_total > 0 && m.mandatory_completed >= m.mandatory_total).length;
+  const modulesDone = course.modules.filter((m) =>
+    (m.total_items ?? (m.mandatory_total > 0 ? m.mandatory_total : 0)) > 0 &&
+    (m.mandatory_total === 0 || m.mandatory_completed >= m.mandatory_total)
+  ).length;
   const pct = course.modules.length ? Math.round(100 * modulesDone / course.modules.length) : 0;
   const itemCta = course.completed ? "Review" : modulesDone > 0 ? "Resume" : "Start";
 
@@ -185,13 +188,12 @@ export default function LearnCourse() {
             <div className="p-6 flex flex-col gap-4">
               {course.enrolled ? (
                 <>
-                  {course.completed ? (
+                  {course.completed && (
                     <div className="flex items-center gap-2 text-base font-medium text-emerald-500">
                       <CheckCircle2 className="size-[18px]" /> Completed
                     </div>
-                  ) : (
-                    <CourseProgress value={pct} label={`${modulesDone} of ${course.modules.length} modules`} />
                   )}
+                  <CourseProgress value={pct} label={`${modulesDone} of ${course.modules.length} modules`} />
                   <Button
                     size="xl" className="w-full"
                     onClick={() => void navigate({ to: `/learn/courses/${course.id}/learn`, search: { program: search.program } as never })}
@@ -289,7 +291,8 @@ function ModuleRow({
   loading: boolean;
 }) {
   const navigate = useNavigate();
-  const done = module.mandatory_total > 0 && module.mandatory_completed >= module.mandatory_total;
+  const hasItems = (module.total_items ?? (module.mandatory_total > 0 ? 1 : 0)) > 0;
+  const done = hasItems && (module.mandatory_total === 0 || module.mandatory_completed >= module.mandatory_total);
   const openable = enrolled && !module.locked;
 
   return (
@@ -305,7 +308,11 @@ function ModuleRow({
         <div className="flex-1 min-w-0">
           <div className="text-base font-medium">{module.title ?? `Module ${module.position}`}</div>
           <div className="text-sm text-muted-foreground mt-0.5">
-            {module.mandatory_completed}/{module.mandatory_total} complete
+            {module.total_items === 0
+              ? "No content yet"
+              : module.mandatory_total === 0
+              ? "Optional content"
+              : `${module.mandatory_completed}/${module.mandatory_total} complete`}
           </div>
         </div>
         <ChevronDown className={`size-4 text-muted-foreground shrink-0 transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />

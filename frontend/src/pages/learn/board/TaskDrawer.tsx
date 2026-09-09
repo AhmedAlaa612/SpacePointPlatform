@@ -221,6 +221,8 @@ function DrawerBody({
         <p className="rounded-xl ring-1 ring-border p-4 text-sm text-muted-foreground">
           {target.kind === "course"
             ? "Progress tracks automatically as you work through the course."
+            : target.kind === "quiz"
+            ? "Marked done as soon as you submit — no passing score required."
             : "Completes automatically once this phase is finished in Madar."}
         </p>
       )}
@@ -403,6 +405,7 @@ export function TaskDrawer({
       });
     } else if (target.kind === "operate") void navigate({ to: `/learn/missions/operate/${target.attemptId}` });
     else if (target.kind === "mission") void navigate({ to: `/learn/missions/${target.missionId}` });
+    else if (target.kind === "quiz") void navigate({ to: `/learn/checklists/${assignmentId}/quiz/${target.itemId}` });
     else if (target.kind === "external") window.open(ensureAbsoluteUrl(target.url), "_blank", "noreferrer");
   };
   // A submission item's own `external_url` is an optional reference link
@@ -411,7 +414,7 @@ export function TaskDrawer({
   const submissionReference = item.item_type === "submission" && item.external_url ? item.external_url : null;
 
   const hasGuideline = !!effectiveGuidelineKind;
-  const isAutoTracked = item.item_type === "course" || item.item_type === "mission_run";
+  const isAutoTracked = item.item_type === "course" || item.item_type === "mission_run" || item.item_type === "quiz";
   const isSubmission = item.item_type === "submission";
   const isSelfCheck = SELF_CHECK_TYPES.has(item.item_type);
   const done = item.status === "done";
@@ -422,6 +425,7 @@ export function TaskDrawer({
     target.kind === "design" ? `Open Madar${item.mission_step_key ? ` · ${MISSION_STEP_LABELS[item.mission_step_key as MissionStepKey]}` : ""}` :
     target.kind === "operate" ? "Open the mission" :
     target.kind === "mission" ? "Open the mission" :
+    target.kind === "quiz" ? (done ? "View results" : "Start the quiz") :
     target.kind === "external" ? "Open the link" : "Open";
 
   const canSubmit = !hasGuideline || guidelineOpened;

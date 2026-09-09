@@ -9,7 +9,7 @@ import {
   getStudentProfileApi, listUserEnrollmentsApi, grantCourseEnrollmentApi, revokeCourseEnrollmentApi,
   getStudentDesignRunsApi, type StudentDesignRun,
   getStudentProfileInstructorApi, listUserEnrollmentsInstructorApi, getStudentDesignRunsInstructorApi,
-  getStudentCourseProgressApi,
+  getStudentCourseProgressApi, getStudentQuizBreakdownApi, getStudentQuizBreakdownInstructorApi,
 } from "@/api/lms_admin"
 import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
 import { ItemPicker } from "@/pages/lms-authoring/components/ItemPicker"
@@ -63,6 +63,10 @@ export default function LmsStudentDetail() {
   const { data: designRuns, isLoading: designRunsLoading } = useQuery({
     queryKey: ["lms-admin-student-design-runs", userId],
     queryFn: () => (isStaff ? getStudentDesignRunsApi(userId) : getStudentDesignRunsInstructorApi(userId)),
+  })
+  const { data: quizBreakdown, isLoading: quizBreakdownLoading } = useQuery({
+    queryKey: ["lms-admin-student-quiz-breakdown", userId],
+    queryFn: () => (isStaff ? getStudentQuizBreakdownApi(userId) : getStudentQuizBreakdownInstructorApi(userId)),
   })
 
   const invalidateEnrollments = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-user-enrollments", userId] })
@@ -265,6 +269,35 @@ export default function LmsStudentDetail() {
                     </div>
                   </button>
                   {expanded && <DesignRunDetail attemptId={run.attempt_id} />}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-3 p-4 bg-card border border-border rounded-2xl">
+        <h3 className="text-sm font-medium text-foreground">Strengths & weaknesses by topic</h3>
+        <p className="text-xs text-muted-foreground -mt-2">
+          Summed live across every cohort knowledge-quiz this student has submitted.
+        </p>
+        {quizBreakdownLoading ? (
+          <Spinner />
+        ) : !quizBreakdown || Object.keys(quizBreakdown.topic_breakdown).length === 0 ? (
+          <EmptyState title="No quiz results yet" hint="This student hasn't submitted a cohort knowledge quiz." />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {Object.entries(quizBreakdown.topic_breakdown).map(([topic, { correct, total }]) => {
+              const pct = total > 0 ? Math.round((correct / total) * 100) : 0
+              return (
+                <div key={topic} className="flex flex-col gap-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-foreground">{topic}</span>
+                    <span className="text-muted-foreground">{correct}/{total} ({pct}%)</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div className={`h-full rounded-full ${pct >= 70 ? "bg-emerald-500" : pct >= 40 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${pct}%` }} />
+                  </div>
                 </div>
               )
             })}
