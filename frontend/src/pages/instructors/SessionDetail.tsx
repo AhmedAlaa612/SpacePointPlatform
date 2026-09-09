@@ -17,7 +17,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { EmptyState, PageHeader, Spinner } from "@/pages/instructors/components/common"
 import { extractQrToken, useQrScanner } from "@/hooks/useQrScanner"
 import { UserProfileModal } from "@/components/UserProfileModal"
-import { cn, getErrorMessage } from "@/lib/utils"
+import { cn, ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
 
 const STATUS_OPTIONS: { value: AttendanceStatus; label: string; activeClass: string }[] = [
   { value: "present", label: "Present", activeClass: "bg-emerald-600 text-white border-emerald-600" },
@@ -249,7 +249,7 @@ export default function SessionDetail() {
               <CardContent className="p-4 flex flex-col gap-2">
                 <p className="text-sm font-semibold text-foreground">Before you start</p>
                 <a
-                  href={s.material_url} target="_blank" rel="noreferrer"
+                  href={ensureAbsoluteUrl(s.material_url)} target="_blank" rel="noreferrer"
                   className="flex items-center gap-1.5 text-sm font-medium text-primary hover:opacity-80 transition-colors w-fit"
                 >
                   <BookOpen size={14} /> Session material <ExternalLink size={12} />
