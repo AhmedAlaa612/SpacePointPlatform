@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import {
@@ -7,7 +7,7 @@ import {
 } from "lucide-react"
 import type {
   Cohort, CohortStatus, Program, Session,
-  Registration, EligibleInstructor,
+  Registration,
   SessionReport,
 } from "@/types/sessions"
 import { getProgramsApi } from "@/api/sessions/programs"
@@ -23,18 +23,17 @@ import { SessionsTable } from "@/pages/admin/components/SessionsTable"
 import {
   getCohortApi, getSessionsApi,
   generateSessionsApi, addSessionApi,
-  getRegistrationsApi, deskRegisterApi, resendTicketApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
+  getRegistrationsApi, resendTicketApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
   deleteRegistrationApi, downloadCohortCertificatesApi,
-  bulkAssignInstructorApi, updateCohortApi, type BulkActionResult,
+  updateCohortApi,
 } from "@/api/sessions/cohorts"
-import {
-  listEligibleInstructorsApi, openCohortCallApi, type CohortCall,
-} from "@/api/sessions/staffing"
-import { getDeliveryRolesApi } from "@/api/sessions/openings"
 import { listCohortReportsApi, uploadSessionReportApi, completeCohortApi } from "@/api/sessions/delivery"
 import { Modal, Field, ModalActions, ConfirmDialog, Spinner, PageHeader, EmptyState } from "@/pages/admin/components/common"
 import { ImportListModal } from "@/pages/admin/components/ImportList"
-import { listOrganizationsApi, updateContactApi } from "@/api/spine/contacts"
+import { BulkAssignInstructorModal } from "@/pages/admin/components/BulkAssignInstructorModal"
+import { BulkOpenCallModal } from "@/pages/admin/components/BulkOpenCallModal"
+import { DeskRegisterModal } from "@/pages/admin/components/DeskRegisterModal"
+import { updateContactApi } from "@/api/spine/contacts"
 import { CohortModal, COHORT_STATUS_LABEL, COHORT_STATUS_COLOR, statusOptionsFor } from "@/pages/admin/Cohorts"
 import { ContactDetailModal } from "@/pages/admin/Contacts"
 import { useToast } from "@/components/ui/toast"
@@ -840,172 +839,6 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
 }
 
 
-/* ================================================================== */
-/* Bulk instructor assignment — same instructor/role onto N sessions   */
-/* at once (2026-08-01). A cohort with 100 sessions shouldn't mean 100 */
-/* individual taps.                                                    */
-/* ================================================================== */
-function BulkAssignInstructorModal({ cohort, sessionIds, onClose, onDone }: {
-  cohort: Cohort; sessionIds: string[]; onClose: () => void; onDone: () => void
-}) {
-  const toast = useToast()
-  const [userId, setUserId] = useState("")
-  const [roleId, setRoleId] = useState("")
-  const [error, setError] = useState("")
-  const [result, setResult] = useState<BulkActionResult | null>(null)
-
-  // The platform-wide instructor|facilitator roster, same source the
-  // "Target Instructors…" picker uses — require_operations, unlike
-  // /admin/users, and not scoped to one session's own interest.
-  const { data: eligible = [] } = useQuery<EligibleInstructor[]>({
-    queryKey: ["staffing-eligible-instructors", sessionIds[0]],
-    queryFn: () => listEligibleInstructorsApi(sessionIds[0]),
-    enabled: sessionIds.length > 0,
-  })
-  const { data: deliveryRoles = [] } = useQuery({
-    queryKey: ["delivery-roles"], queryFn: () => getDeliveryRolesApi(),
-  })
-  useEffect(() => {
-    if (!roleId && deliveryRoles.length) setRoleId(deliveryRoles[0].id)
-  }, [deliveryRoles, roleId])
-
-  const mutation = useMutation({
-    mutationFn: () => bulkAssignInstructorApi(cohort.id, { session_ids: sessionIds, user_id: userId, role_id: roleId || undefined }),
-    onSuccess: (r) => {
-      setResult(r)
-      if (r.failed.length === 0) { toast.success(`Assigned to ${r.succeeded.length} session(s)`); onDone() }
-    },
-    onError: (e: any) => setError(getErrorMessage(e, "Failed to assign")),
-  })
-
-  return (
-    <Modal title={`Assign instructor to ${sessionIds.length} session(s)`} onClose={onClose} maxWidth="max-w-md">
-      <div className="flex flex-col gap-3">
-        <Field label="Instructor">
-          <select
-            value={userId} onChange={(e) => setUserId(e.target.value)}
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm cursor-pointer"
-          >
-            <option value="">— Select an instructor —</option>
-            {eligible.map((u) => <option key={u.user_id} value={u.user_id}>{u.full_name || u.email}</option>)}
-          </select>
-        </Field>
-        <Field label="Role">
-          <select
-            value={roleId} onChange={(e) => setRoleId(e.target.value)}
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm cursor-pointer"
-          >
-            {deliveryRoles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-          </select>
-        </Field>
-        {error && <p className="text-xs text-red-500">{error}</p>}
-        {result && result.failed.length > 0 && (
-          <p className="text-xs text-amber-600 dark:text-amber-400">
-            Assigned to {result.succeeded.length} of {sessionIds.length}. {result.failed.length} couldn't be
-            assigned — most likely already staffed for that role.
-          </p>
-        )}
-        <ModalActions
-          onCancel={onClose}
-          onConfirm={() => { setError(""); setResult(null); mutation.mutate() }}
-          loading={mutation.isPending}
-          disabled={!userId || !roleId}
-          label={result ? "Done" : "Assign"}
-        />
-      </div>
-    </Modal>
-  )
-}
-
-/* ================================================================== */
-/* Bulk open call — targeted or public, across N sessions at once      */
-/* ================================================================== */
-function BulkOpenCallModal({ cohort, sessionIds, onClose, onDone }: {
-  cohort: Cohort; sessionIds: string[]; onClose: () => void; onDone: () => void
-}) {
-  const queryClient = useQueryClient()
-  const toast = useToast()
-  const [targeted, setTargeted] = useState(false)
-  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
-  const [label, setLabel] = useState("")
-  const [error, setError] = useState("")
-  const [result, setResult] = useState<{ call: CohortCall; failed: BulkActionResult["failed"] } | null>(null)
-
-  const { data: eligible = [] } = useQuery<EligibleInstructor[]>({
-    queryKey: ["staffing-eligible-instructors", sessionIds[0]],
-    queryFn: () => listEligibleInstructorsApi(sessionIds[0]),
-    enabled: sessionIds.length > 0 && targeted,
-  })
-
-  const toggleUser = (id: string) =>
-    setSelectedUserIds((prev) => prev.includes(id) ? prev.filter((u) => u !== id) : [...prev, id])
-
-  // 2026-08-01: this now opens a single grouped CohortCall across these
-  // sessions (manageable/closeable as one entity from the Cohort Calls
-  // panel below) instead of the old ungrouped bulk-open-call endpoint.
-  const mutation = useMutation({
-    mutationFn: () => openCohortCallApi(cohort.id, {
-      session_ids: sessionIds,
-      user_ids: targeted ? selectedUserIds : undefined,
-      label: label.trim() || undefined,
-    }),
-    onSuccess: (r) => {
-      setResult(r)
-      queryClient.invalidateQueries({ queryKey: ["cohort-calls", cohort.id] })
-      if (r.failed.length === 0) { toast.success(`Call opened for ${r.call.sessions.length} session(s)`); onDone() }
-    },
-    onError: (e: any) => setError(getErrorMessage(e, "Failed to open calls")),
-  })
-
-  return (
-    <Modal title={`Open call for ${sessionIds.length} session(s)`} onClose={onClose} maxWidth="max-w-md">
-      <div className="flex flex-col gap-3">
-        <p className="text-xs text-muted-foreground">
-          Only sessions that are currently <strong className="text-foreground">unstaffed</strong> will actually
-          open — anything already open or staffed is left as it is. Grouped as one call you can track and
-          close together from the Cohort Calls panel.
-        </p>
-        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-          <input type="checkbox" checked={targeted} onChange={(e) => setTargeted(e.target.checked)} />
-          Restrict to specific instructors
-        </label>
-        {targeted && (
-          <div className="flex flex-col gap-1.5 max-h-52 overflow-y-auto pr-1 border border-border rounded-xl p-2">
-            {eligible.map((u) => (
-              <label key={u.user_id} className="flex items-center gap-2.5 p-1.5 rounded-lg cursor-pointer hover:bg-muted/40">
-                <input type="checkbox" checked={selectedUserIds.includes(u.user_id)} onChange={() => toggleUser(u.user_id)} />
-                <span className="text-sm text-foreground truncate">{u.full_name || u.email}</span>
-              </label>
-            ))}
-            {eligible.length === 0 && <p className="text-xs text-muted-foreground p-1.5">Loading…</p>}
-          </div>
-        )}
-        <Field label="Label (optional)">
-          <input
-            value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Weekend cover"
-            className="w-full h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm"
-          />
-        </Field>
-        {error && <p className="text-xs text-red-500">{error}</p>}
-        {result && (
-          <p className="text-xs text-muted-foreground">
-            Opened {result.call.sessions.length} of {sessionIds.length}.
-            {result.failed.length > 0 && ` ${result.failed.length} were skipped (not unstaffed).`}
-          </p>
-        )}
-        <ModalActions
-          onCancel={onClose}
-          onConfirm={() => { setError(""); setResult(null); mutation.mutate() }}
-          loading={mutation.isPending}
-          disabled={targeted && selectedUserIds.length === 0}
-          label={result ? "Done" : "Open call"}
-        />
-      </div>
-    </Modal>
-  )
-}
-
-
 
 /* ================================================================== */
 /* Delete registration — destructive, so it spells out what goes      */
@@ -1189,167 +1022,6 @@ function AddSessionModal({ cohort, onClose, onSuccess }: {
           onCancel={onClose} onConfirm={() => mutation.mutate()}
           loading={mutation.isPending} disabled={!meetingDate.trim()}
           label="Add session"
-        />
-      </div>
-    </Modal>
-  )
-}
-
-/* ================================================================== */
-/* Desk (manual) registration modal                                    */
-/* ================================================================== */
-function DeskRegisterModal({ cohort, sessions, onClose, onSuccess }: {
-  cohort: Cohort; sessions: Session[]; onClose: () => void; onSuccess: () => void
-}) {
-  const toast = useToast()
-  const [studentName, setStudentName] = useState("")
-  const [email, setEmail] = useState("")
-  const [phone, setPhone] = useState("")
-  const [city, setCity] = useState("")
-  const [dateOfBirth, setDateOfBirth] = useState("")
-  const [grade, setGrade] = useState("")
-  const [organizationName, setOrganizationName] = useState("")
-  const [parentName, setParentName] = useState("")
-  const [parentPhone, setParentPhone] = useState("")
-  const [parentEmail, setParentEmail] = useState("")
-  const [sendTicketEmail, setSendTicketEmail] = useState(true)
-  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
-  const [error, setError] = useState("")
-
-  const toggleSession = (id: string) =>
-    setSelectedSessionIds((prev) => prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id])
-
-  const { data: organizations = [] } = useQuery({
-    queryKey: ["spine-organizations", "picker"],
-    queryFn: () => listOrganizationsApi(),
-  })
-
-  const mutation = useMutation({
-    mutationFn: () => deskRegisterApi(cohort.id, {
-      student_name: studentName.trim(),
-      email: email.trim(),
-      phone: phone.trim(),
-      city: city.trim() || undefined,
-      date_of_birth: dateOfBirth || undefined,
-      grade: grade.trim() || undefined,
-      organization_name: organizationName.trim() || undefined,
-      parent_name: parentName.trim() || undefined,
-      parent_phone: parentPhone.trim() || undefined,
-      parent_email: parentEmail.trim() || undefined,
-      session_ids: selectedSessionIds.length > 0 ? selectedSessionIds : undefined,
-      send_ticket_email: sendTicketEmail,
-    }),
-    onSuccess: () => { toast.success("Student registered"); onSuccess() },
-    onError: (e: any) => setError(getErrorMessage(e, "Failed to register student")),
-  })
-
-  const canSubmit = !!(studentName.trim() && email.trim() && phone.trim())
-
-  return (
-    <Modal title={`Register student — ${cohort.name}`} onClose={onClose}>
-      <div className="flex flex-col gap-3">
-        <Field label="Student name">
-          <input
-            value={studentName} onChange={(e) => setStudentName(e.target.value)} placeholder="Jane Smith" autoFocus
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-          />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Email">
-            <input
-              value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="jane@example.com"
-              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-          </Field>
-          <Field label="Phone">
-            <input
-              value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="050 000 0000"
-              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-          </Field>
-        </div>
-        <Field label="City (optional)">
-          <input
-            value={city} onChange={(e) => setCity(e.target.value)} placeholder="Dubai"
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-          />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Date of birth (optional)">
-            <input
-              value={dateOfBirth} onChange={(e) => setDateOfBirth(e.target.value)} type="date"
-              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-          </Field>
-          <Field label="Grade (optional)">
-            <input
-              value={grade} onChange={(e) => setGrade(e.target.value)} placeholder="Grade 8"
-              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-          </Field>
-        </div>
-        <Field label="School / organization (optional)">
-          <input
-            value={organizationName} onChange={(e) => setOrganizationName(e.target.value)}
-            placeholder="Type to match or create" list="org-picker-list"
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-          />
-          <datalist id="org-picker-list">
-            {organizations.map((o) => <option key={o.id} value={o.name_latin} />)}
-          </datalist>
-        </Field>
-
-        {sessions.length > 1 && (
-          <Field label="Which sessions? (optional — leave blank for all)">
-            <div className="flex flex-wrap gap-1.5">
-              {sessions.map((s) => (
-                <button
-                  key={s.id} type="button" onClick={() => toggleSession(s.id)}
-                  className={`h-9 px-3 rounded-xl text-xs font-medium border transition-colors ${
-                    selectedSessionIds.includes(s.id)
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "border-border text-foreground hover:bg-muted"
-                  }`}
-                >
-                  {s.meeting_date}{s.title ? ` · ${s.title}` : ""}
-                </button>
-              ))}
-            </div>
-          </Field>
-        )}
-
-        <p className="text-xs text-muted-foreground -mb-1">Parent/guardian details (optional)</p>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Parent/guardian name">
-            <input
-              value={parentName} onChange={(e) => setParentName(e.target.value)}
-              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-          </Field>
-          <Field label="Parent/guardian phone">
-            <input
-              value={parentPhone} onChange={(e) => setParentPhone(e.target.value)}
-              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-            />
-          </Field>
-        </div>
-        <Field label="Parent/guardian email (optional)">
-          <input
-            value={parentEmail} onChange={(e) => setParentEmail(e.target.value)} type="email"
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
-          />
-        </Field>
-
-        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-          <input type="checkbox" checked={sendTicketEmail} onChange={(e) => setSendTicketEmail(e.target.checked)} />
-          Send ticket email
-        </label>
-
-        {error && <p className="text-xs text-red-500">{error}</p>}
-        <ModalActions
-          onCancel={onClose} onConfirm={() => mutation.mutate()}
-          loading={mutation.isPending} disabled={!canSubmit}
-          label="Register"
         />
       </div>
     </Modal>

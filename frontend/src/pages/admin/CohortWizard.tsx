@@ -15,25 +15,31 @@ import { useEffect, useMemo, useState, type ReactNode } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { Check, ChevronLeft, ChevronRight, Lock, Plus, Trash2, X } from "lucide-react"
-import type { Cohort, CohortVisibility, Program, Session } from "@/types/sessions"
+import type { Cohort, CohortAssignment, CohortVisibility, Program, Registration, Session } from "@/types/sessions"
 import type { City, Location, Warehouse } from "@/types/inventory"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { getLocationsApi, getWarehousesApi, createLocationApi, getCitiesApi } from "@/api/inventory"
 import {
   createCohortApi, updateCohortApi, generateSessionsApi, getSessionsApi, addSessionApi, deleteSessionApi,
+  getRegistrationsApi,
 } from "@/api/sessions/cohorts"
 import { getCohortOpeningsApi, getDeliveryRolesApi, getMaterialsApi, setCohortOpeningsApi } from "@/api/sessions/openings"
-import { Spinner } from "@/pages/admin/components/common"
+import { listCohortAssignmentsApi } from "@/api/sessions/staffing"
+import { Spinner, EmptyState } from "@/pages/admin/components/common"
 import { CohortRolesPanel } from "@/pages/admin/components/CohortRolesPanel"
 import { SessionOpeningsPanel } from "@/pages/admin/components/SessionOpeningsPanel"
 import { SessionChecklistPanel } from "@/pages/admin/components/SessionChecklistPanel"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
+import { BulkAssignInstructorModal } from "@/pages/admin/components/BulkAssignInstructorModal"
+import { BulkOpenCallModal } from "@/pages/admin/components/BulkOpenCallModal"
+import { DeskRegisterModal } from "@/pages/admin/components/DeskRegisterModal"
+import { ImportListModal } from "@/pages/admin/components/ImportList"
 import { useToast } from "@/components/ui/toast"
 import { useAuth } from "@/context/AuthContext"
 import { cn, getErrorMessage } from "@/lib/utils"
 import { listLmsProgramsApi, createLmsProgramApi, type LmsProgram } from "@/api/lms_admin"
 
-const STEP_LABELS = ["Cohort basics", "Sessions", "Roles & checklist", "LMS Checklist", "Materials", "Review & finish"]
+const STEP_LABELS = ["Cohort basics", "Sessions", "Roles & checklist", "LMS Checklist", "Materials", "Staffing", "Students", "Review & finish"]
 const LAST_STEP = STEP_LABELS.length - 1
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] // index = backend's 0..6 (Monday first)
 const OUTFIT = "'Outfit', ui-sans-serif, system-ui, sans-serif"
@@ -183,7 +189,25 @@ export default function CohortWizard() {
             />
           </>
         )}
-        {step === 5 && cohort && <ReviewStep cohort={cohort} program={program} />}
+        {step === 5 && cohort && (
+          <>
+            <StepIntro
+              eyebrow="Staffing" title="Who's running each session?" ledeWidth={70}
+              lede="Assign an instructor directly, or open a call and staff it from whoever applies — both work the same way they do from the cohort page."
+            />
+            <StaffingStep cohort={cohort} />
+          </>
+        )}
+        {step === 6 && cohort && (
+          <>
+            <StepIntro
+              eyebrow="Students" title="Who's coming?" ledeWidth={70}
+              lede="Add students one at a time, or import a whole list at once."
+            />
+            <StudentsStep cohort={cohort} />
+          </>
+        )}
+        {step === 7 && cohort && <ReviewStep cohort={cohort} program={program} />}
       </div>
 
       <footer
@@ -222,6 +246,8 @@ export default function CohortWizard() {
           {step === 2 && <SkipNote>Every session uses the cohort&rsquo;s roles and checklist until you override one.</SkipNote>}
           {step === 3 && <SkipNote>You can set this up later from the program or this cohort&rsquo;s own LMS tab.</SkipNote>}
           {step === 4 && <SkipNote>Sessions will use the program&rsquo;s materials.</SkipNote>}
+          {step === 5 && <SkipNote>You can staff sessions any time from the cohort&rsquo;s Staffing tab.</SkipNote>}
+          {step === 6 && <SkipNote>You can add students any time from the cohort&rsquo;s Students tab.</SkipNote>}
         </div>
       </footer>
     </div>
@@ -881,6 +907,145 @@ function LmsChecklistStep({ cohort, program }: { cohort: Cohort; program: Progra
   )
 }
 
+/* ═══════════════════════════ Step 6 — Staffing ══════════════════════════ */
+/* The two direct-action entry points, same modals the cohort page's       */
+/* Sessions-tab bulk toolbar already uses — not the full applicant/call    */
+/* review flow, which stays on the cohort page.                            */
+
+function StaffingStep({ cohort }: { cohort: Cohort }) {
+  const queryClient = useQueryClient()
+  const { data: sessions = [] } = useQuery({ queryKey: ["wizard-sessions", cohort.id], queryFn: () => getSessionsApi(cohort.id) })
+  const { data: assignments = [] } = useQuery<CohortAssignment[]>({
+    queryKey: ["cohort-assignments", cohort.id], queryFn: () => listCohortAssignmentsApi(cohort.id),
+  })
+  const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
+  const [modal, setModal] = useState<"assign" | "call" | null>(null)
+
+  const toggleSession = (id: string) =>
+    setSelectedSessionIds((prev) => prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id])
+
+  const done = () => {
+    setModal(null)
+    void queryClient.invalidateQueries({ queryKey: ["cohort-assignments", cohort.id] })
+  }
+
+  if (sessions.length === 0) {
+    return <EmptyState title="No sessions yet" hint="Add sessions on the Sessions step first — there's nothing to staff yet." />
+  }
+
+  return (
+    <div className="flex flex-col" style={{ gap: 20 }}>
+      <div className="flex flex-wrap gap-1.5">
+        {sessions.map((s) => (
+          <button
+            key={s.id} type="button" onClick={() => toggleSession(s.id)}
+            style={{ height: 36, padding: "0 12px", borderRadius: 10, fontSize: 13, fontWeight: 500 }}
+            className={cn(
+              "border transition-colors",
+              selectedSessionIds.includes(s.id) ? "bg-primary text-primary-foreground border-primary" : "border-border text-foreground hover:bg-muted",
+            )}
+          >
+            {s.meeting_date}{s.title ? ` · ${s.title}` : ""}
+          </button>
+        ))}
+      </div>
+
+      <div className="flex" style={{ gap: 12 }}>
+        <button
+          onClick={() => setModal("assign")}
+          disabled={selectedSessionIds.length === 0}
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600 }}
+          className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+        >Assign instructor…</button>
+        <button
+          onClick={() => setModal("call")}
+          disabled={selectedSessionIds.length === 0}
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontSize: 15, fontWeight: 500 }}
+          className="border border-border text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+        >Open a call…</button>
+      </div>
+
+      <div className="flex flex-col" style={{ gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">
+          Staffed so far
+        </span>
+        {assignments.length === 0 ? (
+          <p style={{ fontSize: 14 }} className="text-muted-foreground m-0">Nobody staffed yet.</p>
+        ) : (
+          <div className="flex flex-col" style={{ gap: 6 }}>
+            {assignments.map((a) => (
+              <div key={a.id} style={{ padding: "10px 14px", borderRadius: 8 }} className="border border-border bg-card flex items-center justify-between">
+                <span style={{ fontSize: 14 }} className="text-foreground">{a.full_name}</span>
+                <span style={{ fontSize: 13 }} className="text-muted-foreground">{a.role_name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {modal === "assign" && (
+        <BulkAssignInstructorModal cohort={cohort} sessionIds={selectedSessionIds} onClose={() => setModal(null)} onDone={done} />
+      )}
+      {modal === "call" && (
+        <BulkOpenCallModal cohort={cohort} sessionIds={selectedSessionIds} onClose={() => setModal(null)} onDone={done} />
+      )}
+    </div>
+  )
+}
+
+/* ═══════════════════════════ Step 7 — Students ══════════════════════════ */
+
+function StudentsStep({ cohort }: { cohort: Cohort }) {
+  const queryClient = useQueryClient()
+  const { data: sessions = [] } = useQuery({ queryKey: ["wizard-sessions", cohort.id], queryFn: () => getSessionsApi(cohort.id) })
+  const { data: registrations = [] } = useQuery<Registration[]>({
+    queryKey: ["wizard-registrations", cohort.id], queryFn: () => getRegistrationsApi(cohort.id),
+  })
+  const [modal, setModal] = useState<"desk" | "import" | null>(null)
+
+  const done = () => {
+    setModal(null)
+    void queryClient.invalidateQueries({ queryKey: ["wizard-registrations", cohort.id] })
+  }
+
+  return (
+    <div className="flex flex-col" style={{ gap: 20 }}>
+      <div className="flex" style={{ gap: 12 }}>
+        <button
+          onClick={() => setModal("desk")}
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600 }}
+          className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+        >Add a student…</button>
+        <button
+          onClick={() => setModal("import")}
+          style={{ height: 42, padding: "0 20px", borderRadius: 10, fontSize: 15, fontWeight: 500 }}
+          className="border border-border text-foreground hover:bg-muted transition-colors"
+        >Import a list…</button>
+      </div>
+
+      <div className="flex flex-col" style={{ gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">
+          Registered so far ({registrations.length})
+        </span>
+        {registrations.length === 0 ? (
+          <p style={{ fontSize: 14 }} className="text-muted-foreground m-0">Nobody registered yet.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {registrations.map((r) => (
+              <span key={r.id} style={{ height: 32, padding: "0 12px", borderRadius: 8, fontSize: 13 }} className="border border-border bg-card text-foreground flex items-center">
+                {r.student_name}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {modal === "desk" && <DeskRegisterModal cohort={cohort} sessions={sessions} onClose={() => setModal(null)} onSuccess={done} />}
+      {modal === "import" && <ImportListModal cohort={cohort} onClose={() => setModal(null)} onImported={done} />}
+    </div>
+  )
+}
+
 function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) {
   const { data: sessions = [] } = useQuery({ queryKey: ["wizard-sessions", cohort.id], queryFn: () => getSessionsApi(cohort.id) })
   const { data: openings = [] } = useQuery({ queryKey: ["cohort-openings-defaults", cohort.id], queryFn: () => getCohortOpeningsApi(cohort.id) })
@@ -889,6 +1054,12 @@ function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) 
     queryKey: ["lms-program-for-program", program?.id], queryFn: () => listLmsProgramsApi(program!.id), enabled: !!program,
   })
   const lmsProgram = lmsPrograms[0]
+  const { data: assignments = [] } = useQuery<CohortAssignment[]>({
+    queryKey: ["cohort-assignments", cohort.id], queryFn: () => listCohortAssignmentsApi(cohort.id),
+  })
+  const { data: registrations = [] } = useQuery<Registration[]>({
+    queryKey: ["wizard-registrations", cohort.id], queryFn: () => getRegistrationsApi(cohort.id),
+  })
 
   const sorted = sessions.slice().sort((a, b) => a.meeting_date.localeCompare(b.meeting_date))
   const rows: { label: string; value: string }[] = [
@@ -914,6 +1085,14 @@ function ReviewStep({ cohort, program }: { cohort: Cohort; program?: Program }) 
     {
       label: "Materials",
       value: materials.length === 0 ? "Inherited from program" : `${materials.length} item${materials.length === 1 ? "" : "s"} set for this cohort`,
+    },
+    {
+      label: "Staffing",
+      value: assignments.length === 0 ? "Nobody staffed yet" : `${assignments.length} instructor${assignments.length === 1 ? "" : "s"} staffed`,
+    },
+    {
+      label: "Students",
+      value: registrations.length === 0 ? "Nobody registered yet" : `${registrations.length} student${registrations.length === 1 ? "" : "s"} registered`,
     },
   ]
 
