@@ -294,14 +294,35 @@ function TemplatesTab() {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
+  const [createCount, setCreateCount] = useState(10)
+  const [createTopics, setCreateTopics] = useState<string[]>([])
 
   const { data: templates = [], isLoading } = useQuery({ queryKey: ["cohort-quiz-templates"], queryFn: listCohortQuizTemplatesApi })
+  // Same cache key `TemplateDetail` uses for its own topic list — sharing
+  // it here means picking a topic during creation doesn't cost a second
+  // fetch once the freshly-made template opens into that view.
+  const { data: allActiveBank = [] } = useQuery({
+    queryKey: ["cohort-quiz-questions", "active", ""],
+    queryFn: () => listCohortQuizQuestionsApi({ is_active: true }),
+  })
+  const allTopics = Array.from(new Set(allActiveBank.map((q) => q.topic))).sort()
+  const toggleCreateTopic = (topic: string) =>
+    setCreateTopics((prev) => (prev.includes(topic) ? prev.filter((t) => t !== topic) : [...prev, topic]))
 
   const createMutation = useMutation({
-    mutationFn: () => createCohortQuizTemplateApi({ name: name.trim(), description: description.trim() || null }),
+    mutationFn: async () => {
+      const template = await createCohortQuizTemplateApi({ name: name.trim(), description: description.trim() || null })
+      if (allActiveBank.length > 0) {
+        await generateCohortQuizTemplateQuestionsApi(template.id, {
+          count: createCount, topics: createTopics.length > 0 ? createTopics : null,
+        })
+      }
+      return template
+    },
     onSuccess: (t) => {
-      setCreating(false); setName(""); setDescription("")
+      setCreating(false); setName(""); setDescription(""); setCreateTopics([])
       queryClient.invalidateQueries({ queryKey: ["cohort-quiz-templates"] })
+      queryClient.invalidateQueries({ queryKey: ["cohort-quiz-template", t.id] })
       setSelectedId(t.id)
     },
   })
@@ -313,8 +334,43 @@ function TemplatesTab() {
           <div className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl">
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Template name" className="h-9 px-3 border border-border bg-background rounded-lg text-sm" />
             <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional)" className="h-9 px-3 border border-border bg-background rounded-lg text-sm" />
+            {allTopics.length > 0 && (
+              <>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number" min={1} max={200} value={createCount}
+                    onChange={(e) => setCreateCount(Math.min(200, Math.max(1, Number(e.target.value) || 1)))}
+                    className="w-16 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm"
+                  />
+                  <span className="text-xs text-muted-foreground">questions, spread across:</span>
+                </div>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {allTopics.map((topic) => (
+                    <button
+                      key={topic}
+                      onClick={() => toggleCreateTopic(topic)}
+                      className={`text-[11px] font-medium px-2.5 py-1 rounded-full border transition-colors cursor-pointer ${
+                        createTopics.includes(topic)
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border text-muted-foreground hover:border-primary/40"
+                      }`}
+                    >
+                      {topic}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[11px] text-muted-foreground">
+                  {createTopics.length === 0 ? "No topics selected — draws from all of them." : "You can still edit or regenerate the picks after."}
+                </span>
+              </>
+            )}
+            {createMutation.isError && (
+              <p className="text-xs text-destructive">{errorDetail(createMutation.error, "Failed to create template.")}</p>
+            )}
             <div className="flex gap-2">
-              <Button onClick={() => void createMutation.mutate()} disabled={!name.trim() || createMutation.isPending}>Create</Button>
+              <Button onClick={() => void createMutation.mutate()} disabled={!name.trim() || createMutation.isPending}>
+                {createMutation.isPending ? "Creating…" : "Create"}
+              </Button>
               <Button variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
             </div>
           </div>
