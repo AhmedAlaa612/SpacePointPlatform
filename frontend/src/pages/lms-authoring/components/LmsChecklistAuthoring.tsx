@@ -140,7 +140,17 @@ export function ProgramTemplateEditor({
   )
 }
 
-export function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId: string; isStaff: boolean; readOnly: boolean }) {
+export function CohortOverrideEditor({
+  cohortId,
+  isStaff,
+  readOnly,
+  hideResync = false,
+}: {
+  cohortId: string
+  isStaff: boolean
+  readOnly: boolean
+  hideResync?: boolean
+}) {
   const queryClient = useQueryClient()
   const toast = useToast()
   const { data: override, isLoading } = useQuery({
@@ -168,7 +178,7 @@ export function CohortOverrideEditor({ cohortId, isStaff, readOnly }: { cohortId
           Showing the program's own checklist — {readOnly ? "nothing has been overridden for this cohort yet." : "edit anything below to start this cohort's own override."}
         </div>
       )}
-      {isStaff && !readOnly && (
+      {isStaff && !readOnly && !hideResync && (
         <div className="flex items-center justify-between gap-3 text-xs bg-muted/30 border border-border rounded-xl px-3 py-2">
           <span className="text-muted-foreground">
             Added a step and an already-assigned student isn't seeing it? New items backfill automatically now — this catches up anything added before that.

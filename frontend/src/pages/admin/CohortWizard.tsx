@@ -172,8 +172,8 @@ export default function CohortWizard() {
         {step === 3 && cohort && program && (
           <>
             <StepIntro
-              eyebrow="LMS Checklist" title="What does this cohort's checklist look like?" ledeWidth={70}
-              lede="If the program has no checklist yet, create one first. Then build this cohort's own checklist below — it starts as a copy of the program's, and editing it here only affects this cohort."
+              eyebrow="LMS Checklist" title="What does students' checklist look like?" ledeWidth={70}
+              lede="Build the cohort's checklist below — it starts as a copy of the program's, and editing it here only affects this cohort."
             />
             <LmsChecklistStep cohort={cohort} program={program} />
           </>
@@ -202,7 +202,7 @@ export default function CohortWizard() {
         {step === 6 && cohort && (
           <>
             <StepIntro
-              eyebrow="Students" title="Who's coming?" ledeWidth={70}
+              eyebrow="Students" title="Who is registered?" ledeWidth={70}
               lede="Add students one at a time, or import a whole list at once."
             />
             <StudentsStep cohort={cohort} />
@@ -895,7 +895,7 @@ function LmsChecklistStep({ cohort, program }: { cohort: Cohort; program: Progra
   // checklist right here, same component CohortDetail.tsx's LMS tab uses.
   // Starts as an editable view of the program's own checklist; editing
   // anything forks a real per-cohort override server-side, transparently.
-  return <CohortOverrideEditor cohortId={cohort.id} isStaff readOnly={false} />
+  return <CohortOverrideEditor cohortId={cohort.id} isStaff readOnly={false} hideResync />
 }
 
 /* ═══════════════════════════ Step 6 — Staffing ══════════════════════════ */
