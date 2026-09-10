@@ -14,6 +14,7 @@ export const dryRunImportApi = (data: {
   paymentStatus?: string
   setContactOrganization?: boolean
   sendEmails?: boolean
+  sendWelcomeEmail?: boolean
 }) => {
   const form = new FormData()
   form.append("cohort_id", data.cohortId)
@@ -21,6 +22,7 @@ export const dryRunImportApi = (data: {
   if (data.paymentStatus) form.append("payment_status", data.paymentStatus)
   form.append("set_contact_organization", String(!!data.setContactOrganization))
   form.append("send_emails", String(!!data.sendEmails))
+  form.append("send_welcome_email", String(data.sendWelcomeEmail ?? true))
   form.append("file", data.file)
   // No explicit Content-Type here — axios sets multipart/form-data with the
   // correct boundary automatically when the body is a FormData instance;

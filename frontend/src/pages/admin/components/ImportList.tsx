@@ -35,6 +35,7 @@ export function ImportListModal({ cohort, onClose, onImported }: {
   const [committed, setCommitted] = useState(false)
   const [source, setSource] = useState<"b2b_sheet" | "backfill">("b2b_sheet")
   const [sendEmails, setSendEmails] = useState(true)
+  const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
   const [error, setError] = useState("")
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -47,7 +48,7 @@ export function ImportListModal({ cohort, onClose, onImported }: {
     mutationFn: () => {
       const file = fileRef.current?.files?.[0]
       if (!file) throw new Error("Choose a file first")
-      return dryRunImportApi({ cohortId: cohort.id, file, source, sendEmails })
+      return dryRunImportApi({ cohortId: cohort.id, file, source, sendEmails, sendWelcomeEmail })
     },
     onSuccess: (b) => { setBatch(b); setError("") },
     onError: (e: any) => setError(e?.response?.data?.detail ?? e?.message ?? "Failed to preview the file"),
@@ -103,7 +104,7 @@ export function ImportListModal({ cohort, onClose, onImported }: {
                 className="w-full text-sm text-foreground file:mr-3 file:h-9 file:px-3 file:rounded-xl file:border-0 file:bg-muted file:text-foreground file:text-sm file:font-medium file:cursor-pointer cursor-pointer"
               />
             </Field>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <Field label="Source">
                 <select
                   value={source} onChange={(e) => setSource(e.target.value as "b2b_sheet" | "backfill")}
@@ -116,7 +117,16 @@ export function ImportListModal({ cohort, onClose, onImported }: {
               <Field label="Ticket emails">
                 <label className="flex items-center gap-2 h-10 text-sm text-foreground cursor-pointer select-none">
                   <input type="checkbox" checked={sendEmails} onChange={(e) => setSendEmails(e.target.checked)} />
-                  Send ticket emails once imported
+                  Send Ticket
+                </label>
+              </Field>
+              <Field label="LMS onboarding">
+                <label className="flex items-center gap-2 h-10 text-sm text-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox" checked={sendWelcomeEmail}
+                    onChange={(e) => setSendWelcomeEmail(e.target.checked)}
+                  />
+                  Send LMS onboarding mail
                 </label>
               </Field>
             </div>
