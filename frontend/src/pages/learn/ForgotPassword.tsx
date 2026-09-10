@@ -52,7 +52,7 @@ export default function ForgotPassword() {
           {done ? (
             <div className="text-center">
               <h1 className="font-display text-xl font-bold mb-3">Check your email</h1>
-              <p className="text-sm text-muted-foreground mb-6">
+              <p className="text-sm text-muted-foreground mb-6 text-balance">
                 If an account exists for <span className="font-medium">{email}</span>, we've sent a
                 link to reset your password. It's valid for 24 hours.
               </p>
@@ -63,8 +63,8 @@ export default function ForgotPassword() {
           ) : (
             <>
               <h1 className="text-center font-display text-xl font-bold mb-2">Forgot your password?</h1>
-              <p className="text-center text-sm text-muted-foreground mb-6">
-                Enter your email and we'll send you a link to reset it.
+              <p className="text-center text-sm text-muted-foreground mb-6 text-balance">
+                Enter your email to receive a reset link.
               </p>
               {error && (
                 <div className="mb-4 p-3 rounded-xl bg-destructive/10 text-destructive text-sm text-center">
