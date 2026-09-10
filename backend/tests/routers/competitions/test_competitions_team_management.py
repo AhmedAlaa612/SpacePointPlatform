@@ -134,6 +134,46 @@ async def test_ops_adding_a_new_member_enqueues_a_ticket_email(db, arq_client, a
 
 
 @pytest.mark.asyncio
+async def test_ops_adding_an_already_registered_contact_to_a_second_team_does_not_reenqueue_a_ticket(
+    db, arq_client, arq_redis,
+):
+    """The contact already has a Registration for this cohort (added to a
+    team once, then added to a second team, or re-added after a mistake) —
+    register_and_add_member must report no *new* registration so the router
+    doesn't fire a redundant send_ticket_email job for someone who already
+    has one, per issue_ticket's own idempotency."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+
+    first_team = await create_team(db, name="Alpha Squad", created_by=ops.id, cohort_id=cohort.id, member_ids=[])
+    second_team = await create_team(db, name="Beta Squad", created_by=ops.id, cohort_id=cohort.id, member_ids=[])
+    await db.commit()
+    from app.services.teams import leave_team
+    await leave_team(db, team_id=first_team.id, user_id=ops.id)
+    await leave_team(db, team_id=second_team.id, user_id=ops.id)
+    await db.commit()
+
+    shared_email = f"shared-{uuid.uuid4().hex[:6]}@example.com"
+    first_resp = await arq_client.post(
+        f"/competitions/admin/teams/{first_team.id}/members", headers=_headers(ops),
+        json={"full_name": "Rami Fares", "email": shared_email},
+    )
+    assert first_resp.status_code == 201, first_resp.text
+    assert len(await arq_redis.zrange("arq:queue", 0, -1)) == 1
+
+    second_resp = await arq_client.post(
+        f"/competitions/admin/teams/{second_team.id}/members", headers=_headers(ops),
+        json={"full_name": "Rami Fares", "email": shared_email},
+    )
+    assert second_resp.status_code == 201, second_resp.text
+
+    # Still just the one job from the first add — the second add reused the
+    # existing registration and must not have queued another.
+    assert len(await arq_redis.zrange("arq:queue", 0, -1)) == 1
+
+
+@pytest.mark.asyncio
 async def test_ops_can_opt_a_new_member_out_of_the_ticket_and_welcome_emails(db, arq_client, arq_redis, monkeypatch):
     """`send_ticket_email: false` skips the queued job entirely, and
     `send_welcome_email: false` still creates the account (team membership

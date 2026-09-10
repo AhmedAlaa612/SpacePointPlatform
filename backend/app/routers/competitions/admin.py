@@ -206,10 +206,17 @@ async def post_cohort_registration_import_confirm(
     email is only ever a warning, so a row ops leaves flagged (a bad email
     is fine to keep, fix later) still gets written.
 
-    One `send_ticket_email` job per successfully registered row, enqueued
-    after commit — same idempotent-on-`ticket_sent_at` job the desk and the
-    general bulk importer use, just fired per-row rather than batched: a
-    competition roster is small enough that per-row throttling isn't needed.
+    One `send_ticket_email` job per newly-created row, enqueued after commit
+    — same idempotent-on-`ticket_sent_at` job the desk and the general bulk
+    importer use, just fired per-row rather than batched: a competition
+    roster is small enough that per-row throttling isn't needed. Only
+    `disposition == "created"` rows get a job — a `matched` row's contact
+    already had a registration for this cohort (from an earlier import, a
+    duplicate email in this same sheet, or a manual add) and, per
+    issue_ticket's own idempotency, most likely already has a ticket; firing
+    a job for every matched row on every re-confirm of the same sheet would
+    just be wasted enqueues, and two same-email rows in one sheet would
+    otherwise both fire before either's `ticket_sent_at` commit lands.
     `send_ticket_email`/`send_welcome_email` on the request apply to the
     whole batch, same as the desk registration toggles apply per-registration."""
     await _get_cohort_or_404(db, cohort_id)
@@ -223,7 +230,7 @@ async def post_cohort_registration_import_confirm(
     await db.commit()
     if body.send_ticket_email:
         for r in results:
-            if r.registration_id is not None:
+            if r.disposition == "created" and r.registration_id is not None:
                 await safe_enqueue(arq_redis, "send_ticket_email", str(r.registration_id))
     return CompetitionImportResultOut(
         summary=import_service.summarize(results),

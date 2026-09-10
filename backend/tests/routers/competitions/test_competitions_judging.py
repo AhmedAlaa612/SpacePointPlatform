@@ -551,6 +551,47 @@ async def test_registration_import_confirm_enqueues_a_ticket_email_per_created_r
 
 
 @pytest.mark.asyncio
+async def test_registration_import_confirm_with_a_duplicate_email_enqueues_only_one_ticket(db, arq_client, arq_redis):
+    """A sheet with the same email in two rows (a copy-paste mistake) makes
+    the second row `matched` against the registration the first row just
+    created — only the `created` row should get a send_ticket_email job, not
+    both, since the two jobs firing back-to-back in the same request could
+    otherwise race issue_ticket's read-then-write idempotency check and mail
+    the student twice."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+
+    dup_email = f"dup-{uuid.uuid4().hex[:6]}@example.com"
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet.append(["team_name", "member_name", "email", "phone", "school"])
+    sheet.append(["Falcon Eye", "Amir Salem", dup_email, "", ""])
+    sheet.append(["Falcon Eye", "Amir Salem", dup_email, "", ""])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    preview_resp = await arq_client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/preview",
+        files={"file": ("roster.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        headers=_headers(ops),
+    )
+    assert preview_resp.status_code == 200, preview_resp.text
+    preview_rows = preview_resp.json()["rows"]
+
+    confirm_resp = await arq_client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/confirm",
+        json={"rows": [{k: v for k, v in r.items() if k != "issues"} for r in preview_rows]},
+        headers=_headers(ops),
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+    assert confirm_resp.json()["summary"] == {"total": 2, "created": 1, "matched": 1, "error": 0}
+
+    queued_jobs = await arq_redis.zrange("arq:queue", 0, -1)
+    assert len(queued_jobs) == 1
+
+
+@pytest.mark.asyncio
 async def test_registration_import_confirm_can_opt_the_batch_out_of_ticket_and_welcome_emails(
     db, arq_client, arq_redis, monkeypatch,
 ):
