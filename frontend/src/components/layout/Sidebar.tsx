@@ -144,7 +144,8 @@ const LMS_GROUP = mkGroup("LMS", undefined, [
   mk("Programs", "/lms-authoring/curriculum"),
   mk("Live Quiz", "/lms-authoring/games"),
   mk("Quiz Bank", "/lms-authoring/quiz-bank"),
-  mk("Missions", "/lms-authoring/missions"),
+  // Missions tab hidden temporarily per management request; re-enable by uncommenting.
+  // mk("Missions", "/lms-authoring/missions"),
   mk("Students", "/lms-authoring/students"),
   mk("Invite Codes", "/lms-authoring/invite-codes"),
   mk("Progress", "/lms-authoring/progress"),
