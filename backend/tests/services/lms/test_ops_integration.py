@@ -9,6 +9,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.models.lms import Course, Enrollment
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.sessions.cohort import Cohort
@@ -20,6 +21,7 @@ from app.services.lms.program import assign_lms_program
 from app.services.lms.ops_integration import (
     deactivate_registration_enrollments,
     get_or_create_student_account,
+    send_set_password_email,
     sync_registration_lms,
 )
 
@@ -263,3 +265,98 @@ async def test_deactivate_registration_enrollments_flips_active_rows_only(db):
     await db.commit()
     await db.refresh(enrollment)
     assert enrollment.status == "inactive"
+
+
+# ── send_set_password_email — audience-specific copy (2026-09-10) ──────────
+
+async def _new_user(db, *, roles: list[str]) -> User:
+    user = User(
+        id=uuid.uuid4(), full_name="Priya Nair", email=f"priya-{uuid.uuid4().hex[:8]}@example.com",
+        password_hash="x", roles=roles, status="active",
+    )
+    db.add(user)
+    await db.commit()
+    return user
+
+
+def _capture_send(monkeypatch):
+    """Stands in for `try_send_email` so a test can inspect the exact
+    subject/body without needing real SMTP — same technique other tests in
+    this file already use for the LMS side of this function."""
+    captured = {}
+
+    async def _fake(to, subject, body, **kwargs):
+        captured["to"] = to
+        captured["subject"] = subject
+        captured["body"] = body
+        return True
+
+    monkeypatch.setattr("app.services.lms.ops_integration.try_send_email", _fake)
+    return captured
+
+
+@pytest.mark.asyncio
+async def test_judge_audience_copy_never_says_learning_account(db, monkeypatch):
+    """The bug report this fixes: a judge invite calling itself a
+    "learning account" is confusing since judges never touch the LMS."""
+    judge = await _new_user(db, roles=["judge"])
+    captured = _capture_send(monkeypatch)
+
+    await send_set_password_email(judge, purpose="welcome", audience="judge")
+
+    assert captured["subject"] == "Your SpacePoint judge account"
+    assert "learning" not in captured["subject"].lower()
+    assert "learning" not in captured["body"].lower()
+    assert "judge" in captured["body"].lower()
+
+
+@pytest.mark.asyncio
+async def test_judge_email_links_to_the_portal_login_not_the_lms_login(db, monkeypatch):
+    judge = await _new_user(db, roles=["judge"])
+    captured = _capture_send(monkeypatch)
+
+    await send_set_password_email(judge, purpose="welcome", audience="judge")
+
+    assert f"{settings.FRONTEND_URL}/login" in captured["body"]
+    assert f"{settings.FRONTEND_URL}/learn/login" not in captured["body"]
+    assert f"{settings.FRONTEND_URL}/set-password?token=" in captured["body"]
+
+
+@pytest.mark.asyncio
+async def test_student_email_links_to_the_lms_login(db, monkeypatch):
+    student = await _new_user(db, roles=["student"])
+    captured = _capture_send(monkeypatch)
+
+    await send_set_password_email(student, purpose="welcome", audience="student")
+
+    assert captured["subject"] == "Your SpacePoint learning account"
+    assert f"{settings.FRONTEND_URL}/learn/login" in captured["body"]
+    assert f"{settings.FRONTEND_URL}/learn/set-password?token=" in captured["body"]
+
+
+@pytest.mark.asyncio
+async def test_default_audience_is_the_generic_portal_copy(db, monkeypatch):
+    """No caller-supplied audience (e.g. the public forgot-password flow,
+    which serves every role from one form) — falls back to copy that
+    doesn't claim any specific surface."""
+    staff = await _new_user(db, roles=["operations"])
+    captured = _capture_send(monkeypatch)
+
+    await send_set_password_email(staff, purpose="reset")
+
+    assert captured["subject"] == "Your SpacePoint account"
+    assert "learning" not in captured["subject"].lower()
+    assert "judge" not in captured["body"].lower()
+
+
+@pytest.mark.asyncio
+async def test_body_spells_out_both_steps_as_a_fallback_to_the_button(db, monkeypatch):
+    judge = await _new_user(db, roles=["judge"])
+    captured = _capture_send(monkeypatch)
+
+    await send_set_password_email(judge, purpose="welcome", audience="judge")
+
+    assert "Step 1" in captured["body"]
+    assert "Step 2" in captured["body"]
+    body_lower = captured["body"].lower()
+    assert body_lower.index("step 1") < body_lower.index("step 2")
