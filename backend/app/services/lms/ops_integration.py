@@ -17,6 +17,7 @@ import logging
 import secrets
 import uuid
 from datetime import timedelta
+from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -104,8 +105,33 @@ def _format_validity(delta: timedelta) -> str:
     return "1 day" if days == 1 else f"{days} days"
 
 
+# Copy varies by who's actually receiving the email — a judge invite calling
+# itself a "learning account" is confusing, and a portal-wide flow (the
+# self-service forgot-password link, used from both /login and /learn/login)
+# shouldn't claim to be either. "portal" is the generic fallback for every
+# audience that isn't specifically the LMS/student surface or judging.
+_AUDIENCE_COPY: dict[str, dict[str, str]] = {
+    "student": {
+        "noun": "SpacePoint learning account",
+        "welcome": "An account was created for you on the SpacePoint learning portal.",
+        "reset": "Here's the link to reset your SpacePoint learning portal password.",
+    },
+    "judge": {
+        "noun": "SpacePoint judge account",
+        "welcome": "You've been added as a judge on SpacePoint.",
+        "reset": "Here's the link to reset your SpacePoint judge account password.",
+    },
+    "portal": {
+        "noun": "SpacePoint account",
+        "welcome": "An account was created for you on SpacePoint.",
+        "reset": "Here's the link to reset your SpacePoint password.",
+    },
+}
+
+
 async def send_set_password_email(
-    user: User, *, purpose: str = "welcome", expires_delta: timedelta | None = None
+    user: User, *, purpose: str = "welcome", expires_delta: timedelta | None = None,
+    audience: Literal["student", "judge", "portal"] = "portal",
 ) -> bool:
     """Public (P3-3, 2026-08-10) — was module-private until the student
     panel's "create account & invite" and "password reset" actions needed
@@ -113,6 +139,12 @@ async def send_set_password_email(
     mechanism either way (`create_password_set_token`, stateless) —
     `purpose` only changes the copy, since "an account was created for you"
     reads wrong for a reset on an account that already existed.
+
+    `audience` picks the subject/intro copy from `_AUDIENCE_COPY` (2026-09-10)
+    — callers that know who they're inviting (judge invites, the LMS
+    welcome/reset flows) pass it explicitly; callers that don't (the public
+    forgot-password endpoint, which serves every role from one form) leave
+    it at the generic "portal" default rather than guessing from roles.
 
     `expires_delta` defaults to `_LINK_VALIDITY` (3 days) — the self-service
     "Forgot password?" flow (routers/auth.py::forgot_password) passes 24
@@ -124,20 +156,24 @@ async def send_set_password_email(
     # LearnSetPassword is mounted at both paths for exactly this reason (see
     # its own docstring) — a student's link should log them back in at
     # /learn/login, everyone else's at the portal /login, so `roleHomePath`
-    # sends them somewhere real afterward instead of the LMS shell.
-    set_password_path = "/learn/set-password" if "student" in user.role_values else "/set-password"
+    # sends them somewhere real afterward instead of the LMS shell. The same
+    # split decides the login link quoted in the email body below, since
+    # it's the same "which shell does this account belong to" question.
+    is_student = "student" in user.role_values
+    set_password_path = "/learn/set-password" if is_student else "/set-password"
+    login_path = "/learn/login" if is_student else "/login"
     link = f"{settings.FRONTEND_URL}{set_password_path}?token={token}"
-    intro = (
-        "An account was created for you on SpacePoint."
-        if purpose == "welcome" else
-        "Here's the link to reset your SpacePoint password."
-    )
+    login_link = f"{settings.FRONTEND_URL}{login_path}"
+    copy = _AUDIENCE_COPY[audience]
+    intro = copy["welcome"] if purpose == "welcome" else copy["reset"]
     return await try_send_email(
         user.email,
-        "Your SpacePoint learning account",
+        f"Your {copy['noun']}",
         (
             f"<p>Hi {user.full_name},</p>"
-            f'<p>{intro} Set your password here: <a href="{link}">{link}</a></p>'
+            f"<p>{intro}</p>"
+            f'<p>Step 1: Set your password here: <a href="{link}">{link}</a></p>'
+            f'<p>Step 2: Then log in at <a href="{login_link}">{login_link}</a></p>'
             f"<p>This link is valid for {_format_validity(validity)}.</p>"
             "<p>— SpacePoint</p>"
         ),
@@ -173,7 +209,7 @@ async def sync_registration_lms(
             db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id,
         )
         if created and send_welcome_email:
-            await send_set_password_email(user)
+            await send_set_password_email(user, audience="student")
         return user
     except Exception:
         logger.exception("sync_registration_lms failed for registration %s", registration.id)

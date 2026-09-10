@@ -296,7 +296,7 @@ async def create_lms_account(
     if user is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This contact has no email on file")
     if created:
-        await send_set_password_email(user, purpose="welcome")
+        await send_set_password_email(user, purpose="welcome", audience="student")
     await db.commit()
     return await _build_contact_detail(db, contact)
 
@@ -321,7 +321,7 @@ async def reset_lms_password(
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This contact has no linked account")
 
-    sent = await send_set_password_email(user, purpose="reset")
+    sent = await send_set_password_email(user, purpose="reset", audience="student")
     return {"sent": sent}
 
 
