@@ -260,7 +260,9 @@ async def test_expired_enrollment_reads_as_not_enrolled(db, client):
     assert resp.json()["enrolled"] is False
 
     module = await client.get(f"/lms/modules/{m1.id}", headers=_headers(student))
-    assert module.status_code == http_status.HTTP_404_NOT_FOUND
+    assert module.status_code == 200
+    # expired enrollment reads as not enrolled: preview only, body is redacted
+    assert module.json()["items"][0]["content"]["body"] == ""
 
 
 @pytest.mark.asyncio
@@ -436,28 +438,40 @@ async def test_module_read_gates_on_enrollment_not_role(db, client):
     routes gate purely on enrollment now, not on holding the `student` role."""
     course, module, *_ = await _tree_with_quiz(db)
 
-    # a not-yet-enrolled staff member gets 404, never a role-based 403 —
-    # same don't-leak-existence treatment a student gets.
+    # an unpublished course gives 404, never a role-based 403 —
+    # don't-leak-existence treatment for not-yet-enrolled staff and students.
+    course.is_published = False
+    await db.commit()
     ops = await _user(db, roles=["operations"])
     resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(ops))
     assert resp.status_code == http_status.HTTP_404_NOT_FOUND
 
-    # a student who is NOT enrolled gets 404, never 403 — don't leak existence
     stranger = await _user(db)
     resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(stranger))
     assert resp.status_code == http_status.HTTP_404_NOT_FOUND
 
-    # enrolled -> 200, for a student...
+    # a published course allows previewing module items for syllabus browsing
+    course.is_published = True
+    await db.commit()
+    resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(stranger))
+    assert resp.status_code == 200
+    assert resp.json()["items"][0]["id"] is not None
+    # not enrolled: body is redacted
+    assert resp.json()["items"][0]["content"]["body"] == ""
+
+    # enrolled -> 200 with full content, for a student...
     await enroll(db, user_id=stranger.id, course_id=course.id)
     await db.commit()
     resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(stranger))
     assert resp.status_code == 200
+    assert resp.json()["items"][0]["content"]["body"] == "Ten minus four is six."
 
     # ...and equally for enrolled staff (D2).
     await enroll(db, user_id=ops.id, course_id=course.id)
     await db.commit()
     resp = await client.get(f"/lms/modules/{module.id}", headers=_headers(ops))
     assert resp.status_code == 200
+    assert resp.json()["items"][0]["content"]["body"] == "Ten minus four is six."
 
 
 @pytest.mark.asyncio

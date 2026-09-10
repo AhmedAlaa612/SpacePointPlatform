@@ -321,6 +321,9 @@ function ModuleRow({
       {expanded && (
         <div className="px-5 pb-4 flex flex-col gap-0.5 border-t border-border/60 pt-3">
           {loading && <p className="text-sm text-muted-foreground py-2 px-3">Loading...</p>}
+          {!loading && detail && detail.items.length === 0 && (
+            <p className="text-sm text-muted-foreground py-2 px-3">No content in this module yet.</p>
+          )}
           {detail?.items.map((item) => {
             const itemDone = item.status === "completed" || item.status === "skipped";
             return (

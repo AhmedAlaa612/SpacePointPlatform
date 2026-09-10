@@ -943,6 +943,23 @@ async def _mission_embed_state(db: AsyncSession, item: ModuleItem, user_id: uuid
     }
 
 
+def _preview_content(kind: str, content: dict | None) -> dict:
+    content = content or {}
+    if kind == "quiz":
+        return {"pass_threshold": content.get("pass_threshold", 0), "questions": []}
+    if kind == "text":
+        return {"body": ""}
+    if kind == "flashcards":
+        return {"title": content.get("title"), "cards": []}
+    if kind == "attachment":
+        return {"filename": content.get("filename"), "size_bytes": content.get("size_bytes")}
+    if kind == "video":
+        return {}
+    if kind == "mission":
+        return {"mission_id": content.get("mission_id"), "variant_id": content.get("variant_id")}
+    return {}
+
+
 @router.get("/modules/{module_id}", response_model=ModuleOut)
 async def module_read(
     module_id: uuid.UUID,
@@ -950,42 +967,65 @@ async def module_read(
     current: User = Depends(get_current_active_user),
 ):
     """The actual lessons — every item through `student_view`, plus this
-    student's per-item status and the video transcode state the player needs."""
+    student's per-item status and the video transcode state the player needs.
+
+    When the caller is not enrolled, returns the module outline (item titles,
+    positions, kinds, duration) so the course landing page can preview the
+    syllabus without leaking lesson bodies, quiz questions, or flashcards.
+    """
     module = await db.get(CourseModule, module_id)
     if module is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Course not found")
-    await _assert_enrolled(db, current.id, module.course_id)
+    await _published_course(db, module.course_id, current.id)
+
+    enrolled = (await db.execute(
+        select(Enrollment.id).where(
+            Enrollment.user_id == current.id,
+            Enrollment.course_id == module.course_id,
+            *enrollment_is_active(),
+        )
+    )).first() is not None
 
     items = (await db.execute(
         select(ModuleItem).where(ModuleItem.module_id == module_id).order_by(ModuleItem.position)
     )).scalars().all()
 
-    progress_rows = (await db.execute(
-        select(ItemProgress).where(
-            ItemProgress.user_id == current.id,
-            ItemProgress.item_id.in_([i.id for i in items]),
-        )
-    )).scalars().all()
-    progress_map = {p.item_id: p for p in progress_rows}
+    progress_map = {}
+    if enrolled:
+        progress_rows = (await db.execute(
+            select(ItemProgress).where(
+                ItemProgress.user_id == current.id,
+                ItemProgress.item_id.in_([i.id for i in items]),
+            )
+        )).scalars().all()
+        progress_map = {p.item_id: p for p in progress_rows}
 
     item_payloads: list[ModuleItemOut] = []
     for item in items:
         row = progress_map.get(item.id)
         quiz_order = None
-        if item.kind == "quiz":
-            # Pass the already-fetched (possibly absent) row so a random-N
-            # quiz doesn't re-SELECT ItemProgress per item — the batched
-            # query above already has it (or knows it's missing). If this
-            # creates a row (first-ever view), `row` here still reports the
-            # status as of the batched query (None, i.e. not started) —
-            # cosmetically stale for this one response, corrected on the
-            # very next fetch once the row exists in that query too.
-            quiz_order = await get_quiz_display_order(db, user_id=current.id, item=item, progress=row)
-        payload = student_view(item, quiz_order=quiz_order)
-        if item.kind == "video":
-            payload["content"].update(await _video_state(db, item))
-        if item.kind == "mission":
-            payload["content"].update(await _mission_embed_state(db, item, current.id))
+        if enrolled:
+            if item.kind == "quiz":
+                # Pass the already-fetched (possibly absent) row so a random-N
+                # quiz doesn't re-SELECT ItemProgress per item — the batched
+                # query above already has it (or knows it's missing). If this
+                # creates a row (first-ever view), `row` here still reports the
+                # status as of the batched query (None, i.e. not started) —
+                # cosmetically stale for this one response, corrected on the
+                # very next fetch once the row exists in that query too.
+                quiz_order = await get_quiz_display_order(db, user_id=current.id, item=item, progress=row)
+            payload = student_view(item, quiz_order=quiz_order)
+            if item.kind == "video":
+                payload["content"].update(await _video_state(db, item))
+            if item.kind == "mission":
+                payload["content"].update(await _mission_embed_state(db, item, current.id))
+        else:
+            payload = {"content": _preview_content(item.kind, item.content)}
+            if item.kind == "video":
+                payload["content"].update(await _video_state(db, item))
+            if item.kind == "mission":
+                payload["content"].update(await _mission_embed_state(db, item, current.id))
+
         item_payloads.append(ModuleItemOut(
             id=item.id,
             kind=item.kind,
@@ -995,7 +1035,8 @@ async def module_read(
             status=row.status if row else None,
         ))
 
-    await db.commit()
+    if enrolled:
+        await db.commit()
     return ModuleOut(
         id=module.id,
         course_id=module.course_id,
