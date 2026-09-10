@@ -151,12 +151,12 @@ async def post_team_member(
     elif body.full_name and body.email:
         _user, registration_id = await team_service.register_and_add_member(
             db, team_id=team_id, full_name=body.full_name, email=body.email,
-            phone=body.phone, school=body.school,
+            phone=body.phone, school=body.school, send_welcome_email=body.send_welcome_email,
         )
     else:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Provide either user_id, or full_name and email")
     await db.commit()
-    if registration_id is not None:
+    if registration_id is not None and body.send_ticket_email:
         await safe_enqueue(arq_redis, "send_ticket_email", str(registration_id))
     cohort_id = await _team_cohort_id(db, team_id)
     rows = await team_service.list_teams_with_members(db, cohort_id=cohort_id)
@@ -209,17 +209,22 @@ async def post_cohort_registration_import_confirm(
     One `send_ticket_email` job per successfully registered row, enqueued
     after commit — same idempotent-on-`ticket_sent_at` job the desk and the
     general bulk importer use, just fired per-row rather than batched: a
-    competition roster is small enough that per-row throttling isn't needed."""
+    competition roster is small enough that per-row throttling isn't needed.
+    `send_ticket_email`/`send_welcome_email` on the request apply to the
+    whole batch, same as the desk registration toggles apply per-registration."""
     await _get_cohort_or_404(db, cohort_id)
     rows = [
         {"row_number": r.row_number, "raw": r.model_dump(exclude={"row_number"})}
         for r in body.rows
     ]
-    results = await import_service.import_registrations(db, cohort_id=cohort_id, rows=rows)
+    results = await import_service.import_registrations(
+        db, cohort_id=cohort_id, rows=rows, send_welcome_email=body.send_welcome_email,
+    )
     await db.commit()
-    for r in results:
-        if r.registration_id is not None:
-            await safe_enqueue(arq_redis, "send_ticket_email", str(r.registration_id))
+    if body.send_ticket_email:
+        for r in results:
+            if r.registration_id is not None:
+                await safe_enqueue(arq_redis, "send_ticket_email", str(r.registration_id))
     return CompetitionImportResultOut(
         summary=import_service.summarize(results),
         rows=[

@@ -551,6 +551,58 @@ async def test_registration_import_confirm_enqueues_a_ticket_email_per_created_r
 
 
 @pytest.mark.asyncio
+async def test_registration_import_confirm_can_opt_the_batch_out_of_ticket_and_welcome_emails(
+    db, arq_client, arq_redis, monkeypatch,
+):
+    """`send_ticket_email: false` / `send_welcome_email: false` on the
+    confirm request apply to the whole batch — ops importing a roster they
+    plan to notify some other way (a WhatsApp broadcast, printed tickets)
+    shouldn't be forced into two emails per row."""
+    sent_welcome_emails = []
+
+    async def _fake_send_set_password_email(user, *, purpose="welcome"):
+        sent_welcome_emails.append(user.email)
+        return True
+
+    monkeypatch.setattr(
+        "app.services.lms.ops_integration.send_set_password_email", _fake_send_set_password_email,
+    )
+
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet.append(["team_name", "member_name", "email", "phone", "school"])
+    sheet.append(["Silent Comet", "Zaid Omar", f"zaid-{uuid.uuid4().hex[:6]}@example.com", "", ""])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    preview_resp = await arq_client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/preview",
+        files={"file": ("roster.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        headers=_headers(ops),
+    )
+    assert preview_resp.status_code == 200, preview_resp.text
+    preview_rows = preview_resp.json()["rows"]
+
+    confirm_resp = await arq_client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/confirm",
+        json={
+            "rows": [{k: v for k, v in r.items() if k != "issues"} for r in preview_rows],
+            "send_ticket_email": False, "send_welcome_email": False,
+        },
+        headers=_headers(ops),
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+    assert confirm_resp.json()["summary"] == {"total": 1, "created": 1, "matched": 0, "error": 0}
+
+    assert await arq_redis.zrange("arq:queue", 0, -1) == []
+    assert sent_welcome_emails == []
+
+
+@pytest.mark.asyncio
 async def test_registration_import_confirm_still_refuses_a_row_missing_a_required_field(db, client):
     ops = await _ops(db)
     _program, cohort = await _program_and_cohort(db)

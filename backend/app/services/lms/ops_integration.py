@@ -129,6 +129,7 @@ async def send_set_password_email(user: User, *, purpose: str = "welcome") -> bo
 
 async def sync_registration_lms(
     db: AsyncSession, *, registration: Registration, cohort: Cohort, create_account: bool,
+    send_welcome_email: bool = True,
 ) -> User | None:
     """The D4 flow for one registration: find-or-create the student account,
     assign the cohort's LMS Program checklist if it has one (2026-08-21 —
@@ -138,7 +139,12 @@ async def sync_registration_lms(
     all), email the set-password link (only for a genuinely new account —
     an existing one has nothing to set). Never raises — an LMS-side
     hiccup must not break registration, mirroring issue_ticket()'s
-    "return False, log it" discipline."""
+    "return False, log it" discipline.
+
+    `send_welcome_email=False` still creates the account (a caller that
+    structurally needs a User back — e.g. adding someone to a competition
+    team — can't skip that part) but suppresses the notification, for a
+    caller sending its own combined notice or deliberately going quiet."""
     if not create_account:
         return None
     try:
@@ -148,7 +154,7 @@ async def sync_registration_lms(
         await assign_lms_program(
             db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id,
         )
-        if created:
+        if created and send_welcome_email:
             await send_set_password_email(user)
         return user
     except Exception:

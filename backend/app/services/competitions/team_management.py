@@ -120,13 +120,17 @@ async def add_existing_member(db: AsyncSession, *, team_id: uuid.UUID, user_id: 
 
 async def register_and_add_member(
     db: AsyncSession, *, team_id: uuid.UUID, full_name: str, email: str,
-    phone: str | None = None, school: str | None = None,
+    phone: str | None = None, school: str | None = None, send_welcome_email: bool = True,
 ) -> tuple[User, uuid.UUID]:
     """The single-row equivalent of Roster import's per-row logic — same
     find-or-create-contact -> register -> sync_registration_lms chain, so a
     person added this way is indistinguishable from one who came through
     the bulk sheet. Returns the registration id alongside the user so the
-    caller can enqueue the ticket email the same way the roster import does."""
+    caller can enqueue the ticket email the same way the roster import does.
+
+    The account itself always gets created (`join_team` needs a real
+    `user_id`) — `send_welcome_email=False` only suppresses the "Your
+    SpacePoint learning account" notification, not the account."""
     team = await db.get(Team, team_id)
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
@@ -145,7 +149,10 @@ async def register_and_add_member(
         db, contact_id=contact.id, cohort_id=cohort.id, registered_via="desk", payment_status="waived",
     )
 
-    user = await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=True)
+    user = await sync_registration_lms(
+        db, registration=registration, cohort=cohort, create_account=True,
+        send_welcome_email=send_welcome_email,
+    )
     if user is None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,

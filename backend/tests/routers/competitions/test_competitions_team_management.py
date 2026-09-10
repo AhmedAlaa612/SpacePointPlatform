@@ -134,6 +134,49 @@ async def test_ops_adding_a_new_member_enqueues_a_ticket_email(db, arq_client, a
 
 
 @pytest.mark.asyncio
+async def test_ops_can_opt_a_new_member_out_of_the_ticket_and_welcome_emails(db, arq_client, arq_redis, monkeypatch):
+    """`send_ticket_email: false` skips the queued job entirely, and
+    `send_welcome_email: false` still creates the account (team membership
+    needs a real user_id) but skips the "Your SpacePoint learning account"
+    notification — same opt-out shape as desk registration's flags."""
+    sent_welcome_emails = []
+
+    async def _fake_send_set_password_email(user, *, purpose="welcome"):
+        sent_welcome_emails.append(user.email)
+        return True
+
+    monkeypatch.setattr(
+        "app.services.lms.ops_integration.send_set_password_email", _fake_send_set_password_email,
+    )
+
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+
+    team = await create_team(db, name="Quiet Comet", created_by=ops.id, cohort_id=cohort.id, member_ids=[])
+    await db.commit()
+    from app.services.teams import leave_team
+    await leave_team(db, team_id=team.id, user_id=ops.id)
+    await db.commit()
+
+    new_email = f"noemails-{uuid.uuid4().hex[:6]}@example.com"
+    resp = await arq_client.post(
+        f"/competitions/admin/teams/{team.id}/members", headers=_headers(ops),
+        json={
+            "full_name": "Sami Rasheed", "email": new_email,
+            "send_ticket_email": False, "send_welcome_email": False,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+
+    assert await arq_redis.zrange("arq:queue", 0, -1) == []
+    assert sent_welcome_emails == []
+
+    new_user = (await db.execute(select(User).where(User.email == new_email))).scalars().first()
+    assert new_user is not None and "student" in new_user.role_values
+
+
+@pytest.mark.asyncio
 async def test_ops_renames_a_team_and_removes_a_member(db, client):
     ops = await _ops(db)
     _program, cohort = await _program_and_cohort(db)
