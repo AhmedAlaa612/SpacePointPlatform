@@ -43,6 +43,13 @@ class CompetitionTeamMemberIn(BaseModel):
     phone: str | None = None
     school: str | None = None
 
+    # Only meaningful for the full_name+email (new person) path — user_id
+    # just links an existing account, nothing to send. Both default True to
+    # match every other registration path in the app (desk, public, general
+    # bulk import) that sends both by default.
+    send_ticket_email: bool = True
+    send_welcome_email: bool = True
+
 
 class CompetitionRubricCriterionIn(BaseModel):
     key: str
@@ -205,6 +212,11 @@ class CompetitionImportConfirmRowIn(BaseModel):
 
 class CompetitionImportConfirmIn(BaseModel):
     rows: list[CompetitionImportConfirmRowIn]
+
+    # Batch-level, applied to every row — same default-on convention as the
+    # single member-add path and the rest of the app's registration flows.
+    send_ticket_email: bool = True
+    send_welcome_email: bool = True
 
 
 class CompetitionAdvanceTeamsIn(BaseModel):

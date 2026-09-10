@@ -120,12 +120,20 @@ async def add_existing_member(db: AsyncSession, *, team_id: uuid.UUID, user_id: 
 
 async def register_and_add_member(
     db: AsyncSession, *, team_id: uuid.UUID, full_name: str, email: str,
-    phone: str | None = None, school: str | None = None,
-) -> User:
+    phone: str | None = None, school: str | None = None, send_welcome_email: bool = True,
+) -> tuple[User, uuid.UUID | None]:
     """The single-row equivalent of Roster import's per-row logic — same
     find-or-create-contact -> register -> sync_registration_lms chain, so a
     person added this way is indistinguishable from one who came through
-    the bulk sheet."""
+    the bulk sheet. Returns the new registration's id alongside the user so
+    the caller can enqueue the ticket email the same way the roster import
+    does — None when this contact already had a registration for the
+    cohort, so the caller doesn't fire a ticket job for someone who (per
+    issue_ticket's own idempotency check) most likely already has one.
+
+    The account itself always gets created (`join_team` needs a real
+    `user_id`) — `send_welcome_email=False` only suppresses the "Your
+    SpacePoint learning account" notification, not the account."""
     team = await db.get(Team, team_id)
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
@@ -140,18 +148,22 @@ async def register_and_add_member(
     existing = (await db.execute(
         select(Registration).where(Registration.contact_id == contact.id, Registration.cohort_id == cohort.id)
     )).scalars().first()
+    is_new_registration = existing is None
     registration = existing or await register(
         db, contact_id=contact.id, cohort_id=cohort.id, registered_via="desk", payment_status="waived",
     )
 
-    user = await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=True)
+    user = await sync_registration_lms(
+        db, registration=registration, cohort=cohort, create_account=True,
+        send_welcome_email=send_welcome_email,
+    )
     if user is None:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             detail="Registered, but couldn't create a student account (email may already belong to a different account)",
         )
     await join_team(db, team_id=team_id, user_id=user.id)
-    return user
+    return user, (registration.id if is_new_registration else None)
 
 
 async def remove_member(db: AsyncSession, *, team_id: uuid.UUID, user_id: uuid.UUID) -> None:

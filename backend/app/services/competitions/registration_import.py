@@ -85,6 +85,7 @@ class ImportRowResult:
     email: str | None
     disposition: Literal["created", "matched", "error"]
     reason: str | None = None
+    registration_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -254,7 +255,9 @@ def preview_registration_sheet(file_bytes: bytes, filename: str | None = None) -
     return out
 
 
-async def _import_row(db: AsyncSession, *, row_number: int, raw: dict, cohort: Cohort) -> ImportRowResult:
+async def _import_row(
+    db: AsyncSession, *, row_number: int, raw: dict, cohort: Cohort, send_welcome_email: bool = True,
+) -> ImportRowResult:
     row = _clean_row(row_number, raw)
     issues = _blocking_issues(row)
     if issues:
@@ -280,7 +283,10 @@ async def _import_row(db: AsyncSession, *, row_number: int, raw: dict, cohort: C
     else:
         registration = existing_reg
 
-    user = await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=True)
+    user = await sync_registration_lms(
+        db, registration=registration, cohort=cohort, create_account=True,
+        send_welcome_email=send_welcome_email,
+    )
     if user is None:
         return ImportRowResult(
             row_number, team_name, email, "error",
@@ -295,23 +301,34 @@ async def _import_row(db: AsyncSession, *, row_number: int, raw: dict, cohort: C
     elif user.id not in await team_member_ids(db, team_id=team.id):
         await join_team(db, team_id=team.id, user_id=user.id)
 
-    return ImportRowResult(row_number, team_name, email, "created" if is_new_registration else "matched")
+    return ImportRowResult(
+        row_number, team_name, email, "created" if is_new_registration else "matched",
+        registration_id=registration.id,
+    )
 
 
 async def import_registrations(
-    db: AsyncSession, *, cohort_id: uuid.UUID, rows: list[dict],
+    db: AsyncSession, *, cohort_id: uuid.UUID, rows: list[dict], send_welcome_email: bool = True,
 ) -> list[ImportRowResult]:
     """`rows` is the output of `parse_registration_sheet` (or hand-built the
     same shape) — `[{"row_number": int, "raw": {team_name, member_name,
     email, phone?, school?}}]`. Idempotent on `(contact, cohort)`: re-running
-    the exact same sheet twice reports every row `matched`, not duplicated."""
+    the exact same sheet twice reports every row `matched`, not duplicated.
+
+    `send_welcome_email` applies to the whole batch — every account created
+    (not linked to an existing one) either gets the "Your SpacePoint
+    learning account" email or doesn't; there's no per-row control, same as
+    the ticket-email decision the router makes for this batch."""
     cohort = await db.get(Cohort, cohort_id)
     if cohort is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
 
     results = []
     for entry in rows:
-        result = await _import_row(db, row_number=entry["row_number"], raw=entry["raw"], cohort=cohort)
+        result = await _import_row(
+            db, row_number=entry["row_number"], raw=entry["raw"], cohort=cohort,
+            send_welcome_email=send_welcome_email,
+        )
         results.append(result)
     return results
 
