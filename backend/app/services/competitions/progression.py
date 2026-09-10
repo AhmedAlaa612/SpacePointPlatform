@@ -27,6 +27,7 @@ from app.models.sessions.registration import Registration
 from app.models.team import Team
 from app.models.user import User
 from app.services.email import try_send_email
+from app.services.lms.ops_integration import send_registration_onboarding_email
 from app.services.lms.program import assign_lms_program
 from app.services.sessions.registration import register
 from app.services.teams import create_team, join_team, team_member_ids
@@ -63,6 +64,7 @@ async def _congrats_email(user: User, *, team_name: str, to_cohort_name: str) ->
 
 async def advance_teams(
     db: AsyncSession, *, team_ids: list[uuid.UUID], from_cohort_id: uuid.UUID, to_cohort_id: uuid.UUID,
+    send_welcome_email: bool = True,
 ) -> list[TeamAdvanceResult]:
     """Idempotent per team: re-running with a team that's already advanced
     just re-resolves its existing target-cohort Team/Registrations rather
@@ -96,18 +98,26 @@ async def advance_teams(
                 continue
 
             if user.contact_id is not None:
-                already_registered = await db.scalar(
-                    select(Registration.id).where(
+                registration = await db.scalar(
+                    select(Registration).where(
                         Registration.contact_id == user.contact_id, Registration.cohort_id == to_cohort_id,
                         Registration.status != "cancelled",
                     )
                 )
-                if not already_registered:
-                    new_registration = await register(
+                is_new_registration = registration is None
+                if is_new_registration:
+                    registration = await register(
                         db, contact_id=user.contact_id, cohort_id=to_cohort_id, registered_via="import",
                         payment_status="waived",
                     )
-                    new_registration_ids.append(new_registration.id)
+                    new_registration_ids.append(registration.id)
+                # Same "only a genuinely new registration gets an onboarding
+                # email" rule as the ticket toggle just above — an idempotent
+                # re-run of an already-advanced team shouldn't re-mail anyone.
+                if send_welcome_email and is_new_registration:
+                    await send_registration_onboarding_email(
+                        db, user=user, registration=registration, cohort=to_cohort,
+                    )
             await assign_lms_program(db, user_id=user.id, cohort_id=to_cohort_id)
 
             if to_team is None:

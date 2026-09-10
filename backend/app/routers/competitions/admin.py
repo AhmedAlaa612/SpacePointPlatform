@@ -259,6 +259,7 @@ async def post_cohort_advance_teams(
     await _get_cohort_or_404(db, cohort_id)
     results = await progression_service.advance_teams(
         db, team_ids=body.team_ids, from_cohort_id=cohort_id, to_cohort_id=body.to_cohort_id,
+        send_welcome_email=body.send_welcome_email,
     )
     await db.commit()
     # Same "only genuinely new registrations get a ticket job" rule the bulk

@@ -231,6 +231,10 @@ class CompetitionAdvanceTeamsIn(BaseModel):
     # "Send Ticket" (2026-09-10) — a promoted member's new-cohort ticket,
     # same toggle/mechanism as the desk and bulk-import registration flows.
     send_ticket_email: bool = True
+    # "Send LMS onboarding mail" (2026-09-10) — independent of the ticket:
+    # a promoted member may still never have set a password, so this isn't
+    # covered by the (always-sent) congrats email alone.
+    send_welcome_email: bool = True
 
 
 class CompetitionAdvanceResultOut(BaseModel):

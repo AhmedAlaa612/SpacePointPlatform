@@ -221,7 +221,8 @@ export const confirmCohortRegistrationImportApi = (
   ).then((r) => r.data)
 
 export const advanceCohortTeamsApi = (
-  cohortId: string, data: { team_ids: string[]; to_cohort_id: string; send_ticket_email?: boolean },
+  cohortId: string,
+  data: { team_ids: string[]; to_cohort_id: string; send_ticket_email?: boolean; send_welcome_email?: boolean },
 ) =>
   api.post<CompetitionAdvanceResult[]>(`/competitions/admin/cohorts/${cohortId}/advance-teams`, data).then((r) => r.data)
 

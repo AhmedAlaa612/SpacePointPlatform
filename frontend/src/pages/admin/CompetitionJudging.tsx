@@ -814,6 +814,7 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [toCohortId, setToCohortId] = useState("")
   const [sendTicketOnAdvance, setSendTicketOnAdvance] = useState(true)
+  const [sendWelcomeOnAdvance, setSendWelcomeOnAdvance] = useState(true)
   const [exporting, setExporting] = useState(false)
 
   const { data: board = [], isLoading } = useQuery<CompetitionLeaderboardRow[]>({
@@ -853,13 +854,15 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
   })
   const advanceMutation = useMutation({
     mutationFn: () => advanceCohortTeamsApi(cohortId, {
-      team_ids: [...selected], to_cohort_id: toCohortId, send_ticket_email: sendTicketOnAdvance,
+      team_ids: [...selected], to_cohort_id: toCohortId,
+      send_ticket_email: sendTicketOnAdvance, send_welcome_email: sendWelcomeOnAdvance,
     }),
     onSuccess: (results) => {
       const targetName = advanceTargets.find((c) => c.id === toCohortId)?.name ?? "the next stage"
       toast.success(`Advanced ${results.length} team(s) to ${targetName}`)
       setSelected(new Set())
       setSendTicketOnAdvance(true)
+      setSendWelcomeOnAdvance(true)
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to advance teams")),
   })
@@ -941,6 +944,13 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
             <option value="">Advance to…</option>
             {advanceTargets.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
+          <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+            <input
+              type="checkbox" checked={sendWelcomeOnAdvance}
+              onChange={(e) => setSendWelcomeOnAdvance(e.target.checked)}
+            />
+            Send LMS onboarding mail
+          </label>
           <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
             <input
               type="checkbox" checked={sendTicketOnAdvance}

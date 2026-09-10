@@ -42,7 +42,7 @@ async def sync_registration_lms_job(ctx, registration_id: str) -> dict:
         return {"synced": user is not None}
 
 
-async def sync_import_batch_lms_accounts(ctx, batch_id: str) -> dict:
+async def sync_import_batch_lms_accounts(ctx, batch_id: str, send_welcome_email: bool = True) -> dict:
     synced = 0
     async with AsyncSessionLocal() as db:
         batch = await db.get(ImportBatch, uuid.UUID(batch_id))
@@ -67,7 +67,10 @@ async def sync_import_batch_lms_accounts(ctx, batch_id: str) -> dict:
         )).scalars().all()
 
         for registration in registrations:
-            user = await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=True)
+            user = await sync_registration_lms(
+                db, registration=registration, cohort=cohort, create_account=True,
+                send_welcome_email=send_welcome_email,
+            )
             await db.commit()
             synced += int(user is not None)
 
