@@ -227,6 +227,36 @@ async def test_reinviting_an_already_assigned_judge_sends_no_email(db, client, m
     assert sent is False  # already assigned — no repeat email
 
 
+@pytest.mark.asyncio
+async def test_inviting_a_judge_can_opt_out_of_the_email_while_still_creating_the_account(
+    db, client, monkeypatch,
+):
+    """"Send email" (2026-09-10) is independent of the invite itself — the
+    account and assignment are always created, only the notification is
+    optional, same shape as send_welcome_email elsewhere."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+    sent = False
+
+    async def _fake_send(*args, **kwargs):
+        nonlocal sent
+        sent = True
+        return True
+
+    monkeypatch.setattr("app.services.lms.ops_integration.try_send_email", _fake_send)
+
+    invited = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/judges", headers=_headers(ops),
+        json={"name": "Silent Judge", "email": f"silent-judge-{uuid.uuid4().hex[:8]}@example.com", "send_email": False},
+    )
+    assert invited.status_code == 201, invited.text
+    assert sent is False
+
+    listed = await client.get(f"/competitions/admin/cohorts/{cohort.id}/judges", headers=_headers(ops))
+    assert any(r["user_id"] == invited.json()["user_id"] for r in listed.json())
+
+
 # ── Judge scoring surface ────────────────────────────────────────────────
 
 async def _judge_setup(db):

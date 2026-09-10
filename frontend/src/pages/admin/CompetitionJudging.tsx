@@ -132,6 +132,7 @@ function RosterTab({ cohortId }: { cohortId: string }) {
     onSuccess: (res) => {
       setResult(res)
       setPreviewRows(null)
+      setSendWelcomeEmail(true); setSendTicketEmail(true)
       toast.success(`Imported: ${res.summary.created} created, ${res.summary.matched} matched, ${res.summary.error} errors`)
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to import roster")),
@@ -383,6 +384,8 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
   const [adding, setAdding] = useState(false)
   const [memberName, setMemberName] = useState("")
   const [memberEmail, setMemberEmail] = useState("")
+  const [memberSendWelcomeEmail, setMemberSendWelcomeEmail] = useState(true)
+  const [memberSendTicketEmail, setMemberSendTicketEmail] = useState(true)
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
 
   const renameMutation = useMutation({
@@ -396,8 +399,15 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to delete team")),
   })
   const addMemberMutation = useMutation({
-    mutationFn: () => registerAndAddTeamMemberApi(team.id, { full_name: memberName.trim(), email: memberEmail.trim() }),
-    onSuccess: () => { setMemberName(""); setMemberEmail(""); setAdding(false); onChanged() },
+    mutationFn: () => registerAndAddTeamMemberApi(team.id, {
+      full_name: memberName.trim(), email: memberEmail.trim(),
+      send_welcome_email: memberSendWelcomeEmail, send_ticket_email: memberSendTicketEmail,
+    }),
+    onSuccess: () => {
+      setMemberName(""); setMemberEmail(""); setAdding(false)
+      setMemberSendWelcomeEmail(true); setMemberSendTicketEmail(true)
+      onChanged()
+    },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to add member")),
   })
   const removeMemberMutation = useMutation({
@@ -476,32 +486,50 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
       </div>
 
       {adding ? (
-        <div className="flex items-end gap-2 flex-wrap pt-1 border-t border-border/50">
-          <Field label="Name">
-            <input
-              value={memberName} onChange={(e) => setMemberName(e.target.value)}
-              className="w-40 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
-            />
-          </Field>
-          <Field label="Email">
-            <input
-              value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} type="email"
-              className="w-56 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
-            />
-          </Field>
-          <button
-            onClick={() => addMemberMutation.mutate()}
-            disabled={addMemberMutation.isPending || !memberName.trim() || !memberEmail.trim()}
-            className="h-9 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
-          >
-            {addMemberMutation.isPending ? "Adding…" : "Add"}
-          </button>
-          <button
-            onClick={() => setAdding(false)}
-            className="h-9 px-3 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors"
-          >
-            Cancel
-          </button>
+        <div className="flex flex-col gap-2 pt-1 border-t border-border/50">
+          <div className="flex items-end gap-2 flex-wrap">
+            <Field label="Name">
+              <input
+                value={memberName} onChange={(e) => setMemberName(e.target.value)}
+                className="w-40 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+              />
+            </Field>
+            <Field label="Email">
+              <input
+                value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} type="email"
+                className="w-56 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+              />
+            </Field>
+            <button
+              onClick={() => addMemberMutation.mutate()}
+              disabled={addMemberMutation.isPending || !memberName.trim() || !memberEmail.trim()}
+              className="h-9 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+            >
+              {addMemberMutation.isPending ? "Adding…" : "Add"}
+            </button>
+            <button
+              onClick={() => setAdding(false)}
+              className="h-9 px-3 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
+              <input
+                type="checkbox" checked={memberSendWelcomeEmail}
+                onChange={(e) => setMemberSendWelcomeEmail(e.target.checked)}
+              />
+              Send LMS onboarding mail
+            </label>
+            <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
+              <input
+                type="checkbox" checked={memberSendTicketEmail}
+                onChange={(e) => setMemberSendTicketEmail(e.target.checked)}
+              />
+              Send Ticket
+            </label>
+          </div>
         </div>
       ) : (
         <button
@@ -630,6 +658,7 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
 
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
+  const [sendJudgeEmail, setSendJudgeEmail] = useState(true)
   const [staffQuery, setStaffQuery] = useState("")
   const { data: staffOptions = [] } = useQuery<StaffOption[]>({
     queryKey: ["staff-search-for-judge", staffQuery],
@@ -639,10 +668,12 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
   const alreadyJudging = new Set(judges.map((j) => j.email))
 
   const inviteMutation = useMutation({
-    mutationFn: () => inviteCohortJudgeApi(cohortId, { name: name.trim(), email: email.trim() }),
+    mutationFn: () => inviteCohortJudgeApi(cohortId, {
+      name: name.trim(), email: email.trim(), send_email: sendJudgeEmail,
+    }),
     onSuccess: () => {
       toast.success("Judge added")
-      setName(""); setEmail(""); setStaffQuery("")
+      setName(""); setEmail(""); setStaffQuery(""); setSendJudgeEmail(true)
       queryClient.invalidateQueries({ queryKey: ["competitions-judges", cohortId] })
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to add judge")),
@@ -713,6 +744,10 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
           <UserPlus size={14} /> {inviteMutation.isPending ? "Adding…" : "Add as judge"}
         </button>
       </div>
+      <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none -mt-3">
+        <input type="checkbox" checked={sendJudgeEmail} onChange={(e) => setSendJudgeEmail(e.target.checked)} />
+        Send email
+      </label>
 
       <div className="flex flex-col gap-2">
         {judges.map((j) => (
@@ -793,6 +828,7 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
       const targetName = advanceTargets.find((c) => c.id === toCohortId)?.name ?? "the next stage"
       toast.success(`Advanced ${results.length} team(s) to ${targetName}`)
       setSelected(new Set())
+      setSendTicketOnAdvance(true)
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to advance teams")),
   })

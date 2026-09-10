@@ -75,7 +75,9 @@ async def list_judges(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[User]:
     return list(rows)
 
 
-async def invite_judge(db: AsyncSession, *, cohort_id: uuid.UUID, name: str, email: str) -> User:
+async def invite_judge(
+    db: AsyncSession, *, cohort_id: uuid.UUID, name: str, email: str, send_email: bool = True,
+) -> User:
     """Find-or-create a judge account for this email, add the `judge` role
     if it's missing one (an existing staff/instructor account can also
     judge — the role only adds capability, same "layered on top of, not
@@ -83,7 +85,12 @@ async def invite_judge(db: AsyncSession, *, cohort_id: uuid.UUID, name: str, ema
     cohort, and email them — a set-password link for a genuinely new
     account, or a plain "you're registered, log in" notice for an existing
     one (2026-09-10 — previously sent nothing at all in that case).
-    Idempotent: re-inviting an already-assigned judge just returns them."""
+    Idempotent: re-inviting an already-assigned judge just returns them.
+
+    `send_email=False` (2026-09-10) still creates the account and the
+    assignment — same "the action always happens, only the notification is
+    optional" posture every other send_welcome_email/send_ticket_email
+    toggle in this codebase already has."""
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     is_new = user is None
     if user is None:
@@ -110,7 +117,7 @@ async def invite_judge(db: AsyncSession, *, cohort_id: uuid.UUID, name: str, ema
     # Only a genuinely new account or a genuinely new assignment gets an
     # email — a repeat invite of a judge already assigned to this cohort is
     # the true idempotent no-op the docstring promises, not a re-send.
-    if is_new or is_new_assignment:
+    if send_email and (is_new or is_new_assignment):
         cohort = await db.get(Cohort, cohort_id)
         program = await db.get(Program, cohort.program_id) if cohort else None
         context = f"{program.name} ({cohort.name})" if program and cohort else (cohort.name if cohort else "SpacePoint")

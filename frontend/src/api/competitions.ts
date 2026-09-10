@@ -155,7 +155,9 @@ export const putProgramRubricApi = (
 export const getCohortJudgesApi = (cohortId: string) =>
   api.get<CompetitionJudgeProgress[]>(`/competitions/admin/cohorts/${cohortId}/judges`).then((r) => r.data)
 
-export const inviteCohortJudgeApi = (cohortId: string, data: { name: string; email: string }) =>
+export const inviteCohortJudgeApi = (
+  cohortId: string, data: { name: string; email: string; send_email?: boolean },
+) =>
   api.post<CompetitionJudge>(`/competitions/admin/cohorts/${cohortId}/judges`, data).then((r) => r.data)
 
 export const revokeCohortJudgeApi = (cohortId: string, userId: string) =>
@@ -235,7 +237,11 @@ export const addExistingTeamMemberApi = (teamId: string, userId: string) =>
   api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/members`, { user_id: userId }).then((r) => r.data)
 
 export const registerAndAddTeamMemberApi = (
-  teamId: string, data: { full_name: string; email: string; phone?: string; school?: string },
+  teamId: string,
+  data: {
+    full_name: string; email: string; phone?: string; school?: string
+    send_welcome_email?: boolean; send_ticket_email?: boolean
+  },
 ) => api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/members`, data).then((r) => r.data)
 
 export const removeTeamMemberApi = (teamId: string, userId: string) =>

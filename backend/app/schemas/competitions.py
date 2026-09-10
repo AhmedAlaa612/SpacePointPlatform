@@ -129,6 +129,11 @@ class CompetitionJudgeProgressOut(CompetitionJudgeOut):
 class CompetitionJudgeInviteIn(BaseModel):
     name: str
     email: str
+    # "Send email" (2026-09-10) — same "the action always happens, the
+    # notification is optional" toggle shape as send_welcome_email/
+    # send_ticket_email elsewhere; the judge account/assignment is always
+    # created either way.
+    send_email: bool = True
 
 
 class CompetitionPublicationOut(BaseModel):

@@ -89,7 +89,9 @@ async def get_cohort_judges(cohort_id: uuid.UUID, db: AsyncSession = Depends(get
 @router.post("/cohorts/{cohort_id}/judges", response_model=CompetitionJudgeOut, status_code=status.HTTP_201_CREATED)
 async def post_cohort_judge(cohort_id: uuid.UUID, body: CompetitionJudgeInviteIn, db: AsyncSession = Depends(get_db)):
     await _get_cohort_or_404(db, cohort_id)
-    user = await judges_service.invite_judge(db, cohort_id=cohort_id, name=body.name, email=body.email)
+    user = await judges_service.invite_judge(
+        db, cohort_id=cohort_id, name=body.name, email=body.email, send_email=body.send_email,
+    )
     await db.commit()
     return CompetitionJudgeOut(user_id=user.id, full_name=user.full_name, email=user.email)
 
