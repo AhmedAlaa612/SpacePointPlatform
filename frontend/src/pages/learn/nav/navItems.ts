@@ -1,4 +1,5 @@
-import { Home, GraduationCap, Rocket, Gamepad2, Trophy, ClipboardCheck } from "lucide-react";
+import { Home, GraduationCap, Gamepad2, Trophy, ClipboardCheck } from "lucide-react";
+// import { Rocket } from "lucide-react"; // Missions icon — restore alongside the NAV_ITEMS entry below
 
 /** `catalog`, `paths` and `profile` are still reachable pages — they just
  * aren't nav entries any more (2026-08-12): discovery moved onto the landing
@@ -14,11 +15,14 @@ export const NAV_ITEMS: { key: LearnNavActive; label: string; to: string; icon: 
   { key: "home", label: "Home", to: "/learn/home", icon: Home },
   { key: "my-courses", label: "My Learning", to: "/learn/my-courses", icon: GraduationCap },
   { key: "checklists", label: "Programs", to: "/learn/checklists", icon: ClipboardCheck },
-  { key: "missions", label: "Missions", to: "/learn/missions", icon: Rocket },
+  // Missions tab hidden temporarily per management request; re-enable by uncommenting.
+  // { key: "missions", label: "Missions", to: "/learn/missions", icon: Rocket },
   { key: "games", label: "Live Quiz", to: "/learn/games", icon: Gamepad2 },
   { key: "leaderboard", label: "Leaderboard", to: "/learn/leaderboard", icon: Trophy },
 ];
 
 /** One row of 5 on mobile — Home lives in the profile row instead (see
  * LearnMobileTabBar). Unchanged by the sidebar redesign (2026-09). */
-export const MOBILE_TAB_ITEMS: LearnNavActive[] = ["my-courses", "checklists", "missions", "games", "leaderboard"];
+// Missions tab hidden temporarily per management request; re-enable by uncommenting NAV_ITEMS
+// above and restoring "missions" here in its original slot: ["my-courses", "checklists", "missions", "games", "leaderboard"].
+export const MOBILE_TAB_ITEMS: LearnNavActive[] = ["my-courses", "checklists", "games", "leaderboard"];
