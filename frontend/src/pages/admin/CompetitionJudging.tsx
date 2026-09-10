@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ArrowUpRight, Download, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Download, Mail, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
 import { searchStaffApi, type StaffOption } from "@/api/lms_admin"
@@ -13,7 +13,7 @@ import {
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
   previewCohortRegistrationImportApi,
   inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi, registerAndAddTeamMemberApi,
-  removeTeamMemberApi, renameTeamApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
+  removeTeamMemberApi, renameTeamApi, resendJudgeOnboardingEmailApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
   type CompetitionImportPreviewRow, type CompetitionImportResult, type CompetitionJudgeProgress,
   type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
 } from "@/api/competitions"
@@ -115,6 +115,8 @@ function RosterTab({ cohortId }: { cohortId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [previewRows, setPreviewRows] = useState<CompetitionImportPreviewRow[] | null>(null)
   const [result, setResult] = useState<CompetitionImportResult | null>(null)
+  const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
+  const [sendTicketEmail, setSendTicketEmail] = useState(true)
 
   const previewMutation = useMutation({
     mutationFn: (file: File) => previewCohortRegistrationImportApi(cohortId, file),
@@ -124,10 +126,13 @@ function RosterTab({ cohortId }: { cohortId: string }) {
 
   const confirmMutation = useMutation({
     mutationFn: (rows: CompetitionImportPreviewRow[]) =>
-      confirmCohortRegistrationImportApi(cohortId, rows.map(({ issues, ...rest }) => rest)),
+      confirmCohortRegistrationImportApi(cohortId, rows.map(({ issues, ...rest }) => rest), {
+        send_welcome_email: sendWelcomeEmail, send_ticket_email: sendTicketEmail,
+      }),
     onSuccess: (res) => {
       setResult(res)
       setPreviewRows(null)
+      setSendWelcomeEmail(true); setSendTicketEmail(true)
       toast.success(`Imported: ${res.summary.created} created, ${res.summary.matched} matched, ${res.summary.error} errors`)
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to import roster")),
@@ -242,6 +247,23 @@ function RosterTab({ cohortId }: { cohortId: string }) {
               ))}
             </ul>
           )}
+
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+              <input
+                type="checkbox" checked={sendWelcomeEmail}
+                onChange={(e) => setSendWelcomeEmail(e.target.checked)}
+              />
+              Send LMS onboarding mail
+            </label>
+            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+              <input
+                type="checkbox" checked={sendTicketEmail}
+                onChange={(e) => setSendTicketEmail(e.target.checked)}
+              />
+              Send Ticket
+            </label>
+          </div>
 
           <button
             onClick={() => confirmMutation.mutate(previewRows)}
@@ -362,6 +384,8 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
   const [adding, setAdding] = useState(false)
   const [memberName, setMemberName] = useState("")
   const [memberEmail, setMemberEmail] = useState("")
+  const [memberSendWelcomeEmail, setMemberSendWelcomeEmail] = useState(true)
+  const [memberSendTicketEmail, setMemberSendTicketEmail] = useState(true)
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
 
   const renameMutation = useMutation({
@@ -375,8 +399,15 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to delete team")),
   })
   const addMemberMutation = useMutation({
-    mutationFn: () => registerAndAddTeamMemberApi(team.id, { full_name: memberName.trim(), email: memberEmail.trim() }),
-    onSuccess: () => { setMemberName(""); setMemberEmail(""); setAdding(false); onChanged() },
+    mutationFn: () => registerAndAddTeamMemberApi(team.id, {
+      full_name: memberName.trim(), email: memberEmail.trim(),
+      send_welcome_email: memberSendWelcomeEmail, send_ticket_email: memberSendTicketEmail,
+    }),
+    onSuccess: () => {
+      setMemberName(""); setMemberEmail(""); setAdding(false)
+      setMemberSendWelcomeEmail(true); setMemberSendTicketEmail(true)
+      onChanged()
+    },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to add member")),
   })
   const removeMemberMutation = useMutation({
@@ -455,32 +486,50 @@ function TeamCard({ team, onChanged }: { team: CompetitionTeam; onChanged: () =>
       </div>
 
       {adding ? (
-        <div className="flex items-end gap-2 flex-wrap pt-1 border-t border-border/50">
-          <Field label="Name">
-            <input
-              value={memberName} onChange={(e) => setMemberName(e.target.value)}
-              className="w-40 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
-            />
-          </Field>
-          <Field label="Email">
-            <input
-              value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} type="email"
-              className="w-56 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
-            />
-          </Field>
-          <button
-            onClick={() => addMemberMutation.mutate()}
-            disabled={addMemberMutation.isPending || !memberName.trim() || !memberEmail.trim()}
-            className="h-9 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
-          >
-            {addMemberMutation.isPending ? "Adding…" : "Add"}
-          </button>
-          <button
-            onClick={() => setAdding(false)}
-            className="h-9 px-3 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors"
-          >
-            Cancel
-          </button>
+        <div className="flex flex-col gap-2 pt-1 border-t border-border/50">
+          <div className="flex items-end gap-2 flex-wrap">
+            <Field label="Name">
+              <input
+                value={memberName} onChange={(e) => setMemberName(e.target.value)}
+                className="w-40 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+              />
+            </Field>
+            <Field label="Email">
+              <input
+                value={memberEmail} onChange={(e) => setMemberEmail(e.target.value)} type="email"
+                className="w-56 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-sm focus:outline-none focus:border-primary"
+              />
+            </Field>
+            <button
+              onClick={() => addMemberMutation.mutate()}
+              disabled={addMemberMutation.isPending || !memberName.trim() || !memberEmail.trim()}
+              className="h-9 px-3 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+            >
+              {addMemberMutation.isPending ? "Adding…" : "Add"}
+            </button>
+            <button
+              onClick={() => setAdding(false)}
+              className="h-9 px-3 border border-border rounded-lg text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
+              <input
+                type="checkbox" checked={memberSendWelcomeEmail}
+                onChange={(e) => setMemberSendWelcomeEmail(e.target.checked)}
+              />
+              Send LMS onboarding mail
+            </label>
+            <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
+              <input
+                type="checkbox" checked={memberSendTicketEmail}
+                onChange={(e) => setMemberSendTicketEmail(e.target.checked)}
+              />
+              Send Ticket
+            </label>
+          </div>
         </div>
       ) : (
         <button
@@ -609,6 +658,7 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
 
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
+  const [sendJudgeEmail, setSendJudgeEmail] = useState(true)
   const [staffQuery, setStaffQuery] = useState("")
   const { data: staffOptions = [] } = useQuery<StaffOption[]>({
     queryKey: ["staff-search-for-judge", staffQuery],
@@ -618,10 +668,12 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
   const alreadyJudging = new Set(judges.map((j) => j.email))
 
   const inviteMutation = useMutation({
-    mutationFn: () => inviteCohortJudgeApi(cohortId, { name: name.trim(), email: email.trim() }),
+    mutationFn: () => inviteCohortJudgeApi(cohortId, {
+      name: name.trim(), email: email.trim(), send_email: sendJudgeEmail,
+    }),
     onSuccess: () => {
       toast.success("Judge added")
-      setName(""); setEmail(""); setStaffQuery("")
+      setName(""); setEmail(""); setStaffQuery(""); setSendJudgeEmail(true)
       queryClient.invalidateQueries({ queryKey: ["competitions-judges", cohortId] })
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to add judge")),
@@ -630,6 +682,18 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
     mutationFn: (userId: string) => revokeCohortJudgeApi(cohortId, userId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["competitions-judges", cohortId] }),
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to remove judge")),
+  })
+  const resendOnboardingMutation = useMutation({
+    mutationFn: (userId: string) => resendJudgeOnboardingEmailApi(cohortId, userId),
+    onSuccess: (res) => {
+      if (res.sent) {
+        toast.success("Onboarding email sent")
+        queryClient.invalidateQueries({ queryKey: ["competitions-judges", cohortId] })
+      } else {
+        toast.error("Send failed — check SMTP")
+      }
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to send onboarding email")),
   })
 
   if (isLoading) return <Spinner />
@@ -692,16 +756,39 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
           <UserPlus size={14} /> {inviteMutation.isPending ? "Adding…" : "Add as judge"}
         </button>
       </div>
+      <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none -mt-3">
+        <input type="checkbox" checked={sendJudgeEmail} onChange={(e) => setSendJudgeEmail(e.target.checked)} />
+        Send email
+      </label>
 
       <div className="flex flex-col gap-2">
         {judges.map((j) => (
           <div key={j.user_id} className="flex items-center justify-between p-3 bg-card border border-border rounded-xl">
             <div>
-              <p className="text-sm font-medium text-foreground">{j.full_name}</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="text-sm font-medium text-foreground">{j.full_name}</p>
+                {j.onboarding_sent ? (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400">
+                    Onboarding sent
+                  </span>
+                ) : (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+                    No onboarding email
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-muted-foreground">{j.email}</p>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted-foreground">{j.scored_count} / {j.team_count} teams scored</span>
+              <button
+                onClick={() => resendOnboardingMutation.mutate(j.user_id)}
+                disabled={resendOnboardingMutation.isPending}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title={j.onboarding_sent ? "Resend onboarding email" : "Send onboarding email"}
+              >
+                <Mail size={14} />
+              </button>
               <button
                 onClick={() => { if (confirm(`Remove ${j.full_name} from this cohort's judges?`)) revokeMutation.mutate(j.user_id) }}
                 className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
@@ -726,6 +813,7 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
   const [showTop20, setShowTop20] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [toCohortId, setToCohortId] = useState("")
+  const [sendTicketOnAdvance, setSendTicketOnAdvance] = useState(true)
   const [exporting, setExporting] = useState(false)
 
   const { data: board = [], isLoading } = useQuery<CompetitionLeaderboardRow[]>({
@@ -764,11 +852,14 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to unpublish results")),
   })
   const advanceMutation = useMutation({
-    mutationFn: () => advanceCohortTeamsApi(cohortId, { team_ids: [...selected], to_cohort_id: toCohortId }),
+    mutationFn: () => advanceCohortTeamsApi(cohortId, {
+      team_ids: [...selected], to_cohort_id: toCohortId, send_ticket_email: sendTicketOnAdvance,
+    }),
     onSuccess: (results) => {
       const targetName = advanceTargets.find((c) => c.id === toCohortId)?.name ?? "the next stage"
       toast.success(`Advanced ${results.length} team(s) to ${targetName}`)
       setSelected(new Set())
+      setSendTicketOnAdvance(true)
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to advance teams")),
   })
@@ -850,6 +941,13 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
             <option value="">Advance to…</option>
             {advanceTargets.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
+          <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+            <input
+              type="checkbox" checked={sendTicketOnAdvance}
+              onChange={(e) => setSendTicketOnAdvance(e.target.checked)}
+            />
+            Send Ticket
+          </label>
           <button
             onClick={() => advanceMutation.mutate()}
             disabled={advanceMutation.isPending || selected.size === 0 || !toCohortId}

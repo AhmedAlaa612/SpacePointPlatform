@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import {
-  ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Wallet, Ban, FileText, Download,
+  ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download,
   CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical,
 } from "lucide-react"
 import type {
@@ -23,7 +23,7 @@ import { SessionsTable } from "@/pages/admin/components/SessionsTable"
 import {
   getCohortApi, getSessionsApi,
   generateSessionsApi, addSessionApi,
-  getRegistrationsApi, resendTicketApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
+  getRegistrationsApi, resendTicketApi, resendOnboardingEmailApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
   deleteRegistrationApi, downloadCohortCertificatesApi,
   updateCohortApi,
 } from "@/api/sessions/cohorts"
@@ -188,6 +188,14 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const resendMutation = useMutation({
     mutationFn: resendTicketApi,
     onSuccess: () => { toast.success("Ticket sent"); invalidateRegistrations() },
+  })
+  const resendOnboardingMutation = useMutation({
+    mutationFn: resendOnboardingEmailApi,
+    onSuccess: (res: { sent: boolean }) => {
+      if (res.sent) { toast.success("Onboarding email sent"); invalidateRegistrations() }
+      else toast.error("Send failed — check SMTP")
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to send onboarding email")),
   })
   const cancelMutation = useMutation({
     mutationFn: cancelRegistrationApi,
@@ -558,6 +566,15 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                           No ticket
                         </span>
                       )}
+                      {r.onboarding_sent ? (
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400">
+                          Onboarding sent
+                        </span>
+                      ) : (
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+                          No onboarding email
+                        </span>
+                      )}
                       {r.certificate_issued ? (
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
                           Certificate issued
@@ -616,6 +633,12 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                         )}
                         <DropdownMenuItem onClick={() => resendMutation.mutate(r.id)} disabled={resendMutation.isPending}>
                           <Ticket size={14} /> {r.ticket_sent ? "Resend ticket" : "Send ticket"}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => resendOnboardingMutation.mutate(r.id)}
+                          disabled={resendOnboardingMutation.isPending}
+                        >
+                          <Mail size={14} /> {r.onboarding_sent ? "Resend onboarding email" : "Send onboarding email"}
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setPaymentTarget(r)}>
                           <Wallet size={14} /> Confirm payment

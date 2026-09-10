@@ -400,6 +400,7 @@ export interface Registration {
   registered_via: string;
   is_repeat: boolean;
   ticket_sent: boolean;
+  onboarding_sent: boolean;
   checked_in: boolean;
   /** Whether a certificate exists at all. Student completion certificates are
    *  emailed as a PDF and never stored, so they have no certificate_url —
@@ -455,6 +456,7 @@ export interface DeskRegistrationInput {
   // the cohort" (the common single-session case).
   session_ids?: string[];
   send_ticket_email?: boolean;
+  send_welcome_email?: boolean;
 }
 
 /** Public ticket page payload (/t/:token). Deliberately narrow — no contact

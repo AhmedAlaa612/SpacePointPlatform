@@ -124,11 +124,17 @@ class CompetitionJudgeOut(BaseModel):
 class CompetitionJudgeProgressOut(CompetitionJudgeOut):
     scored_count: int
     team_count: int
+    onboarding_sent: bool
 
 
 class CompetitionJudgeInviteIn(BaseModel):
     name: str
     email: str
+    # "Send email" (2026-09-10) — same "the action always happens, the
+    # notification is optional" toggle shape as send_welcome_email/
+    # send_ticket_email elsewhere; the judge account/assignment is always
+    # created either way.
+    send_email: bool = True
 
 
 class CompetitionPublicationOut(BaseModel):
@@ -222,6 +228,9 @@ class CompetitionImportConfirmIn(BaseModel):
 class CompetitionAdvanceTeamsIn(BaseModel):
     team_ids: list[UUID]
     to_cohort_id: UUID
+    # "Send Ticket" (2026-09-10) — a promoted member's new-cohort ticket,
+    # same toggle/mechanism as the desk and bulk-import registration flows.
+    send_ticket_email: bool = True
 
 
 class CompetitionAdvanceResultOut(BaseModel):

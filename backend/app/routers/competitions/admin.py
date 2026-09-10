@@ -89,7 +89,9 @@ async def get_cohort_judges(cohort_id: uuid.UUID, db: AsyncSession = Depends(get
 @router.post("/cohorts/{cohort_id}/judges", response_model=CompetitionJudgeOut, status_code=status.HTTP_201_CREATED)
 async def post_cohort_judge(cohort_id: uuid.UUID, body: CompetitionJudgeInviteIn, db: AsyncSession = Depends(get_db)):
     await _get_cohort_or_404(db, cohort_id)
-    user = await judges_service.invite_judge(db, cohort_id=cohort_id, name=body.name, email=body.email)
+    user = await judges_service.invite_judge(
+        db, cohort_id=cohort_id, name=body.name, email=body.email, send_email=body.send_email,
+    )
     await db.commit()
     return CompetitionJudgeOut(user_id=user.id, full_name=user.full_name, email=user.email)
 
@@ -101,6 +103,14 @@ async def delete_cohort_judge(cohort_id: uuid.UUID, user_id: uuid.UUID, db: Asyn
     if not removed:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This judge isn't assigned to this cohort")
     await db.commit()
+
+
+@router.post("/cohorts/{cohort_id}/judges/{user_id}/resend-onboarding-email")
+async def resend_judge_onboarding_email(cohort_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await _get_cohort_or_404(db, cohort_id)
+    sent = await judges_service.resend_judge_onboarding_email(db, cohort_id=cohort_id, user_id=user_id)
+    await db.commit()
+    return {"sent": sent}
 
 
 # ── Teams (manual management — 2026-08-26) ─────────────────────────────
@@ -242,13 +252,26 @@ async def post_cohort_registration_import_confirm(
 
 
 @router.post("/cohorts/{cohort_id}/advance-teams", response_model=list[CompetitionAdvanceResultOut])
-async def post_cohort_advance_teams(cohort_id: uuid.UUID, body: CompetitionAdvanceTeamsIn, db: AsyncSession = Depends(get_db)):
+async def post_cohort_advance_teams(
+    cohort_id: uuid.UUID, body: CompetitionAdvanceTeamsIn, db: AsyncSession = Depends(get_db),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
+):
     await _get_cohort_or_404(db, cohort_id)
     results = await progression_service.advance_teams(
         db, team_ids=body.team_ids, from_cohort_id=cohort_id, to_cohort_id=body.to_cohort_id,
     )
     await db.commit()
-    return [CompetitionAdvanceResultOut(**r) for r in progression_service.results_as_dicts(results)]
+    # Same "only genuinely new registrations get a ticket job" rule the bulk
+    # import confirm endpoint already follows — a member already registered
+    # in the target cohort (idempotent re-run) most likely already has one.
+    if body.send_ticket_email:
+        for r in results:
+            for registration_id in r.new_registration_ids:
+                await safe_enqueue(arq_redis, "send_ticket_email", str(registration_id))
+    return [
+        CompetitionAdvanceResultOut(**{k: v for k, v in r.items() if k != "new_registration_ids"})
+        for r in progression_service.results_as_dicts(results)
+    ]
 
 
 # ── Leaderboard, publish, export ────────────────────────────────────────

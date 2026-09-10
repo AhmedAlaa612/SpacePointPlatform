@@ -57,6 +57,7 @@ export interface CompetitionJudge {
 export interface CompetitionJudgeProgress extends CompetitionJudge {
   scored_count: number
   team_count: number
+  onboarding_sent: boolean
 }
 
 export interface CompetitionPublication {
@@ -155,11 +156,18 @@ export const putProgramRubricApi = (
 export const getCohortJudgesApi = (cohortId: string) =>
   api.get<CompetitionJudgeProgress[]>(`/competitions/admin/cohorts/${cohortId}/judges`).then((r) => r.data)
 
-export const inviteCohortJudgeApi = (cohortId: string, data: { name: string; email: string }) =>
+export const inviteCohortJudgeApi = (
+  cohortId: string, data: { name: string; email: string; send_email?: boolean },
+) =>
   api.post<CompetitionJudge>(`/competitions/admin/cohorts/${cohortId}/judges`, data).then((r) => r.data)
 
 export const revokeCohortJudgeApi = (cohortId: string, userId: string) =>
   api.delete<void>(`/competitions/admin/cohorts/${cohortId}/judges/${userId}`).then((r) => r.data)
+
+export const resendJudgeOnboardingEmailApi = (cohortId: string, userId: string) =>
+  api.post<{ sent: boolean }>(
+    `/competitions/admin/cohorts/${cohortId}/judges/${userId}/resend-onboarding-email`,
+  ).then((r) => r.data)
 
 export const getCohortLeaderboardApi = (cohortId: string) =>
   api.get<CompetitionLeaderboardRow[]>(`/competitions/admin/cohorts/${cohortId}/leaderboard`).then((r) => r.data)
@@ -206,12 +214,15 @@ export const previewCohortRegistrationImportApi = (cohortId: string, file: File)
 export const confirmCohortRegistrationImportApi = (
   cohortId: string,
   rows: Omit<CompetitionImportPreviewRow, "issues">[],
+  options?: { send_ticket_email?: boolean; send_welcome_email?: boolean },
 ) =>
   api.post<CompetitionImportResult>(
-    `/competitions/admin/cohorts/${cohortId}/registration-import/confirm`, { rows },
+    `/competitions/admin/cohorts/${cohortId}/registration-import/confirm`, { rows, ...options },
   ).then((r) => r.data)
 
-export const advanceCohortTeamsApi = (cohortId: string, data: { team_ids: string[]; to_cohort_id: string }) =>
+export const advanceCohortTeamsApi = (
+  cohortId: string, data: { team_ids: string[]; to_cohort_id: string; send_ticket_email?: boolean },
+) =>
   api.post<CompetitionAdvanceResult[]>(`/competitions/admin/cohorts/${cohortId}/advance-teams`, data).then((r) => r.data)
 
 // ── Teams (manual management) ───────────────────────────────────────────
@@ -232,7 +243,11 @@ export const addExistingTeamMemberApi = (teamId: string, userId: string) =>
   api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/members`, { user_id: userId }).then((r) => r.data)
 
 export const registerAndAddTeamMemberApi = (
-  teamId: string, data: { full_name: string; email: string; phone?: string; school?: string },
+  teamId: string,
+  data: {
+    full_name: string; email: string; phone?: string; school?: string
+    send_welcome_email?: boolean; send_ticket_email?: boolean
+  },
 ) => api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/members`, data).then((r) => r.data)
 
 export const removeTeamMemberApi = (teamId: string, userId: string) =>

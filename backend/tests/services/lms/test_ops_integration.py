@@ -21,6 +21,7 @@ from app.services.lms.program import assign_lms_program
 from app.services.lms.ops_integration import (
     deactivate_registration_enrollments,
     get_or_create_student_account,
+    send_registered_notice_email,
     send_set_password_email,
     sync_registration_lms,
 )
@@ -230,6 +231,69 @@ async def test_sync_registration_lms_creates_account_and_enrolls(db):
 
 
 @pytest.mark.asyncio
+async def test_sync_registration_lms_new_account_email_mentions_the_program(db, monkeypatch):
+    program, cohort = await _program_cohort(db)
+    contact = await _contact(db)
+    registration = await _registration(db, contact=contact, cohort=cohort)
+    await db.commit()
+    captured = _capture_send(monkeypatch)
+
+    await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=True)
+
+    assert captured["subject"] == "Your SpacePoint learning account"
+    assert f"You're registered for {program.name} ({cohort.name})." in captured["body"]
+    assert "Step 1" in captured["body"]
+
+
+@pytest.mark.asyncio
+async def test_sync_registration_lms_emails_a_returning_student_a_plain_registered_notice(db, monkeypatch):
+    """2026-09-10: previously an already-existing account registering for a
+    new cohort got nothing at all. Now it gets send_registered_notice_email —
+    same send_welcome_email gate, different content (no token/password step)."""
+    program, cohort = await _program_cohort(db)
+    contact = await _contact(db)
+    existing = User(
+        id=uuid.uuid4(), full_name="Ada Lovelace", email=contact.email, password_hash="x",
+        roles=["student"], contact_id=contact.id, status="active",
+    )
+    db.add(existing)
+    registration = await _registration(db, contact=contact, cohort=cohort)
+    await db.commit()
+    captured = _capture_send(monkeypatch)
+
+    user = await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=True)
+
+    assert user is not None and user.id == existing.id
+    assert captured["subject"] == f"You're registered — {program.name} ({cohort.name})"
+    assert "Step 1" not in captured["body"]
+
+
+@pytest.mark.asyncio
+async def test_sync_registration_lms_respects_send_welcome_email_false_for_a_returning_student_too(db, monkeypatch):
+    program, cohort = await _program_cohort(db)
+    contact = await _contact(db)
+    existing = User(
+        id=uuid.uuid4(), full_name="Ada Lovelace", email=contact.email, password_hash="x",
+        roles=["student"], contact_id=contact.id, status="active",
+    )
+    db.add(existing)
+    registration = await _registration(db, contact=contact, cohort=cohort)
+    await db.commit()
+    sent = False
+
+    async def _fake(*args, **kwargs):
+        nonlocal sent
+        sent = True
+        return True
+
+    monkeypatch.setattr("app.services.lms.ops_integration.try_send_email", _fake)
+
+    await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=True, send_welcome_email=False)
+
+    assert sent is False
+
+
+@pytest.mark.asyncio
 async def test_sync_registration_lms_noop_when_create_account_false(db):
     program, cohort = await _program_cohort(db)
     contact = await _contact(db)
@@ -360,3 +424,43 @@ async def test_body_spells_out_both_steps_as_a_fallback_to_the_button(db, monkey
     assert "Step 2" in captured["body"]
     body_lower = captured["body"].lower()
     assert body_lower.index("step 1") < body_lower.index("step 2")
+
+
+@pytest.mark.asyncio
+async def test_new_account_intro_mentions_the_program_when_context_is_given(db, monkeypatch):
+    student = await _new_user(db, roles=["student"])
+    captured = _capture_send(monkeypatch)
+
+    await send_set_password_email(student, purpose="welcome", audience="student", context="Ru'ya Qualifier")
+
+    assert "You're registered for Ru'ya Qualifier." in captured["body"]
+    assert "An account was created for you" not in captured["body"]
+
+
+# ── send_registered_notice_email — the "existing account" sibling ──────────
+
+@pytest.mark.asyncio
+async def test_registered_notice_has_no_token_just_a_login_link(db, monkeypatch):
+    student = await _new_user(db, roles=["student"])
+    captured = _capture_send(monkeypatch)
+
+    await send_registered_notice_email(student, audience="student", context="Ru'ya Qualifier")
+
+    assert captured["subject"] == "You're registered — Ru'ya Qualifier"
+    assert "You're registered for Ru'ya Qualifier." in captured["body"]
+    assert f"{settings.FRONTEND_URL}/learn/login" in captured["body"]
+    assert "token=" not in captured["body"]
+    assert "Step 1" not in captured["body"]
+
+
+@pytest.mark.asyncio
+async def test_registered_notice_for_a_judge_links_to_the_portal_login(db, monkeypatch):
+    judge = await _new_user(db, roles=["judge"])
+    captured = _capture_send(monkeypatch)
+
+    await send_registered_notice_email(judge, audience="judge", context="Ru'ya Finalist")
+
+    assert captured["subject"] == "You're confirmed as a judge — Ru'ya Finalist"
+    assert "You've been registered as a judge for Ru'ya Finalist." in captured["body"]
+    assert f"{settings.FRONTEND_URL}/login" in captured["body"]
+    assert f"{settings.FRONTEND_URL}/learn/login" not in captured["body"]

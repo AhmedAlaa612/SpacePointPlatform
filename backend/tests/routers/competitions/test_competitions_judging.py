@@ -16,6 +16,7 @@ from app.models.competitions.judging import CompetitionJudge
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.spine.contact import Contact
 from app.models.team import Team
 from app.models.user import User
 from app.services.teams import create_team
@@ -157,6 +158,103 @@ async def test_ops_can_invite_list_and_revoke_a_judge(db, client):
         f"/competitions/admin/cohorts/{cohort.id}/judges/{judge_user_id}", headers=_headers(ops),
     )
     assert revoked_again.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_inviting_an_existing_account_as_judge_sends_a_registered_notice_not_a_password_email(
+    db, client, monkeypatch,
+):
+    """2026-09-10: previously an already-existing account added as a judge
+    got no email at all. Now it gets send_registered_notice_email — no
+    token/password step, just "you're registered, log in"."""
+    ops = await _ops(db)
+    program, cohort = await _program_and_cohort(db)
+    existing = await _judge(db)
+    await db.commit()
+
+    captured = {}
+
+    async def _fake_send(to, subject, body, **kwargs):
+        captured["subject"] = subject
+        captured["body"] = body
+        return True
+
+    monkeypatch.setattr("app.services.lms.ops_integration.try_send_email", _fake_send)
+
+    invited = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/judges", headers=_headers(ops),
+        json={"name": existing.full_name, "email": existing.email},
+    )
+    assert invited.status_code == 201, invited.text
+    assert invited.json()["user_id"] == str(existing.id)
+
+    assert captured["subject"] == f"You're confirmed as a judge — {program.name} ({cohort.name})"
+    assert "Step 1" not in captured["body"]
+
+
+@pytest.mark.asyncio
+async def test_reinviting_an_already_assigned_judge_sends_no_email(db, client, monkeypatch):
+    """The docstring's idempotency promise — re-inviting a judge already
+    assigned to this cohort is a true no-op, not a re-send of the
+    "you're confirmed" notice on every retry/double-click."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    existing = await _judge(db)
+    await db.commit()
+
+    sent = False
+
+    async def _fake_send(*args, **kwargs):
+        nonlocal sent
+        sent = True
+        return True
+
+    monkeypatch.setattr("app.services.lms.ops_integration.try_send_email", _fake_send)
+
+    first = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/judges", headers=_headers(ops),
+        json={"name": existing.full_name, "email": existing.email},
+    )
+    assert first.status_code == 201, first.text
+    assert sent is True  # first assignment to this cohort — expected to notify
+
+    sent = False
+    second = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/judges", headers=_headers(ops),
+        json={"name": existing.full_name, "email": existing.email},
+    )
+    assert second.status_code == 201, second.text
+    assert sent is False  # already assigned — no repeat email
+
+
+@pytest.mark.asyncio
+async def test_inviting_a_judge_can_opt_out_of_the_email_while_still_creating_the_account(
+    db, client, monkeypatch,
+):
+    """"Send email" (2026-09-10) is independent of the invite itself — the
+    account and assignment are always created, only the notification is
+    optional, same shape as send_welcome_email elsewhere."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+    sent = False
+
+    async def _fake_send(*args, **kwargs):
+        nonlocal sent
+        sent = True
+        return True
+
+    monkeypatch.setattr("app.services.lms.ops_integration.try_send_email", _fake_send)
+
+    invited = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/judges", headers=_headers(ops),
+        json={"name": "Silent Judge", "email": f"silent-judge-{uuid.uuid4().hex[:8]}@example.com", "send_email": False},
+    )
+    assert invited.status_code == 201, invited.text
+    assert sent is False
+
+    listed = await client.get(f"/competitions/admin/cohorts/{cohort.id}/judges", headers=_headers(ops))
+    assert any(r["user_id"] == invited.json()["user_id"] for r in listed.json())
 
 
 # ── Judge scoring surface ────────────────────────────────────────────────
@@ -702,6 +800,57 @@ async def test_advance_teams_via_http_moves_a_team_to_the_target_cohort(db, clie
     unadvanced_board = await client.get(f"/competitions/admin/cohorts/{finalists.id}/leaderboard", headers=_headers(ops))
     finalist_row = next(r for r in unadvanced_board.json() if r["team_id"] == str(moved_team.id))
     assert finalist_row["advanced_to"] is None  # nothing advances further from the last stage
+
+
+async def _advanceable_team(db):
+    """Shared setup for the two ticket-toggle tests below: a program with two
+    cohorts and one single-member team in the source cohort, ready to advance.
+    The member needs a linked Contact — advance_teams only creates a new-cohort
+    Registration (and therefore a ticket) for a member whose contact_id is set,
+    same as any other registration in this codebase."""
+    ops = await _ops(db)
+    program, qualifier = await _program_and_cohort(db)
+    finalists = Cohort(id=uuid.uuid4(), program_id=program.id, name="Finalists", status="registration_open")
+    db.add(finalists)
+    contact = Contact(id=uuid.uuid4(), full_name="Judging Test Student", contact_roles=["student"], email=f"jstu-{uuid.uuid4().hex[:8]}@example.com")
+    db.add(contact)
+    await db.flush()
+    student = User(
+        id=uuid.uuid4(), full_name=contact.full_name, email=contact.email,
+        password_hash="x", roles=["student"], status="active", contact_id=contact.id,
+    )
+    db.add(student)
+    await db.commit()
+    team = await create_team(db, name="Falcon Eye", created_by=student.id, cohort_id=qualifier.id)
+    await db.commit()
+    return ops, qualifier, finalists, team
+
+
+@pytest.mark.asyncio
+async def test_advancing_a_team_enqueues_a_ticket_for_its_new_registration(db, arq_client, arq_redis):
+    ops, qualifier, finalists, team = await _advanceable_team(db)
+
+    resp = await arq_client.post(
+        f"/competitions/admin/cohorts/{qualifier.id}/advance-teams", headers=_headers(ops),
+        json={"team_ids": [str(team.id)], "to_cohort_id": str(finalists.id)},
+    )
+    assert resp.status_code == 200, resp.text
+
+    queued_jobs = await arq_redis.zrange("arq:queue", 0, -1)
+    assert len(queued_jobs) == 1
+
+
+@pytest.mark.asyncio
+async def test_advancing_a_team_can_opt_out_of_the_ticket_email(db, arq_client, arq_redis):
+    ops, qualifier, finalists, team = await _advanceable_team(db)
+
+    resp = await arq_client.post(
+        f"/competitions/admin/cohorts/{qualifier.id}/advance-teams", headers=_headers(ops),
+        json={"team_ids": [str(team.id)], "to_cohort_id": str(finalists.id), "send_ticket_email": False},
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert await arq_redis.zrange("arq:queue", 0, -1) == []
 
 
 @pytest.mark.asyncio

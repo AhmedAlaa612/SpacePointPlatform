@@ -313,6 +313,7 @@ def _ticket_email_body(
     *, student_name: str, program_name: str, dates: str, location: str | None,
     location_address: str | None = None, location_maps_url: str | None = None, ticket_link: str,
 ) -> str:
+    from app.core.config import settings
     where = location or "To be confirmed"
     if location_address:
         where += f"<br>{escape(location_address)}"
@@ -321,6 +322,10 @@ def _ticket_email_body(
             f'<br><a href="{escape(location_maps_url)}" style="color:#2563eb">'
             f"Open in Google Maps</a>"
         )
+    # Every program creates an LMS account (2026-09-10, ops-confirmed fixed
+    # behavior) — the ticket recipient is always a student account, so this
+    # link never needs a per-registration "does an account even exist" check.
+    login_link = f"{settings.FRONTEND_URL}/learn/login"
     return (
         f"<p>Hi {student_name},</p>"
         f"<p>You're registered for <strong>{program_name}</strong>.</p>"
@@ -329,5 +334,6 @@ def _ticket_email_body(
         f'<p style="text-align:center"><img src="cid:ticket" alt="Your Ticket" style="display:block;max-width:525px;height:auto;margin:20px auto;border-radius:18px"></p>'
         f"<p>Show this ticket at the door. You can also view it online: "
         f'<a href="{ticket_link}">{ticket_link}</a></p>'
+        f'<p>Log in to the LMS here to explore: <a href="{login_link}">{login_link}</a></p>'
         "<p>— SpacePoint</p>"
     )
