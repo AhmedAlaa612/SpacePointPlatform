@@ -38,6 +38,12 @@ class StudentSignupRequest(BaseModel):
     city_other: str | None = None
 
 
+class ForgotPasswordRequest(BaseModel):
+    """Self-service "Forgot password?" (LMS + portal login pages)."""
+
+    email: EmailStr
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
