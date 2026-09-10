@@ -14,7 +14,6 @@ import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { getCountries } from "@/lib/countries";
 import { EmptyState } from "@/components/ui/primitives";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StatTile } from "@/components/ProfileStatsCards";
 import { CourseProgress } from "./CourseProgress";
@@ -69,219 +68,196 @@ export default function LearnProfile() {
 
   return (
     <div className="mx-auto max-w-[1180px] px-5 sm:px-8 lg:px-10 py-6 sm:py-8 flex flex-col gap-6">
-      <Tabs defaultValue="profile">
-        <TabsList>
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="settings">Settings</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="profile" className="flex flex-col gap-6 mt-6">
-          <Card className="flex-row items-center gap-6 p-6">
-            <div className="w-24 h-24 rounded-full bg-primary/10 border-2 border-primary/30 flex items-center justify-center text-2xl font-display font-bold text-primary overflow-hidden shrink-0">
-              {me.photo_url ? <img src={me.photo_url} alt="" className="w-full h-full object-cover" /> : initials}
-            </div>
-            <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-              <div className="flex items-center gap-2.5 flex-wrap">
-                <div className="font-display text-2xl font-bold tracking-tight">{me.full_name}</div>
-                <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary">Student</span>
-              </div>
-              <div className="text-sm text-muted-foreground">{me.email}</div>
-              {me.nickname && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground" title="What other students see on leaderboards and in live games — never your real name.">
-                  <span>Nickname: <span className="font-medium text-foreground">{me.nickname}</span></span>
-                  <button
-                    onClick={() => { setRerollError(null); reroll.mutate(); }}
-                    disabled={reroll.isPending}
-                    className="inline-flex items-center gap-1 text-primary hover:opacity-80 cursor-pointer font-medium disabled:opacity-50"
-                  >
-                    <RefreshCw className={`size-3 ${reroll.isPending ? "animate-spin" : ""}`} />
-                    {reroll.isPending ? "Rerolling..." : "Reroll"}
-                  </button>
-                </div>
-              )}
-              {rerollError && <div className="text-xs text-destructive">{rerollError}</div>}
-              {memberSince && <div className="text-xs text-muted-foreground">Student since {memberSince}</div>}
-            </div>
-            <Button variant="outline" onClick={() => setEditOpen(true)} className="shrink-0">
-              <Pencil className="size-3.5" /> Edit profile
-            </Button>
-          </Card>
-
-          <div className="grid lg:grid-cols-[1fr_340px] gap-5 items-start">
-            <div className="flex flex-col gap-5 min-w-0">
-              <div className="flex flex-col gap-3">
-                <h2 className="font-display text-lg font-bold tracking-tight">Learning record</h2>
-                <div className="grid grid-cols-3 gap-3">
-                  <StatTile label="Enrolled" value={dashboard?.stats.total_enrolled ?? 0} />
-                  <StatTile label="In progress" value={dashboard?.stats.in_progress ?? 0} />
-                  <StatTile label="Modules done" value={dashboard?.stats.modules_done ?? 0} />
-                </div>
-              </div>
-
-              <Card className="p-5 gap-4">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-display text-base font-bold tracking-tight">Courses</h2>
-                  <button
-                    onClick={() => void navigate({ to: "/learn/my-courses" })}
-                    className="text-xs font-medium text-primary hover:opacity-80 cursor-pointer"
-                  >
-                    Go to my courses
-                  </button>
-                </div>
-                {!dashboard || dashboard.courses.length === 0 ? (
-                  <EmptyState title="No courses yet" hint="Enrol in something from the catalog to see it here." />
-                ) : (
-                  <div className="flex flex-col divide-y divide-border">
-                    {dashboard.courses.map((c) => (
-                      <div key={c.course_id} className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-medium truncate">{c.title}</div>
-                          <div className="text-xs text-muted-foreground mt-0.5">
-                            {c.status === "completed" ? "Completed" : `${c.modules_done} of ${c.modules_total} modules`}
-                          </div>
-                        </div>
-                        <CourseProgress value={c.pct} className="w-36 shrink-0 hidden sm:flex" />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Card>
-
-              <Card className="p-5 gap-4">
-                <h2 className="font-display text-base font-bold tracking-tight">Recent activity</h2>
-                {!activity || activity.length === 0 ? (
-                  <EmptyState title="Nothing here yet" hint="Completed lessons, quizzes and flashcards will show up here." />
-                ) : (
-                  <div className="flex flex-col gap-3">
-                    {activity.map((a) => (
-                      <div key={a.item_id} className="flex items-start gap-3">
-                        <CheckCircle2 className="size-4 text-primary shrink-0 mt-0.5" />
-                        <div className="min-w-0">
-                          <div className="text-sm text-foreground leading-snug">
-                            Completed <span className="font-medium">{a.item_title ?? a.item_kind}</span> in {a.course_title}
-                          </div>
-                          {a.completed_at && (
-                            <div className="text-xs text-muted-foreground mt-0.5">
-                              {new Date(a.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Card>
-
-              <Card className="p-5 gap-4">
-                <h2 className="font-display text-base font-bold tracking-tight">Certificates</h2>
-                {!certificates || certificates.length === 0 ? (
-                  <EmptyState
-                    title="No certificates yet"
-                    hint="Finish a course or a learning path and its certificate appears here automatically."
-                  />
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {certificates.map((c) => (
-                      <div
-                        key={c.id}
-                        className="flex items-center gap-3 rounded-xl border border-border p-3"
-                      >
-                        <div className="flex size-10 shrink-0 items-center justify-center rounded-full ring-1 ring-primary/35 text-primary">
-                          <Award className="size-5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-foreground truncate">{c.title}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {c.type === "lms_path_completion" ? "Learning path" : "Course"}
-                            {c.issued_at && ` · ${new Date(c.issued_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
-                          </div>
-                        </div>
-                        {c.url && (
-                          <a
-                            href={c.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="shrink-0 flex items-center gap-1.5 text-sm font-medium text-primary hover:opacity-80"
-                          >
-                            <Download className="size-3.5" /> PDF
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Card>
-
-              <Card className="p-5 gap-4">
-                <h2 className="font-display text-base font-bold tracking-tight">Teams</h2>
-                {!teams || teams.length === 0 ? (
-                  <EmptyState title="No teams yet" hint="Join or create a team from a team-policy mission to see it here." />
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {teams.map((t) => (
-                      <div
-                        key={t.id}
-                        className="flex items-center gap-3 rounded-xl border border-border p-3"
-                      >
-                        <div className="flex size-10 shrink-0 items-center justify-center rounded-full ring-1 ring-primary/35 text-primary">
-                          <Users className="size-5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-foreground truncate">{t.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {t.cohort_id ? "Cohort team" : "Self-formed"}
-                            {t.member_names.length > 0 && ` · ${t.member_names.join(", ")}`}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Card>
-            </div>
-
-            <Card className="p-5 gap-4">
-              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Account info</div>
-              <div className="flex flex-col gap-3">
-                <AccountField label="Email" value={me.email} />
-                <AccountField label="WhatsApp" value={me.phone || "Not set"} />
-                <AccountField
-                  label="Location"
-                  value={
-                    [me.city_name, getCountries().find((c) => c.code === me.country)?.name ?? me.country]
-                      .filter(Boolean)
-                      .join(", ") || "Not set"
-                  }
-                />
-                {memberSince && <AccountField label="Member since" value={memberSince} />}
-              </div>
-              <div className="h-px bg-border" />
-              <button onClick={() => setPwOpen(true)} className="text-sm font-medium text-primary hover:opacity-80 cursor-pointer text-left">
-                Change password
-              </button>
-            </Card>
+      <Card className="flex-row items-center gap-6 p-6">
+        <div className="w-24 h-24 rounded-full bg-primary/10 border-2 border-primary/30 flex items-center justify-center text-2xl font-display font-bold text-primary overflow-hidden shrink-0">
+          {me.photo_url ? <img src={me.photo_url} alt="" className="w-full h-full object-cover" /> : initials}
+        </div>
+        <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <div className="font-display text-2xl font-bold tracking-tight">{me.full_name}</div>
+            <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-primary/10 text-primary">Student</span>
           </div>
-        </TabsContent>
+          <div className="text-sm text-muted-foreground">{me.email}</div>
+          {me.nickname && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground" title="What other students see on leaderboards and in live games — never your real name.">
+              <span>Nickname: <span className="font-medium text-foreground">{me.nickname}</span></span>
+              <button
+                onClick={() => { setRerollError(null); reroll.mutate(); }}
+                disabled={reroll.isPending}
+                className="inline-flex items-center gap-1 text-primary hover:opacity-80 cursor-pointer font-medium disabled:opacity-50"
+              >
+                <RefreshCw className={`size-3 ${reroll.isPending ? "animate-spin" : ""}`} />
+                {reroll.isPending ? "Rerolling..." : "Reroll"}
+              </button>
+            </div>
+          )}
+          {rerollError && <div className="text-xs text-destructive">{rerollError}</div>}
+          {memberSince && <div className="text-xs text-muted-foreground">Student since {memberSince}</div>}
+        </div>
+        <Button variant="outline" onClick={() => setEditOpen(true)} className="shrink-0">
+          <Pencil className="size-3.5" /> Edit profile
+        </Button>
+      </Card>
 
-        <TabsContent value="settings" className="flex flex-col gap-4 mt-6 max-w-md">
-          <Card className="flex-row items-center justify-between gap-4 p-5">
-            <div>
-              <div className="text-sm font-medium">Change password</div>
-              <div className="text-xs text-muted-foreground mt-0.5">Update the password you sign in with.</div>
+      <div className="grid lg:grid-cols-[1fr_340px] gap-5 items-start">
+        <div className="flex flex-col gap-5 min-w-0">
+          <div className="flex flex-col gap-3">
+            <h2 className="font-display text-lg font-bold tracking-tight">Learning record</h2>
+            <div className="grid grid-cols-3 gap-3">
+              <StatTile label="Enrolled" value={dashboard?.stats.total_enrolled ?? 0} />
+              <StatTile label="In progress" value={dashboard?.stats.in_progress ?? 0} />
+              <StatTile label="Modules done" value={dashboard?.stats.modules_done ?? 0} />
             </div>
-            <Button variant="outline" onClick={() => setPwOpen(true)} className="shrink-0">Change</Button>
+          </div>
+
+          <Card className="p-5 gap-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-base font-bold tracking-tight">Courses</h2>
+              <button
+                onClick={() => void navigate({ to: "/learn/my-courses" })}
+                className="text-xs font-medium text-primary hover:opacity-80 cursor-pointer"
+              >
+                Go to my courses
+              </button>
+            </div>
+            {!dashboard || dashboard.courses.length === 0 ? (
+              <EmptyState title="No courses yet" hint="Enrol in something from the catalog to see it here." />
+            ) : (
+              <div className="flex flex-col divide-y divide-border">
+                {dashboard.courses.map((c) => (
+                  <div key={c.course_id} className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{c.title}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {c.status === "completed" ? "Completed" : `${c.modules_done} of ${c.modules_total} modules`}
+                      </div>
+                    </div>
+                    <CourseProgress value={c.pct} className="w-36 shrink-0 hidden sm:flex" />
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
-          <Card className="flex-row items-center justify-between gap-4 p-5">
-            <div>
-              <div className="text-sm font-medium text-destructive">Sign out of SpacePoint Learn</div>
-              <div className="text-xs text-muted-foreground mt-0.5">Your progress is saved on the server, not this device.</div>
-            </div>
-            <Button variant="destructive" onClick={() => void handleLogout()} className="shrink-0">
+
+          <Card className="p-5 gap-4">
+            <h2 className="font-display text-base font-bold tracking-tight">Recent activity</h2>
+            {!activity || activity.length === 0 ? (
+              <EmptyState title="Nothing here yet" hint="Completed lessons, quizzes and flashcards will show up here." />
+            ) : (
+              <div className="flex flex-col gap-3">
+                {activity.map((a) => (
+                  <div key={a.item_id} className="flex items-start gap-3">
+                    <CheckCircle2 className="size-4 text-primary shrink-0 mt-0.5" />
+                    <div className="min-w-0">
+                      <div className="text-sm text-foreground leading-snug">
+                        Completed <span className="font-medium">{a.item_title ?? a.item_kind}</span> in {a.course_title}
+                      </div>
+                      {a.completed_at && (
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {new Date(a.completed_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-5 gap-4">
+            <h2 className="font-display text-base font-bold tracking-tight">Certificates</h2>
+            {!certificates || certificates.length === 0 ? (
+              <EmptyState
+                title="No certificates yet"
+                hint="Finish a course or a learning path and its certificate appears here automatically."
+              />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {certificates.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex items-center gap-3 rounded-xl border border-border p-3"
+                  >
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full ring-1 ring-primary/35 text-primary">
+                      <Award className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-foreground truncate">{c.title}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {c.type === "lms_path_completion" ? "Learning path" : "Course"}
+                        {c.issued_at && ` · ${new Date(c.issued_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`}
+                      </div>
+                    </div>
+                    {c.url && (
+                      <a
+                        href={c.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="shrink-0 flex items-center gap-1.5 text-sm font-medium text-primary hover:opacity-80"
+                      >
+                        <Download className="size-3.5" /> PDF
+                      </a>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-5 gap-4">
+            <h2 className="font-display text-base font-bold tracking-tight">Teams</h2>
+            {!teams || teams.length === 0 ? (
+              <EmptyState title="No teams yet" hint="Join or create a team from a team-policy mission to see it here." />
+            ) : (
+              <div className="flex flex-col gap-2">
+                {teams.map((t) => (
+                  <div
+                    key={t.id}
+                    className="flex items-center gap-3 rounded-xl border border-border p-3"
+                  >
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full ring-1 ring-primary/35 text-primary">
+                      <Users className="size-5" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-foreground truncate">{t.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {t.cohort_id ? "Cohort team" : "Self-formed"}
+                        {t.member_names.length > 0 && ` · ${t.member_names.join(", ")}`}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        <Card className="p-5 gap-4">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Account info</div>
+          <div className="flex flex-col gap-3">
+            <AccountField label="Email" value={me.email} />
+            <AccountField label="WhatsApp" value={me.phone || "Not set"} />
+            <AccountField
+              label="Location"
+              value={
+                [me.city_name, getCountries().find((c) => c.code === me.country)?.name ?? me.country]
+                  .filter(Boolean)
+                  .join(", ") || "Not set"
+              }
+            />
+            {memberSince && <AccountField label="Member since" value={memberSince} />}
+          </div>
+          <div className="h-px bg-border" />
+          <div className="flex items-center justify-between">
+            <button onClick={() => setPwOpen(true)} className="text-sm font-medium text-primary hover:opacity-80 cursor-pointer text-left">
+              Change password
+            </button>
+            <button onClick={() => void handleLogout()} className="text-sm font-medium text-destructive hover:opacity-80 cursor-pointer inline-flex items-center gap-1.5">
               <LogOut className="size-3.5" /> Sign out
-            </Button>
-          </Card>
-        </TabsContent>
-      </Tabs>
+            </button>
+          </div>
+        </Card>
+      </div>
 
       <EditProfileDialog open={editOpen} onOpenChange={setEditOpen} />
       <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
