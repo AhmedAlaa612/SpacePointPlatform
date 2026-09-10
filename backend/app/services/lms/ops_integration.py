@@ -89,20 +89,38 @@ async def get_or_create_student_account(db: AsyncSession, contact_id: uuid.UUID)
 # whoever read the email the next evening, and re-inviting is a manual ops step.
 # 3 days matches the bulk intern import (scripts/bulk_import_interns.py) for the
 # same reason; the token stays stateless, so this is also how long a leaked link
-# stays usable. Keep `_LINK_VALIDITY_COPY` saying what `_LINK_VALIDITY` does.
+# stays usable. Callers that want a different window (e.g. the self-service
+# "Forgot password?" flow, which is a 24h link — /auth/forgot-password) pass
+# their own `expires_delta`.
 _LINK_VALIDITY = timedelta(days=3)
-_LINK_VALIDITY_COPY = "3 days"
 
 
-async def send_set_password_email(user: User, *, purpose: str = "welcome") -> bool:
+def _format_validity(delta: timedelta) -> str:
+    hours = delta.total_seconds() / 3600
+    if hours < 24:
+        n = round(hours)
+        return f"{n} hour" if n == 1 else f"{n} hours"
+    days = round(hours / 24)
+    return "1 day" if days == 1 else f"{days} days"
+
+
+async def send_set_password_email(
+    user: User, *, purpose: str = "welcome", expires_delta: timedelta | None = None
+) -> bool:
     """Public (P3-3, 2026-08-10) — was module-private until the student
     panel's "create account & invite" and "password reset" actions needed
     to call it directly, not just via `sync_registration_lms`. Same token
     mechanism either way (`create_password_set_token`, stateless) —
     `purpose` only changes the copy, since "an account was created for you"
-    reads wrong for a reset on an account that already existed."""
+    reads wrong for a reset on an account that already existed.
+
+    `expires_delta` defaults to `_LINK_VALIDITY` (3 days) — the self-service
+    "Forgot password?" flow (routers/auth.py::forgot_password) passes 24
+    hours instead, since that's a link the requester is waiting on right
+    now, not a "get to it whenever" invite."""
     from app.core.config import settings
-    token = create_password_set_token(user.id, expires_delta=_LINK_VALIDITY)
+    validity = expires_delta or _LINK_VALIDITY
+    token = create_password_set_token(user.id, expires_delta=validity)
     # LearnSetPassword is mounted at both paths for exactly this reason (see
     # its own docstring) — a student's link should log them back in at
     # /learn/login, everyone else's at the portal /login, so `roleHomePath`
@@ -120,7 +138,7 @@ async def send_set_password_email(user: User, *, purpose: str = "welcome") -> bo
         (
             f"<p>Hi {user.full_name},</p>"
             f'<p>{intro} Set your password here: <a href="{link}">{link}</a></p>'
-            f"<p>This link is valid for {_LINK_VALIDITY_COPY}.</p>"
+            f"<p>This link is valid for {_format_validity(validity)}.</p>"
             "<p>— SpacePoint</p>"
         ),
         html=True,

@@ -131,6 +131,7 @@ import { LearnShell } from "@/pages/learn/LearnShell";
 import LearnLogin from "@/pages/learn/LearnLogin";
 import LearnSignup from "@/pages/learn/LearnSignup";
 import LearnSetPassword from "@/pages/learn/LearnSetPassword";
+import ForgotPassword from "@/pages/learn/ForgotPassword";
 import LearnLanding from "@/pages/learn/LearnLanding";
 import { resolveLearnLanding } from "@/pages/learn/resolveLearnLanding";
 import LearnCatalog from "@/pages/learn/LearnCatalog";
@@ -190,6 +191,14 @@ const setPasswordRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/set-password",
   component: LearnSetPassword,
+});
+
+// Self-service "Forgot password?" (portal side) — same dual-mount precedent
+// as setPasswordRoute above; see ForgotPassword.tsx's docstring.
+const forgotPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/forgot-password",
+  component: ForgotPassword,
 });
 
 /** Public ticket page. Sits at the root (not under the auth shell) because a
@@ -907,6 +916,15 @@ const learnSetPasswordRoute = createRoute({
   component: LearnSetPassword,
 });
 
+// LMS side of forgotPasswordRoute above — same component, mounted at the
+// /learn path so ForgotPassword's own login-path detection sends students
+// back to /learn/login instead of the portal one.
+const learnForgotPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/learn/forgot-password",
+  component: ForgotPassword,
+});
+
 // A program student's real "home" is their latest program board, not this
 // dashboard — redirects on every fresh visit to bare `/learn` (typed URL,
 // refresh, a bookmark), same target resolveLearnLanding already computes
@@ -1135,9 +1153,11 @@ const routeTree = rootRoute.addChildren([
   kitScanRoute,
   loginRoute,
   setPasswordRoute,
+  forgotPasswordRoute,
   learnLoginRoute,
   learnSignupRoute,
   learnSetPasswordRoute,
+  learnForgotPasswordRoute,
   learnLayoutRoute.addChildren([
     learnLandingRoute, learnHomeRoute, learnCatalogRoute, learnMyCoursesRoute, learnCourseRoute, learnPlayerRoute,
     learnCheckoutSuccessRoute,

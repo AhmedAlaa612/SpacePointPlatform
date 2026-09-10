@@ -31,6 +31,13 @@ export async function setPassword(token: string, new_password: string): Promise<
   await api.post("/auth/set-password", { token, new_password });
 }
 
+/** Self-service "Forgot password?" — always resolves with the same generic
+ * message the backend returns, whether or not the email is registered
+ * (/auth/forgot-password never reveals account existence). */
+export async function forgotPassword(email: string): Promise<void> {
+  await api.post("/auth/forgot-password", { email });
+}
+
 export async function fetchMe(): Promise<User> {
   const { data } = await api.get<User>("/auth/me");
   return data;

@@ -23,6 +23,7 @@ from app.models.spine.contact import Contact
 from app.models.user import User
 from app.schemas.auth import (
     ChangePasswordRequest,
+    ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     RefreshRequest,
@@ -40,6 +41,7 @@ from app.schemas.user import InstructorApply
 from app.services.documents.id_card import ensure_card_number, format_card_id
 from app.services.invitations import resolve_invite_code
 from app.services.lms.invite_grants import apply_invite_code_grants_to_new_user
+from app.services.lms.ops_integration import send_set_password_email
 from app.services.nicknames import assign_nickname, reroll_nickname
 from app.services.notification import create_notification as notify
 from app.services.spine.identity import ensure_guardian_relationship, resolve_or_create_contact
@@ -734,6 +736,34 @@ async def set_password(
     user.must_change_password = False
     await db.commit()
     return {"detail": "password set"}
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    data: ForgotPasswordRequest, request: Request, db: AsyncSession = Depends(get_db),
+):
+    """Self-service "Forgot password?" — the LMS and portal login pages both
+    call this. Public and rate-limited the same way /auth/signup is (there's
+    no account yet to key a per-account limit on, same as signup).
+
+    Reuses the same stateless set-password-token mechanism as the ops-desk
+    "reset password" action (services/lms/ops_integration.py::
+    send_set_password_email / routers/spine/contacts.py::reset_lms_password),
+    just with a 24-hour link instead of that flow's 3-day one — this is a
+    link the requester is waiting on right now, not a "get to it whenever"
+    invite.
+
+    Always returns the same generic message regardless of whether the email
+    is registered, so this can't be used to enumerate accounts — an unknown
+    address silently does nothing."""
+    enforce_rate_limit(request)
+
+    email = _lower_email(data.email)
+    user = (await db.execute(select(User).where(User.email == email))).scalars().first()
+    if user is not None:
+        await send_set_password_email(user, purpose="reset", expires_delta=timedelta(hours=24))
+
+    return {"detail": "If an account exists for that email, a password reset link has been sent."}
 
 
 async def _email_taken(db: AsyncSession, email: str) -> bool:

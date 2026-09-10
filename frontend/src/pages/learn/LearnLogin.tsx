@@ -73,6 +73,11 @@ export default function LearnLogin() {
               onChange={(e) => setPassword(e.target.value)}
               className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"
             />
+            <div className="text-right -mt-1">
+              <Link to="/learn/forgot-password" className="text-xs text-muted-foreground hover:text-primary transition-colors">
+                Forgot password?
+              </Link>
+            </div>
             <Button size="xl" type="submit" disabled={loading} className="w-full mt-1">
               {loading ? "Logging in..." : "Log in"}
             </Button>

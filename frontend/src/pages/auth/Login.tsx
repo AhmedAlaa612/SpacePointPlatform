@@ -111,9 +111,9 @@ export function Login() {
               />
               Remember me
             </label>
-            <a href="#" className="text-[#a880ff] hover:text-[#a880ff]/80 transition-colors">
+            <Link to="/forgot-password" className="text-[#a880ff] hover:text-[#a880ff]/80 transition-colors">
               Forgot password?
-            </a>
+            </Link>
           </div>
         </div>
 
