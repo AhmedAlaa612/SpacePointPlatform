@@ -124,6 +124,7 @@ class CompetitionJudgeOut(BaseModel):
 class CompetitionJudgeProgressOut(CompetitionJudgeOut):
     scored_count: int
     team_count: int
+    onboarding_sent: bool
 
 
 class CompetitionJudgeInviteIn(BaseModel):

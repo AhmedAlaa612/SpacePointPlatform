@@ -57,6 +57,7 @@ export interface CompetitionJudge {
 export interface CompetitionJudgeProgress extends CompetitionJudge {
   scored_count: number
   team_count: number
+  onboarding_sent: boolean
 }
 
 export interface CompetitionPublication {
@@ -162,6 +163,11 @@ export const inviteCohortJudgeApi = (
 
 export const revokeCohortJudgeApi = (cohortId: string, userId: string) =>
   api.delete<void>(`/competitions/admin/cohorts/${cohortId}/judges/${userId}`).then((r) => r.data)
+
+export const resendJudgeOnboardingEmailApi = (cohortId: string, userId: string) =>
+  api.post<{ sent: boolean }>(
+    `/competitions/admin/cohorts/${cohortId}/judges/${userId}/resend-onboarding-email`,
+  ).then((r) => r.data)
 
 export const getCohortLeaderboardApi = (cohortId: string) =>
   api.get<CompetitionLeaderboardRow[]>(`/competitions/admin/cohorts/${cohortId}/leaderboard`).then((r) => r.data)

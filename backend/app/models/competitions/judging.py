@@ -109,3 +109,7 @@ class CompetitionJudge(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Same shape/purpose as Registration.onboarding_sent_at — when this
+    # judge's onboarding email (set-password or plain notice) last went out
+    # for this cohort assignment.
+    onboarding_sent_at = Column(DateTime(timezone=True), nullable=True)

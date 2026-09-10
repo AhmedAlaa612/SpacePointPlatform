@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import secrets
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from sqlalchemy import select
@@ -235,6 +235,30 @@ async def send_registered_notice_email(
     )
 
 
+async def send_registration_onboarding_email(
+    db: AsyncSession, *, user: User, registration: Registration, cohort: Cohort,
+) -> bool:
+    """Picks and sends the right onboarding email for one registration's
+    student account — set-password if they still haven't set one
+    (`must_change_password`, not "was the account just created": a bulk-
+    imported account that's never been opened still needs the password
+    step on a *later* registration too, not the bare login notice), the
+    plain "you're registered" notice otherwise. Stamps
+    `registration.onboarding_sent_at` on success — used both by
+    `sync_registration_lms`'s automatic send and by the ops "resend
+    onboarding email" action, so both paths share one stamping rule."""
+    program = await db.get(Program, cohort.program_id)
+    context = f"{program.name} ({cohort.name})" if program else cohort.name
+    if user.must_change_password:
+        sent = await send_set_password_email(user, audience="student", context=context)
+    else:
+        sent = await send_registered_notice_email(user, audience="student", context=context)
+    if sent:
+        registration.onboarding_sent_at = datetime.now(timezone.utc)
+        await db.flush()
+    return sent
+
+
 async def sync_registration_lms(
     db: AsyncSession, *, registration: Registration, cohort: Cohort, create_account: bool,
     send_welcome_email: bool = True,
@@ -244,34 +268,25 @@ async def sync_registration_lms(
     enrolls every course item and assigns every mission_run item's attempt
     immediately, same "enroll everything up front" behavior the old
     curriculum table had; a no-op when the cohort has no checklist at
-    all), email the set-password link (only for a genuinely new account —
-    an existing one has nothing to set). Never raises — an LMS-side
-    hiccup must not break registration, mirroring issue_ticket()'s
-    "return False, log it" discipline.
+    all), email the onboarding link via `send_registration_onboarding_email`.
+    Never raises — an LMS-side hiccup must not break registration, mirroring
+    issue_ticket()'s "return False, log it" discipline.
 
     `send_welcome_email=False` still creates the account (a caller that
     structurally needs a User back — e.g. adding someone to a competition
     team — can't skip that part) but suppresses the notification, for a
-    caller sending its own combined notice or deliberately going quiet
-    (2026-09-10: this now gates the existing-account notice the same way,
-    not just the new-account one — "Send LMS onboarding mail" is one ops
-    toggle covering whichever of the two applies)."""
+    caller sending its own combined notice or deliberately going quiet."""
     if not create_account:
         return None
     try:
-        user, created = await get_or_create_student_account(db, registration.contact_id)
+        user, _created = await get_or_create_student_account(db, registration.contact_id)
         if user is None:
             return None
         await assign_lms_program(
             db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id,
         )
         if send_welcome_email:
-            program = await db.get(Program, cohort.program_id)
-            context = f"{program.name} ({cohort.name})" if program else cohort.name
-            if created:
-                await send_set_password_email(user, audience="student", context=context)
-            else:
-                await send_registered_notice_email(user, audience="student", context=context)
+            await send_registration_onboarding_email(db, user=user, registration=registration, cohort=cohort)
         return user
     except Exception:
         logger.exception("sync_registration_lms failed for registration %s", registration.id)

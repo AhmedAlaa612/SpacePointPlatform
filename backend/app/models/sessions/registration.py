@@ -35,6 +35,10 @@ class Registration(Base):
     # QR codes encode a URL built from this token (see services/sessions/registration.py, R1-4).
     ticket_token = Column(String(64), unique=True, nullable=False)
     ticket_sent_at = Column(DateTime(timezone=True), nullable=True)
+    # When the LMS onboarding email (set-password or plain "you're
+    # registered" notice — see ops_integration.py::send_registration_onboarding_email)
+    # last went out for this registration. Same shape as ticket_sent_at.
+    onboarding_sent_at = Column(DateTime(timezone=True), nullable=True)
     registered_via = Column(String(16), nullable=False)  # form|import|desk
     import_batch_id = Column(UUID(as_uuid=True), ForeignKey("import_batches.id", ondelete="SET NULL"), nullable=True)
 

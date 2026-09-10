@@ -117,6 +117,9 @@ export const deskRegisterApi = (cohortId: string, data: DeskRegistrationInput) =
 export const resendTicketApi = (registrationId: string) =>
   api.post(`/sessions/registrations/${registrationId}/resend-ticket`).then((r) => r.data)
 
+export const resendOnboardingEmailApi = (registrationId: string) =>
+  api.post(`/sessions/registrations/${registrationId}/resend-onboarding-email`).then((r) => r.data)
+
 export const cancelRegistrationApi = (registrationId: string) =>
   api.post(`/sessions/registrations/${registrationId}/cancel`).then((r) => r.data)
 

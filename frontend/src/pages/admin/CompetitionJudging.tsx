@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ArrowUpRight, Download, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Download, Mail, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
 import { searchStaffApi, type StaffOption } from "@/api/lms_admin"
@@ -13,7 +13,7 @@ import {
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
   previewCohortRegistrationImportApi,
   inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi, registerAndAddTeamMemberApi,
-  removeTeamMemberApi, renameTeamApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
+  removeTeamMemberApi, renameTeamApi, resendJudgeOnboardingEmailApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
   type CompetitionImportPreviewRow, type CompetitionImportResult, type CompetitionJudgeProgress,
   type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
 } from "@/api/competitions"
@@ -683,6 +683,18 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["competitions-judges", cohortId] }),
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to remove judge")),
   })
+  const resendOnboardingMutation = useMutation({
+    mutationFn: (userId: string) => resendJudgeOnboardingEmailApi(cohortId, userId),
+    onSuccess: (res) => {
+      if (res.sent) {
+        toast.success("Onboarding email sent")
+        queryClient.invalidateQueries({ queryKey: ["competitions-judges", cohortId] })
+      } else {
+        toast.error("Send failed — check SMTP")
+      }
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to send onboarding email")),
+  })
 
   if (isLoading) return <Spinner />
 
@@ -753,11 +765,30 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
         {judges.map((j) => (
           <div key={j.user_id} className="flex items-center justify-between p-3 bg-card border border-border rounded-xl">
             <div>
-              <p className="text-sm font-medium text-foreground">{j.full_name}</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="text-sm font-medium text-foreground">{j.full_name}</p>
+                {j.onboarding_sent ? (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400">
+                    Onboarding sent
+                  </span>
+                ) : (
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+                    No onboarding email
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-muted-foreground">{j.email}</p>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted-foreground">{j.scored_count} / {j.team_count} teams scored</span>
+              <button
+                onClick={() => resendOnboardingMutation.mutate(j.user_id)}
+                disabled={resendOnboardingMutation.isPending}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                title={j.onboarding_sent ? "Resend onboarding email" : "Send onboarding email"}
+              >
+                <Mail size={14} />
+              </button>
               <button
                 onClick={() => { if (confirm(`Remove ${j.full_name} from this cohort's judges?`)) revokeMutation.mutate(j.user_id) }}
                 className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"

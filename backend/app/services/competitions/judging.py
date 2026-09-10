@@ -180,9 +180,9 @@ async def scored_team_ids(db: AsyncSession, *, judge_user_id: uuid.UUID, cohort_
 async def list_judges_with_progress(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     team_count = await db.scalar(select(func.count(Team.id)).where(Team.cohort_id == cohort_id)) or 0
     judges = (await db.execute(
-        select(User).join(CompetitionJudge, CompetitionJudge.user_id == User.id)
+        select(User, CompetitionJudge.onboarding_sent_at).join(CompetitionJudge, CompetitionJudge.user_id == User.id)
         .where(CompetitionJudge.cohort_id == cohort_id).order_by(User.full_name)
-    )).scalars().all()
+    )).all()
     scored_counts = dict((await db.execute(
         select(CompetitionScore.judge_user_id, func.count(CompetitionScore.id))
         .where(CompetitionScore.cohort_id == cohort_id, CompetitionScore.submitted.is_(True))
@@ -190,8 +190,9 @@ async def list_judges_with_progress(db: AsyncSession, *, cohort_id: uuid.UUID) -
     )).all())
     return [
         {"user_id": j.id, "full_name": j.full_name, "email": j.email,
-         "scored_count": scored_counts.get(j.id, 0), "team_count": team_count}
-        for j in judges
+         "scored_count": scored_counts.get(j.id, 0), "team_count": team_count,
+         "onboarding_sent": onboarding_sent_at is not None}
+        for j, onboarding_sent_at in judges
     ]
 
 

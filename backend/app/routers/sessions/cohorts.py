@@ -90,7 +90,9 @@ from app.services.sessions import delivery
 from app.services.sessions import materials as materials_service
 from app.services.sessions import staffing as staffing_service
 from app.services.sessions import reports as reports_service
-from app.services.lms.ops_integration import deactivate_registration_enrollments, sync_registration_lms
+from app.services.lms.ops_integration import (
+    deactivate_registration_enrollments, send_registration_onboarding_email, sync_registration_lms,
+)
 from app.services.sessions.registration import format_cohort_dates, register
 from app.services.spine.identity import resolve_or_create_contact
 from app.workers.settings import get_arq_redis, safe_enqueue
@@ -945,6 +947,7 @@ async def list_registrations(
                 registered_via=reg.registered_via,
                 is_repeat=reg.is_repeat,
                 ticket_sent=reg.ticket_sent_at is not None,
+                onboarding_sent=reg.onboarding_sent_at is not None,
                 checked_in=reg.id in checked_in_ids,
                 certificate_issued=reg.id in certified_ids,
                 certificate_url=certificate_urls.get(reg.id),
@@ -1068,6 +1071,29 @@ async def resend_ticket(
         arq_redis, "send_ticket_email", str(registration.id), force=True
     )
     return {"status": status_}
+
+
+@router.post("/registrations/{registration_id}/resend-onboarding-email")
+async def resend_onboarding_email(
+    registration_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    registration = await db.get(Registration, registration_id)
+    if registration is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
+    cohort = await db.get(Cohort, registration.cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    user = (await db.execute(select(User).where(User.contact_id == registration.contact_id))).scalars().first()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No LMS account linked to this registration")
+
+    # Synchronous, not queued — same as the automatic send this mirrors
+    # (sync_registration_lms), unlike the ticket email which is worker-only.
+    sent = await send_registration_onboarding_email(db, user=user, registration=registration, cohort=cohort)
+    await db.commit()
+    return {"sent": sent}
 
 
 @router.post("/registrations/{registration_id}/cancel")

@@ -105,6 +105,14 @@ async def delete_cohort_judge(cohort_id: uuid.UUID, user_id: uuid.UUID, db: Asyn
     await db.commit()
 
 
+@router.post("/cohorts/{cohort_id}/judges/{user_id}/resend-onboarding-email")
+async def resend_judge_onboarding_email(cohort_id: uuid.UUID, user_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    await _get_cohort_or_404(db, cohort_id)
+    sent = await judges_service.resend_judge_onboarding_email(db, cohort_id=cohort_id, user_id=user_id)
+    await db.commit()
+    return {"sent": sent}
+
+
 # ── Teams (manual management — 2026-08-26) ─────────────────────────────
 # Complements Roster import: that's for the whole-sheet bulk case, this is
 # for the one-off corrections after — a late signup, a team split, someone

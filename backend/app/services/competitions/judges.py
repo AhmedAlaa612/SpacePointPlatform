@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import secrets
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -75,6 +76,34 @@ async def list_judges(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[User]:
     return list(rows)
 
 
+async def _judge_context(db: AsyncSession, *, cohort_id: uuid.UUID) -> str:
+    cohort = await db.get(Cohort, cohort_id)
+    program = await db.get(Program, cohort.program_id) if cohort else None
+    return f"{program.name} ({cohort.name})" if program and cohort else (cohort.name if cohort else "SpacePoint")
+
+
+async def send_judge_onboarding_email(
+    db: AsyncSession, *, user: User, assignment: CompetitionJudge, cohort_id: uuid.UUID,
+) -> bool:
+    """Picks and sends the right onboarding email for one judge assignment —
+    set-password if they still haven't set one (`must_change_password`, not
+    "was the account just created": an existing staff account added as a
+    judge before ever logging in still needs the password step, not the
+    bare login notice), the plain "you're registered" notice otherwise.
+    Stamps `assignment.onboarding_sent_at` on success — used both by
+    `invite_judge`'s automatic send and by the ops "resend onboarding
+    email" action, so both paths share one stamping rule."""
+    context = await _judge_context(db, cohort_id=cohort_id)
+    if user.must_change_password:
+        sent = await send_set_password_email(user, purpose="welcome", audience="judge", context=context)
+    else:
+        sent = await send_registered_notice_email(user, audience="judge", context=context)
+    if sent:
+        assignment.onboarding_sent_at = datetime.now(timezone.utc)
+        await db.flush()
+    return sent
+
+
 async def invite_judge(
     db: AsyncSession, *, cohort_id: uuid.UUID, name: str, email: str, send_email: bool = True,
 ) -> User:
@@ -82,9 +111,7 @@ async def invite_judge(
     if it's missing one (an existing staff/instructor account can also
     judge — the role only adds capability, same "layered on top of, not
     instead of" posture `mission_managers` uses), assign them to this
-    cohort, and email them — a set-password link for a genuinely new
-    account, or a plain "you're registered, log in" notice for an existing
-    one (2026-09-10 — previously sent nothing at all in that case).
+    cohort, and email them via `send_judge_onboarding_email`.
     Idempotent: re-inviting an already-assigned judge just returns them.
 
     `send_email=False` (2026-09-10) still creates the account and the
@@ -104,28 +131,40 @@ async def invite_judge(
     elif "judge" not in user.role_values:
         user.roles = [*user.roles, "judge"]
 
-    existing_assignment = await db.scalar(
+    assignment = await db.scalar(
         select(CompetitionJudge).where(
             CompetitionJudge.cohort_id == cohort_id, CompetitionJudge.user_id == user.id,
         )
     )
-    is_new_assignment = existing_assignment is None
+    is_new_assignment = assignment is None
     if is_new_assignment:
-        db.add(CompetitionJudge(id=uuid.uuid4(), cohort_id=cohort_id, user_id=user.id))
+        assignment = CompetitionJudge(id=uuid.uuid4(), cohort_id=cohort_id, user_id=user.id)
+        db.add(assignment)
         await db.flush()
 
     # Only a genuinely new account or a genuinely new assignment gets an
     # email — a repeat invite of a judge already assigned to this cohort is
     # the true idempotent no-op the docstring promises, not a re-send.
     if send_email and (is_new or is_new_assignment):
-        cohort = await db.get(Cohort, cohort_id)
-        program = await db.get(Program, cohort.program_id) if cohort else None
-        context = f"{program.name} ({cohort.name})" if program and cohort else (cohort.name if cohort else "SpacePoint")
-        if is_new:
-            await send_set_password_email(user, purpose="welcome", audience="judge", context=context)
-        else:
-            await send_registered_notice_email(user, audience="judge", context=context)
+        await send_judge_onboarding_email(db, user=user, assignment=assignment, cohort_id=cohort_id)
     return user
+
+
+async def resend_judge_onboarding_email(db: AsyncSession, *, cohort_id: uuid.UUID, user_id: uuid.UUID) -> bool:
+    """The manual "resend onboarding email" action — unlike `invite_judge`,
+    always sends regardless of whether this assignment already got one,
+    since re-sending on request is the entire point."""
+    assignment = await db.scalar(
+        select(CompetitionJudge).where(
+            CompetitionJudge.cohort_id == cohort_id, CompetitionJudge.user_id == user_id,
+        )
+    )
+    if assignment is None:
+        raise HTTPException(404, detail="This judge isn't assigned to this cohort")
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(404, detail="Judge not found")
+    return await send_judge_onboarding_email(db, user=user, assignment=assignment, cohort_id=cohort_id)
 
 
 async def revoke_judge(db: AsyncSession, *, cohort_id: uuid.UUID, user_id: uuid.UUID) -> bool:

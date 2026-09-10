@@ -400,6 +400,7 @@ export interface Registration {
   registered_via: string;
   is_repeat: boolean;
   ticket_sent: boolean;
+  onboarding_sent: boolean;
   checked_in: boolean;
   /** Whether a certificate exists at all. Student completion certificates are
    *  emailed as a PDF and never stored, so they have no certificate_url —

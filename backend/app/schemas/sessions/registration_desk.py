@@ -89,6 +89,7 @@ class RegistrationOut(BaseModel):
     registered_via: str
     is_repeat: bool
     ticket_sent: bool
+    onboarding_sent: bool
     checked_in: bool
     # Whether a certificate exists at all. certificate_url below is only ever
     # set for certs that were stored as a file — student completion certs are
