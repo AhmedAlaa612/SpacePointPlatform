@@ -1010,7 +1010,10 @@ async def desk_register(
     # enrolls in the program's curriculum. Covers both a fresh registration
     # and a reinstated one (enroll()'s own idempotency reactivates in place).
     # Never raises — an LMS-side hiccup must not break registration.
-    await sync_registration_lms(db, registration=registration, cohort=cohort, create_account=body.create_lms_account)
+    await sync_registration_lms(
+        db, registration=registration, cohort=cohort, create_account=body.create_lms_account,
+        send_welcome_email=body.send_welcome_email,
+    )
 
     await db.commit()
 

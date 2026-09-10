@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import create_password_set_token, get_password_hash
 from app.models.lms import Enrollment
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.user import User
@@ -114,11 +115,13 @@ _AUDIENCE_COPY: dict[str, dict[str, str]] = {
     "student": {
         "noun": "SpacePoint learning account",
         "welcome": "An account was created for you on the SpacePoint learning portal.",
+        "welcome_context": "You're registered for {context}.",
         "reset": "Here's the link to reset your SpacePoint learning portal password.",
     },
     "judge": {
         "noun": "SpacePoint judge account",
         "welcome": "You've been added as a judge on SpacePoint.",
+        "welcome_context": "You've been registered as a judge for {context}.",
         "reset": "Here's the link to reset your SpacePoint judge account password.",
     },
     "portal": {
@@ -128,10 +131,24 @@ _AUDIENCE_COPY: dict[str, dict[str, str]] = {
     },
 }
 
+# Same "you're registered for X" line as _AUDIENCE_COPY's welcome_context, but
+# for send_registered_notice_email's audience, which never includes "portal" —
+# there's no registration event behind the generic/self-service callers.
+_REGISTERED_NOTICE_COPY: dict[str, dict[str, str]] = {
+    "student": {
+        "subject": "You're registered — {context}",
+        "intro": "You're registered for {context}.",
+    },
+    "judge": {
+        "subject": "You're confirmed as a judge — {context}",
+        "intro": "You've been registered as a judge for {context}.",
+    },
+}
+
 
 async def send_set_password_email(
     user: User, *, purpose: str = "welcome", expires_delta: timedelta | None = None,
-    audience: Literal["student", "judge", "portal"] = "portal",
+    audience: Literal["student", "judge", "portal"] = "portal", context: str | None = None,
 ) -> bool:
     """Public (P3-3, 2026-08-10) — was module-private until the student
     panel's "create account & invite" and "password reset" actions needed
@@ -145,6 +162,12 @@ async def send_set_password_email(
     welcome/reset flows) pass it explicitly; callers that don't (the public
     forgot-password endpoint, which serves every role from one form) leave
     it at the generic "portal" default rather than guessing from roles.
+
+    `context` (2026-09-10) is the "you're registered for X" line — a
+    Program/Cohort name string, when the caller has one (a registration or a
+    judge invite always does; the dormant ops-desk contact endpoints don't).
+    Only meaningful on `purpose="welcome"` — a reset has no registration
+    event to announce, `_AUDIENCE_COPY[audience]["reset"]` is used as-is.
 
     `expires_delta` defaults to `_LINK_VALIDITY` (3 days) — the self-service
     "Forgot password?" flow (routers/auth.py::forgot_password) passes 24
@@ -165,7 +188,12 @@ async def send_set_password_email(
     link = f"{settings.FRONTEND_URL}{set_password_path}?token={token}"
     login_link = f"{settings.FRONTEND_URL}{login_path}"
     copy = _AUDIENCE_COPY[audience]
-    intro = copy["welcome"] if purpose == "welcome" else copy["reset"]
+    if purpose != "welcome":
+        intro = copy["reset"]
+    elif context:
+        intro = copy["welcome_context"].format(context=context)
+    else:
+        intro = copy["welcome"]
     return await try_send_email(
         user.email,
         f"Your {copy['noun']}",
@@ -175,6 +203,32 @@ async def send_set_password_email(
             f'<p>Step 1: Set your password here: <a href="{link}">{link}</a></p>'
             f'<p>Step 2: Then log in at <a href="{login_link}">{login_link}</a></p>'
             f"<p>This link is valid for {_format_validity(validity)}.</p>"
+            "<p>— SpacePoint</p>"
+        ),
+        html=True,
+    )
+
+
+async def send_registered_notice_email(
+    user: User, *, audience: Literal["student", "judge"], context: str,
+) -> bool:
+    """The "you already have an account" sibling of send_set_password_email
+    (2026-09-10) — no token, no password step, just a plain "you're
+    registered for X, log in here" notice. Exists because an account that
+    already exists getting silently re-added to a new cohort/judge roster
+    previously sent nothing at all; every registration event should produce
+    exactly one email regardless of whether the account behind it is new."""
+    from app.core.config import settings
+    is_student = "student" in user.role_values
+    login_link = f"{settings.FRONTEND_URL}{'/learn/login' if is_student else '/login'}"
+    copy = _REGISTERED_NOTICE_COPY[audience]
+    return await try_send_email(
+        user.email,
+        copy["subject"].format(context=context),
+        (
+            f"<p>Hi {user.full_name},</p>"
+            f"<p>{copy['intro'].format(context=context)}</p>"
+            f'<p>Log in here: <a href="{login_link}">{login_link}</a></p>'
             "<p>— SpacePoint</p>"
         ),
         html=True,
@@ -198,7 +252,10 @@ async def sync_registration_lms(
     `send_welcome_email=False` still creates the account (a caller that
     structurally needs a User back — e.g. adding someone to a competition
     team — can't skip that part) but suppresses the notification, for a
-    caller sending its own combined notice or deliberately going quiet."""
+    caller sending its own combined notice or deliberately going quiet
+    (2026-09-10: this now gates the existing-account notice the same way,
+    not just the new-account one — "Send LMS onboarding mail" is one ops
+    toggle covering whichever of the two applies)."""
     if not create_account:
         return None
     try:
@@ -208,8 +265,13 @@ async def sync_registration_lms(
         await assign_lms_program(
             db, user_id=user.id, cohort_id=cohort.id, registration_id=registration.id,
         )
-        if created and send_welcome_email:
-            await send_set_password_email(user, audience="student")
+        if send_welcome_email:
+            program = await db.get(Program, cohort.program_id)
+            context = f"{program.name} ({cohort.name})" if program else cohort.name
+            if created:
+                await send_set_password_email(user, audience="student", context=context)
+            else:
+                await send_registered_notice_email(user, audience="student", context=context)
         return user
     except Exception:
         logger.exception("sync_registration_lms failed for registration %s", registration.id)

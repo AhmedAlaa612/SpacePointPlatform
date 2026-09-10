@@ -40,6 +40,12 @@ class TeamAdvanceResult:
     team_name: str
     to_team_id: uuid.UUID
     members_advanced: int
+    # Registrations genuinely created in the target cohort by this call — not
+    # ones that already existed there (idempotent re-run). The router uses
+    # this to enqueue one ticket job per newly-registered member, same
+    # "only ever new-registration rows get a ticket job" rule the bulk
+    # import confirm endpoint already follows.
+    new_registration_ids: list[uuid.UUID]
 
 
 async def _congrats_email(user: User, *, team_name: str, to_cohort_name: str) -> None:
@@ -83,6 +89,7 @@ async def advance_teams(
 
         member_ids = await team_member_ids(db, team_id=team.id)
         advanced = 0
+        new_registration_ids: list[uuid.UUID] = []
         for user_id in member_ids:
             user = await db.get(User, user_id)
             if user is None:
@@ -96,10 +103,11 @@ async def advance_teams(
                     )
                 )
                 if not already_registered:
-                    await register(
+                    new_registration = await register(
                         db, contact_id=user.contact_id, cohort_id=to_cohort_id, registered_via="import",
                         payment_status="waived",
                     )
+                    new_registration_ids.append(new_registration.id)
             await assign_lms_program(db, user_id=user.id, cohort_id=to_cohort_id)
 
             if to_team is None:
@@ -112,7 +120,10 @@ async def advance_teams(
 
         if to_team is None:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Team '{team.name}' has no members to advance")
-        results.append(TeamAdvanceResult(team_id=team.id, team_name=team.name, to_team_id=to_team.id, members_advanced=advanced))
+        results.append(TeamAdvanceResult(
+            team_id=team.id, team_name=team.name, to_team_id=to_team.id, members_advanced=advanced,
+            new_registration_ids=new_registration_ids,
+        ))
 
     return results
 

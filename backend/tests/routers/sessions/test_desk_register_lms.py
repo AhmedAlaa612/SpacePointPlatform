@@ -111,6 +111,42 @@ async def test_desk_register_can_opt_out_of_lms_account(db, client, operations_h
 
 
 @pytest.mark.asyncio
+async def test_desk_register_can_opt_out_of_the_onboarding_email_while_still_creating_the_account(
+    db, client, operations_headers, monkeypatch,
+):
+    """"Send LMS onboarding mail" (2026-09-10) is independent of "Create LMS
+    account" — unchecking it still creates the account (desk staff can hand
+    over the login another way), it just suppresses the email."""
+    program, cohort = await _make_cohort(db)
+    await db.commit()
+    sent = False
+
+    async def _fake_send(*args, **kwargs):
+        nonlocal sent
+        sent = True
+        return True
+
+    monkeypatch.setattr("app.services.lms.ops_integration.try_send_email", _fake_send)
+
+    resp = await client.post(
+        f"/sessions/cohorts/{cohort.id}/registrations",
+        json={
+            "student_name": "Quiet Onboarding Student", "email": "quiet.onboarding@example.com",
+            "phone": "050 555 6666", "city": "Dubai", "send_welcome_email": False,
+        },
+        headers=operations_headers,
+    )
+    assert resp.status_code == 201, resp.text
+
+    contact = (await db.execute(
+        select(Contact).where(Contact.email == "quiet.onboarding@example.com")
+    )).scalars().first()
+    student = (await db.execute(select(User).where(User.contact_id == contact.id))).scalars().first()
+    assert student is not None
+    assert sent is False
+
+
+@pytest.mark.asyncio
 async def test_cancel_registration_deactivates_its_lms_enrollments(db, client, operations_headers):
     author = await _author(db)
     program, cohort = await _make_cohort(db)

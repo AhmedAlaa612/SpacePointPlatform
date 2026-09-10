@@ -206,12 +206,15 @@ export const previewCohortRegistrationImportApi = (cohortId: string, file: File)
 export const confirmCohortRegistrationImportApi = (
   cohortId: string,
   rows: Omit<CompetitionImportPreviewRow, "issues">[],
+  options?: { send_ticket_email?: boolean; send_welcome_email?: boolean },
 ) =>
   api.post<CompetitionImportResult>(
-    `/competitions/admin/cohorts/${cohortId}/registration-import/confirm`, { rows },
+    `/competitions/admin/cohorts/${cohortId}/registration-import/confirm`, { rows, ...options },
   ).then((r) => r.data)
 
-export const advanceCohortTeamsApi = (cohortId: string, data: { team_ids: string[]; to_cohort_id: string }) =>
+export const advanceCohortTeamsApi = (
+  cohortId: string, data: { team_ids: string[]; to_cohort_id: string; send_ticket_email?: boolean },
+) =>
   api.post<CompetitionAdvanceResult[]>(`/competitions/admin/cohorts/${cohortId}/advance-teams`, data).then((r) => r.data)
 
 // ── Teams (manual management) ───────────────────────────────────────────

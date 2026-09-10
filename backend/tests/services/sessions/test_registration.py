@@ -17,7 +17,7 @@ from app.models.sessions.session import Session
 from app.models.spine.contact import Contact
 from app.models.spine.touchpoint import Touchpoint
 from app.models.user import User
-from app.services.sessions.registration import check_in, register
+from app.services.sessions.registration import check_in, issue_ticket, register
 
 
 async def _make_staff_user(db) -> User:
@@ -288,3 +288,34 @@ async def test_reinstating_respects_capacity(db):
         await register(db, contact_id=dropped.id, cohort_id=cohort.id, registered_via="form")
     assert exc.value.status_code == 409
     assert "full" in exc.value.detail.lower()
+
+
+# ── issue_ticket(): the login line added 2026-09-10 ─────────────────────────
+
+@pytest.mark.asyncio
+async def test_ticket_email_includes_a_login_link_alongside_the_door_copy(db, monkeypatch):
+    """Every program creates an LMS account (ops-confirmed, fixed) — the
+    ticket email should always be able to point the recipient at the LMS
+    login, on top of the existing QR/door-entry copy, not instead of it."""
+    from app.core.config import settings
+
+    cohort = await _make_cohort(db)
+    contact = _new_contact(email="ticket-login@example.com")
+    db.add(contact)
+    await db.flush()
+    registration = await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="form")
+    await db.commit()
+
+    captured = {}
+
+    async def _fake_send(to, subject, body, **kwargs):
+        captured["body"] = body
+        return True
+
+    monkeypatch.setattr("app.services.sessions.registration.try_send_email", _fake_send)
+
+    sent = await issue_ticket(db, registration.id)
+
+    assert sent is True
+    assert "Show this ticket at the door" in captured["body"]
+    assert f"{settings.FRONTEND_URL}/learn/login" in captured["body"]

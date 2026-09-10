@@ -115,6 +115,8 @@ function RosterTab({ cohortId }: { cohortId: string }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [previewRows, setPreviewRows] = useState<CompetitionImportPreviewRow[] | null>(null)
   const [result, setResult] = useState<CompetitionImportResult | null>(null)
+  const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
+  const [sendTicketEmail, setSendTicketEmail] = useState(true)
 
   const previewMutation = useMutation({
     mutationFn: (file: File) => previewCohortRegistrationImportApi(cohortId, file),
@@ -124,7 +126,9 @@ function RosterTab({ cohortId }: { cohortId: string }) {
 
   const confirmMutation = useMutation({
     mutationFn: (rows: CompetitionImportPreviewRow[]) =>
-      confirmCohortRegistrationImportApi(cohortId, rows.map(({ issues, ...rest }) => rest)),
+      confirmCohortRegistrationImportApi(cohortId, rows.map(({ issues, ...rest }) => rest), {
+        send_welcome_email: sendWelcomeEmail, send_ticket_email: sendTicketEmail,
+      }),
     onSuccess: (res) => {
       setResult(res)
       setPreviewRows(null)
@@ -242,6 +246,23 @@ function RosterTab({ cohortId }: { cohortId: string }) {
               ))}
             </ul>
           )}
+
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+              <input
+                type="checkbox" checked={sendWelcomeEmail}
+                onChange={(e) => setSendWelcomeEmail(e.target.checked)}
+              />
+              Send LMS onboarding mail
+            </label>
+            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+              <input
+                type="checkbox" checked={sendTicketEmail}
+                onChange={(e) => setSendTicketEmail(e.target.checked)}
+              />
+              Send Ticket
+            </label>
+          </div>
 
           <button
             onClick={() => confirmMutation.mutate(previewRows)}
@@ -726,6 +747,7 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
   const [showTop20, setShowTop20] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [toCohortId, setToCohortId] = useState("")
+  const [sendTicketOnAdvance, setSendTicketOnAdvance] = useState(true)
   const [exporting, setExporting] = useState(false)
 
   const { data: board = [], isLoading } = useQuery<CompetitionLeaderboardRow[]>({
@@ -764,7 +786,9 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to unpublish results")),
   })
   const advanceMutation = useMutation({
-    mutationFn: () => advanceCohortTeamsApi(cohortId, { team_ids: [...selected], to_cohort_id: toCohortId }),
+    mutationFn: () => advanceCohortTeamsApi(cohortId, {
+      team_ids: [...selected], to_cohort_id: toCohortId, send_ticket_email: sendTicketOnAdvance,
+    }),
     onSuccess: (results) => {
       const targetName = advanceTargets.find((c) => c.id === toCohortId)?.name ?? "the next stage"
       toast.success(`Advanced ${results.length} team(s) to ${targetName}`)
@@ -850,6 +874,13 @@ function ResultsTab({ cohortId, cohortName, programId }: { cohortId: string; coh
             <option value="">Advance to…</option>
             {advanceTargets.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
+          <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+            <input
+              type="checkbox" checked={sendTicketOnAdvance}
+              onChange={(e) => setSendTicketOnAdvance(e.target.checked)}
+            />
+            Send Ticket
+          </label>
           <button
             onClick={() => advanceMutation.mutate()}
             disabled={advanceMutation.isPending || selected.size === 0 || !toCohortId}

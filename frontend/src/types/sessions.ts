@@ -455,6 +455,7 @@ export interface DeskRegistrationInput {
   // the cohort" (the common single-session case).
   session_ids?: string[];
   send_ticket_email?: boolean;
+  send_welcome_email?: boolean;
 }
 
 /** Public ticket page payload (/t/:token). Deliberately narrow — no contact

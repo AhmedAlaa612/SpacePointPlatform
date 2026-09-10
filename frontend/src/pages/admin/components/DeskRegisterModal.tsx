@@ -22,6 +22,7 @@ export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess }: {
   const [parentPhone, setParentPhone] = useState("")
   const [parentEmail, setParentEmail] = useState("")
   const [sendTicketEmail, setSendTicketEmail] = useState(true)
+  const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
   const [selectedSessionIds, setSelectedSessionIds] = useState<string[]>([])
   const [error, setError] = useState("")
 
@@ -47,6 +48,7 @@ export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess }: {
       parent_email: parentEmail.trim() || undefined,
       session_ids: selectedSessionIds.length > 0 ? selectedSessionIds : undefined,
       send_ticket_email: sendTicketEmail,
+      send_welcome_email: sendWelcomeEmail,
     }),
     onSuccess: () => { toast.success("Student registered"); onSuccess() },
     onError: (e: any) => setError(getErrorMessage(e, "Failed to register student")),
@@ -150,8 +152,12 @@ export function DeskRegisterModal({ cohort, sessions, onClose, onSuccess }: {
         </Field>
 
         <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+          <input type="checkbox" checked={sendWelcomeEmail} onChange={(e) => setSendWelcomeEmail(e.target.checked)} />
+          Send LMS onboarding mail
+        </label>
+        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
           <input type="checkbox" checked={sendTicketEmail} onChange={(e) => setSendTicketEmail(e.target.checked)} />
-          Send ticket email
+          Send Ticket
         </label>
 
         {error && <p className="text-xs text-red-500">{error}</p>}

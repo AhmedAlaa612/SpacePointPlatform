@@ -242,13 +242,26 @@ async def post_cohort_registration_import_confirm(
 
 
 @router.post("/cohorts/{cohort_id}/advance-teams", response_model=list[CompetitionAdvanceResultOut])
-async def post_cohort_advance_teams(cohort_id: uuid.UUID, body: CompetitionAdvanceTeamsIn, db: AsyncSession = Depends(get_db)):
+async def post_cohort_advance_teams(
+    cohort_id: uuid.UUID, body: CompetitionAdvanceTeamsIn, db: AsyncSession = Depends(get_db),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
+):
     await _get_cohort_or_404(db, cohort_id)
     results = await progression_service.advance_teams(
         db, team_ids=body.team_ids, from_cohort_id=cohort_id, to_cohort_id=body.to_cohort_id,
     )
     await db.commit()
-    return [CompetitionAdvanceResultOut(**r) for r in progression_service.results_as_dicts(results)]
+    # Same "only genuinely new registrations get a ticket job" rule the bulk
+    # import confirm endpoint already follows — a member already registered
+    # in the target cohort (idempotent re-run) most likely already has one.
+    if body.send_ticket_email:
+        for r in results:
+            for registration_id in r.new_registration_ids:
+                await safe_enqueue(arq_redis, "send_ticket_email", str(registration_id))
+    return [
+        CompetitionAdvanceResultOut(**{k: v for k, v in r.items() if k != "new_registration_ids"})
+        for r in progression_service.results_as_dicts(results)
+    ]
 
 
 # ── Leaderboard, publish, export ────────────────────────────────────────

@@ -48,6 +48,12 @@ class DeskRegistrationRequest(BaseModel):
     # they're printing it directly, or sending it manually later).
     send_ticket_email: bool = True
 
+    # "Send LMS onboarding mail" (2026-09-10) — the set-password email for a
+    # new account, or the plain "you're registered, log in" notice for an
+    # existing one (sync_registration_lms picks which). Independent of
+    # send_ticket_email: ops can send either, both, or neither.
+    send_welcome_email: bool = True
+
     # LM1-7 / D4: default-checked "Create LMS account" — creates (or links,
     # if one already exists for this contact) a student account and enrolls
     # them in the program's curriculum. Ops can uncheck it per registration.
