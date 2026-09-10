@@ -121,11 +121,12 @@ async def add_existing_member(db: AsyncSession, *, team_id: uuid.UUID, user_id: 
 async def register_and_add_member(
     db: AsyncSession, *, team_id: uuid.UUID, full_name: str, email: str,
     phone: str | None = None, school: str | None = None,
-) -> User:
+) -> tuple[User, uuid.UUID]:
     """The single-row equivalent of Roster import's per-row logic — same
     find-or-create-contact -> register -> sync_registration_lms chain, so a
     person added this way is indistinguishable from one who came through
-    the bulk sheet."""
+    the bulk sheet. Returns the registration id alongside the user so the
+    caller can enqueue the ticket email the same way the roster import does."""
     team = await db.get(Team, team_id)
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
@@ -151,7 +152,7 @@ async def register_and_add_member(
             detail="Registered, but couldn't create a student account (email may already belong to a different account)",
         )
     await join_team(db, team_id=team_id, user_id=user.id)
-    return user
+    return user, registration.id
 
 
 async def remove_member(db: AsyncSession, *, team_id: uuid.UUID, user_id: uuid.UUID) -> None:

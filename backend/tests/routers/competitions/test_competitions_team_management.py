@@ -108,6 +108,32 @@ async def test_ops_adds_an_existing_user_and_registers_a_new_one(db, client):
 
 
 @pytest.mark.asyncio
+async def test_ops_adding_a_new_member_enqueues_a_ticket_email(db, arq_client, arq_redis):
+    """Manually adding a brand-new person to a competition team should send
+    a ticket the same way registration does — one `send_ticket_email` job
+    per newly-registered member, not zero."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+
+    team = await create_team(db, name="Rogue One", created_by=ops.id, cohort_id=cohort.id, member_ids=[])
+    await db.commit()
+    from app.services.teams import leave_team
+    await leave_team(db, team_id=team.id, user_id=ops.id)
+    await db.commit()
+
+    new_email = f"ticketmember-{uuid.uuid4().hex[:6]}@example.com"
+    resp = await arq_client.post(
+        f"/competitions/admin/teams/{team.id}/members", headers=_headers(ops),
+        json={"full_name": "Noor Hadid", "email": new_email},
+    )
+    assert resp.status_code == 201, resp.text
+
+    queued_jobs = await arq_redis.zrange("arq:queue", 0, -1)
+    assert len(queued_jobs) == 1
+
+
+@pytest.mark.asyncio
 async def test_ops_renames_a_team_and_removes_a_member(db, client):
     ops = await _ops(db)
     _program, cohort = await _program_and_cohort(db)

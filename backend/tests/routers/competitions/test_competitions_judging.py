@@ -514,6 +514,43 @@ async def test_registration_import_preview_flags_a_malformed_email_but_confirm_c
 
 
 @pytest.mark.asyncio
+async def test_registration_import_confirm_enqueues_a_ticket_email_per_created_row(db, arq_client, arq_redis):
+    """Uploading a team roster should send each new member a ticket, same as
+    manual registration — one `send_ticket_email` job per successfully
+    imported row, not zero."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    await db.commit()
+
+    wb = openpyxl.Workbook()
+    sheet = wb.active
+    sheet.append(["team_name", "member_name", "email", "phone", "school"])
+    sheet.append(["Falcon Eye", "Amir Salem", f"amir-{uuid.uuid4().hex[:6]}@example.com", "", ""])
+    sheet.append(["Falcon Eye", "Lina Nasser", f"lina-{uuid.uuid4().hex[:6]}@example.com", "", ""])
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    preview_resp = await arq_client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/preview",
+        files={"file": ("roster.xlsx", buf.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+        headers=_headers(ops),
+    )
+    assert preview_resp.status_code == 200, preview_resp.text
+    preview_rows = preview_resp.json()["rows"]
+
+    confirm_resp = await arq_client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/registration-import/confirm",
+        json={"rows": [{k: v for k, v in r.items() if k != "issues"} for r in preview_rows]},
+        headers=_headers(ops),
+    )
+    assert confirm_resp.status_code == 200, confirm_resp.text
+    assert confirm_resp.json()["summary"] == {"total": 2, "created": 2, "matched": 0, "error": 0}
+
+    queued_jobs = await arq_redis.zrange("arq:queue", 0, -1)
+    assert len(queued_jobs) == 2
+
+
+@pytest.mark.asyncio
 async def test_registration_import_confirm_still_refuses_a_row_missing_a_required_field(db, client):
     ops = await _ops(db)
     _program, cohort = await _program_and_cohort(db)

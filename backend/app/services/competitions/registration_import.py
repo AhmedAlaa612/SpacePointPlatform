@@ -85,6 +85,7 @@ class ImportRowResult:
     email: str | None
     disposition: Literal["created", "matched", "error"]
     reason: str | None = None
+    registration_id: uuid.UUID | None = None
 
 
 @dataclass
@@ -295,7 +296,10 @@ async def _import_row(db: AsyncSession, *, row_number: int, raw: dict, cohort: C
     elif user.id not in await team_member_ids(db, team_id=team.id):
         await join_team(db, team_id=team.id, user_id=user.id)
 
-    return ImportRowResult(row_number, team_name, email, "created" if is_new_registration else "matched")
+    return ImportRowResult(
+        row_number, team_name, email, "created" if is_new_registration else "matched",
+        registration_id=registration.id,
+    )
 
 
 async def import_registrations(
