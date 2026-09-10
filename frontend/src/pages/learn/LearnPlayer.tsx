@@ -38,6 +38,7 @@ export default function LearnPlayer() {
   const [modulesData, setModulesData] = useState<Record<string, ModuleDetail>>({});
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [initialLoading, setInitialLoading] = useState(true);
 
   const loadUnlockedModules = useCallback(async (c: CourseDetail, have: Record<string, ModuleDetail>) => {
     const unlocked = c.modules.filter((m) => !m.locked && !have[m.module_id]);
@@ -51,6 +52,8 @@ export default function LearnPlayer() {
   useEffect(() => {
     let cancelled = false;
     async function init() {
+      setInitialLoading(true);
+      setError("");
       try {
         const c = await fetchCourse(courseId);
         if (cancelled) return;
@@ -58,20 +61,19 @@ export default function LearnPlayer() {
           void navigate({ to: `/learn/courses/${courseId}` });
           return;
         }
-        setCourse(c);
         const map = await loadUnlockedModules(c, {});
         if (cancelled) return;
-        setModulesData(map);
 
         const deepLinkItem = new URLSearchParams(window.location.search).get("item");
-        if (deepLinkItem) {
-          setSelectedItemId(deepLinkItem);
-        } else {
-          const firstIncomplete = findFirstIncomplete(c, map);
-          setSelectedItemId(firstIncomplete);
-        }
+        const nextItemId = deepLinkItem || findFirstIncomplete(c, map);
+
+        setCourse(c);
+        setModulesData(map);
+        setSelectedItemId(nextItemId);
       } catch {
         if (!cancelled) setError("Couldn't load this course.");
+      } finally {
+        if (!cancelled) setInitialLoading(false);
       }
     }
     void init();
@@ -127,7 +129,7 @@ export default function LearnPlayer() {
   const celebrationShownRef = useRef(false);
   const [showCourseCelebration, setShowCourseCelebration] = useState(false);
   useEffect(() => {
-    if (!search.program) return;
+    if (!search.program || initialLoading) return;
     if (flat.length === 0) return;
     const done = selectedItemId === null;
     const was = wasCourseDoneRef.current;
@@ -140,7 +142,7 @@ export default function LearnPlayer() {
       celebrationShownRef.current = true;
       setShowCourseCelebration(true);
     }
-  }, [flat.length, selectedItemId, search.program]);
+  }, [flat.length, selectedItemId, search.program, initialLoading]);
 
   const handleProgressed = useCallback(async () => {
     if (!course || !selectedModuleId) return;
@@ -162,7 +164,7 @@ export default function LearnPlayer() {
   }, [course, selectedModuleId, selectedItemId, modulesData, courseId, loadUnlockedModules]);
 
   if (error) return <div className="p-8"><p className="text-sm text-destructive">{error}</p></div>;
-  if (!course) return <div className="p-8"><p className="text-sm text-muted-foreground">Loading...</p></div>;
+  if (initialLoading || !course) return <div className="p-8"><p className="text-sm text-muted-foreground">Loading...</p></div>;
 
   return (
     <>
