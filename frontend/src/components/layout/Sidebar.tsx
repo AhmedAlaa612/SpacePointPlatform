@@ -943,7 +943,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 overflow-x-hidden p-4 sm:p-6 lg:p-10">{children}</main>
+        <main className="flex-1 overflow-x-clip p-4 sm:p-6 lg:p-10">{children}</main>
       </div>
     </div>
   );
@@ -978,7 +978,7 @@ export function ApplicantShell({ children }: { children: ReactNode }) {
           Logout
         </button>
       </header>
-      <main className="flex-1 overflow-x-hidden p-4 sm:p-6 lg:p-10">{children}</main>
+      <main className="flex-1 overflow-x-clip p-4 sm:p-6 lg:p-10">{children}</main>
       <SiteFooter />
     </div>
   );
