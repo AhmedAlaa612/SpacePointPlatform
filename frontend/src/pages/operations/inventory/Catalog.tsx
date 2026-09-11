@@ -569,7 +569,7 @@ function Items() {
       {deletingItem && (
         <ConfirmDialog
           title="Delete component?"
-          description={`Are you sure you want to delete "${deletingItem.name}"? This action cannot be undone.`}
+          description={`Are you sure you want to delete "${deletingItem.name}"? This will permanently delete this component along with its stock counts and all movement history.`}
           confirmLabel="Delete"
           cancelLabel="Cancel"
           destructive
@@ -836,7 +836,7 @@ function ItemModal({ existing, onClose }: { existing?: Item; onClose: () => void
       {confirmDelete && existing && (
         <ConfirmDialog
           title="Delete component?"
-          description={`Are you sure you want to delete "${existing.name}"? This action cannot be undone.`}
+          description={`Are you sure you want to delete "${existing.name}"? This will permanently delete this component along with its stock counts and all movement history.`}
           confirmLabel="Delete"
           cancelLabel="Cancel"
           destructive

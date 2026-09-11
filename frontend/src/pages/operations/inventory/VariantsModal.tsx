@@ -106,7 +106,7 @@ export function VariantsModal({ groupName, onClose }: { groupName: string; onClo
       {deletingItem && (
         <ConfirmDialog
           title="Delete variant component?"
-          description={`Are you sure you want to delete "${deletingItem.variant_label || deletingItem.name}"? This action cannot be undone.`}
+          description={`Are you sure you want to delete "${deletingItem.variant_label || deletingItem.name}"? This will permanently delete this component along with its stock counts and all movement history.`}
           confirmLabel="Delete"
           cancelLabel="Cancel"
           destructive

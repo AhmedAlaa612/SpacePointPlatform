@@ -275,21 +275,50 @@ async def test_clearing_the_variant_group_clears_the_label_too(db, client, ops_h
 
 
 @pytest.mark.asyncio
-async def test_an_item_in_use_cannot_be_deleted(db, client, ops_headers, admin_headers):
+async def test_admin_can_destructively_delete_item_with_history_and_usages(db, client, ops_headers, admin_headers):
     tpl = await _template(db)
     item = await _item(db)
-    await db.commit()
-    await client.put(f"/inventory/templates/{tpl.id}/items", headers=ops_headers,
-                     json=[{"item_id": str(item.id), "required_qty": 1}])
+    loc = await _location(db)
+    wh = await _warehouse(db, loc)
+    # Add movement and stock
+    await client.post(
+        "/inventory/movements",
+        headers=ops_headers,
+        json={
+            "type": "receipt",
+            "item_id": str(item.id),
+            "warehouse_id": str(wh.id),
+            "qty": 5,
+            "notes": "Initial stock batch",
+        },
+    )
+    # Put item in template BOM
+    await client.put(
+        f"/inventory/templates/{tpl.id}/items",
+        headers=ops_headers,
+        json=[{"item_id": str(item.id), "required_qty": 1}],
+    )
 
     # Ops cannot delete (403 forbidden)
     resp_ops = await client.delete(f"/inventory/items/{item.id}", headers=ops_headers)
     assert resp_ops.status_code == 403
 
-    # Admin is blocked with 409 because it's in use
+    # Admin destructively deletes the item along with all history, stock, and template usages
     resp_admin = await client.delete(f"/inventory/items/{item.id}", headers=admin_headers)
-    assert resp_admin.status_code == 409
-    assert "template line" in resp_admin.json()["detail"]
+    assert resp_admin.status_code == 204
+
+    # Verify item is gone
+    get_res = await client.get("/inventory/items", headers=ops_headers)
+    items = get_res.json()
+    assert not any(i["id"] == str(item.id) for i in items)
+
+    # Verify template line is gone
+    tpl_res = await client.get(f"/inventory/templates/{tpl.id}", headers=ops_headers)
+    assert not any(line["item_id"] == str(item.id) for line in tpl_res.json()["items"])
+
+    # Verify stock level is gone
+    stock_res = await client.get(f"/inventory/stock?warehouse_id={wh.id}", headers=ops_headers)
+    assert not any(s["item_id"] == str(item.id) for s in stock_res.json())
 
 
 @pytest.mark.asyncio

@@ -21,13 +21,14 @@ No `/api` prefix — nginx strips it before the app sees the request.
 import uuid
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.dependencies import require_admin, require_inventory_manage, require_storekeeper
 from app.db.session import get_db
 from app.models.inventory.city import City
+from app.models.inventory.equipment_flag import EquipmentReturnFlag
 from app.models.inventory.item import Item
 from app.models.inventory.item_category import ItemCategory
 from app.models.inventory.item_subcategory import ItemSubcategory
@@ -719,10 +720,10 @@ async def delete_item(
     _: User = Depends(require_admin),
     x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
-    """Only ever deletes an item nothing uses — restricted to admin only.
+    """Destructively deletes an item and all its history/usages — restricted to admin only.
 
-    The FKs are RESTRICT, so the database would refuse anyway — this exists to
-    say *why* instead of surfacing an IntegrityError.
+    Cleans up all references across ledger movements, stock levels, kits, templates,
+    and flags so the item and all its history completely disappear.
     """
     if x_active_role and x_active_role != "admin":
         raise HTTPException(
@@ -734,30 +735,12 @@ async def delete_item(
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
 
-    in_kits = await db.scalar(select(func.count()).select_from(KitItem).where(KitItem.item_id == item_id))
-    in_templates = await db.scalar(
-        select(func.count()).select_from(KitTemplateItem).where(KitTemplateItem.item_id == item_id)
-    )
-    in_stock = await db.scalar(
-        select(func.count()).select_from(StockLevel).where(StockLevel.item_id == item_id, StockLevel.qty > 0)
-    )
-    in_movements = await db.scalar(
-        select(func.count()).select_from(Movement).where(Movement.item_id == item_id)
-    )
-    if in_kits or in_templates or in_stock or in_movements:
-        parts = []
-        if in_kits:
-            parts.append(f"{in_kits} kit(s)")
-        if in_templates:
-            parts.append(f"{in_templates} template line(s)")
-        if in_stock:
-            parts.append(f"{in_stock} location(s) with stock")
-        if in_movements:
-            parts.append(f"{in_movements} movement history record(s)")
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail=f"Still in use: {', '.join(parts)}.",
-        )
+    # Cascade-delete everything referencing this item across all tables
+    await db.execute(delete(Movement).where(Movement.item_id == item_id))
+    await db.execute(delete(StockLevel).where(StockLevel.item_id == item_id))
+    await db.execute(delete(KitItem).where(KitItem.item_id == item_id))
+    await db.execute(delete(KitTemplateItem).where(KitTemplateItem.item_id == item_id))
+    await db.execute(delete(EquipmentReturnFlag).where(EquipmentReturnFlag.item_id == item_id))
 
     await db.delete(item)
     await db.commit()
