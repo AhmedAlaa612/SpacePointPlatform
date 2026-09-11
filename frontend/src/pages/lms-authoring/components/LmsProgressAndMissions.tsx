@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
   Plus, X, BookOpen, Rocket, ChevronDown, ChevronRight, RotateCcw, Clock, CheckCircle2, XCircle,
-  Award, Circle, ExternalLink, Eye, Play, Search,
+  Award, Circle, ExternalLink, Eye, Play, Search, FlaskConical,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -336,6 +336,7 @@ export function ProgressPanel({
   cohortId, lmsProgramId, scopeLabel,
 }: { cohortId?: string; lmsProgramId?: string; scopeLabel: string }) {
   const [search, setSearch] = useState("")
+  const [showTestAccounts, setShowTestAccounts] = useState(true)
   const queryClient = useQueryClient()
   const queryKey = cohortId ? ["instructor-program-progress", cohortId] : ["instructor-program-wide-progress", lmsProgramId]
   const { data: rows, isLoading } = useQuery({
@@ -349,12 +350,18 @@ export function ProgressPanel({
     onSuccess: () => void queryClient.invalidateQueries({ queryKey }),
   })
 
+  const testCount = useMemo(() => rows?.filter((r) => r.is_test).length ?? 0, [rows])
+
   const filteredRows = useMemo(() => {
     if (!rows) return []
-    if (!search.trim()) return rows
+    let list = rows
+    if (!showTestAccounts) {
+      list = list.filter((r) => !r.is_test)
+    }
+    if (!search.trim()) return list
     const q = search.toLowerCase()
-    return rows.filter((r) => r.student_name.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)))
-  }, [rows, search])
+    return list.filter((r) => r.student_name.toLowerCase().includes(q) || (r.name && r.name.toLowerCase().includes(q)))
+  }, [rows, search, showTestAccounts])
 
   if (isLoading) return <Spinner />
   if (!rows || rows.length === 0) {
@@ -363,17 +370,32 @@ export function ProgressPanel({
 
   return (
     <div className="flex flex-col gap-3">
-      {rows.length > 0 && (
-        <div className="relative w-full sm:w-64 self-end">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by student name…"
-            className="h-8 w-full pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
-          />
-        </div>
-      )}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {testCount > 0 ? (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground select-none cursor-pointer bg-muted/40 hover:bg-muted/70 border border-border px-2.5 py-1.5 rounded-lg transition-colors">
+            <input
+              type="checkbox"
+              checked={showTestAccounts}
+              onChange={(e) => setShowTestAccounts(e.target.checked)}
+              className="rounded border-border text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
+            />
+            <FlaskConical size={13} className="text-purple-400" />
+            <span>Show staff test accounts ({testCount})</span>
+          </label>
+        ) : <div />}
+
+        {rows.length > 0 && (
+          <div className="relative w-full sm:w-64">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by student name…"
+              className="h-8 w-full pl-8 pr-3 border border-border bg-background text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors"
+            />
+          </div>
+        )}
+      </div>
 
       {filteredRows.length === 0 ? (
         <p className="text-xs text-muted-foreground text-center py-6">No students match "{search}"</p>
@@ -427,8 +449,15 @@ function ProgressRow({
             onClick={() => void navigate({ to: `/lms-authoring/students/${row.user_id}` })}
             className="min-w-0 flex-1 text-left group cursor-pointer"
           >
-            <div className="text-sm sm:text-base font-bold text-foreground group-hover:text-primary transition-colors truncate">
-              {row.student_name}
+            <div className="flex items-center gap-2">
+              <div className="text-sm sm:text-base font-bold text-foreground group-hover:text-primary transition-colors truncate">
+                {row.student_name}
+              </div>
+              {row.is_test && (
+                <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-400 border border-purple-500/30 flex items-center gap-1">
+                  <FlaskConical size={11} /> Staff Test
+                </span>
+              )}
             </div>
             <div className="text-xs font-medium text-muted-foreground truncate flex items-center gap-1.5 mt-0.5">
               <BookOpen size={12} className="shrink-0 text-muted-foreground/70" />

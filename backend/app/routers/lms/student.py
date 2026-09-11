@@ -32,7 +32,7 @@ from sqlalchemy import or_, select
 # from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_active_user, require_lms_student
+from app.core.dependencies import get_current_active_user, require_lms_checklist_learner, require_lms_student
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, VideoCheckpoint
 from app.models.lms.learning_path import LearningPath, LearningPathStep
@@ -581,7 +581,7 @@ async def _checklist_item_out(
 @router.get("/programs/{assignment_id}/items/{item_id}/pdf-url")
 async def program_item_pdf_url(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_checklist_learner),
 ) -> dict[str, str]:
     """Resolved only when a student actually opens a `pdf` item's document
     (or a `pdf`-kind guideline on any other item type — same file, same
@@ -598,7 +598,7 @@ async def program_item_pdf_url(
 @router.get("/programs/{assignment_id}/items/{item_id}/guideline-video-url")
 async def program_item_guideline_video_url(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_checklist_learner),
 ) -> dict:
     """Resolved only when a student actually opens an *uploaded* video
     guideline — an embed-link guideline never needs this, the checklist
@@ -622,7 +622,7 @@ async def program_item_guideline_video_url(
 @router.post("/programs/{assignment_id}/items/{item_id}/complete", response_model=LmsProgramChecklistItemOut)
 async def complete_program_item(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_checklist_learner),
 ):
     """Self-check — for external_link/pdf/manual items with no
     `requires_confirmation`, and for `submission` items only after a link
@@ -654,7 +654,7 @@ async def complete_program_item(
 @router.post("/programs/{assignment_id}/items/{item_id}/submit", response_model=LmsProgramChecklistItemOut)
 async def submit_program_item(
     assignment_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramItemSubmitIn,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_checklist_learner),
 ):
     """Paste-back for a `submission` item — same shape as the Poster tab.
     Auto-completes on submit: marks the item `done` right away, or
@@ -686,7 +686,7 @@ async def submit_program_item(
 @router.post("/programs/{assignment_id}/items/{item_id}/quiz/start", response_model=CohortQuizAttemptOut)
 async def start_cohort_quiz(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_checklist_learner),
 ):
     """Get-or-create the student's one attempt at this checklist item's
     quiz — a page refresh never reshuffles it (see
@@ -710,7 +710,7 @@ async def start_cohort_quiz(
 @router.post("/programs/{assignment_id}/items/{item_id}/quiz/submit", response_model=CohortQuizResultOut)
 async def submit_cohort_quiz(
     assignment_id: uuid.UUID, item_id: uuid.UUID, body: CohortQuizSubmitIn,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_checklist_learner),
 ):
     """All the student's answers at once (client-tracked per-question
     timing included) — grades, flips the checklist item to done via
@@ -737,7 +737,7 @@ async def submit_cohort_quiz(
 @router.get("/programs/{assignment_id}/items/{item_id}/quiz/result", response_model=CohortQuizResultOut)
 async def get_cohort_quiz_result(
     assignment_id: uuid.UUID, item_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_checklist_learner),
 ):
     _, item, _ = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     if item.item_type != "quiz":

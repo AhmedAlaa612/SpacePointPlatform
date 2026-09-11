@@ -86,4 +86,5 @@ class LmsProgramRosterRowOut(BaseModel):
     next_item_title: str | None = None
     certificate_required: bool
     certificate_earned: bool
+    is_test: bool = False
     pending_confirmations: list[PendingConfirmationOut] = []

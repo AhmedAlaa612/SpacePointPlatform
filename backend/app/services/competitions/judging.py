@@ -177,8 +177,11 @@ async def scored_team_ids(db: AsyncSession, *, judge_user_id: uuid.UUID, cohort_
 
 # ── Judges roster with progress (ops "Judges" tab) ──────────────────────
 
-async def list_judges_with_progress(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
-    team_count = await db.scalar(select(func.count(Team.id)).where(Team.cohort_id == cohort_id)) or 0
+async def list_judges_with_progress(db: AsyncSession, *, cohort_id: uuid.UUID, include_test: bool = False) -> list[dict]:
+    team_stmt = select(func.count(Team.id)).where(Team.cohort_id == cohort_id)
+    if not include_test:
+        team_stmt = team_stmt.where(Team.is_test.is_(False))
+    team_count = await db.scalar(team_stmt) or 0
     judges = (await db.execute(
         select(User, CompetitionJudge.onboarding_sent_at).join(CompetitionJudge, CompetitionJudge.user_id == User.id)
         .where(CompetitionJudge.cohort_id == cohort_id).order_by(User.full_name)
@@ -198,7 +201,7 @@ async def list_judges_with_progress(db: AsyncSession, *, cohort_id: uuid.UUID) -
 
 # ── Leaderboard, publish, export ────────────────────────────────────────
 
-async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
+async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID, include_test: bool = False) -> list[dict]:
     """Every team in this cohort, ranked by the average of every judge's
     `total_points` — `None` (last, `status="unscored"`) for a team no judge
     has scored yet. Only counts `submitted=True` rows, so a judge's
@@ -213,7 +216,10 @@ async def leaderboard(db: AsyncSession, *, cohort_id: uuid.UUID) -> list[dict]:
     (`created_at`, a proxy for which stage is later since there's no
     explicit phase-order field) — so a Finalists team doesn't turn
     around and read as having "advanced to" its own Qualifier stage."""
-    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort_id))).scalars().all()
+    stmt = select(Team).where(Team.cohort_id == cohort_id)
+    if not include_test:
+        stmt = stmt.where(Team.is_test.is_(False))
+    teams = (await db.execute(stmt)).scalars().all()
 
     cohort = await db.get(Cohort, cohort_id)
     advanced_to_by_name: dict[str, list[str]] = {}

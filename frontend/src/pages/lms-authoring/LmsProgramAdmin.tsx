@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Eye, ExternalLink } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { useAuth } from "@/context/AuthContext"
 import { getProgramsApi } from "@/api/sessions/programs"
 import { getCohortsApi } from "@/api/sessions/cohorts"
 import {
   listLmsProgramsApi, createLmsProgramApi, getLmsProgramApi, getMyReachableProgramsApi,
+  createPreviewAssignmentApi,
   type LmsProgram,
 } from "@/api/lms_admin"
 import { myInstructorCohortsApi, type InstructorCohort } from "@/api/missionsInstructor"
@@ -51,7 +53,12 @@ export default function LmsProgramAdmin() {
     queryKey: ["my-reachable-lms-programs"], queryFn: getMyReachableProgramsApi, enabled: !isStaff,
   })
 
-  const [programId, setProgramId] = useState("")
+  const [programId, setProgramId] = useState(() => {
+    if (typeof window !== "undefined") {
+      return new URLSearchParams(window.location.search).get("programId") || ""
+    }
+    return ""
+  })
   const programsLoading = isStaff ? staffProgramsLoading : myProgramsLoading
   const preloadedProgram = !isStaff ? myPrograms.find((p) => p.program_id === programId) : undefined
 
@@ -147,28 +154,52 @@ function ProgramWorkspace({
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-border">
+        <div className="flex items-center gap-1 overflow-x-auto scrollbar-none no-scrollbar">
+          {isStaff && (
+            <button
+              onClick={() => setScope("program")}
+              className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
+                scope === "program" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Program
+            </button>
+          )}
+          {cohorts.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => setScope({ cohortId: c.id, cohortName: c.name })}
+              className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
+                typeof scope === "object" && scope.cohortId === c.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+
         {isStaff && (
           <button
-            onClick={() => setScope("program")}
-            className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
-              scope === "program" ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
+            onClick={async () => {
+              try {
+                const res = await createPreviewAssignmentApi(
+                  effective.id,
+                  typeof scope === "object" ? scope.cohortId : undefined,
+                );
+                window.open(`/learn/checklists/${res.assignment_id}`, "_blank");
+              } catch (e) {
+                console.error("Failed to open preview assignment", e);
+              }
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 mb-1 sm:mb-0 text-xs font-semibold rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors border border-primary/25 shrink-0 cursor-pointer self-start sm:self-center"
+            title="Open identical student checklist in sandbox mode to test steps, submissions, and gating"
           >
-            Program
+            <Eye size={13} />
+            <span>Preview as Student</span>
+            <ExternalLink size={11} className="opacity-70" />
           </button>
         )}
-        {cohorts.map((c) => (
-          <button
-            key={c.id}
-            onClick={() => setScope({ cohortId: c.id, cohortName: c.name })}
-            className={`px-3 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
-              typeof scope === "object" && scope.cohortId === c.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {c.name}
-          </button>
-        ))}
       </div>
 
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
