@@ -535,6 +535,7 @@ export interface LmsProgramRosterRow {
   next_item_title: string | null;
   certificate_required: boolean;
   certificate_earned: boolean;
+  is_test?: boolean;
   pending_confirmations: PendingConfirmation[];
 }
 
@@ -558,6 +559,18 @@ export const getMyReachableProgramsApi = () =>
 
 export const getProgramProgressApi = (lmsProgramId: string) =>
   api.get<LmsProgramRosterRow[]>(`/lms/instructor/programs/${lmsProgramId}/progress`).then((r) => r.data);
+
+export const createPreviewAssignmentApi = (lmsProgramId: string, cohortId?: string) =>
+  api.post<{ assignment_id: string; lms_program_id: string; cohort_id: string | null; is_test: boolean }>(
+    "/lms/admin/preview-assignment",
+    { lms_program_id: lmsProgramId, cohort_id: cohortId || null },
+  ).then((r) => r.data);
+
+export const resetPreviewAssignmentApi = (assignmentId: string) =>
+  api.post<{ status: string; message: string }>(`/lms/admin/preview-assignment/${assignmentId}/reset`, {}).then((r) => r.data);
+
+export const deletePreviewAssignmentApi = (assignmentId: string) =>
+  api.delete<{ status: string; message: string }>(`/lms/admin/preview-assignment/${assignmentId}`).then((r) => r.data);
 
 export interface LmsAssignmentItemDetail {
   item_id: string;

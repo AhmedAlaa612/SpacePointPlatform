@@ -25,7 +25,8 @@ target_metadata = Base.metadata
 
 def _sync_url() -> str:
     """postgresql+asyncpg://…  →  postgresql+psycopg2://…  (Alembic runs sync)."""
-    url = settings.DATABASE_URL
+    import os
+    url = os.environ.get("ALEMBIC_DATABASE_URL") or settings.DATABASE_URL
     if url.startswith("postgresql+asyncpg://"):
         return url.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
     if url.startswith("postgresql://"):

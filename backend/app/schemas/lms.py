@@ -507,11 +507,13 @@ class LmsProgramAssignmentSummaryOut(BaseModel):
     next_item_title: str | None = None
     certificate_required: bool
     certificate_earned: bool
+    is_test: bool = False
 
 
 class LmsProgramChecklistOut(BaseModel):
     assignment_id: UUID
     lms_program_id: UUID
+    program_id: UUID | None = None
     name: str
     description: str | None = None
     image_url: str | None = None
@@ -523,8 +525,21 @@ class LmsProgramChecklistOut(BaseModel):
     team_name: str | None = None
     certificate_required: bool
     certificate_earned: bool
+    is_test: bool = False
     items: list[LmsProgramChecklistItemOut]
 
 
 class LmsProgramItemSubmitIn(BaseModel):
     url: str
+
+
+class PreviewAssignmentIn(BaseModel):
+    lms_program_id: UUID
+    cohort_id: UUID | None = None
+
+
+class PreviewAssignmentOut(BaseModel):
+    assignment_id: UUID
+    lms_program_id: UUID
+    cohort_id: UUID | None = None
+    is_test: bool

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { useParams } from "@tanstack/react-router";
+import { useNavigate, useParams } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users } from "lucide-react";
-import { fetchChecklist, type LmsProgramChecklistItem } from "@/api/lms";
+import { Edit3, FlaskConical, RotateCcw, Users } from "lucide-react";
+import { fetchChecklist, resetPreviewAssignment, type LmsProgramChecklistItem } from "@/api/lms";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { NextTaskCard } from "./NextTaskCard";
 import { TileField } from "./TileField";
@@ -18,8 +20,11 @@ import { checklistItemToTile, computeLiveTaskId, groupByCheckpoint, readBoardScr
  * (handoff decision #5). */
 export default function RoadmapBoard() {
   const { assignmentId } = useParams({ strict: false }) as { assignmentId: string };
+  const navigate = useNavigate();
+  const toast = useToast();
   const queryClient = useQueryClient();
   const [openItemId, setOpenItemId] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const { data: checklist, isLoading, error } = useQuery({
     queryKey: ["lms-checklist", assignmentId],
@@ -27,6 +32,19 @@ export default function RoadmapBoard() {
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
+
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      await resetPreviewAssignment(assignmentId);
+      await invalidate();
+      toast.success("Sandbox progress reset to step 1");
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || "Failed to reset sandbox progress");
+    } finally {
+      setResetting(false);
+    }
+  };
 
   // Restore scroll position on return from a deep link (flow rule 5: "Back
   // closes the loop... at the same scroll position"). Runs once the
@@ -56,6 +74,52 @@ export default function RoadmapBoard() {
 
   return (
     <div className="flex flex-col">
+      {checklist.is_test && (
+        <div className="sticky top-0 z-40 w-full border-b border-purple-500/30 bg-purple-950/90 backdrop-blur-md px-4 py-2.5 shadow-md">
+          <div className="mx-auto max-w-[1180px] flex flex-wrap items-center justify-between gap-3 text-purple-200">
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center justify-center size-7 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                <FlaskConical className="size-4" />
+              </div>
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-purple-300 mr-2">Staff Sandbox Mode</span>
+                <span className="hidden sm:inline text-xs text-purple-300/80">
+                  Full student view & actions — test progress is isolated.
+                </span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={resetting}
+                onClick={handleReset}
+                className="h-7 text-xs border-purple-500/40 bg-purple-500/20 text-purple-200 hover:bg-purple-500/30 hover:text-white transition-colors cursor-pointer gap-1.5"
+              >
+                <RotateCcw className={cn("size-3.5", resetting && "animate-spin")} />
+                {resetting ? "Resetting..." : "Reset Progress"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const targetId = checklist.program_id || checklist.lms_program_id;
+                  if (targetId) {
+                    void navigate({ to: `/lms-authoring/curriculum?programId=${targetId}` });
+                  } else {
+                    void navigate({ to: "/lms-authoring/curriculum" });
+                  }
+                }}
+                className="h-7 text-xs border-purple-500/40 bg-purple-500/20 text-purple-200 hover:bg-purple-500/30 hover:text-white transition-colors cursor-pointer gap-1.5"
+              >
+                <Edit3 className="size-3.5" />
+                Edit Checklist
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={cn("transition-[filter,opacity] duration-150", openItem && "md:blur-[1.5px] md:opacity-50")}>
         {/* Banner — native ratio, full width, never cropped (the clipping
             fix). The fade below is a lighting cue, not a crop: it sits on

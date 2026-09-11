@@ -590,11 +590,13 @@ export interface LmsProgramAssignmentSummary {
   next_item_title: string | null;
   certificate_required: boolean;
   certificate_earned: boolean;
+  is_test?: boolean;
 }
 
 export interface LmsProgramChecklist {
   assignment_id: string;
   lms_program_id: string;
+  program_id?: string | null;
   name: string;
   description: string | null;
   image_url: string | null;
@@ -603,6 +605,7 @@ export interface LmsProgramChecklist {
   team_name: string | null;
   certificate_required: boolean;
   certificate_earned: boolean;
+  is_test?: boolean;
   items: LmsProgramChecklistItem[];
 }
 
@@ -635,5 +638,26 @@ export async function getChecklistItemGuidelineVideoUrlApi(
   assignmentId: string, itemId: string,
 ): Promise<{ url: string; video_info: import("@/components/video/VideoPlayer").VideoPlaybackInfo | null }> {
   const { data } = await api.get(`/lms/programs/${assignmentId}/items/${itemId}/guideline-video-url`);
+  return data;
+}
+
+export async function createPreviewAssignment(
+  lmsProgramId: string,
+  cohortId?: string,
+): Promise<{ assignment_id: string; lms_program_id: string; cohort_id: string | null; is_test: boolean }> {
+  const { data } = await api.post("/lms/admin/preview-assignment", {
+    lms_program_id: lmsProgramId,
+    cohort_id: cohortId || null,
+  });
+  return data;
+}
+
+export async function resetPreviewAssignment(assignmentId: string): Promise<{ status: string; message: string }> {
+  const { data } = await api.post(`/lms/admin/preview-assignment/${assignmentId}/reset`, {});
+  return data;
+}
+
+export async function deletePreviewAssignment(assignmentId: string): Promise<{ status: string; message: string }> {
+  const { data } = await api.delete(`/lms/admin/preview-assignment/${assignmentId}`);
   return data;
 }

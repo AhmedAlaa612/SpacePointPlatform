@@ -61,12 +61,15 @@ async def list_my_cohorts(db: AsyncSession = Depends(get_db), current: User = De
 
 @router.get("/teams", response_model=list[CompetitionJudgeTeamOut])
 async def list_my_teams(
-    cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+    cohort_id: uuid.UUID,
+    include_test: bool = False,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     await require_judge_cohort_access(db, cohort_id=cohort_id, user=current)
     if await db.get(Cohort, cohort_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
-    teams = await teams_for_cohort(db, cohort_id=cohort_id)
+    is_staff = any(r in current.role_values for r in ["admin", "operations", "facilitator"])
+    teams = await teams_for_cohort(db, cohort_id=cohort_id, include_test=include_test if is_staff else False)
     scored = await scored_team_ids(db, judge_user_id=current.id, cohort_id=cohort_id)
     out = []
     for team in teams:

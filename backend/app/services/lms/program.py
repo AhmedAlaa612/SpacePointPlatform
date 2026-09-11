@@ -670,25 +670,29 @@ async def assign_lms_program(
 async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssignment) -> int:
     """Backfill — creates a progress row for any item the assignment's
     cohort currently resolves to (via `resolve_cohort_program`, so it
-    automatically respects whichever override wins) that this assignment
-    was never materialized against. The module docstring's "deliberate
-    v1 gap" (adding a checklist item after students are already assigned
-    never reached them) stops being a gap once callers that add items
-    run this afterward — a no-op once every current item already has a
-    row, so it's safe to call any time, not just right after an add."""
-    if assignment.cohort_id is None:
-        return 0
-    resolved = await resolve_cohort_program(db, assignment.cohort_id)
-    if resolved is None:
-        return 0
-    _program, items = resolved
+    automatically respects whichever override wins), or from the parent
+    LMS program when no cohort is attached (e.g. standalone staff preview),
+    that this assignment was never materialized against."""
+    if assignment.cohort_id is not None:
+        resolved = await resolve_cohort_program(db, assignment.cohort_id)
+        if resolved is None:
+            return 0
+        _program, items = resolved
+        cohort = await db.get(Cohort, assignment.cohort_id)
+    else:
+        items = list((await db.execute(
+            select(LmsProgramItem)
+            .where(LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == assignment.lms_program_id)
+            .order_by(LmsProgramItem.position)
+        )).scalars().all())
+        cohort = None
+
     existing_item_ids = set((await db.execute(
         select(LmsProgramItemProgress.item_id).where(LmsProgramItemProgress.assignment_id == assignment.id)
     )).scalars().all())
     missing = [item for item in items if item.id not in existing_item_ids]
     if not missing:
         return 0
-    cohort = await db.get(Cohort, assignment.cohort_id)
     for item in missing:
         progress = LmsProgramItemProgress(id=uuid.uuid4(), assignment_id=assignment.id, item_id=item.id)
         if item.item_type == "course" and item.course_id:
@@ -696,7 +700,7 @@ async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssig
                 db, user_id=assignment.user_id, course_id=item.course_id, source="registration",
                 program_id=cohort.program_id if cohort else None, registration_id=assignment.registration_id,
             )
-        elif item.item_type == "mission_run" and item.mission_id:
+        elif item.item_type == "mission_run" and item.mission_id and assignment.cohort_id:
             attempt = await assign_mission_run(
                 db, mission_id=item.mission_id, user_id=assignment.user_id,
                 cohort_id=assignment.cohort_id, variant_id=item.variant_id,
@@ -1210,7 +1214,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     items_out = [{**row, "locked": locked_by_item.get(row["id"], False)} for row in rows]
 
     return {
-        "assignment_id": assignment.id, "lms_program_id": program.id, "name": program.name,
+        "assignment_id": assignment.id, "lms_program_id": program.id, "program_id": program.program_id, "name": program.name,
         "description": program.description,
         "image_url": await storage.resolve_url(program.image_bucket, program.image_path),
         "cohort_id": assignment.cohort_id,
@@ -1222,6 +1226,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         "team_name": team.name if team is not None else None,
         "certificate_required": program.certificate_required,
         "certificate_earned": await _certificate_earned(db, assignment.registration_id),
+        "is_test": bool(assignment.is_test),
         "items": items_out,
     }
 
@@ -1263,6 +1268,7 @@ async def _assignment_summary(db: AsyncSession, assignment: LmsProgramAssignment
         "next_item_title": next_item_title,
         "certificate_required": program.certificate_required,
         "certificate_earned": await _certificate_earned(db, assignment.registration_id),
+        "is_test": bool(assignment.is_test),
     }
 
 
@@ -1449,3 +1455,162 @@ async def confirm_program_item(
     target.confirmed_by_user_id = confirmed_by_user_id
     await db.flush()
     return target
+
+
+async def get_or_create_preview_assignment(
+    db: AsyncSession, *, user_id: uuid.UUID, lms_program_id: uuid.UUID, cohort_id: uuid.UUID | None = None,
+) -> LmsProgramAssignment:
+    """Get-or-create a staff sandbox test assignment for testing a checklist
+    as a student. Idempotent on (user_id, lms_program_id, cohort_id, is_test=True).
+    Materializes steps immediately and ensures a staff test team exists if the cohort has
+    team deliverables."""
+    stmt = select(LmsProgramAssignment).where(
+        LmsProgramAssignment.user_id == user_id,
+        LmsProgramAssignment.lms_program_id == lms_program_id,
+        LmsProgramAssignment.is_test.is_(True),
+    )
+    if cohort_id is not None:
+        stmt = stmt.where(LmsProgramAssignment.cohort_id == cohort_id)
+    else:
+        stmt = stmt.where(LmsProgramAssignment.cohort_id.is_(None))
+
+    assignment = await db.scalar(stmt)
+    if assignment is None:
+        assignment = LmsProgramAssignment(
+            id=uuid.uuid4(),
+            user_id=user_id,
+            lms_program_id=lms_program_id,
+            cohort_id=cohort_id,
+            is_test=True,
+        )
+        db.add(assignment)
+        await db.flush()
+
+    # Sync / backfill any items
+    await sync_assignment_items(db, assignment=assignment)
+
+    # If cohort is attached, check for team items and ensure a staff test team exists
+    if cohort_id is not None:
+        pairs = await _assignment_items_and_progress(db, assignment.id)
+        has_team_items = any(item.scope == "team" for item, _ in pairs)
+        if has_team_items:
+            team = await team_for_cohort_member(db, cohort_id=cohort_id, user_id=user_id)
+            if team is None:
+                user = await db.get(User, user_id)
+                team_name = f"Staff Sandbox ({user.full_name if user else 'Staff'})"[:80]
+                existing_team = await db.scalar(
+                    select(Team).where(Team.cohort_id == cohort_id, Team.name == team_name)
+                )
+                if existing_team is None:
+                    test_team = Team(
+                        id=uuid.uuid4(),
+                        name=team_name,
+                        cohort_id=cohort_id,
+                        created_by=user_id,
+                        is_test=True,
+                    )
+                    db.add(test_team)
+                    await db.flush()
+                    db.add(TeamMember(team_id=test_team.id, user_id=user_id))
+                    await db.flush()
+                else:
+                    mem = await db.get(TeamMember, (existing_team.id, user_id))
+                    if mem is None:
+                        db.add(TeamMember(team_id=existing_team.id, user_id=user_id))
+                        await db.flush()
+
+    await db.commit()
+    return assignment
+
+
+async def reset_preview_assignment(
+    db: AsyncSession, *, assignment_id: uuid.UUID, user_id: uuid.UUID,
+) -> bool:
+    """Reset a staff sandbox assignment back to pristine step 1:
+    - Clears all individual item progress status to 'pending'
+    - Deletes quiz attempts for these items
+    - Clears team progress for test teams
+    """
+    assignment = await db.get(LmsProgramAssignment, assignment_id)
+    if assignment is None:
+        return False
+    user = await db.get(User, user_id)
+    if assignment.user_id != user_id and (not user or "admin" not in user.role_values):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Cannot reset another user's assignment")
+
+    # Reset individual item progress
+    progs = (await db.execute(
+        select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == assignment_id)
+    )).scalars().all()
+    item_ids = [p.item_id for p in progs]
+    for p in progs:
+        p.status = "pending"
+        p.completed_at = None
+        p.confirmed_by_user_id = None
+        p.submitted_url = None
+        p.updated_at = None
+
+    # Delete quiz attempts
+    if item_ids:
+        quiz_attempts = (await db.execute(
+            select(CohortQuizAttempt).where(
+                CohortQuizAttempt.user_id == assignment.user_id,
+                CohortQuizAttempt.program_item_id.in_(item_ids),
+            )
+        )).scalars().all()
+        for qa in quiz_attempts:
+            await db.delete(qa)
+
+    # Reset team progress if user belongs to a test team in this cohort
+    if assignment.cohort_id and item_ids:
+        team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
+        if team is not None and team.is_test:
+            team_items = select(LmsProgramItem.id).where(
+                LmsProgramItem.id.in_(item_ids),
+                LmsProgramItem.scope == "team",
+            )
+            team_progs = (await db.execute(
+                select(LmsProgramTeamItemProgress).where(
+                    LmsProgramTeamItemProgress.team_id == team.id,
+                    LmsProgramTeamItemProgress.item_id.in_(team_items),
+                )
+            )).scalars().all()
+            for tp in team_progs:
+                tp.status = "pending"
+                tp.completed_at = None
+                tp.confirmed_by_user_id = None
+                tp.submitted_url = None
+                tp.updated_at = None
+                tp.updated_by_user_id = None
+
+    await db.commit()
+    return True
+
+
+async def delete_preview_assignment(
+    db: AsyncSession, *, assignment_id: uuid.UUID, user_id: uuid.UUID,
+) -> bool:
+    """Permanently delete a staff sandbox assignment and any orphaned test teams."""
+    assignment = await db.get(LmsProgramAssignment, assignment_id)
+    if assignment is None:
+        return False
+    user = await db.get(User, user_id)
+    if assignment.user_id != user_id and (not user or "admin" not in user.role_values):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="Cannot delete another user's assignment")
+
+    cohort_id = assignment.cohort_id
+    # Delete assignment (cascades to item progress)
+    await db.delete(assignment)
+
+    # If user has a test team with no other members in that cohort, clean it up
+    if cohort_id:
+        team = await team_for_cohort_member(db, cohort_id=cohort_id, user_id=user_id)
+        if team and team.is_test:
+            members = (await db.execute(
+                select(TeamMember).where(TeamMember.team_id == team.id)
+            )).scalars().all()
+            if len(members) <= 1:
+                await db.delete(team)
+
+    await db.commit()
+    return True

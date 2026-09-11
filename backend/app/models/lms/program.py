@@ -229,6 +229,7 @@ class LmsProgramAssignment(Base):
     registration_id = Column(
         UUID(as_uuid=True), ForeignKey("registrations.id", ondelete="SET NULL"), nullable=True,
     )
+    is_test = Column(Boolean, nullable=False, default=False, server_default="false")
     assigned_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

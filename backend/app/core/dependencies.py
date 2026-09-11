@@ -169,6 +169,10 @@ require_materials_manager = RequireRole(["operations", "facilitator"])
 # "may this learner see this course" — that is `enrollments` (LMS D8), checked
 # in services/lms/, because the answer is per-course and this is not.
 require_lms_student = RequireRole(["student"])
+# Checklist actions (completing steps, submitting deliverables, starting/submitting quizzes)
+# are gated by assignment ownership, but also allow staff roles (ops, facilitator, instructor)
+# so they can preview and test checklists in sandbox mode without role errors.
+require_lms_checklist_learner = RequireRole(["student", "operations", "facilitator", "instructor"])
 
 # Authoring: ops and facilitators write course content, same split as
 # require_materials_manager above (facilitators write the material; plain

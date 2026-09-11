@@ -104,10 +104,11 @@ from app.services.lms.admin_progress import (
 from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
+from app.schemas.lms import PreviewAssignmentIn, PreviewAssignmentOut
 from app.services.lms.program import (
-    PROGRAM_ITEM_PDF_BUCKET, check_item_conflicts, effective_cohort_program_items, fork_cohort_override,
-    guard_locked_submission_scope, item_out, items_out, next_position, renumber_program_items, reorder_program_items,
-    resolve_cohort_program, sync_cohort_assignments, sync_program_assignments, validate_item_payload,
+    PROGRAM_ITEM_PDF_BUCKET, check_item_conflicts, delete_preview_assignment, effective_cohort_program_items, fork_cohort_override,
+    get_or_create_preview_assignment, guard_locked_submission_scope, item_out, items_out, next_position, renumber_program_items, reorder_program_items,
+    reset_preview_assignment, resolve_cohort_program, sync_cohort_assignments, sync_program_assignments, validate_item_payload,
     validate_item_refs,
 )
 from app.schemas.missions_component_config import ComponentConfigIn, ComponentConfigOut
@@ -2420,3 +2421,58 @@ async def bulk_grant_path_enrollment(
 
     await db.commit()
     return BulkGrantOut(granted=granted, already_enrolled=already_enrolled, skipped_no_account=skipped_no_account)
+
+
+# ── Staff Sandbox & Preview Endpoints ────────────────────────────────────────
+
+@router.post("/preview-assignment", response_model=PreviewAssignmentOut)
+async def create_preview_assignment_endpoint(
+    body: PreviewAssignmentIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    """Creates or retrieves an identical student-facing sandbox assignment
+    for staff to test a checklist, gating, submissions, and cohort progress."""
+    program = await db.get(LmsProgram, body.lms_program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    if body.cohort_id:
+        cohort = await db.get(Cohort, body.cohort_id)
+        if cohort is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    assignment = await get_or_create_preview_assignment(
+        db, user_id=current.id, lms_program_id=body.lms_program_id, cohort_id=body.cohort_id,
+    )
+    return PreviewAssignmentOut(
+        assignment_id=assignment.id,
+        lms_program_id=assignment.lms_program_id,
+        cohort_id=assignment.cohort_id,
+        is_test=bool(assignment.is_test),
+    )
+
+
+@router.post("/preview-assignment/{assignment_id}/reset")
+async def reset_preview_assignment_endpoint(
+    assignment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    """Resets staff sandbox progress back to Step 1 (pending)."""
+    ok = await reset_preview_assignment(db, assignment_id=assignment_id, user_id=current.id)
+    if not ok:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Preview assignment not found")
+    return {"status": "ok", "message": "Preview progress reset to step 1"}
+
+
+@router.delete("/preview-assignment/{assignment_id}")
+async def delete_preview_assignment_endpoint(
+    assignment_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    """Permanently purges staff sandbox assignment and test team."""
+    ok = await delete_preview_assignment(db, assignment_id=assignment_id, user_id=current.id)
+    if not ok:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Preview assignment not found")
+    return {"status": "ok", "message": "Preview assignment deleted"}

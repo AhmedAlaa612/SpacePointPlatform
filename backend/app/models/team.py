@@ -28,7 +28,7 @@ own grading semantics); only the team identity/roster itself is shared here.
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, PrimaryKeyConstraint, String, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, PrimaryKeyConstraint, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -44,6 +44,7 @@ class Team(Base):
     name = Column(String(80), nullable=False)
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    is_test = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
