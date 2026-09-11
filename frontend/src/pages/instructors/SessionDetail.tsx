@@ -260,53 +260,60 @@ export default function SessionDetail() {
 
           {/* Right side: Team Members & Check-in */}
           {s.teammates.length > 0 && (
-            <div className="flex items-center gap-2.5 flex-wrap border-t md:border-t-0 md:border-l border-border pt-3 md:pt-0 md:pl-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 flex-wrap border-t md:border-t-0 md:border-l border-border pt-3 md:pt-0 md:pl-4 w-full md:w-auto">
               <span className="text-xs font-medium text-muted-foreground mr-1 hidden sm:inline">Team:</span>
-              {s.teammates.map((t) => (
-                <div key={t.user_id} className="flex items-center gap-2 bg-muted/40 px-2.5 py-1.5 rounded-xl border border-border/60">
-                  <div className={cn(
-                    "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
-                    t.att_status === "present" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
-                  )}>
-                    {t.full_name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
-                  </div>
-                  <div className="flex items-center gap-1.5 text-xs">
-                    <span className="font-semibold text-foreground">
-                      {t.is_me ? "You" : t.full_name}
-                    </span>
-                    <span className="text-muted-foreground text-[11px]">({t.role_name})</span>
-                  </div>
-                  {t.att_status === "present" ? (
-                    <span className="text-[11px] font-bold text-emerald-500 flex items-center gap-1 shrink-0 ml-1">
-                      <CheckCircle2 size={13} /> Checked in
-                    </span>
-                  ) : t.att_status === "absent" ? (
-                    <span className="text-[11px] font-bold text-amber-500 shrink-0 ml-1">Absent</span>
-                  ) : t.is_me ? (
-                    <div className="flex items-center gap-1.5 shrink-0 ml-1">
-                      <Button
-                        size="sm"
-                        disabled={checkIn.isPending}
-                        onClick={() => checkIn.mutate({ att: "present" })}
-                        className="h-7 px-3 text-xs font-bold rounded-lg gap-1"
-                      >
-                        <CheckCircle2 size={13} /> Check in
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={checkIn.isPending}
-                        onClick={() => setAskingAbsence((v) => !v)}
-                        className="h-7 px-3 text-xs font-bold rounded-lg gap-1"
-                      >
-                        <UserX size={13} /> Can't attend
-                      </Button>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 flex-wrap w-full sm:w-auto">
+                {s.teammates.map((t) => (
+                  <div
+                    key={t.user_id}
+                    className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-muted/40 p-2.5 sm:px-2.5 sm:py-1.5 rounded-xl border border-border/60 w-full sm:w-auto"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={cn(
+                        "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0",
+                        t.att_status === "present" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+                      )}>
+                        {t.full_name.split(" ").map((p) => p[0]).slice(0, 2).join("").toUpperCase()}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs min-w-0 flex-wrap">
+                        <span className="font-semibold text-foreground truncate">
+                          {t.is_me ? "You" : t.full_name}
+                        </span>
+                        <span className="text-muted-foreground text-[11px] shrink-0">({t.role_name})</span>
+                      </div>
                     </div>
-                  ) : (
-                    <span className="text-[11px] font-medium text-amber-500 shrink-0 ml-1">Not checked in</span>
-                  )}
-                </div>
-              ))}
+                    {t.att_status === "present" ? (
+                      <span className="text-[11px] font-bold text-emerald-500 flex items-center gap-1 shrink-0 ml-auto sm:ml-1">
+                        <CheckCircle2 size={13} /> Checked in
+                      </span>
+                    ) : t.att_status === "absent" ? (
+                      <span className="text-[11px] font-bold text-amber-500 shrink-0 ml-auto sm:ml-1">Absent</span>
+                    ) : t.is_me ? (
+                      <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:gap-1.5 shrink-0 pt-1 sm:pt-0 sm:ml-1">
+                        <Button
+                          size="sm"
+                          disabled={checkIn.isPending}
+                          onClick={() => checkIn.mutate({ att: "present" })}
+                          className="h-8 sm:h-7 px-3 text-xs font-bold rounded-lg gap-1 w-full sm:w-auto"
+                        >
+                          <CheckCircle2 size={13} /> Check in
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={checkIn.isPending}
+                          onClick={() => setAskingAbsence((v) => !v)}
+                          className="h-8 sm:h-7 px-3 text-xs font-bold rounded-lg gap-1 w-full sm:w-auto"
+                        >
+                          <UserX size={13} /> Can't attend
+                        </Button>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] font-medium text-amber-500 shrink-0 ml-auto sm:ml-1">Not checked in</span>
+                    )}
+                  </div>
+                ))}
+              </div>
               {askingAbsence && (
                 <div className="flex flex-col sm:flex-row gap-2 w-full">
                   <input
