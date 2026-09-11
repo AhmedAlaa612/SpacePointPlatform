@@ -13,10 +13,12 @@ import type { Program } from "@/types/sessions"
 import { CreateChecklistPrompt, ProgramTemplateEditor, CohortOverrideEditor } from "./components/LmsChecklistAuthoring"
 import { ProgramMissionsPanel, CohortMissionsPanel, ProgressPanel, ReviewScopePanel } from "./components/LmsProgressAndMissions"
 
+import { LmsComponentConfigPanel } from "./components/LmsComponentConfigPanel"
+
 type Scope = "program" | { cohortId: string; cohortName: string }
-type SubTab = "checklist" | "missions" | "progress" | "review"
+type SubTab = "checklist" | "missions" | "components" | "progress" | "review"
 const SUBTAB_LABEL: Record<SubTab, string> = {
-  checklist: "Checklist", missions: "Missions", progress: "Progress", review: "Review",
+  checklist: "Checklist", missions: "Missions", components: "Components", progress: "Progress", review: "Review",
 }
 
 /** The one LMS Programs page (2026-08-22 merge) — absorbs what used to be
@@ -170,7 +172,7 @@ function ProgramWorkspace({
       </div>
 
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
-        {(["checklist", "missions", "progress", "review"] as const).map((t) => (
+        {(["checklist", "missions", "components", "progress", "review"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setSubtab(t)}
@@ -191,6 +193,11 @@ function ProgramWorkspace({
         scope === "program"
           ? <ProgramMissionsPanel program={effective} onChanged={refresh} readOnly={!isStaff} />
           : <CohortMissionsPanel cohortId={scope.cohortId} isStaff={isStaff} />
+      )}
+      {subtab === "components" && (
+        scope === "program"
+          ? <LmsComponentConfigPanel ownerType="program" ownerId={effective.id} isStaff={isStaff} />
+          : <LmsComponentConfigPanel ownerType="cohort" ownerId={scope.cohortId} isStaff={isStaff} />
       )}
       {subtab === "progress" && (
         scope === "program"

@@ -110,6 +110,8 @@ from app.services.lms.program import (
     resolve_cohort_program, sync_cohort_assignments, sync_program_assignments, validate_item_payload,
     validate_item_refs,
 )
+from app.schemas.missions_component_config import ComponentConfigIn, ComponentConfigOut
+from app.services.missions import component_config as component_config_service
 from app.services.sessions.registration import ACTIVE_REGISTRATION_STATUSES
 from app.services.video_service import attach_embed_link, attach_upload, enqueue_transcode, get_playback_info, get_video_for_owner
 from app.services.video_service import delete as delete_video
@@ -1939,6 +1941,106 @@ async def reorder_cohort_override_items(
             status.HTTP_400_BAD_REQUEST, detail="item_ids must include every item on this checklist exactly once",
         )
     return await items_out(db, reordered)
+
+
+# ── LMS Program & Cohort CubeSat Component Configuration ─────────────────
+
+@router.get("/programs/{lms_program_id}/components", response_model=ComponentConfigOut)
+async def get_lms_program_components(
+    lms_program_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    program = await db.get(LmsProgram, lms_program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    return await component_config_service.build_component_config_out(db, owner_type="program", owner_id=lms_program_id)
+
+
+@router.put("/programs/{lms_program_id}/components", response_model=ComponentConfigOut)
+async def update_lms_program_components(
+    lms_program_id: uuid.UUID,
+    body: ComponentConfigIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    program = await db.get(LmsProgram, lms_program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await component_config_service.save_component_config(
+        db,
+        owner_type="program",
+        owner_id=lms_program_id,
+        disabled_subsystems=body.disabled_subsystems,
+        disabled_tags=body.disabled_tags,
+        disabled_component_ids=body.disabled_component_ids,
+        user_id=current.id,
+    )
+    await db.commit()
+    return await component_config_service.build_component_config_out(db, owner_type="program", owner_id=lms_program_id)
+
+
+@router.delete("/programs/{lms_program_id}/components", response_model=ComponentConfigOut)
+async def reset_lms_program_components(
+    lms_program_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    program = await db.get(LmsProgram, lms_program_id)
+    if program is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
+    await component_config_service.reset_component_config(db, owner_type="program", owner_id=lms_program_id)
+    await db.commit()
+    return await component_config_service.build_component_config_out(db, owner_type="program", owner_id=lms_program_id)
+
+
+@router.get("/cohorts/{cohort_id}/components", response_model=ComponentConfigOut)
+async def get_cohort_components(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    return await component_config_service.build_component_config_out(db, owner_type="cohort", owner_id=cohort_id)
+
+
+@router.put("/cohorts/{cohort_id}/components", response_model=ComponentConfigOut)
+async def update_cohort_components(
+    cohort_id: uuid.UUID,
+    body: ComponentConfigIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    await component_config_service.save_component_config(
+        db,
+        owner_type="cohort",
+        owner_id=cohort_id,
+        disabled_subsystems=body.disabled_subsystems,
+        disabled_tags=body.disabled_tags,
+        disabled_component_ids=body.disabled_component_ids,
+        user_id=current.id,
+    )
+    await db.commit()
+    return await component_config_service.build_component_config_out(db, owner_type="cohort", owner_id=cohort_id)
+
+
+@router.delete("/cohorts/{cohort_id}/components", response_model=ComponentConfigOut)
+async def reset_cohort_components(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    await component_config_service.reset_component_config(db, owner_type="cohort", owner_id=cohort_id)
+    await db.commit()
+    return await component_config_service.build_component_config_out(db, owner_type="cohort", owner_id=cohort_id)
 
 
 # ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────

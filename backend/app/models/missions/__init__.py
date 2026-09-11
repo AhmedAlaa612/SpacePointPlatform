@@ -43,6 +43,7 @@ from app.models.missions.mission import (
     MissionAttemptMember,
     MissionVariant,
 )
+from app.models.missions.component_config import DesignComponentConfig
 from app.models.missions.proposal import MissionProposal
 
 __all__ = [
@@ -58,6 +59,7 @@ __all__ = [
     "Design",
     "DesignComponent",
     "DesignComponentLibrary",
+    "DesignComponentConfig",
     "DesignComponentModeState",
     "DesignCostBudgetEntry",
     "DesignDataBudgetEntry",

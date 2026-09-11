@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearch, useNavigate, Link } from "@tanstack/react-router";
 import { isAxiosError } from "axios";
 import { AlertTriangle, Box, CheckCircle2, ChevronRight, Clock, FileText, Layers, Minus, Orbit, Plus, Rocket, Search, ShoppingCart, Trash2, XCircle, Zap } from "lucide-react";
@@ -499,7 +499,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
 
 // ── Components ───────────────────────────────────────────────────────────
 
-const SUBSYSTEMS = ["All", "ADCS", "CDHS", "EPS", "COMMS", "Payload", "Structure", "Thermal"];
+const STANDARD_SUBSYSTEM_ORDER = ["ADCS", "CDHS", "EPS", "COMMS", "Payload", "Structure", "Thermal"];
 
 export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignState; attemptId: string; onChanged: (s: DesignState) => void }) {
   const [library, setLibrary] = useState<DesignLibraryComponent[]>([]);
@@ -508,7 +508,25 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
   const [subsystemFilter, setSubsystemFilter] = useState("All");
   const [tagFilter, setTagFilter] = useState("All Tags");
 
-  useEffect(() => { fetchDesignLibrary().then(setLibrary).catch(() => {}); }, []);
+  useEffect(() => {
+    fetchDesignLibrary({ attemptId }).then(setLibrary).catch(() => {});
+  }, [attemptId]);
+
+  // Dynamically derive available subsystems based on the allowed components returned for this attempt's cohort
+  const availableSubsystems = useMemo(() => {
+    const present = new Set(library.map((c) => c.subsystem).filter(Boolean));
+    const ordered = STANDARD_SUBSYSTEM_ORDER.filter((s) => present.has(s));
+    for (const s of present) {
+      if (!ordered.includes(s)) ordered.push(s);
+    }
+    return ["All", ...ordered];
+  }, [library]);
+
+  useEffect(() => {
+    if (subsystemFilter !== "All" && !availableSubsystems.includes(subsystemFilter)) {
+      setSubsystemFilter("All");
+    }
+  }, [availableSubsystems, subsystemFilter]);
 
   // Dynamic, not legacy's hardcoded 2-option list — the real catalog carries
   // more tag values (SatKit, MPKit) than legacy's own picker ever knew about.
@@ -572,7 +590,7 @@ export function ComponentsTab({ state, attemptId, onChanged }: { state: DesignSt
               />
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {SUBSYSTEMS.map((s) => (
+              {availableSubsystems.map((s: string) => (
                 <button
                   key={s}
                   onClick={() => setSubsystemFilter(s)}

@@ -1,10 +1,11 @@
 import { useState } from "react"
 import { CohortOverrideEditor } from "./LmsChecklistAuthoring"
 import { CohortMissionsPanel, ProgressPanel, ReviewScopePanel } from "./LmsProgressAndMissions"
+import { LmsComponentConfigPanel } from "./LmsComponentConfigPanel"
 
-type SubTab = "checklist" | "missions" | "progress" | "review"
+type SubTab = "checklist" | "missions" | "components" | "progress" | "review"
 const SUBTAB_LABEL: Record<SubTab, string> = {
-  checklist: "Checklist", missions: "Missions", progress: "Progress", review: "Review",
+  checklist: "Checklist", missions: "Missions", components: "Components", progress: "Progress", review: "Review",
 }
 
 /** The cohort-scope quarter of `LmsProgramAdmin.tsx`'s own workspace
@@ -20,7 +21,7 @@ export function LmsCohortSection({ cohortId, cohortName }: { cohortId: string; c
   return (
     <div className="flex flex-col gap-5">
       <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
-        {(["checklist", "missions", "progress", "review"] as const).map((t) => (
+        {(["checklist", "missions", "components", "progress", "review"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setSubtab(t)}
@@ -34,6 +35,7 @@ export function LmsCohortSection({ cohortId, cohortName }: { cohortId: string; c
 
       {subtab === "checklist" && <CohortOverrideEditor cohortId={cohortId} isStaff readOnly={false} />}
       {subtab === "missions" && <CohortMissionsPanel cohortId={cohortId} isStaff />}
+      {subtab === "components" && <LmsComponentConfigPanel ownerType="cohort" ownerId={cohortId} isStaff />}
       {subtab === "progress" && <ProgressPanel cohortId={cohortId} scopeLabel={cohortName} />}
       {subtab === "review" && <ReviewScopePanel cohortId={cohortId} />}
     </div>

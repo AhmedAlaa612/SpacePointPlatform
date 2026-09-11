@@ -291,8 +291,12 @@ export async function fetchDesignState(attemptId: string): Promise<DesignState> 
   return data;
 }
 
-export async function fetchDesignLibrary(params?: { subsystem?: string; search?: string }): Promise<DesignLibraryComponent[]> {
-  const { data } = await api.get<DesignLibraryComponent[]>("/missions/design/library", { params });
+export async function fetchDesignLibrary(params?: { subsystem?: string; search?: string; attemptId?: string }): Promise<DesignLibraryComponent[]> {
+  const queryParams: Record<string, string> = {};
+  if (params?.subsystem) queryParams.subsystem = params.subsystem;
+  if (params?.search) queryParams.search = params.search;
+  if (params?.attemptId) queryParams.attempt_id = params.attemptId;
+  const { data } = await api.get<DesignLibraryComponent[]>("/missions/design/library", { params: queryParams });
   return data;
 }
 

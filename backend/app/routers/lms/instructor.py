@@ -38,6 +38,8 @@ from app.schemas.lms_instructor import (
     CourseProgressOut, LmsAssignmentItemDetailOut, LmsProgramRosterRowOut, ModuleProgressOut, QuizProgressOut,
 )
 from app.schemas.lms_progress_grid import StudentDesignRunsOut
+from app.schemas.missions_component_config import ComponentConfigIn, ComponentConfigOut
+from app.services.missions import component_config as component_config_service
 from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services.lms.admin_progress import student_design_runs
 from app.services.lms.instructor_progress import student_course_progress
@@ -447,3 +449,58 @@ async def student_course_progress_route(
         modules=[ModuleProgressOut(**m) for m in progress["modules"]],
         quizzes=[QuizProgressOut(**q) for q in progress["quizzes"]],
     )
+
+
+# ── Cohort CubeSat Component Configuration (Instructor) ─────────────────
+
+@router.get("/cohorts/{cohort_id}/components", response_model=ComponentConfigOut)
+async def get_instructor_cohort_components(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    return await component_config_service.build_component_config_out(db, owner_type="cohort", owner_id=cohort_id)
+
+
+@router.put("/cohorts/{cohort_id}/components", response_model=ComponentConfigOut)
+async def update_instructor_cohort_components(
+    cohort_id: uuid.UUID,
+    body: ComponentConfigIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    await component_config_service.save_component_config(
+        db,
+        owner_type="cohort",
+        owner_id=cohort_id,
+        disabled_subsystems=body.disabled_subsystems,
+        disabled_tags=body.disabled_tags,
+        disabled_component_ids=body.disabled_component_ids,
+        user_id=current.id,
+    )
+    await db.commit()
+    return await component_config_service.build_component_config_out(db, owner_type="cohort", owner_id=cohort_id)
+
+
+@router.delete("/cohorts/{cohort_id}/components", response_model=ComponentConfigOut)
+async def reset_instructor_cohort_components(
+    cohort_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(get_current_active_user),
+):
+    await require_cohort_access(db, cohort_id=cohort_id, user=current)
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    await component_config_service.reset_component_config(db, owner_type="cohort", owner_id=cohort_id)
+    await db.commit()
+    return await component_config_service.build_component_config_out(db, owner_type="cohort", owner_id=cohort_id)
+

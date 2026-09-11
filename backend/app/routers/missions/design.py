@@ -23,7 +23,7 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user
@@ -346,14 +346,31 @@ async def get_design_handbook(
 @router.get("/library", response_model=list[DesignLibraryComponentOut])
 async def list_library(
     subsystem: str | None = None, search: str | None = None,
+    attempt_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
     from app.models.missions.design import DesignComponentLibrary
+    from app.services.missions.component_config import resolve_effective_component_config
+
     query = select(DesignComponentLibrary).where(DesignComponentLibrary.is_active == True)  # noqa: E712
     if subsystem:
         query = query.where(DesignComponentLibrary.subsystem == subsystem)
     if search:
         query = query.where(DesignComponentLibrary.component_name.ilike(f"%{search}%"))
+
+    if attempt_id is not None:
+        attempt = await db.get(MissionAttempt, attempt_id)
+        if attempt is not None and attempt.cohort_id is not None:
+            config_dict, _, _ = await resolve_effective_component_config(db, cohort_id=attempt.cohort_id)
+            disabled_subs = config_dict.get("disabled_subsystems", [])
+            if disabled_subs:
+                query = query.where(~DesignComponentLibrary.subsystem.in_(disabled_subs))
+            disabled_tags = config_dict.get("disabled_tags", [])
+            if disabled_tags:
+                query = query.where(or_(DesignComponentLibrary.tag.is_(None), ~DesignComponentLibrary.tag.in_(disabled_tags)))
+            disabled_cids = config_dict.get("disabled_component_ids", [])
+            if disabled_cids:
+                query = query.where(~DesignComponentLibrary.id.in_(disabled_cids))
     rows = (await db.execute(query.order_by(DesignComponentLibrary.subsystem, DesignComponentLibrary.component_name))).scalars().all()
     out = []
     for c in rows:
@@ -430,6 +447,17 @@ async def add_design_component(
 ):
     attempt = await _own_design_attempt(db, attempt_id, current)
     await require_step_unlocked(db, attempt=attempt, step_key="components")
+    if attempt.cohort_id is not None:
+        from app.services.missions.component_config import is_component_allowed_for_cohort
+
+        allowed = await is_component_allowed_for_cohort(
+            db, cohort_id=attempt.cohort_id, library_component_id=body.library_component_id
+        )
+        if not allowed:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="This component is not available for your cohort's mission design.",
+            )
     design = await ensure_design(db, attempt=attempt)
     await design_service.add_component(db, design_id=design.id, library_component_id=body.library_component_id, quantity=body.quantity)
     result = await design_state_out(db, attempt=attempt, design=design)
