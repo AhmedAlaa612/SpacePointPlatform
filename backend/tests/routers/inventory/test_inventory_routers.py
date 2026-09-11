@@ -1129,15 +1129,23 @@ async def test_warehouse_cabins_crud_and_item_assignments(db, client, ops_header
     assert assign_b.status_code == 200
     assert len(assign_b.json()) == 2
 
-    # 5. Add stock level and check GET /stock exposes cabins
-    db.add(StockLevel(id=uuid.uuid4(), item_id=item_a.id, warehouse_id=wh.id, qty=10))
-    await db.commit()
+    # 5. Check GET /stock exposes cabins and auto-created stock level
     stock_res = await client.get(f"/inventory/stock?warehouse_id={wh.id}", headers=ops_headers)
     assert stock_res.status_code == 200
     stock_items = stock_res.json()
     stock_a = next(s for s in stock_items if s["item_id"] == str(item_a.id))
+    assert stock_a["qty"] == 10  # auto-created from cabin allocation
     assert len(stock_a["cabins"]) == 1
     assert stock_a["cabins"][0]["cabin_name"] == "Cabin 1"
+
+    # 5b. Allocating more than stock level qty fails with 400
+    excess_res = await client.put(
+        f"/inventory/warehouses/{wh.id}/items/{item_a.id}/cabins",
+        headers=ops_headers,
+        json=[{"cabin_id": c1["id"], "qty": 900}],
+    )
+    assert excess_res.status_code == 400
+    assert "exceed warehouse stock" in excess_res.json()["detail"]
 
     # 6. Check cabin item_count is accurate
     c1_check = await client.get(f"/inventory/warehouses/{wh.id}/cabins", headers=keeper_headers)

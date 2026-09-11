@@ -363,12 +363,19 @@ export default function Stock() {
         <StockCountModal
           itemId={counting?.itemId}
           itemName={counting?.itemName}
+          warehouseId={warehouseId || undefined}
           onClose={() => { setCounting(null); setAddOpen(false) }}
         />
       )}
       {stockTakeOpen && <WarehouseStockTakeModal onClose={() => setStockTakeOpen(false)} />}
       {moveOpen && <MoveStockModal onClose={() => setMoveOpen(false)} />}
-      {viewingGroup && <VariantsModal groupName={viewingGroup} onClose={() => setViewingGroup(null)} />}
+      {viewingGroup && (
+        <VariantsModal
+          groupName={viewingGroup}
+          warehouseId={warehouseId || undefined}
+          onClose={() => setViewingGroup(null)}
+        />
+      )}
       {managingCabinsItem && (
         <ItemCabinsModal
           item={managingCabinsItem}

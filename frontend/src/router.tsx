@@ -112,6 +112,7 @@ import InventoryKits from "@/pages/operations/inventory/Kits";
 import InventoryKitDetail from "@/pages/operations/inventory/KitDetail";
 import InventoryLocationDetail from "@/pages/operations/inventory/LocationDetail";
 import InventoryStock from "@/pages/operations/inventory/Stock";
+import InventoryWarehouses from "@/pages/operations/inventory/Warehouses";
 import InventoryCatalog from "@/pages/operations/inventory/Catalog";
 import InventoryFulfilment from "@/pages/operations/inventory/Fulfilment";
 import DeliverySettings from "@/pages/operations/DeliverySettings";
@@ -739,6 +740,7 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/inventory/kits/$kitId", component: InventoryKitDetail }),
   createRoute({ getParentRoute: po, path: "/inventory/locations/$locationId", component: InventoryLocationDetail }),
   createRoute({ getParentRoute: po, path: "/inventory/stock", component: InventoryStock }),
+  createRoute({ getParentRoute: po, path: "/inventory/warehouses", component: InventoryWarehouses }),
   createRoute({ getParentRoute: po, path: "/inventory/catalog", component: InventoryCatalog }),
   createRoute({ getParentRoute: po, path: "/inventory/fulfilment", component: InventoryFulfilment }),
   createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),

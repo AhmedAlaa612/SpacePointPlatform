@@ -1,15 +1,13 @@
-﻿import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { MapPin } from "lucide-react"
-import type { StockLevel, WarehouseCabin } from "@/types/inventory"
+import { Package, Search } from "lucide-react"
+import type { StockLevel } from "@/types/inventory"
 import {
   adjustStockBulkApi,
   getItemCategoriesApi,
   getItemsApi,
   getStockApi,
-  getWarehouseCabinsApi,
   getWarehousesApi,
-  setItemCabinsApi,
 } from "@/api/inventory"
 import { Field, Modal, ModalActions } from "@/pages/admin/components/common"
 
@@ -17,13 +15,18 @@ import { Field, Modal, ModalActions } from "@/pages/admin/components/common"
  *  endpoint as `StockCountModal`, just the other axis — this is the one that
  *  turns "stock 50 items into a new warehouse" from 50 separate saves into
  *  one, which is the actual reason most items never get a count anywhere. */
-export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
+export function WarehouseStockTakeModal({
+  initialWarehouseId,
+  onClose,
+}: {
+  initialWarehouseId?: string
+  onClose: () => void
+}) {
   const queryClient = useQueryClient()
-  const [warehouseId, setWarehouseId] = useState("")
+  const [warehouseId, setWarehouseId] = useState(initialWarehouseId || "")
   const [search, setSearch] = useState("")
   const [category, setCategory] = useState("")
   const [subcategory, setSubcategory] = useState("")
-  const [cabinFilter, setCabinFilter] = useState("")
   const [onlyStockedHere, setOnlyStockedHere] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
   const [reason, setReason] = useState("")
@@ -38,22 +41,15 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
     enabled: !!warehouseId,
   })
 
-  const { data: cabins = [] } = useQuery<WarehouseCabin[]>({
-    queryKey: ["inv-warehouse-cabins", warehouseId],
-    queryFn: () => getWarehouseCabinsApi(warehouseId),
-    enabled: !!warehouseId,
-  })
-
   const selectedCategoryDef = useMemo(
     () => categories.find((c) => c.name === category),
     [categories, category],
   )
   const availableSubcategories = selectedCategoryDef?.subcategories ?? []
 
-  // Switching warehouses starts the grid over and resets cabin filter.
+  // Switching warehouses starts the grid over.
   useEffect(() => {
     setValues({})
-    setCabinFilter("")
   }, [warehouseId])
 
   const stockByItem = useMemo(() => {
@@ -62,28 +58,13 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
     return map
   }, [stock])
 
-  const cabinsByItem = useMemo(() => {
-    const map: Record<string, { cabin_id: string; cabin_name: string; qty?: number | null }[]> = {}
-    for (const s of stock) {
-      if (s.cabins && s.cabins.length > 0) {
-        map[s.item_id] = s.cabins
-      }
-    }
-    return map
-  }, [stock])
-
   const filteredItems = useMemo(() => items.filter((i) => {
     if (category && i.category !== category) return false
     if (subcategory && i.subcategory !== subcategory) return false
     if (search.trim() && !i.name.toLowerCase().includes(search.trim().toLowerCase())) return false
     if (onlyStockedHere && stockByItem[i.id] === undefined) return false
-    if (cabinFilter === "__unassigned__") {
-      if (cabinsByItem[i.id] && cabinsByItem[i.id].length > 0) return false
-    } else if (cabinFilter) {
-      if (!cabinsByItem[i.id]?.some((c) => c.cabin_id === cabinFilter)) return false
-    }
     return true
-  }), [items, category, subcategory, search, onlyStockedHere, cabinFilter, stockByItem, cabinsByItem])
+  }), [items, category, subcategory, search, onlyStockedHere, stockByItem])
 
   const changedLevels = useMemo(() => filteredItems.reduce<{ item_id: string; warehouse_id: string; new_qty: number }[]>(
     (acc, i) => {
@@ -107,15 +88,6 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not record that"),
   })
 
-  const assignCabinMutation = useMutation({
-    mutationFn: ({ itemId, cabinId }: { itemId: string; cabinId: string }) =>
-      setItemCabinsApi(warehouseId, itemId, cabinId ? [{ cabin_id: cabinId, is_primary: true }] : []),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["inv-stock", "warehouse", warehouseId] })
-      queryClient.invalidateQueries({ queryKey: ["inv-stock"] })
-    },
-  })
-
   return (
     <Modal title="Stock take" onClose={onClose} maxWidth="sm:max-w-3xl max-w-3xl">
       <div className="flex flex-col gap-4">
@@ -135,11 +107,14 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
           <>
             <div className="flex items-end gap-3 flex-wrap">
               <Field label="Search">
-                <input
-                  value={search} onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by name…"
-                  className="h-9 w-44 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
-                />
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={search} onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search by name…"
+                    className="h-9 w-48 pl-8 pr-3 border border-border bg-background text-foreground rounded-xl text-sm"
+                  />
+                </div>
               </Field>
               <Field label="Category">
                 <select
@@ -154,38 +129,26 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
                   {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
               </Field>
-              {category && availableSubcategories.length > 0 && (
-                <Field label="Subcategory">
-                  <select
-                    value={subcategory}
-                    onChange={(e) => setSubcategory(e.target.value)}
-                    className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm capitalize"
-                  >
-                    <option value="">All subcategories</option>
-                    {availableSubcategories.map((sc) => (
-                      <option key={sc.id} value={sc.name}>{sc.name}</option>
-                    ))}
-                  </select>
-                </Field>
-              )}
-              {cabins.length > 0 && (
-                <Field label="Cabin (Optional)">
-                  <select
-                    value={cabinFilter}
-                    onChange={(e) => setCabinFilter(e.target.value)}
-                    className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
-                  >
-                    <option value="">All cabins (whole warehouse)</option>
-                    <option value="__unassigned__">Unassigned only</option>
-                    {cabins.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              )}
-              <label className="flex items-center gap-1.5 h-9 text-sm text-foreground cursor-pointer">
+              <Field label="Subcategory">
+                <select
+                  value={subcategory}
+                  onChange={(e) => setSubcategory(e.target.value)}
+                  disabled={!category || availableSubcategories.length === 0}
+                  className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm capitalize disabled:opacity-50"
+                >
+                  <option value="">
+                    {!category
+                      ? "All subcategories"
+                      : availableSubcategories.length === 0
+                        ? "No subcategories"
+                        : "All subcategories"}
+                  </option>
+                  {availableSubcategories.map((sc) => (
+                    <option key={sc.id} value={sc.name}>{sc.name}</option>
+                  ))}
+                </select>
+              </Field>
+              <label className="flex items-center gap-1.5 h-9 text-sm text-foreground cursor-pointer select-none">
                 <input
                   type="checkbox" checked={onlyStockedHere}
                   onChange={(e) => setOnlyStockedHere(e.target.checked)}
@@ -194,51 +157,65 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
               </label>
             </div>
 
-            <div className="rounded-2xl border border-border divide-y divide-border max-h-80 overflow-y-auto">
-              {filteredItems.map((i) => (
-                <div key={i.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium text-foreground truncate">{i.name}</span>
-                      {cabinsByItem[i.id] && cabinsByItem[i.id].length > 0 ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
-                          <MapPin size={10} />
-                          {cabinsByItem[i.id].map((c) => c.cabin_name).join(", ")}
+            <div className="rounded-2xl border border-border divide-y divide-border max-h-[520px] overflow-y-auto">
+              {filteredItems.map((i) => {
+                const wasText = stockByItem[i.id] === undefined ? "not stocked" : `was ${stockByItem[i.id]}`
+                return (
+                  <div
+                    key={i.id}
+                    className="flex items-center justify-between gap-3 px-3 sm:px-5 py-3.5 sm:py-4 hover:bg-muted/20 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      {/* Item Image */}
+                      <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-xl sm:rounded-2xl overflow-hidden border border-border bg-muted/40 flex items-center justify-center shrink-0 shadow-xs">
+                        {i.image_url ? (
+                          <img src={i.image_url} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <Package size={22} className="text-muted-foreground/50" />
+                        )}
+                      </div>
+
+                      {/* Item Details */}
+                      <div className="min-w-0 flex flex-col justify-center gap-1 flex-1 pr-1">
+                        <span className="text-sm sm:text-base font-bold text-foreground leading-snug line-clamp-2" title={i.name}>
+                          {i.name}
                         </span>
-                      ) : cabins.length > 0 ? (
-                        <select
-                          value=""
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              assignCabinMutation.mutate({ itemId: i.id, cabinId: e.target.value })
-                            }
-                          }}
-                          className="text-[11px] h-6 px-1.5 border border-dashed border-border rounded-md bg-background text-muted-foreground hover:text-foreground cursor-pointer"
-                        >
-                          <option value="" disabled>+ Assign cabin</option>
-                          {cabins.map((c) => (
-                            <option key={c.id} value={c.id}>{c.name}</option>
-                          ))}
-                        </select>
-                      ) : null}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {i.category && (
+                            <span className="inline-flex items-center text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize font-medium">
+                              {i.category}
+                            </span>
+                          )}
+                          {i.subcategory && (
+                            <span className="inline-flex items-center text-[11px] sm:text-xs px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground capitalize">
+                              {i.subcategory}
+                            </span>
+                          )}
+                          <span className="text-[11px] text-muted-foreground sm:hidden font-medium">
+                            · {wasText}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+                      <span className="text-xs text-muted-foreground w-24 text-right truncate hidden sm:inline">
+                        {stockByItem[i.id] === undefined ? "not stocked here" : `was ${stockByItem[i.id]}`}
+                      </span>
+                      <input
+                        type="number"
+                        min={0}
+                        value={values[i.id] ?? ""}
+                        onChange={(e) => setValues((prev) => ({ ...prev, [i.id]: e.target.value }))}
+                        placeholder="—"
+                        className="w-16 sm:w-24 h-10 sm:h-11 px-2 sm:px-3 border border-border bg-background text-foreground rounded-xl text-sm sm:text-base font-semibold text-right focus:outline-none focus:border-primary shadow-xs"
+                      />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-muted-foreground w-28 text-right truncate">
-                      {stockByItem[i.id] === undefined ? "not stocked here" : `was ${stockByItem[i.id]}`}
-                    </span>
-                    <input
-                      type="number" min={0}
-                      value={values[i.id] ?? ""}
-                      onChange={(e) => setValues((prev) => ({ ...prev, [i.id]: e.target.value }))}
-                      placeholder="—"
-                      className="w-20 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right"
-                    />
-                  </div>
-                </div>
-              ))}
+                )
+              })}
               {filteredItems.length === 0 && (
-                <p className="px-4 py-6 text-sm text-muted-foreground text-center">Nothing matches that search.</p>
+                <p className="px-4 py-12 text-sm text-muted-foreground text-center">Nothing matches that search.</p>
               )}
             </div>
           </>

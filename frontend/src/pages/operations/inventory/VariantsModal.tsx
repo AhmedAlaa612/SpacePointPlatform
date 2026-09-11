@@ -12,7 +12,15 @@ import { useAuth } from "@/context/AuthContext"
  *  rows, its own custody); this is purely a browsing/count surface over the
  *  `variant_group` items share. "Edit counts" reuses `StockCountModal`
  *  unchanged, scoped to that one variant. */
-export function VariantsModal({ groupName, onClose }: { groupName: string; onClose: () => void }) {
+export function VariantsModal({
+  groupName,
+  warehouseId,
+  onClose,
+}: {
+  groupName: string
+  warehouseId?: string
+  onClose: () => void
+}) {
   const queryClient = useQueryClient()
   const { activeRole } = useAuth()
   const canDelete = activeRole === "admin"
@@ -39,12 +47,13 @@ export function VariantsModal({ groupName, onClose }: { groupName: string; onClo
   [items, groupName])
 
   const breakdownFor = (itemId: string) => {
-    const rows = stock.filter((s) => s.item_id === itemId)
+    const rows = stock.filter((s) => s.item_id === itemId && (!warehouseId || s.warehouse_id === warehouseId))
     const byLocation = new Map<string, { name: string; qty: number }>()
     for (const r of rows) {
-      const entry = byLocation.get(r.location_id) ?? { name: r.location_name, qty: 0 }
+      const label = warehouseId ? r.warehouse_name : r.location_name
+      const entry = byLocation.get(label) ?? { name: label, qty: 0 }
       entry.qty += r.qty
-      byLocation.set(r.location_id, entry)
+      byLocation.set(label, entry)
     }
     return {
       total: rows.reduce((sum, r) => sum + r.qty, 0),
@@ -67,7 +76,7 @@ export function VariantsModal({ groupName, onClose }: { groupName: string; onClo
                 <p className="text-xs text-muted-foreground truncate">
                   {breakdown.length > 0
                     ? breakdown.map((b) => `${b.name} ${b.qty}`).join(" · ")
-                    : "Not stocked anywhere"}
+                    : "Not stocked here"}
                 </p>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -100,7 +109,12 @@ export function VariantsModal({ groupName, onClose }: { groupName: string; onClo
       </div>
 
       {editing && (
-        <StockCountModal itemId={editing.id} itemName={editing.name} onClose={() => setEditing(null)} />
+        <StockCountModal
+          itemId={editing.id}
+          itemName={editing.name}
+          warehouseId={warehouseId}
+          onClose={() => setEditing(null)}
+        />
       )}
 
       {deletingItem && (

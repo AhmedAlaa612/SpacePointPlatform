@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { MapPin, Plus, Trash2 } from "lucide-react"
-import type { ItemCabinAssignment, WarehouseCabin } from "@/types/inventory"
+import { AlertCircle, MapPin, Plus, Trash2 } from "lucide-react"
+import type { ItemCabinAssignment, StockLevel, WarehouseCabin } from "@/types/inventory"
 import {
   getItemCabinsApi,
+  getStockApi,
   getWarehouseCabinsApi,
   getWarehousesApi,
   setItemCabinsApi,
@@ -30,31 +31,42 @@ export function ItemCabinsModal({
   const [rows, setRows] = useState<CabinRow[]>([])
   const [error, setError] = useState("")
 
-  const { data: warehouses = [] } = useQuery({
+  const { data: warehouses } = useQuery({
     queryKey: ["inv-warehouses-all"],
     queryFn: () => getWarehousesApi(),
   })
 
   // Pick first warehouse if none selected
   useEffect(() => {
-    if (!warehouseId && warehouses.length > 0) {
+    if (!warehouseId && warehouses && warehouses.length > 0) {
       setWarehouseId(defaultWarehouseId || warehouses[0].id)
     }
   }, [warehouses, warehouseId, defaultWarehouseId])
 
-  const { data: cabins = [] } = useQuery<WarehouseCabin[]>({
+  const { data: stockLevels } = useQuery<StockLevel[]>({
+    queryKey: ["inv-stock", "warehouse", warehouseId, "item", item.id],
+    queryFn: () => getStockApi({ warehouse_id: warehouseId, item_id: item.id }),
+    enabled: !!warehouseId && !!item.id,
+  })
+
+  const { data: cabins } = useQuery<WarehouseCabin[]>({
     queryKey: ["inv-warehouse-cabins", warehouseId],
     queryFn: () => getWarehouseCabinsApi(warehouseId),
     enabled: !!warehouseId,
   })
 
-  const { data: currentAssignments = [], isLoading: loadingAssignments } = useQuery<
+  const { data: currentAssignments, isLoading: loadingAssignments } = useQuery<
     ItemCabinAssignment[]
   >({
-    queryKey: ["inv-item-cabins", item.id, warehouseId],
-    queryFn: () => getItemCabinsApi(item.id, warehouseId),
+    queryKey: ["inv-item-cabins", warehouseId, item.id],
+    queryFn: () => getItemCabinsApi(warehouseId, item.id),
     enabled: !!warehouseId,
   })
+
+  // Reset rows when warehouse changes
+  useEffect(() => {
+    setRows([])
+  }, [warehouseId])
 
   useEffect(() => {
     if (currentAssignments) {
@@ -68,6 +80,9 @@ export function ItemCabinsModal({
     }
   }, [currentAssignments])
 
+  const cabinList = cabins ?? []
+  const warehouseList = warehouses ?? []
+
   const saveMutation = useMutation({
     mutationFn: () => {
       const payload = rows
@@ -78,12 +93,12 @@ export function ItemCabinsModal({
           notes: r.notes.trim() || null,
           is_primary: idx === 0,
         }))
-      return setItemCabinsApi(item.id, warehouseId, payload)
+      return setItemCabinsApi(warehouseId, item.id, payload)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inv-stock"] })
       queryClient.invalidateQueries({ queryKey: ["inv-warehouse-cabins", warehouseId] })
-      queryClient.invalidateQueries({ queryKey: ["inv-item-cabins", item.id, warehouseId] })
+      queryClient.invalidateQueries({ queryKey: ["inv-item-cabins"] })
       onClose()
     },
     onError: (err: any) => {
@@ -93,10 +108,10 @@ export function ItemCabinsModal({
 
   const addRow = () => {
     const usedIds = new Set(rows.map((r) => r.cabin_id))
-    const firstAvailable = cabins.find((c) => !usedIds.has(c.id))
+    const firstAvailable = cabinList.find((c) => !usedIds.has(c.id))
     setRows((prev) => [
       ...prev,
-      { cabin_id: firstAvailable ? firstAvailable.id : cabins[0]?.id || "", qty: "", notes: "" },
+      { cabin_id: firstAvailable ? firstAvailable.id : cabinList[0]?.id || "", qty: "", notes: "" },
     ])
   }
 
@@ -108,7 +123,15 @@ export function ItemCabinsModal({
     setRows((prev) => prev.filter((_, i) => i !== index))
   }
 
-  const selectedWarehouse = warehouses.find((w) => w.id === warehouseId)
+  const selectedWarehouse = warehouseList.find((w) => w.id === warehouseId)
+
+  const currentWarehouseStock = stockLevels?.[0]?.qty
+  const totalAllocated = rows.reduce(
+    (acc, r) => acc + (r.qty && !isNaN(parseInt(r.qty, 10)) ? parseInt(r.qty, 10) : 0),
+    0,
+  )
+  const isOverAllocated =
+    currentWarehouseStock !== undefined && currentWarehouseStock > 0 && totalAllocated > currentWarehouseStock
 
   return (
     <Modal
@@ -124,20 +147,53 @@ export function ItemCabinsModal({
         )}
 
         {/* Warehouse Selector */}
-        {warehouses.length > 1 && (
+        {warehouseList.length > 1 && (
           <Field label="Warehouse">
             <select
               value={warehouseId}
               onChange={(e) => setWarehouseId(e.target.value)}
               className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
             >
-              {warehouses.map((w) => (
+              {warehouseList.map((w) => (
                 <option key={w.id} value={w.id}>
                   {w.name}
                 </option>
               ))}
             </select>
           </Field>
+        )}
+
+        {/* Stock & Cabin Allocation Status */}
+        <div className="p-3 rounded-xl bg-muted/40 border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+          <div>
+            <span className="text-muted-foreground">Warehouse Total Stock: </span>
+            <strong className="text-foreground">
+              {currentWarehouseStock !== undefined ? `${currentWarehouseStock} pcs` : "0 pcs (uncounted)"}
+            </strong>
+          </div>
+          <div className="flex items-center gap-2">
+            <div>
+              <span className="text-muted-foreground">Allocated in Cabins: </span>
+              <strong className={isOverAllocated ? "text-red-500 font-bold" : "text-primary"}>
+                {totalAllocated} pcs
+              </strong>
+            </div>
+            {currentWarehouseStock !== undefined && currentWarehouseStock >= totalAllocated && (
+              <span className="text-muted-foreground">
+                ({currentWarehouseStock - totalAllocated} unassigned)
+              </span>
+            )}
+          </div>
+        </div>
+
+        {isOverAllocated && (
+          <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs flex items-center gap-2">
+            <AlertCircle size={14} className="shrink-0" />
+            <span>
+              Total cabin quantity ({totalAllocated}) exceeds warehouse stock ({currentWarehouseStock}).
+              Reduce cabin quantities to save.
+            </span>
+          </div>
         )}
 
         <div className="flex flex-col gap-2">
@@ -151,7 +207,7 @@ export function ItemCabinsModal({
                 Specify which cabin(s) in {selectedWarehouse?.name ?? "the warehouse"} this component is stored in.
               </p>
             </div>
-            {cabins.length > 0 && (
+            {cabinList.length > 0 && (
               <button
                 type="button"
                 onClick={addRow}
@@ -162,7 +218,7 @@ export function ItemCabinsModal({
             )}
           </div>
 
-          {cabins.length === 0 ? (
+          {cabinList.length === 0 ? (
             <div className="py-6 border border-dashed border-border rounded-xl text-center text-xs text-muted-foreground">
               <p>No cabins have been defined for {selectedWarehouse?.name ?? "this warehouse"} yet.</p>
               <p className="mt-1 text-[11px]">
@@ -198,7 +254,7 @@ export function ItemCabinsModal({
                       className="h-8 px-2.5 text-xs border border-border bg-background text-foreground rounded-lg w-full cursor-pointer"
                     >
                       <option value="">Select cabin…</option>
-                      {cabins.map((c) => (
+                      {cabinList.map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.name}
                         </option>
@@ -251,8 +307,11 @@ export function ItemCabinsModal({
           </button>
           <button
             type="button"
-            onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending || cabins.length === 0}
+            onClick={() => {
+              if (isOverAllocated) return
+              saveMutation.mutate()
+            }}
+            disabled={saveMutation.isPending || cabinList.length === 0 || isOverAllocated}
             className="h-9 px-4 bg-primary text-primary-foreground text-xs font-medium rounded-xl hover:opacity-90 disabled:opacity-50 transition-opacity cursor-pointer"
           >
             {saveMutation.isPending ? "Saving…" : "Save Assignments"}

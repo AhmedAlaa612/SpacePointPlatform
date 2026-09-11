@@ -625,6 +625,28 @@ async def set_item_cabins(
         if invalid:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="One or more cabins do not belong to this warehouse")
 
+    total_cabin_qty = sum(a.qty for a in body if a.qty is not None and a.qty > 0)
+    stock_stmt = select(StockLevel).where(
+        StockLevel.warehouse_id == warehouse_id,
+        StockLevel.item_id == item_id,
+    )
+    stock_level = (await db.execute(stock_stmt)).scalar_one_or_none()
+
+    if stock_level:
+        if total_cabin_qty > stock_level.qty:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"Total allocated to cabins ({total_cabin_qty}) cannot exceed warehouse stock ({stock_level.qty})",
+            )
+    elif body:
+        stock_level = StockLevel(
+            id=uuid.uuid4(),
+            warehouse_id=warehouse_id,
+            item_id=item_id,
+            qty=total_cabin_qty,
+        )
+        db.add(stock_level)
+
     await db.execute(
         delete(ItemCabinAssignment).where(
             ItemCabinAssignment.warehouse_id == warehouse_id,

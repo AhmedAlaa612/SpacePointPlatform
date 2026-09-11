@@ -1488,11 +1488,6 @@ function Warehouses() {
               <MapPin size={11} /> {w.cabins.length} cabin{w.cabins.length === 1 ? "" : "s"}
             </span>
           )}
-          {w.image_url && (
-            <span className="text-[11px] text-muted-foreground italic flex items-center gap-1">
-              📷 photo set
-            </span>
-          )}
         </div>
         <p className="text-xs text-muted-foreground truncate mt-0.5">
           Location: <span className="font-medium text-foreground">{w.location_name}</span>

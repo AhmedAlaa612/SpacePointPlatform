@@ -154,6 +154,7 @@ const LMS_GROUP = mkGroup("LMS", undefined, [
 const INVENTORY_GROUP = mkGroup("Inventory", undefined, [
   mk("Kits", "/operations/inventory"),
   mk("Stock", "/operations/inventory/stock"),
+  mk("Warehouses", "/operations/inventory/warehouses"),
   mk("Fulfilment", "/operations/inventory/fulfilment"),
   mk("Catalogue", "/operations/inventory/catalog"),
 ]);

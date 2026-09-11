@@ -447,12 +447,21 @@ export function WarehouseCabinsModal({
                   {itemsInSelectedCabin.map((item) => {
                     const assign = item.cabins?.find((c) => c.cabin_id === selectedCabin.id)
                     return (
-                      <div key={item.item_id} className="py-2 flex items-center justify-between text-xs">
-                        <div className="min-w-0 pr-2">
-                          <p className="font-medium text-foreground truncate">{item.item_name}</p>
-                          {assign?.notes && (
-                            <p className="text-[10px] text-muted-foreground truncate">{assign.notes}</p>
+                      <div key={item.item_id} className="py-2 flex items-center justify-between text-xs gap-2">
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          {item.image_url ? (
+                            <img src={item.image_url} alt="" className="w-8 h-8 rounded-lg object-cover border border-border shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center text-muted-foreground shrink-0 border border-border">
+                              <Package size={14} />
+                            </div>
                           )}
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-foreground truncate">{item.item_name}</p>
+                            {assign?.notes && (
+                              <p className="text-[10px] text-muted-foreground truncate">{assign.notes}</p>
+                            )}
+                          </div>
                         </div>
                         <div className="text-right shrink-0">
                           <span className="font-mono font-bold text-foreground">

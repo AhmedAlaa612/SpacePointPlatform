@@ -192,6 +192,7 @@ export interface StockLevel {
   item_name: string
   category?: string
   subcategory?: string | null
+  image_url?: string | null
   location_id: string
   location_name: string
   warehouse_id: string

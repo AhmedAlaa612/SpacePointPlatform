@@ -54,6 +54,7 @@ from app.schemas.inventory.kits import (
     StockLevelOut,
     StockMoveIn,
 )
+from app.services import storage
 from app.services.inventory import adjust_stock, confirm, move, overdue
 
 router = APIRouter(prefix="/inventory", tags=["inventory-stock"])
@@ -118,21 +119,29 @@ async def list_stock(
             )
         )
 
-    return [
-        StockLevelOut(
-            item_id=item.id,
-            item_name=item.name,
-            category=item.category,
-            subcategory=item.subcategory,
-            location_id=location.id,
-            location_name=location.name,
-            warehouse_id=wh.id,
-            warehouse_name=wh.name,
-            qty=level.qty,
-            cabins=cabins_by_stock.get((wh.id, item.id), []),
+    out_list = []
+    for level, item, location, wh in rows:
+        img_url = (
+            await storage.resolve_url(item.image_bucket, item.image_path)
+            if item.image_bucket and item.image_path
+            else None
         )
-        for level, item, location, wh in rows
-    ]
+        out_list.append(
+            StockLevelOut(
+                item_id=item.id,
+                item_name=item.name,
+                category=item.category,
+                subcategory=item.subcategory,
+                image_url=img_url,
+                location_id=location.id,
+                location_name=location.name,
+                warehouse_id=wh.id,
+                warehouse_name=wh.name,
+                qty=level.qty,
+                cabins=cabins_by_stock.get((wh.id, item.id), []),
+            )
+        )
+    return out_list
 
 
 @router.post("/stock/move", response_model=MovementOut, status_code=status.HTTP_201_CREATED)
