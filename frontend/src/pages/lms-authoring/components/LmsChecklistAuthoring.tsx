@@ -1,7 +1,8 @@
 import { Fragment, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, X, GripVertical, ImagePlus, Users } from "lucide-react"
+import { Plus, X, GripVertical, ImagePlus, Users, Crop } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
+import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { VideoPlayer } from "@/components/video/VideoPlayer"
 import { useToast } from "@/components/ui/toast"
@@ -69,12 +70,38 @@ export function ProgramTemplateEditor({
     onSuccess: onChanged,
   })
   const [imageError, setImageError] = useState("")
+  const [cropModalOpen, setCropModalOpen] = useState(false)
+  const [selectedImageForCrop, setSelectedImageForCrop] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
   const imageMutation = useMutation({
     mutationFn: (file: File) => uploadLmsProgramImageApi(program.id, file),
-    onSuccess: () => { setImageError(""); onChanged() },
+    onSuccess: () => {
+      setImageError("")
+      setCropModalOpen(false)
+      setSelectedImageForCrop(null)
+      onChanged()
+    },
     onError: (e: unknown) => setImageError(errorDetail(e, "Failed to upload image")),
   })
+
+  const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setSelectedImageForCrop(reader.result)
+        setCropModalOpen(true)
+      }
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ""
+  }
+
+  const handleCropConfirmed = async (croppedFile: File) => {
+    await imageMutation.mutateAsync(croppedFile)
+  }
 
   return (
     <div className="flex flex-col gap-5">
@@ -100,15 +127,47 @@ export function ProgramTemplateEditor({
           )}
         </button>
         <input
-          ref={fileInputRef} type="file" accept="image/*" className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) imageMutation.mutate(f) }}
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={handleFilePicked}
         />
         <div className="flex flex-col gap-1 pt-1">
-          <div className="text-sm font-medium">Checklist header image</div>
-          <div className="text-xs text-muted-foreground">Shown behind the title on the student checklist page</div>
+          <div className="text-sm font-medium">Checklist banner image</div>
+          <div className="text-xs text-muted-foreground">Top banner image displayed on the student checklist roadmap</div>
+          {program.image_url && !readOnly && (
+            <div className="flex items-center gap-2 mt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedImageForCrop(program.image_url)
+                  setCropModalOpen(true)
+                }}
+                className="text-xs font-medium text-primary hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Crop size={12} />
+                <span>Crop & Preview Banner</span>
+              </button>
+            </div>
+          )}
           {imageError && <p className="text-xs text-red-500">{imageError}</p>}
         </div>
       </div>
+
+      <ImageCropModal
+        isOpen={cropModalOpen}
+        onClose={() => {
+          if (!imageMutation.isPending) {
+            setCropModalOpen(false)
+            setSelectedImageForCrop(null)
+          }
+        }}
+        imageSrc={selectedImageForCrop}
+        programName={program.name}
+        onCropComplete={handleCropConfirmed}
+        isUploading={imageMutation.isPending}
+      />
 
       <div className="flex items-center justify-between p-3 bg-card border border-border rounded-xl">
         <div>
