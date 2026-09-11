@@ -1,15 +1,18 @@
 import { useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Boxes, ImagePlus, MapPin, Pencil, Plus, Search, Tag, Trash2, X } from "lucide-react"
-import type { City, Item, ItemCategory, ItemCategoryDef, KitTemplate, Location, StockLevel, Warehouse } from "@/types/inventory"
+import { Boxes, CornerDownRight, ImagePlus, MapPin, Pencil, Plus, Search, Tag, Trash2, X } from "lucide-react"
+import type { City, Item, ItemCategory, ItemCategoryDef, ItemSubcategoryDef, KitTemplate, Location, StockLevel, Warehouse } from "@/types/inventory"
 import {
   createCityApi,
   createItemApi,
   createItemCategoryApi,
+  createItemSubcategoryApi,
   createLocationApi,
   createTemplateApi,
   createWarehouseApi,
+  deleteItemApi,
   deleteItemCategoryApi,
+  deleteItemSubcategoryApi,
   deleteTemplateApi,
   getCitiesApi,
   getItemCategoriesApi,
@@ -25,11 +28,12 @@ import {
   updateCityApi,
   updateItemApi,
   updateItemCategoryApi,
+  updateItemSubcategoryApi,
   updateLocationApi,
   updateTemplateApi,
   updateWarehouseApi,
 } from "@/api/inventory"
-import { Field, Modal, ModalActions, Spinner } from "@/pages/admin/components/common"
+import { ConfirmDialog, Field, Modal, ModalActions, Spinner } from "@/pages/admin/components/common"
 import { StockCountModal } from "@/pages/operations/inventory/StockCountModal"
 import { VariantsModal } from "@/pages/operations/inventory/VariantsModal"
 import { CountrySelect } from "@/components/ui/CountrySelect"
@@ -336,18 +340,39 @@ function TemplateLines({ templateId, canManage }: { templateId: string; canManag
  */
 
 function Items() {
+  const queryClient = useQueryClient()
   const { activeRole } = useAuth()
   const canManage = activeRole !== "storekeeper"
+  const canDelete = activeRole === "admin"
   const { data: items = [], isLoading } = useQuery({ queryKey: ["inv-items"], queryFn: () => getItemsApi() })
   const { data: categories = [] } = useQuery({ queryKey: ["inv-categories"], queryFn: () => getItemCategoriesApi() })
   const { data: stock = [] } = useQuery<StockLevel[]>({ queryKey: ["inv-stock", ""], queryFn: () => getStockApi() })
 
   const [search, setSearch] = useState("")
   const [category, setCategory] = useState("")
+  const [subcategory, setSubcategory] = useState("")
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Item | null>(null)
   const [counting, setCounting] = useState<Item | null>(null)
   const [viewingGroup, setViewingGroup] = useState<string | null>(null)
+  const [deletingItem, setDeletingItem] = useState<Item | null>(null)
+  const [deleteError, setDeleteError] = useState("")
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteItemApi(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inv-items"] })
+      setDeletingItem(null)
+      setDeleteError("")
+    },
+    onError: (e: any) => setDeleteError(e?.response?.data?.detail ?? "Could not delete component"),
+  })
+
+  const selectedCategoryDef = useMemo(
+    () => categories.find((c) => c.name === category),
+    [categories, category],
+  )
+  const availableSubcategories = selectedCategoryDef?.subcategories ?? []
 
   const totalByItem = useMemo(() => {
     const totals: Record<string, number> = {}
@@ -357,6 +382,7 @@ function Items() {
 
   const filtered = items.filter((i) =>
     (!category || i.category === category) &&
+    (!subcategory || i.subcategory === subcategory) &&
     (!search.trim() || i.name.toLowerCase().includes(search.trim().toLowerCase())),
   )
 
@@ -407,11 +433,28 @@ function Items() {
           </Field>
           <Field label="Filter by category">
             <select
-              value={category} onChange={(e) => setCategory(e.target.value)}
+              value={category}
+              onChange={(e) => {
+                setCategory(e.target.value)
+                setSubcategory("")
+              }}
               className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm capitalize min-w-40"
             >
               <option value="">All categories</option>
               {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Filter by subcategory">
+            <select
+              value={subcategory}
+              onChange={(e) => setSubcategory(e.target.value)}
+              disabled={!category || availableSubcategories.length === 0}
+              className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm capitalize min-w-40 disabled:opacity-50"
+            >
+              <option value="">All subcategories</option>
+              {availableSubcategories.map((s) => (
+                <option key={s.id} value={s.name}>{s.name}</option>
+              ))}
             </select>
           </Field>
         </div>
@@ -444,6 +487,11 @@ function Items() {
                     <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
                       <Tag size={11} /> {item.category}
                     </span>
+                    {item.subcategory && (
+                      <span className="inline-flex items-center text-xs px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground capitalize">
+                        {item.subcategory}
+                      </span>
+                    )}
                     {card.kind === "group" && (
                       <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground">
                         {card.memberCount} sizes
@@ -479,12 +527,26 @@ function Items() {
                     </button>
                   )}
                   {canManage && (
-                    <button
-                      onClick={() => setEditing(item)}
-                      className="flex items-center justify-center gap-1.5 h-8 px-3 border border-border bg-background text-foreground text-xs font-medium rounded-lg hover:bg-muted/60"
-                    >
-                      <Pencil size={12} /> Edit{card.kind === "group" ? ` ${item.variant_label || item.name}` : ""}
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setEditing(item)}
+                        className="flex-1 flex items-center justify-center gap-1.5 h-8 px-3 border border-border bg-background text-foreground text-xs font-medium rounded-lg hover:bg-muted/60 transition-colors"
+                      >
+                        <Pencil size={12} /> Edit{card.kind === "group" ? ` ${item.variant_label || item.name}` : ""}
+                      </button>
+                      {canDelete && (
+                        <button
+                          onClick={() => {
+                            setDeleteError("")
+                            setDeletingItem(item)
+                          }}
+                          title="Delete component"
+                          className="flex items-center justify-center h-8 w-8 shrink-0 border border-border bg-background text-muted-foreground hover:text-red-600 hover:border-red-300 dark:hover:border-red-800 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -503,6 +565,23 @@ function Items() {
       {editing && <ItemModal existing={editing} onClose={() => setEditing(null)} />}
       {counting && <StockCountModal itemId={counting.id} itemName={counting.name} onClose={() => setCounting(null)} />}
       {viewingGroup && <VariantsModal groupName={viewingGroup} onClose={() => setViewingGroup(null)} />}
+
+      {deletingItem && (
+        <ConfirmDialog
+          title="Delete component?"
+          description={`Are you sure you want to delete "${deletingItem.name}"? This action cannot be undone.`}
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          destructive
+          pending={deleteMutation.isPending}
+          error={deleteError}
+          onCancel={() => {
+            setDeletingItem(null)
+            setDeleteError("")
+          }}
+          onConfirm={() => deleteMutation.mutate(deletingItem.id)}
+        />
+      )}
     </div>
   )
 }
@@ -567,16 +646,27 @@ function ItemPhoto({ item, canManage }: { item: Item; canManage: boolean }) {
 
 function ItemModal({ existing, onClose }: { existing?: Item; onClose: () => void }) {
   const queryClient = useQueryClient()
+  const { activeRole } = useAuth()
+  const canDelete = activeRole === "admin"
   const isEdit = !!existing
   const { data: categories = [] } = useQuery({ queryKey: ["inv-categories"], queryFn: () => getItemCategoriesApi() })
   const { data: allItems = [] } = useQuery({ queryKey: ["inv-items"], queryFn: () => getItemsApi() })
   const [name, setName] = useState(existing?.name ?? "")
   const [category, setCategory] = useState<ItemCategory>(existing?.category ?? "")
+  const [subcategory, setSubcategory] = useState(existing?.subcategory ?? "")
   const [returnable, setReturnable] = useState(existing?.returnable_default ?? false)
   const [description, setDescription] = useState(existing?.description ?? "")
   const [variantGroup, setVariantGroup] = useState(existing?.variant_group ?? "")
   const [variantLabel, setVariantLabel] = useState(existing?.variant_label ?? "")
   const [error, setError] = useState("")
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleteError, setDeleteError] = useState("")
+
+  const selectedCat = useMemo(
+    () => categories.find((c) => c.name === category),
+    [categories, category],
+  )
+  const availableSubcategories = selectedCat?.subcategories ?? []
 
   const existingGroups = useMemo(
     () => Array.from(new Set(allItems.map((i) => i.variant_group).filter((g): g is string => !!g))).sort(),
@@ -597,16 +687,29 @@ function ItemModal({ existing, onClose }: { existing?: Item; onClose: () => void
     mutationFn: () => isEdit
       ? updateItemApi({
           id: existing!.id, name, category,
+          subcategory: subcategory.trim() || null,
           returnable_default: returnable, description: description.trim() || null,
           variant_group: variantGroup.trim() || null, variant_label: variantLabel.trim() || null,
         })
       : createItemApi({
-          name, category, returnable_default: returnable,
+          name, category,
+          subcategory: subcategory.trim() || null,
+          returnable_default: returnable,
           description: description.trim() || null,
           variant_group: variantGroup.trim() || null, variant_label: variantLabel.trim() || null,
         }),
     onSuccess: () => { invalidate(); onClose() },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not save the item"),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteItemApi(id),
+    onSuccess: () => {
+      invalidate()
+      setConfirmDelete(false)
+      onClose()
+    },
+    onError: (e: any) => setDeleteError(e?.response?.data?.detail ?? "Could not delete component"),
   })
 
   return (
@@ -617,15 +720,34 @@ function ItemModal({ existing, onClose }: { existing?: Item; onClose: () => void
           className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
         />
       </Field>
-      <Field label="Category">
-        <select
-          value={category} onChange={(e) => setCategory(e.target.value)}
-          className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm capitalize"
-        >
-          {!category && <option value="">Choose…</option>}
-          {categoryOptions.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-        </select>
-      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Category">
+          <select
+            value={category}
+            onChange={(e) => {
+              setCategory(e.target.value)
+              setSubcategory("")
+            }}
+            className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm capitalize"
+          >
+            {!category && <option value="">Choose…</option>}
+            {categoryOptions.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Subcategory (optional)">
+          <select
+            value={subcategory}
+            onChange={(e) => setSubcategory(e.target.value)}
+            disabled={!category || availableSubcategories.length === 0}
+            className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm capitalize disabled:opacity-50"
+          >
+            <option value="">None</option>
+            {availableSubcategories.map((s) => (
+              <option key={s.id} value={s.name}>{s.name}</option>
+            ))}
+          </select>
+        </Field>
+      </div>
       <Field label="Description (optional)">
         <textarea
           value={description ?? ""} onChange={(e) => setDescription(e.target.value)}
@@ -674,13 +796,56 @@ function ItemModal({ existing, onClose }: { existing?: Item; onClose: () => void
 
       {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
 
-      <ModalActions
-        onCancel={onClose}
-        onConfirm={() => { setError(""); mutation.mutate() }}
-        loading={mutation.isPending}
-        disabled={!name.trim() || !category}
-        label={isEdit ? "Save" : "Create"}
-      />
+      {isEdit && canDelete ? (
+        <div className="flex items-center justify-between gap-2 mt-1">
+          <button
+            type="button"
+            onClick={() => { setDeleteError(""); setConfirmDelete(true) }}
+            className="inline-flex items-center gap-1.5 h-10 px-3 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-xl transition-colors cursor-pointer"
+          >
+            <Trash2 size={13} /> Delete component
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-10 px-4 border border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => { setError(""); mutation.mutate() }}
+              disabled={!name.trim() || !category || mutation.isPending}
+              className="h-10 px-5 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              {mutation.isPending ? "…" : "Save"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <ModalActions
+          onCancel={onClose}
+          onConfirm={() => { setError(""); mutation.mutate() }}
+          loading={mutation.isPending}
+          disabled={!name.trim() || !category}
+          label={isEdit ? "Save" : "Create"}
+        />
+      )}
+
+      {confirmDelete && existing && (
+        <ConfirmDialog
+          title="Delete component?"
+          description={`Are you sure you want to delete "${existing.name}"? This action cannot be undone.`}
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          destructive
+          pending={deleteMutation.isPending}
+          error={deleteError}
+          onCancel={() => { setConfirmDelete(false); setDeleteError("") }}
+          onConfirm={() => deleteMutation.mutate(existing.id)}
+        />
+      )}
     </Modal>
   )
 }
@@ -695,12 +860,21 @@ function Categories() {
     queryKey: ["inv-categories"],
     queryFn: () => getItemCategoriesApi(),
   })
-  // Item counts per category, so the delete button can be disabled up front
-  // instead of everyone discovering the 409 by trying.
+  // Item counts per category and subcategory, so the delete button can be disabled up front
   const { data: items = [] } = useQuery({ queryKey: ["inv-items"], queryFn: () => getItemsApi() })
   const countByCategory = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const i of items) counts[i.category] = (counts[i.category] ?? 0) + 1
+    return counts
+  }, [items])
+
+  const countBySubcategory = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const i of items) {
+      if (i.subcategory) {
+        counts[`${i.category}::${i.subcategory}`] = (counts[`${i.category}::${i.subcategory}`] ?? 0) + 1
+      }
+    }
     return counts
   }, [items])
 
@@ -723,35 +897,91 @@ function Categories() {
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not delete that category"),
   })
 
+  const removeSub = useMutation({
+    mutationFn: deleteItemSubcategoryApi,
+    onSuccess: () => { invalidate(); setError("") },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not delete that subcategory"),
+  })
+
   if (isLoading) return <Spinner />
 
   return (
     <div className="flex flex-col gap-4 max-w-lg">
       <p className="text-sm text-muted-foreground -mt-1">
-        Groupings used across the catalogue, the "add a component" form and the equipment
-        filter. Every category is editable; one still in use by a component can't be deleted —
-        move those components to another category first.
+        Groupings and sub-groupings used across the catalogue, the "add a component" form and
+        stock filters. Renaming updates all assigned components. Deletion is refused while any
+        components still use it.
       </p>
 
-      <div className="rounded-2xl border border-border bg-card divide-y divide-border">
+      <div className="rounded-2xl border border-border bg-card divide-y divide-border overflow-hidden">
         {categories.map((c) => {
           const inUse = countByCategory[c.name] ?? 0
           return (
-            <div key={c.id} className="flex items-center justify-between px-4 py-2.5 gap-3">
-              <RenamableCategory category={c} onSaved={invalidate} canManage={canManage} />
-              <div className="flex items-center gap-2 shrink-0">
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {inUse} component{inUse === 1 ? "" : "s"}
-                </span>
+            <div key={c.id} className="flex flex-col">
+              <div className="flex items-center justify-between px-4 py-2.5 gap-3 bg-card">
+                <RenamableCategory category={c} onSaved={invalidate} canManage={canManage} />
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {inUse} component{inUse === 1 ? "" : "s"}
+                  </span>
+                  {canManage && (
+                    <button
+                      onClick={() => remove.mutate(c.id)}
+                      disabled={inUse > 0 || remove.isPending}
+                      title={inUse > 0 ? "Still in use — move its components first" : "Delete category"}
+                      className="text-xs text-red-600 dark:text-red-400 hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      Delete
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Subcategories */}
+              <div className="px-4 py-2 bg-muted/20 border-t border-border/40 flex flex-col gap-2">
+                {c.subcategories && c.subcategories.length > 0 ? (
+                  <div className="flex flex-col gap-1.5">
+                    {c.subcategories.map((s) => {
+                      const inUseSub = countBySubcategory[`${c.name}::${s.name}`] ?? 0
+                      return (
+                        <div key={s.id} className="flex items-center justify-between pl-3 pr-1 gap-2">
+                          <RenamableSubcategory
+                            categoryId={c.id}
+                            subcategory={s}
+                            onSaved={invalidate}
+                            canManage={canManage}
+                          />
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[11px] text-muted-foreground tabular-nums">
+                              {inUseSub} component{inUseSub === 1 ? "" : "s"}
+                            </span>
+                            {canManage && (
+                              <button
+                                onClick={() => removeSub.mutate({ categoryId: c.id, id: s.id })}
+                                disabled={inUseSub > 0 || removeSub.isPending}
+                                title={inUseSub > 0 ? "Still in use — move its components first" : "Delete subcategory"}
+                                className="text-[11px] text-red-600 dark:text-red-400 hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed cursor-pointer"
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground italic pl-3">No subcategories yet</span>
+                )}
+
                 {canManage && (
-                  <button
-                    onClick={() => remove.mutate(c.id)}
-                    disabled={inUse > 0 || remove.isPending}
-                    title={inUse > 0 ? "Still in use — move its components first" : "Delete"}
-                    className="text-xs text-red-600 dark:text-red-400 hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed"
-                  >
-                    Delete
-                  </button>
+                  <div className="pl-3">
+                    <AddSubcategoryInput
+                      categoryId={c.id}
+                      onAdded={invalidate}
+                      onError={setError}
+                    />
+                  </div>
                 )}
               </div>
             </div>
@@ -772,9 +1002,9 @@ function Categories() {
           <button
             disabled={!name.trim() || create.isPending}
             onClick={() => create.mutate(name.trim())}
-            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-50"
+            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-50 cursor-pointer"
           >
-            <Plus size={14} /> Add
+            <Plus size={14} /> Add Category
           </button>
         </div>
       )}
@@ -810,7 +1040,7 @@ function RenamableCategory({ category, onSaved, canManage }: {
     return (
       <button
         onClick={() => { setValue(category.name); setEditing(true) }}
-        className="flex items-center gap-1.5 text-sm text-foreground capitalize hover:text-primary min-w-0 truncate"
+        className="flex items-center gap-1.5 text-sm text-foreground capitalize hover:text-primary min-w-0 truncate cursor-pointer"
       >
         <Tag size={13} className="shrink-0 text-muted-foreground" /> {category.name}
       </button>
@@ -833,6 +1063,94 @@ function RenamableCategory({ category, onSaved, canManage }: {
       onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur() }}
       className="h-8 px-2 border border-border bg-background text-foreground rounded-lg text-sm flex-1 min-w-0"
     />
+  )
+}
+
+function RenamableSubcategory({ categoryId, subcategory, onSaved, canManage }: {
+  categoryId: string
+  subcategory: ItemSubcategoryDef
+  onSaved: () => void
+  canManage: boolean
+}) {
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(subcategory.name)
+
+  const mutation = useMutation({
+    mutationFn: (name: string) => updateItemSubcategoryApi({ categoryId, id: subcategory.id, name }),
+    onSuccess: () => { onSaved(); setEditing(false) },
+  })
+
+  if (!canManage) {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-foreground capitalize min-w-0 truncate">
+        <CornerDownRight size={12} className="shrink-0 text-muted-foreground" /> {subcategory.name}
+      </span>
+    )
+  }
+
+  if (!editing) {
+    return (
+      <button
+        onClick={() => { setValue(subcategory.name); setEditing(true) }}
+        className="flex items-center gap-1.5 text-xs text-foreground capitalize hover:text-primary min-w-0 truncate cursor-pointer"
+      >
+        <CornerDownRight size={12} className="shrink-0 text-muted-foreground" /> {subcategory.name}
+      </button>
+    )
+  }
+
+  return (
+    <input
+      autoFocus
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        const trimmed = value.trim()
+        if (trimmed && trimmed.toLowerCase() !== subcategory.name.toLowerCase()) {
+          mutation.mutate(trimmed)
+        } else {
+          setEditing(false)
+        }
+      }}
+      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur() }}
+      className="h-7 px-2 border border-border bg-background text-foreground rounded-lg text-xs flex-1 min-w-0"
+    />
+  )
+}
+
+function AddSubcategoryInput({ categoryId, onAdded, onError }: {
+  categoryId: string
+  onAdded: () => void
+  onError: (msg: string) => void
+}) {
+  const [name, setName] = useState("")
+  const mutation = useMutation({
+    mutationFn: () => createItemSubcategoryApi({ categoryId, name: name.trim() }),
+    onSuccess: () => { setName(""); onAdded() },
+    onError: (e: any) => onError(e?.response?.data?.detail ?? "Could not add subcategory"),
+  })
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && name.trim()) {
+            mutation.mutate()
+          }
+        }}
+        placeholder="New subcategory…"
+        className="h-7 max-w-44 px-2 border border-border bg-background text-foreground rounded-lg text-xs"
+      />
+      <button
+        disabled={!name.trim() || mutation.isPending}
+        onClick={() => mutation.mutate()}
+        className="flex items-center gap-1 h-7 px-2 bg-muted hover:bg-muted/80 text-foreground text-xs font-medium rounded-lg disabled:opacity-50 cursor-pointer"
+      >
+        <Plus size={11} /> Add
+      </button>
+    </div>
   )
 }
 

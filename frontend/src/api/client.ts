@@ -30,6 +30,8 @@ export const tokens = {
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   const token = tokens.access;
   if (token) config.headers.Authorization = `Bearer ${token}`;
+  const activeRole = localStorage.getItem("active_role");
+  if (activeRole) config.headers["X-Active-Role"] = activeRole;
   return config;
 });
 

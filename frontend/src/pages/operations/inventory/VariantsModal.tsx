@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Trash2 } from "lucide-react"
 import type { Item, StockLevel } from "@/types/inventory"
-import { getItemsApi, getStockApi } from "@/api/inventory"
-import { Modal } from "@/pages/admin/components/common"
+import { deleteItemApi, getItemsApi, getStockApi } from "@/api/inventory"
+import { ConfirmDialog, Modal } from "@/pages/admin/components/common"
 import { StockCountModal } from "@/pages/operations/inventory/StockCountModal"
+import { useAuth } from "@/context/AuthContext"
 
 /** "T-Shirt" opened as one card — every size, and where each one actually
  *  is. Each row is still a fully separate item underneath (its own stock
@@ -11,7 +13,22 @@ import { StockCountModal } from "@/pages/operations/inventory/StockCountModal"
  *  `variant_group` items share. "Edit counts" reuses `StockCountModal`
  *  unchanged, scoped to that one variant. */
 export function VariantsModal({ groupName, onClose }: { groupName: string; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const { activeRole } = useAuth()
+  const canDelete = activeRole === "admin"
   const [editing, setEditing] = useState<Item | null>(null)
+  const [deletingItem, setDeletingItem] = useState<Item | null>(null)
+  const [deleteError, setDeleteError] = useState("")
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteItemApi(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inv-items"] })
+      setDeletingItem(null)
+      setDeleteError("")
+    },
+    onError: (e: any) => setDeleteError(e?.response?.data?.detail ?? "Could not delete variant"),
+  })
 
   const { data: items = [] } = useQuery({ queryKey: ["inv-items"], queryFn: () => getItemsApi() })
   const { data: stock = [] } = useQuery<StockLevel[]>({ queryKey: ["inv-stock", "all"], queryFn: () => getStockApi() })
@@ -53,14 +70,26 @@ export function VariantsModal({ groupName, onClose }: { groupName: string; onClo
                     : "Not stocked anywhere"}
                 </p>
               </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <span className="text-lg font-bold text-foreground tabular-nums">{total}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-lg font-bold text-foreground tabular-nums mr-1">{total}</span>
                 <button
                   onClick={() => setEditing(v)}
-                  className="h-8 px-3 border border-border bg-background text-foreground text-xs font-medium rounded-lg hover:bg-muted/60"
+                  className="h-8 px-3 border border-border bg-background text-foreground text-xs font-medium rounded-lg hover:bg-muted/60 transition-colors"
                 >
                   Edit counts
                 </button>
+                {canDelete && (
+                  <button
+                    onClick={() => {
+                      setDeleteError("")
+                      setDeletingItem(v)
+                    }}
+                    title="Delete variant component"
+                    className="flex items-center justify-center h-8 w-8 border border-border bg-background text-muted-foreground hover:text-red-600 hover:border-red-300 dark:hover:border-red-800 rounded-lg transition-colors cursor-pointer"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
               </div>
             </div>
           )
@@ -72,6 +101,23 @@ export function VariantsModal({ groupName, onClose }: { groupName: string; onClo
 
       {editing && (
         <StockCountModal itemId={editing.id} itemName={editing.name} onClose={() => setEditing(null)} />
+      )}
+
+      {deletingItem && (
+        <ConfirmDialog
+          title="Delete variant component?"
+          description={`Are you sure you want to delete "${deletingItem.variant_label || deletingItem.name}"? This action cannot be undone.`}
+          confirmLabel="Delete"
+          cancelLabel="Cancel"
+          destructive
+          pending={deleteMutation.isPending}
+          error={deleteError}
+          onCancel={() => {
+            setDeletingItem(null)
+            setDeleteError("")
+          }}
+          onConfirm={() => deleteMutation.mutate(deletingItem.id)}
+        />
       )}
     </Modal>
   )

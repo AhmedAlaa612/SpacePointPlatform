@@ -4,6 +4,7 @@ import type {
   Item,
   ItemCategory,
   ItemCategoryDef,
+  ItemSubcategoryDef,
   KitDetail,
   KitListItem,
   KitStatus,
@@ -60,12 +61,17 @@ export const updateWarehouseApi = ({ id, ...body }: { id: string } & Partial<War
 
 /* ── items ─────────────────────────────────────────────────────────────── */
 
-export const getItemsApi = (category?: string) =>
-  api.get<Item[]>("/inventory/items", { params: category ? { category } : {} }).then((r) => r.data)
+export const getItemsApi = (category?: string, subcategory?: string) => {
+  const params: Record<string, string> = {}
+  if (category) params.category = category
+  if (subcategory) params.subcategory = subcategory
+  return api.get<Item[]>("/inventory/items", { params }).then((r) => r.data)
+}
 
 export const createItemApi = (body: {
   name: string
   category: ItemCategory
+  subcategory?: string | null
   returnable_default: boolean
   description?: string | null
   variant_group?: string | null
@@ -87,7 +93,7 @@ export const setItemImageApi = ({ id, file }: { id: string; file: File }) => {
 export const removeItemImageApi = (id: string) =>
   api.delete<Item>(`/inventory/items/${id}/image`).then((r) => r.data)
 
-/* ── item categories ───────────────────────────────────────────────────── */
+/* ── item categories & subcategories ───────────────────────────────────── */
 
 export const getItemCategoriesApi = () =>
   api.get<ItemCategoryDef[]>("/inventory/categories").then((r) => r.data)
@@ -103,6 +109,16 @@ export const updateItemCategoryApi = ({ id, ...body }: {
  *  them to another category first. */
 export const deleteItemCategoryApi = (id: string) =>
   api.delete(`/inventory/categories/${id}`).then((r) => r.data)
+
+export const createItemSubcategoryApi = ({ categoryId, name }: { categoryId: string; name: string }) =>
+  api.post<ItemSubcategoryDef>(`/inventory/categories/${categoryId}/subcategories`, { name }).then((r) => r.data)
+
+export const updateItemSubcategoryApi = ({ categoryId, id, ...body }: {
+  categoryId: string; id: string; name?: string; sort_order?: number
+}) => api.patch<ItemSubcategoryDef>(`/inventory/categories/${categoryId}/subcategories/${id}`, body).then((r) => r.data)
+
+export const deleteItemSubcategoryApi = ({ categoryId, id }: { categoryId: string; id: string }) =>
+  api.delete(`/inventory/categories/${categoryId}/subcategories/${id}`).then((r) => r.data)
 
 /* ── templates ─────────────────────────────────────────────────────────── */
 

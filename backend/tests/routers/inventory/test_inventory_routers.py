@@ -79,6 +79,16 @@ async def instructor_headers(instructor):
     return _headers(instructor)
 
 
+@pytest.fixture
+async def admin(db):
+    return await _make_user(db, "admin")
+
+
+@pytest.fixture
+async def admin_headers(admin):
+    return _headers(admin)
+
+
 async def _location(db, name="Dubai") -> Location:
     loc = Location(id=uuid.uuid4(), name=name, country="AE")
     db.add(loc)
@@ -265,16 +275,45 @@ async def test_clearing_the_variant_group_clears_the_label_too(db, client, ops_h
 
 
 @pytest.mark.asyncio
-async def test_an_item_in_use_cannot_be_deleted(db, client, ops_headers):
+async def test_an_item_in_use_cannot_be_deleted(db, client, ops_headers, admin_headers):
     tpl = await _template(db)
     item = await _item(db)
     await db.commit()
     await client.put(f"/inventory/templates/{tpl.id}/items", headers=ops_headers,
                      json=[{"item_id": str(item.id), "required_qty": 1}])
 
-    resp = await client.delete(f"/inventory/items/{item.id}", headers=ops_headers)
-    assert resp.status_code == 409
-    assert "template line" in resp.json()["detail"]
+    # Ops cannot delete (403 forbidden)
+    resp_ops = await client.delete(f"/inventory/items/{item.id}", headers=ops_headers)
+    assert resp_ops.status_code == 403
+
+    # Admin is blocked with 409 because it's in use
+    resp_admin = await client.delete(f"/inventory/items/{item.id}", headers=admin_headers)
+    assert resp_admin.status_code == 409
+    assert "template line" in resp_admin.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_admin_can_delete_unused_item(db, client, ops_headers, admin_headers, keeper_headers):
+    item = await _item(db, name="Accidental Duplicate Component")
+    await db.commit()
+
+    # Storekeeper and ops cannot delete (403 forbidden)
+    assert (await client.delete(f"/inventory/items/{item.id}", headers=keeper_headers)).status_code == 403
+    assert (await client.delete(f"/inventory/items/{item.id}", headers=ops_headers)).status_code == 403
+
+    # An admin account with active role switched to 'operations' is rejected
+    admin_as_ops = {**admin_headers, "X-Active-Role": "operations"}
+    assert (await client.delete(f"/inventory/items/{item.id}", headers=admin_as_ops)).status_code == 403
+
+    # Only admin acting as admin can delete
+    admin_as_admin = {**admin_headers, "X-Active-Role": "admin"}
+    res_admin = await client.delete(f"/inventory/items/{item.id}", headers=admin_as_admin)
+    assert res_admin.status_code == 204
+
+    # Verify item is gone
+    get_res = await client.get("/inventory/items", headers=ops_headers)
+    items = get_res.json()
+    assert not any(i["id"] == str(item.id) for i in items)
 
 
 @pytest.mark.asyncio
@@ -897,3 +936,89 @@ async def test_admin_passes_every_inventory_guard(db, client):
     assert (await client.get("/inventory/kits", headers=headers)).status_code == 200
     assert (await client.get("/inventory/stock", headers=headers)).status_code == 200
     assert (await client.get("/inventory/overdue", headers=headers)).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_category_and_subcategory_lifecycle_and_filtering(db, client, ops_headers):
+    # 1. Create a category
+    cat_res = await client.post("/inventory/categories", headers=ops_headers, json={"name": "computing"})
+    assert cat_res.status_code == 201
+    cat = cat_res.json()
+    cat_id = cat["id"]
+
+    # 2. Create subcategories under that category
+    sub1_res = await client.post(f"/inventory/categories/{cat_id}/subcategories", headers=ops_headers, json={"name": "cpu"})
+    assert sub1_res.status_code == 201
+    sub1 = sub1_res.json()
+    assert sub1["name"] == "cpu"
+    assert sub1["category_id"] == cat_id
+
+    sub2_res = await client.post(f"/inventory/categories/{cat_id}/subcategories", headers=ops_headers, json={"name": "memory"})
+    assert sub2_res.status_code == 201
+
+    # 3. Clashing subcategory name under same category is rejected
+    clash_res = await client.post(f"/inventory/categories/{cat_id}/subcategories", headers=ops_headers, json={"name": "cpu"})
+    assert clash_res.status_code == 409
+
+    # 4. Listing categories returns nested subcategories
+    cats_res = await client.get("/inventory/categories", headers=ops_headers)
+    assert cats_res.status_code == 200
+    found_cat = next(c for c in cats_res.json() if c["id"] == cat_id)
+    sub_names = [s["name"] for s in found_cat["subcategories"]]
+    assert "cpu" in sub_names
+    assert "memory" in sub_names
+
+    # 5. Create items: one with subcategory, one with invalid subcategory
+    bad_item_res = await client.post("/inventory/items", headers=ops_headers, json={
+        "name": "Invalid Item", "category": "computing", "subcategory": "nonexistent"
+    })
+    assert bad_item_res.status_code == 400
+
+    item1_res = await client.post("/inventory/items", headers=ops_headers, json={
+        "name": "ARM Cortex M4", "category": "computing", "subcategory": "cpu"
+    })
+    assert item1_res.status_code == 201
+    item1 = item1_res.json()
+    assert item1["subcategory"] == "cpu"
+
+    item2_res = await client.post("/inventory/items", headers=ops_headers, json={
+        "name": "16MB Flash", "category": "computing", "subcategory": "memory"
+    })
+    assert item2_res.status_code == 201
+
+    # 6. Filter items by category and subcategory
+    res_cat = await client.get("/inventory/items?category=computing", headers=ops_headers)
+    assert len(res_cat.json()) == 2
+
+    res_sub = await client.get("/inventory/items?category=computing&subcategory=cpu", headers=ops_headers)
+    assert len(res_sub.json()) == 1
+    assert res_sub.json()[0]["name"] == "ARM Cortex M4"
+
+    # 7. Renaming subcategory re-labels items
+    sub1_id = sub1["id"]
+    rename_res = await client.patch(
+        f"/inventory/categories/{cat_id}/subcategories/{sub1_id}",
+        headers=ops_headers,
+        json={"name": "microcontroller"},
+    )
+    assert rename_res.status_code == 200
+
+    recheck_item = await client.get(f"/inventory/items?subcategory=microcontroller", headers=ops_headers)
+    assert len(recheck_item.json()) == 1
+    assert recheck_item.json()[0]["name"] == "ARM Cortex M4"
+    assert recheck_item.json()[0]["subcategory"] == "microcontroller"
+
+    # 8. Deleting subcategory in use is refused (409)
+    del_blocked = await client.delete(
+        f"/inventory/categories/{cat_id}/subcategories/{sub1_id}",
+        headers=ops_headers,
+    )
+    assert del_blocked.status_code == 409
+
+    # 9. Update item to clear subcategory, then delete succeeds
+    await client.patch(f"/inventory/items/{item1['id']}", headers=ops_headers, json={"subcategory": None})
+    del_ok = await client.delete(
+        f"/inventory/categories/{cat_id}/subcategories/{sub1_id}",
+        headers=ops_headers,
+    )
+    assert del_ok.status_code == 204

@@ -20,18 +20,21 @@ No `/api` prefix — nginx strips it before the app sees the request.
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from app.core.dependencies import require_inventory_manage, require_storekeeper
+from app.core.dependencies import require_admin, require_inventory_manage, require_storekeeper
 from app.db.session import get_db
 from app.models.inventory.city import City
 from app.models.inventory.item import Item
 from app.models.inventory.item_category import ItemCategory
+from app.models.inventory.item_subcategory import ItemSubcategory
 from app.models.inventory.kit import Kit, KitItem
 from app.models.inventory.kit_template import KitTemplate, KitTemplateItem
 from app.models.inventory.location import Location
+from app.models.inventory.movement import Movement
 from app.models.inventory.warehouse import Warehouse
 from app.models.inventory.stock import StockLevel
 from app.models.user import User
@@ -47,6 +50,9 @@ from app.schemas.inventory.catalog import (
     ItemCategoryCreate,
     ItemCategoryOut,
     ItemCategoryUpdate,
+    ItemSubcategoryCreate,
+    ItemSubcategoryOut,
+    ItemSubcategoryUpdate,
     ItemCreate,
     ItemOut,
     ItemUpdate,
@@ -306,7 +312,11 @@ async def list_categories(
     # locations.
     _: User = Depends(require_storekeeper),
 ):
-    stmt = select(ItemCategory).order_by(ItemCategory.sort_order, ItemCategory.name)
+    stmt = (
+        select(ItemCategory)
+        .options(selectinload(ItemCategory.subcategories))
+        .order_by(ItemCategory.sort_order, ItemCategory.name)
+    )
     return (await db.execute(stmt)).scalars().all()
 
 
@@ -327,7 +337,7 @@ async def create_category(
     category = ItemCategory(id=uuid.uuid4(), name=name, sort_order=(top or 0) + 1)
     db.add(category)
     await db.commit()
-    await db.refresh(category)
+    await db.refresh(category, ["subcategories"])
     return category
 
 
@@ -367,7 +377,7 @@ async def update_category(
         )
         await db.commit()
 
-    await db.refresh(category)
+    await db.refresh(category, ["subcategories"])
     return category
 
 
@@ -397,19 +407,147 @@ async def delete_category(
     await db.commit()
 
 
+# ── subcategories ───────────────────────────────────────────────────────────
+
+@router.post(
+    "/categories/{category_id}/subcategories",
+    response_model=ItemSubcategoryOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_subcategory(
+    category_id: uuid.UUID,
+    body: ItemSubcategoryCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_inventory_manage),
+):
+    category = await db.get(ItemCategory, category_id)
+    if category is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Category not found")
+
+    name = body.name.strip().lower()
+    clash = (await db.execute(
+        select(ItemSubcategory.id).where(
+            ItemSubcategory.category_id == category_id,
+            func.lower(ItemSubcategory.name) == name,
+        )
+    )).first()
+    if clash:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="A subcategory with this name already exists in this category")
+
+    top = await db.scalar(
+        select(func.max(ItemSubcategory.sort_order)).where(ItemSubcategory.category_id == category_id)
+    )
+    subcategory = ItemSubcategory(
+        id=uuid.uuid4(),
+        category_id=category_id,
+        name=name,
+        sort_order=(top or 0) + 1,
+    )
+    db.add(subcategory)
+    await db.commit()
+    await db.refresh(subcategory)
+    return subcategory
+
+
+@router.patch(
+    "/categories/{category_id}/subcategories/{subcategory_id}",
+    response_model=ItemSubcategoryOut,
+)
+async def update_subcategory(
+    category_id: uuid.UUID,
+    subcategory_id: uuid.UUID,
+    body: ItemSubcategoryUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_inventory_manage),
+):
+    subcategory = await db.get(ItemSubcategory, subcategory_id)
+    if subcategory is None or subcategory.category_id != category_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Subcategory not found")
+    category = await db.get(ItemCategory, category_id)
+    if category is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Category not found")
+
+    changes = body.model_dump(exclude_unset=True)
+    old_name = subcategory.name
+    if "name" in changes and changes["name"]:
+        new_name = changes["name"].strip().lower()
+        if new_name != old_name:
+            clash = (await db.execute(
+                select(ItemSubcategory.id).where(
+                    ItemSubcategory.category_id == category_id,
+                    func.lower(ItemSubcategory.name) == new_name,
+                )
+            )).first()
+            if clash:
+                raise HTTPException(status.HTTP_409_CONFLICT, detail="A subcategory with this name already exists in this category")
+        changes["name"] = new_name
+
+    for field, value in changes.items():
+        setattr(subcategory, field, value)
+    await db.commit()
+
+    # Renaming re-labels every item in this category that used the old subcategory name
+    if "name" in changes and changes["name"] != old_name:
+        await db.execute(
+            Item.__table__.update()
+            .where(Item.category == category.name, Item.subcategory == old_name)
+            .values(subcategory=changes["name"])
+        )
+        await db.commit()
+
+    await db.refresh(subcategory)
+    return subcategory
+
+
+@router.delete(
+    "/categories/{category_id}/subcategories/{subcategory_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_subcategory(
+    category_id: uuid.UUID,
+    subcategory_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_inventory_manage),
+):
+    subcategory = await db.get(ItemSubcategory, subcategory_id)
+    if subcategory is None or subcategory.category_id != category_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Subcategory not found")
+    category = await db.get(ItemCategory, category_id)
+    if category is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Category not found")
+
+    in_use = await db.scalar(
+        select(func.count()).select_from(Item).where(
+            Item.category == category.name,
+            Item.subcategory == subcategory.name,
+        )
+    )
+    if in_use:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"{in_use} item(s) still use this subcategory — move them to another one first.",
+        )
+
+    await db.delete(subcategory)
+    await db.commit()
+
+
 # ── items ───────────────────────────────────────────────────────────────────
 
 @router.get("/items", response_model=list[ItemOut])
 async def list_items(
     category: str | None = None,
+    subcategory: str | None = None,
     db: AsyncSession = Depends(get_db),
     # Read-only — widened 2026-08-27, same reasoning as GET /locations above:
     # a storekeeper counting a kit needs to know what's actually in it.
     _: User = Depends(require_storekeeper),
 ):
-    stmt = select(Item).order_by(Item.category, Item.name)
+    stmt = select(Item).order_by(Item.category, Item.subcategory, Item.name)
     if category:
         stmt = stmt.where(Item.category == category)
+    if subcategory:
+        stmt = stmt.where(Item.subcategory == subcategory)
     items = (await db.execute(stmt)).scalars().all()
     return [await _item_out(i) for i in items]
 
@@ -436,6 +574,23 @@ async def _require_known_category(db: AsyncSession, category: str) -> None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=f"Unknown category '{category}'")
 
 
+async def _require_known_subcategory(db: AsyncSession, category: str, subcategory: str) -> None:
+    known = await db.scalar(
+        select(func.count())
+        .select_from(ItemSubcategory)
+        .join(ItemCategory, ItemSubcategory.category_id == ItemCategory.id)
+        .where(
+            func.lower(ItemCategory.name) == category.lower(),
+            func.lower(ItemSubcategory.name) == subcategory.lower(),
+        )
+    )
+    if not known:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown subcategory '{subcategory}' for category '{category}'",
+        )
+
+
 @router.post("/items", response_model=ItemOut, status_code=status.HTTP_201_CREATED)
 async def create_item(
     body: ItemCreate,
@@ -446,9 +601,16 @@ async def create_item(
     if clash:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="An item with this name already exists")
     await _require_known_category(db, body.category)
+    if body.subcategory:
+        body.subcategory = body.subcategory.strip().lower()
+        await _require_known_subcategory(db, body.category, body.subcategory)
 
     data = body.model_dump()
     _normalize_variant_fields(data)
+    if data.get("subcategory"):
+        data["subcategory"] = data["subcategory"].strip().lower()
+    else:
+        data["subcategory"] = None
     item = Item(id=uuid.uuid4(), **data)
     db.add(item)
     await db.commit()
@@ -518,8 +680,29 @@ async def update_item(
         )).first()
         if clash:
             raise HTTPException(status.HTTP_409_CONFLICT, detail="An item with this name already exists")
+    target_category = changes.get("category", item.category)
     if "category" in changes and changes["category"]:
         await _require_known_category(db, changes["category"])
+
+    if "subcategory" in changes:
+        if changes["subcategory"]:
+            changes["subcategory"] = changes["subcategory"].strip().lower()
+            await _require_known_subcategory(db, target_category, changes["subcategory"])
+        else:
+            changes["subcategory"] = None
+    elif "category" in changes and item.subcategory:
+        known_sub = await db.scalar(
+            select(func.count())
+            .select_from(ItemSubcategory)
+            .join(ItemCategory, ItemSubcategory.category_id == ItemCategory.id)
+            .where(
+                func.lower(ItemCategory.name) == target_category.lower(),
+                func.lower(ItemSubcategory.name) == item.subcategory.lower(),
+            )
+        )
+        if not known_sub:
+            changes["subcategory"] = None
+
     _normalize_variant_fields(changes)
 
     for field, value in changes.items():
@@ -533,13 +716,20 @@ async def update_item(
 async def delete_item(
     item_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_inventory_manage),
+    _: User = Depends(require_admin),
+    x_active_role: str | None = Header(None, alias="X-Active-Role"),
 ):
-    """Only ever deletes an item nothing uses.
+    """Only ever deletes an item nothing uses — restricted to admin only.
 
     The FKs are RESTRICT, so the database would refuse anyway — this exists to
     say *why* instead of surfacing an IntegrityError.
     """
+    if x_active_role and x_active_role != "admin":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Cannot delete item when active role is not admin.",
+        )
+
     item = await db.get(Item, item_id)
     if item is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
@@ -551,13 +741,22 @@ async def delete_item(
     in_stock = await db.scalar(
         select(func.count()).select_from(StockLevel).where(StockLevel.item_id == item_id, StockLevel.qty > 0)
     )
-    if in_kits or in_templates or in_stock:
+    in_movements = await db.scalar(
+        select(func.count()).select_from(Movement).where(Movement.item_id == item_id)
+    )
+    if in_kits or in_templates or in_stock or in_movements:
+        parts = []
+        if in_kits:
+            parts.append(f"{in_kits} kit(s)")
+        if in_templates:
+            parts.append(f"{in_templates} template line(s)")
+        if in_stock:
+            parts.append(f"{in_stock} location(s) with stock")
+        if in_movements:
+            parts.append(f"{in_movements} movement history record(s)")
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            detail=(
-                f"Still in use: {in_kits} kit(s), {in_templates} template line(s), "
-                f"{in_stock} location(s) with stock."
-            ),
+            detail=f"Still in use: {', '.join(parts)}.",
         )
 
     await db.delete(item)
