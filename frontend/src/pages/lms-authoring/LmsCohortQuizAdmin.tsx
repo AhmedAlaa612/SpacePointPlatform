@@ -44,12 +44,12 @@ export default function LmsCohortQuizAdmin() {
         title="Quiz Bank"
         subtitle="Author knowledge-check questions by topic and difficulty, then assemble them into fixed templates for a program checklist's quiz step."
       />
-      <div className="flex gap-1 border-b border-border">
+      <div className="flex gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar">
         {(["bank", "templates"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
               tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >

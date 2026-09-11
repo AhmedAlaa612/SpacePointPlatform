@@ -380,14 +380,14 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       {/* Sessions / Students / Setup — the page used to be five screens of
           stacked panels with setup wedged between the two things ops touches
           daily. Nothing is removed, it just stops all being on screen at once. */}
-      <div className="flex items-center gap-1 border-b border-border" role="tablist">
+      <div className="flex items-center gap-1 border-b border-border overflow-x-auto scrollbar-none no-scrollbar" role="tablist">
         {TABS.map((t) => (
           <button
             key={t.key}
             role="tab"
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
-            className={`h-9 px-3 -mb-px border-b-2 text-sm font-medium transition-colors ${
+            className={`h-9 px-3 -mb-px border-b-2 text-sm font-medium transition-colors shrink-0 whitespace-nowrap ${
               tab === t.key
                 ? "border-primary text-foreground"
                 : "border-transparent text-muted-foreground hover:text-foreground"
