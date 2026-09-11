@@ -106,7 +106,7 @@ from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
 from app.services.lms.program import (
     PROGRAM_ITEM_PDF_BUCKET, check_item_conflicts, effective_cohort_program_items, fork_cohort_override,
-    guard_locked_submission_scope, item_out, items_out, next_position, reorder_program_items,
+    guard_locked_submission_scope, item_out, items_out, next_position, renumber_program_items, reorder_program_items,
     resolve_cohort_program, sync_cohort_assignments, sync_program_assignments, validate_item_payload,
     validate_item_refs,
 )
@@ -1418,11 +1418,14 @@ async def delete_checkpoint(
 # outright, same nearest-wins idiom the old tables used.
 
 async def _items_for_owner(db: AsyncSession, *, owner_type: str, owner_id: uuid.UUID) -> list[LmsProgramItem]:
-    return list((await db.execute(
+    items = list((await db.execute(
         select(LmsProgramItem)
         .where(LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id)
         .order_by(LmsProgramItem.position)
     )).scalars().all())
+    if items and [i.position for i in items] != list(range(1, len(items) + 1)):
+        items = await renumber_program_items(db, owner_type=owner_type, owner_id=owner_id, commit=True)
+    return items
 
 
 async def program_out(db: AsyncSession, program: LmsProgram) -> LmsProgramOut:
@@ -1600,6 +1603,8 @@ async def delete_lms_program_item(
     if item.pdf_path:
         await storage.delete_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
     await db.delete(item)
+    await db.flush()
+    await renumber_program_items(db, owner_type="program", owner_id=lms_program_id)
     await db.commit()
 
 
@@ -1910,6 +1915,8 @@ async def delete_cohort_override_item(
     if item.pdf_path:
         await storage.delete_file(PROGRAM_ITEM_PDF_BUCKET, item.pdf_path)
     await db.delete(item)
+    await db.flush()
+    await renumber_program_items(db, owner_type="cohort_override", owner_id=override.id)
     await db.commit()
 
 

@@ -315,6 +315,32 @@ async def reorder_program_items(
     )).scalars().all()
 
 
+async def renumber_program_items(
+    db: AsyncSession, *, owner_type: str, owner_id: uuid.UUID, commit: bool = False,
+) -> list[LmsProgramItem]:
+    """Recompact positions for an owner's checklist to be strictly sequential 1..N.
+    Uses the same two-pass negative offset pattern as `reorder_program_items`
+    to avoid violating `uq_lms_program_items_owner_position` mid-transaction."""
+    items = list((await db.execute(
+        select(LmsProgramItem)
+        .where(LmsProgramItem.owner_type == owner_type, LmsProgramItem.owner_id == owner_id)
+        .order_by(LmsProgramItem.position, LmsProgramItem.id)
+    )).scalars().all())
+    if not items:
+        return []
+    if [i.position for i in items] == list(range(1, len(items) + 1)):
+        return items
+    for offset, item in enumerate(items, start=1):
+        item.position = -offset
+    await db.flush()
+    for position, item in enumerate(items, start=1):
+        item.position = position
+    await db.flush()
+    if commit:
+        await db.commit()
+    return items
+
+
 async def resolve_cohort_program(
     db: AsyncSession, cohort_id: uuid.UUID,
 ) -> tuple[LmsProgram, list[LmsProgramItem]] | None:
@@ -337,6 +363,8 @@ async def resolve_cohort_program(
             .order_by(LmsProgramItem.position)
         )).scalars().all()
         if items:
+            if [i.position for i in items] != list(range(1, len(items) + 1)):
+                items = await renumber_program_items(db, owner_type="cohort_override", owner_id=override.id)
             program = await db.get(LmsProgram, override.lms_program_id)
             return (program, list(items)) if program else None
 
@@ -348,6 +376,8 @@ async def resolve_cohort_program(
         .where(LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == program.id)
         .order_by(LmsProgramItem.position)
     )).scalars().all()
+    if items and [i.position for i in items] != list(range(1, len(items) + 1)):
+        items = await renumber_program_items(db, owner_type="program", owner_id=program.id)
     return program, list(items)
 
 
@@ -375,6 +405,8 @@ async def effective_cohort_program_items(
             .order_by(LmsProgramItem.position)
         )).scalars().all()
         if items:
+            if [i.position for i in items] != list(range(1, len(items) + 1)):
+                items = await renumber_program_items(db, owner_type="cohort_override", owner_id=override.id, commit=True)
             program = await db.get(LmsProgram, override.lms_program_id)
             return (program, list(items), False) if program else None
 
@@ -386,6 +418,8 @@ async def effective_cohort_program_items(
         .where(LmsProgramItem.owner_type == "program", LmsProgramItem.owner_id == program.id)
         .order_by(LmsProgramItem.position)
     )).scalars().all()
+    if items and [i.position for i in items] != list(range(1, len(items) + 1)):
+        items = await renumber_program_items(db, owner_type="program", owner_id=program.id, commit=True)
     return program, list(items), True
 
 

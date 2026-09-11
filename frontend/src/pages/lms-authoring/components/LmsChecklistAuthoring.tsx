@@ -293,9 +293,9 @@ export function ChecklistItemsEditor({
 
       {displayItems.length === 0 && addingType === null && <EmptyState title="No steps yet" />}
 
-      {displayItems.map((item) => (
+      {displayItems.map((item, index) => (
         <ItemRow
-          key={item.id} item={item} onUpdate={onUpdate} onDelete={onDelete}
+          key={item.id} item={item} index={index + 1} onUpdate={onUpdate} onDelete={onDelete}
           onUploadPdf={onUploadPdf} onRemovePdf={onRemovePdf}
           onUploadGuidelineVideo={onUploadGuidelineVideo} onRemoveGuidelineVideo={onRemoveGuidelineVideo}
           onPreviewGuidelineVideo={() => setPreviewItem(item)}
@@ -367,12 +367,13 @@ export function ChecklistItemsEditor({
 }
 
 export function ItemRow({
-  item, onUpdate, onDelete, onUploadPdf, onRemovePdf, onUploadGuidelineVideo, onRemoveGuidelineVideo,
+  item, index, onUpdate, onDelete, onUploadPdf, onRemovePdf, onUploadGuidelineVideo, onRemoveGuidelineVideo,
   onPreviewGuidelineVideo,
   readOnly, cohortId, checkpointLabels,
   draggable, isDragging, onDragStartRow, onDropRow, onDragEndRow,
 }: {
   item: LmsProgramItem
+  index?: number
   onUpdate: (itemId: string, data: LmsProgramItemInput) => Promise<unknown>
   onDelete: (itemId: string) => Promise<unknown>
   // Optional — the mission-run-only list (ProgramMissionsPanel) never
@@ -428,7 +429,7 @@ export function ItemRow({
       } ${draggable ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
       <GripVertical size={14} className="text-muted-foreground shrink-0" />
-      <span className="text-xs font-semibold text-muted-foreground w-5 text-center shrink-0">{item.position}</span>
+      <span className="text-xs font-semibold text-muted-foreground w-5 text-center shrink-0">{index ?? item.position}</span>
       <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 text-primary">
         <Icon size={13} />
       </div>

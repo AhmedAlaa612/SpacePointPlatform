@@ -705,3 +705,128 @@ async def test_reordering_an_inherited_cohort_list_forks_it(db, client):
     # The program's own checklist keeps its original order.
     program_after = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
     assert [i["title"] for i in program_after.json()["items"]] == ["A", "B"]
+
+
+@pytest.mark.asyncio
+async def test_deleting_program_item_renumbers_remaining_items_sequentially(db, client):
+    """When items are deleted from a program checklist, remaining items must be
+    automatically renumbered to 1..N without gaps."""
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Base"},
+    )).json()["id"]
+
+    created_items = []
+    for title in ["Step 1", "Step 2", "Step 3", "Step 4", "Step 5"]:
+        res = await client.post(
+            f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+            json={"item_type": "manual", "title": title},
+        )
+        assert res.status_code == 201
+        created_items.append(res.json())
+
+    # Delete the middle item ("Step 3", which has position 3)
+    del_res = await client.delete(
+        f"/lms/admin/programs/{lms_program_id}/items/{created_items[2]['id']}",
+        headers=_headers(ops),
+    )
+    assert del_res.status_code == 204
+
+    # Fetch program checklist and verify sequential positions 1, 2, 3, 4
+    listed = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
+    items = listed.json()["items"]
+    assert len(items) == 4
+    assert [i["title"] for i in items] == ["Step 1", "Step 2", "Step 4", "Step 5"]
+    assert [i["position"] for i in items] == [1, 2, 3, 4]
+
+    # Delete the first item ("Step 1", position 1)
+    del_res = await client.delete(
+        f"/lms/admin/programs/{lms_program_id}/items/{created_items[0]['id']}",
+        headers=_headers(ops),
+    )
+    assert del_res.status_code == 204
+
+    # Fetch program checklist and verify sequential positions 1, 2, 3
+    listed = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
+    items = listed.json()["items"]
+    assert len(items) == 3
+    assert [i["title"] for i in items] == ["Step 2", "Step 4", "Step 5"]
+    assert [i["position"] for i in items] == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_deleting_cohort_override_item_renumbers_remaining_items_sequentially(db, client):
+    """When an item is deleted from a cohort override checklist, remaining items
+    must be renumbered to 1..N without gaps."""
+    ops = await _user(db)
+    program = await _program(db)
+    cohort = await _cohort(db, program)
+    await db.commit()
+
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Base"},
+    )).json()["id"]
+
+    for title in ["A", "B", "C"]:
+        await client.post(
+            f"/lms/admin/programs/{lms_program_id}/items", headers=_headers(ops),
+            json={"item_type": "manual", "title": title},
+        )
+
+    # Fetch cohort override (inherited)
+    override = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
+    inherited_items = override.json()["items"]
+    assert len(inherited_items) == 3
+
+    # Delete the middle item "B" via cohort override endpoint (which forks and deletes)
+    del_res = await client.delete(
+        f"/lms/admin/cohorts/{cohort.id}/program-override/items/{inherited_items[1]['id']}",
+        headers=_headers(ops),
+    )
+    assert del_res.status_code == 204
+
+    # Fetch cohort override again and check sequential positions
+    override_after = await client.get(f"/lms/admin/cohorts/{cohort.id}/program-override", headers=_headers(ops))
+    items = override_after.json()["items"]
+    assert len(items) == 2
+    assert [i["title"] for i in items] == ["A", "C"]
+    assert [i["position"] for i in items] == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_get_program_auto_heals_gaps_in_item_positions(db, client):
+    """If existing database rows have gaps (e.g. 6, 7, 12, 15 from prior unrenumbered deletes),
+    fetching the program checklist auto-compacts them to 1, 2, 3, 4."""
+    from app.models.lms.program import LmsProgram, LmsProgramItem
+
+    ops = await _user(db)
+    program = await _program(db)
+    await db.commit()
+
+    lms_program_id = (await client.post(
+        "/lms/admin/programs", headers=_headers(ops), json={"program_id": str(program.id), "name": "Base"},
+    )).json()["id"]
+
+    # Directly insert items with gaps in position
+    for pos, title in [(6, "Gapped 6"), (7, "Gapped 7"), (12, "Gapped 12"), (15, "Gapped 15")]:
+        db.add(LmsProgramItem(
+            id=uuid.uuid4(),
+            owner_type="program",
+            owner_id=uuid.UUID(lms_program_id),
+            position=pos,
+            item_type="manual",
+            title=title,
+        ))
+    await db.commit()
+
+    # GET program checklist
+    listed = await client.get(f"/lms/admin/programs/{lms_program_id}", headers=_headers(ops))
+    assert listed.status_code == 200
+    items = listed.json()["items"]
+    assert len(items) == 4
+    assert [i["title"] for i in items] == ["Gapped 6", "Gapped 7", "Gapped 12", "Gapped 15"]
+    assert [i["position"] for i in items] == [1, 2, 3, 4]
+
