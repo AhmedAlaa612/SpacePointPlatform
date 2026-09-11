@@ -378,7 +378,7 @@ export function ProgressPanel({
       {filteredRows.length === 0 ? (
         <p className="text-xs text-muted-foreground text-center py-6">No students match "{search}"</p>
       ) : (
-        <div className="max-h-96 overflow-y-auto pr-1 flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {filteredRows.map((row) => (
             <ProgressRow
               key={row.assignment_id} row={row} cohortId={cohortId}
@@ -407,19 +407,19 @@ function ProgressRow({
   const initials = (row.student_name || "S").split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2)
 
   return (
-    <div className="border-2 border-border/80 rounded-2xl bg-card shadow-md transition-all hover:border-primary/40 overflow-hidden">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-4 sm:p-5">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+    <div className="shrink-0 border-2 border-border/80 rounded-2xl bg-card shadow-sm transition-all hover:border-primary/40 overflow-hidden">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 p-3.5 sm:p-5">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
           <button
             onClick={() => cohortId && setOpen((v) => !v)}
-            className="p-2 rounded-xl bg-muted/60 hover:bg-muted text-muted-foreground transition-colors shrink-0 cursor-pointer disabled:opacity-40"
+            className="p-1.5 sm:p-2 rounded-xl bg-muted/60 hover:bg-muted text-muted-foreground transition-colors shrink-0 cursor-pointer disabled:opacity-40"
             disabled={!cohortId}
             title={cohortId ? "Show item detail" : "Pick a cohort to see item detail"}
           >
             {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
           </button>
 
-          <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-sm shrink-0">
+          <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-xs sm:text-sm shrink-0">
             {initials}
           </div>
 
@@ -427,7 +427,7 @@ function ProgressRow({
             onClick={() => void navigate({ to: `/lms-authoring/students/${row.user_id}` })}
             className="min-w-0 flex-1 text-left group cursor-pointer"
           >
-            <div className="text-base font-bold text-foreground group-hover:text-primary transition-colors truncate">
+            <div className="text-sm sm:text-base font-bold text-foreground group-hover:text-primary transition-colors truncate">
               {row.student_name}
             </div>
             <div className="text-xs font-medium text-muted-foreground truncate flex items-center gap-1.5 mt-0.5">
@@ -437,7 +437,7 @@ function ProgressRow({
           </button>
 
           {row.certificate_required && (
-            <span className={`shrink-0 text-xs font-bold px-2.5 py-1 rounded-xl flex items-center gap-1.5 ${
+            <span className={`shrink-0 text-xs font-bold px-2 sm:px-2.5 py-1 rounded-xl flex items-center gap-1.5 ${
               row.certificate_earned
                 ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
                 : "bg-muted/80 text-muted-foreground border border-border/50"
@@ -445,12 +445,12 @@ function ProgressRow({
               {row.certificate_earned ? (
                 <>
                   <CheckCircle2 size={13} className="text-emerald-500" />
-                  <span className="hidden xs:inline">Certified</span>
+                  <span className="hidden sm:inline">Certified</span>
                 </>
               ) : (
                 <>
                   <Award size={13} className="text-muted-foreground/60" />
-                  <span className="hidden xs:inline">Not certified</span>
+                  <span className="hidden sm:inline">Not certified</span>
                 </>
               )}
             </span>
@@ -535,11 +535,12 @@ function AssignmentItemRow({
 
   const isDone = item.status === "done"
   const isAwaiting = item.status === "awaiting_confirmation"
+  const hasActions = Boolean(item.submitted_url || canViewRun || (isQuiz && (isDone || cohortId)))
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="p-3 sm:p-3.5 rounded-xl bg-card border border-border/60 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-border transition-all">
-        <div className="flex items-center gap-3 min-w-0 flex-1">
+      <div className="p-3 sm:p-3.5 rounded-xl bg-card border border-border/60 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 hover:border-border transition-all">
+        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
           {isDone ? (
             <div className="w-7 h-7 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
               <CheckCircle2 size={15} />
@@ -554,7 +555,7 @@ function AssignmentItemRow({
             </div>
           )}
 
-          <div className="text-sm font-semibold text-foreground flex-1 truncate">
+          <div className="text-sm font-medium sm:font-semibold text-foreground flex-1 min-w-0 break-words sm:truncate">
             {item.title}
           </div>
 
@@ -565,59 +566,63 @@ function AssignmentItemRow({
           </span>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap shrink-0 justify-between sm:justify-start pt-2 sm:pt-0 border-t sm:border-t-0 border-border/30">
+        <div className="flex items-center gap-2 flex-wrap shrink-0 justify-end sm:justify-start">
+          {hasActions && (
+            <div className="flex items-center gap-2 flex-wrap shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-border/30">
+              {item.submitted_url && (
+                <a
+                  href={ensureAbsoluteUrl(item.submitted_url)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="h-8 px-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-bold flex items-center gap-1.5 hover:bg-primary/20 transition-colors shrink-0"
+                >
+                  <ExternalLink size={13} /> Submission
+                </a>
+              )}
+
+              {canViewRun && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowRun((v) => !v)}
+                  className="h-8 text-xs font-semibold gap-1.5 shrink-0"
+                >
+                  <Play size={13} className="text-primary" />
+                  {showRun ? "Hide run" : "View run"}
+                </Button>
+              )}
+
+              {isQuiz && isDone && cohortId && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowQuizReview((v) => !v)}
+                  className="h-8 text-xs font-semibold gap-1.5 shrink-0"
+                >
+                  <Eye size={13} className="text-primary" />
+                  {showQuizReview ? "Hide answers" : "View answers"}
+                </Button>
+              )}
+
+              {isQuiz && cohortId && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setConfirmReset(true)}
+                  className="h-8 text-xs font-semibold text-muted-foreground hover:text-destructive hover:bg-destructive/10 gap-1.5 shrink-0"
+                  title="Let this student retake the quiz"
+                >
+                  <RotateCcw size={13} /> Reset
+                </Button>
+              )}
+            </div>
+          )}
+
           <span className={`hidden sm:inline-block text-xs font-bold uppercase tracking-wider px-2.5 py-1 rounded-md shrink-0 ${
             isDone ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" : isAwaiting ? "bg-amber-500/10 text-amber-400 border border-amber-500/20" : "bg-muted text-muted-foreground border border-border/40"
           }`}>
             {item.status.replace("_", " ")}
           </span>
-
-          {item.submitted_url && (
-            <a
-              href={ensureAbsoluteUrl(item.submitted_url)}
-              target="_blank"
-              rel="noreferrer"
-              className="h-8 px-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-bold flex items-center gap-1.5 hover:bg-primary/20 transition-colors shrink-0"
-            >
-              <ExternalLink size={13} /> Submission
-            </a>
-          )}
-
-          {canViewRun && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowRun((v) => !v)}
-              className="h-8 text-xs font-semibold gap-1.5 shrink-0"
-            >
-              <Play size={13} className="text-primary" />
-              {showRun ? "Hide run" : "View run"}
-            </Button>
-          )}
-
-          {isQuiz && isDone && cohortId && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowQuizReview((v) => !v)}
-              className="h-8 text-xs font-semibold gap-1.5 shrink-0"
-            >
-              <Eye size={13} className="text-primary" />
-              {showQuizReview ? "Hide answers" : "View answers"}
-            </Button>
-          )}
-
-          {isQuiz && cohortId && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => setConfirmReset(true)}
-              className="h-8 text-xs font-semibold text-muted-foreground hover:text-destructive hover:bg-destructive/10 gap-1.5 shrink-0"
-              title="Let this student retake the quiz"
-            >
-              <RotateCcw size={13} /> Reset
-            </Button>
-          )}
         </div>
       </div>
 
