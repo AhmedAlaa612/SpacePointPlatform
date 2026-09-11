@@ -24,6 +24,7 @@ export default function Stock() {
   const [locationId, setLocationId] = useState("")
   const [warehouseId, setWarehouseId] = useState("")
   const [category, setCategory] = useState("")
+  const [subcategory, setSubcategory] = useState("")
   const [search, setSearch] = useState("")
   const [onlyInStock, setOnlyInStock] = useState(false)
   const [onlyOutOfStock, setOnlyOutOfStock] = useState(false)
@@ -47,6 +48,12 @@ export default function Stock() {
 
   const warehousesForLocation = locationId ? warehouses.filter((w) => w.location_id === locationId) : warehouses
 
+  const selectedCategoryDef = useMemo(
+    () => categories.find((c) => c.name === category),
+    [categories, category],
+  )
+  const availableSubcategories = selectedCategoryDef?.subcategories ?? []
+
   const cards = useMemo(() => {
     const rowsByItem = new Map<string, StockLevel[]>()
     for (const s of stock) {
@@ -63,6 +70,7 @@ export default function Stock() {
 
     const perItem = items
       .filter((item) => !category || item.category === category)
+      .filter((item) => !subcategory || item.subcategory === subcategory)
       .filter((item) => !search.trim() || item.name.toLowerCase().includes(search.trim().toLowerCase()))
       .map((item) => {
         const allRows = rowsByItem.get(item.id) ?? []
@@ -131,7 +139,7 @@ export default function Stock() {
         const nameB = b.kind === "group" ? b.groupName : b.item.name
         return nameA.localeCompare(nameB)
       })
-  }, [items, stock, category, search, locationId, warehouseId, onlyInStock, onlyOutOfStock, onlyUnstocked])
+  }, [items, stock, category, subcategory, search, locationId, warehouseId, onlyInStock, onlyOutOfStock, onlyUnstocked])
 
   return (
     <div className="flex flex-col gap-6">
@@ -140,7 +148,7 @@ export default function Stock() {
           <h1 className="text-xl font-bold text-foreground tracking-tight">Stock</h1>
           <p className="text-sm text-muted-foreground mt-0.5">What we own, and where it is</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setMoveOpen(true)}
             className="inline-flex items-center justify-center gap-1.5 h-9 px-4 border border-border text-foreground text-sm font-medium rounded-xl hover:bg-muted transition-colors whitespace-nowrap cursor-pointer"
@@ -173,67 +181,97 @@ export default function Stock() {
         </div>
       )}
 
-      <div className="flex items-end gap-3 flex-wrap">
-        <Field label="Search stock">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <input
-              value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name…"
-              className="h-9 w-56 pl-8 pr-3 border border-border bg-background text-foreground rounded-xl text-sm"
-            />
+      <div className="flex flex-col gap-3">
+        <div className="flex items-end gap-3 flex-wrap">
+          {/* 1. Search */}
+          <Field label="Search stock" className="w-full sm:w-56">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={search} onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search by name…"
+                className="h-9 w-full pl-8 pr-3 border border-border bg-background text-foreground rounded-xl text-sm"
+              />
+            </div>
+          </Field>
+
+          {/* 2. Category and Sub */}
+          <div className="grid grid-cols-2 gap-3 w-full sm:w-auto sm:flex sm:items-end">
+            <Field label="Category" className="w-full sm:w-44">
+              <select
+                value={category}
+                onChange={(e) => {
+                  setCategory(e.target.value)
+                  setSubcategory("")
+                }}
+                className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary capitalize"
+              >
+                <option value="">All categories</option>
+                {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Subcategory" className="w-full sm:w-44">
+              <select
+                value={subcategory}
+                onChange={(e) => setSubcategory(e.target.value)}
+                disabled={!category || availableSubcategories.length === 0}
+                className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary capitalize disabled:opacity-50"
+              >
+                <option value="">All subcategories</option>
+                {availableSubcategories.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+              </select>
+            </Field>
           </div>
-        </Field>
-        <Field label="Category">
-          <select
-            value={category} onChange={(e) => setCategory(e.target.value)}
-            className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-fit cursor-pointer focus:outline-none focus:border-primary capitalize"
-          >
-            <option value="">All categories</option>
-            {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
-          </select>
-        </Field>
-        <Field label="Location">
-          <select
-            value={locationId}
-            onChange={(e) => { setLocationId(e.target.value); setWarehouseId("") }}
-            className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-fit cursor-pointer focus:outline-none focus:border-primary"
-          >
-            <option value="">All locations</option>
-            {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-        </Field>
-        <Field label="Warehouse">
-          <select
-            value={warehouseId}
-            onChange={(e) => setWarehouseId(e.target.value)}
-            className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-fit cursor-pointer focus:outline-none focus:border-primary"
-          >
-            <option value="">All warehouses</option>
-            {warehousesForLocation.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
-        </Field>
-        <label className="flex items-center gap-1.5 h-9 text-sm text-foreground cursor-pointer">
-          <input
-            type="checkbox" checked={onlyInStock}
-            onChange={(e) => { setOnlyInStock(e.target.checked); if (e.target.checked) { setOnlyOutOfStock(false); setOnlyUnstocked(false) } }}
-          />
-          In stock only
-        </label>
-        <label className="flex items-center gap-1.5 h-9 text-sm text-foreground cursor-pointer">
-          <input
-            type="checkbox" checked={onlyOutOfStock}
-            onChange={(e) => { setOnlyOutOfStock(e.target.checked); if (e.target.checked) { setOnlyUnstocked(false); setOnlyInStock(false) } }}
-          />
-          Out of stock
-        </label>
-        <label className="flex items-center gap-1.5 h-9 text-sm text-foreground cursor-pointer">
-          <input
-            type="checkbox" checked={onlyUnstocked}
-            onChange={(e) => { setOnlyUnstocked(e.target.checked); if (e.target.checked) { setOnlyOutOfStock(false); setOnlyInStock(false) } }}
-          />
-          Not stocked anywhere
-        </label>
+
+          {/* 3. Location and Warehouse */}
+          <div className="grid grid-cols-2 gap-3 w-full sm:w-auto sm:flex sm:items-end">
+            <Field label="Location" className="w-full sm:w-44">
+              <select
+                value={locationId}
+                onChange={(e) => { setLocationId(e.target.value); setWarehouseId("") }}
+                className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
+              >
+                <option value="">All locations</option>
+                {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </Field>
+            <Field label="Warehouse" className="w-full sm:w-44">
+              <select
+                value={warehouseId}
+                onChange={(e) => setWarehouseId(e.target.value)}
+                className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
+              >
+                <option value="">All warehouses</option>
+                {warehousesForLocation.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </Field>
+          </div>
+        </div>
+
+        {/* 4. The 3 Checkboxes */}
+        <div className="flex items-center gap-4 flex-wrap pt-0.5">
+          <label className="flex items-center gap-1.5 text-sm text-foreground cursor-pointer select-none">
+            <input
+              type="checkbox" checked={onlyInStock}
+              onChange={(e) => { setOnlyInStock(e.target.checked); if (e.target.checked) { setOnlyOutOfStock(false); setOnlyUnstocked(false) } }}
+            />
+            In stock only
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-foreground cursor-pointer select-none">
+            <input
+              type="checkbox" checked={onlyUnstocked}
+              onChange={(e) => { setOnlyUnstocked(e.target.checked); if (e.target.checked) { setOnlyOutOfStock(false); setOnlyInStock(false) } }}
+            />
+            Not stocked
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-foreground cursor-pointer select-none">
+            <input
+              type="checkbox" checked={onlyOutOfStock}
+              onChange={(e) => { setOnlyOutOfStock(e.target.checked); if (e.target.checked) { setOnlyUnstocked(false); setOnlyInStock(false) } }}
+            />
+            Out of stock
+          </label>
+        </div>
       </div>
 
       {isLoading ? <Spinner /> : (
@@ -308,6 +346,11 @@ function StockCard({ item, displayName, memberCount, total, breakdown, onEdit }:
             <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
               <Tag size={11} /> {item.category}
             </span>
+            {item.subcategory && (
+              <span className="inline-flex items-center text-xs px-2 py-0.5 rounded-full bg-muted/60 text-muted-foreground capitalize">
+                {item.subcategory}
+              </span>
+            )}
             {memberCount !== undefined && (
               <span className="text-xs px-2 py-0.5 rounded-full bg-secondary text-secondary-foreground">
                 {memberCount} sizes

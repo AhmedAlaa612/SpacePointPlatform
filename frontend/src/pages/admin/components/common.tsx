@@ -51,9 +51,9 @@ export function Modal({ title, onClose, children, maxWidth = "sm:max-w-lg max-w-
   )
 }
 
-export function Field({ label, children }: { label: string; children: React.ReactNode }) {
+export function Field({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
   return (
-    <div>
+    <div className={className}>
       <label className="text-xs text-muted-foreground font-medium uppercase tracking-wider mb-1 block">{label}</label>
       {children}
     </div>
