@@ -42,10 +42,10 @@ function StepIntro({ eyebrow, title, lede, ledeWidth = 62, right }: {
   eyebrow: string; title: string; lede?: string; ledeWidth?: number; right?: ReactNode
 }) {
   return (
-    <div className="flex items-end justify-between flex-wrap" style={{ gap: 20, marginBottom: 28 }}>
-      <div className="flex flex-col" style={{ gap: 6, minWidth: 0 }}>
+    <div className="flex items-end justify-between flex-wrap gap-4 sm:gap-5 mb-5 sm:mb-7">
+      <div className="flex flex-col gap-1.5 min-w-0">
         <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-primary m-0">{eyebrow}</p>
-        <h2 style={{ fontFamily: OUTFIT, fontSize: 32, fontWeight: 600, letterSpacing: "-0.025em", lineHeight: 1.15 }} className="text-foreground m-0">{title}</h2>
+        <h2 style={{ fontFamily: OUTFIT }} className="text-foreground m-0 text-2xl sm:text-3xl font-semibold tracking-tight leading-tight">{title}</h2>
         {lede && <p style={{ fontSize: 15, maxWidth: `${ledeWidth}ch`, textWrap: "pretty" }} className="text-muted-foreground m-0">{lede}</p>}
       </div>
       {right}
@@ -98,33 +98,40 @@ export default function ProgramWizard() {
 
   return (
     <div className="fixed inset-0 z-50 bg-background flex flex-col" style={{ fontSize: 14, lineHeight: 1.5 }}>
-      <header
-        className="shrink-0 flex items-center justify-between border-b border-border bg-card"
-        style={{ padding: "16px 40px", gap: 32 }}
-      >
-        <div style={{ minWidth: 0 }}>
-          <h1
-            style={{ fontFamily: OUTFIT, fontSize: 20, fontWeight: 600, letterSpacing: "-0.02em", lineHeight: 1.2 }}
-            className="text-foreground m-0 truncate"
-          >
-            Setting up: {program?.name || "New Program"}
-          </h1>
-          <p style={{ fontSize: 13, margin: "2px 0 0" }} className="text-muted-foreground">
-            Step {step + 1} of {STEP_LABELS.length} — {STEP_LABELS[step]}
-          </p>
+      <header className="shrink-0 relative border-b border-border bg-card px-4 py-3 sm:px-10 sm:py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h1
+              style={{ fontFamily: OUTFIT }}
+              className="text-foreground m-0 text-base sm:text-xl font-semibold tracking-tight truncate"
+            >
+              Setting up: {program?.name || "New Program"}
+            </h1>
+            <p className="text-xs sm:text-sm text-muted-foreground mt-0.5 truncate">
+              Step {step + 1} of {STEP_LABELS.length} — {STEP_LABELS[step]}
+            </p>
+          </div>
+          <div className="flex items-center gap-3 sm:gap-6 shrink-0">
+            <div className="hidden sm:block">
+              <StepDots steps={STEP_LABELS} current={step} skipped={skipped} onGo={(i) => { if (i <= step || program) goStep(i) }} />
+            </div>
+            <button
+              onClick={() => navigate({ to: "/operations/programs" })}
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              aria-label="Close"
+            ><X size={18} /></button>
+          </div>
         </div>
-        <div className="flex items-center shrink-0" style={{ gap: 24 }}>
-          <StepDots steps={STEP_LABELS} current={step} skipped={skipped} onGo={(i) => { if (i <= step || program) goStep(i) }} />
-          <button
-            onClick={() => navigate({ to: "/operations/programs" })}
-            style={{ width: 36, height: 36 }}
-            className="rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-            aria-label="Close"
-          ><X size={18} /></button>
+        {/* Mobile progress bar along bottom of header */}
+        <div className="sm:hidden absolute bottom-0 left-0 right-0 h-1 bg-muted/60 overflow-hidden">
+          <div
+            className="h-full bg-primary transition-all duration-300"
+            style={{ width: `${((step + 1) / STEP_LABELS.length) * 100}%` }}
+          />
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto" style={{ padding: "32px 40px 48px" }}>
+      <div className="flex-1 overflow-y-auto p-4 sm:px-10 sm:py-8">
         {step === 0 && (
           <BasicsStep program={program} onSaved={(p) => { setProgram(p); advance() }} onFormChange={setBasicsForm} />
         )}
@@ -159,25 +166,24 @@ export default function ProgramWizard() {
       </div>
 
       <footer
-        className="shrink-0 flex items-center justify-between border-t border-border bg-card"
-        style={{ padding: "14px 40px" }}
+        className="shrink-0 flex items-center justify-between border-t border-border bg-card px-4 py-3 sm:px-10 sm:py-3.5"
       >
         <div>
           {canBack && (
             <button
               onClick={() => goStep(step - 1)}
-              style={{ height: 40, padding: "0 16px", borderRadius: 8, fontSize: 14, fontWeight: 500 }}
-              className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            ><ChevronLeft size={16} /> Back</button>
+              style={{ height: 38, borderRadius: 8, fontSize: 13, fontWeight: 500 }}
+              className="flex items-center gap-1.5 px-3 sm:px-4 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            ><ChevronLeft size={15} /> Back</button>
           )}
         </div>
-        <div className="flex flex-col items-end" style={{ gap: 4 }}>
-          <div className="flex items-center" style={{ gap: 16 }}>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2 sm:gap-3">
             {canSkip && (
               <button
                 onClick={skipThis}
-                style={{ height: 40, padding: "0 14px", fontSize: 14, fontWeight: 400, textDecoration: "underline", textDecorationColor: "hsl(var(--border))", textUnderlineOffset: 4 }}
-                className="text-muted-foreground hover:text-foreground transition-colors"
+                style={{ height: 38, fontSize: 13, textDecoration: "underline", textDecorationColor: "hsl(var(--border))", textUnderlineOffset: 4 }}
+                className="px-2 sm:px-3 text-muted-foreground hover:text-foreground transition-colors"
               >Skip for now</button>
             )}
             {step < LAST_STEP ? (
@@ -185,14 +191,16 @@ export default function ProgramWizard() {
             ) : (
               <button
                 onClick={() => navigate({ to: "/operations/programs" })}
-                style={{ height: 40, padding: "0 28px", borderRadius: 8, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600 }}
-                className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+                style={{ height: 38, fontFamily: OUTFIT, fontWeight: 600 }}
+                className="px-4 sm:px-7 rounded-lg text-sm sm:text-base bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
               >Done</button>
             )}
           </div>
-          {step === 1 && <SkipNote>You can set roles later — cohorts will offer no roles until you do.</SkipNote>}
-          {step === 2 && <SkipNote>You can create this checklist later — students won't see one until it exists.</SkipNote>}
-          {step === 3 && <SkipNote>Cohorts and sessions will simply have no materials until you add some.</SkipNote>}
+          <div className="hidden sm:block">
+            {step === 1 && <SkipNote>You can set roles later — cohorts will offer no roles until you do.</SkipNote>}
+            {step === 2 && <SkipNote>You can create this checklist later — students won't see one until it exists.</SkipNote>}
+            {step === 3 && <SkipNote>Cohorts and sessions will simply have no materials until you add some.</SkipNote>}
+          </div>
         </div>
       </footer>
     </div>
@@ -212,8 +220,8 @@ function WizardContinueButton({ step, program, onContinue, basicsForm }: {
       <button
         onClick={basicsForm.save}
         disabled={!basicsForm.canSubmit || basicsForm.isPending}
-        style={{ height: 40, padding: "0 28px", borderRadius: 8, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600 }}
-        className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+        style={{ height: 38, borderRadius: 8, fontFamily: OUTFIT, fontWeight: 600 }}
+        className="px-4 sm:px-7 text-sm sm:text-base bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
       >{basicsForm.isPending ? "…" : "Continue"}</button>
     )
   }
@@ -221,8 +229,8 @@ function WizardContinueButton({ step, program, onContinue, basicsForm }: {
     <button
       onClick={onContinue}
       disabled={!program}
-      style={{ height: 40, padding: "0 28px", borderRadius: 8, fontFamily: OUTFIT, fontSize: 15, fontWeight: 600 }}
-      className="bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+      style={{ height: 38, borderRadius: 8, fontFamily: OUTFIT, fontWeight: 600 }}
+      className="px-4 sm:px-7 text-sm sm:text-base bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
     >Continue</button>
   )
 }
@@ -330,8 +338,8 @@ function BasicsStep({ program, onSaved, onFormChange }: {
         lede="Everything here becomes the default for every cohort you run under it. You can change any of it later."
       />
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "20px 24px" }}>
-        <div style={{ gridColumn: "span 2" }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+        <div className="col-span-1 sm:col-span-2">
           <BigField label="Program name">
             <input
               value={name} onChange={(e) => setName(e.target.value)} placeholder="CubeSat Workshop" autoFocus
@@ -378,14 +386,14 @@ function BasicsStep({ program, onSaved, onFormChange }: {
             style={bigInput} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors" />
         </BigField>
 
-        <div style={{ gridColumn: "span 2" }}>
+        <div className="col-span-1 sm:col-span-2">
           <BigField label="Completion requirement">
-            <div className="flex" style={{ gap: 12 }}>
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
               <select value={completionRuleType} onChange={(e) => setCompletionRuleType(e.target.value as CompletionRuleType)}
                 style={{ ...selectStyle, flex: 1 }} className="border border-border bg-background text-foreground focus:outline-none focus:border-primary transition-colors">
                 {(["percentage", "session_count"] as CompletionRuleType[]).map((t) => <option key={t} value={t}>{COMPLETION_RULE_LABEL[t]}</option>)}
               </select>
-              <div className="relative shrink-0" style={{ width: 140 }}>
+              <div className="relative shrink-0 sm:w-36">
                 <input
                   value={completionRuleValue} onChange={(e) => setCompletionRuleValue(e.target.value)}
                   type="number" min={0} max={completionRuleType === "percentage" ? 100 : undefined}
@@ -405,7 +413,7 @@ function BasicsStep({ program, onSaved, onFormChange }: {
           </BigField>
         </div>
 
-        <div style={{ gridColumn: "span 2" }}>
+        <div className="col-span-1 sm:col-span-2">
           <BigField label="Description (optional)">
             <textarea
               value={description} onChange={(e) => setDescription(e.target.value)} rows={3}
@@ -487,22 +495,22 @@ function ReviewStep({ program }: { program: Program }) {
 
   return (
     <div className="flex flex-col" style={{ gap: 28 }}>
-      <div className="flex items-end justify-between flex-wrap" style={{ gap: 20 }}>
-        <div className="flex flex-col" style={{ gap: 6 }}>
+      <div className="flex items-end justify-between flex-wrap gap-4 sm:gap-5">
+        <div className="flex flex-col gap-1.5 min-w-0">
           <p style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-primary m-0">Review &amp; create</p>
-          <h2 style={{ fontFamily: OUTFIT, fontSize: 32, fontWeight: 600, letterSpacing: "-0.025em", lineHeight: 1.15 }} className="text-foreground m-0">{program.name}</h2>
+          <h2 style={{ fontFamily: OUTFIT }} className="text-foreground m-0 text-2xl sm:text-3xl font-semibold tracking-tight leading-tight">{program.name}</h2>
           <p style={{ fontSize: 15 }} className="text-muted-foreground m-0">{program.code}</p>
         </div>
         <p style={{ fontSize: 13, maxWidth: "34ch", margin: "0 0 4px" }} className="text-muted-foreground">You can change anything later from the Programs page.</p>
       </div>
 
-      <div className="flex flex-col" style={{ gap: 10, padding: "2px 4px 4px 2px" }}>
+      <div className="flex flex-col gap-2.5 p-0.5">
         {rows.map((r) => (
           <div key={r.label}
-            style={{ display: "grid", gridTemplateColumns: "220px minmax(0,1fr)", gap: 20, alignItems: "center", padding: "14px 18px", borderRadius: 10, boxShadow: CARD_SHADOW }}
-            className="border border-border bg-card">
+            style={{ boxShadow: CARD_SHADOW }}
+            className="border border-border bg-card grid grid-cols-1 sm:grid-cols-[200px_minmax(0,1fr)] gap-1.5 sm:gap-5 items-start sm:items-center p-3.5 sm:px-4 sm:py-3.5 rounded-xl">
             <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }} className="text-muted-foreground">{r.label}</span>
-            <span style={{ fontSize: 15 }} className="text-foreground">{r.value}</span>
+            <span style={{ fontSize: 15 }} className="text-foreground break-words">{r.value}</span>
           </div>
         ))}
       </div>
