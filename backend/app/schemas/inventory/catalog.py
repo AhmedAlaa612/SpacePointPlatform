@@ -75,7 +75,25 @@ class CityOut(BaseModel):
     created_at: datetime | None
 
 
-# ── items ───────────────────────────────────────────────────────────────────
+# ── items & categories ────────────────────────────────────────────────────────
+
+class ItemSubcategoryCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+
+class ItemSubcategoryUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=64)
+    sort_order: int | None = None
+
+
+class ItemSubcategoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    category_id: uuid.UUID
+    name: str
+    sort_order: int
+
 
 class ItemCategoryCreate(BaseModel):
     name: str = Field(min_length=1, max_length=32)
@@ -92,11 +110,13 @@ class ItemCategoryOut(BaseModel):
     id: uuid.UUID
     name: str
     sort_order: int
+    subcategories: list[ItemSubcategoryOut] = []
 
 
 class ItemCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     category: ItemCategory = "other"
+    subcategory: str | None = Field(default=None, max_length=64)
     returnable_default: bool = False
     notes: str | None = None
     # Shown to an instructor picking from the equipment shelf (B3) — distinct
@@ -113,6 +133,7 @@ class ItemCreate(BaseModel):
 class ItemUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     category: ItemCategory | None = None
+    subcategory: str | None = Field(default=None, max_length=64)
     returnable_default: bool | None = None
     notes: str | None = None
     description: str | None = None
@@ -126,6 +147,7 @@ class ItemOut(BaseModel):
     id: uuid.UUID
     name: str
     category: str
+    subcategory: str | None = None
     returnable_default: bool
     notes: str | None
     description: str | None

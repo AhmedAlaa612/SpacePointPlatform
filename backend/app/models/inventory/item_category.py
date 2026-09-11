@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import Column, DateTime, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 
 from app.db.base import Base
 
@@ -26,3 +27,10 @@ class ItemCategory(Base):
     name = Column(String(32), nullable=False, unique=True)
     sort_order = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    subcategories = relationship(
+        "ItemSubcategory",
+        back_populates="category",
+        cascade="all, delete-orphan",
+        order_by="ItemSubcategory.sort_order, ItemSubcategory.name",
+    )

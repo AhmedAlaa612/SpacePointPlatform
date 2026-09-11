@@ -28,6 +28,7 @@ class Item(Base):
     # sensor|board|tool|mechanical|merch|other — grouping for the catalogue
     # UI only; nothing branches on it.
     category = Column(String(32), nullable=False, default="other")
+    subcategory = Column(String(64), nullable=True)
 
     # Default for "must this come back?" when the item is issued to a person.
     # Vests and jackets: yes. T-shirts: no. Always overridable per issue —

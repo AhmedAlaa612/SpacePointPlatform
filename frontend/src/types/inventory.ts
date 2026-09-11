@@ -47,16 +47,25 @@ export interface Warehouse {
   created_at?: string | null
 }
 
+export interface ItemSubcategoryDef {
+  id: string
+  category_id: string
+  name: string
+  sort_order: number
+}
+
 export interface ItemCategoryDef {
   id: string
   name: string
   sort_order: number
+  subcategories?: ItemSubcategoryDef[]
 }
 
 export interface Item {
   id: string
   name: string
   category: ItemCategory
+  subcategory?: string | null
   returnable_default: boolean
   notes: string | null
   /** Shown to an instructor picking from the equipment shelf (B3). */
@@ -159,6 +168,7 @@ export interface StockLevel {
   item_id: string
   item_name: string
   category?: string
+  subcategory?: string | null
   location_id: string
   location_name: string
   warehouse_id: string

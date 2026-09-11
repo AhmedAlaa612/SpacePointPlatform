@@ -176,6 +176,7 @@ class StockLevelOut(BaseModel):
     item_id: uuid.UUID
     item_name: str
     category: str | None = None
+    subcategory: str | None = None
     location_id: uuid.UUID
     location_name: str
     warehouse_id: uuid.UUID

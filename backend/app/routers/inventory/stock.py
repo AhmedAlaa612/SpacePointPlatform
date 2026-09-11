@@ -88,6 +88,7 @@ async def list_stock(
             item_id=item.id,
             item_name=item.name,
             category=item.category,
+            subcategory=item.subcategory,
             location_id=location.id,
             location_name=location.name,
             warehouse_id=wh.id,

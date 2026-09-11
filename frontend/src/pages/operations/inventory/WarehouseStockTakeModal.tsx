@@ -13,6 +13,7 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
   const [warehouseId, setWarehouseId] = useState("")
   const [search, setSearch] = useState("")
   const [category, setCategory] = useState("")
+  const [subcategory, setSubcategory] = useState("")
   const [onlyStockedHere, setOnlyStockedHere] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
   const [reason, setReason] = useState("")
@@ -27,6 +28,12 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
     enabled: !!warehouseId,
   })
 
+  const selectedCategoryDef = useMemo(
+    () => categories.find((c) => c.name === category),
+    [categories, category],
+  )
+  const availableSubcategories = selectedCategoryDef?.subcategories ?? []
+
   // Switching warehouses starts the grid over.
   useEffect(() => { setValues({}) }, [warehouseId])
 
@@ -38,10 +45,11 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
 
   const filteredItems = useMemo(() => items.filter((i) => {
     if (category && i.category !== category) return false
+    if (subcategory && i.subcategory !== subcategory) return false
     if (search.trim() && !i.name.toLowerCase().includes(search.trim().toLowerCase())) return false
     if (onlyStockedHere && stockByItem[i.id] === undefined) return false
     return true
-  }), [items, category, search, onlyStockedHere, stockByItem])
+  }), [items, category, subcategory, search, onlyStockedHere, stockByItem])
 
   const changedLevels = useMemo(() => filteredItems.reduce<{ item_id: string; warehouse_id: string; new_qty: number }[]>(
     (acc, i) => {
@@ -92,13 +100,31 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
               </Field>
               <Field label="Category">
                 <select
-                  value={category} onChange={(e) => setCategory(e.target.value)}
+                  value={category}
+                  onChange={(e) => {
+                    setCategory(e.target.value)
+                    setSubcategory("")
+                  }}
                   className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm capitalize"
                 >
                   <option value="">All categories</option>
                   {categories.map((c) => <option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
               </Field>
+              {category && availableSubcategories.length > 0 && (
+                <Field label="Subcategory">
+                  <select
+                    value={subcategory}
+                    onChange={(e) => setSubcategory(e.target.value)}
+                    className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm capitalize"
+                  >
+                    <option value="">All subcategories</option>
+                    {availableSubcategories.map((sc) => (
+                      <option key={sc.id} value={sc.name}>{sc.name}</option>
+                    ))}
+                  </select>
+                </Field>
+              )}
               <label className="flex items-center gap-1.5 h-9 text-sm text-foreground cursor-pointer">
                 <input
                   type="checkbox" checked={onlyStockedHere}
