@@ -35,6 +35,27 @@ export interface Location {
   created_at: string | null
 }
 
+export interface WarehouseCabin {
+  id: string
+  warehouse_id: string
+  name: string
+  description?: string | null
+  pin_x?: number | null
+  pin_y?: number | null
+  sort_order: number
+  item_count?: number
+  created_at?: string | null
+}
+
+export interface ItemCabinAssignment {
+  id?: string
+  cabin_id: string
+  cabin_name: string
+  qty?: number | null
+  notes?: string | null
+  is_primary: boolean
+}
+
 export interface Warehouse {
   id: string
   location_id: string
@@ -44,6 +65,8 @@ export interface Warehouse {
   is_active: boolean
   address?: string | null
   notes?: string | null
+  image_url?: string | null
+  cabins?: WarehouseCabin[]
   created_at?: string | null
 }
 
@@ -174,6 +197,7 @@ export interface StockLevel {
   warehouse_id: string
   warehouse_name: string
   qty: number
+  cabins?: ItemCabinAssignment[]
 }
 
 export interface MyKit {

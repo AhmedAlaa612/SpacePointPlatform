@@ -12,6 +12,8 @@ import type {
   KitTemplateDetail,
   Location,
   Warehouse,
+  WarehouseCabin,
+  ItemCabinAssignment,
   Movement,
   MovementReason,
   MyHeldItem,
@@ -58,6 +60,42 @@ export const createWarehouseApi = (body: {
 
 export const updateWarehouseApi = ({ id, ...body }: { id: string } & Partial<Warehouse>) =>
   api.patch<Warehouse>(`/inventory/warehouses/${id}`, body).then((r) => r.data)
+
+export const setWarehouseImageApi = (warehouseId: string, file: File) => {
+  const form = new FormData()
+  form.append("file", file)
+  return api.put<Warehouse>(`/inventory/warehouses/${warehouseId}/image`, form).then((r) => r.data)
+}
+
+export const removeWarehouseImageApi = (warehouseId: string) =>
+  api.delete<Warehouse>(`/inventory/warehouses/${warehouseId}/image`).then((r) => r.data)
+
+export const getWarehouseCabinsApi = (warehouseId: string) =>
+  api.get<WarehouseCabin[]>(`/inventory/warehouses/${warehouseId}/cabins`).then((r) => r.data)
+
+export const createWarehouseCabinApi = (warehouseId: string, body: {
+  name: string
+  description?: string | null
+  pin_x?: number | null
+  pin_y?: number | null
+  sort_order?: number
+}) => api.post<WarehouseCabin>(`/inventory/warehouses/${warehouseId}/cabins`, body).then((r) => r.data)
+
+export const updateWarehouseCabinApi = (warehouseId: string, cabinId: string, body: Partial<WarehouseCabin>) =>
+  api.patch<WarehouseCabin>(`/inventory/warehouses/${warehouseId}/cabins/${cabinId}`, body).then((r) => r.data)
+
+export const deleteWarehouseCabinApi = (warehouseId: string, cabinId: string) =>
+  api.delete(`/inventory/warehouses/${warehouseId}/cabins/${cabinId}`).then((r) => r.data)
+
+export const getItemCabinsApi = (warehouseId: string, itemId: string) =>
+  api.get<ItemCabinAssignment[]>(`/inventory/warehouses/${warehouseId}/items/${itemId}/cabins`).then((r) => r.data)
+
+export const setItemCabinsApi = (
+  warehouseId: string,
+  itemId: string,
+  assignments: { cabin_id: string; qty?: number | null; notes?: string | null; is_primary?: boolean }[]
+) =>
+  api.put<ItemCabinAssignment[]>(`/inventory/warehouses/${warehouseId}/items/${itemId}/cabins`, assignments).then((r) => r.data)
 
 /* ── items ─────────────────────────────────────────────────────────────── */
 

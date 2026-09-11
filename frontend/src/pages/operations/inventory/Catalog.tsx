@@ -36,6 +36,7 @@ import {
 import { ConfirmDialog, Field, Modal, ModalActions, Spinner } from "@/pages/admin/components/common"
 import { StockCountModal } from "@/pages/operations/inventory/StockCountModal"
 import { VariantsModal } from "@/pages/operations/inventory/VariantsModal"
+import { WarehouseCabinsModal } from "@/pages/operations/inventory/WarehouseCabinsModal"
 import { CountrySelect } from "@/components/ui/CountrySelect"
 import { cn } from "@/lib/utils"
 import { getCountries } from "@/lib/countries"
@@ -1468,17 +1469,28 @@ function Warehouses() {
   })
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Warehouse | null>(null)
+  const [managingCabins, setManagingCabins] = useState<Warehouse | null>(null)
 
   if (isLoading) return <Spinner />
 
   const rowContent = (w: Warehouse) => (
     <>
       <div className="min-w-0">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <p className="text-sm font-semibold text-foreground">{w.name}</p>
           {w.code && (
             <span className="text-[11px] font-mono font-medium px-2 py-0.5 rounded-md bg-secondary text-secondary-foreground">
               {w.code}
+            </span>
+          )}
+          {w.cabins && w.cabins.length > 0 && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium flex items-center gap-1">
+              <MapPin size={11} /> {w.cabins.length} cabin{w.cabins.length === 1 ? "" : "s"}
+            </span>
+          )}
+          {w.image_url && (
+            <span className="text-[11px] text-muted-foreground italic flex items-center gap-1">
+              📷 photo set
             </span>
           )}
         </div>
@@ -1487,11 +1499,27 @@ function Warehouses() {
           {w.address && ` · ${w.address}`}
         </p>
       </div>
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          onClick={() => setManagingCabins(w)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-border rounded-xl bg-background hover:bg-muted text-foreground transition-colors cursor-pointer"
+        >
+          <MapPin size={13} className="text-primary" /> Cabins & Layout
+        </button>
         {!w.is_active && (
           <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground">inactive</span>
         )}
-        {canManage && <Pencil size={12} className="text-muted-foreground" />}
+        {canManage && (
+          <button
+            type="button"
+            onClick={() => setEditing(w)}
+            className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg transition-colors cursor-pointer"
+            title="Edit warehouse"
+          >
+            <Pencil size={13} />
+          </button>
+        )}
       </div>
     </>
   )
@@ -1501,8 +1529,7 @@ function Warehouses() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
           A warehouse is a store within a location — the shelf stock and kits are actually counted
-          against. Most locations need exactly one; add a second only where a site genuinely has two
-          separate stores (a depot and a workshop, say).
+          against. Manage physical cabins and visual layouts for each warehouse below.
         </p>
         {canManage && (
           <button
@@ -1515,15 +1542,7 @@ function Warehouses() {
       </div>
 
       <div className="rounded-2xl border border-border bg-card divide-y divide-border">
-        {warehouses.map((w) => canManage ? (
-          <button
-            key={w.id}
-            onClick={() => setEditing(w)}
-            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-muted/40 transition-colors cursor-pointer"
-          >
-            {rowContent(w)}
-          </button>
-        ) : (
+        {warehouses.map((w) => (
           <div key={w.id} className="w-full flex items-center justify-between px-4 py-3">
             {rowContent(w)}
           </div>
@@ -1540,6 +1559,13 @@ function Warehouses() {
         <WarehouseEditModal
           warehouse={editing}
           onClose={() => { setOpen(false); setEditing(null) }}
+        />
+      )}
+
+      {managingCabins && (
+        <WarehouseCabinsModal
+          warehouse={managingCabins}
+          onClose={() => setManagingCabins(null)}
         />
       )}
     </div>

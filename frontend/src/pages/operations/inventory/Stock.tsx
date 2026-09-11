@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { ArrowLeftRight, Boxes, ClipboardList, Clock, ImageOff, Pencil, Search, Tag } from "lucide-react"
+import { ArrowLeftRight, Boxes, ClipboardList, Clock, ImageOff, MapPin, Pencil, Search, Tag } from "lucide-react"
 import type { Item, StockLevel } from "@/types/inventory"
 import {
   getItemCategoriesApi,
@@ -8,9 +8,11 @@ import {
   getLocationsApi,
   getOverdueApi,
   getStockApi,
+  getWarehouseCabinsApi,
   getWarehousesApi,
 } from "@/api/inventory"
 import { Field, Spinner } from "@/pages/admin/components/common"
+import { ItemCabinsModal } from "@/pages/operations/inventory/ItemCabinsModal"
 import { MoveStockModal } from "@/pages/operations/inventory/MoveStockModal"
 import { StockCountModal } from "@/pages/operations/inventory/StockCountModal"
 import { VariantsModal } from "@/pages/operations/inventory/VariantsModal"
@@ -23,6 +25,7 @@ import { WarehouseStockTakeModal } from "@/pages/operations/inventory/WarehouseS
 export default function Stock() {
   const [locationId, setLocationId] = useState("")
   const [warehouseId, setWarehouseId] = useState("")
+  const [cabinId, setCabinId] = useState("")
   const [category, setCategory] = useState("")
   const [subcategory, setSubcategory] = useState("")
   const [search, setSearch] = useState("")
@@ -34,9 +37,15 @@ export default function Stock() {
   const [stockTakeOpen, setStockTakeOpen] = useState(false)
   const [moveOpen, setMoveOpen] = useState(false)
   const [viewingGroup, setViewingGroup] = useState<string | null>(null)
+  const [managingCabinsItem, setManagingCabinsItem] = useState<Item | null>(null)
 
   const { data: locations = [] } = useQuery({ queryKey: ["inv-locations"], queryFn: () => getLocationsApi() })
   const { data: warehouses = [] } = useQuery({ queryKey: ["inv-warehouses-all"], queryFn: () => getWarehousesApi() })
+  const { data: warehouseCabins = [] } = useQuery({
+    queryKey: ["inv-warehouse-cabins", warehouseId],
+    queryFn: () => getWarehouseCabinsApi(warehouseId),
+    enabled: !!warehouseId,
+  })
   const { data: categories = [] } = useQuery({ queryKey: ["inv-categories"], queryFn: () => getItemCategoriesApi() })
   // Unfiltered — location/warehouse/category/search all narrow client-side,
   // so switching a filter never needs a second round trip.
@@ -63,7 +72,17 @@ export default function Stock() {
     }
 
     const inScope = (level: StockLevel) => {
-      if (warehouseId) return level.warehouse_id === warehouseId
+      if (warehouseId) {
+        if (level.warehouse_id !== warehouseId) return false
+        if (cabinId) {
+          const itemCabins = level.cabins ?? []
+          if (cabinId === "unassigned") {
+            return itemCabins.length === 0
+          }
+          return itemCabins.some((c) => c.cabin_id === cabinId)
+        }
+        return true
+      }
       if (locationId) return level.location_id === locationId
       return true
     }
@@ -81,12 +100,21 @@ export default function Stock() {
           entry.qty += r.qty
           byLocation.set(r.location_id, entry)
         }
+        const cabinSummary: { name: string; qty?: number | null }[] = []
+        for (const r of scopedRows) {
+          for (const c of r.cabins ?? []) {
+            if (!cabinSummary.some((existing) => existing.name === c.cabin_name)) {
+              cabinSummary.push({ name: c.cabin_name, qty: c.qty })
+            }
+          }
+        }
         return {
           item,
           total: scopedRows.reduce((sum, r) => sum + r.qty, 0),
           hasRowsInScope: scopedRows.length > 0,
           stockedAnywhere: allRows.length > 0,
           breakdown: Array.from(byLocation.values()).sort((a, b) => b.qty - a.qty),
+          cabins: cabinSummary,
         }
       })
 
@@ -113,6 +141,14 @@ export default function Stock() {
         entry.qty += b.qty
         byLocation.set(b.name, entry)
       }
+      const cabinSummary: { name: string; qty?: number | null }[] = []
+      for (const m of sorted) {
+        for (const c of m.cabins) {
+          if (!cabinSummary.some((existing) => existing.name === c.name)) {
+            cabinSummary.push(c)
+          }
+        }
+      }
       return {
         kind: "group" as const,
         groupName,
@@ -122,6 +158,7 @@ export default function Stock() {
         hasRowsInScope: sorted.some((m) => m.hasRowsInScope),
         stockedAnywhere: sorted.some((m) => m.stockedAnywhere),
         breakdown: Array.from(byLocation.values()).sort((a, b) => b.qty - a.qty),
+        cabins: cabinSummary,
       }
     })
     const singleCards = singles.map((entry) => ({ kind: "single" as const, ...entry }))
@@ -139,7 +176,7 @@ export default function Stock() {
         const nameB = b.kind === "group" ? b.groupName : b.item.name
         return nameA.localeCompare(nameB)
       })
-  }, [items, stock, category, subcategory, search, locationId, warehouseId, onlyInStock, onlyOutOfStock, onlyUnstocked])
+  }, [items, stock, category, subcategory, search, locationId, warehouseId, cabinId, onlyInStock, onlyOutOfStock, onlyUnstocked])
 
   return (
     <div className="flex flex-col gap-6">
@@ -228,7 +265,7 @@ export default function Stock() {
             <Field label="Location" className="w-full sm:w-44">
               <select
                 value={locationId}
-                onChange={(e) => { setLocationId(e.target.value); setWarehouseId("") }}
+                onChange={(e) => { setLocationId(e.target.value); setWarehouseId(""); setCabinId("") }}
                 className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
               >
                 <option value="">All locations</option>
@@ -238,13 +275,28 @@ export default function Stock() {
             <Field label="Warehouse" className="w-full sm:w-44">
               <select
                 value={warehouseId}
-                onChange={(e) => setWarehouseId(e.target.value)}
+                onChange={(e) => { setWarehouseId(e.target.value); setCabinId("") }}
                 className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
               >
                 <option value="">All warehouses</option>
                 {warehousesForLocation.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
             </Field>
+            {warehouseId && (
+              <Field label="Cabin" className="w-full sm:w-40">
+                <select
+                  value={cabinId}
+                  onChange={(e) => setCabinId(e.target.value)}
+                  className="h-9 px-3 border border-border bg-card text-foreground rounded-xl text-sm w-full cursor-pointer focus:outline-none focus:border-primary"
+                >
+                  <option value="">All cabins</option>
+                  <option value="unassigned">Unassigned</option>
+                  {warehouseCabins.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </Field>
+            )}
           </div>
         </div>
 
@@ -286,9 +338,11 @@ export default function Stock() {
                 memberCount={card.kind === "group" ? card.memberCount : undefined}
                 total={card.total}
                 breakdown={card.breakdown}
+                cabins={card.cabins}
                 onEdit={() => card.kind === "group"
                   ? setViewingGroup(card.groupName)
                   : setCounting({ itemId: item.id, itemName: item.name })}
+                onManageCabins={() => setManagingCabinsItem(card.kind === "group" ? card.representative : card.item)}
               />
             )
           })}
@@ -315,17 +369,26 @@ export default function Stock() {
       {stockTakeOpen && <WarehouseStockTakeModal onClose={() => setStockTakeOpen(false)} />}
       {moveOpen && <MoveStockModal onClose={() => setMoveOpen(false)} />}
       {viewingGroup && <VariantsModal groupName={viewingGroup} onClose={() => setViewingGroup(null)} />}
+      {managingCabinsItem && (
+        <ItemCabinsModal
+          item={managingCabinsItem}
+          defaultWarehouseId={warehouseId}
+          onClose={() => setManagingCabinsItem(null)}
+        />
+      )}
     </div>
   )
 }
 
-function StockCard({ item, displayName, memberCount, total, breakdown, onEdit }: {
+function StockCard({ item, displayName, memberCount, total, breakdown, cabins, onEdit, onManageCabins }: {
   item: Item
   displayName: string
   memberCount?: number
   total: number
   breakdown: { name: string; qty: number }[]
+  cabins?: { name: string; qty?: number | null }[]
   onEdit: () => void
+  onManageCabins?: () => void
 }) {
   const shown = breakdown.slice(0, 3)
   const hidden = breakdown.length - shown.length
@@ -357,6 +420,20 @@ function StockCard({ item, displayName, memberCount, total, breakdown, onEdit }:
               </span>
             )}
           </div>
+          {cabins && cabins.length > 0 && (
+            <div className="flex items-center gap-1 flex-wrap mt-2">
+              {cabins.map((c) => (
+                <span
+                  key={c.name}
+                  className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20"
+                >
+                  <MapPin size={10} />
+                  <span>{c.name}</span>
+                  {c.qty != null && <span className="opacity-75 font-mono">({c.qty})</span>}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div className="mt-auto pt-1">
           <p className="text-lg font-bold text-foreground tabular-nums">{total}</p>
@@ -369,12 +446,24 @@ function StockCard({ item, displayName, memberCount, total, breakdown, onEdit }:
             <p className="text-xs text-muted-foreground">Not stocked here</p>
           )}
         </div>
-        <button
-          onClick={onEdit}
-          className="flex items-center justify-center gap-1.5 h-8 px-3 border border-border bg-background text-foreground text-xs font-medium rounded-lg hover:bg-muted/60"
-        >
-          <Pencil size={12} /> {memberCount !== undefined ? "View sizes" : "Edit counts"}
-        </button>
+        <div className="flex items-center gap-1.5 mt-1">
+          <button
+            onClick={onEdit}
+            className="flex-1 flex items-center justify-center gap-1.5 h-8 px-2 border border-border bg-background text-foreground text-xs font-medium rounded-lg hover:bg-muted/60 transition-colors cursor-pointer"
+          >
+            <Pencil size={12} /> {memberCount !== undefined ? "View sizes" : "Edit counts"}
+          </button>
+          {onManageCabins && (
+            <button
+              type="button"
+              onClick={onManageCabins}
+              title="Cabin placement"
+              className="flex items-center justify-center gap-1 h-8 px-2.5 border border-border bg-background text-foreground text-xs font-medium rounded-lg hover:bg-muted/60 transition-colors cursor-pointer"
+            >
+              <MapPin size={12} className="text-primary" />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

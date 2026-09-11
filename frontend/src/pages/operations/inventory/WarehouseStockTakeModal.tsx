@@ -1,7 +1,16 @@
-import { useEffect, useMemo, useState } from "react"
+﻿import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { StockLevel } from "@/types/inventory"
-import { adjustStockBulkApi, getItemCategoriesApi, getItemsApi, getStockApi, getWarehousesApi } from "@/api/inventory"
+import { MapPin } from "lucide-react"
+import type { StockLevel, WarehouseCabin } from "@/types/inventory"
+import {
+  adjustStockBulkApi,
+  getItemCategoriesApi,
+  getItemsApi,
+  getStockApi,
+  getWarehouseCabinsApi,
+  getWarehousesApi,
+  setItemCabinsApi,
+} from "@/api/inventory"
 import { Field, Modal, ModalActions } from "@/pages/admin/components/common"
 
 /** The transposed grid: one warehouse, every item. Same `adjust-bulk`
@@ -14,6 +23,7 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
   const [search, setSearch] = useState("")
   const [category, setCategory] = useState("")
   const [subcategory, setSubcategory] = useState("")
+  const [cabinFilter, setCabinFilter] = useState("")
   const [onlyStockedHere, setOnlyStockedHere] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
   const [reason, setReason] = useState("")
@@ -28,18 +38,37 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
     enabled: !!warehouseId,
   })
 
+  const { data: cabins = [] } = useQuery<WarehouseCabin[]>({
+    queryKey: ["inv-warehouse-cabins", warehouseId],
+    queryFn: () => getWarehouseCabinsApi(warehouseId),
+    enabled: !!warehouseId,
+  })
+
   const selectedCategoryDef = useMemo(
     () => categories.find((c) => c.name === category),
     [categories, category],
   )
   const availableSubcategories = selectedCategoryDef?.subcategories ?? []
 
-  // Switching warehouses starts the grid over.
-  useEffect(() => { setValues({}) }, [warehouseId])
+  // Switching warehouses starts the grid over and resets cabin filter.
+  useEffect(() => {
+    setValues({})
+    setCabinFilter("")
+  }, [warehouseId])
 
   const stockByItem = useMemo(() => {
     const map: Record<string, number> = {}
     for (const s of stock) map[s.item_id] = s.qty
+    return map
+  }, [stock])
+
+  const cabinsByItem = useMemo(() => {
+    const map: Record<string, { cabin_id: string; cabin_name: string; qty?: number | null }[]> = {}
+    for (const s of stock) {
+      if (s.cabins && s.cabins.length > 0) {
+        map[s.item_id] = s.cabins
+      }
+    }
     return map
   }, [stock])
 
@@ -48,8 +77,13 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
     if (subcategory && i.subcategory !== subcategory) return false
     if (search.trim() && !i.name.toLowerCase().includes(search.trim().toLowerCase())) return false
     if (onlyStockedHere && stockByItem[i.id] === undefined) return false
+    if (cabinFilter === "__unassigned__") {
+      if (cabinsByItem[i.id] && cabinsByItem[i.id].length > 0) return false
+    } else if (cabinFilter) {
+      if (!cabinsByItem[i.id]?.some((c) => c.cabin_id === cabinFilter)) return false
+    }
     return true
-  }), [items, category, subcategory, search, onlyStockedHere, stockByItem])
+  }), [items, category, subcategory, search, onlyStockedHere, cabinFilter, stockByItem, cabinsByItem])
 
   const changedLevels = useMemo(() => filteredItems.reduce<{ item_id: string; warehouse_id: string; new_qty: number }[]>(
     (acc, i) => {
@@ -71,6 +105,15 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
       onClose()
     },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not record that"),
+  })
+
+  const assignCabinMutation = useMutation({
+    mutationFn: ({ itemId, cabinId }: { itemId: string; cabinId: string }) =>
+      setItemCabinsApi(warehouseId, itemId, cabinId ? [{ cabin_id: cabinId, is_primary: true }] : []),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inv-stock", "warehouse", warehouseId] })
+      queryClient.invalidateQueries({ queryKey: ["inv-stock"] })
+    },
   })
 
   return (
@@ -95,7 +138,7 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
                 <input
                   value={search} onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search by name…"
-                  className="h-9 w-48 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
+                  className="h-9 w-44 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
                 />
               </Field>
               <Field label="Category">
@@ -125,19 +168,61 @@ export function WarehouseStockTakeModal({ onClose }: { onClose: () => void }) {
                   </select>
                 </Field>
               )}
+              {cabins.length > 0 && (
+                <Field label="Cabin (Optional)">
+                  <select
+                    value={cabinFilter}
+                    onChange={(e) => setCabinFilter(e.target.value)}
+                    className="h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
+                  >
+                    <option value="">All cabins (whole warehouse)</option>
+                    <option value="__unassigned__">Unassigned only</option>
+                    {cabins.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
               <label className="flex items-center gap-1.5 h-9 text-sm text-foreground cursor-pointer">
                 <input
                   type="checkbox" checked={onlyStockedHere}
                   onChange={(e) => setOnlyStockedHere(e.target.checked)}
                 />
-                Only items already stocked here
+                Only stocked here
               </label>
             </div>
 
             <div className="rounded-2xl border border-border divide-y divide-border max-h-80 overflow-y-auto">
               {filteredItems.map((i) => (
-                <div key={i.id} className="flex items-center justify-between gap-3 px-4 py-2">
-                  <span className="text-sm text-foreground truncate">{i.name}</span>
+                <div key={i.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium text-foreground truncate">{i.name}</span>
+                      {cabinsByItem[i.id] && cabinsByItem[i.id].length > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium">
+                          <MapPin size={10} />
+                          {cabinsByItem[i.id].map((c) => c.cabin_name).join(", ")}
+                        </span>
+                      ) : cabins.length > 0 ? (
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              assignCabinMutation.mutate({ itemId: i.id, cabinId: e.target.value })
+                            }
+                          }}
+                          className="text-[11px] h-6 px-1.5 border border-dashed border-border rounded-md bg-background text-muted-foreground hover:text-foreground cursor-pointer"
+                        >
+                          <option value="" disabled>+ Assign cabin</option>
+                          {cabins.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
+                        </select>
+                      ) : null}
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="text-xs text-muted-foreground w-28 text-right truncate">
                       {stockByItem[i.id] === undefined ? "not stocked here" : `was ${stockByItem[i.id]}`}
