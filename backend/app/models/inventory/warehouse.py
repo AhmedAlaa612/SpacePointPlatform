@@ -36,4 +36,5 @@ class Warehouse(Base):
         back_populates="warehouse",
         cascade="all, delete-orphan",
         order_by="WarehouseCabin.sort_order, WarehouseCabin.name",
+        lazy="selectin",
     )

@@ -235,43 +235,60 @@ async def update_city(
 WAREHOUSE_IMAGES_BUCKET = "warehouse-images"
 
 
-async def _warehouse_out(db: AsyncSession, wh: Warehouse, location_name: str | None = None) -> WarehouseOut:
-    out = WarehouseOut.model_validate(wh)
-    if location_name is not None:
-        out.location_name = location_name
-    elif wh.location_id:
+async def _warehouse_out(
+    db: AsyncSession,
+    wh: Warehouse,
+    location_name: str | None = None,
+    cabins: list[WarehouseCabinOut] | None = None,
+) -> WarehouseOut:
+    if location_name is None and wh.location_id:
         loc = await db.get(Location, wh.location_id)
-        out.location_name = loc.name if loc else None
+        location_name = loc.name if loc else None
 
+    image_url = None
     if wh.image_bucket and wh.image_path:
-        out.image_url = await storage.resolve_url(wh.image_bucket, wh.image_path)
+        image_url = await storage.resolve_url(wh.image_bucket, wh.image_path)
 
-    cabins_stmt = (
-        select(
-            WarehouseCabin,
-            func.count(ItemCabinAssignment.id).label("item_count"),
+    if cabins is None:
+        cabins_stmt = (
+            select(
+                WarehouseCabin,
+                func.count(ItemCabinAssignment.id).label("item_count"),
+            )
+            .outerjoin(ItemCabinAssignment, ItemCabinAssignment.cabin_id == WarehouseCabin.id)
+            .where(WarehouseCabin.warehouse_id == wh.id)
+            .group_by(WarehouseCabin.id)
+            .order_by(WarehouseCabin.sort_order, WarehouseCabin.name)
         )
-        .outerjoin(ItemCabinAssignment, ItemCabinAssignment.cabin_id == WarehouseCabin.id)
-        .where(WarehouseCabin.warehouse_id == wh.id)
-        .group_by(WarehouseCabin.id)
-        .order_by(WarehouseCabin.sort_order, WarehouseCabin.name)
+        rows = (await db.execute(cabins_stmt)).all()
+        cabins = [
+            WarehouseCabinOut(
+                id=c.id,
+                warehouse_id=c.warehouse_id,
+                name=c.name,
+                description=c.description,
+                pin_x=c.pin_x,
+                pin_y=c.pin_y,
+                sort_order=c.sort_order,
+                item_count=count,
+                created_at=c.created_at,
+            )
+            for c, count in rows
+        ]
+
+    return WarehouseOut(
+        id=wh.id,
+        location_id=wh.location_id,
+        name=wh.name,
+        code=wh.code,
+        is_active=wh.is_active,
+        address=wh.address,
+        notes=wh.notes,
+        created_at=wh.created_at,
+        location_name=location_name,
+        image_url=image_url,
+        cabins=cabins,
     )
-    rows = (await db.execute(cabins_stmt)).all()
-    out.cabins = [
-        WarehouseCabinOut(
-            id=c.id,
-            warehouse_id=c.warehouse_id,
-            name=c.name,
-            description=c.description,
-            pin_x=c.pin_x,
-            pin_y=c.pin_y,
-            sort_order=c.sort_order,
-            item_count=count,
-            created_at=c.created_at,
-        )
-        for c, count in rows
-    ]
-    return out
 
 
 @router.get("/warehouses", response_model=list[WarehouseOut])
@@ -292,7 +309,41 @@ async def list_warehouses(
         stmt = stmt.where(Warehouse.is_active.is_(True))
 
     rows = (await db.execute(stmt)).all()
-    return [await _warehouse_out(db, wh, loc_name) for wh, loc_name in rows]
+    if not rows:
+        return []
+
+    wh_ids = [wh.id for wh, _ in rows]
+    cabins_stmt = (
+        select(
+            WarehouseCabin,
+            func.count(ItemCabinAssignment.id).label("item_count"),
+        )
+        .outerjoin(ItemCabinAssignment, ItemCabinAssignment.cabin_id == WarehouseCabin.id)
+        .where(WarehouseCabin.warehouse_id.in_(wh_ids))
+        .group_by(WarehouseCabin.id)
+        .order_by(WarehouseCabin.sort_order, WarehouseCabin.name)
+    )
+    cabin_rows = (await db.execute(cabins_stmt)).all()
+    cabins_by_wh: dict[uuid.UUID, list[WarehouseCabinOut]] = {wid: [] for wid in wh_ids}
+    for c, count in cabin_rows:
+        cabins_by_wh[c.warehouse_id].append(
+            WarehouseCabinOut(
+                id=c.id,
+                warehouse_id=c.warehouse_id,
+                name=c.name,
+                description=c.description,
+                pin_x=c.pin_x,
+                pin_y=c.pin_y,
+                sort_order=c.sort_order,
+                item_count=count,
+                created_at=c.created_at,
+            )
+        )
+
+    return [
+        await _warehouse_out(db, wh, loc_name, cabins=cabins_by_wh.get(wh.id, []))
+        for wh, loc_name in rows
+    ]
 
 
 @router.post("/warehouses", response_model=WarehouseOut, status_code=status.HTTP_201_CREATED)

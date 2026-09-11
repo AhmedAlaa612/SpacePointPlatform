@@ -1161,3 +1161,11 @@ async def test_warehouse_cabins_crud_and_item_assignments(db, client, ops_header
     assert len(b_cabins.json()) == 1
     assert b_cabins.json()[0]["cabin_name"] == "Cabin 1"
 
+    # 9. Listing warehouses (with include_inactive=True) returns cabins without lazy-load issues
+    wh_list = await client.get("/inventory/warehouses?include_inactive=true", headers=ops_headers)
+    assert wh_list.status_code == 200
+    found_wh = next((w for w in wh_list.json() if w["id"] == str(wh.id)), None)
+    assert found_wh is not None
+    assert len(found_wh["cabins"]) == 1
+    assert found_wh["cabins"][0]["name"] == "Cabin 1"
+
