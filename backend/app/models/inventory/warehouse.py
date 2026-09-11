@@ -26,6 +26,14 @@ class Warehouse(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     address = Column(Text, nullable=True)
     notes = Column(Text, nullable=True)
+    image_bucket = Column(String(64), nullable=True)
+    image_path = Column(String(255), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     location = relationship("Location", foreign_keys=[location_id])
+    cabins = relationship(
+        "WarehouseCabin",
+        back_populates="warehouse",
+        cascade="all, delete-orphan",
+        order_by="WarehouseCabin.sort_order, WarehouseCabin.name",
+    )

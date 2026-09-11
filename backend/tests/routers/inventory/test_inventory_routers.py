@@ -1051,3 +1051,113 @@ async def test_category_and_subcategory_lifecycle_and_filtering(db, client, ops_
         headers=ops_headers,
     )
     assert del_ok.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_warehouse_cabins_crud_and_item_assignments(db, client, ops_headers, keeper_headers):
+    loc = await _location(db, name="Abu Dhabi Hub")
+    wh = await _warehouse(db, loc, name="Electronics Lab Depot")
+    item_a = await _item(db, name="IMU Sensor Rev3")
+    item_b = await _item(db, name="Solar Cell 20W")
+    await db.commit()
+
+    # 1. Create cabins with pin coordinates
+    res_c1 = await client.post(
+        f"/inventory/warehouses/{wh.id}/cabins",
+        headers=ops_headers,
+        json={
+            "name": "Cabin 1",
+            "description": "Sensors and boards shelf",
+            "pin_x": 25.5,
+            "pin_y": 40.0,
+            "sort_order": 1,
+        },
+    )
+    assert res_c1.status_code == 201
+    c1 = res_c1.json()
+    assert c1["name"] == "Cabin 1"
+    assert c1["pin_x"] == 25.5
+    assert c1["pin_y"] == 40.0
+
+    res_c2 = await client.post(
+        f"/inventory/warehouses/{wh.id}/cabins",
+        headers=ops_headers,
+        json={
+            "name": "Cabin 2",
+            "description": "Solar & batteries shelf",
+            "pin_x": 75.0,
+            "pin_y": 60.2,
+            "sort_order": 2,
+        },
+    )
+    assert res_c2.status_code == 201
+    c2 = res_c2.json()
+
+    # Duplicate cabin name in same warehouse fails
+    res_dup = await client.post(
+        f"/inventory/warehouses/{wh.id}/cabins",
+        headers=ops_headers,
+        json={"name": "cabin 1"},
+    )
+    assert res_dup.status_code == 409
+
+    # 2. List cabins
+    list_cabins = await client.get(f"/inventory/warehouses/{wh.id}/cabins", headers=keeper_headers)
+    assert list_cabins.status_code == 200
+    assert len(list_cabins.json()) == 2
+
+    # 3. Assign item A to single cabin (Cabin 1)
+    assign_a = await client.put(
+        f"/inventory/warehouses/{wh.id}/items/{item_a.id}/cabins",
+        headers=ops_headers,
+        json=[{"cabin_id": c1["id"], "qty": 10, "notes": "Top tray", "is_primary": True}],
+    )
+    assert assign_a.status_code == 200
+    assert len(assign_a.json()) == 1
+    assert assign_a.json()[0]["cabin_name"] == "Cabin 1"
+    assert assign_a.json()[0]["qty"] == 10
+
+    # 4. Assign item B split across Cabin 1 and Cabin 2
+    assign_b = await client.put(
+        f"/inventory/warehouses/{wh.id}/items/{item_b.id}/cabins",
+        headers=ops_headers,
+        json=[
+            {"cabin_id": c1["id"], "qty": 5, "notes": "Ready for kits", "is_primary": True},
+            {"cabin_id": c2["id"], "qty": 45, "notes": "Overflow stock", "is_primary": False},
+        ],
+    )
+    assert assign_b.status_code == 200
+    assert len(assign_b.json()) == 2
+
+    # 5. Add stock level and check GET /stock exposes cabins
+    db.add(StockLevel(id=uuid.uuid4(), item_id=item_a.id, warehouse_id=wh.id, qty=10))
+    await db.commit()
+    stock_res = await client.get(f"/inventory/stock?warehouse_id={wh.id}", headers=ops_headers)
+    assert stock_res.status_code == 200
+    stock_items = stock_res.json()
+    stock_a = next(s for s in stock_items if s["item_id"] == str(item_a.id))
+    assert len(stock_a["cabins"]) == 1
+    assert stock_a["cabins"][0]["cabin_name"] == "Cabin 1"
+
+    # 6. Check cabin item_count is accurate
+    c1_check = await client.get(f"/inventory/warehouses/{wh.id}/cabins", headers=keeper_headers)
+    cabins_data = {c["name"]: c["item_count"] for c in c1_check.json()}
+    assert cabins_data["Cabin 1"] == 2  # item_a and item_b
+    assert cabins_data["Cabin 2"] == 1  # item_b
+
+    # 7. Update cabin pin coordinates
+    patch_c1 = await client.patch(
+        f"/inventory/warehouses/{wh.id}/cabins/{c1['id']}",
+        headers=ops_headers,
+        json={"pin_x": 30.0, "pin_y": 45.0, "description": "Updated description"},
+    )
+    assert patch_c1.status_code == 200
+    assert patch_c1.json()["pin_x"] == 30.0
+
+    # 8. Delete cabin 2: assignments are removed cleanly
+    del_c2 = await client.delete(f"/inventory/warehouses/{wh.id}/cabins/{c2['id']}", headers=ops_headers)
+    assert del_c2.status_code == 204
+    b_cabins = await client.get(f"/inventory/warehouses/{wh.id}/items/{item_b.id}/cabins", headers=ops_headers)
+    assert len(b_cabins.json()) == 1
+    assert b_cabins.json()[0]["cabin_name"] == "Cabin 1"
+

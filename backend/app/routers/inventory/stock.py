@@ -42,10 +42,12 @@ from app.db.session import get_db
 from app.models.inventory.item import Item
 from app.models.inventory.location import Location
 from app.models.inventory.warehouse import Warehouse
+from app.models.inventory.warehouse_cabin import ItemCabinAssignment, WarehouseCabin
 from app.models.inventory.movement import Movement
 from app.models.inventory.stock import StockLevel
 from app.models.user import User
 from app.schemas.inventory.kits import (
+    ItemCabinBriefOut,
     MovementOut,
     StockAdjustBulkIn,
     StockAdjustIn,
@@ -83,6 +85,39 @@ async def list_stock(
         stmt = stmt.where(StockLevel.item_id == item_id)
 
     rows = (await db.execute(stmt)).all()
+
+    # Load cabin assignments for the matching scope
+    cabins_stmt = (
+        select(
+            ItemCabinAssignment.warehouse_id,
+            ItemCabinAssignment.item_id,
+            ItemCabinAssignment.cabin_id,
+            WarehouseCabin.name.label("cabin_name"),
+            ItemCabinAssignment.qty,
+            ItemCabinAssignment.notes,
+            ItemCabinAssignment.is_primary,
+        )
+        .join(WarehouseCabin, WarehouseCabin.id == ItemCabinAssignment.cabin_id)
+        .order_by(WarehouseCabin.sort_order, WarehouseCabin.name)
+    )
+    if warehouse_id:
+        cabins_stmt = cabins_stmt.where(ItemCabinAssignment.warehouse_id == warehouse_id)
+    if item_id:
+        cabins_stmt = cabins_stmt.where(ItemCabinAssignment.item_id == item_id)
+
+    cabin_rows = (await db.execute(cabins_stmt)).all()
+    cabins_by_stock: dict[tuple[uuid.UUID, uuid.UUID], list[ItemCabinBriefOut]] = {}
+    for wh_id, it_id, cab_id, cab_name, c_qty, c_notes, c_primary in cabin_rows:
+        cabins_by_stock.setdefault((wh_id, it_id), []).append(
+            ItemCabinBriefOut(
+                cabin_id=cab_id,
+                cabin_name=cab_name,
+                qty=c_qty,
+                notes=c_notes,
+                is_primary=c_primary,
+            )
+        )
+
     return [
         StockLevelOut(
             item_id=item.id,
@@ -94,6 +129,7 @@ async def list_stock(
             warehouse_id=wh.id,
             warehouse_name=wh.name,
             qty=level.qty,
+            cabins=cabins_by_stock.get((wh.id, item.id), []),
         )
         for level, item, location, wh in rows
     ]

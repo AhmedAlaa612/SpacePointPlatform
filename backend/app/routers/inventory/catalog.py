@@ -37,9 +37,15 @@ from app.models.inventory.kit_template import KitTemplate, KitTemplateItem
 from app.models.inventory.location import Location
 from app.models.inventory.movement import Movement
 from app.models.inventory.warehouse import Warehouse
+from app.models.inventory.warehouse_cabin import ItemCabinAssignment, WarehouseCabin
 from app.models.inventory.stock import StockLevel
 from app.models.user import User
 from app.schemas.inventory.warehouse import (
+    ItemCabinAssignmentIn,
+    ItemCabinAssignmentOut,
+    WarehouseCabinCreate,
+    WarehouseCabinOut,
+    WarehouseCabinUpdate,
     WarehouseCreate,
     WarehouseOut,
     WarehouseUpdate,
@@ -226,6 +232,48 @@ async def update_city(
 
 # ── warehouses ──────────────────────────────────────────────────────────────
 
+WAREHOUSE_IMAGES_BUCKET = "warehouse-images"
+
+
+async def _warehouse_out(db: AsyncSession, wh: Warehouse, location_name: str | None = None) -> WarehouseOut:
+    out = WarehouseOut.model_validate(wh)
+    if location_name is not None:
+        out.location_name = location_name
+    elif wh.location_id:
+        loc = await db.get(Location, wh.location_id)
+        out.location_name = loc.name if loc else None
+
+    if wh.image_bucket and wh.image_path:
+        out.image_url = await storage.resolve_url(wh.image_bucket, wh.image_path)
+
+    cabins_stmt = (
+        select(
+            WarehouseCabin,
+            func.count(ItemCabinAssignment.id).label("item_count"),
+        )
+        .outerjoin(ItemCabinAssignment, ItemCabinAssignment.cabin_id == WarehouseCabin.id)
+        .where(WarehouseCabin.warehouse_id == wh.id)
+        .group_by(WarehouseCabin.id)
+        .order_by(WarehouseCabin.sort_order, WarehouseCabin.name)
+    )
+    rows = (await db.execute(cabins_stmt)).all()
+    out.cabins = [
+        WarehouseCabinOut(
+            id=c.id,
+            warehouse_id=c.warehouse_id,
+            name=c.name,
+            description=c.description,
+            pin_x=c.pin_x,
+            pin_y=c.pin_y,
+            sort_order=c.sort_order,
+            item_count=count,
+            created_at=c.created_at,
+        )
+        for c, count in rows
+    ]
+    return out
+
+
 @router.get("/warehouses", response_model=list[WarehouseOut])
 async def list_warehouses(
     location_id: uuid.UUID | None = None,
@@ -244,12 +292,7 @@ async def list_warehouses(
         stmt = stmt.where(Warehouse.is_active.is_(True))
 
     rows = (await db.execute(stmt)).all()
-    result = []
-    for wh, loc_name in rows:
-        out = WarehouseOut.model_validate(wh)
-        out.location_name = loc_name
-        result.append(out)
-    return result
+    return [await _warehouse_out(db, wh, loc_name) for wh, loc_name in rows]
 
 
 @router.post("/warehouses", response_model=WarehouseOut, status_code=status.HTTP_201_CREATED)
@@ -267,9 +310,7 @@ async def create_warehouse(
     await db.commit()
     await db.refresh(wh)
 
-    out = WarehouseOut.model_validate(wh)
-    out.location_name = location.name
-    return out
+    return await _warehouse_out(db, wh, location.name)
 
 
 @router.patch("/warehouses/{warehouse_id}", response_model=WarehouseOut)
@@ -291,9 +332,270 @@ async def update_warehouse(
     await db.refresh(wh)
 
     location = await db.get(Location, wh.location_id)
-    out = WarehouseOut.model_validate(wh)
-    out.location_name = location.name if location else None
+    return await _warehouse_out(db, wh, location.name if location else None)
+
+
+@router.put("/warehouses/{warehouse_id}/image", response_model=WarehouseOut)
+async def set_warehouse_image(
+    warehouse_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_inventory_manage),
+):
+    wh = await db.get(Warehouse, warehouse_id)
+    if not wh:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
+
+    path = f"wh_{uuid.uuid4().hex}_{file.filename or 'warehouse.jpg'}"
+    await storage.upload_to_path(
+        WAREHOUSE_IMAGES_BUCKET, path, await file.read(), file.content_type or "image/jpeg"
+    )
+    wh.image_bucket = WAREHOUSE_IMAGES_BUCKET
+    wh.image_path = path
+    await db.commit()
+    await db.refresh(wh)
+    return await _warehouse_out(db, wh)
+
+
+@router.delete("/warehouses/{warehouse_id}/image", response_model=WarehouseOut)
+async def remove_warehouse_image(
+    warehouse_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_inventory_manage),
+):
+    wh = await db.get(Warehouse, warehouse_id)
+    if not wh:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
+
+    wh.image_bucket = None
+    wh.image_path = None
+    await db.commit()
+    await db.refresh(wh)
+    return await _warehouse_out(db, wh)
+
+
+# ── warehouse cabins ───────────────────────────────────────────────────────
+
+@router.get("/warehouses/{warehouse_id}/cabins", response_model=list[WarehouseCabinOut])
+async def list_warehouse_cabins(
+    warehouse_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_storekeeper),
+):
+    wh = await db.get(Warehouse, warehouse_id)
+    if not wh:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
+    stmt = (
+        select(
+            WarehouseCabin,
+            func.count(ItemCabinAssignment.id).label("item_count"),
+        )
+        .outerjoin(ItemCabinAssignment, ItemCabinAssignment.cabin_id == WarehouseCabin.id)
+        .where(WarehouseCabin.warehouse_id == warehouse_id)
+        .group_by(WarehouseCabin.id)
+        .order_by(WarehouseCabin.sort_order, WarehouseCabin.name)
+    )
+    rows = (await db.execute(stmt)).all()
+    return [
+        WarehouseCabinOut(
+            id=c.id,
+            warehouse_id=c.warehouse_id,
+            name=c.name,
+            description=c.description,
+            pin_x=c.pin_x,
+            pin_y=c.pin_y,
+            sort_order=c.sort_order,
+            item_count=count,
+            created_at=c.created_at,
+        )
+        for c, count in rows
+    ]
+
+
+@router.post("/warehouses/{warehouse_id}/cabins", response_model=WarehouseCabinOut, status_code=status.HTTP_201_CREATED)
+async def create_warehouse_cabin(
+    warehouse_id: uuid.UUID,
+    body: WarehouseCabinCreate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_inventory_manage),
+):
+    wh = await db.get(Warehouse, warehouse_id)
+    if not wh:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
+    name = body.name.strip()
+    clash = (await db.execute(
+        select(WarehouseCabin.id).where(
+            WarehouseCabin.warehouse_id == warehouse_id,
+            func.lower(WarehouseCabin.name) == name.lower(),
+        )
+    )).first()
+    if clash:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="A cabin with this name already exists in this warehouse")
+
+    top = await db.scalar(
+        select(func.max(WarehouseCabin.sort_order)).where(WarehouseCabin.warehouse_id == warehouse_id)
+    )
+    cabin = WarehouseCabin(
+        id=uuid.uuid4(),
+        warehouse_id=warehouse_id,
+        name=name,
+        description=body.description,
+        pin_x=body.pin_x,
+        pin_y=body.pin_y,
+        sort_order=body.sort_order if body.sort_order != 0 else ((top or 0) + 1),
+    )
+    db.add(cabin)
+    await db.commit()
+    await db.refresh(cabin)
+    out = WarehouseCabinOut.model_validate(cabin)
+    out.item_count = 0
     return out
+
+
+@router.patch("/warehouses/{warehouse_id}/cabins/{cabin_id}", response_model=WarehouseCabinOut)
+async def update_warehouse_cabin(
+    warehouse_id: uuid.UUID,
+    cabin_id: uuid.UUID,
+    body: WarehouseCabinUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_inventory_manage),
+):
+    cabin = await db.get(WarehouseCabin, cabin_id)
+    if not cabin or cabin.warehouse_id != warehouse_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cabin not found")
+
+    changes = body.model_dump(exclude_unset=True)
+    if "name" in changes and changes["name"]:
+        new_name = changes["name"].strip()
+        if new_name.lower() != cabin.name.lower():
+            clash = (await db.execute(
+                select(WarehouseCabin.id).where(
+                    WarehouseCabin.warehouse_id == warehouse_id,
+                    func.lower(WarehouseCabin.name) == new_name.lower(),
+                )
+            )).first()
+            if clash:
+                raise HTTPException(status.HTTP_409_CONFLICT, detail="A cabin with this name already exists in this warehouse")
+        changes["name"] = new_name
+
+    for k, v in changes.items():
+        setattr(cabin, k, v)
+
+    await db.commit()
+    await db.refresh(cabin)
+
+    count = await db.scalar(
+        select(func.count(ItemCabinAssignment.id)).where(ItemCabinAssignment.cabin_id == cabin_id)
+    )
+    out = WarehouseCabinOut.model_validate(cabin)
+    out.item_count = count or 0
+    return out
+
+
+@router.delete("/warehouses/{warehouse_id}/cabins/{cabin_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_warehouse_cabin(
+    warehouse_id: uuid.UUID,
+    cabin_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_inventory_manage),
+):
+    cabin = await db.get(WarehouseCabin, cabin_id)
+    if not cabin or cabin.warehouse_id != warehouse_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cabin not found")
+
+    await db.delete(cabin)
+    await db.commit()
+
+
+# ── item cabin assignments ─────────────────────────────────────────────────
+
+@router.get("/warehouses/{warehouse_id}/items/{item_id}/cabins", response_model=list[ItemCabinAssignmentOut])
+async def get_item_cabins(
+    warehouse_id: uuid.UUID,
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_storekeeper),
+):
+    stmt = (
+        select(ItemCabinAssignment, WarehouseCabin.name.label("cabin_name"), Item.name.label("item_name"))
+        .join(WarehouseCabin, WarehouseCabin.id == ItemCabinAssignment.cabin_id)
+        .join(Item, Item.id == ItemCabinAssignment.item_id)
+        .where(
+            ItemCabinAssignment.warehouse_id == warehouse_id,
+            ItemCabinAssignment.item_id == item_id,
+        )
+        .order_by(WarehouseCabin.sort_order, WarehouseCabin.name)
+    )
+    rows = (await db.execute(stmt)).all()
+    result = []
+    for assign, c_name, i_name in rows:
+        result.append(
+            ItemCabinAssignmentOut(
+                id=assign.id,
+                warehouse_id=assign.warehouse_id,
+                cabin_id=assign.cabin_id,
+                cabin_name=c_name,
+                item_id=assign.item_id,
+                item_name=i_name,
+                qty=assign.qty,
+                notes=assign.notes,
+                is_primary=assign.is_primary,
+            )
+        )
+    return result
+
+
+@router.put("/warehouses/{warehouse_id}/items/{item_id}/cabins", response_model=list[ItemCabinAssignmentOut])
+async def set_item_cabins(
+    warehouse_id: uuid.UUID,
+    item_id: uuid.UUID,
+    body: list[ItemCabinAssignmentIn],
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_inventory_manage),
+):
+    wh = await db.get(Warehouse, warehouse_id)
+    if not wh:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
+    item = await db.get(Item, item_id)
+    if not item:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    cabin_ids = {a.cabin_id for a in body}
+    if cabin_ids:
+        valid_cabins = set(
+            (await db.execute(
+                select(WarehouseCabin.id).where(
+                    WarehouseCabin.id.in_(cabin_ids),
+                    WarehouseCabin.warehouse_id == warehouse_id,
+                )
+            )).scalars().all()
+        )
+        invalid = cabin_ids - valid_cabins
+        if invalid:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="One or more cabins do not belong to this warehouse")
+
+    await db.execute(
+        delete(ItemCabinAssignment).where(
+            ItemCabinAssignment.warehouse_id == warehouse_id,
+            ItemCabinAssignment.item_id == item_id,
+        )
+    )
+    await db.flush()
+
+    for a in body:
+        assign = ItemCabinAssignment(
+            id=uuid.uuid4(),
+            warehouse_id=warehouse_id,
+            cabin_id=a.cabin_id,
+            item_id=item_id,
+            qty=a.qty,
+            notes=a.notes,
+            is_primary=a.is_primary,
+        )
+        db.add(assign)
+    await db.commit()
+
+    return await get_item_cabins(warehouse_id, item_id, db, _)
 
 
 # ── item categories ─────────────────────────────────────────────────────────
@@ -741,6 +1043,7 @@ async def delete_item(
     await db.execute(delete(KitItem).where(KitItem.item_id == item_id))
     await db.execute(delete(KitTemplateItem).where(KitTemplateItem.item_id == item_id))
     await db.execute(delete(EquipmentReturnFlag).where(EquipmentReturnFlag.item_id == item_id))
+    await db.execute(delete(ItemCabinAssignment).where(ItemCabinAssignment.item_id == item_id))
 
     await db.delete(item)
     await db.commit()

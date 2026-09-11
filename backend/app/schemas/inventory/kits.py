@@ -172,6 +172,14 @@ class KitCountIn(BaseModel):
     lines: list[KitCountLine]
 
 
+class ItemCabinBriefOut(BaseModel):
+    cabin_id: uuid.UUID
+    cabin_name: str
+    qty: int | None = None
+    notes: str | None = None
+    is_primary: bool = True
+
+
 class StockLevelOut(BaseModel):
     item_id: uuid.UUID
     item_name: str
@@ -182,6 +190,7 @@ class StockLevelOut(BaseModel):
     warehouse_id: uuid.UUID
     warehouse_name: str
     qty: int
+    cabins: list[ItemCabinBriefOut] = []
 
 
 class MovementOut(BaseModel):

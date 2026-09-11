@@ -23,6 +23,7 @@ from app.models.inventory.kit import Kit, KitItem
 from app.models.inventory.kit_template import KitTemplate, KitTemplateItem
 from app.models.inventory.location import Location
 from app.models.inventory.warehouse import Warehouse
+from app.models.inventory.warehouse_cabin import ItemCabinAssignment, WarehouseCabin
 from app.models.inventory.movement import Movement
 from app.models.inventory.session_kit import KitCheck, SessionKit
 from app.models.inventory.stock import StockLevel
@@ -31,6 +32,8 @@ __all__ = [
     "City",
     "Location",
     "Warehouse",
+    "WarehouseCabin",
+    "ItemCabinAssignment",
     "Item",
     "ItemCategory",
     "ItemSubcategory",
