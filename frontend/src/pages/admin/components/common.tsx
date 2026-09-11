@@ -33,7 +33,7 @@ export function Modal({ title, onClose, children, maxWidth = "sm:max-w-lg max-w-
       <DialogContent
         showCloseButton={false}
         className={cn(
-          "w-full flex flex-col gap-4 bg-card border border-border rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto text-sm text-foreground",
+          "w-full flex flex-col gap-4 bg-card border border-border rounded-2xl p-4 sm:p-6 shadow-2xl max-h-[90vh] overflow-y-auto text-sm text-foreground",
           maxWidth,
         )}
       >

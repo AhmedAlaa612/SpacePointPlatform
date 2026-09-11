@@ -100,7 +100,7 @@ function QuestionEditor({
           </div>
         </Field>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           <Field label="Time limit (blank = game default)">
             <input
               type="number" min={1} value={timeLimit} onChange={(e) => setTimeLimit(e.target.value)}
@@ -220,12 +220,12 @@ function GameDefaultsPanel({ game, gameId }: { game: GameDetail; gameId: string 
   )
 
   return (
-    <div className="rounded-2xl bg-card ring-1 ring-border p-5 flex flex-col gap-4">
+    <div className="rounded-2xl bg-card ring-1 ring-border p-4 sm:p-5 flex flex-col gap-4">
       <div className="flex items-center gap-2">
         <SlidersHorizontal size={14} className="text-primary" />
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Game defaults</p>
       </div>
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <Field label="Default time limit (s)">
           <input
             type="number" min={1} value={timeLimit} onChange={(e) => setTimeLimit(e.target.value)}
@@ -253,7 +253,7 @@ function GameDefaultsPanel({ game, gameId }: { game: GameDetail; gameId: string 
         <button
           onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending}
-          className="h-9 px-4 w-fit bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 transition-colors disabled:opacity-50"
+          className="h-9 px-4 w-full sm:w-fit bg-primary text-primary-foreground text-xs font-semibold rounded-xl hover:opacity-90 transition-colors disabled:opacity-50"
         >
           {saveMutation.isPending ? "Saving…" : "Save defaults"}
         </button>
@@ -417,46 +417,64 @@ export default function LmsGameDetail() {
             return (
               <div
                 key={q.id}
-                className="flex items-center gap-3 p-4 bg-card border border-border rounded-2xl"
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 sm:p-4 bg-card border border-border rounded-2xl"
               >
-                <div className="flex flex-col shrink-0">
-                  <button
-                    onClick={() => move(index, -1)} disabled={index === 0 || reorderMutation.isPending}
-                    className="text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors" title="Move up"
-                  >
-                    <ArrowUp size={14} />
-                  </button>
-                  <button
-                    onClick={() => move(index, 1)} disabled={index === game.questions.length - 1 || reorderMutation.isPending}
-                    className="text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors" title="Move down"
-                  >
-                    <ArrowDown size={14} />
-                  </button>
-                </div>
-                <div className="w-7 h-7 flex-none flex items-center justify-center rounded-lg bg-primary/10 text-primary text-xs font-bold">
-                  {index + 1}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground truncate">{q.prompt}</p>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-muted-foreground flex-wrap">
-                    {correct && (
-                      <span className="inline-flex items-center gap-1"><CheckCircle2 size={12} className="text-emerald-500" />{correct.text}</span>
-                    )}
-                    <span>{q.options.length} options</span>
-                    <span className="inline-flex items-center gap-1"><Timer size={12} />{q.time_limit_seconds ?? game.default_time_limit_seconds}s</span>
-                    <span className={`inline-flex items-center gap-1 ${q.points_mode === "double" ? "text-primary font-semibold" : ""}`}>
-                      <Sparkle size={12} />{q.max_points} pts{q.points_mode === "double" ? " · X2" : ""}
-                    </span>
+                <div className="flex items-start gap-2.5 sm:gap-3 min-w-0 flex-1">
+                  <div className="flex items-center sm:items-start gap-1.5 shrink-0 pt-0.5">
+                    <div className="flex flex-col shrink-0">
+                      <button
+                        onClick={() => move(index, -1)} disabled={index === 0 || reorderMutation.isPending}
+                        className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors" title="Move up"
+                      >
+                        <ArrowUp size={13} />
+                      </button>
+                      <button
+                        onClick={() => move(index, 1)} disabled={index === game.questions.length - 1 || reorderMutation.isPending}
+                        className="p-0.5 text-muted-foreground hover:text-foreground disabled:opacity-25 transition-colors" title="Move down"
+                      >
+                        <ArrowDown size={13} />
+                      </button>
+                    </div>
+                    <div className="w-7 h-7 flex-none flex items-center justify-center rounded-lg bg-primary/10 text-primary text-xs font-bold">
+                      {index + 1}
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-foreground leading-snug break-words">{q.prompt}</p>
+                    <div className="flex items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-muted-foreground flex-wrap">
+                      {correct && (
+                        <span className="inline-flex items-center gap-1 font-medium text-emerald-600 dark:text-emerald-400">
+                          <CheckCircle2 size={12} className="text-emerald-500 shrink-0" />
+                          <span className="truncate max-w-[160px] sm:max-w-[220px]">{correct.text}</span>
+                        </span>
+                      )}
+                      <span className="shrink-0">{q.options.length} options</span>
+                      <span className="inline-flex items-center gap-1 shrink-0">
+                        <Timer size={12} className="shrink-0" />{q.time_limit_seconds ?? game.default_time_limit_seconds}s
+                      </span>
+                      <span className={`inline-flex items-center gap-1 shrink-0 ${q.points_mode === "double" ? "text-primary font-semibold" : ""}`}>
+                        <Sparkle size={12} className="shrink-0" />{q.max_points} pts{q.points_mode === "double" ? " · X2" : ""}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 flex-none">
-                  <button onClick={() => setEditing(q)} className="h-8 px-3 border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors flex items-center gap-1">
+                <div className="flex items-center justify-end gap-1.5 pt-2.5 sm:pt-0 border-t sm:border-t-0 border-border/50 shrink-0 w-full sm:w-auto">
+                  <button
+                    onClick={() => setEditing(q)}
+                    className="flex-1 sm:flex-initial h-8 px-2.5 sm:px-3 border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1"
+                  >
                     <Pencil size={12} /> Edit
                   </button>
-                  <button onClick={() => duplicateMutation.mutate(q.id)} className="h-8 px-3 border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors flex items-center gap-1">
+                  <button
+                    onClick={() => duplicateMutation.mutate(q.id)}
+                    className="flex-1 sm:flex-initial h-8 px-2.5 sm:px-3 border border-border rounded-lg text-xs font-medium text-foreground hover:bg-muted transition-colors flex items-center justify-center gap-1"
+                  >
                     <Copy size={12} /> Duplicate
                   </button>
-                  <button onClick={() => setDeleteTarget(q)} className="h-8 px-3 rounded-lg text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-1">
+                  <button
+                    onClick={() => setDeleteTarget(q)}
+                    className="flex-1 sm:flex-initial h-8 px-2.5 sm:px-3 rounded-lg text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors flex items-center justify-center gap-1"
+                  >
                     <Trash2 size={12} /> Delete
                   </button>
                 </div>
@@ -466,16 +484,16 @@ export default function LmsGameDetail() {
         </div>
       )}
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
         <button
           onClick={() => setEditing("new")}
-          className="h-10 px-4 border border-dashed border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-fit flex items-center gap-1.5"
+          className="h-10 px-4 border border-dashed border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-full sm:w-fit flex items-center justify-center gap-1.5"
         >
           <Plus size={14} /> Add question
         </button>
         <button
           onClick={() => setImporting(true)}
-          className="h-10 px-4 border border-dashed border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-fit flex items-center gap-1.5"
+          className="h-10 px-4 border border-dashed border-border rounded-xl text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors w-full sm:w-fit flex items-center justify-center gap-1.5"
         >
           <FileUp size={14} /> Import from Excel
         </button>
