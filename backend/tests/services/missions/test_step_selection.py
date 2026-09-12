@@ -61,6 +61,11 @@ def test_components_and_link_budget_have_no_prereqs():
     assert expand_with_prereqs({"link_budget"}) == {"link_budget"}  # genuinely independent
 
 
+def test_poster_has_no_prereqs():
+    assert expand_with_prereqs({"poster"}) == {"poster"}
+    assert "poster" in SELECTABLE_STEP_KEYS
+
+
 def test_conops_has_no_hard_prereq():
     assert expand_with_prereqs({"conops"}) == {"conops"}
 

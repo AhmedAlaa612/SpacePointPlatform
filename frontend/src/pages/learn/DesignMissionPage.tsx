@@ -300,18 +300,20 @@ export default function DesignMissionPage() {
 
       <div className="print:hidden">
         <DesignHandbookDrawer handbook={handbook} />
-        <PosterTab
-          state={state}
-          attemptId={attemptId}
-          initialOpen={search.phase === "poster"}
-          onSaved={(next) => {
-            setState(next);
-            setCelebration({
-              title: "Mission poster saved!",
-              subtitle: "Nice work — your poster link is saved and updated on your board.",
-            });
-          }}
-        />
+        {state.included_steps.poster !== false && (
+          <PosterTab
+            state={state}
+            attemptId={attemptId}
+            initialOpen={search.phase === "poster"}
+            onSaved={(next) => {
+              setState(next);
+              setCelebration({
+                title: "Mission poster saved!",
+                subtitle: "Nice work — your poster link is saved and updated on your board.",
+              });
+            }}
+          />
+        )}
       </div>
 
       <MadarPhaseDrawer

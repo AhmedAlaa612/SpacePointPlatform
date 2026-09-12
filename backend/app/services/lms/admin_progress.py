@@ -443,6 +443,7 @@ DESIGN_STEP_LABELS: list[tuple[str, str]] = [
     ("downlink", "Downlink"),
     ("mass_budget", "Mass"),
     ("cost_budget", "Cost"),
+    ("poster", "Poster"),
 ]
 
 # The real math prerequisite graph for cohort-scoped step *selection*
@@ -463,6 +464,7 @@ DESIGN_STEP_PREREQS: dict[str, tuple[str, ...]] = {
     "mass_budget": ("components",),
     "cost_budget": ("components",),
     "link_budget": (),
+    "poster": (),
 }
 
 SELECTABLE_STEP_KEYS: frozenset[str] = frozenset(DESIGN_STEP_PREREQS)
@@ -530,8 +532,9 @@ async def design_steps_for_attempts(
         if attempt is None:
             continue
         variant_config = configs_by_variant.get(attempt.variant_id, {})
-        dashboard = await compute_dashboard(db, design=design, variant_config=variant_config, attempt=attempt)
-        out[design.attempt_id] = {key: bool(step["is_valid"]) for key, step in dashboard["steps"].items()}
+        steps_out = {key: bool(step["is_valid"]) for key, step in dashboard["steps"].items()}
+        steps_out["poster"] = bool(design.poster_url and design.poster_url.strip())
+        out[design.attempt_id] = steps_out
     return out
 
 

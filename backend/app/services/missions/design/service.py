@@ -402,7 +402,7 @@ async def compute_dashboard(
         included = set(SELECTABLE_STEP_KEYS)
 
     downlink_included = DOWNLINK_STEP_DEPS <= included
-    effective_keys = included | ({"downlink"} if downlink_included else set())
+    effective_keys = (included - {"poster"}) | ({"downlink"} if downlink_included else set())
     all_valid = all(steps[k]["has_data"] and steps[k]["is_valid"] for k in effective_keys)
 
     return {

@@ -99,7 +99,7 @@ logger = logging.getLogger(__name__)
 # `downlink` (not a tab) and `report` (stays purely validity-driven —
 # matches DesignMissionPage.tsx's own exclusion of the Report tab from the
 # Complete-button flow).
-CONFIRMABLE_STEP_KEYS = {"setup"} | {key for key, _ in DESIGN_STEP_LABELS if key != "downlink"}
+CONFIRMABLE_STEP_KEYS = {"setup"} | {key for key, _ in DESIGN_STEP_LABELS if key not in ("downlink", "poster")}
 
 
 async def _own_design_attempt(db: AsyncSession, attempt_id: uuid.UUID, user: User) -> MissionAttempt:
