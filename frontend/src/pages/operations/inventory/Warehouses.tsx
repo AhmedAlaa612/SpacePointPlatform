@@ -322,56 +322,68 @@ export default function WarehousesPage() {
               <MapPin size={16} className="text-primary shrink-0" />
               <h3 className="text-sm font-bold text-foreground whitespace-nowrap">Cabin Map</h3>
             </div>
-            {cabinId && (
+            <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => setCabinId("")}
-                className="text-xs text-primary hover:underline font-medium cursor-pointer shrink-0"
+                onClick={() => setManagingCabinsLayout(true)}
+                className="text-xs text-muted-foreground hover:text-foreground font-medium cursor-pointer transition-colors"
+                title="Edit visual layout and pins"
               >
-                Clear filter
+                Edit layout
               </button>
-            )}
+              {cabinId && (
+                <button
+                  type="button"
+                  onClick={() => setCabinId("")}
+                  className="text-xs text-primary hover:underline font-medium cursor-pointer shrink-0"
+                >
+                  Clear filter
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="relative rounded-xl overflow-hidden border border-border bg-black/5 dark:bg-black/40 max-h-[360px] flex items-center justify-center">
-            <img
-              src={currentWarehouse.image_url}
-              alt={currentWarehouse.name}
-              className="max-h-[360px] w-full object-contain pointer-events-none select-none"
-            />
-            {/* Clickable Cabin Pins */}
-            {cabins.map((c) => {
-              if (c.pin_x == null || c.pin_y == null) return null
-              const isSelected = cabinId === c.id
-              return (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setCabinId(isSelected ? "" : c.id)}
-                  style={{ left: `${c.pin_x}%`, top: `${c.pin_y}%` }}
-                  className={cn(
-                    "absolute -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shadow-lg transition-all cursor-pointer z-10",
-                    isSelected
-                      ? "bg-primary text-primary-foreground scale-125 ring-3 ring-white dark:ring-black"
-                      : "bg-background/95 text-foreground hover:bg-primary/20 border border-border backdrop-blur-xs hover:scale-105",
-                  )}
-                  title={`${c.name} · ${c.item_count ?? 0} items`}
-                >
-                  <MapPin size={12} className={isSelected ? "text-primary-foreground fill-current" : "text-primary"} />
-                  <span>{c.name}</span>
-                  {c.item_count ? (
-                    <span
-                      className={cn(
-                        "text-[10px] px-1 rounded-full",
-                        isSelected ? "bg-white/20 text-white" : "bg-muted text-muted-foreground",
-                      )}
-                    >
-                      {c.item_count}
-                    </span>
-                  ) : null}
-                </button>
-              )
-            })}
+          <div className="w-full rounded-xl overflow-hidden border border-border bg-black/5 dark:bg-black/40 max-h-[360px] flex items-center justify-center select-none">
+            <div className="relative max-h-[360px] max-w-full">
+              <img
+                src={currentWarehouse.image_url}
+                alt={currentWarehouse.name}
+                className="max-h-[360px] max-w-full w-auto h-auto block pointer-events-none select-none"
+              />
+              {/* Clickable Cabin Pins */}
+              {cabins.map((c) => {
+                if (c.pin_x == null || c.pin_y == null) return null
+                const isSelected = cabinId === c.id
+                return (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setCabinId(isSelected ? "" : c.id)}
+                    style={{ left: `${c.pin_x}%`, top: `${c.pin_y}%` }}
+                    className={cn(
+                      "absolute -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold shadow-lg transition-all cursor-pointer z-10 whitespace-nowrap",
+                      isSelected
+                        ? "bg-primary text-primary-foreground scale-125 ring-3 ring-white dark:ring-black"
+                        : "bg-background/95 text-foreground hover:bg-primary/20 border border-border backdrop-blur-xs hover:scale-105",
+                    )}
+                    title={`${c.name} · ${c.item_count ?? 0} items`}
+                  >
+                    <MapPin size={12} className={isSelected ? "text-primary-foreground fill-current" : "text-primary"} />
+                    <span>{c.name}</span>
+                    {c.item_count ? (
+                      <span
+                        className={cn(
+                          "text-[10px] px-1 rounded-full",
+                          isSelected ? "bg-white/20 text-white" : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {c.item_count}
+                      </span>
+                    ) : null}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         </div>
       ) : (

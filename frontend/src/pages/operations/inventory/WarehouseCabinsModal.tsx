@@ -1,6 +1,7 @@
 import { useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  Crop as CropIcon,
   ImagePlus,
   MapPin,
   Package,
@@ -20,6 +21,7 @@ import {
   updateWarehouseCabinApi,
 } from "@/api/inventory"
 import { Modal } from "@/pages/admin/components/common"
+import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import { cn } from "@/lib/utils"
 
 export function WarehouseCabinsModal({
@@ -37,6 +39,11 @@ export function WarehouseCabinsModal({
   const [newCabinDesc, setNewCabinDesc] = useState("")
   const [editingCabin, setEditingCabin] = useState<WarehouseCabin | null>(null)
   const [error, setError] = useState("")
+  const [localImageUrl, setLocalImageUrl] = useState<string | null | undefined>(warehouse.image_url)
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
+  const [cropOpen, setCropOpen] = useState(false)
+
+  const activeImageUrl = localImageUrl !== undefined ? localImageUrl : warehouse.image_url
 
   const { data: cabins = [], isLoading: loadingCabins } = useQuery({
     queryKey: ["inv-warehouse-cabins", warehouse.id],
@@ -59,6 +66,7 @@ export function WarehouseCabinsModal({
     mutationFn: (file: File) => setWarehouseImageApi(warehouse.id, file),
     onSuccess: (updatedWh) => {
       warehouse.image_url = updatedWh.image_url
+      setLocalImageUrl(updatedWh.image_url)
       invalidateAll()
     },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not upload image"),
@@ -68,10 +76,45 @@ export function WarehouseCabinsModal({
     mutationFn: () => removeWarehouseImageApi(warehouse.id),
     onSuccess: () => {
       warehouse.image_url = null
+      setLocalImageUrl(null)
       invalidateAll()
     },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not remove image"),
   })
+
+  const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setCropSrc(reader.result)
+          setCropOpen(true)
+        }
+      }
+      reader.readAsDataURL(file)
+    }
+    e.target.value = ""
+  }
+
+  const handleCropExisting = async () => {
+    if (!activeImageUrl) return
+    try {
+      const res = await fetch(activeImageUrl)
+      const blob = await res.blob()
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setCropSrc(reader.result)
+          setCropOpen(true)
+        }
+      }
+      reader.readAsDataURL(blob)
+    } catch {
+      setCropSrc(activeImageUrl)
+      setCropOpen(true)
+    }
+  }
 
   const createCabinMutation = useMutation({
     mutationFn: () =>
@@ -110,14 +153,17 @@ export function WarehouseCabinsModal({
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not delete cabin"),
   })
 
-  // Handle placing a pin on the image
+  // Handle placing a pin on the image (coordinates locked to the photo boundaries 0%-100%)
   const handleImageClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!selectedCabinId) return
     const rect = e.currentTarget.getBoundingClientRect()
-    const x = ((e.clientX - rect.left) / rect.width) * 100
-    const y = ((e.clientY - rect.top) / rect.height) * 100
-    const roundedX = Math.round(x * 10) / 10
-    const roundedY = Math.round(y * 10) / 10
+    if (rect.width === 0 || rect.height === 0) return
+    const rawX = ((e.clientX - rect.left) / rect.width) * 100
+    const rawY = ((e.clientY - rect.top) / rect.height) * 100
+    const clampedX = Math.max(0, Math.min(100, rawX))
+    const clampedY = Math.max(0, Math.min(100, rawY))
+    const roundedX = Math.round(clampedX * 10) / 10
+    const roundedY = Math.round(clampedY * 10) / 10
 
     updateCabinMutation.mutate({
       cabinId: selectedCabinId,
@@ -162,10 +208,7 @@ export function WarehouseCabinsModal({
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) imageUploadMutation.mutate(file)
-                }}
+                onChange={handleFilePicked}
               />
               <button
                 type="button"
@@ -173,9 +216,20 @@ export function WarehouseCabinsModal({
                 disabled={imageUploadMutation.isPending}
                 className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium border border-border rounded-xl bg-background hover:bg-muted text-foreground transition-colors cursor-pointer"
               >
-                <Upload size={13} /> {warehouse.image_url ? "Replace photo" : "Upload photo"}
+                <Upload size={13} /> {activeImageUrl ? "Replace photo" : "Upload photo"}
               </button>
-              {warehouse.image_url && (
+              {activeImageUrl && (
+                <button
+                  type="button"
+                  onClick={handleCropExisting}
+                  disabled={imageUploadMutation.isPending}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-medium border border-border rounded-xl bg-background hover:bg-muted text-foreground transition-colors cursor-pointer"
+                  title="Crop photo"
+                >
+                  <CropIcon size={13} /> Crop
+                </button>
+              )}
+              {activeImageUrl && (
                 <button
                   type="button"
                   onClick={() => imageRemoveMutation.mutate()}
@@ -190,47 +244,51 @@ export function WarehouseCabinsModal({
           </div>
 
           {/* Photo viewer with interactive pins */}
-          {warehouse.image_url ? (
+          {activeImageUrl ? (
             <div className="flex flex-col gap-2">
               <div
-                onClick={handleImageClick}
-                className={cn(
-                  "relative w-full max-h-[420px] rounded-xl overflow-hidden border border-border bg-black/5 dark:bg-black/30 flex items-center justify-center select-none",
-                  selectedCabinId ? "cursor-crosshair ring-2 ring-primary/40" : "cursor-default",
-                )}
+                className="w-full max-h-[460px] rounded-xl overflow-hidden border border-border bg-black/5 dark:bg-black/30 flex items-center justify-center select-none"
               >
-                <img
-                  src={warehouse.image_url}
-                  alt={warehouse.name}
-                  className="max-h-[420px] w-full object-contain pointer-events-none"
-                />
+                <div
+                  onClick={handleImageClick}
+                  className={cn(
+                    "relative inline-block max-h-[460px] max-w-full",
+                    selectedCabinId ? "cursor-crosshair ring-2 ring-primary/40" : "cursor-default",
+                  )}
+                >
+                  <img
+                    src={activeImageUrl}
+                    alt={warehouse.name}
+                    className="max-h-[460px] max-w-full w-auto h-auto block pointer-events-none select-none"
+                  />
 
-                {/* Pins */}
-                {cabins.map((c) => {
-                  if (c.pin_x === null || c.pin_y === null || c.pin_x === undefined || c.pin_y === undefined) return null
-                  const isSelected = c.id === selectedCabinId
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setSelectedCabinId(c.id)
-                      }}
-                      style={{ left: `${c.pin_x}%`, top: `${c.pin_y}%` }}
-                      className={cn(
-                        "absolute -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold shadow-md transition-all cursor-pointer z-10",
-                        isSelected
-                          ? "bg-primary text-primary-foreground scale-110 ring-2 ring-white dark:ring-black"
-                          : "bg-background/95 text-foreground hover:bg-primary/20 border border-border backdrop-blur-xs",
-                      )}
-                      title={`${c.name}${c.description ? ` · ${c.description}` : ""}`}
-                    >
-                      <MapPin size={11} className={isSelected ? "text-primary-foreground fill-current" : "text-primary"} />
-                      <span>{c.name}</span>
-                    </button>
-                  )
-                })}
+                  {/* Pins */}
+                  {cabins.map((c) => {
+                    if (c.pin_x === null || c.pin_y === null || c.pin_x === undefined || c.pin_y === undefined) return null
+                    const isSelected = c.id === selectedCabinId
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setSelectedCabinId(c.id)
+                        }}
+                        style={{ left: `${c.pin_x}%`, top: `${c.pin_y}%` }}
+                        className={cn(
+                          "absolute -translate-x-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold shadow-md transition-all cursor-pointer z-10 whitespace-nowrap",
+                          isSelected
+                            ? "bg-primary text-primary-foreground scale-110 ring-2 ring-white dark:ring-black"
+                            : "bg-background/95 text-foreground hover:bg-primary/20 border border-border backdrop-blur-xs",
+                        )}
+                        title={`${c.name}${c.description ? ` · ${c.description}` : ""}`}
+                      >
+                        <MapPin size={11} className={isSelected ? "text-primary-foreground fill-current" : "text-primary"} />
+                        <span>{c.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
 
               <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
@@ -491,6 +549,27 @@ export function WarehouseCabinsModal({
           </button>
         </div>
       </div>
+
+      {cropSrc && (
+        <ImageCropModal
+          isOpen={cropOpen}
+          onClose={() => {
+            if (!imageUploadMutation.isPending) {
+              setCropOpen(false)
+              setCropSrc(null)
+            }
+          }}
+          imageSrc={cropSrc}
+          title="Crop Warehouse Layout"
+          showPreview={false}
+          onCropComplete={async (croppedFile) => {
+            await imageUploadMutation.mutateAsync(croppedFile)
+            setCropOpen(false)
+            setCropSrc(null)
+          }}
+          isUploading={imageUploadMutation.isPending}
+        />
+      )}
     </Modal>
   )
 }
