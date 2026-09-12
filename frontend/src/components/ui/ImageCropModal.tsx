@@ -9,6 +9,11 @@ export interface ImageCropModalProps {
   isOpen: boolean
   onClose: () => void
   imageSrc: string | null
+  title?: string
+  /** Lock the crop to a fixed aspect ratio, e.g. 1 for square, 16/9 for widescreen. Freeform by default. */
+  aspect?: number
+  /** Show the LMS-style preview tab (default: true). Pass false for non-LMS contexts. */
+  showPreview?: boolean
   programName?: string
   onCropComplete: (file: File) => Promise<void> | void
   isUploading?: boolean
@@ -76,6 +81,9 @@ export function ImageCropModal({
   isOpen,
   onClose,
   imageSrc,
+  title = "Crop Image",
+  aspect,
+  showPreview = true,
   programName = "Program Checklist",
   onCropComplete,
   isUploading = false,
@@ -98,45 +106,52 @@ export function ImageCropModal({
     }
   }, [isOpen, imageSrc])
 
-  // Initialize crop when image loads in the DOM using 100% bounds
+  // Initialize crop when image loads in the DOM
   const onImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget
     imgRef.current = e.currentTarget
 
-    const fullPercentCrop: PercentCrop = {
-      unit: "%",
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 100,
+    if (aspect) {
+      // Fit the largest centered rectangle that matches the requested aspect ratio
+      let cropW: number, cropH: number
+      if (width / height > aspect) {
+        cropH = height
+        cropW = height * aspect
+      } else {
+        cropW = width
+        cropH = width / aspect
+      }
+      const x = (width - cropW) / 2
+      const y = (height - cropH) / 2
+      setCrop({ unit: "px", x, y, width: cropW, height: cropH })
+      setCompletedCrop({ unit: "px", x, y, width: cropW, height: cropH })
+    } else {
+      setCrop({ unit: "%", x: 0, y: 0, width: 100, height: 100 })
+      setCompletedCrop({ unit: "px", x: 0, y: 0, width, height })
     }
-    setCrop(fullPercentCrop)
-    setCompletedCrop({
-      unit: "px",
-      x: 0,
-      y: 0,
-      width,
-      height,
-    })
-  }, [])
+  }, [aspect])
 
   const resetCropToFull = () => {
     if (!imgRef.current) return
     const { width, height } = imgRef.current
-    setCrop({
-      unit: "%",
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 100,
-    })
-    setCompletedCrop({
-      unit: "px",
-      x: 0,
-      y: 0,
-      width,
-      height,
-    })
+
+    if (aspect) {
+      let cropW: number, cropH: number
+      if (width / height > aspect) {
+        cropH = height
+        cropW = height * aspect
+      } else {
+        cropW = width
+        cropH = width / aspect
+      }
+      const x = (width - cropW) / 2
+      const y = (height - cropH) / 2
+      setCrop({ unit: "px", x, y, width: cropW, height: cropH })
+      setCompletedCrop({ unit: "px", x, y, width: cropW, height: cropH })
+    } else {
+      setCrop({ unit: "%", x: 0, y: 0, width: 100, height: 100 })
+      setCompletedCrop({ unit: "px", x: 0, y: 0, width, height })
+    }
     setPreviewFile(null)
     setPreviewDataUrl(null)
   }
@@ -232,41 +247,43 @@ export function ImageCropModal({
         {/* Header */}
         <DialogHeader className="px-4 sm:px-5 py-3 border-b border-border flex flex-row items-center justify-between shrink-0">
           <DialogTitle className="text-sm sm:text-base font-bold">
-            Crop Banner
+            {title}
           </DialogTitle>
 
-          {/* Mode Switcher: Only 1 place to switch between Crop and Preview */}
-          <div className="flex items-center gap-1 bg-muted p-0.5 rounded-xl">
-            <button
-              type="button"
-              onClick={() => setActiveTab("crop")}
-              className={`min-h-[34px] px-3 py-1 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer ${
-                activeTab === "crop"
-                  ? "bg-card text-foreground shadow-xs font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <CropIcon className="w-3.5 h-3.5" />
-              <span>Crop</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleSwitchToPreview}
-              disabled={isGeneratingPreview}
-              className={`min-h-[34px] px-3 py-1 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer ${
-                activeTab === "preview"
-                  ? "bg-card text-foreground shadow-xs font-semibold"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {isGeneratingPreview ? (
-                <Spinner />
-              ) : (
-                <Eye className="w-3.5 h-3.5 text-primary" />
-              )}
-              <span>Preview</span>
-            </button>
-          </div>
+          {/* Mode Switcher: Only shown when a preview context exists (e.g. LMS banner) */}
+          {showPreview && (
+            <div className="flex items-center gap-1 bg-muted p-0.5 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setActiveTab("crop")}
+                className={`min-h-[34px] px-3 py-1 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  activeTab === "crop"
+                    ? "bg-card text-foreground shadow-xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <CropIcon className="w-3.5 h-3.5" />
+                <span>Crop</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleSwitchToPreview}
+                disabled={isGeneratingPreview}
+                className={`min-h-[34px] px-3 py-1 text-xs font-medium rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer ${
+                  activeTab === "preview"
+                    ? "bg-card text-foreground shadow-xs font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {isGeneratingPreview ? (
+                  <Spinner />
+                ) : (
+                  <Eye className="w-3.5 h-3.5 text-primary" />
+                )}
+                <span>Preview</span>
+              </button>
+            </div>
+          )}
         </DialogHeader>
 
         {/* Modal Body */}
@@ -295,6 +312,7 @@ export function ImageCropModal({
                   setCompletedCrop(pixelCrop)
                 }}
                 onComplete={(pixelCrop) => setCompletedCrop(pixelCrop)}
+                aspect={aspect}
                 className="max-w-full"
               >
                 <img
@@ -315,68 +333,70 @@ export function ImageCropModal({
             </div>
           </div>
 
-          {/* ── AUTHENTIC CHECKLIST PREVIEW TAB ─────────────────────── */}
-          <div className={activeTab === "preview" ? "bg-background flex flex-col min-h-[300px]" : "hidden"}>
-            {/* Banner Area (Identical to RoadmapBoard.tsx line 64-73) */}
-            <div className="relative w-full overflow-hidden bg-neutral-950">
-              {previewDataUrl ? (
-                <img
-                  src={previewDataUrl}
-                  alt="Cropped banner preview"
-                  className="w-full h-auto block"
-                />
-              ) : (
-                <div className="h-28 flex items-center justify-center text-xs text-muted-foreground">
-                  Generating preview…
-                </div>
-              )}
-              {/* The exact bottom lighting cue gradient from RoadmapBoard.tsx line 71 */}
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2.5 sm:h-4 bg-[linear-gradient(to_top,hsl(var(--background)/0.7)_0%,hsl(var(--background)/0.3)_35%,hsl(var(--primary)/0.28)_65%,transparent_100%)]" />
-            </div>
-
-            {/* Checklist Board Header (Matches RoadmapBoard.tsx and user's screenshot) */}
-            <div className="px-4 sm:px-6 py-4 sm:py-6 flex flex-col gap-4 max-w-[1180px] mx-auto w-full">
-              <div className="flex flex-col gap-1">
-                <h1 className="font-display text-lg sm:text-xl font-extrabold tracking-tight leading-tight text-foreground">
-                  {programName}
-                </h1>
-                <p className="text-xs text-muted-foreground">L1 COMP 1</p>
-                <div className="inline-flex w-fit items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
-                  Team FALCON
-                </div>
-              </div>
-
-              {/* Steps done indicator */}
-              <div className="flex items-center gap-3">
-                <div className="flex items-baseline gap-1 shrink-0">
-                  <span className="font-display text-xl sm:text-2xl font-extrabold text-foreground">3</span>
-                  <span className="text-sm font-semibold text-muted-foreground">/10</span>
-                  <span className="ml-1 whitespace-nowrap text-xs text-muted-foreground">steps done</span>
-                </div>
-                <div className="h-px flex-1 bg-border relative">
-                  <div className="absolute inset-y-0 left-0 bg-primary h-full" style={{ width: "30%" }} />
-                </div>
-              </div>
-
-              {/* Your Next Task Card (Matches user screenshot) */}
-              <div className="flex items-center justify-between p-3.5 rounded-xl border border-primary/40 bg-card shadow-xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center text-primary text-xs font-bold">
-                    ◎
+          {/* ── AUTHENTIC CHECKLIST PREVIEW TAB (LMS only) ──────────── */}
+          {showPreview && (
+            <div className={activeTab === "preview" ? "bg-background flex flex-col min-h-[300px]" : "hidden"}>
+              {/* Banner Area (Identical to RoadmapBoard.tsx line 64-73) */}
+              <div className="relative w-full overflow-hidden bg-neutral-950">
+                {previewDataUrl ? (
+                  <img
+                    src={previewDataUrl}
+                    alt="Cropped banner preview"
+                    className="w-full h-auto block"
+                  />
+                ) : (
+                  <div className="h-28 flex items-center justify-center text-xs text-muted-foreground">
+                    Generating preview…
                   </div>
-                  <div className="flex flex-col">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      YOUR NEXT TASK
-                    </span>
-                    <span className="text-xs sm:text-sm font-bold text-foreground">tinker</span>
+                )}
+                {/* The exact bottom lighting cue gradient from RoadmapBoard.tsx line 71 */}
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2.5 sm:h-4 bg-[linear-gradient(to_top,hsl(var(--background)/0.7)_0%,hsl(var(--background)/0.3)_35%,hsl(var(--primary)/0.28)_65%,transparent_100%)]" />
+              </div>
+
+              {/* Checklist Board Header (Matches RoadmapBoard.tsx and user's screenshot) */}
+              <div className="px-4 sm:px-6 py-4 sm:py-6 flex flex-col gap-4 max-w-[1180px] mx-auto w-full">
+                <div className="flex flex-col gap-1">
+                  <h1 className="font-display text-lg sm:text-xl font-extrabold tracking-tight leading-tight text-foreground">
+                    {programName}
+                  </h1>
+                  <p className="text-xs text-muted-foreground">L1 COMP 1</p>
+                  <div className="inline-flex w-fit items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
+                    Team FALCON
                   </div>
                 </div>
-                <div className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-primary text-primary-foreground">
-                  Start task →
+
+                {/* Steps done indicator */}
+                <div className="flex items-center gap-3">
+                  <div className="flex items-baseline gap-1 shrink-0">
+                    <span className="font-display text-xl sm:text-2xl font-extrabold text-foreground">3</span>
+                    <span className="text-sm font-semibold text-muted-foreground">/10</span>
+                    <span className="ml-1 whitespace-nowrap text-xs text-muted-foreground">steps done</span>
+                  </div>
+                  <div className="h-px flex-1 bg-border relative">
+                    <div className="absolute inset-y-0 left-0 bg-primary h-full" style={{ width: "30%" }} />
+                  </div>
+                </div>
+
+                {/* Your Next Task Card (Matches user screenshot) */}
+                <div className="flex items-center justify-between p-3.5 rounded-xl border border-primary/40 bg-card shadow-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center text-primary text-xs font-bold">
+                      ◎
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        YOUR NEXT TASK
+                      </span>
+                      <span className="text-xs sm:text-sm font-bold text-foreground">tinker</span>
+                    </div>
+                  </div>
+                  <div className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-primary text-primary-foreground">
+                    Start task →
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Footer Actions: Simple Cancel & Apply */}

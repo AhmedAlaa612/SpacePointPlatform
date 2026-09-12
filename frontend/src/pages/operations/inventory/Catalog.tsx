@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Boxes, CornerDownRight, ImagePlus, MapPin, Pencil, Plus, Search, Tag, Trash2, X } from "lucide-react"
 import type { City, Item, ItemCategory, ItemCategoryDef, ItemSubcategoryDef, KitTemplate, Location, StockLevel, Warehouse } from "@/types/inventory"
+import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import {
   createCityApi,
   createItemApi,
@@ -588,14 +589,38 @@ function Items() {
 }
 
 /** Optional photo shown to instructors picking this off the shelf (B3).
- *  Click the thumbnail (or the placeholder) to upload/replace; the X removes it. */
+ *  Click the thumbnail (or the placeholder) → file picker → crop modal → upload.
+ *  No separate "crop" button — cropping is always part of the upload flow. */
 function ItemPhoto({ item, canManage }: { item: Item; canManage: boolean }) {
   const queryClient = useQueryClient()
   const fileInput = useRef<HTMLInputElement>(null)
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
+  const [cropOpen, setCropOpen] = useState(false)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["inv-items"] })
-  const upload = useMutation({ mutationFn: setItemImageApi, onSuccess: invalidate })
+  const upload = useMutation({
+    mutationFn: setItemImageApi,
+    onSuccess: () => {
+      invalidate()
+      setCropOpen(false)
+      setCropSrc(null)
+    },
+  })
   const remove = useMutation({ mutationFn: removeItemImageApi, onSuccess: invalidate })
+
+  const handleFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setCropSrc(reader.result)
+        setCropOpen(true)
+      }
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ""
+  }
 
   if (!canManage) {
     return (
@@ -613,11 +638,7 @@ function ItemPhoto({ item, canManage }: { item: Item; canManage: boolean }) {
     <div className="relative group w-full aspect-square bg-muted/40 border-b border-border">
       <input
         ref={fileInput} type="file" accept="image/*" className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) upload.mutate({ id: item.id, file })
-          e.target.value = ""
-        }}
+        onChange={handleFilePicked}
       />
       <button
         type="button"
@@ -641,6 +662,22 @@ function ItemPhoto({ item, canManage }: { item: Item; canManage: boolean }) {
           <X size={13} />
         </button>
       )}
+
+      <ImageCropModal
+        isOpen={cropOpen}
+        onClose={() => {
+          if (!upload.isPending) {
+            setCropOpen(false)
+            setCropSrc(null)
+          }
+        }}
+        imageSrc={cropSrc}
+        title="Crop Photo"
+        aspect={1}
+        showPreview={false}
+        onCropComplete={(croppedFile) => upload.mutate({ id: item.id, file: croppedFile })}
+        isUploading={upload.isPending}
+      />
     </div>
   )
 }
