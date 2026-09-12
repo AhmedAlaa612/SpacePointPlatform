@@ -1,9 +1,10 @@
 import { useRef, useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate, useParams } from "@tanstack/react-router"
-import { Plus, ChevronRight, ArrowLeft, ArrowUp, ArrowDown, ImagePlus } from "lucide-react"
+import { Plus, ChevronRight, ArrowLeft, ArrowUp, ArrowDown, ImagePlus, Crop } from "lucide-react"
 import { PageHeader, EmptyState, Spinner } from "@/components/ui/primitives"
 import { Modal, Field, ModalActions, ConfirmDialog } from "@/pages/admin/components/common"
+import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import {
   getCourseApi, updateCourseApi, uploadCourseImageApi, listInstructorOptionsApi,
   listModulesApi, createModuleApi, deleteModuleApi, reorderModulesApi,
@@ -21,6 +22,8 @@ export default function LmsCourseDetail() {
   const [editOpen, setEditOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<AdminModule | null>(null)
   const [imageError, setImageError] = useState("")
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
+  const [cropOpen, setCropOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { data: course, isLoading: courseLoading } = useQuery({
@@ -55,7 +58,12 @@ export default function LmsCourseDetail() {
 
   const imageMutation = useMutation({
     mutationFn: (file: File) => uploadCourseImageApi(courseId, file),
-    onSuccess: () => { setImageError(""); invalidateCourse() },
+    onSuccess: () => {
+      setImageError("")
+      invalidateCourse()
+      setCropOpen(false)
+      setCropSrc(null)
+    },
     onError: (e: any) => setImageError(e?.response?.data?.detail ?? "Failed to upload image"),
   })
 
@@ -90,26 +98,54 @@ export default function LmsCourseDetail() {
       </button>
 
       <div className="flex items-start gap-5">
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="group relative w-32 h-32 sm:w-40 sm:h-40 shrink-0 rounded-2xl bg-muted overflow-hidden cursor-pointer ring-1 ring-border"
-          title="Upload cover image"
-        >
-          {course.image_url ? (
-            <img src={course.image_url} alt="" className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-muted-foreground">
-              <ImagePlus size={20} />
-              <span className="text-[11px]">Add cover</span>
+        <div className="flex flex-col gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="group relative w-44 h-28 sm:w-52 sm:h-32 rounded-2xl bg-muted overflow-hidden cursor-pointer ring-1 ring-border aspect-video"
+            title="Upload cover image"
+          >
+            {course.image_url ? (
+              <img src={course.image_url} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex flex-col items-center justify-center gap-1.5 text-muted-foreground">
+                <ImagePlus size={20} />
+                <span className="text-[11px]">Add cover</span>
+              </div>
+            )}
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-medium">
+              {imageMutation.isPending ? "Uploading..." : "Change"}
             </div>
+          </button>
+          {course.image_url && (
+            <button
+              type="button"
+              onClick={() => {
+                setCropSrc(course.image_url!)
+                setCropOpen(true)
+              }}
+              className="text-xs text-primary hover:underline flex items-center justify-center gap-1 cursor-pointer"
+            >
+              <Crop size={12} />
+              <span>Crop current</span>
+            </button>
           )}
-          <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-medium">
-            {imageMutation.isPending ? "Uploading..." : "Change"}
-          </div>
-        </button>
+          {imageError && <p className="text-xs text-red-500 max-w-[208px]">{imageError}</p>}
+        </div>
         <input
           ref={fileInputRef} type="file" accept="image/*" className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) imageMutation.mutate(f) }}
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) {
+              const reader = new FileReader()
+              reader.onload = () => {
+                setCropSrc(reader.result as string)
+                setCropOpen(true)
+              }
+              reader.readAsDataURL(f)
+            }
+            e.currentTarget.value = ""
+          }}
         />
 
         <div className="flex-1 min-w-0">
@@ -242,6 +278,26 @@ export default function LmsCourseDetail() {
           pending={deleteMutation.isPending}
           onCancel={() => setDeleteTarget(null)}
           onConfirm={() => deleteMutation.mutate(deleteTarget.id)}
+        />
+      )}
+
+      {cropSrc && (
+        <ImageCropModal
+          isOpen={cropOpen}
+          onClose={() => {
+            if (!imageMutation.isPending) {
+              setCropOpen(false)
+              setCropSrc(null)
+            }
+          }}
+          imageSrc={cropSrc}
+          title="Crop Course Cover"
+          aspect={16 / 9}
+          showPreview={false}
+          isUploading={imageMutation.isPending}
+          onCropComplete={async (croppedFile) => {
+            await imageMutation.mutateAsync(croppedFile)
+          }}
         />
       )}
     </div>

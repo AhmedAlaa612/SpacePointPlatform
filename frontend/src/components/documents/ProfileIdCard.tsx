@@ -4,6 +4,7 @@ import { Download, Upload, User, Link2, CheckCircle2, RefreshCw } from "lucide-r
 import { getIdCardApi, updateIdCardApi, downloadIdCardPdfApi } from "@/api/documents"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { ImageCropModal } from "@/components/ui/ImageCropModal"
 
 interface ProfileIdCardProps {
   role: string | null
@@ -17,6 +18,8 @@ export function ProfileIdCard({ role, onPhotoUploaded }: ProfileIdCardProps) {
   const [linkedinInput, setLinkedinInput] = useState("")
   const [linkedinLoaded, setLinkedinLoaded] = useState(false)
   const [savedLinkedin, setSavedLinkedin] = useState(false)
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
+  const [cropOpen, setCropOpen] = useState(false)
 
   const card = useQuery({
     queryKey: ["id-card", role],
@@ -37,6 +40,8 @@ export function ProfileIdCard({ role, onPhotoUploaded }: ProfileIdCardProps) {
     mutationFn: (file: File) => updateIdCardApi(role!, file, undefined),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["id-card", role] })
+      setCropOpen(false)
+      setCropSrc(null)
       if (data.photo_url && onPhotoUploaded) {
         onPhotoUploaded(data.photo_url)
       }
@@ -115,7 +120,14 @@ export function ProfileIdCard({ role, onPhotoUploaded }: ProfileIdCardProps) {
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0]
-                if (f) uploadPhoto.mutate(f)
+                if (f) {
+                  const reader = new FileReader()
+                  reader.onload = () => {
+                    setCropSrc(reader.result as string)
+                    setCropOpen(true)
+                  }
+                  reader.readAsDataURL(f)
+                }
                 e.currentTarget.value = ""
               }}
             />
@@ -279,6 +291,27 @@ export function ProfileIdCard({ role, onPhotoUploaded }: ProfileIdCardProps) {
           )}
         </div>
       </div>
+
+      {cropSrc && (
+        <ImageCropModal
+          isOpen={cropOpen}
+          onClose={() => {
+            if (!uploadPhoto.isPending) {
+              setCropOpen(false)
+              setCropSrc(null)
+            }
+          }}
+          imageSrc={cropSrc}
+          title="Crop Profile Photo"
+          aspect={1}
+          circularCrop={true}
+          showPreview={false}
+          isUploading={uploadPhoto.isPending}
+          onCropComplete={async (croppedFile) => {
+            await uploadPhoto.mutateAsync(croppedFile)
+          }}
+        />
+      )}
     </div>
   )
 }

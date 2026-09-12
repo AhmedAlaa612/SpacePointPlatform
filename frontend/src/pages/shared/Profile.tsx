@@ -17,6 +17,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog"
 import { AmbassadorCard, TeacherCard, InstructorCard, StudentCard } from "@/components/ProfileStatsCards"
+import { ImageCropModal } from "@/components/ui/ImageCropModal"
 
 export default function Profile() {
   const { user, roles, activeRole, setCurrentUser } = useAuth()
@@ -41,6 +42,8 @@ export default function Profile() {
   const [deliverCityIds, setDeliverCityIds] = useState<string[]>([])
   const [saved, setSaved] = useState(false)
   const [pwOpen, setPwOpen] = useState(false)
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
+  const [cropOpen, setCropOpen] = useState(false)
 
   useEffect(() => {
     if (!me) return
@@ -64,6 +67,8 @@ export default function Profile() {
     onSuccess: (updated) => {
       setCurrentUser(updated)
       qc.invalidateQueries({ queryKey: ["me"] })
+      setCropOpen(false)
+      setCropSrc(null)
     },
   })
 
@@ -158,7 +163,14 @@ export default function Profile() {
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0]
-              if (f) uploadPhoto.mutate(f)
+              if (f) {
+                const reader = new FileReader()
+                reader.onload = () => {
+                  setCropSrc(reader.result as string)
+                  setCropOpen(true)
+                }
+                reader.readAsDataURL(f)
+              }
               e.currentTarget.value = ""
             }}
           />
@@ -317,6 +329,27 @@ export default function Profile() {
       {stats?.student && <StudentCard stats={stats.student} />}
 
       <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} mustChange={!!user.must_change_password} />
+
+      {cropSrc && (
+        <ImageCropModal
+          isOpen={cropOpen}
+          onClose={() => {
+            if (!uploadPhoto.isPending) {
+              setCropOpen(false)
+              setCropSrc(null)
+            }
+          }}
+          imageSrc={cropSrc}
+          title="Crop Profile Photo"
+          aspect={1}
+          circularCrop={true}
+          showPreview={false}
+          isUploading={uploadPhoto.isPending}
+          onCropComplete={async (croppedFile) => {
+            await uploadPhoto.mutateAsync(croppedFile)
+          }}
+        />
+      )}
     </div>
   )
 }

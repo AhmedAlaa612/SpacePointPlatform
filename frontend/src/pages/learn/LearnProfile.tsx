@@ -13,9 +13,10 @@ import { CountrySelect } from "@/components/ui/CountrySelect";
 import { CitySelect, useCitiesForCountry } from "@/components/ui/CitySelect";
 import { PasswordInput } from "@/components/ui/PasswordInput";
 import { getCountries } from "@/lib/countries";
-import { EmptyState } from "@/components/ui/primitives";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { StatTile } from "@/components/ProfileStatsCards";
+import { EmptyState } from "@/components/ui/primitives";
+import { ImageCropModal } from "@/components/ui/ImageCropModal";
 import { CourseProgress } from "./CourseProgress";
 
 function errorDetail(err: unknown, fallback: string): string {
@@ -295,6 +296,8 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
   const [country, setCountry] = useState(currentUser?.country ?? "");
   const [cityId, setCityId] = useState(currentUser?.city_id ?? "");
   const [cityOther, setCityOther] = useState(currentUser?.city_other ?? "");
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [cropOpen, setCropOpen] = useState(false);
 
   const countryCities = useCitiesForCountry(country);
 
@@ -303,6 +306,8 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
     onSuccess: (updated) => {
       setCurrentUser(updated);
       void queryClient.invalidateQueries({ queryKey: ["me"] });
+      setCropOpen(false);
+      setCropSrc(null);
     },
   });
 
@@ -349,7 +354,14 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
               ref={photoRef} type="file" accept="image/*" className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
-                if (f) uploadPhoto.mutate(f);
+                if (f) {
+                  const reader = new FileReader();
+                  reader.onload = () => {
+                    setCropSrc(reader.result as string);
+                    setCropOpen(true);
+                  };
+                  reader.readAsDataURL(f);
+                }
                 e.currentTarget.value = "";
               }}
             />
@@ -416,6 +428,27 @@ function EditProfileForm({ onOpenChange }: { onOpenChange: (v: boolean) => void 
             {save.isPending ? "Saving..." : "Save changes"}
           </Button>
         </DialogFooter>
+
+        {cropSrc && (
+          <ImageCropModal
+            isOpen={cropOpen}
+            onClose={() => {
+              if (!uploadPhoto.isPending) {
+                setCropOpen(false);
+                setCropSrc(null);
+              }
+            }}
+            imageSrc={cropSrc}
+            title="Crop Profile Photo"
+            aspect={1}
+            circularCrop={true}
+            showPreview={false}
+            isUploading={uploadPhoto.isPending}
+            onCropComplete={async (croppedFile) => {
+              await uploadPhoto.mutateAsync(croppedFile);
+            }}
+          />
+        )}
     </DialogContent>
   );
 }
