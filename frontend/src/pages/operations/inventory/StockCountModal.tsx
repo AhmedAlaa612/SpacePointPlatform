@@ -1,31 +1,22 @@
 import { useEffect, useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { MapPin } from "lucide-react"
-import type { StockLevel, Warehouse, WarehouseCabin } from "@/types/inventory"
+import type { StockLevel, Warehouse } from "@/types/inventory"
 import {
   adjustStockBulkApi,
   getItemsApi,
   getStockApi,
   getWarehousesApi,
-  setItemCabinsApi,
 } from "@/api/inventory"
 import { Field, Modal, ModalActions } from "@/pages/admin/components/common"
 
-/** One item, every active warehouse, one save.
- *
- *  Replaces both Stock.tsx's `AdjustModal` and Catalog.tsx's
- *  `ItemAdjustModal` — same endpoint transposed into a grid instead of a
- *  one-warehouse-at-a-time form, so stocking an item across several
- *  warehouses (or stocking it anywhere for the first time) is one save
- *  instead of N.
+/** One item, active warehouse(s), one save.
  *
  *  A blank cell means "not stocked here, don't touch it"; a typed `0` means
  *  "stocked here and currently out" — the two states this exists to keep
  *  apart. Only cells that actually changed are sent.
  *
- *  `itemId` omitted (Stock.tsx's standalone "Record a count" button) shows
- *  an item picker first; passed in (either page's per-item "Adjust") skips
- *  straight to the grid.
+ *  `itemId` omitted shows an item picker first; passed in skips straight to
+ *  the grid. If `warehouseId` is passed, scopes specifically to that warehouse.
  */
 export function StockCountModal({
   itemId: fixedItemId,
@@ -41,7 +32,6 @@ export function StockCountModal({
   const queryClient = useQueryClient()
   const [itemId, setItemId] = useState(fixedItemId ?? "")
   const [values, setValues] = useState<Record<string, string>>({})
-  const [selectedCabins, setSelectedCabins] = useState<Record<string, string>>({})
   const [reason, setReason] = useState("")
   const [error, setError] = useState("")
 
@@ -70,24 +60,10 @@ export function StockCountModal({
   }, [warehouses, warehouseId])
   const stockList = stock ?? []
 
-  // Switching items (the standalone picker) starts the grid over — another
-  // item's typed values are meaningless once the item underneath changes.
+  // Switching items (the standalone picker) starts the grid over
   useEffect(() => {
     setValues({})
-    setSelectedCabins({})
   }, [itemId])
-
-  // Populate initial cabin assignments from existing stock levels
-  useEffect(() => {
-    if (!stock || stock.length === 0) return
-    const map: Record<string, string> = {}
-    for (const s of stock) {
-      if (s.cabins && s.cabins.length > 0) {
-        map[s.warehouse_id] = s.cabins[0].cabin_id
-      }
-    }
-    setSelectedCabins(map)
-  }, [stock])
 
   const stockByWarehouse = useMemo(() => {
     const map: Record<string, number> = {}
@@ -96,8 +72,7 @@ export function StockCountModal({
   }, [stockList])
 
   // A location with exactly one warehouse shows just the location name and
-  // no second picker — the pattern already proven for cohorts/sessions
-  // (`_resolve_effective_warehouse`), just applied to the read side here.
+  // no second picker — the pattern already proven for cohorts/sessions.
   const groups = useMemo(() => {
     const byLocation: Record<string, { name: string; warehouses: Warehouse[] }> = {}
     for (const w of warehouseList) {
@@ -124,30 +99,14 @@ export function StockCountModal({
     [],
   ), [warehouseList, values, stockByWarehouse, itemId])
 
-  const hasCabinChanges = warehouseList.some((w) => {
-    const oldCabin = stockList.find((s) => s.warehouse_id === w.id)?.cabins?.[0]?.cabin_id ?? ""
-    const newCabin = selectedCabins[w.id] ?? ""
-    return newCabin !== oldCabin
-  })
-
   const mutation = useMutation({
     mutationFn: async () => {
       if (changedLevels.length > 0) {
         await adjustStockBulkApi({ reason: reason.trim() || "Count update", levels: changedLevels })
       }
-      for (const w of warehouseList) {
-        const oldCabin = stockList.find((s) => s.warehouse_id === w.id)?.cabins?.[0]?.cabin_id ?? ""
-        const newCabin = selectedCabins[w.id] ?? ""
-        if (newCabin !== oldCabin) {
-          const payload = newCabin ? [{ cabin_id: newCabin, is_primary: true }] : []
-          await setItemCabinsApi(w.id, itemId, payload)
-        }
-      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inv-stock"] })
-      queryClient.invalidateQueries({ queryKey: ["inv-warehouse-cabins"] })
-      queryClient.invalidateQueries({ queryKey: ["inv-item-cabins"] })
       onClose()
     },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not record that"),
@@ -190,10 +149,7 @@ export function StockCountModal({
                   }
                   current={stockByWarehouse[g.warehouses[0].id]}
                   value={values[g.warehouses[0].id] ?? (stockByWarehouse[g.warehouses[0].id]?.toString() ?? "")}
-                  cabins={g.warehouses[0].cabins ?? []}
-                  selectedCabinId={selectedCabins[g.warehouses[0].id] ?? ""}
                   onChange={(v) => setValues((prev) => ({ ...prev, [g.warehouses[0].id]: v }))}
-                  onCabinChange={(cid) => setSelectedCabins((prev) => ({ ...prev, [g.warehouses[0].id]: cid }))}
                 />
               ) : (
                 <div key={g.name} className="px-4 py-2.5">
@@ -205,10 +161,7 @@ export function StockCountModal({
                         label={w.name}
                         current={stockByWarehouse[w.id]}
                         value={values[w.id] ?? (stockByWarehouse[w.id]?.toString() ?? "")}
-                        cabins={w.cabins ?? []}
-                        selectedCabinId={selectedCabins[w.id] ?? ""}
                         onChange={(v) => setValues((prev) => ({ ...prev, [w.id]: v }))}
-                        onCabinChange={(cid) => setSelectedCabins((prev) => ({ ...prev, [w.id]: cid }))}
                       />
                     ))}
                   </div>
@@ -235,8 +188,8 @@ export function StockCountModal({
           onCancel={onClose}
           onConfirm={() => {
             setError("")
-            if (changedLevels.length === 0 && !hasCabinChanges) {
-              setError("Change at least one warehouse's count or cabin")
+            if (changedLevels.length === 0) {
+              setError("Change at least one warehouse's count")
               return
             }
             if (changedLevels.length > 0 && !reason.trim()) {
@@ -247,11 +200,7 @@ export function StockCountModal({
           }}
           loading={mutation.isPending}
           disabled={!itemId}
-          label={
-            changedLevels.length || hasCabinChanges
-              ? `Save changes`
-              : "Save"
-          }
+          label={changedLevels.length ? "Save changes" : "Save"}
         />
       </div>
     </Modal>
@@ -262,44 +211,19 @@ function CountRow({
   label,
   current,
   value,
-  cabins,
-  selectedCabinId,
   onChange,
-  onCabinChange,
 }: {
   label: string
   current?: number
   value: string
-  cabins: WarehouseCabin[]
-  selectedCabinId: string
   onChange: (v: string) => void
-  onCabinChange: (cid: string) => void
 }) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-4 py-2.5">
+    <div className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/20 transition-colors">
       <div className="min-w-0 flex-1">
-        <span className="text-sm font-medium text-foreground truncate">{label}</span>
-        {cabins.length > 0 && (
-          <div className="flex items-center gap-1.5 mt-1">
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <MapPin size={11} className="text-primary" /> Cabin:
-            </span>
-            <select
-              value={selectedCabinId}
-              onChange={(e) => onCabinChange(e.target.value)}
-              className="h-7 px-2 text-xs border border-border bg-background text-foreground rounded-lg cursor-pointer focus:outline-none focus:border-primary max-w-[200px]"
-            >
-              <option value="">None (unassigned)</option>
-              {cabins.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <span className="text-sm font-semibold text-foreground truncate block">{label}</span>
       </div>
-      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+      <div className="flex items-center gap-3 shrink-0">
         <span className="text-xs text-muted-foreground w-28 text-right truncate">
           {current === undefined ? "not stocked here" : `was ${current}`}
         </span>
@@ -309,7 +233,7 @@ function CountRow({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder="—"
-          className="w-20 h-8 px-2 border border-border bg-background text-foreground rounded-lg text-sm text-right"
+          className="w-20 h-9 px-2.5 border border-border bg-background text-foreground rounded-xl text-sm text-right focus:outline-none focus:border-primary shadow-xs"
         />
       </div>
     </div>
