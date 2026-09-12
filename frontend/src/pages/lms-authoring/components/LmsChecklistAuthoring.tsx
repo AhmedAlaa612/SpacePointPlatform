@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from "react"
+import { Fragment, useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Plus, X, GripVertical, ImagePlus, Users, Crop } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
@@ -301,9 +301,16 @@ export function ChecklistItemsEditor({
   // cleared once the reorder call resolves, at which point `items` itself
   // should already reflect the new order.
   const [order, setOrder] = useState<string[] | null>(null)
+  const [reordering, setReordering] = useState(false)
   const displayItems = order
     ? order.map((id) => items.find((i) => i.id === id)).filter((i): i is LmsProgramItem => !!i)
     : items
+
+  const applyNewOrder = (ids: string[]) => {
+    setOrder(ids)
+    setReordering(true)
+    void onReorder(ids).then(() => setOrder(null)).catch(() => setOrder(null)).finally(() => setReordering(false))
+  }
 
   const dropOnto = (targetId: string) => {
     if (!dragId || dragId === targetId) { setDragId(null); return }
@@ -313,8 +320,22 @@ export function ChecklistItemsEditor({
     setDragId(null)
     if (from === -1 || to === -1) return
     ids.splice(to, 0, ids.splice(from, 1)[0])
-    setOrder(ids)
-    void onReorder(ids).then(() => setOrder(null)).catch(() => setOrder(null))
+    applyNewOrder(ids)
+  }
+
+  // Order-number field (mobile-friendly alternative to drag-and-drop) —
+  // computes the full id list for the typed 1-based position and reuses
+  // the same single-transaction `onReorder` call, so no backend change is
+  // needed. Out-of-range values clamp, same-position is a no-op.
+  const moveToPosition = (itemId: string, targetPos: number) => {
+    if (!Number.isFinite(targetPos)) return
+    const ids = displayItems.map((i) => i.id)
+    const from = ids.indexOf(itemId)
+    if (from === -1) return
+    const clamped = Math.min(Math.max(Math.round(targetPos), 1), ids.length)
+    if (clamped - 1 === from) return
+    ids.splice(clamped - 1, 0, ids.splice(from, 1)[0])
+    applyNewOrder(ids)
   }
 
   // Roadmap board (2026-09) — every checkpoint_label already used on this
@@ -354,7 +375,8 @@ export function ChecklistItemsEditor({
 
       {displayItems.map((item, index) => (
         <ItemRow
-          key={item.id} item={item} index={index + 1} onUpdate={onUpdate} onDelete={onDelete}
+          key={item.id} item={item} index={index + 1} totalCount={displayItems.length}
+          onUpdate={onUpdate} onDelete={onDelete}
           onUploadPdf={onUploadPdf} onRemovePdf={onRemovePdf}
           onUploadGuidelineVideo={onUploadGuidelineVideo} onRemoveGuidelineVideo={onRemoveGuidelineVideo}
           onPreviewGuidelineVideo={() => setPreviewItem(item)}
@@ -365,6 +387,8 @@ export function ChecklistItemsEditor({
           onDragStartRow={() => setDragId(item.id)}
           onDropRow={() => dropOnto(item.id)}
           onDragEndRow={() => setDragId(null)}
+          onMoveToPosition={readOnly ? undefined : (pos) => moveToPosition(item.id, pos)}
+          reorderBusy={reordering}
         />
       ))}
 
@@ -425,14 +449,57 @@ export function ChecklistItemsEditor({
   )
 }
 
+/** Editable 1-based order number — the mobile-friendly alternative to
+ * drag-and-drop. Commits on blur/Enter, reverts on Escape or invalid input. */
+function OrderNumberInput({
+  value, totalCount, disabled, onCommit,
+}: {
+  value: number
+  totalCount: number
+  disabled?: boolean
+  onCommit: (pos: number) => void
+}) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => { setText(String(value)) }, [value])
+  const commit = () => {
+    const parsed = Number.parseInt(text, 10)
+    if (!Number.isFinite(parsed)) { setText(String(value)); return }
+    if (parsed === value) { setText(String(value)); return }
+    onCommit(parsed)
+    setText(String(value))
+  }
+  return (
+    <input
+      type="number"
+      aria-label="Step order number"
+      title={`Step order (1–${totalCount}) — type a number to move this step`}
+      value={text}
+      min={1}
+      max={totalCount}
+      inputMode="numeric"
+      disabled={disabled}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.target as HTMLInputElement).blur()
+        if (e.key === "Escape") { setText(String(value)); (e.target as HTMLInputElement).blur() }
+      }}
+      onClick={(e) => e.stopPropagation()}
+      className="w-11 h-7 px-1 border border-border bg-background text-foreground rounded-lg text-xs font-semibold text-center focus:outline-none focus:border-primary transition-colors disabled:opacity-50 shrink-0"
+    />
+  )
+}
+
 export function ItemRow({
-  item, index, onUpdate, onDelete, onUploadPdf, onRemovePdf, onUploadGuidelineVideo, onRemoveGuidelineVideo,
+  item, index, totalCount, onUpdate, onDelete, onUploadPdf, onRemovePdf, onUploadGuidelineVideo, onRemoveGuidelineVideo,
   onPreviewGuidelineVideo,
   readOnly, cohortId, checkpointLabels,
   draggable, isDragging, onDragStartRow, onDropRow, onDragEndRow,
+  onMoveToPosition, reorderBusy,
 }: {
   item: LmsProgramItem
   index?: number
+  totalCount?: number
   onUpdate: (itemId: string, data: LmsProgramItemInput) => Promise<unknown>
   onDelete: (itemId: string) => Promise<unknown>
   // Optional — the mission-run-only list (ProgramMissionsPanel) never
@@ -450,6 +517,8 @@ export function ItemRow({
   onDragStartRow?: () => void
   onDropRow?: () => void
   onDragEndRow?: () => void
+  onMoveToPosition?: (pos: number) => void
+  reorderBusy?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [pdfBusy, setPdfBusy] = useState(false)
@@ -487,8 +556,17 @@ export function ItemRow({
         isDragging ? "opacity-40 border-primary" : "border-border"
       } ${draggable ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
-      <GripVertical size={14} className="text-muted-foreground shrink-0" />
-      <span className="text-xs font-semibold text-muted-foreground w-5 text-center shrink-0">{index ?? item.position}</span>
+      <GripVertical size={14} className="text-muted-foreground shrink-0 hidden sm:block" />
+      {onMoveToPosition && totalCount && totalCount > 1 ? (
+        <OrderNumberInput
+          value={index ?? item.position}
+          totalCount={totalCount}
+          disabled={reorderBusy}
+          onCommit={onMoveToPosition}
+        />
+      ) : (
+        <span className="text-xs font-semibold text-muted-foreground w-5 text-center shrink-0">{index ?? item.position}</span>
+      )}
       <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 text-primary">
         <Icon size={13} />
       </div>
