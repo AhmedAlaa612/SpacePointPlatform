@@ -529,12 +529,14 @@ class LmsProgramCreate(BaseModel):
     name: str
     description: str | None = None
     certificate_required: bool = True
+    poster_template_url: str | None = None
 
 
 class LmsProgramUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     certificate_required: bool | None = None
+    poster_template_url: str | None = None
 
 
 class LmsProgramOut(BaseModel):
@@ -544,6 +546,7 @@ class LmsProgramOut(BaseModel):
     name: str
     description: str | None
     certificate_required: bool
+    poster_template_url: str | None = None
     image_url: str | None = None
     items: list[LmsProgramItemOut] = []
 
@@ -558,7 +561,13 @@ class LmsProgramCohortEffectiveOut(BaseModel):
     cohort_id: UUID
     lms_program_id: UUID
     is_inherited: bool
+    poster_template_url: str | None = None
+    inherited_poster_template_url: str | None = None
     items: list[LmsProgramItemOut] = []
+
+
+class CohortPosterTemplateIn(BaseModel):
+    poster_template_url: str | None = None
 
 
 # ── learning paths (self-paced ordered course sequences, 2026-08-08) ───────

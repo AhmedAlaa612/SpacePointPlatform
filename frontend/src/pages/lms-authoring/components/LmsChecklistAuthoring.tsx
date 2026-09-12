@@ -1,17 +1,18 @@
 import { Fragment, useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Plus, X, GripVertical, ImagePlus, Users, Crop } from "lucide-react"
+import { Plus, X, GripVertical, ImagePlus, Users, Crop, ExternalLink } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { VideoPlayer } from "@/components/video/VideoPlayer"
 import { useToast } from "@/components/ui/toast"
+import { ensureAbsoluteUrl } from "@/lib/utils"
 import { getSessionsApi } from "@/api/sessions/cohorts"
 import { listCoursesApi } from "@/api/lms_admin"
 import { listMissionsAdminFullApi } from "@/api/missions_admin"
 import { listCohortQuizTemplatesApi } from "@/api/cohort_quiz"
 import {
-  updateLmsProgramApi, uploadLmsProgramImageApi,
+  updateLmsProgramApi, uploadLmsProgramImageApi, updateCohortPosterTemplateApi,
   addLmsProgramItemApi, updateLmsProgramItemApi, deleteLmsProgramItemApi, reorderLmsProgramItemsApi,
   getCohortProgramOverrideApi, addCohortOverrideItemApi, updateCohortOverrideItemApi, deleteCohortOverrideItemApi,
   reorderCohortOverrideItemsApi, getCohortProgramOverrideInstructorApi, resyncCohortProgramAssignmentsApi,
@@ -103,6 +104,11 @@ export function ProgramTemplateEditor({
     await imageMutation.mutateAsync(croppedFile)
   }
 
+  const updatePosterTemplate = useMutation({
+    mutationFn: (url: string | null) => updateLmsProgramApi(program.id, { poster_template_url: url }),
+    onSuccess: onChanged,
+  })
+
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-start gap-4">
@@ -183,6 +189,51 @@ export function ProgramTemplateEditor({
         </button>
       </div>
 
+      <div className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <div className="text-sm font-medium">Mission Poster Template URL</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Default template URL (Canva, Google Slides, Figma, etc.) shared with all cohorts unless overridden
+            </div>
+          </div>
+          {program.poster_template_url && (
+            <a
+              href={ensureAbsoluteUrl(program.poster_template_url)}
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-primary hover:underline flex items-center gap-1 shrink-0"
+            >
+              Open template <ExternalLink size={12} />
+            </a>
+          )}
+        </div>
+        {!readOnly && (
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="url"
+              defaultValue={program.poster_template_url ?? ""}
+              key={program.poster_template_url ?? ""}
+              placeholder="https://canva.com/design/..."
+              className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  const val = (e.target as HTMLInputElement).value.trim()
+                  updatePosterTemplate.mutate(val || null)
+                }
+              }}
+              onBlur={(e) => {
+                const val = e.target.value.trim()
+                if (val !== (program.poster_template_url ?? "")) {
+                  updatePosterTemplate.mutate(val || null)
+                }
+              }}
+            />
+          </div>
+        )}
+      </div>
+
       <ChecklistItemsEditor
         items={program.items}
         readOnly={readOnly}
@@ -227,14 +278,80 @@ export function CohortOverrideEditor({
     onError: () => toast.error("Couldn't resync students — try again."),
   })
 
+  const updateCohortPosterMutation = useMutation({
+    mutationFn: (url: string | null) => updateCohortPosterTemplateApi(cohortId, url),
+    onSuccess: () => {
+      toast.success("Cohort poster template updated")
+      invalidate()
+    },
+    onError: () => toast.error("Failed to update poster template"),
+  })
+
   if (isLoading) return <Spinner />
   if (!override) return <EmptyState title="This cohort's program has no checklist yet" />
+
+  const effectivePosterUrl = override.poster_template_url || override.inherited_poster_template_url
 
   return (
     <div className="flex flex-col gap-3">
       {override.is_inherited && (
         <div className="text-xs text-muted-foreground bg-muted/50 border border-border rounded-xl px-3 py-2">
           Showing the program's own checklist — {readOnly ? "nothing has been overridden for this cohort yet." : "edit anything below to start this cohort's own override."}
+        </div>
+      )}
+      {isStaff && !readOnly && (
+        <div className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-medium">Cohort Poster Template Override</div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                {override.inherited_poster_template_url
+                  ? "Inheriting default template from program. Set an override for this cohort below."
+                  : "Set a specific poster template for this cohort."}
+              </div>
+            </div>
+            {effectivePosterUrl && (
+              <a
+                href={ensureAbsoluteUrl(effectivePosterUrl)}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-primary hover:underline flex items-center gap-1 shrink-0"
+              >
+                Open template <ExternalLink size={12} />
+              </a>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="url"
+              defaultValue={override.poster_template_url ?? ""}
+              key={override.poster_template_url ?? ""}
+              placeholder={override.inherited_poster_template_url ? `Inherited: ${override.inherited_poster_template_url}` : "https://canva.com/design/..."}
+              className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  const val = (e.target as HTMLInputElement).value.trim()
+                  updateCohortPosterMutation.mutate(val || null)
+                }
+              }}
+              onBlur={(e) => {
+                const val = e.target.value.trim()
+                if (val !== (override.poster_template_url ?? "")) {
+                  updateCohortPosterMutation.mutate(val || null)
+                }
+              }}
+            />
+            {override.poster_template_url && (
+              <button
+                type="button"
+                onClick={() => updateCohortPosterMutation.mutate(null)}
+                className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 cursor-pointer"
+              >
+                Clear override
+              </button>
+            )}
+          </div>
         </div>
       )}
       {isStaff && !readOnly && !hideResync && (

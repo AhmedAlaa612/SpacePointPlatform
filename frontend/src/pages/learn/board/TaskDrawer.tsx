@@ -12,6 +12,7 @@ import { PdfViewer } from "@/components/documents/PdfViewer";
 import { VideoPlayer, type VideoPlaybackInfo } from "@/components/video/VideoPlayer";
 import { isKnownEmbedHost, toEmbedUrl } from "@/lib/embed";
 import { ensureAbsoluteUrl } from "@/lib/utils";
+import { useToast } from "@/components/ui/toast";
 import {
   iconForItem, MISSION_STEP_LABELS, navTargetFor, saveBoardScrollPosition, type MissionStepKey, type NavTarget,
 } from "./roadmap";
@@ -60,6 +61,8 @@ interface DrawerBodyProps {
   guidelineVideoInfo: VideoPlaybackInfo | null | undefined;
   isAutoTracked: boolean;
   isSubmission: boolean;
+  isPoster: boolean;
+  onOpenMadar?: () => void;
   isSelfCheck: boolean;
   done: boolean;
   awaiting: boolean;
@@ -94,8 +97,8 @@ interface DrawerBodyProps {
  * used to reach via closure is now an explicit prop instead. */
 function DrawerBody({
   item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
-  submissionReference, guidelineVideoUploaded, guidelineVideoInfo, isAutoTracked, isSubmission, isSelfCheck, done,
-  awaiting, canSubmit, pastDeadline, submitUrl, setSubmitUrl, submitMutation, Icon, completeMutation,
+  submissionReference, guidelineVideoUploaded, guidelineVideoInfo, isAutoTracked, isSubmission, isPoster, onOpenMadar,
+  isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl, setSubmitUrl, submitMutation, Icon, completeMutation,
 }: DrawerBodyProps) {
   return (
     <>
@@ -186,6 +189,29 @@ function DrawerBody({
         </div>
       )}
 
+      {/* Poster Template & Madar shortcuts */}
+      {isPoster && item.poster_template_url && (
+        <button
+          type="button"
+          onClick={() => window.open(ensureAbsoluteUrl(item.poster_template_url!), "_blank", "noreferrer")}
+          className="flex items-center justify-between gap-3 rounded-xl ring-1 ring-border p-4 text-left hover:bg-foreground/5 transition-colors cursor-pointer"
+        >
+          <span className="text-base font-semibold text-foreground">Open poster template</span>
+          <ExternalLink size={17} className="text-muted-foreground shrink-0" />
+        </button>
+      )}
+
+      {isPoster && onOpenMadar && (
+        <button
+          type="button"
+          onClick={onOpenMadar}
+          className="flex items-center justify-between gap-3 rounded-xl ring-1 ring-border p-4 text-left hover:bg-foreground/5 transition-colors cursor-pointer"
+        >
+          <span className="text-base font-semibold text-foreground">Go to Mission</span>
+          <ExternalLink size={17} className="text-muted-foreground shrink-0" />
+        </button>
+      )}
+
       {/* The item itself — what it actually is, distinct from its guide. */}
       {item.item_type === "external_link" && (
         <button
@@ -246,7 +272,7 @@ function DrawerBody({
           <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
           <a
             href={ensureAbsoluteUrl(item.submitted_url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-            className="text-primary hover:underline truncate max-w-full min-w-0"
+            className="text-primary hover:underline truncate max-w-full min-w-0 font-medium"
           >
             {item.submitted_url}
           </a>
@@ -266,11 +292,15 @@ function DrawerBody({
           </p>
         ) : (
           <div className="flex flex-col gap-2.5" onClick={(e) => e.stopPropagation()}>
-            {item.submission_prompt && <p className="text-sm text-muted-foreground">{item.submission_prompt}</p>}
+            {item.submission_prompt ? (
+              <p className="text-sm text-muted-foreground">{item.submission_prompt}</p>
+            ) : isPoster ? (
+              <p className="text-sm text-muted-foreground">Paste your poster link (Canva, Google Slides, Figma, etc.):</p>
+            ) : null}
             <input
               value={submitUrl || item.submitted_url || ""}
               onChange={(e) => setSubmitUrl(e.target.value)}
-              placeholder="Paste your link…"
+              placeholder={isPoster ? "https://..." : "Paste your link…"}
               disabled={!canSubmit}
               className="h-12 px-4 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
             />
@@ -292,7 +322,15 @@ function DrawerBody({
             onClick={() => submitMutation.mutate(submitUrl || item.submitted_url || "")}
             className="h-[52px] text-base"
           >
-            {submitMutation.isPending ? "Submitting…" : item.submitted_url ? "Replace submission" : "Submit for review"}
+            {submitMutation.isPending
+              ? "Submitting…"
+              : item.submitted_url
+              ? isPoster
+                ? "Update poster link"
+                : "Replace submission"
+              : isPoster
+              ? "Submit poster"
+              : "Submit for review"}
           </Button>
         )}
         {isSelfCheck && !done && !awaiting && (
@@ -369,13 +407,29 @@ export function TaskDrawer({
   });
   const guidelineVideoInfo = guidelineVideoResult?.video_info;
 
+  const toast = useToast();
+  const isPoster = item?.mission_step_key === "poster";
   const completeMutation = useMutation({
     mutationFn: () => completeChecklistItem(assignmentId, item!.id),
-    onSuccess: () => { onChanged(); queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] }); },
+    onSuccess: () => {
+      toast.success("Task completed!");
+      onChanged();
+      queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to complete item.");
+    },
   });
   const submitMutation = useMutation({
     mutationFn: (url: string) => submitChecklistItem(assignmentId, item!.id, url),
-    onSuccess: () => { onChanged(); queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] }); },
+    onSuccess: () => {
+      toast.success(isPoster ? "Poster link saved successfully!" : "Submission received!");
+      onChanged();
+      queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to submit. Please check your link.");
+    },
   });
 
   if (!item) return null;
@@ -414,11 +468,23 @@ export function TaskDrawer({
   const submissionReference = item.item_type === "submission" && item.external_url ? item.external_url : null;
 
   const hasGuideline = !!effectiveGuidelineKind;
-  const isAutoTracked = item.item_type === "course" || item.item_type === "mission_run" || item.item_type === "quiz";
-  const isSubmission = item.item_type === "submission";
+  const isAutoTracked = (item.item_type === "course" || item.item_type === "mission_run" || item.item_type === "quiz") && !isPoster;
+  const isSubmission = item.item_type === "submission" || isPoster;
   const isSelfCheck = SELF_CHECK_TYPES.has(item.item_type);
   const done = item.status === "done";
   const awaiting = item.status === "awaiting_confirmation";
+
+  const onOpenMadar = isPoster && (item.mission_attempt_id || item.mission_id) ? () => {
+    saveBoardScrollPosition(assignmentId);
+    if (item.mission_attempt_id) {
+      void navigate({
+        to: `/learn/missions/design/${item.mission_attempt_id}`,
+        search: { phase: "poster", program: assignmentId } as never,
+      });
+    } else if (item.mission_id) {
+      void navigate({ to: `/learn/missions/${item.mission_id}` });
+    }
+  } : undefined;
 
   const workLabel =
     target.kind === "course" ? "Open the course" :
@@ -430,14 +496,14 @@ export function TaskDrawer({
 
   const canSubmit = !hasGuideline || guidelineOpened;
   // Once the deadline passes, the paste-link form is hidden — already
-  // submitted content above stays visible/reviewable.
-  const pastDeadline = !!item.deadline_at && new Date(item.deadline_at) < new Date();
+  // submitted content above stays visible/reviewable. Posters remain editable anytime.
+  const pastDeadline = !isPoster && !!item.deadline_at && new Date(item.deadline_at) < new Date();
   const Icon = iconForItem(item);
 
   const bodyProps: DrawerBodyProps = {
     item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
     submissionReference, guidelineVideoUploaded: !!item.guideline_video_uploaded, guidelineVideoInfo, isAutoTracked,
-    isSubmission, isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl,
+    isSubmission, isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl,
     setSubmitUrl, submitMutation, Icon, completeMutation,
   };
 

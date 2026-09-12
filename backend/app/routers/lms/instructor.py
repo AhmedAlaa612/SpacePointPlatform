@@ -26,6 +26,7 @@ from app.models.lms.course import Course
 from app.models.lms.enrollment import Enrollment
 from app.models.lms.program import LmsProgram, LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.user import User
 from app.routers.lms.admin import enrollment_admin_out, program_out
@@ -229,8 +230,27 @@ async def cohort_program_override(
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort's program has no LMS checklist yet")
     program, items, is_inherited = resolved
+    cohort = await db.get(Cohort, cohort_id)
+    cohort_poster_url = cohort.poster_template_url if cohort else None
+    inherited_poster_url = None
+    if cohort and cohort.program_id:
+        sp = await db.get(Program, cohort.program_id)
+        if sp and sp.poster_template_url:
+            inherited_poster_url = sp.poster_template_url
+    if not inherited_poster_url and program.poster_template_url:
+        inherited_poster_url = program.poster_template_url
+    if not inherited_poster_url and program.program_id:
+        sp2 = await db.get(Program, program.program_id)
+        if sp2 and sp2.poster_template_url:
+            inherited_poster_url = sp2.poster_template_url
+
     return LmsProgramCohortEffectiveOut(
-        cohort_id=cohort_id, lms_program_id=program.id, is_inherited=is_inherited, items=await items_out(db, items),
+        cohort_id=cohort_id,
+        lms_program_id=program.id,
+        is_inherited=is_inherited,
+        items=await items_out(db, items),
+        poster_template_url=cohort_poster_url,
+        inherited_poster_template_url=inherited_poster_url,
     )
 
 

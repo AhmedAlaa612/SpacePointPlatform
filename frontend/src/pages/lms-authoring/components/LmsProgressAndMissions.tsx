@@ -535,7 +535,8 @@ function AssignmentItemRow({
 
   const isDone = item.status === "done"
   const isAwaiting = item.status === "awaiting_confirmation"
-  const hasActions = Boolean(item.submitted_url || canViewRun || (isQuiz && (isDone || cohortId)))
+  const isPoster = item.mission_step_key === "poster"
+  const hasActions = Boolean(item.submitted_url || canViewRun || (isQuiz && (isDone || cohortId)) || isPoster)
 
   return (
     <div className="flex flex-col gap-2">
@@ -555,8 +556,13 @@ function AssignmentItemRow({
             </div>
           )}
 
-          <div className="text-sm font-medium sm:font-semibold text-foreground flex-1 min-w-0 break-words sm:truncate">
-            {item.title}
+          <div className="text-sm font-medium sm:font-semibold text-foreground flex-1 min-w-0 break-words sm:truncate flex items-center gap-2">
+            <span>{item.title}</span>
+            {isPoster && (
+              <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded border border-purple-500/30 bg-purple-500/10 text-purple-400 shrink-0">
+                Poster
+              </span>
+            )}
           </div>
 
           <span className={`text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md shrink-0 sm:hidden ${
@@ -569,16 +575,20 @@ function AssignmentItemRow({
         <div className="flex items-center gap-2 flex-wrap shrink-0 justify-end sm:justify-start">
           {hasActions && (
             <div className="flex items-center gap-2 flex-wrap shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-border/30">
-              {item.submitted_url && (
+              {item.submitted_url ? (
                 <a
                   href={ensureAbsoluteUrl(item.submitted_url)}
                   target="_blank"
                   rel="noreferrer"
                   className="h-8 px-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-bold flex items-center gap-1.5 hover:bg-primary/20 transition-colors shrink-0"
                 >
-                  <ExternalLink size={13} /> Submission
+                  <ExternalLink size={13} /> {isPoster ? "View Poster" : "Submission"}
                 </a>
-              )}
+              ) : isPoster ? (
+                <span className="h-8 px-2.5 rounded-lg border border-border/60 bg-muted/40 text-muted-foreground text-xs font-medium flex items-center gap-1.5 shrink-0">
+                  No poster submitted yet
+                </span>
+              ) : null}
 
               {canViewRun && (
                 <Button

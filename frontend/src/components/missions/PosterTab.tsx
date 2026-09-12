@@ -19,6 +19,7 @@ import { Image as ImageIcon, X } from "lucide-react";
 import type { DesignState } from "@/api/missionsDesign";
 import { updateDesign } from "@/api/missionsDesign";
 import { ensureAbsoluteUrl } from "@/lib/utils";
+import { useToast } from "@/components/ui/toast";
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err)) {
@@ -29,22 +30,33 @@ function errorDetail(err: unknown, fallback: string): string {
   return fallback;
 }
 
-export default function PosterTab({ state, attemptId, onSaved }: {
-  state: DesignState; attemptId: string; onSaved: (s: DesignState) => void;
+export default function PosterTab({
+  state, attemptId, onSaved, initialOpen,
+}: {
+  state: DesignState; attemptId: string; onSaved: (s: DesignState) => void; initialOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const toast = useToast();
+  const [open, setOpen] = useState(initialOpen ?? false);
   const [posterUrl, setPosterUrl] = useState(state.poster_url ?? "");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
 
   const save = async () => {
+    if (!posterUrl.trim()) {
+      setSaveError("Please enter a valid URL for your poster.");
+      return;
+    }
     setSaving(true);
     setSaveError("");
     try {
-      const next = await updateDesign(attemptId, { poster_url: posterUrl });
+      const next = await updateDesign(attemptId, { poster_url: posterUrl.trim() });
+      toast.success("Poster link saved successfully!");
+      setOpen(false);
       onSaved(next);
     } catch (err) {
-      setSaveError(errorDetail(err, "Couldn't save your poster link."));
+      const msg = errorDetail(err, "Couldn't save your poster link.");
+      setSaveError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }

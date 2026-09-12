@@ -387,6 +387,7 @@ export const MISSION_STEP_KEYS: { value: string; label: string }[] = [
   { value: "link_budget", label: "Link budget" },
   { value: "cost_budget", label: "Cost budget" },
   { value: "report", label: "Report" },
+  { value: "poster", label: "Mission poster" },
 ];
 
 export interface LmsProgramItemInput {
@@ -421,6 +422,7 @@ export interface LmsProgram {
   name: string;
   description: string | null;
   certificate_required: boolean;
+  poster_template_url?: string | null;
   image_url: string | null;
   items: LmsProgramItem[];
 }
@@ -433,19 +435,23 @@ export interface LmsProgramCohortEffective {
    * per-cohort override server-side (2026-08-22); the UI doesn't need to
    * call anything extra for that, just edit and refetch. */
   is_inherited: boolean;
+  poster_template_url?: string | null;
+  inherited_poster_template_url?: string | null;
   items: LmsProgramItem[];
 }
 
 export const listLmsProgramsApi = (programId?: string) =>
   api.get<LmsProgram[]>("/lms/admin/programs", { params: programId ? { program_id: programId } : undefined }).then((r) => r.data);
-export const createLmsProgramApi = (data: { program_id?: string | null; name: string; description?: string | null; certificate_required?: boolean }) =>
+export const createLmsProgramApi = (data: { program_id?: string | null; name: string; description?: string | null; certificate_required?: boolean; poster_template_url?: string | null }) =>
   api.post<LmsProgram>("/lms/admin/programs", data).then((r) => r.data);
 export const getLmsProgramApi = (id: string) =>
   api.get<LmsProgram>(`/lms/admin/programs/${id}`).then((r) => r.data);
-export const updateLmsProgramApi = (id: string, data: Partial<{ name: string; description: string | null; certificate_required: boolean }>) =>
+export const updateLmsProgramApi = (id: string, data: Partial<{ name: string; description: string | null; certificate_required: boolean; poster_template_url: string | null }>) =>
   api.patch<LmsProgram>(`/lms/admin/programs/${id}`, data).then((r) => r.data);
 export const deleteLmsProgramApi = (id: string) =>
   api.delete<void>(`/lms/admin/programs/${id}`).then((r) => r.data);
+export const updateCohortPosterTemplateApi = (cohortId: string, posterTemplateUrl: string | null) =>
+  api.patch<LmsProgramCohortEffective>(`/lms/admin/cohorts/${cohortId}/poster-template`, { poster_template_url: posterTemplateUrl }).then((r) => r.data);
 export const uploadLmsProgramImageApi = (id: string, file: File) => {
   const form = new FormData();
   form.append("file", file);
@@ -568,6 +574,7 @@ export interface LmsAssignmentItemDetail {
   completed_at: string | null;
   mission_attempt_id: string | null;
   confirmed_by_user_id: string | null;
+  mission_step_key?: string | null;
 }
 
 export const getAssignmentItemsApi = (cohortId: string, assignmentId: string) =>

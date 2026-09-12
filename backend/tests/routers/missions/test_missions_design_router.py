@@ -499,7 +499,7 @@ async def test_update_design_accepts_poster_url_when_cohort_ends_in_the_future(d
 
 
 @pytest.mark.asyncio
-async def test_update_design_rejects_poster_url_after_cohort_ends(db, client):
+async def test_update_design_allows_poster_url_after_cohort_ends(db, client):
     author = await _user(db, roles=["operations"])
     mission, variant = await _design_mission(db, author=author)
     cohort = await _cohort(db, ends_on=date.today() - timedelta(days=1))
@@ -512,11 +512,10 @@ async def test_update_design_rejects_poster_url_after_cohort_ends(db, client):
         f"/missions/design/attempts/{attempt_id}",
         headers=_headers(student), json={"poster_url": "https://canva.com/design/my-copy"},
     )
-    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST, resp.text
-    assert "ended" in resp.json()["detail"].lower()
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["poster_url"] == "https://canva.com/design/my-copy"
 
-    # A field-only PATCH untouched by the deadline (e.g. design_name) still
-    # goes through fine on the same past-deadline cohort.
+    # A field-only PATCH untouched by the deadline (e.g. design_name) also goes through fine
     other = await client.patch(
         f"/missions/design/attempts/{attempt_id}",
         headers=_headers(student), json={"design_name": "Renamed"},

@@ -39,6 +39,7 @@ from app.models.lms.program import (
 from app.models.missions.design import Design
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
 from app.models.sessions.registration import Registration
 from app.models.team import Team, TeamMember
 from app.models.user import User
@@ -62,13 +63,13 @@ AUTO_TRACKED_TYPES = {"course", "mission_run", "quiz"}
 # Roadmap board (2026-09) — the vocabulary a `mission_run` item's
 # `mission_step_key` can name. Eight of these mirror
 # `services/lms/admin_progress.py::DESIGN_STEP_LABELS` exactly (the real
-# Madar design phases); `setup` and `report` aren't in that vocabulary —
+# Madar design phases); `setup`, `report` and `poster` aren't in that vocabulary —
 # they're wizard tabs with no gate/selection row of their own, so their
 # completion is inferred (see `_mission_run_item_done`) rather than read
 # off `dashboard.steps`.
 MISSION_STEP_KEYS: frozenset[str] = frozenset({
     "setup", "components", "conops", "power_budget",
-    "mass_budget", "data_budget", "link_budget", "cost_budget", "report",
+    "mass_budget", "data_budget", "link_budget", "cost_budget", "report", "poster",
 })
 
 GUIDELINE_KINDS: frozenset[str] = frozenset({"pdf", "link", "video"})
@@ -798,6 +799,8 @@ async def _design_dashboard_for_attempt(
     # (DesignMissionPage.tsx's SetupTab), so "has one" is a real signal,
     # unlike `design_name` which always starts pre-filled ("My CubeSat").
     dash["_setup_done"] = design.design_objective is not None
+    dash["_poster_done"] = bool(design.poster_url and design.poster_url.strip())
+    dash["_poster_url"] = design.poster_url
     # Self-check (2026-09) — the step keys the student has explicitly
     # confirmed via POST .../steps/{step_key}/confirm (routers/missions/
     # design.py), piggybacked here for the same reason `_setup_done` is:
@@ -827,6 +830,8 @@ async def _mission_run_item_done(
         # Complete-button flow (it's a summary of the other steps, not a
         # step a student "finishes" on its own terms).
         return dash["all_valid"]
+    if mission_step_key == "poster":
+        return dash["_poster_done"]
     # Every other step — 'setup' included — now needs BOTH its own
     # requirements met AND the student's explicit self-check confirmation.
     # `is_valid` alone used to be enough, so a tile flipped to done the
@@ -961,6 +966,45 @@ async def certificate_gate_satisfied(db: AsyncSession, *, cohort_id: uuid.UUID, 
         if status != "done":
             return False
     return True
+
+
+async def resolve_effective_poster_template_url(
+    db: AsyncSession,
+    *,
+    cohort: Cohort | None = None,
+    cohort_id: uuid.UUID | None = None,
+    lms_program: LmsProgram | None = None,
+    lms_program_id: uuid.UUID | None = None,
+) -> str | None:
+    """Resolves the effective poster template URL following the inheritance chain:
+    Cohort override -> Sessions Program (via Cohort) -> LMS Program -> Sessions Program (via LMS Program).
+    """
+    if cohort is None and cohort_id is not None:
+        cohort = await db.get(Cohort, cohort_id)
+    if cohort is not None and cohort.poster_template_url:
+        return cohort.poster_template_url
+
+    if cohort is not None and cohort.program_id is not None:
+        sessions_prog = await db.get(Program, cohort.program_id)
+        if sessions_prog and sessions_prog.poster_template_url:
+            return sessions_prog.poster_template_url
+
+    if lms_program is None and lms_program_id is not None:
+        lms_program = await db.get(LmsProgram, lms_program_id)
+    elif lms_program is None and cohort is not None and cohort.program_id is not None:
+        lms_program = await db.scalar(
+            select(LmsProgram).where(LmsProgram.program_id == cohort.program_id)
+        )
+
+    if lms_program is not None:
+        if lms_program.poster_template_url:
+            return lms_program.poster_template_url
+        if lms_program.program_id is not None:
+            sessions_prog = await db.get(Program, lms_program.program_id)
+            if sessions_prog and sessions_prog.poster_template_url:
+                return sessions_prog.poster_template_url
+
+    return None
 
 
 async def _certificate_earned(db: AsyncSession, registration_id: uuid.UUID | None) -> bool:
@@ -1114,6 +1158,9 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     if program is None:
         return None
     cohort = await db.get(Cohort, assignment.cohort_id) if assignment.cohort_id else None
+    effective_poster_template_url = await resolve_effective_poster_template_url(
+        db, cohort=cohort, lms_program=program,
+    )
 
     pairs = await _assignment_items_and_progress(db, assignment_id)
     mission_ids = {item.mission_id for item, _ in pairs if item.mission_id}
@@ -1170,6 +1217,10 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         )
         statuses[item.id] = status
         submitted_url = team_progress.submitted_url if team_progress is not None else progress.submitted_url
+        if item.item_type == "mission_run" and progress.mission_attempt_id:
+            dash = await _design_dashboard_for_attempt(db, mission_attempt_id=progress.mission_attempt_id, cache=dashboard_cache)
+            if dash and dash.get("_poster_url") and (item.mission_step_key == "poster" or not submitted_url):
+                submitted_url = dash["_poster_url"]
         updated_at = team_progress.updated_at if team_progress is not None else progress.updated_at
         updated_by_name = (
             updater_names.get(team_progress.updated_by_user_id)
@@ -1204,6 +1255,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "guideline_kind": item.guideline_kind, "guideline_url": guideline_url,
             "guideline_video_uploaded": guideline_video_uploaded,
             "checkpoint_label": item.checkpoint_label,
+            "poster_template_url": effective_poster_template_url if item.mission_step_key == "poster" else None,
         })
 
     locked_by_item = compute_lock_states([item for item, _ in pairs], statuses)
@@ -1213,6 +1265,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         "assignment_id": assignment.id, "lms_program_id": program.id, "name": program.name,
         "description": program.description,
         "image_url": await storage.resolve_url(program.image_bucket, program.image_path),
+        "poster_template_url": effective_poster_template_url,
         "cohort_id": assignment.cohort_id,
         "cohort_name": cohort.name if cohort else None,
         # Only meaningful once any item is team-scoped — resolved from the
@@ -1403,11 +1456,18 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
             submitted_url = progress.submitted_url
             completed_at = progress.completed_at
             confirmed_by_user_id = progress.confirmed_by_user_id
+
+        if item.item_type == "mission_run" and progress.mission_attempt_id:
+            dash = await _design_dashboard_for_attempt(db, mission_attempt_id=progress.mission_attempt_id, cache=dashboard_cache)
+            if dash and dash.get("_poster_url") and (item.mission_step_key == "poster" or not submitted_url):
+                submitted_url = dash["_poster_url"]
+
         out.append({
             "item_id": item.id, "title": item.title, "item_type": item.item_type,
             "status": status, "submitted_url": submitted_url,
             "completed_at": completed_at, "mission_attempt_id": progress.mission_attempt_id,
             "confirmed_by_user_id": confirmed_by_user_id,
+            "mission_step_key": item.mission_step_key,
         })
     return out
 

@@ -490,6 +490,7 @@ class LmsProgramChecklistItemOut(BaseModel):
     guideline_url: str | None = None
     guideline_video_uploaded: bool = False
     checkpoint_label: str | None = None
+    poster_template_url: str | None = None
     # Derived, never stored — see compute_lock_states. True iff `gated`
     # and some earlier non-optional item on this checklist isn't done yet.
     locked: bool = False
@@ -515,6 +516,7 @@ class LmsProgramChecklistOut(BaseModel):
     name: str
     description: str | None = None
     image_url: str | None = None
+    poster_template_url: str | None = None
     cohort_id: UUID | None = None
     cohort_name: str | None = None
     # Competition domain — the student's own team in this cohort, if any

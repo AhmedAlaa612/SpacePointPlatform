@@ -68,6 +68,7 @@ class LmsAssignmentItemDetailOut(BaseModel):
     completed_at: datetime | None = None
     mission_attempt_id: UUID | None = None
     confirmed_by_user_id: UUID | None = None
+    mission_step_key: str | None = None
 
 
 class LmsProgramRosterRowOut(BaseModel):

@@ -26,6 +26,7 @@ export interface Program {
   // Competition domain (2026-08-24) — read-only, derived from
   // `program_type === "competition"`. Not part of the create/update payload.
   is_competition: boolean;
+  poster_template_url?: string | null;
   created_at: string;
 }
 

@@ -60,6 +60,7 @@ class LmsProgram(Base):
     # certificate type — see services/sessions/delivery.py's
     # _issue_student_certificate.
     certificate_required = Column(Boolean, nullable=False, default=True, server_default="true")
+    poster_template_url = Column(String(512), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 

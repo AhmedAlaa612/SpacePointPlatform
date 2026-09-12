@@ -179,6 +179,7 @@ function ProgramModal({ program, onClose, onSuccess }: {
   const [completionRuleValue, setCompletionRuleValue] = useState(
     program?.completion_rule_value != null ? String(program.completion_rule_value) : "70",
   )
+  const [posterTemplateUrl, setPosterTemplateUrl] = useState(program?.poster_template_url ?? "")
   const [error, setError] = useState("")
 
   const mutation = useMutation({
@@ -194,6 +195,7 @@ function ProgramModal({ program, onClose, onSuccess }: {
         active,
         completion_rule_type: completionRuleType,
         completion_rule_value: completionRuleValue.trim() ? Number(completionRuleValue) : undefined,
+        poster_template_url: posterTemplateUrl.trim() || undefined,
       }
       return isEdit ? updateProgramApi(program!.id, payload) : createProgramApi(payload)
     },
@@ -278,6 +280,16 @@ function ProgramModal({ program, onClose, onSuccess }: {
               ? "A student must attend at least this % of a cohort's sessions to auto-earn a certificate."
               : "A student must attend at least this many sessions to auto-earn a certificate."}
             {" "}Ops can still hand a certificate to anyone manually.
+          </p>
+        </Field>
+        <Field label="Mission poster template link (optional)">
+          <input
+            value={posterTemplateUrl} onChange={(e) => setPosterTemplateUrl(e.target.value)}
+            placeholder="https://canva.com/design/..." type="url"
+            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Default Canva / Google Slides template link inherited by all cohorts of this program.
           </p>
         </Field>
         <Field label="Description (optional)">

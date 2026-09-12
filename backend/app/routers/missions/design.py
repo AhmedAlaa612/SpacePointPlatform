@@ -29,6 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_current_active_user
 from app.db.session import get_db
 from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
 from app.models.missions.design import (
     Design,
     DesignComponent,
@@ -269,6 +270,10 @@ async def design_state_out(db: AsyncSession, *, attempt: MissionAttempt, design:
         cohort = await db.get(Cohort, attempt.cohort_id)
         if cohort is not None:
             poster_template_url = cohort.poster_template_url
+            if not poster_template_url and cohort.program_id is not None:
+                program = await db.get(Program, cohort.program_id)
+                if program is not None:
+                    poster_template_url = program.poster_template_url
 
     return DesignStateOut(
         id=design.id, attempt_id=attempt.id, mission_id=mission.id, variant_id=variant.id,
@@ -426,13 +431,6 @@ async def update_design(
     attempt = await _own_design_attempt(db, attempt_id, current)
     design = await ensure_design(db, attempt=attempt)
     changes = body.model_dump(exclude_unset=True)
-    if "poster_url" in changes and attempt.cohort_id is not None:
-        cohort = await db.get(Cohort, attempt.cohort_id)
-        if cohort is not None and cohort.ends_on is not None and cohort.ends_on < date.today():
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail="This program has ended — the poster can no longer be edited",
-            )
     for field, value in changes.items():
         setattr(design, field, value)
     result = await design_state_out(db, attempt=attempt, design=design)

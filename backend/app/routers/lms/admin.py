@@ -67,6 +67,7 @@ from app.schemas.lms_admin import (
     LearningPathStepIn,
     LearningPathStepOut,
     LearningPathUpdate,
+    CohortPosterTemplateIn,
     LmsProgramCohortEffectiveOut,
     LmsProgramCreate,
     LmsProgramItemIn,
@@ -1432,9 +1433,15 @@ async def _items_for_owner(db: AsyncSession, *, owner_type: str, owner_id: uuid.
 
 async def program_out(db: AsyncSession, program: LmsProgram) -> LmsProgramOut:
     items = await _items_for_owner(db, owner_type="program", owner_id=program.id)
+    poster_url = program.poster_template_url
+    if not poster_url and program.program_id is not None:
+        sp = await db.get(Program, program.program_id)
+        if sp and sp.poster_template_url:
+            poster_url = sp.poster_template_url
     return LmsProgramOut(
         id=program.id, program_id=program.program_id, name=program.name,
         description=program.description, certificate_required=program.certificate_required,
+        poster_template_url=poster_url,
         image_url=await storage.resolve_url(program.image_bucket, program.image_path),
         items=await items_out(db, items),
     )
@@ -1470,7 +1477,12 @@ async def create_lms_program(
     entry = LmsProgram(
         id=uuid.uuid4(), program_id=body.program_id, name=body.name,
         description=body.description, certificate_required=body.certificate_required,
+        poster_template_url=body.poster_template_url,
     )
+    if body.poster_template_url and body.program_id is not None:
+        sp = await db.get(Program, body.program_id)
+        if sp:
+            sp.poster_template_url = body.poster_template_url
     db.add(entry)
     await db.commit()
     await db.refresh(entry)
@@ -1497,6 +1509,10 @@ async def update_lms_program(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="LMS Program not found")
     for field, value in body.model_dump(exclude_unset=True).items():
         setattr(entry, field, value)
+    if "poster_template_url" in body.model_dump(exclude_unset=True) and entry.program_id is not None:
+        sp = await db.get(Program, entry.program_id)
+        if sp:
+            sp.poster_template_url = body.poster_template_url
     await db.commit()
     await db.refresh(entry)
     return await program_out(db, entry)
@@ -1797,9 +1813,42 @@ async def get_cohort_program_override(
     if resolved is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This cohort's program has no LMS checklist yet")
     program, items, is_inherited = resolved
+    cohort = await db.get(Cohort, cohort_id)
+    cohort_poster_url = cohort.poster_template_url if cohort else None
+    inherited_poster_url = None
+    if cohort and cohort.program_id:
+        sp = await db.get(Program, cohort.program_id)
+        if sp and sp.poster_template_url:
+            inherited_poster_url = sp.poster_template_url
+    if not inherited_poster_url and program.poster_template_url:
+        inherited_poster_url = program.poster_template_url
+    if not inherited_poster_url and program.program_id:
+        sp2 = await db.get(Program, program.program_id)
+        if sp2 and sp2.poster_template_url:
+            inherited_poster_url = sp2.poster_template_url
+
     return LmsProgramCohortEffectiveOut(
-        cohort_id=cohort_id, lms_program_id=program.id, is_inherited=is_inherited, items=await items_out(db, items),
+        cohort_id=cohort_id,
+        lms_program_id=program.id,
+        is_inherited=is_inherited,
+        items=await items_out(db, items),
+        poster_template_url=cohort_poster_url,
+        inherited_poster_template_url=inherited_poster_url,
     )
+
+
+@router.patch("/cohorts/{cohort_id}/poster-template", response_model=LmsProgramCohortEffectiveOut)
+async def update_cohort_poster_template(
+    cohort_id: uuid.UUID, body: CohortPosterTemplateIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_content),
+):
+    """Ops endpoint to override or clear the cohort-level poster template."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    cohort.poster_template_url = body.poster_template_url
+    await db.commit()
+    return await get_cohort_program_override(cohort_id, db=db, _=current)
 
 
 @router.post("/cohorts/{cohort_id}/program-override/resync")

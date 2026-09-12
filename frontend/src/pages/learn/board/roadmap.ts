@@ -1,5 +1,5 @@
 import {
-  BatteryCharging, BookOpen, Calendar, Cpu, FileText, HelpCircle, Layout, Link2, Lock, Rocket, Scale, Target, Upload,
+  BatteryCharging, BookOpen, Calendar, Cpu, FileText, HelpCircle, Image, Layout, Link2, Lock, Rocket, Scale, Target, Upload,
   ClipboardCheck, ClipboardList, type LucideIcon,
 } from "lucide-react";
 import type { LmsProgramChecklistItem } from "@/api/lms";
@@ -65,7 +65,7 @@ export function tileState(item: LmsProgramChecklistItem): TileState {
  * can carry — mirrors the backend's MISSION_STEP_KEYS. */
 export const MISSION_STEP_KEYS = [
   "setup", "components", "conops", "power_budget",
-  "mass_budget", "data_budget", "link_budget", "cost_budget", "report",
+  "mass_budget", "data_budget", "link_budget", "cost_budget", "report", "poster",
 ] as const;
 export type MissionStepKey = (typeof MISSION_STEP_KEYS)[number];
 
@@ -73,7 +73,7 @@ export const MISSION_STEP_LABELS: Record<MissionStepKey, string> = {
   setup: "Name the mission", components: "Components", conops: "CONOPS",
   power_budget: "Power budget", mass_budget: "Mass budget",
   data_budget: "Data budget", link_budget: "Link budget", cost_budget: "Cost budget",
-  report: "Report",
+  report: "Report", poster: "Mission poster",
 };
 
 /** mission_step_key → DesignMissionPage's own tab `value` — the board
@@ -81,7 +81,7 @@ export const MISSION_STEP_LABELS: Record<MissionStepKey, string> = {
  * renamed budget tabs and `report` → `dashboard`. */
 export function stepKeyToDesignTab(stepKey: string): string {
   const map: Record<string, string> = {
-    power_budget: "power", mass_budget: "mass", report: "dashboard",
+    power_budget: "power", mass_budget: "mass", report: "dashboard", poster: "poster",
   };
   return map[stepKey] ?? stepKey;
 }
@@ -89,7 +89,7 @@ export function stepKeyToDesignTab(stepKey: string): string {
 export const STEP_ICON: Record<MissionStepKey, LucideIcon> = {
   setup: Target, components: Cpu, conops: Layout, power_budget: BatteryCharging,
   mass_budget: Scale, data_budget: FileText,
-  link_budget: Link2, cost_budget: FileText, report: ClipboardList,
+  link_budget: Link2, cost_budget: FileText, report: ClipboardList, poster: Image,
 };
 
 const ITEM_TYPE_ICON: Record<LmsProgramChecklistItem["item_type"], LucideIcon> = {
@@ -145,13 +145,16 @@ export type NavTarget =
   | { kind: "mission"; missionId: string }
   | { kind: "external"; url: string }
   | { kind: "quiz"; itemId: string }
-  | { kind: "drawer" } // submission / pdf / manual / session — open the task drawer, no direct nav
+  | { kind: "drawer" } // submission / pdf / manual / session / poster — open the task drawer, no direct nav
   | { kind: "none" };
 
 /** What clicking a *live* tile does — direct navigation, no intermediate
  * screen (flow rule 1). A locked tile is a no-op (flow rule 2), enforced
  * by callers checking `item.locked` before calling this, not here. */
 export function navTargetFor(item: LmsProgramChecklistItem): NavTarget {
+  if (item.item_type === "mission_run" && item.mission_step_key === "poster") {
+    return { kind: "drawer" };
+  }
   if (item.item_type === "course" && item.course_id) return { kind: "course", courseId: item.course_id };
   if (item.item_type === "mission_run" && item.mission_attempt_id) {
     if (item.mission_kind === "design") {

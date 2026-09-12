@@ -97,9 +97,13 @@ from app.services.lms.certificates import award_for_course_completion
 from app.services.lms.dashboard import my_courses_dashboard, recent_activity
 from app.services.lms.leaderboard import leaderboard
 from app.services.lms.my_programs import my_programs
+from app.models.missions.design import Design
+from app.models.missions.mission import MissionAttempt
+from app.models.team import Team
+from app.services.missions.verifiers.design import ensure_design
 from app.services.lms.program import (
     PROGRAM_ITEM_PDF_BUCKET, checklist_item_locked, checklist_item_write_target, get_student_checklist,
-    list_student_assignments, refresh_item_progress,
+    list_student_assignments, refresh_item_progress, resolve_effective_poster_template_url,
 )
 from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services import storage
@@ -555,6 +559,7 @@ async def _checklist_item_out(
     frontend renders either way."""
     is_team = isinstance(target, LmsProgramTeamItemProgress)
     updated_by_name = None
+    poster_template_url = None
     if is_team and target.updated_by_user_id:
         updater = await db.get(User, target.updated_by_user_id)
         updated_by_name = updater.full_name if updater else None
@@ -562,6 +567,23 @@ async def _checklist_item_out(
         assignment = await db.get(LmsProgramAssignment, target.assignment_id)
         submitter = await db.get(User, assignment.user_id) if assignment else None
         updated_by_name = submitter.full_name if submitter else None
+
+    if item.mission_step_key == "poster":
+        cohort_id = None
+        if is_team:
+            team = await db.get(Team, target.team_id)
+            cohort_id = team.cohort_id if team else None
+        else:
+            assignment = await db.get(LmsProgramAssignment, target.assignment_id)
+            cohort_id = assignment.cohort_id if assignment else None
+        poster_template_url = await resolve_effective_poster_template_url(db, cohort_id=cohort_id)
+
+    submitted_url = target.submitted_url
+    if not submitted_url and not is_team and target.mission_attempt_id:
+        design = await db.scalar(select(Design).where(Design.attempt_id == target.mission_attempt_id))
+        if design and design.poster_url:
+            submitted_url = design.poster_url
+
     return LmsProgramChecklistItemOut(
         id=item.id, position=item.position, item_type=item.item_type, title=item.title,
         description=item.description, optional=item.optional, requires_confirmation=item.requires_confirmation,
@@ -569,12 +591,14 @@ async def _checklist_item_out(
         mission_attempt_id=target.mission_attempt_id if not is_team else None,
         external_url=item.external_url, submission_prompt=item.submission_prompt,
         has_pdf=item.pdf_path is not None,
-        submitted_url=target.submitted_url,
+        submitted_url=submitted_url,
         deadline_at=item.deadline_at,
         session_date=item.session_date, session_starts_at=item.session_starts_at,
         session_location=item.session_location, session_meeting_url=item.session_meeting_url,
         scope=item.scope, updated_by_name=updated_by_name,
         updated_at=target.updated_at,
+        mission_step_key=item.mission_step_key,
+        poster_template_url=poster_template_url,
     )
 
 
@@ -662,9 +686,10 @@ async def submit_program_item(
     `scope="team"` item writes to the shared team row — any teammate
     submitting overrides whatever was there before, on purpose."""
     assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
-    if item.item_type != "submission":
+    is_poster = item.item_type == "mission_run" and item.mission_step_key == "poster"
+    if item.item_type != "submission" and not is_poster:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item does not take a submission")
-    if item.deadline_at is not None and datetime.now(timezone.utc) > item.deadline_at:
+    if not is_poster and item.deadline_at is not None and datetime.now(timezone.utc) > item.deadline_at:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The deadline for this submission has passed")
     if await checklist_item_locked(db, assignment=assignment, item=item):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
@@ -678,6 +703,14 @@ async def submit_program_item(
     if isinstance(target, LmsProgramTeamItemProgress):
         target.updated_by_user_id = current.id
     target.updated_at = datetime.now(timezone.utc)
+
+    if individual.mission_attempt_id is not None:
+        attempt = await db.get(MissionAttempt, individual.mission_attempt_id)
+        if attempt is not None:
+            design = await ensure_design(db, attempt=attempt)
+            design.poster_url = body.url
+            design.updated_at = datetime.now(timezone.utc)
+
     await db.commit()
     await db.refresh(target)
     return await _checklist_item_out(db, item=item, target=target)

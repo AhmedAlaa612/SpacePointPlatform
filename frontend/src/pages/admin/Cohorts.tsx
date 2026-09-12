@@ -570,11 +570,18 @@ const { data: warehouses = [] } = useQuery({
         <Field label="Poster template link (optional)">
           <input
             value={posterTemplateUrl} onChange={(e) => setPosterTemplateUrl(e.target.value)}
-            placeholder="https://canva.com/design/..." type="url"
+            placeholder={
+              programs.find((p) => p.id === (isEdit ? cohort.program_id : programId))?.poster_template_url
+                ? `Inherited: ${programs.find((p) => p.id === (isEdit ? cohort.program_id : programId))?.poster_template_url}`
+                : "https://canva.com/design/..."
+            }
+            type="url"
             className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
           />
           <p className="text-xs text-muted-foreground mt-1">
-            Shown to teams inside their Design Mission — duplicate the master template once per team first.
+            {programs.find((p) => p.id === (isEdit ? cohort.program_id : programId))?.poster_template_url
+              ? "Inherits default template from program if left empty. Enter a URL here to override it for this cohort."
+              : "Shown to students and teams for their mission poster — set a cohort-specific template."}
           </p>
         </Field>
         {error && <p className="text-xs text-red-500">{error}</p>}

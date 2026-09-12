@@ -573,6 +573,7 @@ export interface LmsProgramChecklistItem {
   /** Groups tiles into the board's row sections ("Checkpoint 1 — Learn &
    * plan"). Free text, matched by exact string. */
   checkpoint_label: string | null;
+  poster_template_url?: string | null;
   /** Derived server-side (compute_lock_states) — true iff `gated` and some
    * earlier non-optional item on this checklist isn't `done` yet. */
   locked: boolean;
@@ -598,6 +599,7 @@ export interface LmsProgramChecklist {
   name: string;
   description: string | null;
   image_url: string | null;
+  poster_template_url?: string | null;
   cohort_id: string | null;
   cohort_name: string | null;
   team_name: string | null;

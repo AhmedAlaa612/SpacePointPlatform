@@ -34,6 +34,7 @@ class ProgramBase(BaseModel):
     active: bool = True
     completion_rule_type: CompletionRuleType = "percentage"
     completion_rule_value: Decimal = Decimal("70")
+    poster_template_url: str | None = None
 
 
 class ProgramCreate(ProgramBase):
@@ -55,6 +56,7 @@ class ProgramUpdate(BaseModel):
     active: bool | None = None
     completion_rule_type: CompletionRuleType | None = None
     completion_rule_value: Decimal | None = None
+    poster_template_url: str | None = None
 
 
 class ProgramOut(ProgramBase):

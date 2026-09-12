@@ -35,6 +35,8 @@ class Program(Base):
     # whole number of sessions the student must have been marked present for.
     completion_rule_type = Column(String(16), nullable=False, default="percentage")
     completion_rule_value = Column(Numeric(6, 2), nullable=False, default=70)
+    # Ops-set master poster template link — cohorts inherit this unless overridden
+    poster_template_url = Column(String(512), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     @property
