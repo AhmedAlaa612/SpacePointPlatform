@@ -1126,109 +1126,126 @@ function Categories() {
   if (isLoading) return <Spinner />
 
   return (
-    <div className="flex flex-col gap-4 max-w-lg">
-      <p className="text-sm text-muted-foreground -mt-1">
-        Groupings and sub-groupings used across the catalogue, the "add a component" form and
-        stock filters. Renaming updates all assigned components. Deletion is refused while any
-        components still use it.
-      </p>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground max-w-2xl -mt-1">
+          Groupings and sub-groupings used across the catalogue, the "add a component" form and
+          stock filters. Renaming updates all assigned components. Deletion is refused while any
+          components still use it.
+        </p>
 
-      <div className="rounded-2xl border border-border bg-card divide-y divide-border overflow-hidden">
+        {canManage && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (name.trim() && !create.isPending) create.mutate(name.trim())
+            }}
+            className="flex items-center gap-2 shrink-0 w-full sm:w-80"
+          >
+            <input
+              value={name}
+              onChange={(e) => { setName(e.target.value); setError("") }}
+              placeholder="New category name…"
+              className="flex-1 min-w-0 h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
+            />
+            <button
+              type="submit"
+              disabled={!name.trim() || create.isPending}
+              className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-50 shrink-0 cursor-pointer"
+            >
+              <Plus size={14} /> Add Category
+            </button>
+          </form>
+        )}
+      </div>
+
+      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-start">
         {categories.map((c) => {
           const inUse = countByCategory[c.name] ?? 0
           return (
-            <div key={c.id} className="flex flex-col">
-              <div className="flex items-center justify-between px-4 py-2.5 gap-3 bg-card">
-                <RenamableCategory category={c} onSaved={invalidate} canManage={canManage} />
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {inUse} component{inUse === 1 ? "" : "s"}
-                  </span>
-                  {canManage && (
-                    <button
-                      onClick={() => remove.mutate(c.id)}
-                      disabled={inUse > 0 || remove.isPending}
-                      title={inUse > 0 ? "Still in use — move its components first" : "Delete category"}
-                      className="text-xs text-red-600 dark:text-red-400 hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed cursor-pointer"
-                    >
-                      Delete
-                    </button>
+            <div
+              key={c.id}
+              className="rounded-2xl border border-border bg-card overflow-hidden flex flex-col justify-between"
+            >
+              <div>
+                <div className="flex items-center justify-between px-4 py-3 gap-2 bg-card border-b border-border/40">
+                  <RenamableCategory category={c} onSaved={invalidate} canManage={canManage} />
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-muted-foreground tabular-nums">
+                      {inUse} component{inUse === 1 ? "" : "s"}
+                    </span>
+                    {canManage && (
+                      <button
+                        onClick={() => remove.mutate(c.id)}
+                        disabled={inUse > 0 || remove.isPending}
+                        title={inUse > 0 ? "Still in use — move its components first" : "Delete category"}
+                        className="text-xs text-red-600 dark:text-red-400 hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed cursor-pointer"
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Subcategories */}
+                <div className="px-4 py-2.5 bg-muted/20 flex flex-col gap-2">
+                  {c.subcategories && c.subcategories.length > 0 ? (
+                    <div className="flex flex-col gap-1.5">
+                      {c.subcategories.map((s) => {
+                        const inUseSub = countBySubcategory[`${c.name}::${s.name}`] ?? 0
+                        return (
+                          <div key={s.id} className="flex items-center justify-between pl-1 pr-0.5 gap-2">
+                            <RenamableSubcategory
+                              categoryId={c.id}
+                              subcategory={s}
+                              onSaved={invalidate}
+                              canManage={canManage}
+                            />
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-[11px] text-muted-foreground tabular-nums">
+                                {inUseSub} component{inUseSub === 1 ? "" : "s"}
+                              </span>
+                              {canManage && (
+                                <button
+                                  onClick={() => removeSub.mutate({ categoryId: c.id, id: s.id })}
+                                  disabled={inUseSub > 0 || removeSub.isPending}
+                                  title={inUseSub > 0 ? "Still in use — move its components first" : "Delete subcategory"}
+                                  className="text-[11px] text-red-600 dark:text-red-400 hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground italic pl-1">No subcategories yet</span>
                   )}
                 </div>
               </div>
 
-              {/* Subcategories */}
-              <div className="px-4 py-2 bg-muted/20 border-t border-border/40 flex flex-col gap-2">
-                {c.subcategories && c.subcategories.length > 0 ? (
-                  <div className="flex flex-col gap-1.5">
-                    {c.subcategories.map((s) => {
-                      const inUseSub = countBySubcategory[`${c.name}::${s.name}`] ?? 0
-                      return (
-                        <div key={s.id} className="flex items-center justify-between pl-3 pr-1 gap-2">
-                          <RenamableSubcategory
-                            categoryId={c.id}
-                            subcategory={s}
-                            onSaved={invalidate}
-                            canManage={canManage}
-                          />
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-[11px] text-muted-foreground tabular-nums">
-                              {inUseSub} component{inUseSub === 1 ? "" : "s"}
-                            </span>
-                            {canManage && (
-                              <button
-                                onClick={() => removeSub.mutate({ categoryId: c.id, id: s.id })}
-                                disabled={inUseSub > 0 || removeSub.isPending}
-                                title={inUseSub > 0 ? "Still in use — move its components first" : "Delete subcategory"}
-                                className="text-[11px] text-red-600 dark:text-red-400 hover:underline disabled:text-muted-foreground disabled:no-underline disabled:cursor-not-allowed cursor-pointer"
-                              >
-                                Delete
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <span className="text-xs text-muted-foreground italic pl-3">No subcategories yet</span>
-                )}
-
-                {canManage && (
-                  <div className="pl-3">
-                    <AddSubcategoryInput
-                      categoryId={c.id}
-                      onAdded={invalidate}
-                      onError={setError}
-                    />
-                  </div>
-                )}
-              </div>
+              {canManage && (
+                <div className="px-4 py-2.5 bg-muted/20 border-t border-border/40">
+                  <AddSubcategoryInput
+                    categoryId={c.id}
+                    onAdded={invalidate}
+                    onError={setError}
+                  />
+                </div>
+              )}
             </div>
           )
         })}
         {categories.length === 0 && (
-          <p className="text-sm text-muted-foreground text-center py-6">No categories yet.</p>
+          <div className="col-span-full rounded-2xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+            No categories yet.
+          </div>
         )}
       </div>
-
-      {canManage && (
-        <div className="flex items-center gap-2">
-          <input
-            value={name} onChange={(e) => { setName(e.target.value); setError("") }}
-            placeholder="New category name…"
-            className="flex-1 h-9 px-3 border border-border bg-background text-foreground rounded-xl text-sm"
-          />
-          <button
-            disabled={!name.trim() || create.isPending}
-            onClick={() => create.mutate(name.trim())}
-            className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 disabled:opacity-50 cursor-pointer"
-          >
-            <Plus size={14} /> Add Category
-          </button>
-        </div>
-      )}
-      {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
     </div>
   )
 }
@@ -1250,7 +1267,7 @@ function RenamableCategory({ category, onSaved, canManage }: {
 
   if (!canManage) {
     return (
-      <span className="flex items-center gap-1.5 text-sm text-foreground capitalize min-w-0 truncate">
+      <span className="flex items-center gap-1.5 text-sm font-medium text-foreground capitalize min-w-0 truncate" title={category.name}>
         <Tag size={13} className="shrink-0 text-muted-foreground" /> {category.name}
       </span>
     )
@@ -1260,9 +1277,11 @@ function RenamableCategory({ category, onSaved, canManage }: {
     return (
       <button
         onClick={() => { setValue(category.name); setEditing(true) }}
-        className="flex items-center gap-1.5 text-sm text-foreground capitalize hover:text-primary min-w-0 truncate cursor-pointer"
+        className="flex items-center gap-1.5 text-sm font-medium text-foreground capitalize hover:text-primary min-w-0 truncate cursor-pointer text-left"
+        title={canManage ? `Click to rename "${category.name}"` : category.name}
       >
-        <Tag size={13} className="shrink-0 text-muted-foreground" /> {category.name}
+        <Tag size={13} className="shrink-0 text-muted-foreground" />
+        <span className="truncate">{category.name}</span>
       </button>
     )
   }
@@ -1302,8 +1321,9 @@ function RenamableSubcategory({ categoryId, subcategory, onSaved, canManage }: {
 
   if (!canManage) {
     return (
-      <span className="flex items-center gap-1.5 text-xs text-foreground capitalize min-w-0 truncate">
-        <CornerDownRight size={12} className="shrink-0 text-muted-foreground" /> {subcategory.name}
+      <span className="flex items-center gap-1.5 text-xs text-foreground capitalize min-w-0 truncate" title={subcategory.name}>
+        <CornerDownRight size={12} className="shrink-0 text-muted-foreground" />
+        <span className="truncate">{subcategory.name}</span>
       </span>
     )
   }
@@ -1312,9 +1332,11 @@ function RenamableSubcategory({ categoryId, subcategory, onSaved, canManage }: {
     return (
       <button
         onClick={() => { setValue(subcategory.name); setEditing(true) }}
-        className="flex items-center gap-1.5 text-xs text-foreground capitalize hover:text-primary min-w-0 truncate cursor-pointer"
+        className="flex items-center gap-1.5 text-xs text-foreground capitalize hover:text-primary min-w-0 truncate cursor-pointer text-left"
+        title="Click to rename"
       >
-        <CornerDownRight size={12} className="shrink-0 text-muted-foreground" /> {subcategory.name}
+        <CornerDownRight size={12} className="shrink-0 text-muted-foreground" />
+        <span className="truncate">{subcategory.name}</span>
       </button>
     )
   }
@@ -1351,26 +1373,27 @@ function AddSubcategoryInput({ categoryId, onAdded, onError }: {
   })
 
   return (
-    <div className="flex items-center gap-1.5">
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (name.trim() && !mutation.isPending) mutation.mutate()
+      }}
+      className="flex items-center gap-1.5 w-full"
+    >
       <input
         value={name}
         onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && name.trim()) {
-            mutation.mutate()
-          }
-        }}
         placeholder="New subcategory…"
-        className="h-7 max-w-44 px-2 border border-border bg-background text-foreground rounded-lg text-xs"
+        className="h-7 flex-1 min-w-0 px-2 border border-border bg-background text-foreground rounded-lg text-xs"
       />
       <button
+        type="submit"
         disabled={!name.trim() || mutation.isPending}
-        onClick={() => mutation.mutate()}
-        className="flex items-center gap-1 h-7 px-2 bg-muted hover:bg-muted/80 text-foreground text-xs font-medium rounded-lg disabled:opacity-50 cursor-pointer"
+        className="flex items-center gap-1 h-7 px-2.5 bg-muted hover:bg-muted/80 text-foreground text-xs font-medium rounded-lg disabled:opacity-50 shrink-0 cursor-pointer"
       >
         <Plus size={11} /> Add
       </button>
-    </div>
+    </form>
   )
 }
 
