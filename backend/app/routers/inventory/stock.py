@@ -122,6 +122,11 @@ async def list_stock(
             if item.image_bucket and item.image_path
             else None
         )
+        datasheet_url = (
+            await storage.resolve_url(item.datasheet_bucket, item.datasheet_path)
+            if item.datasheet_bucket and item.datasheet_path
+            else None
+        )
         out_list.append(
             StockLevelOut(
                 item_id=item.id,
@@ -129,6 +134,7 @@ async def list_stock(
                 category=item.category,
                 subcategory=item.subcategory,
                 image_url=img_url,
+                datasheet_url=datasheet_url,
                 location_id=location.id,
                 location_name=location.name,
                 warehouse_id=wh.id,

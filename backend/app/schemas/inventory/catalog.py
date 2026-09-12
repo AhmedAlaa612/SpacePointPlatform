@@ -156,6 +156,7 @@ class ItemOut(BaseModel):
     # Resolved at read time from (image_bucket, image_path) — never the raw
     # columns, so a signed URL is never stale.
     image_url: str | None = None
+    datasheet_url: str | None = None
 
 
 # ── kit templates ───────────────────────────────────────────────────────────

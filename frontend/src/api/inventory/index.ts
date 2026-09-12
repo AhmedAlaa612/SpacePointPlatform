@@ -131,6 +131,15 @@ export const setItemImageApi = ({ id, file }: { id: string; file: File }) => {
 export const removeItemImageApi = (id: string) =>
   api.delete<Item>(`/inventory/items/${id}/image`).then((r) => r.data)
 
+export const setItemDatasheetApi = ({ id, file }: { id: string; file: File }) => {
+  const form = new FormData()
+  form.append("file", file)
+  return api.put<Item>(`/inventory/items/${id}/datasheet`, form).then((r) => r.data)
+}
+
+export const removeItemDatasheetApi = (id: string) =>
+  api.delete<Item>(`/inventory/items/${id}/datasheet`).then((r) => r.data)
+
 /* ── item categories & subcategories ───────────────────────────────────── */
 
 export const getItemCategoriesApi = () =>

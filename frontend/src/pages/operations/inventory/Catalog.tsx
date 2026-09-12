@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Boxes, CornerDownRight, ImagePlus, MapPin, Pencil, Plus, Search, Tag, Trash2, X } from "lucide-react"
+import { Boxes, CornerDownRight, FileText, ImagePlus, MapPin, Pencil, Plus, Search, Tag, Trash2, Upload, X } from "lucide-react"
 import type { City, Item, ItemCategory, ItemCategoryDef, ItemSubcategoryDef, KitTemplate, Location, StockLevel, Warehouse } from "@/types/inventory"
 import { ImageCropModal } from "@/components/ui/ImageCropModal"
 import {
@@ -23,7 +23,9 @@ import {
   getStockApi,
   getTemplateApi,
   getTemplatesApi,
+  removeItemDatasheetApi,
   removeItemImageApi,
+  setItemDatasheetApi,
   setItemImageApi,
   setTemplateItemsApi,
   updateCityApi,
@@ -35,6 +37,8 @@ import {
   updateWarehouseApi,
 } from "@/api/inventory"
 import { ConfirmDialog, Field, Modal, ModalActions, Spinner } from "@/pages/admin/components/common"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { PdfViewer } from "@/components/documents/PdfViewer"
 import { StockCountModal } from "@/pages/operations/inventory/StockCountModal"
 import { VariantsModal } from "@/pages/operations/inventory/VariantsModal"
 import { WarehouseCabinsModal } from "@/pages/operations/inventory/WarehouseCabinsModal"
@@ -359,6 +363,7 @@ function Items() {
   const [viewingGroup, setViewingGroup] = useState<string | null>(null)
   const [deletingItem, setDeletingItem] = useState<Item | null>(null)
   const [deleteError, setDeleteError] = useState("")
+  const [viewingPdf, setViewingPdf] = useState<{ url: string; title: string } | null>(null)
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteItemApi(id),
@@ -528,6 +533,15 @@ function Items() {
                       <Boxes size={13} /> Adjust
                     </button>
                   )}
+                  {item.datasheet_url && (
+                    <button
+                      type="button"
+                      onClick={() => setViewingPdf({ url: item.datasheet_url!, title: `${displayName} Datasheet` })}
+                      className="flex items-center justify-center gap-1.5 h-8 px-3 border border-primary/25 bg-primary/5 text-primary text-xs font-medium rounded-lg hover:bg-primary/10 transition-colors cursor-pointer"
+                    >
+                      <FileText size={12} /> View datasheet
+                    </button>
+                  )}
                   {canManage && (
                     <div className="flex items-center gap-1.5">
                       <button
@@ -584,6 +598,19 @@ function Items() {
           onConfirm={() => deleteMutation.mutate(deletingItem.id)}
         />
       )}
+
+      {/* PDF Datasheet Reader Modal */}
+      <Dialog open={!!viewingPdf} onOpenChange={(open) => !open && setViewingPdf(null)}>
+        <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] flex flex-col p-4">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-primary" />
+              <span>{viewingPdf?.title ?? "Datasheet"}</span>
+            </DialogTitle>
+          </DialogHeader>
+          {viewingPdf && <PdfViewer url={viewingPdf.url} className="flex flex-col gap-3 flex-1 min-h-0" />}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -699,6 +726,10 @@ function ItemModal({ existing, onClose }: { existing?: Item; onClose: () => void
   const [error, setError] = useState("")
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteError, setDeleteError] = useState("")
+  const datasheetInputRef = useRef<HTMLInputElement>(null)
+  const [datasheetUrl, setDatasheetUrl] = useState<string | null>(existing?.datasheet_url ?? null)
+  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null)
+  const [viewingPdf, setViewingPdf] = useState<{ url: string; title: string } | null>(null)
 
   const selectedCat = useMemo(
     () => categories.find((c) => c.name === category),
@@ -721,21 +752,48 @@ function ItemModal({ existing, onClose }: { existing?: Item; onClose: () => void
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["inv-items"] })
 
+  const uploadDatasheetMutation = useMutation({
+    mutationFn: (file: File) => setItemDatasheetApi({ id: existing!.id, file }),
+    onSuccess: (updated) => {
+      invalidate()
+      setDatasheetUrl(updated.datasheet_url ?? null)
+    },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not upload datasheet"),
+  })
+
+  const removeDatasheetMutation = useMutation({
+    mutationFn: () => removeItemDatasheetApi(existing!.id),
+    onSuccess: () => {
+      invalidate()
+      setDatasheetUrl(null)
+    },
+    onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not remove datasheet"),
+  })
+
   const mutation = useMutation({
-    mutationFn: () => isEdit
-      ? updateItemApi({
+    mutationFn: async () => {
+      let item: Item
+      if (isEdit) {
+        item = await updateItemApi({
           id: existing!.id, name, category,
           subcategory: subcategory.trim() || null,
           returnable_default: returnable, description: description.trim() || null,
           variant_group: variantGroup.trim() || null, variant_label: variantLabel.trim() || null,
         })
-      : createItemApi({
+      } else {
+        item = await createItemApi({
           name, category,
           subcategory: subcategory.trim() || null,
           returnable_default: returnable,
           description: description.trim() || null,
           variant_group: variantGroup.trim() || null, variant_label: variantLabel.trim() || null,
-        }),
+        })
+        if (selectedPdfFile) {
+          await setItemDatasheetApi({ id: item.id, file: selectedPdfFile })
+        }
+      }
+      return item
+    },
     onSuccess: () => { invalidate(); onClose() },
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Could not save the item"),
   })
@@ -822,6 +880,117 @@ function ItemModal({ existing, onClose }: { existing?: Item; onClose: () => void
         </p>
       )}
 
+      <input
+        ref={datasheetInputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (!file) return
+          if (isEdit) {
+            uploadDatasheetMutation.mutate(file)
+          } else {
+            setSelectedPdfFile(file)
+          }
+          e.target.value = ""
+        }}
+      />
+
+      <Field label="Datasheet (PDF, optional)">
+        {isEdit ? (
+          datasheetUrl ? (
+            <div className="flex items-center justify-between p-2.5 rounded-xl border border-border bg-muted/20">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText size={16} className="text-primary shrink-0" />
+                <span className="text-xs font-medium text-foreground truncate">Datasheet uploaded</span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setViewingPdf({ url: datasheetUrl, title: `${name || existing!.name} Datasheet` })}
+                  className="px-2.5 py-1 text-xs font-medium border border-border rounded-lg hover:bg-muted transition-colors cursor-pointer"
+                >
+                  View
+                </button>
+                <button
+                  type="button"
+                  onClick={() => datasheetInputRef.current?.click()}
+                  disabled={uploadDatasheetMutation.isPending}
+                  className="px-2.5 py-1 text-xs font-medium border border-border rounded-lg hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {uploadDatasheetMutation.isPending ? "Uploading…" : "Replace"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => removeDatasheetMutation.mutate()}
+                  disabled={removeDatasheetMutation.isPending}
+                  className="px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {removeDatasheetMutation.isPending ? "…" : "Remove"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between p-2.5 rounded-xl border border-dashed border-border">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs">
+                <FileText size={16} />
+                <span>No datasheet uploaded</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => datasheetInputRef.current?.click()}
+                disabled={uploadDatasheetMutation.isPending}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium border border-border rounded-lg hover:bg-muted transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <Upload size={12} />
+                <span>{uploadDatasheetMutation.isPending ? "Uploading…" : "Upload PDF"}</span>
+              </button>
+            </div>
+          )
+        ) : (
+          selectedPdfFile ? (
+            <div className="flex items-center justify-between p-2.5 rounded-xl border border-border bg-muted/20">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText size={16} className="text-primary shrink-0" />
+                <span className="text-xs font-medium text-foreground truncate">{selectedPdfFile.name}</span>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => datasheetInputRef.current?.click()}
+                  className="px-2.5 py-1 text-xs font-medium border border-border rounded-lg hover:bg-muted transition-colors cursor-pointer"
+                >
+                  Change
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedPdfFile(null)}
+                  className="px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors cursor-pointer"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between p-2.5 rounded-xl border border-dashed border-border">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs">
+                <FileText size={16} />
+                <span>No PDF selected</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => datasheetInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium border border-border rounded-lg hover:bg-muted transition-colors cursor-pointer"
+              >
+                <Upload size={12} />
+                <span>Choose PDF</span>
+              </button>
+            </div>
+          )
+        )}
+      </Field>
+
       <label className="flex items-start gap-2 cursor-pointer">
         <input type="checkbox" checked={returnable} onChange={(e) => setReturnable(e.target.checked)} className="mt-0.5" />
         <span className="text-sm text-foreground">
@@ -884,6 +1053,19 @@ function ItemModal({ existing, onClose }: { existing?: Item; onClose: () => void
           onConfirm={() => deleteMutation.mutate(existing.id)}
         />
       )}
+
+      {/* PDF Datasheet Reader Modal */}
+      <Dialog open={!!viewingPdf} onOpenChange={(open) => !open && setViewingPdf(null)}>
+        <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] flex flex-col p-4">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-primary" />
+              <span>{viewingPdf?.title ?? "Datasheet"}</span>
+            </DialogTitle>
+          </DialogHeader>
+          {viewingPdf && <PdfViewer url={viewingPdf.url} className="flex flex-col gap-3 flex-1 min-h-0" />}
+        </DialogContent>
+      </Dialog>
     </Modal>
   )
 }

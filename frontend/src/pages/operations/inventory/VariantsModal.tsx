@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Trash2 } from "lucide-react"
+import { FileText, Trash2 } from "lucide-react"
 import type { Item, StockLevel } from "@/types/inventory"
 import { deleteItemApi, getItemsApi, getStockApi } from "@/api/inventory"
 import { ConfirmDialog, Modal } from "@/pages/admin/components/common"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { PdfViewer } from "@/components/documents/PdfViewer"
 import { StockCountModal } from "@/pages/operations/inventory/StockCountModal"
 import { useAuth } from "@/context/AuthContext"
 
@@ -27,6 +29,7 @@ export function VariantsModal({
   const [editing, setEditing] = useState<Item | null>(null)
   const [deletingItem, setDeletingItem] = useState<Item | null>(null)
   const [deleteError, setDeleteError] = useState("")
+  const [viewingPdf, setViewingPdf] = useState<{ url: string; title: string } | null>(null)
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteItemApi(id),
@@ -81,6 +84,17 @@ export function VariantsModal({
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-lg font-bold text-foreground tabular-nums mr-1">{total}</span>
+                {v.datasheet_url && (
+                  <button
+                    type="button"
+                    onClick={() => setViewingPdf({ url: v.datasheet_url!, title: `${v.variant_label || v.name} Datasheet` })}
+                    title="View datasheet"
+                    className="flex items-center justify-center gap-1.5 h-8 px-2.5 border border-primary/25 bg-primary/5 text-primary text-xs font-medium rounded-lg hover:bg-primary/10 transition-colors cursor-pointer"
+                  >
+                    <FileText size={12} />
+                    <span>Datasheet</span>
+                  </button>
+                )}
                 <button
                   onClick={() => setEditing(v)}
                   className="h-8 px-3 border border-border bg-background text-foreground text-xs font-medium rounded-lg hover:bg-muted/60 transition-colors"
@@ -133,6 +147,19 @@ export function VariantsModal({
           onConfirm={() => deleteMutation.mutate(deletingItem.id)}
         />
       )}
+
+      {/* PDF Datasheet Reader Modal */}
+      <Dialog open={!!viewingPdf} onOpenChange={(open) => !open && setViewingPdf(null)}>
+        <DialogContent className="sm:max-w-[95vw] max-w-[95vw] w-[95vw] h-[92vh] max-h-[92vh] flex flex-col p-4">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-5 h-5 text-primary" />
+              <span>{viewingPdf?.title ?? "Datasheet"}</span>
+            </DialogTitle>
+          </DialogHeader>
+          {viewingPdf && <PdfViewer url={viewingPdf.url} className="flex flex-col gap-3 flex-1 min-h-0" />}
+        </DialogContent>
+      </Dialog>
     </Modal>
   )
 }

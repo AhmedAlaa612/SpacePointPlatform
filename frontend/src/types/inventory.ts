@@ -92,6 +92,7 @@ export interface Item {
   /** Shown to an instructor picking from the equipment shelf (B3). */
   description: string | null
   image_url: string | null
+  datasheet_url?: string | null
   /** Sized/variant merchandise only — e.g. "T-Shirt" + "L". Items sharing
    *  the same `variant_group` browse together in the catalogue/stock UI;
    *  stock, kit contents and custody still key on this item's own id,
@@ -191,6 +192,7 @@ export interface StockLevel {
   category?: string
   subcategory?: string | null
   image_url?: string | null
+  datasheet_url?: string | null
   location_id: string
   location_name: string
   warehouse_id: string

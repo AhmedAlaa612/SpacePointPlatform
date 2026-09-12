@@ -54,5 +54,7 @@ class Item(Base):
     description = Column(Text, nullable=True)
     image_bucket = Column(String(64), nullable=True)
     image_path = Column(String(512), nullable=True)
+    datasheet_bucket = Column(String(64), nullable=True)
+    datasheet_path = Column(String(512), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

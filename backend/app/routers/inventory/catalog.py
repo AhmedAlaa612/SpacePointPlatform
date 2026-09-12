@@ -78,11 +78,21 @@ from app.services import storage
 router = APIRouter(prefix="/inventory", tags=["inventory-catalog"])
 
 ITEM_IMAGES_BUCKET = "item-images"
+ITEM_DATASHEETS_BUCKET = "item-datasheets"
 
 
 async def _item_out(item: Item) -> ItemOut:
     out = ItemOut.model_validate(item)
-    out.image_url = await storage.resolve_url(item.image_bucket, item.image_path)
+    out.image_url = (
+        await storage.resolve_url(item.image_bucket, item.image_path)
+        if item.image_bucket and item.image_path
+        else None
+    )
+    out.datasheet_url = (
+        await storage.resolve_url(item.datasheet_bucket, item.datasheet_path)
+        if item.datasheet_bucket and item.datasheet_path
+        else None
+    )
     return out
 
 
@@ -1023,6 +1033,49 @@ async def remove_item_image(
 
     item.image_bucket = None
     item.image_path = None
+    await db.commit()
+    await db.refresh(item)
+    return await _item_out(item)
+
+
+@router.put("/items/{item_id}/datasheet", response_model=ItemOut)
+@router.post("/items/{item_id}/datasheet", response_model=ItemOut)
+async def set_item_datasheet(
+    item_id: uuid.UUID,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_inventory_manage),
+):
+    """Optional PDF datasheet for this item (e.g. electrical/mechanical pinouts).
+    Replaces any existing datasheet.
+    """
+    item = await db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    path = f"{uuid.uuid4().hex}_{file.filename or 'datasheet.pdf'}"
+    await storage.upload_to_path(
+        ITEM_DATASHEETS_BUCKET, path, await file.read(), file.content_type or "application/pdf"
+    )
+    item.datasheet_bucket = ITEM_DATASHEETS_BUCKET
+    item.datasheet_path = path
+    await db.commit()
+    await db.refresh(item)
+    return await _item_out(item)
+
+
+@router.delete("/items/{item_id}/datasheet", response_model=ItemOut)
+async def remove_item_datasheet(
+    item_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_inventory_manage),
+):
+    item = await db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    item.datasheet_bucket = None
+    item.datasheet_path = None
     await db.commit()
     await db.refresh(item)
     return await _item_out(item)
