@@ -87,16 +87,14 @@ async def list_stock(
 
     rows = (await db.execute(stmt)).all()
 
-    # Load cabin assignments for the matching scope
+    # Load cabin assignments for the matching scope (0-1 per stock row)
     cabins_stmt = (
         select(
             ItemCabinAssignment.warehouse_id,
             ItemCabinAssignment.item_id,
             ItemCabinAssignment.cabin_id,
             WarehouseCabin.name.label("cabin_name"),
-            ItemCabinAssignment.qty,
             ItemCabinAssignment.notes,
-            ItemCabinAssignment.is_primary,
         )
         .join(WarehouseCabin, WarehouseCabin.id == ItemCabinAssignment.cabin_id)
         .order_by(WarehouseCabin.sort_order, WarehouseCabin.name)
@@ -108,14 +106,12 @@ async def list_stock(
 
     cabin_rows = (await db.execute(cabins_stmt)).all()
     cabins_by_stock: dict[tuple[uuid.UUID, uuid.UUID], list[ItemCabinBriefOut]] = {}
-    for wh_id, it_id, cab_id, cab_name, c_qty, c_notes, c_primary in cabin_rows:
+    for wh_id, it_id, cab_id, cab_name, c_notes in cabin_rows:
         cabins_by_stock.setdefault((wh_id, it_id), []).append(
             ItemCabinBriefOut(
                 cabin_id=cab_id,
                 cabin_name=cab_name,
-                qty=c_qty,
                 notes=c_notes,
-                is_primary=c_primary,
             )
         )
 

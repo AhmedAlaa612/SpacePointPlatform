@@ -100,11 +100,11 @@ export default function Stock() {
           entry.qty += r.qty
           byLocation.set(r.location_id, entry)
         }
-        const cabinSummary: { name: string; qty?: number | null }[] = []
+        const cabinSummary: { name: string }[] = []
         for (const r of scopedRows) {
           for (const c of r.cabins ?? []) {
             if (!cabinSummary.some((existing) => existing.name === c.cabin_name)) {
-              cabinSummary.push({ name: c.cabin_name, qty: c.qty })
+              cabinSummary.push({ name: c.cabin_name })
             }
           }
         }
@@ -141,7 +141,7 @@ export default function Stock() {
         entry.qty += b.qty
         byLocation.set(b.name, entry)
       }
-      const cabinSummary: { name: string; qty?: number | null }[] = []
+      const cabinSummary: { name: string }[] = []
       for (const m of sorted) {
         for (const c of m.cabins) {
           if (!cabinSummary.some((existing) => existing.name === c.name)) {

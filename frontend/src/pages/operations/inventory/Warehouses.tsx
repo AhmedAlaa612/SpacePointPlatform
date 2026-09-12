@@ -136,21 +136,18 @@ export default function WarehousesPage() {
       .map((item) => {
         const allRows = rowsByItem.get(item.id) ?? []
         const scopedRows = allRows.filter(inScope)
-        const cabinSummary: { name: string; qty?: number | null }[] = []
-        const cabinBreakdown: { name: string; qty: number }[] = []
+        // 1:1 location-only: a cabin is a name tag on the stock row.
+        // Quantity lives solely on the stock row (r.qty).
+        const cabinSummary: { name: string }[] = []
         for (const r of scopedRows) {
           for (const c of r.cabins ?? []) {
             if (!cabinSummary.some((existing) => existing.name === c.cabin_name)) {
-              cabinSummary.push({ name: c.cabin_name, qty: c.qty })
+              cabinSummary.push({ name: c.cabin_name })
             }
-            cabinBreakdown.push({ name: c.cabin_name, qty: c.qty ?? 0 })
           }
         }
         const total = scopedRows.reduce((sum, r) => sum + r.qty, 0)
-        // If no cabins assigned, show warehouse name with count
-        const breakdown = cabinBreakdown.length > 0
-          ? cabinBreakdown
-          : scopedRows.map((r) => ({ name: r.warehouse_name, qty: r.qty }))
+        const breakdown = scopedRows.map((r) => ({ name: r.warehouse_name, qty: r.qty }))
 
         return {
           item,
@@ -176,7 +173,7 @@ export default function WarehousesPage() {
 
     const groupCards = Array.from(byGroup.entries()).map(([groupName, members]) => {
       const sorted = [...members].sort((a, b) => a.item.name.localeCompare(b.item.name))
-      const cabinSummary: { name: string; qty?: number | null }[] = []
+      const cabinSummary: { name: string }[] = []
       for (const m of sorted) {
         for (const c of m.cabins) {
           if (!cabinSummary.some((existing) => existing.name === c.name)) {

@@ -1,7 +1,7 @@
 ﻿import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -45,16 +45,17 @@ class WarehouseCabin(Base):
 
 
 class ItemCabinAssignment(Base):
-    """Spatial placement of an item in a specific cabin within a warehouse.
+    """Spatial placement of an item within a warehouse — one home per item.
 
-    An item can sit in one primary cabin (the standard 95% case) or be split
-    across multiple cabins (e.g. overflow stock in a secondary rack).
-    If `qty` is NULL, it indicates placement without a strict quantity partition.
+    1:1 per (warehouse, item): an item lives in at most one cabin in a given
+    warehouse, or nowhere (unassigned). This row carries location only —
+    quantity lives solely on `StockLevel.qty`, so counting stock never has
+    to sync two numbers.
     """
 
     __tablename__ = "item_cabin_assignments"
     __table_args__ = (
-        UniqueConstraint("cabin_id", "item_id", name="uq_item_cabin_assignments_cabin_item"),
+        UniqueConstraint("warehouse_id", "item_id", name="uq_item_cabin_assignments_warehouse_item"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -76,9 +77,7 @@ class ItemCabinAssignment(Base):
         nullable=False,
         index=True,
     )
-    qty = Column(Integer, nullable=True)
     notes = Column(String(128), nullable=True)
-    is_primary = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     cabin = relationship("WarehouseCabin", back_populates="item_assignments")

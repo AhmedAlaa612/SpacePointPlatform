@@ -38,18 +38,18 @@ def upgrade() -> None:
     )
     op.create_index('ix_warehouse_cabins_warehouse_id', 'warehouse_cabins', ['warehouse_id'])
 
-    # 3. Create item_cabin_assignments
+    # 3. Create item_cabin_assignments — 1:1 per (warehouse, item):
+    # an item lives in at most one cabin per warehouse, or nowhere.
+    # Location only; quantity lives solely on stock_levels.qty.
     op.create_table(
         'item_cabin_assignments',
         sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column('warehouse_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('warehouses.id', ondelete='CASCADE'), nullable=False),
         sa.Column('cabin_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('warehouse_cabins.id', ondelete='CASCADE'), nullable=False),
         sa.Column('item_id', postgresql.UUID(as_uuid=True), sa.ForeignKey('items.id', ondelete='CASCADE'), nullable=False),
-        sa.Column('qty', sa.Integer(), nullable=True),
         sa.Column('notes', sa.String(128), nullable=True),
-        sa.Column('is_primary', sa.Boolean(), nullable=False, server_default=sa.text('true')),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=True),
-        sa.UniqueConstraint('cabin_id', 'item_id', name='uq_item_cabin_assignments_cabin_item'),
+        sa.UniqueConstraint('warehouse_id', 'item_id', name='uq_item_cabin_assignments_warehouse_item'),
     )
     op.create_index('ix_item_cabin_assignments_warehouse_id', 'item_cabin_assignments', ['warehouse_id'])
     op.create_index('ix_item_cabin_assignments_cabin_id', 'item_cabin_assignments', ['cabin_id'])

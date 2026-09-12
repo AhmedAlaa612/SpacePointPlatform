@@ -441,11 +441,10 @@ export default function LocationDetail() {
                           <span
                             key={c.cabin_id}
                             className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-md bg-primary/10 text-primary border border-primary/20"
-                            title={c.qty != null ? `${c.qty} in ${c.cabin_name}` : c.cabin_name}
+                            title={c.cabin_name}
                           >
                             <MapPin size={10} />
                             <span>{c.cabin_name}</span>
-                            {c.qty != null && <span className="opacity-75 font-mono">({c.qty})</span>}
                           </span>
                         ))}
                       </div>

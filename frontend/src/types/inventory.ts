@@ -51,9 +51,7 @@ export interface ItemCabinAssignment {
   id?: string
   cabin_id: string
   cabin_name: string
-  qty?: number | null
   notes?: string | null
-  is_primary: boolean
 }
 
 export interface Warehouse {

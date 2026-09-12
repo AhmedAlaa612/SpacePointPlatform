@@ -588,9 +588,7 @@ async def get_item_cabins(
                 cabin_name=c_name,
                 item_id=assign.item_id,
                 item_name=i_name,
-                qty=assign.qty,
                 notes=assign.notes,
-                is_primary=assign.is_primary,
             )
         )
     return result
@@ -604,6 +602,13 @@ async def set_item_cabins(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_inventory_manage),
 ):
+    """One home per item per warehouse — location only, never quantity.
+
+    `[]` unassigns (the stock row stays, so the item shows as Unassigned
+    instead of vanishing). At most one entry; quantity lives solely on
+    `StockLevel.qty` and is never created or changed here beyond ensuring a
+    zero-qty row exists so an assigned-but-uncounted item stays visible.
+    """
     wh = await db.get(Warehouse, warehouse_id)
     if not wh:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Warehouse not found")
@@ -611,41 +616,13 @@ async def set_item_cabins(
     if not item:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Item not found")
 
-    cabin_ids = {a.cabin_id for a in body}
-    if cabin_ids:
-        valid_cabins = set(
-            (await db.execute(
-                select(WarehouseCabin.id).where(
-                    WarehouseCabin.id.in_(cabin_ids),
-                    WarehouseCabin.warehouse_id == warehouse_id,
-                )
-            )).scalars().all()
-        )
-        invalid = cabin_ids - valid_cabins
-        if invalid:
+    if len(body) > 1:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="An item lives in at most one cabin per warehouse")
+
+    if body:
+        cabin = await db.get(WarehouseCabin, body[0].cabin_id)
+        if cabin is None or cabin.warehouse_id != warehouse_id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="One or more cabins do not belong to this warehouse")
-
-    total_cabin_qty = sum(a.qty for a in body if a.qty is not None and a.qty > 0)
-    stock_stmt = select(StockLevel).where(
-        StockLevel.warehouse_id == warehouse_id,
-        StockLevel.item_id == item_id,
-    )
-    stock_level = (await db.execute(stock_stmt)).scalar_one_or_none()
-
-    if stock_level:
-        if total_cabin_qty > stock_level.qty:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                detail=f"Total allocated to cabins ({total_cabin_qty}) cannot exceed warehouse stock ({stock_level.qty})",
-            )
-    elif body:
-        stock_level = StockLevel(
-            id=uuid.uuid4(),
-            warehouse_id=warehouse_id,
-            item_id=item_id,
-            qty=total_cabin_qty,
-        )
-        db.add(stock_level)
 
     await db.execute(
         delete(ItemCabinAssignment).where(
@@ -661,11 +638,24 @@ async def set_item_cabins(
             warehouse_id=warehouse_id,
             cabin_id=a.cabin_id,
             item_id=item_id,
-            qty=a.qty,
             notes=a.notes,
-            is_primary=a.is_primary,
         )
         db.add(assign)
+
+    if body:
+        stock_level = (await db.execute(
+            select(StockLevel).where(
+                StockLevel.warehouse_id == warehouse_id,
+                StockLevel.item_id == item_id,
+            )
+        )).scalar_one_or_none()
+        if stock_level is None:
+            db.add(StockLevel(
+                id=uuid.uuid4(),
+                warehouse_id=warehouse_id,
+                item_id=item_id,
+                qty=0,
+            ))
     await db.commit()
 
     return await get_item_cabins(warehouse_id, item_id, db, _)

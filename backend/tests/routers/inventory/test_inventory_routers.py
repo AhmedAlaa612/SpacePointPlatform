@@ -1106,51 +1106,69 @@ async def test_warehouse_cabins_crud_and_item_assignments(db, client, ops_header
     assert list_cabins.status_code == 200
     assert len(list_cabins.json()) == 2
 
-    # 3. Assign item A to single cabin (Cabin 1)
+    # 3. Assign item A to Cabin 1 (location only, no qty)
     assign_a = await client.put(
         f"/inventory/warehouses/{wh.id}/items/{item_a.id}/cabins",
         headers=ops_headers,
-        json=[{"cabin_id": c1["id"], "qty": 10, "notes": "Top tray", "is_primary": True}],
+        json=[{"cabin_id": c1["id"], "notes": "Top tray"}],
     )
     assert assign_a.status_code == 200
     assert len(assign_a.json()) == 1
     assert assign_a.json()[0]["cabin_name"] == "Cabin 1"
-    assert assign_a.json()[0]["qty"] == 10
 
-    # 4. Assign item B split across Cabin 1 and Cabin 2
-    assign_b = await client.put(
+    # 4. 1:1 enforced — a second cabin for the same item is rejected
+    assign_b_split = await client.put(
         f"/inventory/warehouses/{wh.id}/items/{item_b.id}/cabins",
         headers=ops_headers,
         json=[
-            {"cabin_id": c1["id"], "qty": 5, "notes": "Ready for kits", "is_primary": True},
-            {"cabin_id": c2["id"], "qty": 45, "notes": "Overflow stock", "is_primary": False},
+            {"cabin_id": c1["id"], "notes": "Ready for kits"},
+            {"cabin_id": c2["id"], "notes": "Overflow stock"},
         ],
     )
-    assert assign_b.status_code == 200
-    assert len(assign_b.json()) == 2
+    assert assign_b_split.status_code == 400
 
-    # 5. Check GET /stock exposes cabins and auto-created stock level
+    # 4b. Single assignment works
+    assign_b = await client.put(
+        f"/inventory/warehouses/{wh.id}/items/{item_b.id}/cabins",
+        headers=ops_headers,
+        json=[{"cabin_id": c2["id"], "notes": "Overflow stock"}],
+    )
+    assert assign_b.status_code == 200
+    assert len(assign_b.json()) == 1
+
+    # 5. GET /stock exposes the cabin tag; assigning never invents quantity —
+    # a freshly assigned but uncounted item gets a zero-qty stock row.
     stock_res = await client.get(f"/inventory/stock?warehouse_id={wh.id}", headers=ops_headers)
     assert stock_res.status_code == 200
     stock_items = stock_res.json()
     stock_a = next(s for s in stock_items if s["item_id"] == str(item_a.id))
-    assert stock_a["qty"] == 10  # auto-created from cabin allocation
+    assert stock_a["qty"] == 0
     assert len(stock_a["cabins"]) == 1
     assert stock_a["cabins"][0]["cabin_name"] == "Cabin 1"
 
-    # 5b. Allocating more than stock level qty fails with 400
-    excess_res = await client.put(
+    # 5b. Unassigning keeps the stock row (it becomes Unassigned, not deleted)
+    await db.execute(
+        StockLevel.__table__.update()
+        .where(StockLevel.warehouse_id == wh.id, StockLevel.item_id == item_a.id)
+        .values(qty=7)
+    )
+    await db.commit()
+    unassign_a = await client.put(
         f"/inventory/warehouses/{wh.id}/items/{item_a.id}/cabins",
         headers=ops_headers,
-        json=[{"cabin_id": c1["id"], "qty": 900}],
+        json=[],
     )
-    assert excess_res.status_code == 400
-    assert "exceed warehouse stock" in excess_res.json()["detail"]
+    assert unassign_a.status_code == 200
+    assert unassign_a.json() == []
+    stock_res2 = await client.get(f"/inventory/stock?warehouse_id={wh.id}", headers=ops_headers)
+    stock_a2 = next(s for s in stock_res2.json() if s["item_id"] == str(item_a.id))
+    assert stock_a2["qty"] == 7
+    assert stock_a2["cabins"] == []
 
-    # 6. Check cabin item_count is accurate
+    # 6. Check cabin item_count is accurate (item A unassigned, item B in Cabin 2)
     c1_check = await client.get(f"/inventory/warehouses/{wh.id}/cabins", headers=keeper_headers)
     cabins_data = {c["name"]: c["item_count"] for c in c1_check.json()}
-    assert cabins_data["Cabin 1"] == 2  # item_a and item_b
+    assert cabins_data["Cabin 1"] == 0
     assert cabins_data["Cabin 2"] == 1  # item_b
 
     # 7. Update cabin pin coordinates
@@ -1162,12 +1180,11 @@ async def test_warehouse_cabins_crud_and_item_assignments(db, client, ops_header
     assert patch_c1.status_code == 200
     assert patch_c1.json()["pin_x"] == 30.0
 
-    # 8. Delete cabin 2: assignments are removed cleanly
+    # 8. Delete cabin 2: assignment removed, stock stays (becomes unassigned)
     del_c2 = await client.delete(f"/inventory/warehouses/{wh.id}/cabins/{c2['id']}", headers=ops_headers)
     assert del_c2.status_code == 204
     b_cabins = await client.get(f"/inventory/warehouses/{wh.id}/items/{item_b.id}/cabins", headers=ops_headers)
-    assert len(b_cabins.json()) == 1
-    assert b_cabins.json()[0]["cabin_name"] == "Cabin 1"
+    assert b_cabins.json() == []
 
     # 9. Listing warehouses (with include_inactive=True) returns cabins without lazy-load issues
     wh_list = await client.get("/inventory/warehouses?include_inactive=true", headers=ops_headers)

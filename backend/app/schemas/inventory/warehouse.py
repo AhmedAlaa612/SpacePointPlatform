@@ -56,9 +56,7 @@ class WarehouseCabinOut(WarehouseCabinBase):
 
 class ItemCabinAssignmentIn(BaseModel):
     cabin_id: UUID
-    qty: int | None = None
     notes: str | None = None
-    is_primary: bool = True
 
 
 class ItemCabinAssignmentOut(BaseModel):
@@ -68,9 +66,7 @@ class ItemCabinAssignmentOut(BaseModel):
     cabin_name: str
     item_id: UUID
     item_name: str | None = None
-    qty: int | None = None
     notes: str | None = None
-    is_primary: bool = True
 
     class Config:
         from_attributes = True

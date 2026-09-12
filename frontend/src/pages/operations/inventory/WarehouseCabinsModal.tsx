@@ -465,7 +465,7 @@ export function WarehouseCabinsModal({
                         </div>
                         <div className="text-right shrink-0">
                           <span className="font-mono font-bold text-foreground">
-                            {assign?.qty !== null && assign?.qty !== undefined ? `${assign.qty} pcs` : `${item.qty} pcs`}
+                            {`${item.qty} pcs`}
                           </span>
                         </div>
                       </div>

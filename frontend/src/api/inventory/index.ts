@@ -93,7 +93,7 @@ export const getItemCabinsApi = (warehouseId: string, itemId: string) =>
 export const setItemCabinsApi = (
   warehouseId: string,
   itemId: string,
-  assignments: { cabin_id: string; qty?: number | null; notes?: string | null; is_primary?: boolean }[]
+  assignments: { cabin_id: string; notes?: string | null }[]
 ) =>
   api.put<ItemCabinAssignment[]>(`/inventory/warehouses/${warehouseId}/items/${itemId}/cabins`, assignments).then((r) => r.data)
 

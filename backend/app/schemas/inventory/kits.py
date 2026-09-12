@@ -175,9 +175,7 @@ class KitCountIn(BaseModel):
 class ItemCabinBriefOut(BaseModel):
     cabin_id: uuid.UUID
     cabin_name: str
-    qty: int | None = None
     notes: str | None = None
-    is_primary: bool = True
 
 
 class StockLevelOut(BaseModel):
