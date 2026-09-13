@@ -34,6 +34,7 @@ from app.core.dependencies import require_operations, require_session_delivery
 from app.db.session import get_db
 from app.models.certificate import Certificate
 from app.models.document_template import DocumentTemplate
+from app.models.instructor_assessment.assignment import AssessmentCohortAssignment
 from app.models.sessions.delivery_role import DeliveryRole
 from app.services.documents.certificate import generate_completion_certificate_pdf, merge_certificate_pdfs
 from app.services.games.realtime import get_realtime_redis_dep, safe_publish_to_run
@@ -219,6 +220,18 @@ async def create_cohort(
     await openings_svc.copy_program_openings_to_cohort(
         db, program_id=program.id, cohort_id=cohort.id, actor_user_id=current_user.id,
     )
+    # Same one-time-seed shape as the openings copy above (2026-09-13): a
+    # program with a default assessment config gives every new cohort its
+    # own real AssessmentCohortAssignment from the start, rather than ops
+    # having to remember to set it on the cohort's Assessment tab (or the
+    # wizard's Staffing step, which shows the same panel) every time. Purely
+    # a starting point — overriding or clearing it here never reaches back
+    # into the program template.
+    if program.default_assessment_config_id is not None:
+        db.add(AssessmentCohortAssignment(
+            id=uuid.uuid4(), cohort_id=cohort.id, config_id=program.default_assessment_config_id,
+            assigned_by=current_user.id,
+        ))
     await db.commit()
     await db.refresh(cohort)
     return await _cohort_out(db, cohort, program.name, program.code, location, program_is_competition=program.is_competition)

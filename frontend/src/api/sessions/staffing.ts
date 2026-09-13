@@ -62,8 +62,18 @@ export interface CohortCall {
   closed_at: string | null
 }
 
+/** Who among the call's audience (the targeted user_ids, or every
+ *  instructor/facilitator when the call is public) gets an email invite —
+ *  independent of targeting, and "none" unless ops picks otherwise
+ *  (2026-09-13). The two city modes match against the cohort's resolved
+ *  city: "same_city" is the instructor's own home city (`User.city_id`),
+ *  "open_to_work_city" is whether they listed that city as somewhere
+ *  they're open to work (`ApplicantProfile.deliver_city_ids`). */
+export type CohortCallEmailMode = "none" | "same_city" | "open_to_work_city" | "all"
+
 export const openCohortCallApi = (cohortId: string, body: {
   session_ids?: string[]; user_ids?: string[]; role_ids?: string[]; label?: string
+  email_mode?: CohortCallEmailMode
 }) => api.post<{ call: CohortCall; failed: BulkActionResult["failed"] }>(
   `/sessions/cohorts/${cohortId}/staffing/calls`, body,
 ).then((r) => r.data)

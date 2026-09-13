@@ -10,6 +10,10 @@ import pytest
 from fastapi import status as http_status
 
 from app.core.security import create_access_token
+from app.models.instructor_assessment.assignment import AssessmentCohortAssignment
+from app.models.instructor_assessment.config import AssessmentConfig
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
 from app.models.user import User
 
 
@@ -90,3 +94,45 @@ async def test_update_config_rejects_partial_update_that_breaks_the_invariant(db
         headers=_headers(ops),
     )
     assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_delete_config_removes_it(db, client):
+    ops = await _ops(db)
+    await db.commit()
+
+    create_resp = await client.post(
+        "/instructor-assessment/admin/configs", json={"name": "Deletable Config"}, headers=_headers(ops),
+    )
+    config_id = create_resp.json()["id"]
+
+    resp = await client.delete(f"/instructor-assessment/admin/configs/{config_id}", headers=_headers(ops))
+    assert resp.status_code == http_status.HTTP_204_NO_CONTENT
+
+    follow_up = await client.get(f"/instructor-assessment/admin/configs/{config_id}", headers=_headers(ops))
+    assert follow_up.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_delete_config_rejects_when_assigned_to_a_cohort(db, client):
+    """`assessment_cohort_assignments.config_id` is RESTRICT — a config that
+    gates a cohort's registrations can't be deleted out from under it."""
+    ops = await _ops(db)
+    program = Program(
+        id=uuid.uuid4(), code=f"CFG-{uuid.uuid4().hex[:8]}", name="Delete Config Test Program",
+        program_type="workshop", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Delete Config Test Cohort", status="planned", visibility="public")
+    db.add(cohort)
+    await db.flush()
+    config = AssessmentConfig(id=uuid.uuid4(), name="Assigned Config", is_active=True, draw_size=15, critical_floor=3)
+    db.add(config)
+    await db.flush()
+    db.add(AssessmentCohortAssignment(id=uuid.uuid4(), cohort_id=cohort.id, config_id=config.id))
+    await db.commit()
+
+    resp = await client.delete(f"/instructor-assessment/admin/configs/{config.id}", headers=_headers(ops))
+    assert resp.status_code == http_status.HTTP_409_CONFLICT
+    assert "1 cohort" in resp.json()["detail"]

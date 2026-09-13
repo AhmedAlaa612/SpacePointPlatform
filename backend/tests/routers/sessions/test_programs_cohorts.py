@@ -199,6 +199,97 @@ async def test_create_cohort_copies_the_programs_role_template(db, client, opera
 
 
 @pytest.mark.asyncio
+async def test_update_program_rejects_unknown_default_assessment_config(db, client, operations_headers):
+    program = await _make_program(db)
+
+    resp = await client.patch(
+        f"/sessions/programs/{program.id}",
+        json={"default_assessment_config_id": str(uuid.uuid4())},
+        headers=operations_headers,
+    )
+    assert resp.status_code == 404
+    await db.refresh(program)
+    assert program.default_assessment_config_id is None
+
+
+@pytest.mark.asyncio
+async def test_create_cohort_seeds_assessment_assignment_from_program_default(db, client, operations_headers):
+    """A program with a default assessment config (2026-09-13) — set via the
+    generic PATCH /sessions/programs endpoint, same as poster_template_url —
+    gives every new cohort its own real AssessmentCohortAssignment from the
+    start, end to end through the real endpoints, same shape as the openings
+    template test above."""
+    from app.models.instructor_assessment.config import AssessmentConfig
+
+    config = AssessmentConfig(id=uuid.uuid4(), name="Applicant Screen", is_active=True)
+    db.add(config)
+    await db.flush()
+    program = await _make_program(db)
+
+    patch_resp = await client.patch(
+        f"/sessions/programs/{program.id}",
+        json={"default_assessment_config_id": str(config.id)},
+        headers=operations_headers,
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    assert patch_resp.json()["default_assessment_config_id"] == str(config.id)
+
+    create_resp = await client.post(
+        "/sessions/cohorts",
+        json={"program_id": str(program.id), "name": "Gated Cohort"},
+        headers=operations_headers,
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    cohort_id = create_resp.json()["id"]
+
+    assignment_resp = await client.get(
+        f"/instructor-assessment/cohorts/{cohort_id}/config", headers=operations_headers,
+    )
+    assert assignment_resp.status_code == 200
+    body = assignment_resp.json()
+    assert body is not None
+    assert body["config_id"] == str(config.id)
+    assert body["config_name"] == "Applicant Screen"
+
+    # Editing the program's default afterwards must not reach back into this
+    # cohort — same one-time-copy contract as the openings template.
+    other_config = AssessmentConfig(id=uuid.uuid4(), name="Other Screen", is_active=True)
+    db.add(other_config)
+    await db.flush()
+    await client.patch(
+        f"/sessions/programs/{program.id}",
+        json={"default_assessment_config_id": str(other_config.id)},
+        headers=operations_headers,
+    )
+    assignment_resp = await client.get(
+        f"/instructor-assessment/cohorts/{cohort_id}/config", headers=operations_headers,
+    )
+    assert assignment_resp.json()["config_id"] == str(config.id)
+
+
+@pytest.mark.asyncio
+async def test_create_cohort_with_no_program_default_seeds_no_assessment_assignment(db, client, operations_headers):
+    """A program with no default (the common case, and every program before
+    this feature existed) leaves a new cohort exactly as it is today —
+    nothing to copy, nothing changes."""
+    program = await _make_program(db)
+
+    create_resp = await client.post(
+        "/sessions/cohorts",
+        json={"program_id": str(program.id), "name": "Ungated Cohort"},
+        headers=operations_headers,
+    )
+    assert create_resp.status_code == 201, create_resp.text
+    cohort_id = create_resp.json()["id"]
+
+    assignment_resp = await client.get(
+        f"/instructor-assessment/cohorts/{cohort_id}/config", headers=operations_headers,
+    )
+    assert assignment_resp.status_code == 200
+    assert assignment_resp.json() is None
+
+
+@pytest.mark.asyncio
 async def test_create_cohort_missing_program_404(db, client, operations_headers):
     resp = await client.post(
         "/sessions/cohorts",

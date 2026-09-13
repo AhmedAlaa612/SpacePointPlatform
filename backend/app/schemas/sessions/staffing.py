@@ -12,6 +12,21 @@ from pydantic import BaseModel
 
 from app.schemas.sessions.cohorts import BulkActionError, StaffingStatus
 
+# Ops's explicit choice of who among the call's audience gets an email
+# invite, independent of whether the call itself is targeted or public
+# (operator ask, 2026-09-13). "none" is the default — a public call already
+# surfaces on every instructor's Available Sessions list, and a targeted one
+# still shows the in-app notification, so an email is opt-in rather than
+# automatic in either case.
+#   - "none": no emails at all.
+#   - "same_city": only instructors whose own `User.city_id` matches the
+#     cohort's resolved city.
+#   - "open_to_work_city": only instructors who listed that city in their
+#     `ApplicantProfile.deliver_city_ids` ("open to work here").
+#   - "all": every instructor in the call's audience (every targeted user_id,
+#     or every instructor/facilitator when the call is public).
+EmailMode = Literal["none", "same_city", "open_to_work_city", "all"]
+
 
 class RegisterInterestRequest(BaseModel):
     note: str | None = None
@@ -145,6 +160,7 @@ class OpenCohortCallRequest(BaseModel):
     user_ids: list[UUID] | None = None
     role_ids: list[UUID] | None = None
     label: str | None = None
+    email_mode: EmailMode = "none"
 
 
 class OpenCohortCallResponse(BaseModel):

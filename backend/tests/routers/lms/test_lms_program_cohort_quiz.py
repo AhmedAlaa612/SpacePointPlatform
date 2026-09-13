@@ -9,6 +9,7 @@ import pytest
 from fastapi import status as http_status
 
 from app.core.security import create_access_token
+from app.models.lms.cohort_quiz import CohortQuizAttempt
 from app.models.lms.program import LmsProgram, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
@@ -264,6 +265,62 @@ async def test_admin_can_generate_and_regenerate_a_templates_question_set(db, cl
     second_set = regenerate_resp.json()
     assert second_set["question_count"] == 3
     assert all(q["question"]["topic"] == "EPS" for q in second_set["questions"])
+
+
+@pytest.mark.asyncio
+async def test_delete_template_removes_it_when_unused(db, client):
+    """A hard delete, distinct from the retire (PATCH is_active=false)
+    tested below — only reachable when nothing references the template
+    yet (see the two rejection tests right after this one)."""
+    author = await _staff(db, roles=("facilitator",))
+    await db.commit()
+    template_resp = await client.post(
+        "/lms/admin/cohort-quiz/templates", headers=_headers(author), json={"name": "Deletable Template"},
+    )
+    template_id = template_resp.json()["id"]
+
+    delete_resp = await client.delete(f"/lms/admin/cohort-quiz/templates/{template_id}", headers=_headers(author))
+    assert delete_resp.status_code == http_status.HTTP_204_NO_CONTENT
+
+    follow_up = await client.get(f"/lms/admin/cohort-quiz/templates/{template_id}", headers=_headers(author))
+    assert follow_up.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_delete_template_rejects_when_a_checklist_item_points_at_it(db, client):
+    author = await _staff(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    template_id = await _template_with_one_question(db, author=author)
+    await _quiz_item(db, lms_program=lms_program, template_id=template_id)
+    await db.commit()
+
+    resp = await client.delete(f"/lms/admin/cohort-quiz/templates/{template_id}", headers=_headers(author))
+    assert resp.status_code == http_status.HTTP_409_CONFLICT
+    assert "checklist item" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_delete_template_rejects_when_a_student_attempt_references_it(db, client):
+    """A template stays editable after a student has already started
+    against it (see the retired-template test below) — its checklist item
+    can move on to a different template entirely. The old template then has
+    no *current* item pointing at it, but a frozen attempt still blocks a
+    hard delete on its own."""
+    author = await _staff(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    template_id = await _template_with_one_question(db, author=author)
+    other_template_id = await _template_with_one_question(db, author=author)
+    item = await _quiz_item(db, lms_program=lms_program, template_id=other_template_id)
+    student = await _student(db)
+    db.add(CohortQuizAttempt(
+        id=uuid.uuid4(), program_item_id=item.id, cohort_quiz_template_id=template_id, user_id=student.id,
+        question_order=[], status="in_progress", total=1,
+    ))
+    await db.commit()
+
+    resp = await client.delete(f"/lms/admin/cohort-quiz/templates/{template_id}", headers=_headers(author))
+    assert resp.status_code == http_status.HTTP_409_CONFLICT
+    assert "student attempt" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio

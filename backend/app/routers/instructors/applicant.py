@@ -15,6 +15,7 @@ from app.models.instructors.assessment_submission import AssessmentSubmission
 from app.models.instructors.presentation_submission import PresentationSubmission
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.user import User
+from app.services.instructors.application_videos import get_configured_videos
 from app.schemas.instructors.applicant import (
     ApplicationStatusOut,
     AssessmentSubmissionOut,
@@ -94,35 +95,15 @@ async def _all_modules_submitted(db: AsyncSession, user_id: uuid.UUID) -> bool:
 
 # ── Phase 1: video summaries ──────────────────────────────────
 
-# Default URLs used when the facilitator hasn't configured them yet.
-_DEFAULT_VIDEO_URLS = [
-    "https://youtu.be/6KcV1C1Ui5s",
-    "https://youtu.be/qr1AvisQcV8",
-    "https://youtu.be/5voQfQOTem8",
-]
-
-
-async def _get_video_urls(db: AsyncSession) -> list[str]:
-    """Return the 3 canonical video URLs, reading from portal_settings first
-    and falling back to the hardcoded defaults when not yet configured."""
-    from app.models.instructors.payment import PortalSetting
-    settings = {
-        s.key: s.value
-        for s in (await db.execute(
-            select(PortalSetting).where(PortalSetting.key.like("app_video_%_url"))
-        )).scalars().all()
-    }
-    return [settings.get(f"app_video_{n}_url") or _DEFAULT_VIDEO_URLS[n - 1] for n in range(1, 4)]
-
-
 @router.get("/videos", response_model=list[VideoSubmissionOut])
 async def list_videos(db: AsyncSession = Depends(get_db), current_user: User = Depends(require_applicant)):
     rows = (await db.execute(
         select(VideoSubmission).where(VideoSubmission.user_id == current_user.id).order_by(VideoSubmission.video_no)
     )).scalars().all()
-    video_urls = await _get_video_urls(db)
+    videos = await get_configured_videos(db)
+    video_urls = [v["url"] for v in videos]
     if not rows:
-        rows = [VideoSubmission(user_id=current_user.id, video_no=n, youtube_url=url) for n, url in enumerate(video_urls, 1)]
+        rows = [VideoSubmission(user_id=current_user.id, video_no=v["video_no"], youtube_url=v["url"]) for v in videos]
         db.add_all(rows)
         await db.commit()
         for r in rows:
@@ -131,7 +112,7 @@ async def list_videos(db: AsyncSession = Depends(get_db), current_user: User = D
         # Backfill missing URLs for rows created before the URL was seeded
         dirty = False
         for row in rows:
-            if not row.youtube_url:
+            if not row.youtube_url and row.video_no <= len(video_urls):
                 row.youtube_url = video_urls[row.video_no - 1]
                 dirty = True
         if dirty:
@@ -293,7 +274,7 @@ async def submit_module(
     current_user: User = Depends(require_applicant),
 ):
     if not await _all_videos_submitted(db, current_user.id):
-        raise HTTPException(status_code=400, detail="Submit all 3 video summaries before uploading modules")
+        raise HTTPException(status_code=400, detail="Submit all video summaries before uploading modules")
 
     module = (await db.execute(select(ChecklistModule).where(ChecklistModule.id == module_id))).scalars().first()
     if not module:
@@ -339,7 +320,7 @@ async def submit_application(db: AsyncSession = Depends(get_db), current_user: U
     if review.status != ApplicationStatus.in_progress:
         raise HTTPException(status_code=400, detail="Application has already been submitted")
     if not await _all_videos_submitted(db, current_user.id):
-        raise HTTPException(status_code=400, detail="Submit all 3 video summaries first")
+        raise HTTPException(status_code=400, detail="Submit all video summaries first")
     if not await _all_modules_submitted(db, current_user.id):
         raise HTTPException(status_code=400, detail="Submit all checklist modules first")
 

@@ -33,6 +33,9 @@ export const updateAssessmentConfigApi = (
   data: Partial<{ name: string; description: string | null; is_active: boolean; draw_size: number; critical_floor: number }>,
 ) => api.patch<AssessmentConfig>(`/instructor-assessment/admin/configs/${configId}`, data).then((r) => r.data);
 
+export const deleteAssessmentConfigApi = (configId: string) =>
+  api.delete<void>(`/instructor-assessment/admin/configs/${configId}`).then((r) => r.data);
+
 export interface AssessmentQuestionInput {
   category: string;
   prompt: string;

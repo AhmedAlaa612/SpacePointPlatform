@@ -3,7 +3,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Modal, Field, ModalActions } from "@/pages/admin/components/common"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
-import { listEligibleInstructorsApi, openCohortCallApi, type CohortCall } from "@/api/sessions/staffing"
+import {
+  listEligibleInstructorsApi, openCohortCallApi, type CohortCall, type CohortCallEmailMode,
+} from "@/api/sessions/staffing"
 import { type BulkActionResult } from "@/api/sessions/cohorts"
 import type { Cohort, EligibleInstructor } from "@/types/sessions"
 
@@ -18,6 +20,7 @@ export function BulkOpenCallModal({ cohort, sessionIds, onClose, onDone }: {
   const [targeted, setTargeted] = useState(false)
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
   const [label, setLabel] = useState("")
+  const [emailMode, setEmailMode] = useState<CohortCallEmailMode>("none")
   const [error, setError] = useState("")
   const [result, setResult] = useState<{ call: CohortCall; failed: BulkActionResult["failed"] } | null>(null)
 
@@ -38,6 +41,7 @@ export function BulkOpenCallModal({ cohort, sessionIds, onClose, onDone }: {
       session_ids: sessionIds,
       user_ids: targeted ? selectedUserIds : undefined,
       label: label.trim() || undefined,
+      email_mode: emailMode,
     }),
     onSuccess: (r) => {
       setResult(r)
@@ -70,6 +74,22 @@ export function BulkOpenCallModal({ cohort, sessionIds, onClose, onDone }: {
             {eligible.length === 0 && <p className="text-xs text-muted-foreground p-1.5">Loading…</p>}
           </div>
         )}
+        <Field label="Email invite">
+          <select
+            value={emailMode}
+            onChange={(e) => setEmailMode(e.target.value as CohortCallEmailMode)}
+            className="w-full h-9 px-3 border border-border bg-background text-foreground rounded-lg text-sm"
+          >
+            <option value="none">Don't send emails (default — in-app notification only)</option>
+            <option value="same_city">Email instructors from the same city as the event</option>
+            <option value="open_to_work_city">Email instructors open to work in that city</option>
+            <option value="all">Email everyone in this call's audience</option>
+          </select>
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Applies whether the call is public or restricted above — the in-app notification always goes
+            out either way; this only controls who additionally gets an email.
+          </p>
+        </Field>
         <Field label="Label (optional)">
           <input
             value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Weekend cover"

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, DateTime, Integer, Numeric, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 
 from app.db.base import Base
@@ -37,6 +37,20 @@ class Program(Base):
     completion_rule_value = Column(Numeric(6, 2), nullable=False, default=70)
     # Ops-set master poster template link — cohorts inherit this unless overridden
     poster_template_url = Column(String(512), nullable=True)
+    # Instructor-assessment default (2026-09) — same copy-not-inherit shape as
+    # `ProgramOpening`: `create_cohort` seeds a brand-new cohort's own
+    # `AssessmentCohortAssignment` from this the moment it's created, once,
+    # and never again. Editing this afterwards never reaches back into a
+    # cohort that already exists; ops overrides the seeded copy per-cohort
+    # from the cohort's own Assessment tab (`AssessmentCohortAssignment`),
+    # same place that's always lived. SET NULL rather than RESTRICT on
+    # delete — unlike an active `AssessmentCohortAssignment`, this is just a
+    # template pointer for cohorts not yet created, not a live gate, so
+    # deleting the config it points at should just clear the default rather
+    # than being blocked.
+    default_assessment_config_id = Column(
+        UUID(as_uuid=True), ForeignKey("assessment_configs.id", ondelete="SET NULL"), nullable=True,
+    )
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     @property

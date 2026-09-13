@@ -35,6 +35,11 @@ class ProgramBase(BaseModel):
     completion_rule_type: CompletionRuleType = "percentage"
     completion_rule_value: Decimal = Decimal("70")
     poster_template_url: str | None = None
+    # Instructor-assessment default (2026-09) — copied once into a new
+    # cohort's own AssessmentCohortAssignment at creation (create_cohort),
+    # never read live afterwards. See Program.default_assessment_config_id's
+    # docstring.
+    default_assessment_config_id: UUID | None = None
 
 
 class ProgramCreate(ProgramBase):
@@ -57,6 +62,7 @@ class ProgramUpdate(BaseModel):
     completion_rule_type: CompletionRuleType | None = None
     completion_rule_value: Decimal | None = None
     poster_template_url: str | None = None
+    default_assessment_config_id: UUID | None = None
 
 
 class ProgramOut(ProgramBase):

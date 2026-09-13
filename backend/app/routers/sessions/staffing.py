@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_instructor_or_facilitator, require_operations
 from app.db.session import get_db
+from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.sessions.delivery_role import DeliveryRole
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.session import Session, SessionInstructor
@@ -36,6 +37,7 @@ from app.schemas.sessions.staffing import (
     CohortAssignmentOut,
     CohortCallInterestOut,
     CohortSelectionOut,
+    EmailMode,
     RegisterCohortInterestRequest,
     SelectForCohortRequest,
     OpeningSummary,
@@ -57,6 +59,37 @@ from app.services.sessions import cohort_staffing, staffing
 from app.workers.settings import get_arq_redis, safe_enqueue
 
 router = APIRouter(prefix="/sessions", tags=["sessions-staffing"])
+
+
+async def _email_recipients(
+    db: AsyncSession, users: list[User], email_mode: EmailMode, city_id: uuid.UUID | None,
+) -> list[User]:
+    """Narrows a call's audience (`users` — already the targeted subset when
+    the call is targeted, or every instructor/facilitator when it's public)
+    down to who actually gets an email invite, per ops's explicit
+    `email_mode` choice (2026-09-13). The in-app notification is unaffected
+    by this — it always goes to the whole audience; this only gates the
+    email, which used to be implied by targeting alone and is now its own
+    opt-in decision for both targeted and public calls.
+
+    The two city-scoped modes need a resolved `city_id` to mean anything —
+    with none available (no location set anywhere on the cohort/session)
+    they match nobody rather than silently falling back to "all"."""
+    if email_mode == "none" or not users:
+        return []
+    if email_mode == "all":
+        return users
+    if city_id is None:
+        return []
+    if email_mode == "same_city":
+        return [u for u in users if u.city_id == city_id]
+    if email_mode == "open_to_work_city":
+        profiles = dict((await db.execute(
+            select(ApplicantProfile.user_id, ApplicantProfile.deliver_city_ids)
+            .where(ApplicantProfile.user_id.in_([u.id for u in users]))
+        )).all())
+        return [u for u in users if city_id in (profiles.get(u.id) or [])]
+    return []
 
 
 async def _session_out(db: AsyncSession, session: Session) -> SessionOut:
@@ -163,6 +196,7 @@ async def open_cohort_call(
     target_ids = list(body.user_ids) if body and body.user_ids else []
     role_ids = list(body.role_ids) if body and body.role_ids else None
     label = body.label if body else None
+    email_mode: EmailMode = body.email_mode if body else "none"
 
     call, succeeded, failed = await staffing.open_cohort_call(
         db, cohort_id, session_ids=session_ids, target_user_ids=target_ids,
@@ -182,13 +216,23 @@ async def open_cohort_call(
                 type="staffing_open_call",
             )
 
-        # Targeted calls only — see open_call's identical rationale above.
-        # One email per session so each invite names its own session/date.
-        if target_ids:
-            for session_id in succeeded:
-                await safe_enqueue(
-                    arq_redis, "send_call_invite_emails", str(session_id), [str(uid) for uid in target_ids],
-                )
+        # Email is ops's own explicit choice (email_mode), separate from
+        # targeting — "none" by default whether the call is targeted or
+        # public. One task for the WHOLE cohort call, not one per session it
+        # opened: each recipient gets exactly one invite naming the cohort's
+        # run, never one per session inside it (2026-09-13 fix — it used to
+        # fire len(succeeded) emails per targeted instructor).
+        city_id = None
+        if email_mode in ("same_city", "open_to_work_city"):
+            first_session = await db.get(Session, succeeded[0])
+            if first_session is not None:
+                city_id = await staffing._resolve_session_city_id(db, first_session)
+        recipients = await _email_recipients(db, eligible, email_mode, city_id)
+        if recipients:
+            await safe_enqueue(
+                arq_redis, "send_cohort_call_invite_emails", str(call.id),
+                [str(u.id) for u in recipients],
+            )
 
     await db.commit()
     calls = await staffing.list_cohort_calls(db, cohort_id)

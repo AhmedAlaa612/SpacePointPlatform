@@ -8,11 +8,12 @@ router, matching the established `routers/games/admin.py` convention.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Response, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_materials_manager
 from app.db.session import get_db
+from app.models.instructor_assessment.assignment import AssessmentCohortAssignment
 from app.models.instructor_assessment.config import AssessmentConfig, AssessmentQuestion
 from app.models.user import User
 from app.schemas.instructor_assessment import (
@@ -113,6 +114,34 @@ async def update_config(config_id: uuid.UUID, body: AssessmentConfigUpdate, db: 
     await db.commit()
     await db.refresh(config)
     return await _config_out(db, config)
+
+
+@router.delete("/configs/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_config(config_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Delete a question bank.
+
+    `assessment_cohort_assignments.config_id` is RESTRICT, so a config that's
+    currently assigned to a cohort can't be deleted — that assignment is what
+    gates new interest registrations on that cohort. The count is checked
+    first (same posture as `routers/games/admin.py::delete_game`) so the
+    caller gets a sentence they can act on instead of a raw FK error.
+    """
+    config = await _config_or_404(db, config_id)
+    assigned = await db.scalar(
+        select(func.count()).select_from(AssessmentCohortAssignment)
+        .where(AssessmentCohortAssignment.config_id == config_id)
+    )
+    if assigned:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"This assessment is assigned to {assigned} cohort"
+                f"{'' if assigned == 1 else 's'}, so it can't be deleted. Unassign it there "
+                f"first, or leave it — an unassigned config costs nothing."
+            ),
+        )
+    await db.delete(config)
+    await db.commit()
 
 
 # ── questions ────────────────────────────────────────────────────────────

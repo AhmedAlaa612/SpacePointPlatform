@@ -88,7 +88,9 @@ export default function Videos() {
 
   if (isLoading || !videos) return <Spinner />
 
-  const allSubmitted = videos.length === 3 && videos.every((v) => v.status === "submitted")
+  // Video count is facilitator-editable, not fixed at 3 (2026-09) — "done"
+  // is "however many this applicant has, all submitted", not a magic number.
+  const allSubmitted = videos.length > 0 && videos.every((v) => v.status === "submitted")
 
   return (
     <div>

@@ -27,6 +27,10 @@ export interface Program {
   // `program_type === "competition"`. Not part of the create/update payload.
   is_competition: boolean;
   poster_template_url?: string | null;
+  /** Instructor-assessment default (2026-09) — copied once into a new
+   * cohort's own assessment assignment at creation; never read live
+   * afterwards. See backend Program.default_assessment_config_id. */
+  default_assessment_config_id?: string | null;
   created_at: string;
 }
 

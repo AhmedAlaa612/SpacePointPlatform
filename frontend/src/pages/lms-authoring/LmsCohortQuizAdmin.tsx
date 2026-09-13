@@ -7,12 +7,12 @@ import { Button } from "@/components/ui/button"
 import { ConfirmDialog, Modal } from "@/pages/admin/components/common"
 import {
   addCohortQuizTemplateQuestionApi, createCohortQuizQuestionApi, createCohortQuizTemplateApi,
-  downloadCohortQuizQuestionTemplateApi, generateCohortQuizTemplateQuestionsApi, getCohortQuizTemplateApi,
-  importCohortQuizQuestionsApi, listCohortQuizQuestionsApi, listCohortQuizTemplatesApi,
+  deleteCohortQuizTemplateApi, downloadCohortQuizQuestionTemplateApi, generateCohortQuizTemplateQuestionsApi,
+  getCohortQuizTemplateApi, importCohortQuizQuestionsApi, listCohortQuizQuestionsApi, listCohortQuizTemplatesApi,
   removeCohortQuizTemplateQuestionApi, reorderCohortQuizTemplateQuestionsApi, retireCohortQuizQuestionApi,
-  updateCohortQuizQuestionApi, type CohortQuizQuestionInput,
+  updateCohortQuizQuestionApi, updateCohortQuizTemplateApi, type CohortQuizQuestionInput,
 } from "@/api/cohort_quiz"
-import type { CohortQuizDifficulty, CohortQuizQuestion } from "@/types/cohort_quiz"
+import type { CohortQuizDifficulty, CohortQuizQuestion, CohortQuizTemplate } from "@/types/cohort_quiz"
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -395,6 +395,19 @@ function TemplatesTab() {
   const [description, setDescription] = useState("")
   const [createCount, setCreateCount] = useState(10)
   const [createTopics, setCreateTopics] = useState<string[]>([])
+  // Renaming and deleting a template, from the sidebar list — same shape as
+  // AssessmentQuestions.tsx's config rename/delete pattern. Delete is a real
+  // hard delete when nothing references the template yet; the server 409s
+  // (naming what's blocking it) once a checklist item or a student attempt
+  // does, at which point the same dialog offers "Retire instead"
+  // (is_active=false) — that's the actual retire-never-delete boundary
+  // this domain enforces (see cohort_quiz.py's docstring), not a blanket
+  // "templates can never be removed".
+  const [editingTemplate, setEditingTemplate] = useState<CohortQuizTemplate | null>(null)
+  const [renameName, setRenameName] = useState("")
+  const [renameDescription, setRenameDescription] = useState("")
+  const [deletingTemplate, setDeletingTemplate] = useState<CohortQuizTemplate | null>(null)
+  const [deleteError, setDeleteError] = useState("")
 
   const { data: templates = [], isLoading } = useQuery({ queryKey: ["cohort-quiz-templates"], queryFn: listCohortQuizTemplatesApi })
   // Same cache key `TemplateDetail` uses for its own topic list — sharing
@@ -424,6 +437,39 @@ function TemplatesTab() {
       queryClient.invalidateQueries({ queryKey: ["cohort-quiz-template", t.id] })
       setSelectedId(t.id)
     },
+  })
+
+  const openRenameTemplate = (t: CohortQuizTemplate) => {
+    setEditingTemplate(t); setRenameName(t.name); setRenameDescription(t.description ?? "")
+  }
+
+  const renameMutation = useMutation({
+    mutationFn: () => updateCohortQuizTemplateApi(editingTemplate!.id, { name: renameName.trim(), description: renameDescription.trim() || null }),
+    onSuccess: () => {
+      setEditingTemplate(null); setRenameName(""); setRenameDescription("")
+      queryClient.invalidateQueries({ queryKey: ["cohort-quiz-templates"] })
+      queryClient.invalidateQueries({ queryKey: ["cohort-quiz-template", editingTemplate!.id] })
+    },
+  })
+
+  const closeDeleteDialog = () => {
+    if (selectedId === deletingTemplate?.id) setSelectedId(null)
+    setDeletingTemplate(null); setDeleteError("")
+    queryClient.invalidateQueries({ queryKey: ["cohort-quiz-templates"] })
+  }
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteCohortQuizTemplateApi(deletingTemplate!.id),
+    onSuccess: closeDeleteDialog,
+    // Blocked (409) once a checklist item or student attempt references
+    // this template — the server's sentence names which, and the dialog
+    // offers "Retire instead" right below it.
+    onError: (err) => setDeleteError(errorDetail(err, "Couldn't delete this template.")),
+  })
+
+  const retireInsteadMutation = useMutation({
+    mutationFn: () => updateCohortQuizTemplateApi(deletingTemplate!.id, { is_active: false }),
+    onSuccess: closeDeleteDialog,
   })
 
   return (
@@ -480,20 +526,84 @@ function TemplatesTab() {
           <EmptyState title="No templates yet" />
         ) : (
           templates.map((t) => (
-            <button
+            <div
               key={t.id}
-              onClick={() => setSelectedId(t.id)}
-              className={`text-left p-3 rounded-xl border transition-colors ${selectedId === t.id ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/40"}`}
+              className={`flex items-center gap-1 p-3 rounded-xl border transition-colors ${selectedId === t.id ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/40"} ${!t.is_active ? "opacity-50" : ""}`}
             >
-              <p className="text-sm font-medium text-foreground">{t.name}</p>
-              <p className="text-xs text-muted-foreground">{t.question_count} question{t.question_count === 1 ? "" : "s"}</p>
-            </button>
+              <button onClick={() => setSelectedId(t.id)} className="text-left flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{t.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t.question_count} question{t.question_count === 1 ? "" : "s"}
+                  {!t.is_active && <span className="ml-1.5 font-semibold uppercase text-amber-600">retired</span>}
+                </p>
+              </button>
+              <button
+                onClick={() => openRenameTemplate(t)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                title="Rename"
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                onClick={() => setDeletingTemplate(t)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0"
+                title="Delete"
+              >
+                <Trash2 size={13} />
+              </button>
+            </div>
           ))
         )}
       </div>
       <div className="flex-1 min-w-0">
         {selectedId ? <TemplateDetail templateId={selectedId} /> : <EmptyState title="Pick a template" hint="Or create a new one to start adding questions." />}
       </div>
+
+      {editingTemplate && (
+        <Modal title="Rename template" onClose={() => setEditingTemplate(null)}>
+          <div className="flex flex-col gap-3">
+            <input
+              value={renameName} onChange={(e) => setRenameName(e.target.value)} autoFocus
+              placeholder="Template name"
+              className="h-10 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+            <textarea
+              value={renameDescription} onChange={(e) => setRenameDescription(e.target.value)} rows={2}
+              placeholder="Description (optional)"
+              className="px-3.5 py-2 border border-border bg-background text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors"
+            />
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setEditingTemplate(null)}>Cancel</Button>
+              <Button onClick={() => renameName.trim() && renameMutation.mutate()} disabled={!renameName.trim() || renameMutation.isPending}>
+                {renameMutation.isPending ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {deletingTemplate && (
+        <ConfirmDialog
+          title={`Delete "${deletingTemplate.name}"?`}
+          description="This permanently removes the template and its question picks — only possible if no checklist item points at it and no student has attempted it yet."
+          confirmLabel="Delete"
+          destructive
+          pending={deleteMutation.isPending}
+          error={deleteError}
+          onCancel={() => { setDeletingTemplate(null); setDeleteError("") }}
+          onConfirm={() => deleteMutation.mutate()}
+        >
+          {deleteError && (
+            <button
+              onClick={() => retireInsteadMutation.mutate()}
+              disabled={retireInsteadMutation.isPending}
+              className="text-xs font-medium text-primary hover:underline w-fit"
+            >
+              {retireInsteadMutation.isPending ? "Retiring…" : "Retire it instead →"}
+            </button>
+          )}
+        </ConfirmDialog>
+      )}
     </div>
   )
 }

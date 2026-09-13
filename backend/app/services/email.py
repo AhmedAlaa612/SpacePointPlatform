@@ -345,6 +345,31 @@ async def send_call_invite_email(
     return await try_send_email(to_email, f"You're invited: {program_name}", body)
 
 
+async def send_cohort_call_invite_email(
+    to_email: str, name: str, program_name: str, cohort_name: str,
+    starts_on: str | None = None, ends_on: str | None = None,
+) -> bool:
+    """Sent once per cohort call, once per recipient (2026-09-13) — the
+    cohort-level counterpart to `send_call_invite_email` above. That one is
+    session-shaped (one email per session a call opened); a cohort call can
+    group many sessions, and firing one of those per session per recipient
+    was the bug this exists to fix. Ops's `email_mode` choice (open_cohort_call)
+    decides who gets this at all — same audience-vs-recipients split as the
+    in-app notification, just opt-in rather than automatic."""
+    when = ""
+    if starts_on and ends_on:
+        when = f" running from {starts_on} to {ends_on}"
+    elif starts_on:
+        when = f" starting {starts_on}"
+    body = (
+        f"Hi {name},\n\n"
+        f"You're invited to register interest for \"{cohort_name}\" ({program_name}){when}.\n\n"
+        f"Check the sessions and apply here: {settings.FRONTEND_URL}/instructors/available-sessions\n\n"
+        "— SpacePoint"
+    )
+    return await try_send_email(to_email, f"You're invited: {program_name} cohort", body)
+
+
 async def send_cohort_interest_notification_email(to_email: str, name: str, program_name: str) -> bool:
     """Sent to everyone in `cohort_interest` for a cohort the moment ops
     flips its status from `planned` to `registration_open` (2026-08-07) —

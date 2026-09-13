@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_operations
 from app.db.session import get_db
+from app.models.instructor_assessment.config import AssessmentConfig
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
@@ -39,6 +40,9 @@ async def create_program(
     existing = (await db.execute(select(Program.id).where(Program.code == body.code))).first()
     if existing:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="A program with this code already exists")
+    if body.default_assessment_config_id is not None:
+        if await db.get(AssessmentConfig, body.default_assessment_config_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assessment config not found")
 
     program = Program(id=uuid.uuid4(), **body.model_dump())
     db.add(program)
@@ -75,6 +79,9 @@ async def update_program(
         existing = (await db.execute(select(Program.id).where(Program.code == changes["code"]))).first()
         if existing:
             raise HTTPException(status.HTTP_409_CONFLICT, detail="A program with this code already exists")
+    if changes.get("default_assessment_config_id") is not None:
+        if await db.get(AssessmentConfig, changes["default_assessment_config_id"]) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Assessment config not found")
 
     for field, value in changes.items():
         setattr(program, field, value)
