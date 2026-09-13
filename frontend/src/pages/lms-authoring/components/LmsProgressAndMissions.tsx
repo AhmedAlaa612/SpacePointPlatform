@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
   Plus, X, BookOpen, Rocket, ChevronDown, ChevronRight, RotateCcw, Clock, CheckCircle2, XCircle,
-  Award, Circle, ExternalLink, Eye, Play, Search,
+  Award, Circle, ExternalLink, Eye, Play, Search, Users,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -77,17 +77,31 @@ function groupByMission(items: LmsProgramItem[]): MissionGroup[] {
 // lives, so authoring a mission run never requires the flat item list.
 
 function AddMissionRunButton({ onSave }: { onSave: (data: LmsProgramItemInput) => Promise<void> }) {
-  const [adding, setAdding] = useState(false)
-  if (adding) {
-    return <ItemForm itemType="mission_run" onCancel={() => setAdding(false)} onSave={async (data) => { await onSave(data); setAdding(false) }} />
+  const [addingScope, setAddingScope] = useState<"individual" | "team" | null>(null)
+  if (addingScope) {
+    return (
+      <ItemForm
+        itemType="mission_run" initialScope={addingScope}
+        onCancel={() => setAddingScope(null)}
+        onSave={async (data) => { await onSave(data); setAddingScope(null) }}
+      />
+    )
   }
+  // Individual vs. team is picked here, at add time, not toggled
+  // afterward — a mission run's scope is locked server-side once created
+  // (guard_locked_submission_scope), same reasoning as a submission item:
+  // flipping it later would misattribute one student's personal attempt
+  // as the team's shared run.
+  const addButtonCls = "flex items-center gap-1.5 h-8 px-3 rounded-full border border-dashed border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer w-fit"
   return (
-    <button
-      onClick={() => setAdding(true)}
-      className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-dashed border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer w-fit"
-    >
-      <Plus size={13} /> Add mission run
-    </button>
+    <div className="flex flex-wrap gap-2">
+      <button onClick={() => setAddingScope("individual")} className={addButtonCls}>
+        <Plus size={13} /> Add individual mission run
+      </button>
+      <button onClick={() => setAddingScope("team")} className={addButtonCls}>
+        <Users size={13} /> Add team mission run
+      </button>
+    </div>
   )
 }
 
