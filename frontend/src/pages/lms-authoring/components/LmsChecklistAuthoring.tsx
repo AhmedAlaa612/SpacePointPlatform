@@ -669,57 +669,59 @@ export function ItemRow({
       onDragOver={draggable ? (e) => e.preventDefault() : undefined}
       onDrop={draggable ? (e) => { e.preventDefault(); onDropRow?.() } : undefined}
       onDragEnd={draggable ? () => onDragEndRow?.() : undefined}
-      className={`flex items-center gap-3 p-3 bg-card border rounded-xl transition-colors ${
+      className={`flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-card border rounded-xl transition-colors ${
         isDragging ? "opacity-40 border-primary" : "border-border"
       } ${draggable ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
-      <GripVertical size={14} className="text-muted-foreground shrink-0 hidden sm:block" />
-      {onMoveToPosition && totalCount && totalCount > 1 ? (
-        <OrderNumberInput
-          value={index ?? item.position}
-          totalCount={totalCount}
-          disabled={reorderBusy}
-          onCommit={onMoveToPosition}
-        />
-      ) : (
-        <span className="text-xs font-semibold text-muted-foreground w-5 text-center shrink-0">{index ?? item.position}</span>
-      )}
-      <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 text-primary">
-        <Icon size={13} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-sm font-medium truncate">{item.title}</span>
-          {item.scope === "team" && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">team</span>}
-          {item.optional && <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">optional</span>}
-          {item.requires_confirmation && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 rounded px-1.5 py-0.5">needs confirmation</span>}
-          {item.gated && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">gated</span>}
-          {item.mission_step_key && (
-            <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">
-              {MISSION_STEP_KEYS.find((s) => s.value === item.mission_step_key)?.label ?? item.mission_step_key}
-            </span>
-          )}
-          {item.guideline_kind && (
-            <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">guideline: {item.guideline_kind}</span>
-          )}
-          {item.item_type === "pdf" && !item.has_pdf && (
-            <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-500 border border-amber-500/30 rounded px-1.5 py-0.5">no PDF uploaded</span>
-          )}
-          {item.item_type === "quiz" && (
-            item.cohort_quiz_question_count ? (
-              <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">
-                {item.cohort_quiz_question_count} question{item.cohort_quiz_question_count === 1 ? "" : "s"}
-              </span>
-            ) : (
-              <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-500 border border-amber-500/30 rounded px-1.5 py-0.5">no questions</span>
-            )
-          )}
+      <div className="flex items-center gap-3 min-w-0 flex-1">
+        <GripVertical size={14} className="text-muted-foreground shrink-0 hidden sm:block" />
+        {onMoveToPosition && totalCount && totalCount > 1 ? (
+          <OrderNumberInput
+            value={index ?? item.position}
+            totalCount={totalCount}
+            disabled={reorderBusy}
+            onCommit={onMoveToPosition}
+          />
+        ) : (
+          <span className="text-xs font-semibold text-muted-foreground w-5 text-center shrink-0">{index ?? item.position}</span>
+        )}
+        <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center shrink-0 text-primary">
+          <Icon size={13} />
         </div>
-        {item.checkpoint_label && <div className="text-xs text-muted-foreground">{item.checkpoint_label}</div>}
-        <div className="text-xs text-muted-foreground">{meta.label}</div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-medium truncate">{item.title}</span>
+            {item.scope === "team" && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">team</span>}
+            {item.optional && <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">optional</span>}
+            {item.requires_confirmation && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 rounded px-1.5 py-0.5">needs confirmation</span>}
+            {item.gated && <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/5 rounded px-1.5 py-0.5">gated</span>}
+            {item.mission_step_key && (
+              <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                {MISSION_STEP_KEYS.find((s) => s.value === item.mission_step_key)?.label ?? item.mission_step_key}
+              </span>
+            )}
+            {item.guideline_kind && (
+              <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">guideline: {item.guideline_kind}</span>
+            )}
+            {item.item_type === "pdf" && !item.has_pdf && (
+              <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-500 border border-amber-500/30 rounded px-1.5 py-0.5">no PDF uploaded</span>
+            )}
+            {item.item_type === "quiz" && (
+              item.cohort_quiz_question_count ? (
+                <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5">
+                  {item.cohort_quiz_question_count} question{item.cohort_quiz_question_count === 1 ? "" : "s"}
+                </span>
+              ) : (
+                <span className="text-[10px] font-semibold uppercase text-amber-600 dark:text-amber-500 border border-amber-500/30 rounded px-1.5 py-0.5">no questions</span>
+              )
+            )}
+          </div>
+          {item.checkpoint_label && <div className="text-xs text-muted-foreground">{item.checkpoint_label}</div>}
+          <div className="text-xs text-muted-foreground">{meta.label}</div>
+        </div>
       </div>
       {!readOnly && (
-        <>
+        <div className="flex items-center gap-2 flex-wrap pl-8 sm:pl-0 sm:shrink-0">
           {showsPdfUpload && (
             <>
               <input
@@ -735,7 +737,7 @@ export function ItemRow({
               <button
                 onClick={() => pdfInputRef.current?.click()}
                 disabled={pdfBusy}
-                className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-50"
               >
                 {pdfBusy ? "Uploading…" : item.has_pdf ? "Replace PDF" : "Upload PDF"}
               </button>
@@ -743,7 +745,7 @@ export function ItemRow({
                 <button
                   onClick={async () => { setPdfBusy(true); try { await onRemovePdf?.(item.id) } finally { setPdfBusy(false) } }}
                   disabled={pdfBusy}
-                  className="text-xs font-medium text-muted-foreground hover:text-red-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                  className="text-xs font-medium text-muted-foreground hover:text-red-600 transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-50"
                 >
                   Remove PDF
                 </button>
@@ -765,7 +767,7 @@ export function ItemRow({
               <button
                 onClick={() => videoInputRef.current?.click()}
                 disabled={videoBusy}
-                className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-50"
               >
                 {videoBusy ? "Uploading…" : item.guideline_video_uploaded ? "Replace video" : "Upload video"}
               </button>
@@ -773,14 +775,14 @@ export function ItemRow({
                 <>
                   <button
                     onClick={() => onPreviewGuidelineVideo?.()}
-                    className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0"
+                    className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 whitespace-nowrap"
                   >
                     Preview
                   </button>
                   <button
                     onClick={async () => { setVideoBusy(true); try { await onRemoveGuidelineVideo?.(item.id) } finally { setVideoBusy(false) } }}
                     disabled={videoBusy}
-                    className="text-xs font-medium text-muted-foreground hover:text-red-600 transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                    className="text-xs font-medium text-muted-foreground hover:text-red-600 transition-colors cursor-pointer shrink-0 whitespace-nowrap disabled:opacity-50"
                   >
                     Remove video
                   </button>
@@ -788,7 +790,7 @@ export function ItemRow({
               )}
             </>
           )}
-          <button onClick={() => setEditing(true)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">
+          <button onClick={() => setEditing(true)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0 whitespace-nowrap">
             Edit
           </button>
           <button
@@ -797,7 +799,7 @@ export function ItemRow({
           >
             <X size={14} />
           </button>
-        </>
+        </div>
       )}
     </div>
   )
