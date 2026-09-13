@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.certificate import Certificate
@@ -1093,11 +1094,27 @@ async def _get_or_create_team_progress(
             LmsProgramTeamItemProgress.item_id == item_id, LmsProgramTeamItemProgress.team_id == team_id,
         )
     )
-    if row is None:
-        row = LmsProgramTeamItemProgress(id=uuid.uuid4(), item_id=item_id, team_id=team_id)
-        db.add(row)
-        await db.flush()
-    return row
+    if row is not None:
+        return row
+    # Race-safe upsert: two teammates submitting the same team-scoped item
+    # at the same time both see row=None above.  The savepoint lets the loser
+    # catch the unique-constraint violation and re-SELECT the winner's row
+    # instead of crashing with an unhandled IntegrityError.
+    try:
+        async with db.begin_nested():
+            row = LmsProgramTeamItemProgress(id=uuid.uuid4(), item_id=item_id, team_id=team_id)
+            db.add(row)
+            await db.flush()
+        return row
+    except IntegrityError:
+        # Lost the race — the other request already created it.
+        row = await db.scalar(
+            select(LmsProgramTeamItemProgress).where(
+                LmsProgramTeamItemProgress.item_id == item_id, LmsProgramTeamItemProgress.team_id == team_id,
+            )
+        )
+        assert row is not None, "row disappeared after IntegrityError — should not happen"
+        return row
 
 
 async def checklist_item_write_target(
