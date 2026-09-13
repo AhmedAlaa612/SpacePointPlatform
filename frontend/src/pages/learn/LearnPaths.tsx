@@ -33,7 +33,7 @@ export default function LearnPaths() {
             onClick={() => void navigate({ to: `/learn/paths/${path.id}` })}
           >
             <div
-              className="h-[130px] rounded-t-2xl bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.11)_0px,hsl(var(--primary)/0.11)_8px,hsl(var(--primary)/0.03)_8px,hsl(var(--primary)/0.03)_16px)] flex items-start justify-end p-3"
+              className="h-[180px] rounded-t-2xl bg-[repeating-linear-gradient(135deg,hsl(var(--primary)/0.11)_0px,hsl(var(--primary)/0.11)_8px,hsl(var(--primary)/0.03)_8px,hsl(var(--primary)/0.03)_16px)] flex items-start justify-end p-3"
               style={path.image_url ? { backgroundImage: `url(${path.image_url})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
             >
               {path.enrolled ? (
