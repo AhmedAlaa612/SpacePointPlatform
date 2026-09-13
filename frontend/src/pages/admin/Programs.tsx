@@ -6,6 +6,7 @@ import type { Program, ProgramType, PricingModel, CompletionRuleType } from "@/t
 import { getProgramsApi, createProgramApi, updateProgramApi, deleteProgramApi } from "@/api/sessions/programs"
 import { Modal, Field, ModalActions, Spinner } from "@/pages/admin/components/common"
 import { ProgramRolesPanel } from "@/pages/admin/components/ProgramRolesPanel"
+import { ProgramAssessmentDefaultPanel } from "@/pages/admin/components/ProgramAssessmentDefaultPanel"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 
 const PROGRAM_TYPES: ProgramType[] = ["workshop", "course", "info_session", "competition"]
@@ -152,6 +153,9 @@ export default function Programs() {
             <ProgramRolesPanel program={rolesProgram} />
             <div className="pt-4 border-t border-border">
               <MaterialsPanel owner={{ program_id: rolesProgram.id }} />
+            </div>
+            <div className="pt-4 border-t border-border">
+              <ProgramAssessmentDefaultPanel program={rolesProgram} onUpdated={setRolesProgram} />
             </div>
           </div>
         </Modal>

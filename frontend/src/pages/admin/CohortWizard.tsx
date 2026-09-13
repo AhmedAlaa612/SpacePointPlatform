@@ -32,6 +32,7 @@ import { SessionChecklistPanel } from "@/pages/admin/components/SessionChecklist
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { BulkAssignInstructorModal } from "@/pages/admin/components/BulkAssignInstructorModal"
 import { BulkOpenCallModal } from "@/pages/admin/components/BulkOpenCallModal"
+import { AssessmentAssignmentPanel } from "@/pages/admin/components/AssessmentAssignmentPanel"
 import { DeskRegisterModal } from "@/pages/admin/components/DeskRegisterModal"
 import { EditStudentModal } from "@/pages/admin/components/EditStudentModal"
 import { ImportListModal } from "@/pages/admin/components/ImportList"
@@ -954,12 +955,28 @@ function StaffingStep({ cohort }: { cohort: Cohort }) {
     return Array.from(map.values())
   }, [sessions])
 
+  // Same panel the cohort page's own Assessment tab uses — reused as-is
+  // (2026-09-13) so overriding the program's seeded default doesn't require
+  // leaving the wizard. Shown regardless of whether sessions exist yet: it
+  // gates who can apply once a call opens, not the calls themselves.
+  const assessmentPanel = (
+    <div className="pb-5 border-b border-border">
+      <AssessmentAssignmentPanel cohortId={cohort.id} />
+    </div>
+  )
+
   if (sessions.length === 0) {
-    return <EmptyState title="No sessions yet" hint="Add sessions on the Sessions step first — there's nothing to staff yet." />
+    return (
+      <div className="flex flex-col" style={{ gap: 20 }}>
+        {assessmentPanel}
+        <EmptyState title="No sessions yet" hint="Add sessions on the Sessions step first — there's nothing to staff yet." />
+      </div>
+    )
   }
 
   return (
     <div className="flex flex-col" style={{ gap: 20 }}>
+      {assessmentPanel}
       <div className="flex flex-wrap gap-2">
         {sessions.map((s) => {
           const isSelected = selectedSessionIds.includes(s.id)
