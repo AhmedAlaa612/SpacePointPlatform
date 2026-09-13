@@ -791,17 +791,31 @@ async def _assign_team_mission_run(
     attempt; every later call for the same team finds `mission_attempt_id`
     already set and does nothing further. No-ops entirely if the student
     isn't on a team for this cohort yet (no resync trigger once one forms
-    later — a known limitation, same as before)."""
+    later — a known limitation, same as before).
+
+    Race-safe the same way `_get_or_create_team_progress` is: two
+    teammates assigned via genuinely concurrent requests can both read
+    `mission_attempt_id` as still-None and both call `assign_mission_run`,
+    which both try to insert the team's first MissionAttempt
+    (attempt_no=1) — Postgres blocks the second insert until the first
+    commits, then fails it on the real unique constraint, at which point
+    the winner's row is already visible. The savepoint here lets that
+    loser catch the violation and adopt the winner's attempt instead of
+    the whole assignment call failing outright."""
     team = await team_for_cohort_member(db, cohort_id=cohort_id, user_id=user_id)
     if team is None:
         return
     team_progress = await _get_or_create_team_progress(db, item_id=item.id, team_id=team.id)
     if team_progress.mission_attempt_id is not None:
         return
-    attempt = await assign_mission_run(
-        db, mission_id=item.mission_id, team_id=team.id, cohort_id=cohort_id, variant_id=item.variant_id,
-    )
-    team_progress.mission_attempt_id = attempt.id
+    try:
+        async with db.begin_nested():
+            attempt = await assign_mission_run(
+                db, mission_id=item.mission_id, team_id=team.id, cohort_id=cohort_id, variant_id=item.variant_id,
+            )
+            team_progress.mission_attempt_id = attempt.id
+    except IntegrityError:
+        await db.refresh(team_progress)
 
 
 async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssignment) -> int:
