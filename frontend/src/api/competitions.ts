@@ -1,6 +1,7 @@
 /** Competition judging (2026-08-24) — mirrors backend/app/schemas/competitions.py
  * and the `/competitions/admin/*` + `/competitions/judge/*` routers. */
 import { api } from "@/api/client"
+import type { DesignState } from "@/api/missionsDesign"
 
 export interface CompetitionRubricCriterion {
   key: string
@@ -75,6 +76,16 @@ export interface CompetitionSubmissionItem {
   updated_by_name: string | null
 }
 
+// Phase 3 (2026-09) — a team-scoped design mission run. `attempt_id` is
+// null until the team has one (not assigned to the checklist yet), in
+// which case `status` is "not_started".
+export interface CompetitionMissionRun {
+  mission_id: string
+  title: string
+  attempt_id: string | null
+  status: string
+}
+
 export interface CompetitionImportRow {
   row_number: number
   team_name: string | null
@@ -139,6 +150,10 @@ export interface CompetitionTeam {
 export interface CompetitionTeamDetail {
   team: { id: string; name: string; cohort_id: string | null; member_ids: string[]; member_names: string[] }
   submissions: CompetitionSubmissionItem[]
+  // Defaults to [] server-side, so a cohort with no team-scoped mission_run
+  // items (every cohort until Phase 2/3 items are authored) never carries
+  // anything here.
+  mission_runs: CompetitionMissionRun[]
   rubric: CompetitionRubric | null
   own_score: CompetitionScore | null
 }
@@ -264,6 +279,13 @@ export const getMyJudgeTeamsApi = (cohortId: string) =>
 
 export const getMyJudgeTeamApi = (teamId: string) =>
   api.get<CompetitionTeamDetail>(`/competitions/judge/teams/${teamId}`).then((r) => r.data)
+
+// Phase 3 — read-only design dashboard for one of this team's mission
+// runs, scoped through the judge's own team access (never a bare "any
+// attempt id" fetch). Returns the same DesignState shape the ops-facing
+// `attemptDesignDetailApi` does, so `DesignRunDetail` can render either.
+export const getMyJudgeTeamMissionRunDetailApi = (teamId: string, attemptId: string) =>
+  api.get<DesignState>(`/competitions/judge/teams/${teamId}/mission-runs/${attemptId}/design-detail`).then((r) => r.data)
 
 export const submitMyJudgeScoreApi = (
   teamId: string, data: { criterion_scores: Record<string, number>; bonus_points?: number; submitted?: boolean },

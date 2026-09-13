@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Spinner } from "@/components/ui/primitives"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { attemptDesignDetailApi } from "@/api/missionsInstructor"
+import type { DesignState } from "@/api/missionsDesign"
 import { ensureAbsoluteUrl } from "@/lib/utils"
 
 const N = (v: number | null | undefined, digits = 1) => (v == null ? "—" : v.toFixed(digits))
@@ -23,12 +24,17 @@ const MARGIN_TONE: Record<string, string> = {
  * here writes; it's a grading/review view, not a second editor.
  *
  * Shared between the student profile's "Mission runs" list
- * (`LmsStudentDetail`) and the cohort review queue (`LmsProgramAdmin`) —
- * both key off the same `MissionAttempt.id`. */
-export function DesignRunDetail({ attemptId }: { attemptId: string }) {
+ * (`LmsStudentDetail`), the cohort review queue (`LmsProgramAdmin`), and
+ * (Phase 3, 2026-09) the judge's team detail page — all key off the same
+ * `MissionAttempt.id`, just through different, appropriately-scoped fetch
+ * endpoints. `fetchFn`/`queryKeySuffix` default to the original ops-only
+ * fetch, so every pre-existing call site is unaffected. */
+export function DesignRunDetail({
+  attemptId, fetchFn = attemptDesignDetailApi, queryKeySuffix,
+}: { attemptId: string; fetchFn?: (attemptId: string) => Promise<DesignState>; queryKeySuffix?: string }) {
   const { data: detail, isLoading, error } = useQuery({
-    queryKey: ["design-run-detail", attemptId],
-    queryFn: () => attemptDesignDetailApi(attemptId),
+    queryKey: queryKeySuffix ? ["design-run-detail", attemptId, queryKeySuffix] : ["design-run-detail", attemptId],
+    queryFn: () => fetchFn(attemptId),
   })
   const [tab, setTab] = useState("setup")
 

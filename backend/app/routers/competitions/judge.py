@@ -10,21 +10,26 @@ from one that doesn't exist.
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_judge
 from app.db.session import get_db
+from app.models.missions.design import Design
+from app.models.missions.mission import MissionAttempt
 from app.models.sessions.cohort import Cohort
 from app.models.team import Team
 from app.models.user import User
+from app.routers.missions.design import design_state_out
 from app.schemas.competitions import (
-    CompetitionJudgeCohortOut, CompetitionJudgeTeamOut, CompetitionScoreIn, CompetitionScoreOut,
-    CompetitionSubmissionItemOut, CompetitionTeamDetailOut,
+    CompetitionJudgeCohortOut, CompetitionJudgeTeamOut, CompetitionMissionRunOut, CompetitionScoreIn,
+    CompetitionScoreOut, CompetitionSubmissionItemOut, CompetitionTeamDetailOut,
 )
+from app.schemas.missions_design import DesignStateOut
 from app.schemas.teams import TeamOut
 from app.services.competitions.judges import assigned_cohorts, require_judge_cohort_access
 from app.services.competitions.judging import get_own_score, get_rubric, scored_team_ids, submit_score
-from app.services.lms.program import team_submission_items
+from app.services.lms.program import team_mission_run_items, team_submission_items
 from app.services.teams import team_member_ids, teams_for_cohort
 
 router = APIRouter(
@@ -83,6 +88,7 @@ async def get_my_team(
     cohort = await db.get(Cohort, team.cohort_id)
     rubric_result = await get_rubric(db, program_id=cohort.program_id) if cohort else None
     submissions = await team_submission_items(db, team_id=team.id)
+    mission_runs = await team_mission_run_items(db, team_id=team.id)
 
     rubric_out = None
     own_score_out = None
@@ -104,9 +110,33 @@ async def get_my_team(
     return CompetitionTeamDetailOut(
         team=await _team_out(db, team),
         submissions=[CompetitionSubmissionItemOut(**s) for s in submissions],
+        mission_runs=[CompetitionMissionRunOut(**m) for m in mission_runs],
         rubric=rubric_out,
         own_score=own_score_out,
     )
+
+
+@router.get("/teams/{team_id}/mission-runs/{attempt_id}/design-detail", response_model=DesignStateOut)
+async def get_my_team_mission_run_design_detail(
+    team_id: uuid.UUID, attempt_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
+):
+    """Read-only design dashboard for one of this team's mission runs
+    (Phase 3, 2026-09) — the same full wizard state ops already sees via
+    `/missions/instructor/attempts/{id}/design-detail` (`design_state_out`,
+    reused here rather than duplicated), but reached only through a team
+    this judge is actually assigned to: `_team_or_404` enforces the
+    CompetitionJudge cohort check first, then the attempt itself must
+    belong to `team_id` — a judge is never handed a bare "any attempt id"
+    route, only ever one confirmed to belong to a team they can see."""
+    team = await _team_or_404(db, team_id, current=current)
+    attempt = await db.get(MissionAttempt, attempt_id)
+    if attempt is None or attempt.team_id != team.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Mission run not found")
+    design = (await db.execute(select(Design).where(Design.attempt_id == attempt.id))).scalars().first()
+    if design is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="This team hasn't started their design yet")
+    return await design_state_out(db, attempt=attempt, design=design)
 
 
 @router.put("/teams/{team_id}/score", response_model=CompetitionScoreOut)

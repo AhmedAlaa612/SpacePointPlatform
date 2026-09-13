@@ -51,6 +51,7 @@ from app.services.lms.enrollment import enroll
 from app.services.lms.progress import course_completion
 from app.services.missions import assign_mission_run
 from app.services.missions.design import service as design_service
+from app.services.teams import team_member_ids
 from app.services.video_service import get_video_for_owner
 
 # Same bucket routers/lms/admin.py's module-attachment upload already uses —
@@ -443,7 +444,12 @@ async def team_submission_items(db: AsyncSession, *, team_id: uuid.UUID) -> list
     if resolved is None:
         return []
     _, items, _ = resolved
-    team_items = [i for i in items if i.scope == "team"]
+    # mission_run is excluded here even though it can be team-scoped
+    # (Phase 2, 2026-09) — it never gets a LmsProgramTeamItemProgress row
+    # (it's auto-tracked off a shared MissionAttempt instead, see
+    # team_mission_run_items below), so it would show up here as a bare,
+    # permanently "pending" row with no link. It gets its own panel.
+    team_items = [i for i in items if i.scope == "team" and i.item_type != "mission_run"]
     if not team_items:
         return []
     progress_by_item = {
@@ -470,6 +476,90 @@ async def team_submission_items(db: AsyncSession, *, team_id: uuid.UUID) -> list
             "submitted_url": progress.submitted_url if progress else None,
             "updated_at": progress.updated_at if progress else None,
             "updated_by_name": updater_names.get(progress.updated_by_user_id) if progress and progress.updated_by_user_id else None,
+        })
+    return out
+
+
+async def team_mission_run_items(db: AsyncSession, *, team_id: uuid.UUID) -> list[dict]:
+    """Every team-scoped mission_run RUN (grouped by mission_id — several
+    checklist items can split one run into steps via mission_step_key,
+    same grouping the authoring Missions tab uses) on the team's cohort
+    checklist, with the MissionAttempt each teammate's own individual
+    LmsProgramItemProgress row already shares (Phase 2, 2026-09) —
+    assign_lms_program/sync_assignment_items call assign_mission_run with
+    this team's id for every one of these items, and start_attempt's
+    per-owner resume logic hands every call back the same attempt. Purely
+    additive/read-only: never creates or touches anything, and returns []
+    for any team with no team-scoped mission_run items at all (every
+    cohort running only individual missions today is entirely unaffected).
+
+    Deliberately separate from `team_submission_items` above rather than
+    folding mission_run into it — that function's whole shape (a
+    LmsProgramTeamItemProgress-backed status/link) doesn't apply here."""
+    team = await db.get(Team, team_id)
+    if team is None or team.cohort_id is None:
+        return []
+    resolved = await effective_cohort_program_items(db, team.cohort_id)
+    if resolved is None:
+        return []
+    _, items, _ = resolved
+    mission_run_items = [i for i in items if i.item_type == "mission_run" and i.scope == "team" and i.mission_id]
+    if not mission_run_items:
+        return []
+
+    # Any current teammate's own assignment carries the shared attempt id
+    # on its individual progress rows — the first one with an assignment
+    # for this cohort is as good as any other.
+    assignment = None
+    for member_id in await team_member_ids(db, team_id=team_id):
+        assignment = await db.scalar(
+            select(LmsProgramAssignment).where(
+                LmsProgramAssignment.user_id == member_id, LmsProgramAssignment.cohort_id == team.cohort_id,
+            )
+        )
+        if assignment is not None:
+            break
+
+    attempt_id_by_item: dict[uuid.UUID, uuid.UUID | None] = {}
+    if assignment is not None:
+        attempt_id_by_item = dict((await db.execute(
+            select(LmsProgramItemProgress.item_id, LmsProgramItemProgress.mission_attempt_id).where(
+                LmsProgramItemProgress.assignment_id == assignment.id,
+                LmsProgramItemProgress.item_id.in_([i.id for i in mission_run_items]),
+            )
+        )).all())
+
+    # Group by mission_id, preserving first-seen order.
+    order: list[uuid.UUID] = []
+    groups: dict[uuid.UUID, list[LmsProgramItem]] = {}
+    for item in mission_run_items:
+        if item.mission_id not in groups:
+            groups[item.mission_id] = []
+            order.append(item.mission_id)
+        groups[item.mission_id].append(item)
+
+    run_attempt_id: dict[uuid.UUID, uuid.UUID | None] = {
+        mission_id: next((attempt_id_by_item.get(gi.id) for gi in group_items if attempt_id_by_item.get(gi.id)), None)
+        for mission_id, group_items in groups.items()
+    }
+    attempt_ids = {a for a in run_attempt_id.values() if a}
+    attempts_by_id: dict[uuid.UUID, MissionAttempt] = {}
+    if attempt_ids:
+        attempts_by_id = {
+            a.id: a for a in (await db.execute(
+                select(MissionAttempt).where(MissionAttempt.id.in_(attempt_ids))
+            )).scalars().all()
+        }
+
+    out = []
+    for mission_id in order:
+        attempt_id = run_attempt_id[mission_id]
+        attempt = attempts_by_id.get(attempt_id) if attempt_id else None
+        out.append({
+            "mission_id": mission_id,
+            "title": groups[mission_id][0].title,
+            "attempt_id": attempt_id,
+            "status": attempt.status if attempt is not None else "not_started",
         })
     return out
 
