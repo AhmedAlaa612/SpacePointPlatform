@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { isAxiosError } from "axios"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, Download, Pencil, Plus, Trash2, Upload } from "lucide-react"
@@ -7,6 +7,7 @@ import { ConfirmDialog, Modal, Field, ModalActions } from "@/pages/admin/compone
 import {
   createAssessmentConfigApi,
   createAssessmentQuestionApi,
+  deleteAssessmentConfigApi,
   deleteAssessmentQuestionApi,
   downloadAssessmentQuestionsTemplateApi,
   getAssessmentConfigApi,
@@ -25,6 +26,11 @@ const EMPTY_OPTIONS = [
   { text: "", is_correct: false },
 ]
 
+// Sentinel option value for "+ Add new category…" in QuestionForm's category
+// dropdown — never itself stored as a category, just what flips the field
+// from a <select> of existing categories into a free-text input.
+const NEW_CATEGORY = "__new__"
+
 /** Instructor Assessment question-bank authoring (2026-09) — same shape as
  *  LmsGames.tsx's list-plus-modals pattern, but folded into one page since
  *  a config's own question table is the point of opening it (no separate
@@ -37,6 +43,12 @@ export default function AssessmentQuestions() {
   const [configDescription, setConfigDescription] = useState("")
   const [configDrawSize, setConfigDrawSize] = useState(15)
   const [configCriticalFloor, setConfigCriticalFloor] = useState(3)
+  // Renaming and deleting a bank, from the list of pills — same shape as
+  // LmsGames.tsx's rename/delete pattern, folded into the pill row since
+  // there's no separate detail route for a config to reach them from.
+  const [editingConfig, setEditingConfig] = useState<AssessmentConfig | null>(null)
+  const [deletingConfig, setDeletingConfig] = useState<AssessmentConfig | null>(null)
+  const [deleteConfigError, setDeleteConfigError] = useState("")
 
   const { data: configs = [], isLoading: configsLoading } = useQuery<AssessmentConfig[]>({
     queryKey: ["assessment-configs"],
@@ -56,6 +68,35 @@ export default function AssessmentQuestions() {
     },
   })
 
+  const renameConfigMutation = useMutation({
+    mutationFn: () => updateAssessmentConfigApi(editingConfig!.id, { name: configName, description: configDescription || null }),
+    onSuccess: () => {
+      setEditingConfig(null); setConfigName(""); setConfigDescription("")
+      queryClient.invalidateQueries({ queryKey: ["assessment-configs"] })
+      queryClient.invalidateQueries({ queryKey: ["assessment-config", editingConfig!.id] })
+    },
+  })
+
+  const deleteConfigMutation = useMutation({
+    mutationFn: () => deleteAssessmentConfigApi(deletingConfig!.id),
+    onSuccess: () => {
+      if (selectedConfigId === deletingConfig?.id) setSelectedConfigId(null)
+      setDeletingConfig(null); setDeleteConfigError("")
+      queryClient.invalidateQueries({ queryKey: ["assessment-configs"] })
+    },
+    // A config that's assigned to a cohort can't be deleted — the assignment
+    // is what gates that cohort's registrations. The server says which, so
+    // show its sentence rather than a generic failure.
+    onError: (err) => setDeleteConfigError(
+      (isAxiosError(err) && typeof err.response?.data?.detail === "string")
+        ? err.response.data.detail
+        : "Couldn't delete this assessment.",
+    ),
+  })
+
+  const openCreateConfig = () => { setConfigName(""); setConfigDescription(""); setConfigDrawSize(15); setConfigCriticalFloor(3); setCreateConfigOpen(true) }
+  const openEditConfig = (c: AssessmentConfig) => { setEditingConfig(c); setConfigName(c.name); setConfigDescription(c.description ?? "") }
+
   const selected = configs.find((c) => c.id === selectedConfigId) ?? null
 
   return (
@@ -65,7 +106,7 @@ export default function AssessmentQuestions() {
         subtitle="Category-tagged, critical-flagged scenario questions. Each config is a reusable bank ops assigns to a cohort."
         action={
           <button
-            onClick={() => setCreateConfigOpen(true)}
+            onClick={openCreateConfig}
             className="flex items-center gap-1.5 h-9 px-4 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-colors shrink-0"
           >
             <Plus size={14} /> New assessment
@@ -80,22 +121,80 @@ export default function AssessmentQuestions() {
       ) : (
         <div className="flex gap-2 flex-wrap">
           {configs.map((c) => (
-            <button
+            <div
               key={c.id}
-              onClick={() => setSelectedConfigId(c.id)}
-              className={`h-9 px-4 rounded-xl text-sm font-medium border transition-colors ${
+              className={`flex items-center gap-0.5 h-9 pl-4 pr-1.5 rounded-xl text-sm font-medium border transition-colors ${
                 c.id === selectedConfigId
                   ? "bg-primary text-primary-foreground border-transparent"
                   : "bg-card border-border text-foreground hover:bg-muted"
               }`}
             >
-              {c.name} · {c.question_count}
-            </button>
+              <button onClick={() => setSelectedConfigId(c.id)} className="pr-2">
+                {c.name} · {c.question_count}
+              </button>
+              <button
+                onClick={() => openEditConfig(c)}
+                title="Rename"
+                className="size-6 rounded-lg flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-foreground/10 transition-colors shrink-0"
+              >
+                <Pencil size={12} />
+              </button>
+              <button
+                onClick={() => setDeletingConfig(c)}
+                title="Delete"
+                className="size-6 rounded-lg flex items-center justify-center opacity-70 hover:opacity-100 hover:bg-foreground/10 transition-colors shrink-0"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
           ))}
         </div>
       )}
 
       {selected && <AssessmentConfigDetail config={selected} />}
+
+      {editingConfig && (
+        <Modal title="Rename assessment" onClose={() => setEditingConfig(null)}>
+          <div className="flex flex-col gap-4">
+            <Field label="Name">
+              <input
+                value={configName} onChange={(e) => setConfigName(e.target.value)} autoFocus
+                className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+              />
+            </Field>
+            <Field label="Description (optional)">
+              <textarea
+                value={configDescription} onChange={(e) => setConfigDescription(e.target.value)} rows={2}
+                className="w-full px-3 py-2 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary resize-none"
+              />
+            </Field>
+            <ModalActions
+              onCancel={() => setEditingConfig(null)}
+              onConfirm={() => configName.trim() && renameConfigMutation.mutate()}
+              loading={renameConfigMutation.isPending}
+              disabled={!configName.trim()}
+              label="Save"
+            />
+          </div>
+        </Modal>
+      )}
+
+      {deletingConfig && (
+        <ConfirmDialog
+          title={`Delete "${deletingConfig.name}"`}
+          description={
+            deleteConfigError
+            || `This removes the assessment bank and its ${deletingConfig.question_count} question`
+              + `${deletingConfig.question_count === 1 ? "" : "s"}, and can't be undone. An assessment that's `
+              + `assigned to a cohort can't be deleted at all.`
+          }
+          confirmLabel="Delete"
+          destructive
+          pending={deleteConfigMutation.isPending}
+          onCancel={() => { setDeletingConfig(null); setDeleteConfigError("") }}
+          onConfirm={() => deleteConfigMutation.mutate()}
+        />
+      )}
 
       {createConfigOpen && (
         <Modal title="New assessment" onClose={() => setCreateConfigOpen(false)}>
@@ -365,6 +464,7 @@ function AssessmentConfigDetail({ config }: { config: AssessmentConfig }) {
         <QuestionForm
           configId={config.id}
           question={editing}
+          existingCategories={Object.keys(detail.category_counts)}
           onClose={() => { setAdding(false); setEditing(null) }}
           onSaved={() => { setAdding(false); setEditing(null); invalidate() }}
         />
@@ -385,8 +485,8 @@ function AssessmentConfigDetail({ config }: { config: AssessmentConfig }) {
   )
 }
 
-function QuestionForm({ configId, question, onClose, onSaved }: {
-  configId: string; question: AssessmentQuestion | null; onClose: () => void; onSaved: () => void
+function QuestionForm({ configId, question, existingCategories, onClose, onSaved }: {
+  configId: string; question: AssessmentQuestion | null; existingCategories: string[]; onClose: () => void; onSaved: () => void
 }) {
   const [category, setCategory] = useState(question?.category ?? "")
   const [prompt, setPrompt] = useState(question?.prompt ?? "")
@@ -394,6 +494,15 @@ function QuestionForm({ configId, question, onClose, onSaved }: {
   const [critical, setCritical] = useState(question?.critical ?? false)
   const [rationale, setRationale] = useState(question?.rationale ?? "")
   const [error, setError] = useState("")
+
+  const sortedCategories = useMemo(() => [...existingCategories].sort((a, b) => a.localeCompare(b)), [existingCategories])
+  // Existing questions always name a category already in the bank, so start
+  // in "pick from the list" mode whenever there's a list to pick from — free
+  // text is a fallback for the first question in a brand-new bank, not the
+  // default.
+  const [categoryMode, setCategoryMode] = useState<"select" | "new">(
+    sortedCategories.length > 0 ? "select" : "new",
+  )
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -415,10 +524,36 @@ function QuestionForm({ configId, question, onClose, onSaved }: {
     <Modal title={question ? "Edit question" : "Add question"} onClose={onClose} maxWidth="max-w-xl">
       <div className="flex flex-col gap-4">
         <Field label="Category">
-          <input
-            value={category} onChange={(e) => setCategory(e.target.value)} autoFocus
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
-          />
+          {categoryMode === "select" ? (
+            <select
+              value={category} autoFocus
+              onChange={(e) => {
+                if (e.target.value === NEW_CATEGORY) { setCategoryMode("new"); setCategory("") }
+                else setCategory(e.target.value)
+              }}
+              className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+            >
+              <option value="" disabled>Select a category…</option>
+              {sortedCategories.map((c) => <option key={c} value={c}>{c}</option>)}
+              <option value={NEW_CATEGORY}>+ Add new category…</option>
+            </select>
+          ) : (
+            <div className="flex items-center gap-2">
+              <input
+                value={category} onChange={(e) => setCategory(e.target.value)} autoFocus
+                placeholder="New category name"
+                className="flex-1 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
+              />
+              {sortedCategories.length > 0 && (
+                <button
+                  type="button" onClick={() => { setCategoryMode("select"); setCategory("") }}
+                  className="h-10 px-3 border border-border rounded-xl text-xs font-medium text-muted-foreground hover:bg-muted transition-colors shrink-0"
+                >
+                  Choose existing
+                </button>
+              )}
+            </div>
+          )}
         </Field>
         <Field label="Scenario / question">
           <textarea
