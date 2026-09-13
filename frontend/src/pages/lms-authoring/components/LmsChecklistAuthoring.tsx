@@ -957,7 +957,10 @@ export function ItemForm({
       <div className="text-xs font-semibold text-primary">
         {submissionScopeLocked ? (teamScoped ? "Team Submission" : "Individual Submission") : ITEM_TYPE_META[itemType].label}
       </div>
-      <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className={inputCls} />
+      <input
+        value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className={inputCls}
+        maxLength={255}
+      />
       <textarea
         value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description (optional)"
         rows={2} className={`${inputCls} h-auto py-2 resize-none`}

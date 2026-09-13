@@ -439,7 +439,10 @@ LmsProgramItemScope = Literal["individual", "team"]
 
 class LmsProgramItemIn(BaseModel):
     item_type: LmsProgramItemType
-    title: str
+    # Bounded to match LmsProgramItem's own column widths (app/models/lms/
+    # program.py) so an over-length paste 422s here instead of blowing up
+    # the INSERT/UPDATE with an unhandled StringDataRightTruncationError.
+    title: str = Field(max_length=255)
     description: str | None = None
     optional: bool = False
     requires_confirmation: bool = False
@@ -447,7 +450,7 @@ class LmsProgramItemIn(BaseModel):
     course_id: UUID | None = None
     mission_id: UUID | None = None
     variant_id: UUID | None = None
-    external_url: str | None = None
+    external_url: str | None = Field(default=None, max_length=512)
     submission_prompt: str | None = None
     # submission-only cutoff — validated against item_type in validate_item_payload.
     deadline_at: datetime | None = None
@@ -455,8 +458,8 @@ class LmsProgramItemIn(BaseModel):
     # LmsProgramItem.session_date's own comment).
     session_date: date | None = None
     session_starts_at: time | None = None
-    session_location: str | None = None
-    session_meeting_url: str | None = None
+    session_location: str | None = Field(default=None, max_length=255)
+    session_meeting_url: str | None = Field(default=None, max_length=512)
     # A `quiz` item's fixed question set — see LmsProgramItem's own field
     # comment and app/models/lms/cohort_quiz.py.
     cohort_quiz_template_id: UUID | None = None
@@ -465,8 +468,8 @@ class LmsProgramItemIn(BaseModel):
     mission_step_key: str | None = None
     gated: bool = False
     guideline_kind: str | None = None
-    guideline_url: str | None = None
-    checkpoint_label: str | None = None
+    guideline_url: str | None = Field(default=None, max_length=512)
+    checkpoint_label: str | None = Field(default=None, max_length=120)
 
 
 class LmsProgramItemOut(BaseModel):
