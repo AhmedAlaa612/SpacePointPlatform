@@ -170,6 +170,10 @@ export function ProgramTemplateEditor({
           }
         }}
         imageSrc={selectedImageForCrop}
+        // 1:1 — matches this same "Checklist banner image" card's own
+        // w-24 h-24 square thumbnail just above, so the crop selection the
+        // admin drags actually matches what they're cropping it for.
+        aspect={1}
         programName={program.name}
         onCropComplete={handleCropConfirmed}
         isUploading={imageMutation.isPending}
