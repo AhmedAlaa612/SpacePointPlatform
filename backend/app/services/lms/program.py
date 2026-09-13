@@ -213,21 +213,26 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
 
 
 def guard_locked_submission_scope(item: LmsProgramItem, body: LmsProgramItemIn) -> None:
-    """A submission item's `scope` (individual vs. team) is locked at
-    creation — flipping it later silently orphans whatever's already been
-    submitted, since individual and team progress live in two entirely
-    separate tables keyed differently (`LmsProgramItemProgress` by
-    assignment, `LmsProgramTeamItemProgress` by team) with no migration
-    between them (2026-08-29 incident: a submission made before the flip
-    just stops being read anywhere, including the judge's team-detail
-    view — see `checklist_item_write_target`'s own docstring). Delete and
-    re-add the item instead of changing this once it might have anything
-    submitted against it."""
-    if item.item_type == "submission" and body.scope != item.scope:
+    """A submission or mission_run item's `scope` (individual vs. team) is
+    locked at creation — flipping it later silently orphans/misattributes
+    whatever's already tracked against it. For `submission`, individual and
+    team progress live in two entirely separate tables keyed differently
+    (`LmsProgramItemProgress` by assignment, `LmsProgramTeamItemProgress`
+    by team) with no migration between them (2026-08-29 incident: a
+    submission made before the flip just stops being read anywhere,
+    including the judge's team-detail view — see
+    `checklist_item_write_target`'s own docstring). For `mission_run`
+    (Phase 3, 2026-09), it's worse than orphaning: an individual→team flip
+    on an item that already has per-student attempts would have
+    `team_mission_run_items` read one arbitrary teammate's *personal*
+    MissionAttempt and report it to the whole team and to judges as if it
+    were their shared run. Delete and re-add the item instead of changing
+    this once it might have anything tracked against it."""
+    if item.item_type in ("submission", "mission_run") and body.scope != item.scope:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail="A submission item's scope (individual vs. team) can't be changed after it's created — "
-                   "delete and re-add it instead, so nothing already submitted gets silently orphaned.",
+            detail=f"A {item.item_type} item's scope (individual vs. team) can't be changed after it's created — "
+                   "delete and re-add it instead, so nothing already tracked against it gets silently orphaned.",
         )
 
 
@@ -253,6 +258,21 @@ async def validate_item_refs(db: AsyncSession, body: LmsProgramItemIn, *, requir
         if body.mission_step_key is not None and mission.kind != "design":
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, detail="A mission phase can only be targeted on a design mission",
+            )
+        # Catch this here, at authoring time, rather than only inside
+        # assign_mission_run's own team_policy check — that check still
+        # exists as a backstop (e.g. a mission's team_policy edited to
+        # "solo" after this item was created), but if it were the only
+        # guard, an ops mistake here wouldn't surface until the next
+        # assign/sync call, deep in a loop over every item and every
+        # student in the cohort with no per-item isolation — one bad item
+        # would silently stop every later item/student in that pass from
+        # getting a progress row at all.
+        if body.scope == "team" and body.item_type == "mission_run" and mission.team_policy == "solo":
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="This mission's Team policy is Solo-only — it can't be assigned as a team run. "
+                       "Change the mission's Team policy first, or make this item individual-scoped.",
             )
 
 
@@ -507,27 +527,32 @@ async def team_mission_run_items(db: AsyncSession, *, team_id: uuid.UUID) -> lis
     if not mission_run_items:
         return []
 
-    # Any current teammate's own assignment carries the shared attempt id
-    # on its individual progress rows — the first one with an assignment
-    # for this cohort is as good as any other.
-    assignment = None
-    for member_id in await team_member_ids(db, team_id=team_id):
-        assignment = await db.scalar(
-            select(LmsProgramAssignment).where(
-                LmsProgramAssignment.user_id == member_id, LmsProgramAssignment.cohort_id == team.cohort_id,
-            )
+    # Every current teammate's own assignment carries the shared attempt
+    # id on its individual progress rows — but not every teammate
+    # necessarily has it set (e.g. one registered before the team existed
+    # and never got an attempt assigned, per assign_lms_program's own
+    # "no team yet" skip). Look across ALL teammates' assignments rather
+    # than committing to one arbitrarily-picked "representative" member,
+    # so one teammate's still-empty row can never hide another's real,
+    # already-in-progress attempt.
+    member_ids = await team_member_ids(db, team_id=team_id)
+    assignment_ids = (await db.execute(
+        select(LmsProgramAssignment.id).where(
+            LmsProgramAssignment.user_id.in_(member_ids), LmsProgramAssignment.cohort_id == team.cohort_id,
         )
-        if assignment is not None:
-            break
+    )).scalars().all()
 
-    attempt_id_by_item: dict[uuid.UUID, uuid.UUID | None] = {}
-    if assignment is not None:
-        attempt_id_by_item = dict((await db.execute(
+    attempt_id_by_item: dict[uuid.UUID, uuid.UUID] = {}
+    if assignment_ids:
+        rows = (await db.execute(
             select(LmsProgramItemProgress.item_id, LmsProgramItemProgress.mission_attempt_id).where(
-                LmsProgramItemProgress.assignment_id == assignment.id,
+                LmsProgramItemProgress.assignment_id.in_(assignment_ids),
                 LmsProgramItemProgress.item_id.in_([i.id for i in mission_run_items]),
+                LmsProgramItemProgress.mission_attempt_id.is_not(None),
             )
-        )).all())
+        )).all()
+        for item_id, attempt_id in rows:
+            attempt_id_by_item.setdefault(item_id, attempt_id)
 
     # Group by mission_id, preserving first-seen order.
     order: list[uuid.UUID] = []

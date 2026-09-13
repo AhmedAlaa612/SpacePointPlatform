@@ -7,21 +7,24 @@ certificate_gate_satisfied. Redis-free, HTTP-free.
 import uuid
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.models.lms import Course, Enrollment
 from app.models.lms.program import (
     LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem, LmsProgramItemProgress,
 )
-from app.services.teams import create_team
+from app.services.teams import create_team, join_team
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.spine.contact import Contact
 from app.models.user import User
+from app.schemas.lms_admin import LmsProgramItemIn
 from app.services.lms.program import (
-    assign_lms_program, certificate_gate_satisfied, fork_cohort_override, resolve_cohort_program,
-    sync_cohort_assignments, sync_program_assignments, team_mission_run_items,
+    assign_lms_program, certificate_gate_satisfied, fork_cohort_override, guard_locked_submission_scope,
+    resolve_cohort_program, sync_cohort_assignments, sync_program_assignments, team_mission_run_items,
+    validate_item_refs,
 )
 from app.services.missions import decide_attempt
 
@@ -366,6 +369,105 @@ async def test_team_mission_run_items_reports_not_started_before_any_assignment(
     assert len(runs) == 1
     assert runs[0]["attempt_id"] is None
     assert runs[0]["status"] == "not_started"
+
+
+@pytest.mark.asyncio
+async def test_team_mission_run_items_finds_the_attempt_even_if_one_teammate_has_none(db):
+    """Regression: an earlier version picked one arbitrary teammate's own
+    assignment as "the" source of truth for the shared attempt id. A
+    teammate who registered *before* the team existed has a progress row
+    with no attempt at all (assign_lms_program's "no team yet" skip) —
+    if that teammate happened to be the one picked, the whole team's
+    already-in-progress run was wrongly reported as not_started. Must
+    check every teammate's rows, not just one."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Mixed Assignment Order Checklist")
+    db.add(lms_program)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title=mission.title, mission_id=mission.id, variant_id=variant.id,
+        scope="team",
+    ))
+    alice = await _student(db)
+    bob = await _student(db)
+    await db.commit()
+
+    # Alice registers/assigns BEFORE any team exists — her progress row
+    # for this item has mission_attempt_id=None, permanently, until a
+    # resync (the known Phase 2 gap).
+    await assign_lms_program(db, user_id=alice.id, cohort_id=cohort.id)
+    await db.commit()
+
+    # The team forms afterward and Bob's own assignment DOES resolve a
+    # real, shared attempt.
+    team = await create_team(db, name="Mixed Order Team", created_by=alice.id, cohort_id=cohort.id)
+    await join_team(db, team_id=team.id, user_id=bob.id)
+    await db.commit()
+    await assign_lms_program(db, user_id=bob.id, cohort_id=cohort.id)
+    await db.commit()
+
+    runs = await team_mission_run_items(db, team_id=team.id)
+    assert len(runs) == 1
+    assert runs[0]["attempt_id"] is not None
+    assert runs[0]["status"] == "in_progress"
+
+
+# ── guard_locked_submission_scope / validate_item_refs (Phase 3 hardening) ──
+
+@pytest.mark.asyncio
+async def test_guard_locked_submission_scope_blocks_a_mission_run_scope_change(db):
+    """Regression: before this, only `submission` items had their scope
+    locked after creation. A mission_run item's scope could be flipped
+    individual->team (or back) after students already had attempts
+    assigned, which would have `team_mission_run_items` read one
+    teammate's *personal* attempt and report it as the team's shared run."""
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=uuid.uuid4(), position=1,
+        item_type="mission_run", title="Some Run", scope="individual",
+    )
+    flip_to_team = LmsProgramItemIn(item_type="mission_run", title="Some Run", scope="team")
+    with pytest.raises(HTTPException):
+        guard_locked_submission_scope(item, flip_to_team)
+
+    # Saving with the same scope (any other field edit) is still fine.
+    no_op = LmsProgramItemIn(item_type="mission_run", title="Some Run", scope="individual")
+    guard_locked_submission_scope(item, no_op)  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_validate_item_refs_rejects_a_team_scoped_mission_run_against_a_solo_only_mission(db):
+    """Regression: this used to only be caught deep inside
+    assign_mission_run, at assign/sync time — by then it's too late to
+    reject cleanly; the exception aborts sync_cohort_assignments' loop
+    over every remaining student in the cohort. Catching it here, at
+    authoring time, means the bad combination can never be saved."""
+    author = await _author(db)
+    solo_mission, solo_variant = await _mission_with_variant(db, author=author, team_policy="solo")
+    team_mission, team_variant = await _mission_with_variant(db, author=author, team_policy="team")
+    await db.commit()
+
+    bad_body = LmsProgramItemIn(
+        item_type="mission_run", title="Bad Team Run", scope="team",
+        mission_id=solo_mission.id, variant_id=solo_variant.id,
+    )
+    with pytest.raises(HTTPException):
+        await validate_item_refs(db, bad_body)
+
+    good_body = LmsProgramItemIn(
+        item_type="mission_run", title="Good Team Run", scope="team",
+        mission_id=team_mission.id, variant_id=team_variant.id,
+    )
+    await validate_item_refs(db, good_body)  # must not raise
+
+    # An individual-scoped item against the same solo mission is fine.
+    individual_body = LmsProgramItemIn(
+        item_type="mission_run", title="Solo Run", scope="individual",
+        mission_id=solo_mission.id, variant_id=solo_variant.id,
+    )
+    await validate_item_refs(db, individual_body)  # must not raise
 
 
 @pytest.mark.asyncio

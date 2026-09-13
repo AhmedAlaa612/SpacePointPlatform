@@ -833,6 +833,13 @@ export function ItemForm({
   // guard_locked_submission_scope) so it never shows as an editable
   // checkbox, only as a fixed label.
   const submissionScopeLocked = itemType === "submission"
+  // mission_run scope is only locked once the item already exists
+  // (guard_locked_submission_scope, extended Phase 3) — unlike
+  // submission, whose scope is fixed even at creation via a separate
+  // Individual/Team submission type picker one step up. A brand-new
+  // mission_run item can still freely pick its scope via the checkbox
+  // below.
+  const missionRunScopeLockedForEdit = itemType === "mission_run" && !!initial
   const [courseId, setCourseId] = useState(initial?.course_id ?? "")
   const [missionId, setMissionId] = useState(initial?.mission_id ?? "")
   const [variantId, setVariantId] = useState(initial?.variant_id ?? "")
@@ -1173,7 +1180,7 @@ export function ItemForm({
           <input type="checkbox" checked={requiresConfirmation} onChange={(e) => setRequiresConfirmation(e.target.checked)} />
           Needs instructor/ops confirmation
         </label>
-        {TEAM_SCOPABLE_TYPES.has(itemType) && !submissionScopeLocked && (
+        {TEAM_SCOPABLE_TYPES.has(itemType) && !submissionScopeLocked && !missionRunScopeLockedForEdit && (
           <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
             <input type="checkbox" checked={teamScoped} onChange={(e) => setTeamScoped(e.target.checked)} />
             {itemType === "mission_run" ? "Shared with the whole team (one team run)" : "Shared with the whole team (one submission per team)"}
@@ -1183,6 +1190,12 @@ export function ItemForm({
           <span className="text-xs text-muted-foreground">
             {teamScoped ? "Shared with the whole team — one submission per team." : "Each student submits their own."}
             {initial && " Can't be changed — delete and re-add the item to switch."}
+          </span>
+        )}
+        {missionRunScopeLockedForEdit && (
+          <span className="text-xs text-muted-foreground">
+            {teamScoped ? "Shared with the whole team — one team run." : "Each student runs their own."}
+            {" "}Can't be changed — delete and re-add the item to switch.
           </span>
         )}
       </div>
