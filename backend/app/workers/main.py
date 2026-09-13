@@ -21,7 +21,11 @@ from app.workers.tasks.cohort_interest import send_cohort_interest_notifications
 from app.workers.tasks.imports import send_import_batch_emails
 from app.workers.tasks.inventory import send_inventory_reminders
 from app.workers.tasks.lms import sync_import_batch_lms_accounts, sync_registration_lms_job
-from app.workers.tasks.staffing import send_assignment_email, send_call_invite_emails
+from app.workers.tasks.staffing import (
+    send_assignment_email,
+    send_call_invite_emails,
+    send_cohort_call_invite_emails,
+)
 from app.workers.tasks.tickets import send_ticket_email
 from app.workers.tasks.video import transcode_video
 
@@ -33,6 +37,7 @@ class WorkerSettings:
         send_import_batch_emails,
         send_assignment_email,
         send_call_invite_emails,
+        send_cohort_call_invite_emails,
         send_inventory_reminders,
         # arq's default job_timeout is 300s — fine for every other job here.
         # transcode_video is CPU-bound and runs long; it's on a separate queue
