@@ -65,13 +65,22 @@ async def get_configured_videos(db: AsyncSession) -> list[dict]:
 
 
 async def set_configured_videos(db: AsyncSession, videos: list[dict]) -> None:
-    """Replace the facilitator's video lineup with `videos` (already
-    validated + renumbered 1..N by the caller). Upserts each slot's
-    settings, deletes any leftover slots beyond the new count (so a later
-    increase doesn't resurrect a stale title/url from a slot that was
-    removed), and writes the new `app_video_count`. Caller commits.
+    """Replace the facilitator's video lineup with `videos` — expected to be
+    renumbered 1..N by the caller (the router's `AppVideosUpdate` validator
+    is the current enforcement of that), but re-checked here too rather
+    than only trusted, since a duplicate or gapped `video_no` would
+    otherwise silently corrupt other slots (a duplicate overwrites one
+    slot's settings while `new_count` still counts it, leaving a later
+    slot to fall back to a default it was never meant to have).
+
+    Upserts each slot's settings, deletes any leftover slots beyond the
+    new count (so a later increase doesn't resurrect a stale title/url
+    from a slot that was removed), and writes the new `app_video_count`.
+    Caller commits.
     """
     new_count = len(videos)
+    if {v["video_no"] for v in videos} != set(range(1, new_count + 1)):
+        raise ValueError(f"videos must have exactly video_no 1..{new_count}, one each, no duplicates or gaps")
     existing = {
         r.key: r
         for r in (await db.execute(

@@ -135,6 +135,57 @@ async def test_update_application_videos_rejects_an_empty_list(db, client):
 
 
 @pytest.mark.asyncio
+async def test_update_application_videos_rejects_duplicate_video_no(db, client):
+    """A duplicate video_no would otherwise overwrite one slot's settings
+    while new_count still counts it, leaving a later slot to silently fall
+    back to a default it was never meant to have."""
+    facilitator = await _facilitator(db)
+    await db.commit()
+
+    resp = await client.put(
+        "/instructors/facilitator/application/videos", headers=_headers(facilitator),
+        json={"videos": [
+            {"video_no": 1, "title": "A", "url": "https://youtu.be/aaaaaaaaaaa"},
+            {"video_no": 1, "title": "B", "url": "https://youtu.be/bbbbbbbbbbb"},
+        ]},
+    )
+    assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_update_application_videos_rejects_a_gap_in_video_no(db, client):
+    facilitator = await _facilitator(db)
+    await db.commit()
+
+    resp = await client.put(
+        "/instructors/facilitator/application/videos", headers=_headers(facilitator),
+        json={"videos": [
+            {"video_no": 1, "title": "A", "url": "https://youtu.be/aaaaaaaaaaa"},
+            {"video_no": 3, "title": "C", "url": "https://youtu.be/ccccccccccc"},
+        ]},
+    )
+    assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
+async def test_update_application_videos_rejects_a_blank_url_or_title(db, client):
+    facilitator = await _facilitator(db)
+    await db.commit()
+
+    blank_url = await client.put(
+        "/instructors/facilitator/application/videos", headers=_headers(facilitator),
+        json={"videos": [{"video_no": 1, "title": "A", "url": ""}]},
+    )
+    assert blank_url.status_code == http_status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    blank_title = await client.put(
+        "/instructors/facilitator/application/videos", headers=_headers(facilitator),
+        json={"videos": [{"video_no": 1, "title": "", "url": "https://youtu.be/aaaaaaaaaaa"}]},
+    )
+    assert blank_title.status_code == http_status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.asyncio
 async def test_applicant_video_list_reflects_the_configured_count_not_a_hardcoded_three(db, client):
     facilitator = await _facilitator(db)
     await db.commit()

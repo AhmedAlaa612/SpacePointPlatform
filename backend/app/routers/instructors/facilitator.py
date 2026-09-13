@@ -28,7 +28,7 @@ from app.services.video_service import attach_embed_link, attach_upload, enqueue
 from app.services.video_service import delete as delete_video
 from app.services.instructors.application_videos import get_configured_videos, set_configured_videos
 from app.workers.settings import get_arq_redis
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class TrainingVideoCreate(BaseModel):
@@ -47,16 +47,25 @@ class TrainingVideoCreate(BaseModel):
 
 class AppVideoConfig(BaseModel):
     video_no: int
-    title: str
-    url: str
+    title: str = Field(min_length=1)
+    url: str = Field(min_length=1)
 
 
 class AppVideosUpdate(BaseModel):
     # At least one video required — a full replacement list, renumbered
     # 1..N by the frontend before it sends this (see set_configured_videos'
     # docstring for why the backend trusts that ordering rather than
-    # re-deriving it).
+    # re-deriving it). Validated as exactly {1..N} here, not just re-trusted,
+    # so a malformed/duplicate/gapped video_no 422s instead of silently
+    # corrupting other slots inside set_configured_videos.
     videos: list[AppVideoConfig] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_video_numbers(self) -> "AppVideosUpdate":
+        expected = set(range(1, len(self.videos) + 1))
+        if {v.video_no for v in self.videos} != expected:
+            raise ValueError(f"videos must have exactly video_no {sorted(expected)}, one each, no duplicates or gaps")
+        return self
 
 
 class AppModuleCreate(BaseModel):
@@ -743,7 +752,14 @@ async def update_application_videos(
     edited URL never retroactively changes what an in-progress applicant
     is already working from.
     """
-    await set_configured_videos(db, [v.model_dump() for v in body.videos])
+    try:
+        await set_configured_videos(db, [v.model_dump() for v in body.videos])
+    except ValueError as e:
+        # Unreachable today — AppVideosUpdate's own validator already
+        # guarantees exactly {1..N} — but set_configured_videos re-checks
+        # independently (it's not router-specific), so surface its error as
+        # a clean 422 rather than ever letting it become a raw 500.
+        raise HTTPException(status_code=422, detail=str(e)) from e
     await db.commit()
     return {"status": "updated"}
 
