@@ -32,29 +32,38 @@ import { ItemForm, ItemRow } from "./LmsChecklistAuthoring"
 import { errorDetail } from "./LmsChecklistShared"
 
 interface MissionGroup {
+  key: string
   missionId: string | null
+  scope: LmsProgramItem["scope"]
   title: string
   items: LmsProgramItem[]
 }
 
+/** Groups mission_run items into one card per run. Grouped by
+ * `(mission_id, scope)`, not `mission_id` alone — Phase 2 (2026-09) lets
+ * the same mission have both an individual run and a team run on one
+ * checklist, and those are two distinct runs (two distinct
+ * MissionAttempts), not steps of the same one, even though they share a
+ * mission_id. */
 function groupByMission(items: LmsProgramItem[]): MissionGroup[] {
   const groups: MissionGroup[] = []
-  const byMission = new Map<string, LmsProgramItem[]>()
+  const byRun = new Map<string, LmsProgramItem[]>()
   const ungrouped: LmsProgramItem[] = []
   for (const item of items) {
     if (item.mission_id) {
-      const list = byMission.get(item.mission_id)
+      const key = `${item.mission_id}:${item.scope}`
+      const list = byRun.get(key)
       if (list) list.push(item)
-      else byMission.set(item.mission_id, [item])
+      else byRun.set(key, [item])
     } else {
       ungrouped.push(item)
     }
   }
-  for (const [missionId, groupItems] of byMission) {
-    groups.push({ missionId, title: groupItems[0].title, items: groupItems })
+  for (const [key, groupItems] of byRun) {
+    groups.push({ key, missionId: groupItems[0].mission_id, scope: groupItems[0].scope, title: groupItems[0].title, items: groupItems })
   }
   for (const item of ungrouped) {
-    groups.push({ missionId: null, title: item.title, items: [item] })
+    groups.push({ key: item.id, missionId: null, scope: item.scope, title: item.title, items: [item] })
   }
   return groups
 }
@@ -112,23 +121,28 @@ export function ProgramMissionsPanel({
             onDelete={(itemId) => deleteLmsProgramItemApi(program.id, itemId).then(onChanged)}
           />
         ) : (
-          <div key={group.missionId ?? group.items[0].id} className="border border-border rounded-xl overflow-hidden">
+          <div key={group.key} className="border border-border rounded-xl overflow-hidden">
             <button
-              onClick={() => setExpandedGroup(expandedGroup === group.missionId ? null : group.missionId)}
+              onClick={() => setExpandedGroup(expandedGroup === group.key ? null : group.key)}
               className="w-full flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors cursor-pointer text-left"
             >
-              {expandedGroup === group.missionId
+              {expandedGroup === group.key
                 ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
                 : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
               <Rocket size={16} className="text-primary shrink-0" />
               <span className="text-sm font-medium truncate">
                 {(group.missionId && catalogById.get(group.missionId)) || group.title}
               </span>
+              {group.scope === "team" && (
+                <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/10 rounded px-1.5 py-0.5 shrink-0">
+                  Team
+                </span>
+              )}
               <span className="text-[10px] font-semibold text-muted-foreground border border-border rounded px-1.5 py-0.5 shrink-0">
                 {group.items.length} {group.items.length === 1 ? "step" : "steps"}
               </span>
             </button>
-            {expandedGroup === group.missionId && (
+            {expandedGroup === group.key && (
               <div className="p-2 border-t border-border flex flex-col gap-1.5 bg-muted/20">
                 {group.items.map((item) => (
                   <ItemRow
@@ -178,7 +192,7 @@ export function CohortMissionsPanel({ cohortId, isStaff }: { cohortId: string; i
       {missionItems.length === 0 && <EmptyState title="No mission runs on this cohort's checklist" />}
       {groups.map((group) => {
         const isSingle = group.items.length === 1 && !group.items[0].mission_step_key
-        const groupKey = group.missionId ?? group.items[0].id
+        const groupKey = group.key
         const isExpanded = expandedGroup === groupKey
         const missionId = group.missionId
         const missionKind = group.items[0].mission_kind
@@ -204,6 +218,11 @@ export function CohortMissionsPanel({ cohortId, isStaff }: { cohortId: string; i
                   {isExpanded ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
                   <Rocket size={16} className="text-primary shrink-0" />
                   <span className="text-sm font-medium truncate">{item.title}</span>
+                  {item.scope === "team" && (
+                    <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/10 rounded px-1.5 py-0.5 shrink-0">
+                      Team
+                    </span>
+                  )}
                 </button>
                 <button onClick={() => setEditingId(item.id)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">Edit</button>
                 <button onClick={() => void deleteItem(cohortId, item.id).then(invalidate)} className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"><X size={14} /></button>
@@ -245,6 +264,11 @@ export function CohortMissionsPanel({ cohortId, isStaff }: { cohortId: string; i
               <span className="text-sm font-medium truncate">
                 {(missionId && catalogById.get(missionId)) || group.title}
               </span>
+              {group.scope === "team" && (
+                <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/10 rounded px-1.5 py-0.5 shrink-0">
+                  Team
+                </span>
+              )}
               <span className="text-[10px] font-semibold text-muted-foreground border border-border rounded px-1.5 py-0.5 shrink-0">
                 {group.items.length} {group.items.length === 1 ? "step" : "steps"}
               </span>

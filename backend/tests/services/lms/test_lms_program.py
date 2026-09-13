@@ -56,10 +56,10 @@ async def _course(db, *, author) -> Course:
     return course
 
 
-async def _mission_with_variant(db, *, author) -> tuple[Mission, MissionVariant]:
+async def _mission_with_variant(db, *, author, team_policy="solo") -> tuple[Mission, MissionVariant]:
     mission = Mission(
         id=uuid.uuid4(), title="Checklist Mission", slug=f"checklist-{uuid.uuid4().hex[:8]}",
-        kind="submission", authored_by=author.id, status="published", team_policy="solo",
+        kind="submission", authored_by=author.id, status="published", team_policy=team_policy,
     )
     db.add(mission)
     await db.flush()
@@ -209,6 +209,76 @@ async def test_assign_enrolls_courses_and_assigns_mission_runs_immediately(db):
         select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == assignment.id)
     )).scalars().all()
     assert len(progress_rows) == 2  # one per item, materialized up front
+
+
+@pytest.mark.asyncio
+async def test_assign_lms_program_shares_one_attempt_for_a_team_scoped_mission_run(db):
+    """Phase 2 (2026-09): a team-scoped mission_run item resolves each
+    teammate's own assignment to the exact same MissionAttempt — no
+    per-teammate attempt, no schema change; assign_lms_program just passes
+    team_id instead of user_id to assign_mission_run for the two of them."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Team Mission Checklist")
+    db.add(lms_program)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title=mission.title, mission_id=mission.id, variant_id=variant.id,
+        scope="team",
+    ))
+    alice = await _student(db)
+    bob = await _student(db)
+    await create_team(db, name="Radio Team", created_by=alice.id, cohort_id=cohort.id, member_ids=[bob.id])
+    await db.commit()
+
+    alice_assignment = await assign_lms_program(db, user_id=alice.id, cohort_id=cohort.id)
+    bob_assignment = await assign_lms_program(db, user_id=bob.id, cohort_id=cohort.id)
+    await db.commit()
+
+    alice_progress = (await db.execute(
+        select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == alice_assignment.id)
+    )).scalars().one()
+    bob_progress = (await db.execute(
+        select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == bob_assignment.id)
+    )).scalars().one()
+    assert alice_progress.mission_attempt_id is not None
+    assert alice_progress.mission_attempt_id == bob_progress.mission_attempt_id
+
+    attempt = (await db.execute(
+        select(MissionAttempt).where(MissionAttempt.id == alice_progress.mission_attempt_id)
+    )).scalar_one()
+    assert attempt.team_id is not None
+    assert attempt.user_id is None
+
+
+@pytest.mark.asyncio
+async def test_assign_lms_program_skips_the_attempt_for_a_team_scoped_item_with_no_team_yet(db):
+    """A student not yet placed on a cohort team still gets their
+    assignment and progress row materialized for a team-scoped mission_run
+    item — just no attempt yet, rather than erroring the whole assignment."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Team Mission, No Team Yet")
+    db.add(lms_program)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title=mission.title, mission_id=mission.id, variant_id=variant.id,
+        scope="team",
+    ))
+    student = await _student(db)
+    await db.commit()
+
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    progress = (await db.execute(
+        select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == assignment.id)
+    )).scalars().one()
+    assert progress.mission_attempt_id is None
 
 
 @pytest.mark.asyncio

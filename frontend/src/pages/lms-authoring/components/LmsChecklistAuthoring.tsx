@@ -1176,7 +1176,7 @@ export function ItemForm({
         {TEAM_SCOPABLE_TYPES.has(itemType) && !submissionScopeLocked && (
           <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
             <input type="checkbox" checked={teamScoped} onChange={(e) => setTeamScoped(e.target.checked)} />
-            Shared with the whole team (one submission per team)
+            {itemType === "mission_run" ? "Shared with the whole team (one team run)" : "Shared with the whole team (one submission per team)"}
           </label>
         )}
         {submissionScopeLocked && (
@@ -1186,6 +1186,11 @@ export function ItemForm({
           </span>
         )}
       </div>
+      {itemType === "mission_run" && teamScoped && selectedMission?.team_policy === "solo" && (
+        <p className="text-xs text-amber-600">
+          This mission's Team policy is Solo-only — change it on the mission before assigning a team run.
+        </p>
+      )}
 
       {error && <p className="text-xs text-red-500">{error}</p>}
 

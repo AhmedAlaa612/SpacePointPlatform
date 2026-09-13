@@ -5,6 +5,7 @@ and the submission verifier kind. Redis-free, HTTP-free.
 import uuid
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.models.lms import PointEvent
@@ -67,10 +68,12 @@ async def _registered_student(db, *, cohort: Cohort) -> User:
     return user
 
 
-async def _mission_with_variants(db, *, author, points=(30, 60)) -> tuple[Mission, list[MissionVariant]]:
+async def _mission_with_variants(
+    db, *, author, points=(30, 60), team_policy="solo",
+) -> tuple[Mission, list[MissionVariant]]:
     mission = Mission(
         id=uuid.uuid4(), title="Build a Radio", slug=f"radio-{uuid.uuid4().hex[:8]}",
-        kind="submission", authored_by=author.id, status="published",
+        kind="submission", authored_by=author.id, status="published", team_policy=team_policy,
     )
     db.add(mission)
     await db.flush()
@@ -193,6 +196,66 @@ async def test_assign_mission_run_resumes_by_default(db):
         db, mission_id=mission.id, user_id=student.id, cohort_id=cohort.id, force_new=True,
     )
     assert forced.id != first.id
+
+
+@pytest.mark.asyncio
+async def test_assign_mission_run_requires_exactly_one_of_user_or_team(db):
+    author = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author)
+    cohort = await _cohort(db)
+    student = await _user(db)
+    team = Team(id=uuid.uuid4(), name=f"Team-{uuid.uuid4().hex[:6]}", cohort_id=cohort.id)
+    db.add(team)
+    await db.flush()
+
+    with pytest.raises(HTTPException):
+        await assign_mission_run(db, mission_id=mission.id, cohort_id=cohort.id, variant_id=variants[0].id)
+    with pytest.raises(HTTPException):
+        await assign_mission_run(
+            db, mission_id=mission.id, user_id=student.id, team_id=team.id,
+            cohort_id=cohort.id, variant_id=variants[0].id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_assign_mission_run_rejects_a_team_for_a_solo_only_mission(db):
+    author = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author, team_policy="solo")
+    cohort = await _cohort(db)
+    team = Team(id=uuid.uuid4(), name=f"Team-{uuid.uuid4().hex[:6]}", cohort_id=cohort.id)
+    db.add(team)
+    await db.flush()
+
+    with pytest.raises(HTTPException):
+        await assign_mission_run(
+            db, mission_id=mission.id, team_id=team.id, cohort_id=cohort.id, variant_id=variants[0].id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_assign_mission_run_creates_and_resumes_one_shared_team_attempt(db):
+    """The Phase 2 LMS Program flow (2026-09): two teammates each assigned
+    the same team-scoped mission_run checklist item resolve to the exact
+    same MissionAttempt, since `assign_lms_program`/`sync_assignment_items`
+    call this with the same team_id + cohort_id for both, and the resume
+    logic in `start_attempt` matches on (mission_id, team_id, cohort_id)."""
+    author = await _user(db, roles=["operations"])
+    mission, variants = await _mission_with_variants(db, author=author, team_policy="team")
+    cohort = await _cohort(db)
+    team = Team(id=uuid.uuid4(), name=f"Team-{uuid.uuid4().hex[:6]}", cohort_id=cohort.id)
+    db.add(team)
+    await db.flush()
+
+    first = await assign_mission_run(
+        db, mission_id=mission.id, team_id=team.id, cohort_id=cohort.id, variant_id=variants[0].id,
+    )
+    again = await assign_mission_run(
+        db, mission_id=mission.id, team_id=team.id, cohort_id=cohort.id, variant_id=variants[0].id,
+    )
+    assert again.id == first.id
+    assert first.team_id == team.id
+    assert first.user_id is None
+    assert first.cohort_id == cohort.id
 
 
 @pytest.mark.asyncio

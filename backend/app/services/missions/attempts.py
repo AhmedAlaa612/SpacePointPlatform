@@ -24,7 +24,7 @@ from fastapi import HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.missions.mission import MissionAttempt, MissionAttemptMember, MissionVariant
+from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember, MissionVariant
 from app.services.lms.points import award_points
 from app.services.missions.embedding import complete_embedded_items
 from app.services.teams import team_member_ids
@@ -121,7 +121,8 @@ async def start_attempt(
 
 
 async def assign_mission_run(
-    db: AsyncSession, *, mission_id: uuid.UUID, user_id: uuid.UUID, cohort_id: uuid.UUID,
+    db: AsyncSession, *, mission_id: uuid.UUID, cohort_id: uuid.UUID,
+    user_id: uuid.UUID | None = None, team_id: uuid.UUID | None = None,
     variant_id: uuid.UUID | None = None, force_new: bool = False,
 ) -> MissionAttempt:
     """Ops-only cohort-scoped run (2026-08-21, LMS Program redesign) — the
@@ -134,9 +135,24 @@ async def assign_mission_run(
     that just needs scoped missions (no full program checklist, e.g. TDRA)
     can use this the same way.
 
+    `user_id` XOR `team_id`, exactly one — mirrors `start_attempt`'s own
+    requirement (2026-09, team `mission_run` checklist items). A team run is
+    rejected for a `team_policy: "solo"` mission — the ops-authored path's
+    own check of the same rule `start_mission_attempt` already enforces for
+    student-initiated attempts.
+
     `variant_id=None` resolves to the mission's easiest variant (lowest
     `position`) — most missions only need one; callers that care pass one
     explicitly."""
+    if (user_id is None) == (team_id is None):
+        raise HTTPException(400, detail="Exactly one of user_id or team_id is required")
+    if team_id is not None:
+        mission = await db.get(Mission, mission_id)
+        if mission is not None and mission.team_policy == "solo":
+            raise HTTPException(
+                status_code=400,
+                detail="This mission's Team policy is Solo-only — it can't be assigned as a team run",
+            )
     if variant_id is None:
         variant_id = await db.scalar(
             select(MissionVariant.id)
@@ -147,7 +163,7 @@ async def assign_mission_run(
         if variant_id is None:
             raise HTTPException(status_code=404, detail="Mission has no variants")
     return await start_attempt(
-        db, mission_id=mission_id, variant_id=variant_id, user_id=user_id,
+        db, mission_id=mission_id, variant_id=variant_id, user_id=user_id, team_id=team_id,
         cohort_id=cohort_id, force_new=force_new,
     )
 

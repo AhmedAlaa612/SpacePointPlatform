@@ -50,10 +50,12 @@ export const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeo
   { value: "quiz", label: "Quiz", icon: HelpCircle },
 ]
 
-// Mirrors the server-side rule in services/lms/program.py: only a
-// link-only deliverable (nothing auto-tracked like course/mission_run)
-// can be shared as one team-wide submission.
-export const TEAM_SCOPABLE_TYPES = new Set<LmsProgramItemType>(["submission", "external_link", "manual"])
+// Mirrors the server-side rule in services/lms/program.py: a link-only
+// deliverable can be shared as one team-wide submission, and (Phase 2,
+// 2026-09) a mission_run can be a team run sharing one MissionAttempt —
+// course/pdf/session stay individual on purpose (see that rule's own
+// comment for why).
+export const TEAM_SCOPABLE_TYPES = new Set<LmsProgramItemType>(["submission", "external_link", "manual", "mission_run"])
 
 export const ITEM_TYPE_META: Record<LmsProgramItemType, { label: string; icon: typeof BookOpen }> = Object.fromEntries(
   ITEM_TYPES.map((t) => [t.value, { label: t.label, icon: t.icon }]),

@@ -173,15 +173,18 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         )
     # Competition domain (2026-08-24) — team scope is for the link-only
     # deliverables a team submits once together. Learning content
-    # (course/mission_run/pdf) stays individual on purpose: each
-    # teammate's own course progress and Design mission attempt are
-    # genuinely personal, not something one submission speaks for.
-    # `session` also stays individual — it's an informational/self-check
-    # step, not a deliverable, so there's nothing for a team to share.
-    if body.scope == "team" and body.item_type not in ("submission", "external_link", "manual"):
+    # (course/pdf) stays individual on purpose: each teammate's own course
+    # progress is genuinely personal, not something one submission speaks
+    # for. `session` also stays individual — it's an informational/
+    # self-check step, not a deliverable, so there's nothing for a team to
+    # share. `mission_run` is the one exception (2026-09, Phase 2): a team
+    # can build one Design mission together, sharing a single
+    # `MissionAttempt` — see `assign_lms_program`/`sync_assignment_items`'s
+    # team-scoped mission_run branch.
+    if body.scope == "team" and body.item_type not in ("submission", "external_link", "manual", "mission_run"):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail=f"A '{body.item_type}' item can't be team-scoped — only submission, external_link, or manual items can be",
+            detail=f"A '{body.item_type}' item can't be team-scoped — only submission, external_link, manual, or mission_run items can be",
         )
     if body.deadline_at is not None and body.item_type != "submission":
         raise HTTPException(
@@ -658,10 +661,22 @@ async def assign_lms_program(
                 program_id=cohort.program_id if cohort else None, registration_id=registration_id,
             )
         elif item.item_type == "mission_run" and item.mission_id:
-            attempt = await assign_mission_run(
-                db, mission_id=item.mission_id, user_id=user_id, cohort_id=cohort_id, variant_id=item.variant_id,
-            )
-            progress.mission_attempt_id = attempt.id
+            if item.scope == "team":
+                team = await team_for_cohort_member(db, cohort_id=cohort_id, user_id=user_id)
+                if team is not None:
+                    attempt = await assign_mission_run(
+                        db, mission_id=item.mission_id, team_id=team.id, cohort_id=cohort_id,
+                        variant_id=item.variant_id,
+                    )
+                    progress.mission_attempt_id = attempt.id
+                # No team yet — leave mission_attempt_id unset until a
+                # resync after the team exists (see assign_mission_run's
+                # own team_policy check for the other half of this guard).
+            else:
+                attempt = await assign_mission_run(
+                    db, mission_id=item.mission_id, user_id=user_id, cohort_id=cohort_id, variant_id=item.variant_id,
+                )
+                progress.mission_attempt_id = attempt.id
         db.add(progress)
 
     await db.flush()
@@ -698,11 +713,20 @@ async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssig
                 program_id=cohort.program_id if cohort else None, registration_id=assignment.registration_id,
             )
         elif item.item_type == "mission_run" and item.mission_id:
-            attempt = await assign_mission_run(
-                db, mission_id=item.mission_id, user_id=assignment.user_id,
-                cohort_id=assignment.cohort_id, variant_id=item.variant_id,
-            )
-            progress.mission_attempt_id = attempt.id
+            if item.scope == "team":
+                team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
+                if team is not None:
+                    attempt = await assign_mission_run(
+                        db, mission_id=item.mission_id, team_id=team.id,
+                        cohort_id=assignment.cohort_id, variant_id=item.variant_id,
+                    )
+                    progress.mission_attempt_id = attempt.id
+            else:
+                attempt = await assign_mission_run(
+                    db, mission_id=item.mission_id, user_id=assignment.user_id,
+                    cohort_id=assignment.cohort_id, variant_id=item.variant_id,
+                )
+                progress.mission_attempt_id = attempt.id
         db.add(progress)
     await db.flush()
     return len(missing)
