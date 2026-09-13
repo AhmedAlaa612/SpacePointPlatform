@@ -704,8 +704,12 @@ async def submit_program_item(
         target.updated_by_user_id = current.id
     target.updated_at = datetime.now(timezone.utc)
 
-    if individual.mission_attempt_id is not None:
-        attempt = await db.get(MissionAttempt, individual.mission_attempt_id)
+    # The attempt lives on `target`, not necessarily `individual` — a
+    # team-scoped poster step's shared attempt is on the team row
+    # (LmsProgramTeamItemProgress.mission_attempt_id), never on this
+    # student's own individual row.
+    if target.mission_attempt_id is not None:
+        attempt = await db.get(MissionAttempt, target.mission_attempt_id)
         if attempt is not None:
             design = await ensure_design(db, attempt=attempt)
             design.poster_url = body.url

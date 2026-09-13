@@ -294,6 +294,18 @@ class LmsProgramTeamItemProgress(Base):
     status = Column(String(24), nullable=False, default="pending", server_default="pending")
     completed_at = Column(DateTime(timezone=True), nullable=True)
     confirmed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # Set once, at first assignment time, for a team-scoped `mission_run`
+    # item only (Phase 2/3, 2026-09) — the one shared MissionAttempt this
+    # team's run tracks. Deliberately the single source of truth for "what
+    # is this team's mission run" rather than duplicating the same attempt
+    # id onto every teammate's own individual LmsProgramItemProgress row:
+    # a per-student copy can silently go stale (e.g. a teammate registered
+    # before the team existed and never got one written), and reading
+    # "the team's" state then means guessing which teammate's copy to
+    # trust. One row, one team, one answer.
+    mission_attempt_id = Column(
+        UUID(as_uuid=True), ForeignKey("mission_attempts.id", ondelete="SET NULL"), nullable=True,
+    )
     submitted_url = Column(String(512), nullable=True)
     # Whichever teammate last pasted/edited submitted_url, and when — a team
     # row has no single "you", so the checklist shows "last updated by

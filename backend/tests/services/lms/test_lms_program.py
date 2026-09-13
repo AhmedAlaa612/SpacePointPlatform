@@ -13,6 +13,7 @@ from sqlalchemy import select
 from app.models.lms import Course, Enrollment
 from app.models.lms.program import (
     LmsProgram, LmsProgramAssignment, LmsProgramCohortOverride, LmsProgramItem, LmsProgramItemProgress,
+    LmsProgramTeamItemProgress,
 )
 from app.services.teams import create_team, join_team
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
@@ -22,9 +23,9 @@ from app.models.spine.contact import Contact
 from app.models.user import User
 from app.schemas.lms_admin import LmsProgramItemIn
 from app.services.lms.program import (
-    assign_lms_program, certificate_gate_satisfied, fork_cohort_override, guard_locked_submission_scope,
-    resolve_cohort_program, sync_cohort_assignments, sync_program_assignments, team_mission_run_items,
-    validate_item_refs,
+    assign_lms_program, assignment_item_detail, certificate_gate_satisfied, fork_cohort_override,
+    get_student_checklist, guard_locked_submission_scope, resolve_cohort_program, sync_cohort_assignments,
+    sync_program_assignments, team_mission_run_items, validate_item_refs,
 )
 from app.services.missions import decide_attempt
 
@@ -215,15 +216,73 @@ async def test_assign_enrolls_courses_and_assigns_mission_runs_immediately(db):
 
 
 @pytest.mark.asyncio
-async def test_assign_lms_program_shares_one_attempt_for_a_team_scoped_mission_run(db):
-    """Phase 2 (2026-09): a team-scoped mission_run item resolves each
-    teammate's own assignment to the exact same MissionAttempt — no
-    per-teammate attempt, no schema change; assign_lms_program just passes
-    team_id instead of user_id to assign_mission_run for the two of them."""
+async def test_assign_lms_program_shares_one_attempt_via_the_team_row(db):
+    """Phase 2/3 (2026-09): a team-scoped mission_run item's shared
+    MissionAttempt lives on the ONE LmsProgramTeamItemProgress row for
+    (item, team) — not duplicated onto every teammate's own individual
+    LmsProgramItemProgress row, which stays a never-read/written
+    placeholder for a team-scoped item, same as any other team-scoped
+    type. The first teammate assigned creates the attempt; the second
+    finds it already set and reuses it."""
     author = await _author(db)
     program, cohort = await _program_and_cohort(db)
     mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
     lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Team Mission Checklist")
+    db.add(lms_program)
+    await db.flush()
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title=mission.title, mission_id=mission.id, variant_id=variant.id,
+        scope="team",
+    )
+    db.add(item)
+    await db.flush()
+    alice = await _student(db)
+    bob = await _student(db)
+    team = await create_team(db, name="Radio Team", created_by=alice.id, cohort_id=cohort.id, member_ids=[bob.id])
+    await db.commit()
+
+    alice_assignment = await assign_lms_program(db, user_id=alice.id, cohort_id=cohort.id)
+    bob_assignment = await assign_lms_program(db, user_id=bob.id, cohort_id=cohort.id)
+    await db.commit()
+
+    # Neither teammate's own individual row ever gets an attempt id — it's
+    # a placeholder, exactly like a team-scoped submission item's is.
+    alice_progress = (await db.execute(
+        select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == alice_assignment.id)
+    )).scalars().one()
+    bob_progress = (await db.execute(
+        select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == bob_assignment.id)
+    )).scalars().one()
+    assert alice_progress.mission_attempt_id is None
+    assert bob_progress.mission_attempt_id is None
+
+    team_progress = (await db.execute(
+        select(LmsProgramTeamItemProgress).where(
+            LmsProgramTeamItemProgress.item_id == item.id, LmsProgramTeamItemProgress.team_id == team.id,
+        )
+    )).scalars().one()
+    assert team_progress.mission_attempt_id is not None
+
+    attempt = (await db.execute(
+        select(MissionAttempt).where(MissionAttempt.id == team_progress.mission_attempt_id)
+    )).scalar_one()
+    assert attempt.team_id == team.id
+    assert attempt.user_id is None
+
+
+@pytest.mark.asyncio
+async def test_get_student_checklist_surfaces_the_teams_attempt_to_every_teammate(db):
+    """Regression: get_student_checklist used to serialize
+    `mission_attempt_id` straight off the caller's own individual
+    progress row — for a team-scoped item that row is always None now
+    (the attempt lives on the team row instead), so every teammate's own
+    checklist would have shown their mission run as un-clickable, unable
+    to navigate into the design page at all."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Team Checklist Read Test")
     db.add(lms_program)
     await db.flush()
     db.add(LmsProgramItem(
@@ -233,38 +292,29 @@ async def test_assign_lms_program_shares_one_attempt_for_a_team_scoped_mission_r
     ))
     alice = await _student(db)
     bob = await _student(db)
-    await create_team(db, name="Radio Team", created_by=alice.id, cohort_id=cohort.id, member_ids=[bob.id])
+    await create_team(db, name="Checklist Read Team", created_by=alice.id, cohort_id=cohort.id, member_ids=[bob.id])
     await db.commit()
-
     alice_assignment = await assign_lms_program(db, user_id=alice.id, cohort_id=cohort.id)
     bob_assignment = await assign_lms_program(db, user_id=bob.id, cohort_id=cohort.id)
     await db.commit()
 
-    alice_progress = (await db.execute(
-        select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == alice_assignment.id)
-    )).scalars().one()
-    bob_progress = (await db.execute(
-        select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == bob_assignment.id)
-    )).scalars().one()
-    assert alice_progress.mission_attempt_id is not None
-    assert alice_progress.mission_attempt_id == bob_progress.mission_attempt_id
-
-    attempt = (await db.execute(
-        select(MissionAttempt).where(MissionAttempt.id == alice_progress.mission_attempt_id)
-    )).scalar_one()
-    assert attempt.team_id is not None
-    assert attempt.user_id is None
+    alice_checklist = await get_student_checklist(db, assignment_id=alice_assignment.id, user_id=alice.id)
+    bob_checklist = await get_student_checklist(db, assignment_id=bob_assignment.id, user_id=bob.id)
+    alice_item = alice_checklist["items"][0]
+    bob_item = bob_checklist["items"][0]
+    assert alice_item["mission_attempt_id"] is not None
+    assert alice_item["mission_attempt_id"] == bob_item["mission_attempt_id"]
 
 
 @pytest.mark.asyncio
-async def test_assign_lms_program_skips_the_attempt_for_a_team_scoped_item_with_no_team_yet(db):
-    """A student not yet placed on a cohort team still gets their
-    assignment and progress row materialized for a team-scoped mission_run
-    item — just no attempt yet, rather than erroring the whole assignment."""
+async def test_assignment_item_detail_surfaces_the_teams_attempt_for_ops(db):
+    """Regression: same bug as above, on the ops-facing Progress panel
+    drill-in — 'View run' depends on this mission_attempt_id being
+    populated to know which attempt to open."""
     author = await _author(db)
     program, cohort = await _program_and_cohort(db)
     mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
-    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Team Mission, No Team Yet")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Ops Detail Read Test")
     db.add(lms_program)
     await db.flush()
     db.add(LmsProgramItem(
@@ -272,6 +322,39 @@ async def test_assign_lms_program_skips_the_attempt_for_a_team_scoped_item_with_
         item_type="mission_run", title=mission.title, mission_id=mission.id, variant_id=variant.id,
         scope="team",
     ))
+    alice = await _student(db)
+    bob = await _student(db)
+    await create_team(db, name="Ops Detail Team", created_by=alice.id, cohort_id=cohort.id, member_ids=[bob.id])
+    await db.commit()
+    alice_assignment = await assign_lms_program(db, user_id=alice.id, cohort_id=cohort.id)
+    await assign_lms_program(db, user_id=bob.id, cohort_id=cohort.id)
+    await db.commit()
+
+    details = await assignment_item_detail(db, assignment_id=alice_assignment.id)
+    assert details is not None
+    assert len(details) == 1
+    assert details[0]["mission_attempt_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_assign_lms_program_skips_the_attempt_for_a_team_scoped_item_with_no_team_yet(db):
+    """A student not yet placed on a cohort team still gets their
+    assignment and progress row materialized for a team-scoped mission_run
+    item — just no team progress row (and so no attempt) yet, rather than
+    erroring the whole assignment."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Team Mission, No Team Yet")
+    db.add(lms_program)
+    await db.flush()
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title=mission.title, mission_id=mission.id, variant_id=variant.id,
+        scope="team",
+    )
+    db.add(item)
+    await db.flush()
     student = await _student(db)
     await db.commit()
 
@@ -282,6 +365,10 @@ async def test_assign_lms_program_skips_the_attempt_for_a_team_scoped_item_with_
         select(LmsProgramItemProgress).where(LmsProgramItemProgress.assignment_id == assignment.id)
     )).scalars().one()
     assert progress.mission_attempt_id is None
+    no_team_row = await db.scalar(
+        select(LmsProgramTeamItemProgress).where(LmsProgramTeamItemProgress.item_id == item.id)
+    )
+    assert no_team_row is None
 
 
 # ── team_mission_run_items (Phase 3, judge visibility) ──────────────────────
@@ -372,14 +459,16 @@ async def test_team_mission_run_items_reports_not_started_before_any_assignment(
 
 
 @pytest.mark.asyncio
-async def test_team_mission_run_items_finds_the_attempt_even_if_one_teammate_has_none(db):
-    """Regression: an earlier version picked one arbitrary teammate's own
-    assignment as "the" source of truth for the shared attempt id. A
-    teammate who registered *before* the team existed has a progress row
-    with no attempt at all (assign_lms_program's "no team yet" skip) —
-    if that teammate happened to be the one picked, the whole team's
-    already-in-progress run was wrongly reported as not_started. Must
-    check every teammate's rows, not just one."""
+async def test_team_mission_run_items_finds_the_attempt_regardless_of_assignment_order(db):
+    """The shared attempt lives on the one LmsProgramTeamItemProgress row
+    for (item, team), so a teammate who registered *before* the team
+    existed and got no attempt written to their own (unused) individual
+    row can never hide the team's real, already-in-progress run — there's
+    only one row to read, and it isn't theirs. (An earlier design
+    duplicated the attempt id onto every teammate's own row instead and
+    had to guess which one to trust — see git history if curious; this
+    test just confirms the current single-source-of-truth design holds up
+    under the same assignment-order scenario that broke it.)"""
     author = await _author(db)
     program, cohort = await _program_and_cohort(db)
     mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
@@ -395,9 +484,8 @@ async def test_team_mission_run_items_finds_the_attempt_even_if_one_teammate_has
     bob = await _student(db)
     await db.commit()
 
-    # Alice registers/assigns BEFORE any team exists — her progress row
-    # for this item has mission_attempt_id=None, permanently, until a
-    # resync (the known Phase 2 gap).
+    # Alice registers/assigns BEFORE any team exists — no team progress
+    # row gets created for her at all yet (the known Phase 2 gap).
     await assign_lms_program(db, user_id=alice.id, cohort_id=cohort.id)
     await db.commit()
 
@@ -782,6 +870,43 @@ async def test_gate_blocks_until_a_required_mission_run_item_passes(db):
     await db.commit()
 
     assert await certificate_gate_satisfied(db, cohort_id=cohort.id, user_id=student.id) is True
+
+
+@pytest.mark.asyncio
+async def test_gate_is_satisfied_once_a_required_team_scoped_mission_run_passes(db):
+    """Regression: certificate_gate_satisfied used to check every required
+    item's own individual progress row unconditionally, never resolving
+    the shared team row a team-scoped item's real state lives on — a
+    cohort with a required team-scoped item (mission_run or submission)
+    could never satisfy the gate for anyone."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Team Gated Checklist")
+    db.add(lms_program)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title=mission.title, mission_id=mission.id, variant_id=variant.id,
+        scope="team",
+    ))
+    alice = await _student(db)
+    bob = await _student(db)
+    await create_team(db, name="Gate Team", created_by=alice.id, cohort_id=cohort.id, member_ids=[bob.id])
+    await db.commit()
+    await assign_lms_program(db, user_id=alice.id, cohort_id=cohort.id)
+    await assign_lms_program(db, user_id=bob.id, cohort_id=cohort.id)
+    await db.commit()
+
+    assert await certificate_gate_satisfied(db, cohort_id=cohort.id, user_id=alice.id) is False
+
+    attempt = (await db.execute(select(MissionAttempt).where(MissionAttempt.mission_id == mission.id))).scalars().one()
+    await decide_attempt(db, attempt=attempt, passed=True)
+    await db.commit()
+
+    # Satisfied for BOTH teammates, off the one shared attempt.
+    assert await certificate_gate_satisfied(db, cohort_id=cohort.id, user_id=alice.id) is True
+    assert await certificate_gate_satisfied(db, cohort_id=cohort.id, user_id=bob.id) is True
 
 
 @pytest.mark.asyncio
