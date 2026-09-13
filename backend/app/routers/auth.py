@@ -37,6 +37,7 @@ from app.models.enums import UserRole
 from app.models.instructors.applicant_profile import ApplicantProfile
 from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.application_review import ApplicationReview
+from app.services.instructors.application_videos import get_configured_videos
 from app.schemas.user import InstructorApply
 from app.services.documents.id_card import ensure_card_number, format_card_id
 from app.services.invitations import resolve_invite_code
@@ -846,13 +847,13 @@ async def instructor_apply(
         has_own_transportation=payload.has_own_transportation,
         country=payload.country,
     ))
-    _VIDEO_URLS = [
-        "https://youtu.be/6KcV1C1Ui5s",
-        "https://youtu.be/qr1AvisQcV8",
-        "https://youtu.be/5voQfQOTem8",
-    ]
-    for video_no, url in enumerate(_VIDEO_URLS, 1):
-        db.add(VideoSubmission(user_id=user.id, video_no=video_no, youtube_url=url))
+    # Reads the facilitator's currently-configured lineup (Application
+    # Content > Video Links) rather than a frozen literal — previously a
+    # separate hardcoded copy of the original 3 URLs that never reflected
+    # an admin edit, so "takes effect for new applicants immediately" was
+    # false. See services/instructors/application_videos.py.
+    for v in await get_configured_videos(db):
+        db.add(VideoSubmission(user_id=user.id, video_no=v["video_no"], youtube_url=v["url"]))
     db.add(ApplicationReview(user_id=user.id))
 
     if invitation:

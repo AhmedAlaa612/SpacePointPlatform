@@ -11,7 +11,6 @@ from app.core.dependencies import require_facilitator
 from app.db.session import get_db
 from app.models.instructors.checklist import ChecklistItem, ChecklistModule
 from app.models.instructors.library import LibraryModule, LibraryResource
-from app.models.instructors.payment import PortalSetting
 from app.models.instructors.training import TrainingModule, TrainingVideo
 from app.models.user import User
 from app.models.videos import Video
@@ -27,8 +26,9 @@ from app.schemas.instructors.training import (
 from app.services import storage
 from app.services.video_service import attach_embed_link, attach_upload, enqueue_transcode, get_playback_info, get_video_for_owner
 from app.services.video_service import delete as delete_video
+from app.services.instructors.application_videos import get_configured_videos, set_configured_videos
 from app.workers.settings import get_arq_redis
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class TrainingVideoCreate(BaseModel):
@@ -45,14 +45,6 @@ class TrainingVideoCreate(BaseModel):
 
 # ── Application content ────────────────────────────────────────
 
-_DEFAULT_VIDEO_URLS = [
-    "https://youtu.be/6KcV1C1Ui5s",
-    "https://youtu.be/qr1AvisQcV8",
-    "https://youtu.be/5voQfQOTem8",
-]
-_DEFAULT_VIDEO_TITLES = ["Video 1", "Video 2", "Video 3"]
-
-
 class AppVideoConfig(BaseModel):
     video_no: int
     title: str
@@ -60,7 +52,11 @@ class AppVideoConfig(BaseModel):
 
 
 class AppVideosUpdate(BaseModel):
-    videos: list[AppVideoConfig]
+    # At least one video required — a full replacement list, renumbered
+    # 1..N by the frontend before it sends this (see set_configured_videos'
+    # docstring for why the backend trusts that ordering rather than
+    # re-deriving it).
+    videos: list[AppVideoConfig] = Field(min_length=1)
 
 
 class AppModuleCreate(BaseModel):
@@ -730,20 +726,7 @@ async def delete_library_resource(
 async def get_application_videos(
     db: AsyncSession = Depends(get_db), current_user: User = Depends(require_facilitator)
 ):
-    settings = {
-        s.key: s.value
-        for s in (await db.execute(
-            select(PortalSetting).where(PortalSetting.key.like("app_video_%"))
-        )).scalars().all()
-    }
-    return [
-        {
-            "video_no": n,
-            "url": settings.get(f"app_video_{n}_url") or _DEFAULT_VIDEO_URLS[n - 1],
-            "title": settings.get(f"app_video_{n}_title") or _DEFAULT_VIDEO_TITLES[n - 1],
-        }
-        for n in range(1, 4)
-    ]
+    return await get_configured_videos(db)
 
 
 @router.put("/application/videos")
@@ -752,14 +735,15 @@ async def update_application_videos(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_facilitator),
 ):
-    for v in body.videos:
-        n = v.video_no
-        for key, val in [(f"app_video_{n}_url", v.url), (f"app_video_{n}_title", v.title)]:
-            existing = (await db.execute(select(PortalSetting).where(PortalSetting.key == key))).scalars().first()
-            if existing:
-                existing.value = val
-            else:
-                db.add(PortalSetting(key=key, value=val))
+    """Full replacement of the video lineup — the frontend always sends its
+    whole (renumbered) list, so growing or shrinking the count is just a
+    different-length `body.videos` rather than a separate add/remove
+    endpoint. Only affects new applicants going forward: an applicant who
+    already has their `VideoSubmission` rows keeps them as-is, same as an
+    edited URL never retroactively changes what an in-progress applicant
+    is already working from.
+    """
+    await set_configured_videos(db, [v.model_dump() for v in body.videos])
     await db.commit()
     return {"status": "updated"}
 

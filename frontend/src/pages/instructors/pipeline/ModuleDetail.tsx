@@ -63,7 +63,8 @@ export default function ModuleDetail() {
 
   if (isLoading || videosLoading || !module || !videos) return <Spinner />
 
-  const videosDone = videos.length === 3 && videos.every((v) => v.status === "submitted")
+  // Video count is facilitator-editable, not fixed at 3 (2026-09).
+  const videosDone = videos.length > 0 && videos.every((v) => v.status === "submitted")
 
   const uploadLocked = module.submission_status === "approved"
 
@@ -84,7 +85,7 @@ export default function ModuleDetail() {
             <Lock className="mx-auto mb-4 text-primary" size={48} />
             <h3 className="text-xl font-bold text-foreground mb-2">Complete Videos First</h3>
             <p className="text-muted-foreground mb-6">
-              You must complete all 3 introductory video summaries before unlocking these modules.
+              You must complete all introductory video summaries before unlocking these modules.
             </p>
             <Link to="/instructors/videos">
               <Button>Go to Videos</Button>

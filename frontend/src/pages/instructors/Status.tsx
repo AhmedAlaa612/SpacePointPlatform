@@ -229,7 +229,10 @@ export default function Status() {
 
   const videosSubmitted = videos?.filter((v) => v.status === "submitted").length ?? 0
   const modulesUploaded = modules?.filter((m) => m.submission_status && m.submission_status !== "rejected").length ?? 0
-  const videosDone = videosSubmitted === 3
+  // Video count is facilitator-editable, not fixed at 3 (2026-09) —
+  // "done" compares against however many this applicant actually has.
+  const videosTotal = videos?.length ?? 0
+  const videosDone = videosTotal > 0 && videosSubmitted === videosTotal
   const modulesTotal = modules?.length ?? 0
   const modulesDone = modulesTotal > 0 && modulesUploaded === modulesTotal
 
@@ -263,16 +266,16 @@ export default function Status() {
           )}
           <StepCard
             title="Video Summaries"
-            description="Watch 3 short videos and write a 200+ word summary of each."
+            description={`Watch ${videosTotal || "the"} short video${videosTotal === 1 ? "" : "s"} and write a 200+ word summary of each.`}
             done={videosSubmitted}
-            total={3}
+            total={videosTotal}
             state={videosDone ? "complete" : "progress"}
             to="/instructors/videos"
           />
           <StepCard
             title="Checklist Modules"
             description="Upload the required research PDFs for each module."
-            lockedHint="Locked — submit all 3 video summaries above to unlock."
+            lockedHint="Locked — submit all video summaries above to unlock."
             done={modulesUploaded}
             total={modulesTotal}
             state={!videosDone ? "locked" : modulesDone ? "complete" : "progress"}

@@ -98,25 +98,34 @@ export default function FacilitatorApplication() {
     queryFn: getApplicationVideosApi,
   })
 
+  // Count is facilitator-editable (2026-09), not fixed at 3 — seeded from
+  // whatever the API returns; a single blank slot is the starting point
+  // for a install that's never configured this at all (GET always returns
+  // at least the 3 legacy defaults once seeded, but a query still in
+  // flight needs *some* initial shape to render).
   const [localVideos, setLocalVideos] = useState<ApplicationVideoConfig[]>([
     { video_no: 1, title: "Video 1", url: "" },
-    { video_no: 2, title: "Video 2", url: "" },
-    { video_no: 3, title: "Video 3", url: "" },
   ])
 
   useEffect(() => {
-    if (videos) {
-      setLocalVideos(
-        [1, 2, 3].map((n) => {
-          const v = videos.find((x) => x.video_no === n)
-          return { video_no: n, title: v?.title ?? `Video ${n}`, url: v?.url ?? "" }
-        }),
-      )
+    if (videos && videos.length > 0) {
+      setLocalVideos(videos.map((v) => ({ video_no: v.video_no, title: v.title, url: v.url })))
     }
   }, [videos])
 
   const setVideoField = (n: number, field: "title" | "url", value: string) => {
     setLocalVideos((prev) => prev.map((v) => (v.video_no === n ? { ...v, [field]: value } : v)))
+  }
+
+  const addVideo = () => {
+    setLocalVideos((prev) => [...prev, { video_no: prev.length + 1, title: `Video ${prev.length + 1}`, url: "" }])
+  }
+
+  // Renumbers the rest 1..N so video_no stays contiguous after a removal —
+  // the backend trusts this ordering (set_configured_videos) rather than
+  // reconciling gaps itself.
+  const removeVideo = (n: number) => {
+    setLocalVideos((prev) => prev.filter((v) => v.video_no !== n).map((v, i) => ({ ...v, video_no: i + 1 })))
   }
 
   const saveVideos = useMutation({
@@ -283,14 +292,23 @@ export default function FacilitatorApplication() {
           ) : (
             <>
               <p className="text-sm text-muted-foreground mb-4">
-                These are the three YouTube videos all applicants must watch and summarise during Phase 1.
+                These are the YouTube videos all applicants must watch and summarise during Phase 1.
                 Changing a URL here takes effect for new applicants immediately.
               </p>
-              <div className="space-y-4 mb-6">
+              <div className="space-y-4 mb-4">
                 {localVideos.map((v) => (
                   <Card key={v.video_no}>
-                    <CardHeader className="pb-2">
+                    <CardHeader className="pb-2 flex flex-row items-center justify-between">
                       <CardTitle className="text-base">Video {v.video_no}</CardTitle>
+                      {localVideos.length > 1 && (
+                        <button
+                          onClick={() => removeVideo(v.video_no)}
+                          className="p-1.5 text-muted-foreground hover:text-destructive rounded"
+                          aria-label="Remove video"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <div>
@@ -319,9 +337,14 @@ export default function FacilitatorApplication() {
                   </Card>
                 ))}
               </div>
-              <Button onClick={() => saveVideos.mutate()} disabled={saveVideos.isPending}>
-                {saveVideos.isPending ? "Saving…" : "Save video links"}
+              <Button variant="outline" onClick={addVideo} className="mb-6">
+                <Plus size={14} className="mr-1.5" /> Add video
               </Button>
+              <div>
+                <Button onClick={() => saveVideos.mutate()} disabled={saveVideos.isPending}>
+                  {saveVideos.isPending ? "Saving…" : "Save video links"}
+                </Button>
+              </div>
               {saveVideos.isSuccess && (
                 <p className="text-sm text-green-600 dark:text-green-400 mt-2">Saved successfully.</p>
               )}
