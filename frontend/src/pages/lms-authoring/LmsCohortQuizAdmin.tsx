@@ -10,9 +10,9 @@ import {
   downloadCohortQuizQuestionTemplateApi, generateCohortQuizTemplateQuestionsApi, getCohortQuizTemplateApi,
   importCohortQuizQuestionsApi, listCohortQuizQuestionsApi, listCohortQuizTemplatesApi,
   removeCohortQuizTemplateQuestionApi, reorderCohortQuizTemplateQuestionsApi, retireCohortQuizQuestionApi,
-  updateCohortQuizQuestionApi, type CohortQuizQuestionInput,
+  updateCohortQuizQuestionApi, updateCohortQuizTemplateApi, type CohortQuizQuestionInput,
 } from "@/api/cohort_quiz"
-import type { CohortQuizDifficulty, CohortQuizQuestion } from "@/types/cohort_quiz"
+import type { CohortQuizDifficulty, CohortQuizQuestion, CohortQuizTemplate } from "@/types/cohort_quiz"
 
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail
@@ -395,6 +395,16 @@ function TemplatesTab() {
   const [description, setDescription] = useState("")
   const [createCount, setCreateCount] = useState(10)
   const [createTopics, setCreateTopics] = useState<string[]>([])
+  // Renaming and retiring a template, from the sidebar list — same shape as
+  // AssessmentQuestions.tsx's config rename/delete pattern. "Retire", not a
+  // hard delete: `LmsProgramItem.cohort_quiz_template_id` is RESTRICT and
+  // this domain is retire-never-delete throughout (see cohort_quiz.py's
+  // docstring) — a template already pointed at by a checklist item, or
+  // already taken by a student, must never disappear out from under it.
+  const [editingTemplate, setEditingTemplate] = useState<CohortQuizTemplate | null>(null)
+  const [renameName, setRenameName] = useState("")
+  const [renameDescription, setRenameDescription] = useState("")
+  const [retiringTemplate, setRetiringTemplate] = useState<CohortQuizTemplate | null>(null)
 
   const { data: templates = [], isLoading } = useQuery({ queryKey: ["cohort-quiz-templates"], queryFn: listCohortQuizTemplatesApi })
   // Same cache key `TemplateDetail` uses for its own topic list — sharing
@@ -423,6 +433,28 @@ function TemplatesTab() {
       queryClient.invalidateQueries({ queryKey: ["cohort-quiz-templates"] })
       queryClient.invalidateQueries({ queryKey: ["cohort-quiz-template", t.id] })
       setSelectedId(t.id)
+    },
+  })
+
+  const openRenameTemplate = (t: CohortQuizTemplate) => {
+    setEditingTemplate(t); setRenameName(t.name); setRenameDescription(t.description ?? "")
+  }
+
+  const renameMutation = useMutation({
+    mutationFn: () => updateCohortQuizTemplateApi(editingTemplate!.id, { name: renameName.trim(), description: renameDescription.trim() || null }),
+    onSuccess: () => {
+      setEditingTemplate(null); setRenameName(""); setRenameDescription("")
+      queryClient.invalidateQueries({ queryKey: ["cohort-quiz-templates"] })
+      queryClient.invalidateQueries({ queryKey: ["cohort-quiz-template", editingTemplate!.id] })
+    },
+  })
+
+  const retireMutation = useMutation({
+    mutationFn: () => updateCohortQuizTemplateApi(retiringTemplate!.id, { is_active: false }),
+    onSuccess: () => {
+      if (selectedId === retiringTemplate?.id) setSelectedId(null)
+      setRetiringTemplate(null)
+      queryClient.invalidateQueries({ queryKey: ["cohort-quiz-templates"] })
     },
   })
 
@@ -480,20 +512,75 @@ function TemplatesTab() {
           <EmptyState title="No templates yet" />
         ) : (
           templates.map((t) => (
-            <button
+            <div
               key={t.id}
-              onClick={() => setSelectedId(t.id)}
-              className={`text-left p-3 rounded-xl border transition-colors ${selectedId === t.id ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/40"}`}
+              className={`flex items-center gap-1 p-3 rounded-xl border transition-colors ${selectedId === t.id ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/40"} ${!t.is_active ? "opacity-50" : ""}`}
             >
-              <p className="text-sm font-medium text-foreground">{t.name}</p>
-              <p className="text-xs text-muted-foreground">{t.question_count} question{t.question_count === 1 ? "" : "s"}</p>
-            </button>
+              <button onClick={() => setSelectedId(t.id)} className="text-left flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{t.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t.question_count} question{t.question_count === 1 ? "" : "s"}
+                  {!t.is_active && <span className="ml-1.5 font-semibold uppercase text-amber-600">retired</span>}
+                </p>
+              </button>
+              <button
+                onClick={() => openRenameTemplate(t)}
+                className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors shrink-0"
+                title="Rename"
+              >
+                <Pencil size={13} />
+              </button>
+              {t.is_active && (
+                <button
+                  onClick={() => setRetiringTemplate(t)}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0"
+                  title="Retire"
+                >
+                  <Trash2 size={13} />
+                </button>
+              )}
+            </div>
           ))
         )}
       </div>
       <div className="flex-1 min-w-0">
         {selectedId ? <TemplateDetail templateId={selectedId} /> : <EmptyState title="Pick a template" hint="Or create a new one to start adding questions." />}
       </div>
+
+      {editingTemplate && (
+        <Modal title="Rename template" onClose={() => setEditingTemplate(null)}>
+          <div className="flex flex-col gap-3">
+            <input
+              value={renameName} onChange={(e) => setRenameName(e.target.value)} autoFocus
+              placeholder="Template name"
+              className="h-10 px-3.5 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+            />
+            <textarea
+              value={renameDescription} onChange={(e) => setRenameDescription(e.target.value)} rows={2}
+              placeholder="Description (optional)"
+              className="px-3.5 py-2 border border-border bg-background text-foreground rounded-xl text-sm resize-none focus:outline-none focus:border-primary transition-colors"
+            />
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setEditingTemplate(null)}>Cancel</Button>
+              <Button onClick={() => renameName.trim() && renameMutation.mutate()} disabled={!renameName.trim() || renameMutation.isPending}>
+                {renameMutation.isPending ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {retiringTemplate && (
+        <ConfirmDialog
+          title={`Retire "${retiringTemplate.name}"?`}
+          description="It stays visible for review and any in-progress attempt keeps running, but it drops out of the picker for new checklist items. It can't be un-retired from here."
+          confirmLabel="Retire"
+          destructive
+          pending={retireMutation.isPending}
+          onCancel={() => setRetiringTemplate(null)}
+          onConfirm={() => retireMutation.mutate()}
+        />
+      )}
     </div>
   )
 }
