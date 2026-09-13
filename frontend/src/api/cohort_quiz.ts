@@ -75,6 +75,13 @@ export const updateCohortQuizTemplateApi = (
   templateId: string, data: Partial<{ name: string; description: string | null; is_active: boolean }>,
 ) => api.patch<CohortQuizTemplate>(`/lms/admin/cohort-quiz/templates/${templateId}`, data).then((r) => r.data);
 
+/** Hard delete — only succeeds for a template no checklist item points at
+ *  and no student has attempted; the server 409s (with a sentence) otherwise
+ *  and suggests `updateCohortQuizTemplateApi(id, { is_active: false })`
+ *  (retire) instead. */
+export const deleteCohortQuizTemplateApi = (templateId: string) =>
+  api.delete<void>(`/lms/admin/cohort-quiz/templates/${templateId}`).then((r) => r.data);
+
 export const addCohortQuizTemplateQuestionApi = (templateId: string, questionId: string) =>
   api.post<CohortQuizTemplateDetail>(
     `/lms/admin/cohort-quiz/templates/${templateId}/questions`, { question_id: questionId },

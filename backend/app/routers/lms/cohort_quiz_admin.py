@@ -14,12 +14,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import require_lms_content
 from app.db.session import get_db
-from app.models.lms.cohort_quiz import CohortQuizQuestion, CohortQuizTemplate
+from app.models.lms.cohort_quiz import CohortQuizAttempt, CohortQuizQuestion, CohortQuizTemplate
+from app.models.lms.program import LmsProgramItem
 from app.models.user import User
 from app.schemas.lms_cohort_quiz import (
     CohortQuizQuestionImportOut, CohortQuizQuestionIn, CohortQuizQuestionOut, CohortQuizQuestionUpdate,
@@ -201,6 +202,52 @@ async def update_template(
     await db.commit()
     await db.refresh(template)
     return await _template_out(db, template)
+
+
+@router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_template(
+    template_id: uuid.UUID, db: AsyncSession = Depends(get_db), _: User = Depends(require_lms_content),
+):
+    """Hard-delete a template that was never actually used — the "retire,
+    never delete" posture (PATCH is_active=false, above) is for a template
+    already in play; one nobody's touched costs nothing to remove outright.
+
+    Both `LmsProgramItem.cohort_quiz_template_id` and `CohortQuizAttempt.
+    cohort_quiz_template_id` are RESTRICT, so either reference blocks this —
+    checked up front (same posture as `instructor_assessment/admin.py::
+    delete_config`) so the caller gets a sentence instead of a raw FK error.
+    `CohortQuizTemplateQuestion` rows cascade automatically.
+    """
+    template = await db.get(CohortQuizTemplate, template_id)
+    if template is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Quiz template not found")
+    checklist_uses = await db.scalar(
+        select(func.count()).select_from(LmsProgramItem)
+        .where(LmsProgramItem.cohort_quiz_template_id == template_id)
+    )
+    if checklist_uses:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"This template is used by {checklist_uses} checklist item"
+                f"{'' if checklist_uses == 1 else 's'}, so it can't be deleted. Point "
+                f"those items at a different template first, or retire this one instead."
+            ),
+        )
+    attempts = await db.scalar(
+        select(func.count()).select_from(CohortQuizAttempt)
+        .where(CohortQuizAttempt.cohort_quiz_template_id == template_id)
+    )
+    if attempts:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=(
+                f"{attempts} student attempt{'' if attempts == 1 else 's'} already reference this "
+                f"template, so it can't be deleted. Retire it instead — that removes it from new picks."
+            ),
+        )
+    await db.delete(template)
+    await db.commit()
 
 
 @router.post(
