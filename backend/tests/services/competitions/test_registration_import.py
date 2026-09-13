@@ -195,3 +195,46 @@ async def test_import_finds_the_header_past_the_trackers_title_and_stage_rows(db
     assert summarize(results) == {"total": 1, "created": 1, "matched": 0, "error": 0}
     teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
     assert {t.name for t in teams} == {"edos"}
+
+
+@pytest.mark.asyncio
+async def test_import_adds_pre_existing_user_to_team(db):
+    """A student who already has a User account (e.g. from a previous LMS
+    enrolment) but whose User.contact_id doesn't match the freshly-resolved
+    contact should still be added to the team — not silently dropped with
+    an error row (the bug: `sync_registration_lms` returns None because the
+    email is already on a different User, and _import_row used to bail
+    before reaching the team-join code)."""
+    from app.core.security import get_password_hash
+
+    cohort = await _make_cohort(db)
+
+    # Create a pre-existing User with no contact_id — simulates an account
+    # that was provisioned through some other path (manual admin creation,
+    # an older import pipeline, etc.)
+    email = f"existing-{uuid.uuid4().hex[:6]}@example.com"
+    existing_user = User(
+        id=uuid.uuid4(), full_name="Existing Student", email=email,
+        password_hash=get_password_hash("dummy"), roles=["student"],
+        status="active",
+    )
+    db.add(existing_user)
+    await db.commit()
+
+    file_bytes = _workbook([
+        {"team_name": "Falcon Eye", "member_name": "Existing Student", "email": email},
+    ])
+    rows = parse_registration_sheet(file_bytes)
+    results = await import_registrations(db, cohort_id=cohort.id, rows=rows)
+    await db.commit()
+
+    # The row should succeed (not error) and the user should be on the team
+    summary = summarize(results)
+    assert summary["error"] == 0, f"Expected no errors, got: {[r for r in results if r.disposition == 'error']}"
+    assert summary["created"] + summary["matched"] == 1
+
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert len(teams) == 1
+    assert teams[0].name == "Falcon Eye"
+    members = await team_member_ids(db, team_id=teams[0].id)
+    assert existing_user.id in members

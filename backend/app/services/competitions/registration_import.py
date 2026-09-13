@@ -49,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.team import Team
+from app.models.user import User
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
 from app.services.spine.identity import resolve_or_create_contact
@@ -288,10 +289,18 @@ async def _import_row(
         send_welcome_email=send_welcome_email,
     )
     if user is None:
-        return ImportRowResult(
-            row_number, team_name, email, "error",
-            "Registered, but couldn't create a student account (email may already belong to a different account)",
-        )
+        # The email already belongs to an existing User not linked to this
+        # contact (e.g. a pre-existing LMS account).  That's fine — look them
+        # up by email and still add them to the team; the registration was
+        # already created above, so they have a seat in this cohort either way.
+        user = (await db.execute(
+            select(User).where(User.email == email)
+        )).scalars().first()
+        if user is None:
+            return ImportRowResult(
+                row_number, team_name, email, "error",
+                "Registered, but couldn't create a student account (email may already belong to a different account)",
+            )
 
     team = (await db.execute(
         select(Team).where(Team.cohort_id == cohort.id, Team.name == team_name)
