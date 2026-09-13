@@ -16,6 +16,7 @@ import type { CompletionRuleType, PricingModel, Program, ProgramType } from "@/t
 import { createProgramApi, updateProgramApi } from "@/api/sessions/programs"
 import { getMaterialsApi, getProgramOpeningsApi } from "@/api/sessions/openings"
 import { ProgramRolesPanel } from "@/pages/admin/components/ProgramRolesPanel"
+import { ProgramAssessmentDefaultPanel } from "@/pages/admin/components/ProgramAssessmentDefaultPanel"
 import { MaterialsPanel } from "@/pages/admin/components/MaterialsPanel"
 import { useToast } from "@/components/ui/toast"
 import { cn, getErrorMessage } from "@/lib/utils"
@@ -139,9 +140,12 @@ export default function ProgramWizard() {
           <>
             <StepIntro
               eyebrow="Roles & checklist" title="Who runs a day, and what they do" ledeWidth={70}
-              lede="Every new cohort of this program starts with these roles and this checklist — a one-time copy at creation, not a live link. Editing this later never reaches a cohort that already exists."
+              lede="Every new cohort of this program starts with these roles, this checklist, and this instructor-assessment default — a one-time copy at creation, not a live link. Editing this later never reaches a cohort that already exists."
             />
             <ProgramRolesPanel program={program} />
+            <div className="pt-4 border-t border-border">
+              <ProgramAssessmentDefaultPanel program={program} onUpdated={setProgram} />
+            </div>
           </>
         )}
         {step === 2 && program && (
