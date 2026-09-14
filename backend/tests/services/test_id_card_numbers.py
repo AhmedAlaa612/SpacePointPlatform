@@ -70,6 +70,44 @@ async def test_ensure_card_number_no_ops_once_allocated(db):
 
 
 @pytest.mark.asyncio
+async def test_ensure_card_number_retries_past_a_sequence_collision(db):
+    """2026-09-14 production incident: `card_seq_student` drifted behind an
+    existing card_number, so the first nextval() collided
+    (idx_users_card_number_student) and the unhandled IntegrityError
+    poisoned the whole session — the *next* unrelated query in the same
+    request then blew up with PendingRollbackError, 500ing an entire
+    roster-import batch over one bad card number. Retries past a collision
+    instead, with the mutation+flush scoped to a SAVEPOINT (same pattern as
+    services/teams.py::create_team) so a collision never leaks into the
+    caller's own transaction."""
+    from sqlalchemy import text
+
+    taken = await _user(db, roles=["student"])
+    await db.commit()
+    taken_number = await ensure_card_number(db, taken)
+    await db.commit()
+
+    # Rewind the sequence so the very next nextval() hands out a number
+    # that's already taken — reproduces the drift without needing to know
+    # the sequence's real internal state.
+    await db.execute(text("SELECT setval('card_seq_student', :n, false)"), {"n": taken_number})
+    await db.commit()
+
+    new_student = await _user(db, roles=["student"])
+    await db.commit()
+    new_number = await ensure_card_number(db, new_student)
+
+    assert new_number != taken_number
+
+    # The session must still be perfectly usable afterward — this is the
+    # actual regression: a poisoned session raises PendingRollbackError on
+    # the very next unrelated statement.
+    await db.commit()
+    again = await ensure_card_number(db, new_student)
+    assert again == new_number
+
+
+@pytest.mark.asyncio
 async def test_signup_response_card_id_uses_student_prefix(db, client):
     from app.models.instructors.invitation_code import InvitationCode
 

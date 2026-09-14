@@ -151,6 +151,18 @@ export function Login() {
               Apply as Ambassador
             </Link>
           </div>
+          {/* 2026-09-14 — a safety net, not an intended path: students are
+              never meant to land here at all (they sign up at /learn/signup
+              directly), but a mismatched email link or a bookmarked old page
+              can strand one on this portal login with nowhere to go. One
+              plain pointer back to where they actually belong, so "wrong
+              page" doesn't become "dead end". */}
+          <p className="pt-1 text-xs font-medium text-slate-500">
+            Looking for the learning portal?{" "}
+            <Link to="/learn/signup" className="text-[#a880ff] hover:text-[#a880ff]/80 transition-colors font-semibold">
+              Sign up as a Learner
+            </Link>
+          </p>
         </div>
       </form>
     </div>

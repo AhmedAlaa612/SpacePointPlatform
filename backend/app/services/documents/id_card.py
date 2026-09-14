@@ -28,6 +28,7 @@ import cairosvg
 import qrcode
 from PIL import Image, ImageDraw, ImageFont
 from qrcode.image.pil import PilImage
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -322,9 +323,26 @@ async def ensure_card_number(db: AsyncSession, user: User) -> int:
 
     from sqlalchemy import text
     sequence = "card_seq_student" if "student" in user.roles else "card_seq_person"
-    number = (await db.execute(text(f"SELECT nextval('{sequence}')"))).scalar_one()
-    user.card_number = number
-    return number
+    # A real Postgres sequence never repeats a value on its own — a
+    # collision here (2026-09-14 incident, `idx_users_card_number_student`)
+    # means the sequence has drifted behind an existing card_number set
+    # some other way, not a transient race. Retry a few times with a fresh
+    # nextval() rather than surfacing the raw IntegrityError: the mutation
+    # and its flush are scoped to a SAVEPOINT so a collision only rolls
+    # back this allocation, not the caller's whole session/transaction —
+    # same failure shape and fix as services/teams.py::create_team's own
+    # collision handling; without it, one bad card_number silently poisons
+    # every other row in the same batch import request.
+    for _attempt in range(5):
+        number = (await db.execute(text(f"SELECT nextval('{sequence}')"))).scalar_one()
+        try:
+            async with db.begin_nested():
+                user.card_number = number
+                await db.flush()
+            return number
+        except IntegrityError:
+            continue
+    raise RuntimeError(f"Couldn't allocate a card number for user {user.id} after several attempts")
 
 
 # Old name, kept as an alias — internal callers within this module only.
