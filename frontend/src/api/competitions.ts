@@ -88,6 +88,7 @@ export interface CompetitionMissionRun {
 
 export interface CompetitionImportRow {
   row_number: number
+  team_id: string | null
   team_name: string | null
   email: string | null
   disposition: "created" | "matched" | "error"
@@ -101,13 +102,19 @@ export interface CompetitionImportResult {
 
 /** A parsed sheet row, before anything is written — `issues` is empty for a
  * clean row, non-empty means it needs a fix (usually the email) before it
- * can be confirmed. Every field here is editable in the preview table. */
+ * can be confirmed. Every field here is editable in the preview table.
+ * `team_id` (2026-09-14) is the roster's own grouping key and the one
+ * required team field now — `team_name` is optional, a blank one just
+ * means that team hasn't named itself yet (see services/competitions/
+ * registration_import.py's module docstring). */
 export interface CompetitionImportPreviewRow {
   row_number: number
+  team_id: string | null
   team_name: string | null
   member_name: string | null
   email: string | null
   phone: string | null
+  nationality: string | null
   school: string | null
   issues: string[]
 }

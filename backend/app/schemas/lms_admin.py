@@ -433,7 +433,9 @@ class ItemReorderIn(BaseModel):
 
 # ── LMS Program checklist (2026-08-21 redesign) ─────────────────────────────
 
-LmsProgramItemType = Literal["course", "mission_run", "external_link", "submission", "pdf", "manual", "session", "quiz"]
+LmsProgramItemType = Literal[
+    "course", "mission_run", "external_link", "submission", "pdf", "manual", "session", "quiz", "team_setup",
+]
 # individual (default) tracks per-student, exactly as every item did before
 # this existed. team means the whole `Team` shares one progress row — a
 # competition's link-only deliverables. See LmsProgramItem.scope's docstring.

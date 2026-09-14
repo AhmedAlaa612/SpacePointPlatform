@@ -26,19 +26,41 @@ from app.models.team import Team, TeamMember
 
 async def create_team(
     db: AsyncSession, *, name: str, created_by: uuid.UUID, cohort_id: uuid.UUID | None = None,
-    member_ids: list[uuid.UUID] | None = None,
+    member_ids: list[uuid.UUID] | None = None, roster_team_id: str | None = None,
 ) -> Team:
     """Creates a team and adds `member_ids` (deduplicated with `created_by`,
     who is always a member of a team they create). Raises 409 on a name
-    collision within the same `cohort_id` — self-formed teams (`cohort_id`
+    collision within the same `cohort_id` (case-insensitive — see
+    `models/team.py`'s module docstring) — self-formed teams (`cohort_id`
     NULL) never collide by name, there's no scope to dedupe them against.
-    """
-    team = Team(id=uuid.uuid4(), name=name, cohort_id=cohort_id, created_by=created_by)
-    db.add(team)
+
+    `roster_team_id` (2026-09-14) is set on the same insert, inside the
+    same savepoint, so a collision on `UNIQUE(cohort_id, roster_team_id)`
+    (a competition roster import re-using an id already claimed — shouldn't
+    happen given the caller looks it up first, but a concurrent import of
+    the same sheet could race it) is caught by the same except block below
+    rather than surfacing as an unhandled IntegrityError on some later,
+    unrelated flush.
+
+    `db.add(team)` happens *inside* the `begin_nested()` block, not before
+    it — found live, 2026-09-14: adding it first and only wrapping the
+    `flush()` in the savepoint left the Session's own (outer, non-nested)
+    transaction marked deactive after a caught collision, so the *next*
+    unrelated operation on `db` (the caller's next batch row, its own
+    commit, anything) raised an unhandled `PendingRollbackError` instead of
+    this function's clean 409 actually being the end of it. Matches the
+    working pattern elsewhere in this codebase (e.g.
+    `services/lms/cohort_quiz.py::add_template_question`) — add inside,
+    not before."""
+    team = Team(
+        id=uuid.uuid4(), name=name, cohort_id=cohort_id, created_by=created_by, roster_team_id=roster_team_id,
+    )
     try:
         async with db.begin_nested():
-            await db.flush()
-    except IntegrityError:
+            db.add(team)
+    except IntegrityError as exc:
+        if "uq_learner_teams_cohort_roster_team_id" in str(exc.orig):
+            raise HTTPException(409, detail="A team with this roster team ID already exists in this cohort")
         raise HTTPException(409, detail="A team with this name already exists in this cohort")
 
     members = {created_by, *(member_ids or [])}

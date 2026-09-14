@@ -1,5 +1,5 @@
 import { isAxiosError } from "axios"
-import { BookOpen, Rocket, Link2, Upload, FileText, ClipboardCheck, Calendar, HelpCircle } from "lucide-react"
+import { BookOpen, Rocket, Link2, Upload, FileText, ClipboardCheck, Calendar, HelpCircle, Users } from "lucide-react"
 import { MISSION_STEP_KEYS, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType } from "@/api/lms_admin"
 
 export function errorDetail(err: unknown, fallback: string): string {
@@ -48,6 +48,7 @@ export const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeo
   { value: "manual", label: "Manual check-off", icon: ClipboardCheck },
   { value: "session", label: "Session", icon: Calendar },
   { value: "quiz", label: "Quiz", icon: HelpCircle },
+  { value: "team_setup", label: "Team setup", icon: Users },
 ]
 
 // Mirrors the server-side rule in services/lms/program.py: a link-only

@@ -12,7 +12,7 @@ from datetime import date, datetime, time
 from typing import Literal, Union
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.curriculum import PrerequisiteItemOut
 
@@ -526,6 +526,13 @@ class LmsProgramChecklistOut(BaseModel):
     certificate_required: bool
     certificate_earned: bool
     items: list[LmsProgramChecklistItemOut]
+
+
+class LmsProgramTeamNameIn(BaseModel):
+    """A `team_setup` item's one action — see routers/lms/student.py's
+    `set_team_name`. Trimmed and length-capped to `learner_teams.name`'s
+    own column width (models/team.py)."""
+    name: str = Field(min_length=1, max_length=100)
 
 
 class LmsProgramItemSubmitIn(BaseModel):

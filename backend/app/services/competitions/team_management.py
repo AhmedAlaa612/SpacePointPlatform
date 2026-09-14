@@ -69,12 +69,21 @@ async def list_teams_with_members(db: AsyncSession, *, cohort_id: uuid.UUID) -> 
 
 
 async def rename_team(db: AsyncSession, *, team_id: uuid.UUID, name: str) -> Team:
+    """Case-insensitive collision within the same cohort raises 409 (see
+    `models/team.py`'s module docstring for the expression index this
+    relies on). The mutation itself happens *inside* the `begin_nested()`
+    block, not before it — found live, 2026-09-14 (see `create_team`'s own
+    docstring for the same fix and why it matters): setting `team.name`
+    first and only wrapping the `flush()` left the Session's outer
+    transaction marked deactive after a caught collision, so the *next*
+    unrelated operation on `db` raised an unhandled `PendingRollbackError`
+    instead of this function's clean 409 actually being the end of it."""
     team = await db.get(Team, team_id)
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
-    team.name = name
     try:
         async with db.begin_nested():
+            team.name = name
             await db.flush()
     except IntegrityError:
         raise HTTPException(409, detail="A team with this name already exists in this cohort")

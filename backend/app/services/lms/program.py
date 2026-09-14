@@ -166,6 +166,10 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         # blank and just have a titled placeholder, same posture as manual.
         "session": True,
         "quiz": body.cohort_quiz_template_id is not None,
+        # No required field at creation — same reasoning as manual/pdf.
+        # Always team-scoped (checked below), so there's no individual
+        # variant to require anything of either.
+        "team_setup": True,
     }
     if not required[body.item_type]:
         raise HTTPException(
@@ -182,15 +186,23 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
     # can build one Design mission together, sharing a single
     # `MissionAttempt` — see `assign_lms_program`/`sync_assignment_items`'s
     # team-scoped mission_run branch.
-    if body.scope == "team" and body.item_type not in ("submission", "external_link", "manual", "mission_run"):
+    if body.scope == "team" and body.item_type not in ("submission", "external_link", "manual", "mission_run", "team_setup"):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail=f"A '{body.item_type}' item can't be team-scoped — only submission, external_link, manual, or mission_run items can be",
+            detail=f"A '{body.item_type}' item can't be team-scoped — only submission, external_link, manual, mission_run, or team_setup items can be",
         )
-    if body.deadline_at is not None and body.item_type != "submission":
+    # team_setup (2026-09-14, team onboarding) — the whole point is naming
+    # the team, a fact that belongs to the team, not to any one member; an
+    # "individual" team_setup item would need a definition of what that
+    # even means (which member's name wins?) that nothing else here has.
+    if body.item_type == "team_setup" and body.scope != "team":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="A team_setup item is always team-scoped",
+        )
+    if body.deadline_at is not None and body.item_type not in ("submission", "team_setup"):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
-            detail="Only a submission item can have a deadline",
+            detail="Only a submission or team_setup item can have a deadline",
         )
     # Roadmap board (2026-09) ─────────────────────────────────────────
     if body.mission_step_key is not None:

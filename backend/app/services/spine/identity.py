@@ -244,6 +244,7 @@ async def resolve_or_create_contact(
     role_event_source: str = "registration",
     date_of_birth: date | None = None,
     grade: str | None = None,
+    nationality: str | None = None,
     organization_name: str | None = None,
 ) -> tuple[Contact, IdentityEvaluation]:
     """Find-or-create a contact from raw submitted fields — the orchestration
@@ -271,6 +272,10 @@ async def resolve_or_create_contact(
     purely informational — no age/minor enforcement is derived from them
     anywhere. `organization_name` resolves (or creates) an Organization via
     resolve_or_create_organization and sets it on the contact.
+
+    `nationality` (2026-09-14, competition roster import) is the same kind
+    of purely informational field — deliberately distinct from `country`
+    (residence/CRM location), same gap-fill-only posture as `grade`.
     """
     evaluation = await evaluate(db, phone, email)
 
@@ -293,6 +298,8 @@ async def resolve_or_create_contact(
             contact.date_of_birth = date_of_birth
         if contact.grade is None and grade is not None:
             contact.grade = grade
+        if contact.nationality is None and nationality is not None:
+            contact.nationality = nationality
         if contact.organization_id is None and organization_name:
             org = await resolve_or_create_organization(db, organization_name)
             contact.organization_id = org.id
@@ -316,6 +323,7 @@ async def resolve_or_create_contact(
         lifecycle_stage=lifecycle_stage,
         date_of_birth=date_of_birth,
         grade=grade,
+        nationality=nationality,
         organization_id=organization_id,
     )
     db.add(contact)

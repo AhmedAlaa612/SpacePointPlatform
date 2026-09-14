@@ -30,6 +30,18 @@ importer already use (`resolve_or_create_contact`, `register`,
 `sync_registration_lms`) rather than hand-rolling account creation again —
 a competition participant is a normal student account with a normal
 Registration, nothing competition-specific about either.
+
+Team grouping (2026-09-14 rewrite): the sheet's `team_id` — an external
+code from ops's own roster system — is now the grouping key, not
+`team_name`. A row's `team_name` is optional: if present it's used as the
+team's real display name outright; if blank, the team is created with
+`name` seeded to `team_id` as a literal placeholder, and students set
+their own real name later (deadline-gated `team_setup` checklist item —
+see `services/lms/program.py`). Re-importing the same sheet never
+overwrites a name a team has already set for real (its own rename, or an
+ops fix) — only ever applies the sheet's name while the team is still at
+its own placeholder. See `app/models/team.py`'s module docstring for the
+full `roster_team_id`/`name` shape this relies on.
 """
 
 from __future__ import annotations
@@ -50,13 +62,14 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
 from app.models.team import Team
 from app.models.user import User
+from app.services.competitions.team_management import rename_team
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
 from app.services.spine.identity import resolve_or_create_contact
 from app.services.teams import create_team, join_team, team_member_ids
 
-REQUIRED_COLUMNS = ["team_name", "member_name", "email"]
-OPTIONAL_COLUMNS = ["phone", "school"]
+REQUIRED_COLUMNS = ["team_id", "member_name", "email"]
+OPTIONAL_COLUMNS = ["phone", "nationality", "team_name", "school"]
 
 # Deliberately loose — this only needs to catch "a column shifted and this
 # clearly isn't an email" (a bare number, a name, empty), not reject every
@@ -82,6 +95,7 @@ _HEADER_ALIASES = {
 @dataclass
 class ImportRowResult:
     row_number: int
+    team_id: str | None
     team_name: str | None
     email: str | None
     disposition: Literal["created", "matched", "error"]
@@ -98,10 +112,12 @@ class ImportPreviewRow:
     still has one, so a client skipping the preview step can't smuggle a
     bad row through."""
     row_number: int
+    team_id: str | None
     team_name: str | None
     member_name: str | None
     email: str | None
     phone: str | None
+    nationality: str | None
     school: str | None
     issues: list[str]
 
@@ -192,30 +208,36 @@ def _clean_str(value: object) -> str | None:
 @dataclass
 class CleanedRow:
     row_number: int
+    team_id: str | None
     team_name: str | None
     member_name: str | None
     email: str | None
     phone: str | None
+    nationality: str | None
     school: str | None
 
 
 def _clean_row(row_number: int, raw: dict) -> CleanedRow:
     return CleanedRow(
         row_number=row_number,
+        team_id=_clean_str(raw.get("team_id")),
         team_name=_clean_str(raw.get("team_name")),
         member_name=_clean_str(raw.get("member_name")),
         email=_clean_str(raw.get("email")),
         phone=_clean_str(raw.get("phone")),
+        nationality=_clean_str(raw.get("nationality")),
         school=_clean_str(raw.get("school")),
     )
 
 
 def _blocking_issues(row: CleanedRow) -> list[str]:
     """Missing data the import can't proceed without at all — these are the
-    only issues that stop `_import_row` from writing a row."""
+    only issues that stop `_import_row` from writing a row. `team_name` is
+    NOT here — it's optional (see module docstring): a blank one just means
+    this team hasn't been named yet, not a bad row."""
     issues = []
-    if not row.team_name:
-        issues.append("Team name is required")
+    if not row.team_id:
+        issues.append("Team ID is required")
     if not row.member_name:
         issues.append("Member name is required")
     if not row.email:
@@ -250,8 +272,9 @@ def preview_registration_sheet(file_bytes: bytes, filename: str | None = None) -
     for entry in parsed:
         row = _clean_row(entry["row_number"], entry["raw"])
         out.append(ImportPreviewRow(
-            row_number=row.row_number, team_name=row.team_name, member_name=row.member_name,
-            email=row.email, phone=row.phone, school=row.school, issues=_row_issues(row),
+            row_number=row.row_number, team_id=row.team_id, team_name=row.team_name, member_name=row.member_name,
+            email=row.email, phone=row.phone, nationality=row.nationality, school=row.school,
+            issues=_row_issues(row),
         ))
     return out
 
@@ -262,12 +285,14 @@ async def _import_row(
     row = _clean_row(row_number, raw)
     issues = _blocking_issues(row)
     if issues:
-        return ImportRowResult(row_number, row.team_name, row.email, "error", "; ".join(issues))
-    team_name, member_name, email, phone, school = row.team_name, row.member_name, row.email, row.phone, row.school
+        return ImportRowResult(row_number, row.team_id, row.team_name, row.email, "error", "; ".join(issues))
+    team_id, team_name, member_name, email, phone, nationality, school = (
+        row.team_id, row.team_name, row.member_name, row.email, row.phone, row.nationality, row.school,
+    )
 
     contact, _evaluation = await resolve_or_create_contact(
         db, full_name=member_name, phone=phone, email=email, contact_roles=["student"],
-        role_event_source="import", organization_name=school,
+        role_event_source="import", organization_name=school, nationality=nationality,
     )
 
     existing_reg = (await db.execute(
@@ -280,7 +305,7 @@ async def _import_row(
                 db, contact_id=contact.id, cohort_id=cohort.id, registered_via="import", payment_status="waived",
             )
         except HTTPException as exc:
-            return ImportRowResult(row_number, team_name, email, "error", exc.detail)
+            return ImportRowResult(row_number, team_id, team_name, email, "error", exc.detail)
     else:
         registration = existing_reg
 
@@ -298,20 +323,42 @@ async def _import_row(
         )).scalars().first()
         if user is None:
             return ImportRowResult(
-                row_number, team_name, email, "error",
+                row_number, team_id, team_name, email, "error",
                 "Registered, but couldn't create a student account (email may already belong to a different account)",
             )
 
+    # Grouped by the sheet's team_id now, never by name — see module
+    # docstring. A team not found for this (cohort, team_id) yet is a brand
+    # new one; `name` falls back to `team_id` itself when the sheet has no
+    # name for it, which is also exactly how "still unnamed" is detected
+    # elsewhere (Team.name == Team.roster_team_id).
     team = (await db.execute(
-        select(Team).where(Team.cohort_id == cohort.id, Team.name == team_name)
+        select(Team).where(Team.cohort_id == cohort.id, Team.roster_team_id == team_id)
     )).scalars().first()
-    if team is None:
-        team = await create_team(db, name=team_name, created_by=user.id, cohort_id=cohort.id, member_ids=[user.id])
-    elif user.id not in await team_member_ids(db, team_id=team.id):
-        await join_team(db, team_id=team.id, user_id=user.id)
+    try:
+        if team is None:
+            team = await create_team(
+                db, name=team_name or team_id, created_by=user.id, cohort_id=cohort.id, member_ids=[user.id],
+                roster_team_id=team_id,
+            )
+        else:
+            if user.id not in await team_member_ids(db, team_id=team.id):
+                await join_team(db, team_id=team.id, user_id=user.id)
+            # Only apply the sheet's name while the team is still at its own
+            # placeholder — never clobber a name a team already set for
+            # real (their own rename, or an ops fix), even on a re-import.
+            if team_name and team.name == team.roster_team_id:
+                await rename_team(db, team_id=team.id, name=team_name)
+    except HTTPException as exc:
+        # A name collision (this row's team_name, or the team_id-as-
+        # placeholder-name, matching another team's real name
+        # case-insensitively) — flag the row rather than aborting the
+        # whole batch; the registration/account above already committed
+        # to the session either way.
+        return ImportRowResult(row_number, team_id, team_name, email, "error", exc.detail)
 
     return ImportRowResult(
-        row_number, team_name, email, "created" if is_new_registration else "matched",
+        row_number, team_id, team.name, email, "created" if is_new_registration else "matched",
         registration_id=registration.id,
     )
 

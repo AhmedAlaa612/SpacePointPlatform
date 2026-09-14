@@ -847,3 +847,141 @@ async def test_several_phase_items_share_one_mission_attempt_id(db, client):
     detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
     attempt_ids = {i["mission_attempt_id"] for i in detail.json()["items"]}
     assert len(attempt_ids) == 1 and None not in attempt_ids
+
+
+# ── team_setup (2026-09-14 team onboarding) ─────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_team_setup_lets_any_teammate_set_and_change_the_name(db, client):
+    from app.models.team import Team
+
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="team_setup", title="Name your team", scope="team",
+    )
+    db.add(item)
+    student_a = await _student(db)
+    student_b = await _student(db)
+    await db.commit()
+    team = await create_team(
+        db, name="T-014", created_by=student_a.id, cohort_id=cohort.id, member_ids=[student_b.id],
+        roster_team_id="T-014",
+    )
+    assignment_a = await assign_lms_program(db, user_id=student_a.id, cohort_id=cohort.id)
+    assignment_b = await assign_lms_program(db, user_id=student_b.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment_a.id}/items/{item.id}/team-name",
+        headers=_headers(student_a), json={"name": "Falcon Eye"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "done"
+    assert body["scope"] == "team"
+    assert body["updated_by_name"] == student_a.full_name
+
+    await db.refresh(team)
+    assert team.name == "Falcon Eye"
+
+    # The checklist's own top-level team_name reflects it too.
+    detail = await client.get(f"/lms/programs/{assignment_b.id}", headers=_headers(student_b))
+    assert detail.json()["team_name"] == "Falcon Eye"
+
+    # Student B (a different teammate) changes it again — last write wins,
+    # no lock, matches every other team-scoped write's convention.
+    resp2 = await client.post(
+        f"/lms/programs/{assignment_b.id}/items/{item.id}/team-name",
+        headers=_headers(student_b), json={"name": "Silent Comet"},
+    )
+    assert resp2.status_code == 200, resp2.text
+    assert resp2.json()["updated_by_name"] == student_b.full_name
+    row = (await db.execute(select(Team).where(Team.id == team.id))).scalar_one()
+    assert row.name == "Silent Comet"
+
+
+@pytest.mark.asyncio
+async def test_team_setup_rejects_a_case_insensitive_collision(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="team_setup", title="Name your team", scope="team",
+    )
+    db.add(item)
+    student = await _student(db)
+    other_owner = await _student(db)
+    await db.commit()
+    await create_team(db, name="Falcon", created_by=other_owner.id, cohort_id=cohort.id)
+    await create_team(db, name="T-014", created_by=student.id, cohort_id=cohort.id, roster_team_id="T-014")
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/team-name",
+        headers=_headers(student), json={"name": "falcon"},
+    )
+    assert resp.status_code == 409, resp.text
+
+
+@pytest.mark.asyncio
+async def test_team_setup_blocked_after_deadline(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="team_setup", title="Name your team", scope="team",
+        deadline_at=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    await create_team(db, name="T-014", created_by=student.id, cohort_id=cohort.id, roster_team_id="T-014")
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/team-name",
+        headers=_headers(student), json={"name": "Falcon Eye"},
+    )
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_team_setup_403s_for_a_student_with_no_team(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="team_setup", title="Name your team", scope="team",
+    )
+    db.add(item)
+    solo_student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=solo_student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/team-name",
+        headers=_headers(solo_student), json={"name": "Falcon Eye"},
+    )
+    assert resp.status_code == http_status.HTTP_403_FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_team_setup_rejects_the_wrong_item_type(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = await _course_item(db, lms_program=lms_program, author=author, position=1)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/team-name",
+        headers=_headers(student), json={"name": "Falcon Eye"},
+    )
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
