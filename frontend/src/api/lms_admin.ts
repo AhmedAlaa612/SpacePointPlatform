@@ -28,6 +28,10 @@ export interface AdminCourse {
   // unit_amount. Only meaningful when access_mode === "paid".
   price_cents: number | null;
   currency: string;
+  // Per-course certificate opt-out (2026-09-14). Default true. False stops
+  // a new completion certificate from being issued for this course; never
+  // revokes one already issued, never blocks a learning-path certificate.
+  certificate_enabled: boolean;
 }
 
 export interface InstructorOption {
@@ -117,6 +121,7 @@ export interface CourseMetadataInput {
   access_mode?: "open" | "invite" | "paid";
   price_cents?: number | null;
   currency?: string;
+  certificate_enabled?: boolean;
 }
 
 export interface AdminModule {

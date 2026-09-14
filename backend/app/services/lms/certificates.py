@@ -117,7 +117,10 @@ async def issue_course_certificate(
 ) -> Certificate | None:
     """Idempotent. Returns the existing row if this student already has a
     certificate for this course, a new one if it was just earned, or None if
-    the course/user no longer exists. Caller commits.
+    the course/user no longer exists or the course has certificates turned
+    off (`Course.certificate_enabled`) — completion tracking itself is
+    unaffected either way, only the PDF/row never gets created. Caller
+    commits.
 
     `notify=False` for backfill (see `award_for_course_completion`) — an
     email only makes sense for a certificate earned just now."""
@@ -132,6 +135,8 @@ async def issue_course_certificate(
     user = await db.get(User, user_id)
     course = await db.get(Course, course_id)
     if user is None or course is None:
+        return None
+    if not course.certificate_enabled:
         return None
 
     bucket, path, pdf = await _render_and_store(

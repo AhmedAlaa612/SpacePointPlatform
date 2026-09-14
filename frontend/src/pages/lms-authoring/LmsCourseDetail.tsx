@@ -344,6 +344,7 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
   const [priceDollars, setPriceDollars] = useState(
     course.price_cents != null ? String(course.price_cents / 100) : ""
   )
+  const [certificateEnabled, setCertificateEnabled] = useState(course.certificate_enabled)
   const [error, setError] = useState("")
 
   const { data: instructors = [] } = useQuery({ queryKey: ["lms-admin-instructors"], queryFn: listInstructorOptionsApi })
@@ -356,6 +357,7 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
       instructor_id: instructorId || null, instructor_title: instructorTitle.trim() || null,
       access_mode: accessMode,
       price_cents: accessMode === "paid" && priceDollars.trim() ? Math.round(Number(priceDollars) * 100) : null,
+      certificate_enabled: certificateEnabled,
     }),
     onSuccess,
     onError: (e: any) => setError(e?.response?.data?.detail ?? "Failed to save course"),
@@ -459,6 +461,14 @@ function EditCourseModal({ courseId, course, onClose, onSuccess }: {
             </Field>
           )}
         </div>
+        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
+          <input
+            type="checkbox" checked={certificateEnabled}
+            onChange={(e) => setCertificateEnabled(e.target.checked)}
+            className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+          />
+          Issue a completion certificate for this course
+        </label>
         {error && <p className="text-xs text-red-500">{error}</p>}
         <ModalActions
           onCancel={onClose} onConfirm={() => mutation.mutate()} loading={mutation.isPending}

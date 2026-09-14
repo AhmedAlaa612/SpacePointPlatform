@@ -342,3 +342,65 @@ async def test_backfill_issues_certificates_without_emailing(db, client, sent_em
     assert resp.status_code == 200
     assert len(resp.json()) == 2, "backfill should have issued both"
     assert sent_emails == [], "backfill must stay silent"
+
+
+@pytest.mark.asyncio
+async def test_certificate_enabled_false_skips_issuance_without_blocking_completion(db, client):
+    """A course opted out of certificates (Course.certificate_enabled=False)
+    must never get one issued, but completion tracking and enrollment stay
+    untouched — only the PDF/row is skipped."""
+    ops = await _user(db, roles=["operations"])
+    student = await _user(db)
+    course, items = await _course_with_items(db, author=ops)
+    course.certificate_enabled = False
+    await enroll(db, user_id=student.id, course_id=course.id)
+    await db.commit()
+
+    await _finish(db, user=student, items=items)
+    issued = await award_for_course_completion(db, user_id=student.id, course_id=course.id)
+    await db.commit()
+
+    assert issued == []
+    certs = (await db.execute(select(Certificate).where(Certificate.user_id == student.id))).scalars().all()
+    assert certs == []
+
+    # The backfill sweep (GET /lms/my-certificates) must not issue one either.
+    resp = await client.get("/lms/my-certificates", headers=_headers(student))
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_certificate_enabled_false_still_allows_the_path_certificate(db, client):
+    """Opting a course out of its own certificate must not hold the learning
+    path's certificate hostage — completion tracking is unaffected."""
+    ops = await _user(db, roles=["operations"])
+    student = await _user(db)
+    first, first_items = await _course_with_items(db, author=ops)
+    second, second_items = await _course_with_items(db, author=ops)
+    first.certificate_enabled = False
+
+    path = LearningPath(id=uuid.uuid4(), title="No-Cert Course Path", created_by=ops.id, is_published=True)
+    db.add(path)
+    await db.flush()
+    db.add_all([
+        LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=first.id, position=1),
+        LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=second.id, position=2),
+    ])
+    await enroll(db, user_id=student.id, course_id=first.id)
+    await enroll(db, user_id=student.id, course_id=second.id)
+    await db.commit()
+
+    await _finish(db, user=student, items=first_items)
+    await award_for_course_completion(db, user_id=student.id, course_id=first.id)
+    await db.commit()
+
+    await _finish(db, user=student, items=second_items)
+    await award_for_course_completion(db, user_id=student.id, course_id=second.id)
+    await db.commit()
+
+    certs = (await db.execute(select(Certificate).where(Certificate.user_id == student.id))).scalars().all()
+    types = {c.type for c in certs}
+    assert types == {CertificateType.lms_course_completion, CertificateType.lms_path_completion}
+    assert len([c for c in certs if c.type == CertificateType.lms_course_completion]) == 1
+    assert [c for c in certs if c.type == CertificateType.lms_course_completion][0].course_id == second.id

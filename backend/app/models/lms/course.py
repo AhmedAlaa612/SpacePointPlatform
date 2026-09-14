@@ -84,6 +84,15 @@ class Course(Base):
     price_cents = Column(Integer, nullable=True)
     currency = Column(String(3), nullable=False, default="usd", server_default="usd")
 
+    # Per-course certificate opt-out (2026-09-14). Defaults true — today's
+    # behaviour (every finished course earns one, see
+    # services/lms/certificates.py::issue_course_certificate) is unchanged
+    # for existing courses. False stops a new certificate from being
+    # rendered/issued for this course; it never revokes one already issued,
+    # and it never blocks a learning-path certificate — course completion
+    # tracking itself is untouched, only certificate issuance is skipped.
+    certificate_enabled = Column(Boolean, nullable=False, default=True, server_default="true")
+
 
 class CourseModule(Base):
     """An ordered lesson inside a course. Position is the order; reordering is
