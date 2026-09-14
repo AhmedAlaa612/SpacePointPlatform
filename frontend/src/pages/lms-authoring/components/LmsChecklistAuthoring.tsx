@@ -412,6 +412,13 @@ export function ChecklistItemsEditor({
   // scopes read/write completely different tables). Only matters when
   // addingType is "submission"; ItemForm ignores it for every other type.
   const [addingSubmissionScope, setAddingSubmissionScope] = useState<"individual" | "team">("individual")
+  // Same reasoning, same pattern (Phase 3, 2026-09) — a mission_run's
+  // scope is locked server-side too (guard_locked_submission_scope),
+  // since team_mission_run_items reads whichever attempt id happens to
+  // sit on a teammate's individual progress row: flipping scope after
+  // students already have attempts would misattribute one student's
+  // personal run as the team's shared one.
+  const [addingMissionRunScope, setAddingMissionRunScope] = useState<"individual" | "team">("individual")
   const [dragId, setDragId] = useState<string | null>(null)
   // Optimistic id order while a drag is in flight (or just settled) so the
   // row doesn't visually snap back before the parent's refetch lands —
@@ -519,7 +526,11 @@ export function ChecklistItemsEditor({
       {readOnly ? null : addingType ? (
         <ItemForm
           itemType={addingType}
-          initialScope={addingType === "submission" ? addingSubmissionScope : undefined}
+          initialScope={
+            addingType === "submission" ? addingSubmissionScope
+            : addingType === "mission_run" ? addingMissionRunScope
+            : undefined
+          }
           cohortId={cohortId} checkpointLabels={checkpointLabels}
           onCancel={() => setAddingType(null)}
           onSave={async (data) => { await onAdd(data); setAddingType(null) }}
@@ -530,11 +541,11 @@ export function ChecklistItemsEditor({
           <div className="flex flex-wrap gap-2">
             {ITEM_TYPES.map(({ value, label, icon: Icon }) => {
               const addStepButtonCls = "flex items-center gap-1.5 h-8 px-3 rounded-full border border-dashed border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
-              // Individual vs. team submission are two distinct buttons here
-              // (not one "Submission" button + a scope checkbox in the form)
-              // because the scope can't be changed once the item exists —
-              // picking wrong and fixing it later isn't possible, so the
-              // choice has to be explicit at this step.
+              // Individual vs. team submission/mission run are two distinct
+              // buttons here (not one button + a scope checkbox in the
+              // form) because the scope can't be changed once the item
+              // exists — picking wrong and fixing it later isn't possible,
+              // so the choice has to be explicit at this step.
               if (value === "submission") {
                 return (
                   <Fragment key={value}>
@@ -549,6 +560,24 @@ export function ChecklistItemsEditor({
                       className={addStepButtonCls}
                     >
                       <Users size={13} /> Team Submission
+                    </button>
+                  </Fragment>
+                )
+              }
+              if (value === "mission_run") {
+                return (
+                  <Fragment key={value}>
+                    <button
+                      onClick={() => { setAddingMissionRunScope("individual"); setAddingType("mission_run") }}
+                      className={addStepButtonCls}
+                    >
+                      <Icon size={13} /> Individual Mission Run
+                    </button>
+                    <button
+                      onClick={() => { setAddingMissionRunScope("team"); setAddingType("mission_run") }}
+                      className={addStepButtonCls}
+                    >
+                      <Users size={13} /> Team Mission Run
                     </button>
                   </Fragment>
                 )
@@ -831,10 +860,16 @@ export function ItemForm({
   const [optional, setOptional] = useState(initial?.optional ?? false)
   const [requiresConfirmation, setRequiresConfirmation] = useState(initial?.requires_confirmation ?? false)
   const [teamScoped, setTeamScoped] = useState(initial ? initial.scope === "team" : initialScope === "team")
-  // Submission scope is locked at creation (server-side too — see
-  // guard_locked_submission_scope) so it never shows as an editable
-  // checkbox, only as a fixed label.
+  // Submission and mission_run scope are both locked at creation
+  // (server-side too — see guard_locked_submission_scope) so they never
+  // show as an editable checkbox, only as a fixed label — the choice is
+  // made one step up, via a separate Individual/Team button pair on the
+  // "Add a step" picker (and the Missions tab's "Add mission run"
+  // button), before ItemForm ever renders. Same reasoning as submission:
+  // once created, scope can't be changed without orphaning/
+  // misattributing whatever's already tracked against the item.
   const submissionScopeLocked = itemType === "submission"
+  const missionRunScopeLocked = itemType === "mission_run"
   const [courseId, setCourseId] = useState(initial?.course_id ?? "")
   const [missionId, setMissionId] = useState(initial?.mission_id ?? "")
   const [variantId, setVariantId] = useState(initial?.variant_id ?? "")
@@ -955,7 +990,11 @@ export function ItemForm({
   return (
     <div className="flex flex-col gap-2.5 p-4 border border-primary/30 bg-primary/5 rounded-xl">
       <div className="text-xs font-semibold text-primary">
-        {submissionScopeLocked ? (teamScoped ? "Team Submission" : "Individual Submission") : ITEM_TYPE_META[itemType].label}
+        {submissionScopeLocked
+          ? (teamScoped ? "Team Submission" : "Individual Submission")
+          : missionRunScopeLocked
+          ? (teamScoped ? "Team Mission Run" : "Individual Mission Run")
+          : ITEM_TYPE_META[itemType].label}
       </div>
       <input
         value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className={inputCls}
@@ -1178,7 +1217,7 @@ export function ItemForm({
           <input type="checkbox" checked={requiresConfirmation} onChange={(e) => setRequiresConfirmation(e.target.checked)} />
           Needs instructor/ops confirmation
         </label>
-        {TEAM_SCOPABLE_TYPES.has(itemType) && !submissionScopeLocked && (
+        {TEAM_SCOPABLE_TYPES.has(itemType) && !submissionScopeLocked && !missionRunScopeLocked && (
           <label className="flex items-center gap-1.5 text-xs text-foreground cursor-pointer">
             <input type="checkbox" checked={teamScoped} onChange={(e) => setTeamScoped(e.target.checked)} />
             Shared with the whole team (one submission per team)
@@ -1190,7 +1229,18 @@ export function ItemForm({
             {initial && " Can't be changed — delete and re-add the item to switch."}
           </span>
         )}
+        {missionRunScopeLocked && (
+          <span className="text-xs text-muted-foreground">
+            {teamScoped ? "Shared with the whole team — one team run." : "Each student runs their own."}
+            {initial && " Can't be changed — delete and re-add the item to switch."}
+          </span>
+        )}
       </div>
+      {itemType === "mission_run" && teamScoped && selectedMission?.team_policy === "solo" && (
+        <p className="text-xs text-amber-600">
+          This mission's Team policy is Solo-only — change it on the mission before assigning a team run.
+        </p>
+      )}
 
       {error && <p className="text-xs text-red-500">{error}</p>}
 

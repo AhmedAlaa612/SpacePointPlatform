@@ -152,6 +152,19 @@ class CompetitionSubmissionItemOut(BaseModel):
     updated_by_name: str | None = None
 
 
+class CompetitionMissionRunOut(BaseModel):
+    """One team-scoped design mission run (Phase 3, 2026-09) — grouped by
+    mission_id, since a run can be split into several checklist steps that
+    all share one MissionAttempt. `attempt_id` is null until the team has
+    one (e.g. not assigned to the checklist yet); `status` is
+    `"not_started"` in that case, otherwise the attempt's own status
+    (in_progress/submitted/passed/failed)."""
+    mission_id: UUID
+    title: str
+    attempt_id: UUID | None = None
+    status: str
+
+
 class CompetitionJudgeCohortOut(BaseModel):
     id: UUID
     name: str
@@ -169,6 +182,10 @@ class CompetitionJudgeTeamOut(TeamOut):
 class CompetitionTeamDetailOut(BaseModel):
     team: TeamOut
     submissions: list[CompetitionSubmissionItemOut]
+    # Defaults to [] so a cohort running only individual missions (every
+    # cohort today, until team-scoped mission_run items are authored) never
+    # notices this field exists.
+    mission_runs: list[CompetitionMissionRunOut] = []
     rubric: CompetitionRubricOut | None = None
     own_score: CompetitionScoreOut | None = None
 

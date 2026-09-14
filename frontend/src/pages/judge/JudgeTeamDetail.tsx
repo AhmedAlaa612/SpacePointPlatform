@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, ExternalLink } from "lucide-react"
+import { ArrowLeft, ChevronDown, ChevronRight, ExternalLink } from "lucide-react"
 import { Link, useParams } from "@tanstack/react-router"
-import { getMyJudgeTeamApi, submitMyJudgeScoreApi } from "@/api/competitions"
+import { getMyJudgeTeamApi, getMyJudgeTeamMissionRunDetailApi, submitMyJudgeScoreApi, type CompetitionMissionRun } from "@/api/competitions"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 import { useToast } from "@/components/ui/toast"
 import { ensureAbsoluteUrl, getErrorMessage } from "@/lib/utils"
+import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
 
 const AUTOSAVE_DELAY_MS = 1200
 
@@ -14,6 +15,44 @@ function formatSubmittedAt(iso: string | null): string {
   return new Date(iso).toLocaleString(undefined, {
     month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
   })
+}
+
+const MISSION_RUN_STATUS_LABEL: Record<string, string> = {
+  not_started: "Not started", in_progress: "In progress", submitted: "Submitted", passed: "Passed", failed: "Failed",
+}
+
+/** One team mission run, in the judge's own view (Phase 3, 2026-09) — a
+ * thin wrapper around `DesignRunDetail`, pointed at the judge-scoped
+ * fetch (`getMyJudgeTeamMissionRunDetailApi`) instead of the ops one it
+ * defaults to, so this never touches the ops/instructor endpoint or its
+ * permission check. Expand-on-click, same interaction ops already uses
+ * for the same component elsewhere. */
+function MissionRunRow({ teamId, run }: { teamId: string; run: CompetitionMissionRun }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="border border-border rounded-xl overflow-hidden">
+      <button
+        onClick={() => run.attempt_id && setExpanded((v) => !v)}
+        disabled={!run.attempt_id}
+        className="w-full flex items-center gap-2 p-3 hover:bg-muted/40 transition-colors text-left disabled:cursor-not-allowed disabled:hover:bg-transparent"
+      >
+        {run.attempt_id ? (
+          expanded ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
+        <span className="text-sm font-medium text-foreground flex-1">{run.title}</span>
+        <span className="text-xs text-muted-foreground">{MISSION_RUN_STATUS_LABEL[run.status] ?? run.status}</span>
+      </button>
+      {expanded && run.attempt_id && (
+        <DesignRunDetail
+          attemptId={run.attempt_id}
+          fetchFn={(attemptId) => getMyJudgeTeamMissionRunDetailApi(teamId, attemptId)}
+          queryKeySuffix="judge"
+        />
+      )}
+    </div>
+  )
 }
 
 /** Autosave keeps a draft around across sessions (debounced, same as
@@ -135,6 +174,17 @@ export default function JudgeTeamDetail() {
           </div>
         )}
       </section>
+
+      {detail.mission_runs.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-sm font-semibold text-foreground">Design missions</h2>
+          <div className="flex flex-col gap-2">
+            {detail.mission_runs.map((run) => (
+              <MissionRunRow key={run.mission_id} teamId={teamId} run={run} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="flex flex-col gap-3">
         <div className="flex items-center justify-between">

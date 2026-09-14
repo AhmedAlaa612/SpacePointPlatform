@@ -24,6 +24,15 @@ export default function RoadmapBoard() {
   const { data: checklist, isLoading, error } = useQuery({
     queryKey: ["lms-checklist", assignmentId],
     queryFn: () => fetchChecklist(assignmentId),
+    // The global default (30s staleTime) otherwise serves a cached board
+    // as-is when a student finishes a step on a full page — a mission's
+    // "back to program" link, a course, a quiz — and navigates back here:
+    // the remount saw fresh-enough cached data and skipped refetching, so
+    // the just-finished step still showed as not done until the 30s
+    // window lapsed or the student refreshed by hand (found live,
+    // 2026-09-14). This board's own data changes from *other* pages far
+    // more than most queries do, so it always refetches on mount instead.
+    refetchOnMount: "always",
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });

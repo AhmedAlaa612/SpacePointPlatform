@@ -14,12 +14,14 @@ from sqlalchemy import select
 from app.core.security import create_access_token
 from app.models.competitions.judging import CompetitionJudge
 from app.models.lms.program import LmsProgram, LmsProgramItem
+from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.spine.contact import Contact
 from app.models.team import Team
 from app.models.user import User
-from app.services.teams import create_team
+from app.services.lms.program import assign_lms_program
+from app.services.teams import create_team, team_member_ids
 
 RUBRIC_CRITERIA = [
     {"key": "design", "label": "Design Quality", "max_points": 30},
@@ -366,6 +368,149 @@ async def test_judge_team_detail_shows_who_submitted_and_when(db, client):
     assert submission["submitted_url"] == "https://canva.com/design/poster-v1"
     assert submission["updated_by_name"] == "Lina Nasser"
     assert submission["updated_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_judge_team_detail_mission_runs_is_empty_without_any_team_scoped_mission_run(db, client):
+    """The safety property that matters most for Phase 3: `_judge_setup`'s
+    team has only the pre-existing team-scoped submission item, no
+    mission_run — every judge/cohort running today's individual-only
+    missions must see an empty `mission_runs` list, not an error and not
+    a stray row."""
+    ops, program, cohort, team, judge, poster_item = await _judge_setup(db)
+
+    resp = await client.get(f"/competitions/judge/teams/{team.id}", headers=_headers(judge))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["mission_runs"] == []
+
+
+# ── Phase 3: judge visibility into team design missions ─────────────────────
+
+async def _judge_setup_with_mission_run(db, *, team_policy="team"):
+    """`_judge_setup` plus a team-scoped design mission_run item on the
+    same checklist — the Phase 3 surface under test."""
+    ops, program, cohort, team, judge, poster_item = await _judge_setup(db)
+    mission = Mission(
+        id=uuid.uuid4(), title="Team CubeSat", slug=f"team-cubesat-{uuid.uuid4().hex[:8]}",
+        kind="design", authored_by=ops.id, status="published", team_policy=team_policy,
+    )
+    db.add(mission)
+    await db.flush()
+    variant = MissionVariant(id=uuid.uuid4(), mission_id=mission.id, label="Standard", position=1, points=100)
+    db.add(variant)
+    await db.flush()
+    lms_program = (await db.execute(select(LmsProgram).where(LmsProgram.program_id == program.id))).scalars().one()
+    mission_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="mission_run", title=mission.title, mission_id=mission.id, variant_id=variant.id, scope="team",
+    )
+    db.add(mission_item)
+    await db.commit()
+    return ops, program, cohort, team, judge, poster_item, mission, variant, mission_item
+
+
+async def _assign_team(db, *, team_id, cohort_id):
+    for member_id in await team_member_ids(db, team_id=team_id):
+        await assign_lms_program(db, user_id=member_id, cohort_id=cohort_id)
+    await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_judge_team_detail_includes_the_team_mission_run_and_keeps_it_out_of_submissions(db, client):
+    ops, program, cohort, team, judge, poster_item, mission, variant, mission_item = await _judge_setup_with_mission_run(db)
+    await _assign_team(db, team_id=team.id, cohort_id=cohort.id)
+
+    resp = await client.get(f"/competitions/judge/teams/{team.id}", headers=_headers(judge))
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+
+    # Never leaks into the submission-links panel — it has no link/status
+    # of its own, only the original poster submission belongs there.
+    assert len(body["submissions"]) == 1
+    assert body["submissions"][0]["item_id"] == str(poster_item.id)
+
+    assert len(body["mission_runs"]) == 1
+    run = body["mission_runs"][0]
+    assert run["mission_id"] == str(mission.id)
+    assert run["title"] == mission.title
+    assert run["attempt_id"] is not None
+    assert run["status"] == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_judge_mission_run_design_detail_404s_before_the_team_has_started_designing(db, client):
+    ops, program, cohort, team, judge, poster_item, mission, variant, mission_item = await _judge_setup_with_mission_run(db)
+    await _assign_team(db, team_id=team.id, cohort_id=cohort.id)
+    attempt = (await db.execute(select(MissionAttempt).where(MissionAttempt.mission_id == mission.id))).scalars().one()
+
+    resp = await client.get(
+        f"/competitions/judge/teams/{team.id}/mission-runs/{attempt.id}/design-detail", headers=_headers(judge),
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_judge_can_view_a_team_mission_runs_design_dashboard_once_started(db, client):
+    ops, program, cohort, team, judge, poster_item, mission, variant, mission_item = await _judge_setup_with_mission_run(db)
+    await _assign_team(db, team_id=team.id, cohort_id=cohort.id)
+    attempt = (await db.execute(select(MissionAttempt).where(MissionAttempt.mission_id == mission.id))).scalars().one()
+    member_ids = await team_member_ids(db, team_id=team.id)
+    a_teammate = await db.get(User, member_ids[0])
+
+    # Auto-creates the Design row, same as the ops-facing test for the
+    # identical scenario (test_design_detail_shows_the_students_real_entered_values).
+    started = await client.get(f"/missions/design/attempts/{attempt.id}", headers=_headers(a_teammate))
+    assert started.status_code == 200, started.text
+    named = await client.patch(
+        f"/missions/design/attempts/{attempt.id}", headers=_headers(a_teammate), json={"design_name": "Falcon-1"},
+    )
+    assert named.status_code == 200, named.text
+
+    resp = await client.get(
+        f"/competitions/judge/teams/{team.id}/mission-runs/{attempt.id}/design-detail", headers=_headers(judge),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["design_name"] == "Falcon-1"
+    assert resp.json()["attempt_id"] == str(attempt.id)
+
+
+@pytest.mark.asyncio
+async def test_judge_mission_run_design_detail_404s_for_an_attempt_belonging_to_a_different_team(db, client):
+    """Security boundary: a judge who knows a real attempt id can't view it
+    through a team it doesn't belong to, even a team in a cohort they DO
+    have access to — the route must check attempt.team_id == team_id, not
+    just cohort access."""
+    ops, program, cohort, team, judge, poster_item, mission, variant, mission_item = await _judge_setup_with_mission_run(db)
+    await _assign_team(db, team_id=team.id, cohort_id=cohort.id)
+    attempt = (await db.execute(select(MissionAttempt).where(MissionAttempt.mission_id == mission.id))).scalars().one()
+
+    other_student_a = await _student(db)
+    other_student_b = await _student(db)
+    await db.commit()
+    other_team = await create_team(
+        db, name="Other Team", created_by=other_student_a.id, cohort_id=cohort.id, member_ids=[other_student_b.id],
+    )
+    await db.commit()
+
+    resp = await client.get(
+        f"/competitions/judge/teams/{other_team.id}/mission-runs/{attempt.id}/design-detail", headers=_headers(judge),
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_judge_without_cohort_access_cannot_view_a_teams_mission_run_design_detail(db, client):
+    ops, program, cohort, team, judge, poster_item, mission, variant, mission_item = await _judge_setup_with_mission_run(db)
+    await _assign_team(db, team_id=team.id, cohort_id=cohort.id)
+    attempt = (await db.execute(select(MissionAttempt).where(MissionAttempt.mission_id == mission.id))).scalars().one()
+    unassigned_judge = await _judge(db)
+    await db.commit()
+
+    resp = await client.get(
+        f"/competitions/judge/teams/{team.id}/mission-runs/{attempt.id}/design-detail",
+        headers=_headers(unassigned_judge),
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
 
 
 @pytest.mark.asyncio

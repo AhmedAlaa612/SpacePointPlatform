@@ -13,7 +13,9 @@ from fastapi import status as http_status
 from sqlalchemy import select
 
 from app.core.security import create_access_token
-from app.models.lms.program import LmsProgram, LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress
+from app.models.lms.program import (
+    LmsProgram, LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress, LmsProgramTeamItemProgress,
+)
 from app.models.missions.design import Design
 from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
 from app.models.sessions.cohort import Cohort
@@ -21,6 +23,7 @@ from app.models.sessions.program import Program
 from app.models.spine.contact import Contact
 from app.models.user import User
 from app.services.lms.program import assign_lms_program
+from app.services.teams import create_team
 
 _VARIANT_CONFIG = {
     "max_storage_kb": 1_048_576.0, "required_storage_margin_kb": 0.0,
@@ -61,10 +64,11 @@ async def _student(db) -> User:
     return u
 
 
-async def _design_mission(db, *, author: User) -> tuple[Mission, MissionVariant]:
+async def _design_mission(db, *, author: User, team_policy: str = "solo") -> tuple[Mission, MissionVariant]:
     mission = Mission(
         id=uuid.uuid4(), title="Madar CubeSat", slug=f"madar-poster-{uuid.uuid4().hex[:8]}",
         kind="design", authored_by=author.id, status="published", summary="Design one.",
+        team_policy=team_policy,
     )
     db.add(mission)
     await db.flush()
@@ -193,3 +197,76 @@ async def test_poster_template_inheritance_and_submission(db, client):
     assert detail_items[0]["status"] == "done"
     assert detail_items[0]["submitted_url"] == "https://canva.com/design/student-finished-poster"
     assert detail_items[0]["mission_step_key"] == "poster"
+
+
+@pytest.mark.asyncio
+async def test_team_scoped_poster_submission_syncs_to_design(db, client):
+    """Regression: a team-scoped poster step's shared attempt lives on
+    LmsProgramTeamItemProgress, never on the submitting student's own
+    individual row — `submit_program_item` used to read the individual
+    row when writing the poster URL onto the Design record, which for a
+    team-scoped item is always empty, so the sync silently no-op'd."""
+    ops = await _user(db, roles=["operations"])
+    alice = await _student(db)
+    bob = await _student(db)
+
+    mission, variant = await _design_mission(db, author=ops, team_policy="team")
+
+    program = Program(
+        id=uuid.uuid4(), code=f"PRG-{uuid.uuid4().hex[:6]}", name="Team Poster Program",
+        program_type="workshop", pricing_model="free",
+    )
+    db.add(program)
+    await db.flush()
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Team Poster LMS", certificate_required=False)
+    db.add(lms_program)
+    await db.flush()
+    poster_item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title="Team Design Poster", mission_id=mission.id, mission_step_key="poster",
+        scope="team",
+    )
+    db.add(poster_item)
+    await db.flush()
+    cohort = Cohort(
+        id=uuid.uuid4(), program_id=program.id, name="Team Poster Cohort",
+        status="running", starts_on=date.today(), ends_on=date.today() + timedelta(days=7),
+    )
+    db.add(cohort)
+    await db.flush()
+    team = await create_team(db, name="Poster Team", created_by=alice.id, cohort_id=cohort.id, member_ids=[bob.id])
+    await db.commit()
+
+    alice_assignment = await assign_lms_program(db, user_id=alice.id, cohort_id=cohort.id)
+    await assign_lms_program(db, user_id=bob.id, cohort_id=cohort.id)
+    await db.commit()
+
+    sub_resp = await client.post(
+        f"/lms/programs/{alice_assignment.id}/items/{poster_item.id}/submit",
+        headers=_headers(alice),
+        json={"url": "https://canva.com/design/team-poster"},
+    )
+    assert sub_resp.status_code == http_status.HTTP_200_OK, sub_resp.text
+    assert sub_resp.json()["status"] == "done"
+
+    # The individual row stays an untouched placeholder — no attempt id.
+    alice_progress = await db.scalar(
+        select(LmsProgramItemProgress).where(
+            LmsProgramItemProgress.assignment_id == alice_assignment.id,
+            LmsProgramItemProgress.item_id == poster_item.id,
+        )
+    )
+    assert alice_progress is not None
+    assert alice_progress.mission_attempt_id is None
+
+    team_progress = await db.scalar(
+        select(LmsProgramTeamItemProgress).where(
+            LmsProgramTeamItemProgress.item_id == poster_item.id, LmsProgramTeamItemProgress.team_id == team.id,
+        )
+    )
+    assert team_progress is not None
+    assert team_progress.mission_attempt_id is not None
+
+    design = await db.scalar(select(Design).where(Design.attempt_id == team_progress.mission_attempt_id))
+    assert design is not None
+    assert design.poster_url == "https://canva.com/design/team-poster"

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import {
   Plus, X, BookOpen, Rocket, ChevronDown, ChevronRight, RotateCcw, Clock, CheckCircle2, XCircle,
-  Award, Circle, ExternalLink, Eye, Play, Search,
+  Award, Circle, ExternalLink, Eye, Play, Search, Users,
 } from "lucide-react"
 import { EmptyState, Spinner } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
@@ -26,10 +26,47 @@ import {
   deleteCohortOverrideItemApi, deleteCohortOverrideItemInstructorApi,
   getProgramProgressApi, getCohortProgramProgressApi, confirmChecklistItemApi, getAssignmentItemsApi,
   MISSION_STEP_KEYS,
-  type LmsProgram, type LmsProgramItemInput, type LmsProgramRosterRow, type LmsAssignmentItemDetail,
+  type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramRosterRow, type LmsAssignmentItemDetail,
 } from "@/api/lms_admin"
 import { ItemForm, ItemRow } from "./LmsChecklistAuthoring"
 import { errorDetail } from "./LmsChecklistShared"
+
+interface MissionGroup {
+  key: string
+  missionId: string | null
+  scope: LmsProgramItem["scope"]
+  title: string
+  items: LmsProgramItem[]
+}
+
+/** Groups mission_run items into one card per run. Grouped by
+ * `(mission_id, scope)`, not `mission_id` alone — Phase 2 (2026-09) lets
+ * the same mission have both an individual run and a team run on one
+ * checklist, and those are two distinct runs (two distinct
+ * MissionAttempts), not steps of the same one, even though they share a
+ * mission_id. */
+function groupByMission(items: LmsProgramItem[]): MissionGroup[] {
+  const groups: MissionGroup[] = []
+  const byRun = new Map<string, LmsProgramItem[]>()
+  const ungrouped: LmsProgramItem[] = []
+  for (const item of items) {
+    if (item.mission_id) {
+      const key = `${item.mission_id}:${item.scope}`
+      const list = byRun.get(key)
+      if (list) list.push(item)
+      else byRun.set(key, [item])
+    } else {
+      ungrouped.push(item)
+    }
+  }
+  for (const [key, groupItems] of byRun) {
+    groups.push({ key, missionId: groupItems[0].mission_id, scope: groupItems[0].scope, title: groupItems[0].title, items: groupItems })
+  }
+  for (const item of ungrouped) {
+    groups.push({ key: item.id, missionId: null, scope: item.scope, title: item.title, items: [item] })
+  }
+  return groups
+}
 
 // ── Missions ─────────────────────────────────────────────────────────────
 // "a tab to create special mission runs for the program and add them to the
@@ -40,17 +77,31 @@ import { errorDetail } from "./LmsChecklistShared"
 // lives, so authoring a mission run never requires the flat item list.
 
 function AddMissionRunButton({ onSave }: { onSave: (data: LmsProgramItemInput) => Promise<void> }) {
-  const [adding, setAdding] = useState(false)
-  if (adding) {
-    return <ItemForm itemType="mission_run" onCancel={() => setAdding(false)} onSave={async (data) => { await onSave(data); setAdding(false) }} />
+  const [addingScope, setAddingScope] = useState<"individual" | "team" | null>(null)
+  if (addingScope) {
+    return (
+      <ItemForm
+        itemType="mission_run" initialScope={addingScope}
+        onCancel={() => setAddingScope(null)}
+        onSave={async (data) => { await onSave(data); setAddingScope(null) }}
+      />
+    )
   }
+  // Individual vs. team is picked here, at add time, not toggled
+  // afterward — a mission run's scope is locked server-side once created
+  // (guard_locked_submission_scope), same reasoning as a submission item:
+  // flipping it later would misattribute one student's personal attempt
+  // as the team's shared run.
+  const addButtonCls = "flex items-center gap-1.5 h-8 px-3 rounded-full border border-dashed border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer w-fit"
   return (
-    <button
-      onClick={() => setAdding(true)}
-      className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-dashed border-border text-xs font-medium text-foreground hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer w-fit"
-    >
-      <Plus size={13} /> Add mission run
-    </button>
+    <div className="flex flex-wrap gap-2">
+      <button onClick={() => setAddingScope("individual")} className={addButtonCls}>
+        <Plus size={13} /> Add individual mission run
+      </button>
+      <button onClick={() => setAddingScope("team")} className={addButtonCls}>
+        <Users size={13} /> Add team mission run
+      </button>
+    </div>
   )
 }
 
@@ -58,6 +109,15 @@ export function ProgramMissionsPanel({
   program, onChanged, readOnly,
 }: { program: LmsProgram; onChanged: () => void; readOnly: boolean }) {
   const missionItems = program.items.filter((i) => i.item_type === "mission_run")
+  const groups = useMemo(() => groupByMission(missionItems), [missionItems])
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
+
+  const { data: catalog = [] } = useQuery({
+    queryKey: ["mission-catalog-all"],
+    queryFn: fetchMissionCatalog,
+  })
+  const catalogById = useMemo(() => new Map(catalog.map((m) => [m.id, m.title])), [catalog])
+
   return (
     <div className="flex flex-col gap-2">
       <p className="text-xs text-muted-foreground">
@@ -65,15 +125,53 @@ export function ProgramMissionsPanel({
         for that cohort's run — gating is always cohort-specific.
       </p>
       {missionItems.length === 0 && <EmptyState title="No mission runs on this checklist yet" />}
-      {missionItems.map((item) => (
-        <ItemRow
-          key={item.id}
-          item={item}
-          readOnly={readOnly}
-          onUpdate={(itemId, data) => updateLmsProgramItemApi(program.id, itemId, data).then(onChanged)}
-          onDelete={(itemId) => deleteLmsProgramItemApi(program.id, itemId).then(onChanged)}
-        />
-      ))}
+      {groups.map((group) =>
+        group.items.length === 1 && !group.items[0].mission_step_key ? (
+          <ItemRow
+            key={group.items[0].id}
+            item={group.items[0]}
+            readOnly={readOnly}
+            onUpdate={(itemId, data) => updateLmsProgramItemApi(program.id, itemId, data).then(onChanged)}
+            onDelete={(itemId) => deleteLmsProgramItemApi(program.id, itemId).then(onChanged)}
+          />
+        ) : (
+          <div key={group.key} className="border border-border rounded-xl overflow-hidden">
+            <button
+              onClick={() => setExpandedGroup(expandedGroup === group.key ? null : group.key)}
+              className="w-full flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors cursor-pointer text-left"
+            >
+              {expandedGroup === group.key
+                ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+                : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
+              <Rocket size={16} className="text-primary shrink-0" />
+              <span className="text-sm font-medium truncate">
+                {(group.missionId && catalogById.get(group.missionId)) || group.title}
+              </span>
+              {group.scope === "team" && (
+                <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/10 rounded px-1.5 py-0.5 shrink-0">
+                  Team
+                </span>
+              )}
+              <span className="text-[10px] font-semibold text-muted-foreground border border-border rounded px-1.5 py-0.5 shrink-0">
+                {group.items.length} {group.items.length === 1 ? "step" : "steps"}
+              </span>
+            </button>
+            {expandedGroup === group.key && (
+              <div className="p-2 border-t border-border flex flex-col gap-1.5 bg-muted/20">
+                {group.items.map((item) => (
+                  <ItemRow
+                    key={item.id}
+                    item={item}
+                    readOnly={readOnly}
+                    onUpdate={(itemId, data) => updateLmsProgramItemApi(program.id, itemId, data).then(onChanged)}
+                    onDelete={(itemId) => deleteLmsProgramItemApi(program.id, itemId).then(onChanged)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        ),
+      )}
       {!readOnly && <AddMissionRunButton onSave={(data) => addLmsProgramItemApi(program.id, data).then(onChanged)} />}
     </div>
   )
@@ -85,91 +183,161 @@ export function CohortMissionsPanel({ cohortId, isStaff }: { cohortId: string; i
     queryKey: ["lms-cohort-override", cohortId],
     queryFn: () => (isStaff ? getCohortProgramOverrideApi(cohortId) : getCohortProgramOverrideInstructorApi(cohortId)),
   })
-  const [expanded, setExpanded] = useState<string | null>(null)
+  const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["lms-cohort-override", cohortId] })
-  // Every item here is already filtered to mission_run, and the backend's
-  // own instructor-scope check restricts writes to exactly that item_type —
-  // so anyone who can see this tab at all can edit every row on it, no
-  // extra client-side readOnly gate needed.
   const updateItem = isStaff ? updateCohortOverrideItemApi : updateCohortOverrideItemInstructorApi
   const deleteItem = isStaff ? deleteCohortOverrideItemApi : deleteCohortOverrideItemInstructorApi
   const addItem = isStaff ? addCohortOverrideItemApi : addCohortOverrideItemInstructorApi
 
+  const { data: catalog = [] } = useQuery({
+    queryKey: ["mission-catalog-all"],
+    queryFn: fetchMissionCatalog,
+  })
+  const catalogById = useMemo(() => new Map(catalog.map((m) => [m.id, m.title])), [catalog])
+
   if (isLoading) return <Spinner />
   const missionItems = (override?.items ?? []).filter((i) => i.item_type === "mission_run")
+  const groups = groupByMission(missionItems)
 
   return (
     <div className="flex flex-col gap-2">
       {missionItems.length === 0 && <EmptyState title="No mission runs on this cohort's checklist" />}
-      {missionItems.map((item) => (
-        editingId === item.id ? (
-          <ItemForm
-            key={item.id}
-            itemType="mission_run"
-            initial={item}
-            onCancel={() => setEditingId(null)}
-            onSave={async (data) => { await updateItem(cohortId, item.id, data).then(invalidate); setEditingId(null) }}
-          />
-        ) : (
-          <div key={item.id} className="border border-border rounded-xl overflow-hidden">
-            <div className="flex items-center gap-1 pr-2">
-              <button
-                onClick={() => setExpanded(expanded === item.id ? null : item.id)}
-                className="flex-1 flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors cursor-pointer text-left"
-              >
-                {expanded === item.id ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
-                <Rocket size={16} className="text-primary shrink-0" />
-                <span className="text-sm font-medium truncate">{item.title}</span>
-                {/* Two mission_run items can legitimately point at the same
-                    mission_id while tracking different phases of it (D1) —
-                    without this badge they're indistinguishable here, since
-                    "Steps included"/Gates below are shared per (cohort,
-                    mission) config, not per-item. Same label lookup ItemRow
-                    already uses on the Checklist tab. */}
-                {item.mission_step_key && (
-                  <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5 shrink-0">
-                    {MISSION_STEP_KEYS.find((s) => s.value === item.mission_step_key)?.label ?? item.mission_step_key}
-                  </span>
-                )}
-              </button>
-              <button onClick={() => setEditingId(item.id)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">
-                Edit
-              </button>
-              <button
-                onClick={() => void deleteItem(cohortId, item.id).then(invalidate)}
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"
-              >
-                <X size={14} />
-              </button>
+      {groups.map((group) => {
+        const isSingle = group.items.length === 1 && !group.items[0].mission_step_key
+        const groupKey = group.key
+        const isExpanded = expandedGroup === groupKey
+        const missionId = group.missionId
+        const missionKind = group.items[0].mission_kind
+
+        if (isSingle) {
+          const item = group.items[0]
+          if (editingId === item.id) {
+            return (
+              <ItemForm
+                key={item.id} itemType="mission_run" initial={item}
+                onCancel={() => setEditingId(null)}
+                onSave={async (data) => { await updateItem(cohortId, item.id, data).then(invalidate); setEditingId(null) }}
+              />
+            )
+          }
+          return (
+            <div key={item.id} className="border border-border rounded-xl overflow-hidden">
+              <div className="flex items-center gap-1 pr-2">
+                <button
+                  onClick={() => setExpandedGroup(isExpanded ? null : groupKey)}
+                  className="flex-1 flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors cursor-pointer text-left"
+                >
+                  {isExpanded ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
+                  <Rocket size={16} className="text-primary shrink-0" />
+                  <span className="text-sm font-medium truncate">{item.title}</span>
+                  {item.scope === "team" && (
+                    <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/10 rounded px-1.5 py-0.5 shrink-0">
+                      Team
+                    </span>
+                  )}
+                </button>
+                <button onClick={() => setEditingId(item.id)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">Edit</button>
+                <button onClick={() => void deleteItem(cohortId, item.id).then(invalidate)} className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"><X size={14} /></button>
+              </div>
+              {isExpanded && missionId && missionKind === "design" && (
+                <div className="p-3 border-t border-border flex flex-col gap-4 bg-background">
+                  <div>
+                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Steps included</div>
+                    <StepsTab cohortId={cohortId} missionId={missionId} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Gates</div>
+                    <GatesTab cohortId={cohortId} missionId={missionId} />
+                  </div>
+                </div>
+              )}
+              {isExpanded && missionId && missionKind !== "design" && (
+                <div className="p-3 border-t border-border text-xs text-muted-foreground bg-background">
+                  This is a {missionKind ?? "non-design"} mission — it has no build steps or gates to configure, those only apply to Design missions.
+                </div>
+              )}
+              {isExpanded && !missionId && (
+                <div className="p-3 border-t border-border text-xs text-muted-foreground bg-background">
+                  Save a mission for this run before gates/steps can be configured.
+                </div>
+              )}
             </div>
-            {expanded === item.id && item.mission_id && item.mission_kind === "design" && (
-              <div className="p-3 border-t border-border flex flex-col gap-4 bg-background">
-                <div>
-                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Steps included</div>
-                  <StepsTab cohortId={cohortId} missionId={item.mission_id} />
-                </div>
-                <div>
-                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Gates</div>
-                  <GatesTab cohortId={cohortId} missionId={item.mission_id} />
-                </div>
-              </div>
-            )}
-            {expanded === item.id && item.mission_id && item.mission_kind !== "design" && (
-              <div className="p-3 border-t border-border text-xs text-muted-foreground bg-background">
-                This is a {item.mission_kind ?? "non-design"} mission — it has no build steps or gates to configure,
-                those only apply to Design missions.
-              </div>
-            )}
-            {expanded === item.id && !item.mission_id && (
-              <div className="p-3 border-t border-border text-xs text-muted-foreground bg-background">
-                Save a mission for this run before gates/steps can be configured.
+          )
+        }
+
+        return (
+          <div key={groupKey} className="border border-border rounded-xl overflow-hidden">
+            <button
+              onClick={() => setExpandedGroup(isExpanded ? null : groupKey)}
+              className="w-full flex items-center gap-3 p-3 hover:bg-muted/40 transition-colors cursor-pointer text-left"
+            >
+              {isExpanded ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
+              <Rocket size={16} className="text-primary shrink-0" />
+              <span className="text-sm font-medium truncate">
+                {(missionId && catalogById.get(missionId)) || group.title}
+              </span>
+              {group.scope === "team" && (
+                <span className="text-[10px] font-semibold uppercase text-primary border border-primary/30 bg-primary/10 rounded px-1.5 py-0.5 shrink-0">
+                  Team
+                </span>
+              )}
+              <span className="text-[10px] font-semibold text-muted-foreground border border-border rounded px-1.5 py-0.5 shrink-0">
+                {group.items.length} {group.items.length === 1 ? "step" : "steps"}
+              </span>
+            </button>
+            {isExpanded && (
+              <div className="border-t border-border flex flex-col gap-0 bg-muted/20">
+                {group.items.map((item) =>
+                  editingId === item.id ? (
+                    <ItemForm
+                      key={item.id} itemType="mission_run" initial={item}
+                      onCancel={() => setEditingId(null)}
+                      onSave={async (data) => { await updateItem(cohortId, item.id, data).then(invalidate); setEditingId(null) }}
+                    />
+                  ) : (
+                    <div key={item.id} className="flex items-center gap-1 pr-2 border-b border-border/50 last:border-b-0">
+                      <div className="flex-1 flex items-center gap-3 p-2.5 pl-10 text-left">
+                        <span className="text-sm text-foreground truncate">{item.title}</span>
+                        {item.mission_step_key && (
+                          <span className="text-[10px] font-semibold uppercase text-muted-foreground border border-border rounded px-1.5 py-0.5 shrink-0">
+                            {MISSION_STEP_KEYS.find((s) => s.value === item.mission_step_key)?.label ?? item.mission_step_key}
+                          </span>
+                        )}
+                      </div>
+                      <button onClick={() => setEditingId(item.id)} className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer shrink-0">Edit</button>
+                      <button onClick={() => void deleteItem(cohortId, item.id).then(invalidate)} className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors shrink-0 cursor-pointer"><X size={14} /></button>
+                    </div>
+                  ),
+                )}
+                {missionId && missionKind === "design" && (
+                  <div className="p-3 border-t border-border flex flex-col gap-4 bg-background">
+                    <div>
+                      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Steps included</div>
+                      <StepsTab cohortId={cohortId} missionId={missionId} />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Gates</div>
+                      <GatesTab cohortId={cohortId} missionId={missionId} />
+                    </div>
+                  </div>
+                )}
+                {missionId && missionKind !== "design" && (
+                  <div className="p-3 border-t border-border text-xs text-muted-foreground bg-background">
+                    This is a {missionKind ?? "non-design"} mission — it has no build steps or gates to configure, those only apply to Design missions.
+                  </div>
+                )}
+                {!missionId && (
+                  <div className="p-3 border-t border-border text-xs text-muted-foreground bg-background">
+                    Save a mission for this run before gates/steps can be configured.
+                  </div>
+                )}
               </div>
             )}
           </div>
         )
-      ))}
+      })}
       <AddMissionRunButton onSave={(data) => addItem(cohortId, data).then(invalidate)} />
     </div>
   )
