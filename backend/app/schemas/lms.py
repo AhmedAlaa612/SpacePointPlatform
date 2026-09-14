@@ -430,6 +430,17 @@ class MyProgramOut(BaseModel):
 LmsProgramItemStatus = Literal["pending", "done", "awaiting_confirmation"]
 
 
+class LmsSubmissionLink(BaseModel):
+    """One link in a multi-link submission (2026-09-14, ops's own toggle —
+    see LmsProgramItem.submission_multi_link) — `label` is free text (e.g.
+    "Member 1 link", "Team link"), optional so a stray extra link doesn't
+    need one. Not validated as a real URL beyond non-empty, same posture
+    the single-link `submitted_url`/`LmsProgramItemSubmitIn.url` has
+    always had."""
+    label: str | None = Field(default=None, max_length=80)
+    url: str = Field(min_length=1, max_length=512)
+
+
 class LmsProgramChecklistItemOut(BaseModel):
     id: UUID
     position: int
@@ -458,6 +469,11 @@ class LmsProgramChecklistItemOut(BaseModel):
     has_pdf: bool = False
     # What the student themself submitted back, for a `submission` item.
     submitted_url: str | None = None
+    # 2026-09-14 — see LmsProgramItem.submission_multi_link's own comment.
+    # `submitted_links` is only ever populated when `submission_multi_link`
+    # is true; `submitted_url` above still mirrors its first link either way.
+    submission_multi_link: bool = False
+    submitted_links: list[LmsSubmissionLink] | None = None
     # submission-only cutoff — students can no longer submit/replace once
     # past; already-submitted content and its confirmation are unaffected.
     deadline_at: datetime | None = None
@@ -536,4 +552,9 @@ class LmsProgramTeamNameIn(BaseModel):
 
 
 class LmsProgramItemSubmitIn(BaseModel):
-    url: str
+    # Single-link items (the default) send `url`; a `submission_multi_link`
+    # item sends `links` instead — routers/lms/student.py::submit_program_item
+    # picks which is required off the item's own flag rather than here, so
+    # the 400 reads as "this item needs N links" instead of a bare 422.
+    url: str | None = None
+    links: list[LmsSubmissionLink] | None = None

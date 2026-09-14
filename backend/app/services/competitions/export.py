@@ -50,9 +50,18 @@ async def export_results_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> 
     teams = (await db.execute(select(Team).where(Team.cohort_id == cohort_id).order_by(Team.name))).scalars().all()
     for team in teams:
         for item in await team_submission_items(db, team_id=team.id):
+            links = item.get("submitted_links")
+            # Multi-link items (2026-09-14) get every labeled link crammed
+            # into the one "Link" cell, one per line — a second Link2/Link3
+            # column would need to be as wide as the max links any item on
+            # this cohort ever has, which nothing here tracks up front.
+            if links:
+                link_text = "\n".join(f"{link['label']}: {link['url']}" if link.get("label") else link["url"] for link in links)
+            else:
+                link_text = item["submitted_url"] or ""
             submissions.append([
                 team.name, item["title"], item["item_type"], item["status"],
-                item["submitted_url"] or "",
+                link_text,
                 item["updated_at"].strftime("%Y-%m-%d %H:%M") if item["updated_at"] else "",
                 item["updated_by_name"] or "",
             ])

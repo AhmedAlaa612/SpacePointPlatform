@@ -704,7 +704,10 @@ function AssignmentItemRow({
   const isDone = item.status === "done"
   const isAwaiting = item.status === "awaiting_confirmation"
   const isPoster = item.mission_step_key === "poster"
-  const hasActions = Boolean(item.submitted_url || canViewRun || (isQuiz && (isDone || cohortId)) || isPoster)
+  const hasActions = Boolean(
+    item.submitted_url || (item.submission_multi_link && item.submitted_links?.length) || canViewRun
+    || (isQuiz && (isDone || cohortId)) || isPoster,
+  )
 
   return (
     <div className="flex flex-col gap-2">
@@ -743,7 +746,25 @@ function AssignmentItemRow({
         <div className="flex items-center gap-2 flex-wrap shrink-0 justify-end sm:justify-start">
           {hasActions && (
             <div className="flex items-center gap-2 flex-wrap shrink-0 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-border/30">
-              {item.submitted_url ? (
+              {item.submission_multi_link ? (
+                item.submitted_links && item.submitted_links.length > 0 ? (
+                  item.submitted_links.map((link, i) => (
+                    <a
+                      key={i}
+                      href={ensureAbsoluteUrl(link.url)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="h-8 px-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-bold flex items-center gap-1.5 hover:bg-primary/20 transition-colors shrink-0"
+                    >
+                      <ExternalLink size={13} /> {link.label || `Link ${i + 1}`}
+                    </a>
+                  ))
+                ) : (
+                  <span className="h-8 px-2.5 rounded-lg border border-border/60 bg-muted/40 text-muted-foreground text-xs font-medium flex items-center gap-1.5 shrink-0">
+                    No links submitted yet
+                  </span>
+                )
+              ) : item.submitted_url ? (
                 <a
                   href={ensureAbsoluteUrl(item.submitted_url)}
                   target="_blank"

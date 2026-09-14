@@ -150,24 +150,49 @@ export default function JudgeTeamDetail() {
         ) : (
           <div className="flex flex-col gap-2">
             {detail.submissions.map((s) => (
-              <div key={s.item_id} className="flex items-center justify-between p-3 bg-card border border-border rounded-xl">
-                <div>
-                  <p className="text-sm font-medium text-foreground">{s.title}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {s.submitted_url && s.updated_at
-                      ? `Submitted ${formatSubmittedAt(s.updated_at)}${s.updated_by_name ? ` by ${s.updated_by_name}` : ""}`
-                      : s.status.replace("_", " ")}
-                  </p>
+              <div key={s.item_id} className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">{s.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {s.submitted_url && s.updated_at
+                        ? `Submitted ${formatSubmittedAt(s.updated_at)}${s.updated_by_name ? ` by ${s.updated_by_name}` : ""}`
+                        : s.status.replace("_", " ")}
+                    </p>
+                  </div>
+                  {!s.submission_multi_link && (
+                    s.submitted_url ? (
+                      <a
+                        href={ensureAbsoluteUrl(s.submitted_url)} target="_blank" rel="noreferrer"
+                        className="flex items-center gap-1 text-xs font-medium text-primary hover:opacity-80"
+                      >
+                        Open <ExternalLink size={12} />
+                      </a>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">Not submitted</span>
+                    )
+                  )}
                 </div>
-                {s.submitted_url ? (
-                  <a
-                    href={ensureAbsoluteUrl(s.submitted_url)} target="_blank" rel="noreferrer"
-                    className="flex items-center gap-1 text-xs font-medium text-primary hover:opacity-80"
-                  >
-                    Open <ExternalLink size={12} />
-                  </a>
-                ) : (
-                  <span className="text-xs text-muted-foreground">Not submitted</span>
+                {/* Multi-link submission (2026-09-14) — every labeled link
+                    grouped under the one submission, instead of a single
+                    "Open" button for a bare url. */}
+                {s.submission_multi_link && (
+                  s.submitted_links && s.submitted_links.length > 0 ? (
+                    <div className="flex flex-col gap-1 pl-1">
+                      {s.submitted_links.map((link, i) => (
+                        <a
+                          key={i} href={ensureAbsoluteUrl(link.url)} target="_blank" rel="noreferrer"
+                          className="flex items-center gap-1.5 text-xs font-medium text-primary hover:opacity-80"
+                        >
+                          {link.label && <span className="text-muted-foreground">{link.label}:</span>}
+                          <span className="truncate max-w-[320px]">{link.url}</span>
+                          <ExternalLink size={11} className="shrink-0" />
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Not submitted</span>
+                  )
                 )}
               </div>
             ))}

@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.schemas.lms import LmsSubmissionLink
+
 
 class ModuleProgressOut(BaseModel):
     module_id: UUID
@@ -52,6 +54,9 @@ class PendingConfirmationOut(BaseModel):
     item_id: UUID
     title: str
     submitted_url: str | None = None
+    # 2026-09-14 — see LmsProgramItem.submission_multi_link's own comment.
+    submission_multi_link: bool = False
+    submitted_links: list[LmsSubmissionLink] | None = None
 
 
 class LmsAssignmentItemDetailOut(BaseModel):
@@ -65,6 +70,8 @@ class LmsAssignmentItemDetailOut(BaseModel):
     item_type: str
     status: str
     submitted_url: str | None = None
+    submission_multi_link: bool = False
+    submitted_links: list[LmsSubmissionLink] | None = None
     completed_at: datetime | None = None
     mission_attempt_id: UUID | None = None
     confirmed_by_user_id: UUID | None = None

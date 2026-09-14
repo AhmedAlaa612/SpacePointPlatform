@@ -875,6 +875,7 @@ export function ItemForm({
   const [variantId, setVariantId] = useState(initial?.variant_id ?? "")
   const [externalUrl, setExternalUrl] = useState(initial?.external_url ?? "")
   const [submissionPrompt, setSubmissionPrompt] = useState(initial?.submission_prompt ?? "")
+  const [submissionMultiLink, setSubmissionMultiLink] = useState(initial?.submission_multi_link ?? false)
   const [deadlineAt, setDeadlineAt] = useState(toDatetimeLocalValue(initial?.deadline_at))
   const [sessionDate, setSessionDate] = useState(initial?.session_date ?? "")
   const [sessionStartsAt, setSessionStartsAt] = useState(initial?.session_starts_at?.slice(0, 5) ?? "")
@@ -963,6 +964,7 @@ export function ItemForm({
         variant_id: itemType === "mission_run" ? (variantId || null) : null,
         external_url: (itemType === "external_link" || itemType === "submission") ? (externalUrl.trim() || null) : null,
         submission_prompt: itemType === "submission" ? (submissionPrompt.trim() || null) : null,
+        submission_multi_link: itemType === "submission" ? submissionMultiLink : false,
         deadline_at: (itemType === "submission" || itemType === "team_setup") && deadlineAt
           ? new Date(deadlineAt).toISOString() : null,
         session_date: itemType === "session" ? (sessionDate || null) : null,
@@ -1095,6 +1097,10 @@ export function ItemForm({
             value={submissionPrompt} onChange={(e) => setSubmissionPrompt(e.target.value)} placeholder="What should the student submit back?"
             rows={2} className={`${inputCls} h-auto py-2 resize-none`}
           />
+          <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+            <input type="checkbox" checked={submissionMultiLink} onChange={(e) => setSubmissionMultiLink(e.target.checked)} />
+            Allow multiple links (e.g. Member 1 link, Member 2 link, Team link — each with an optional label)
+          </label>
           <div className="flex flex-col gap-1">
             <input
               type="datetime-local" value={deadlineAt} onChange={(e) => setDeadlineAt(e.target.value)}

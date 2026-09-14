@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.schemas.lms import LmsSubmissionLink
 from app.schemas.lms_admin import StudentSummaryOut
 from app.schemas.teams import TeamOut
 
@@ -149,6 +150,11 @@ class CompetitionSubmissionItemOut(BaseModel):
     item_type: str
     status: str
     submitted_url: str | None = None
+    # 2026-09-14 — set (alongside submitted_url mirroring the first link)
+    # only for a submission_multi_link item; the judge/ops team-detail view
+    # renders these grouped under the one submission instead of a bare link.
+    submission_multi_link: bool = False
+    submitted_links: list[LmsSubmissionLink] | None = None
     updated_at: datetime | None = None
     updated_by_name: str | None = None
 

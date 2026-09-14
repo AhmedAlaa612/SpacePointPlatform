@@ -32,7 +32,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text, Time, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.base import Base
 
@@ -140,6 +140,14 @@ class LmsProgramItem(Base):
     # What a `submission`-type item asks the student to paste back — same
     # shape as the Poster tab's link-paste-back flow.
     submission_prompt = Column(Text, nullable=True)
+    # 2026-09-14: ops's own toggle for "one link, or several with optional
+    # labels" (e.g. mem1/mem2/team link, all in one submission) — a
+    # `submission`-only field (see validate_item_payload), off by default so
+    # every existing single-link item is unaffected. Which column the
+    # student's paste-back actually lands in (submitted_url vs
+    # submitted_links) is decided by this flag at submit time — see
+    # routers/lms/student.py::submit_program_item.
+    submission_multi_link = Column(Boolean, nullable=False, default=False, server_default="false")
     # A `pdf` item's hosted file — same two-step shape as a module
     # `attachment` item (create the item, then a separate multipart upload
     # attaches the file): stored path in the `lms-attachments` bucket, NULL
@@ -261,8 +269,17 @@ class LmsProgramItemProgress(Base):
         UUID(as_uuid=True), ForeignKey("mission_attempts.id", ondelete="SET NULL"), nullable=True,
     )
     # What the student pasted back for a `submission`-type item — same
-    # shape as the Poster tab's link-paste-back flow.
+    # shape as the Poster tab's link-paste-back flow. Used when the item is
+    # NOT multi-link; a multi-link item's real answer lives in
+    # `submitted_links` below instead, with this column mirroring the first
+    # link's url so any older reader that only knows `submitted_url` still
+    # sees *something* real rather than nothing.
     submitted_url = Column(String(512), nullable=True)
+    # 2026-09-14: a `submission_multi_link` item's real answer — a list of
+    # `{"label": str | None, "url": str}`, ops-controlled per item (e.g.
+    # "Member 1 link", "Member 2 link", "Team link" all in one submission).
+    # NULL for every non-multi-link item.
+    submitted_links = Column(JSONB, nullable=True)
     # When submitted_url (or status) last changed. No updated_by column —
     # unlike the team table below, an individual row only ever has one
     # possible author: the assignment's own user.
@@ -307,6 +324,9 @@ class LmsProgramTeamItemProgress(Base):
         UUID(as_uuid=True), ForeignKey("mission_attempts.id", ondelete="SET NULL"), nullable=True,
     )
     submitted_url = Column(String(512), nullable=True)
+    # Same shape/purpose as LmsProgramItemProgress.submitted_links above —
+    # the team's shared multi-link answer, editable by any teammate.
+    submitted_links = Column(JSONB, nullable=True)
     # Whichever teammate last pasted/edited submitted_url, and when — a team
     # row has no single "you", so the checklist shows "last updated by
     # [name]" here instead of the individual table's implicit "you".

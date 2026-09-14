@@ -204,6 +204,10 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
             status.HTTP_400_BAD_REQUEST,
             detail="Only a submission or team_setup item can have a deadline",
         )
+    if body.submission_multi_link and body.item_type != "submission":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="Only a submission item can take multiple links",
+        )
     # Roadmap board (2026-09) ─────────────────────────────────────────
     if body.mission_step_key is not None:
         if body.item_type != "mission_run":
@@ -506,6 +510,8 @@ async def team_submission_items(db: AsyncSession, *, team_id: uuid.UUID) -> list
             "item_id": item.id, "title": item.title, "item_type": item.item_type,
             "status": progress.status if progress else "pending",
             "submitted_url": progress.submitted_url if progress else None,
+            "submission_multi_link": item.submission_multi_link,
+            "submitted_links": progress.submitted_links if progress else None,
             "updated_at": progress.updated_at if progress else None,
             "updated_by_name": updater_names.get(progress.updated_by_user_id) if progress and progress.updated_by_user_id else None,
         })
@@ -1529,6 +1535,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         )
         statuses[item.id] = status
         submitted_url = team_progress.submitted_url if team_progress is not None else progress.submitted_url
+        submitted_links = team_progress.submitted_links if team_progress is not None else progress.submitted_links
         if item.item_type == "mission_run" and attempt_id:
             dash = await _design_dashboard_for_attempt(db, mission_attempt_id=attempt_id, cache=dashboard_cache)
             if dash and dash.get("_poster_url") and (item.mission_step_key == "poster" or not submitted_url):
@@ -1557,6 +1564,8 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "external_url": item.external_url, "submission_prompt": item.submission_prompt,
             "has_pdf": item.pdf_path is not None,
             "submitted_url": submitted_url,
+            "submission_multi_link": item.submission_multi_link,
+            "submitted_links": submitted_links,
             "deadline_at": item.deadline_at,
             "session_date": item.session_date, "session_starts_at": item.session_starts_at,
             "session_location": item.session_location, "session_meeting_url": item.session_meeting_url,
@@ -1676,6 +1685,11 @@ async def cohort_program_roster(
                     team_progress_by_item[item.id].submitted_url if item.id in team_progress_by_item
                     else progress.submitted_url
                 ),
+                "submission_multi_link": item.submission_multi_link,
+                "submitted_links": (
+                    team_progress_by_item[item.id].submitted_links if item.id in team_progress_by_item
+                    else progress.submitted_links
+                ),
             }
             for item, progress in pairs
             if _effective_status(item, progress, team_progress_by_item) == "awaiting_confirmation"
@@ -1719,6 +1733,11 @@ async def program_roster(
                 "submitted_url": (
                     team_progress_by_item[item.id].submitted_url if item.id in team_progress_by_item
                     else progress.submitted_url
+                ),
+                "submission_multi_link": item.submission_multi_link,
+                "submitted_links": (
+                    team_progress_by_item[item.id].submitted_links if item.id in team_progress_by_item
+                    else progress.submitted_links
                 ),
             }
             for item, progress in pairs
@@ -1778,6 +1797,8 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
         out.append({
             "item_id": item.id, "title": item.title, "item_type": item.item_type,
             "status": status, "submitted_url": submitted_url,
+            "submission_multi_link": item.submission_multi_link,
+            "submitted_links": target.submitted_links,
             "completed_at": completed_at, "mission_attempt_id": attempt_id,
             "confirmed_by_user_id": confirmed_by_user_id,
             "mission_step_key": item.mission_step_key,
