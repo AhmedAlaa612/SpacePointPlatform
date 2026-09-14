@@ -76,7 +76,7 @@ export default function LmsInviteCodes() {
         <div className="flex flex-col gap-2">
           {codes.map((c) => (
             <div key={c.id} className="flex flex-col bg-card border border-border rounded-2xl overflow-hidden">
-              <div className="flex items-center gap-4 p-4">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-mono text-sm font-semibold text-foreground">{c.code}</span>
@@ -96,7 +96,7 @@ export default function LmsInviteCodes() {
                     )}
                   </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1 flex-wrap sm:flex-nowrap sm:shrink-0">
                   {c.signups > 0 && (
                     <button
                       onClick={() => void navigate({
