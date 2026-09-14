@@ -15,7 +15,6 @@ import MissionGallery from "@/components/ground-station/MissionGallery";
 import HistoryPanel from "@/components/ground-station/HistoryPanel";
 import AlertsPanel from "@/components/ground-station/AlertsPanel";
 import EarthGlobe from "@/components/ground-station/EarthGlobe";
-import TacticalMap from "@/components/ground-station/TacticalMap";
 import WebSerialConnect from "@/components/ground-station/WebSerialConnect";
 import { buildGroundStationReport } from "@/lib/pdf";
 
@@ -177,10 +176,7 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
         <AttitudeCube pitch={latest.pitch} roll={latest.roll} yaw={latest.yaw} />
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <EarthGlobe lat={latest?.lat ?? null} lon={latest?.lon ?? null} alt={latest?.alt ?? null} />
-        <TacticalMap lat={latest?.lat ?? null} lon={latest?.lon ?? null} />
-      </div>
+      <EarthGlobe lat={latest?.lat ?? null} lon={latest?.lon ?? null} alt={latest?.alt ?? null} />
 
       <HistoryPanel deviceId={deviceId} />
       <AlertsPanel deviceId={deviceId} refreshToken={alertRefreshToken} />
