@@ -14,7 +14,10 @@ Usage:
     python agent.py --simulate       # no hardware — synthetic telemetry,
                                       # same shape the legacy sim_worker sent
 
-Configure via ground-station-agent.env (see .env.example in this directory).
+Configure by copying .env.example to .env (same folder as this script) and
+filling in your device id/secret — no separate install step, no manually
+exporting variables. A `.env` sitting next to this file is loaded
+automatically on startup.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ import random
 import threading
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 import requests
 
@@ -39,6 +43,26 @@ try:
     import paho.mqtt.client as mqtt  # optional — only needed if MQTT_BROKER is set
 except ImportError:
     mqtt = None
+
+
+def _load_dotenv(path: Path) -> None:
+    """Minimal `.env` loader — no python-dotenv dependency needed for one
+    file. Real environment variables (if someone did export them) always
+    win; this only fills in what's missing, same precedence python-dotenv
+    itself uses."""
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        os.environ.setdefault(key, value)
+
+
+_load_dotenv(Path(__file__).resolve().parent / ".env")
 
 
 def _env(name: str, default: str | None = None) -> str | None:
