@@ -1,7 +1,8 @@
 /** Ground Station API — thin wrappers over `/ground-station/*`. Ported from
- * the legacy Madar platform's LoRa-Dashboard-V3, minus the mission/scoring
- * wrapper: no attempts, no points, just live telemetry/commands/photos
- * gated by normal login (see backend/app/routers/ground_station/).
+ * the legacy Madar platform's LoRa-Dashboard-V3, now wired into the
+ * missions domain (2026-09-14): a real Mission (solo/team, no scoring —
+ * see `completeAttempt`), one rig per attempt, private to its owner +
+ * staff (see backend/app/services/ground_station/access.py).
  */
 import { api } from "./client";
 
@@ -16,6 +17,12 @@ export interface GroundStationDevice {
 export interface AttemptDevice {
   device: GroundStationDevice;
   ingest_base_url: string;
+}
+
+export interface AttemptComplete {
+  attempt_id: string;
+  status: string;
+  decided_at: string | null;
 }
 
 export interface GroundStationAttemptSummary {
@@ -158,6 +165,11 @@ export async function registerDevice(label: string): Promise<GroundStationDevice
 
 export async function getAttemptDevice(attemptId: string): Promise<AttemptDevice> {
   const { data } = await api.get<AttemptDevice>(`/ground-station/attempts/${attemptId}/device`);
+  return data;
+}
+
+export async function completeAttempt(attemptId: string): Promise<AttemptComplete> {
+  const { data } = await api.post<AttemptComplete>(`/ground-station/attempts/${attemptId}/complete`);
   return data;
 }
 

@@ -198,6 +198,46 @@ async def test_command_queues_and_broadcasts_for_allowed_command(db, realtime_cl
 
 
 @pytest.mark.asyncio
+async def test_complete_attempt_sets_passed_with_no_score(db, client):
+    """Checklist tracking (`mission_run` auto-done) reads `status ==
+    'passed'` — this is the self-serve way to reach it without any
+    grading path running (score stays null, no points minted)."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _ground_station_mission(db, author=author)
+    student = await _user(db)
+    await db.commit()
+
+    attempt_id, _device_id = await _start_attempt_and_get_device(client, mission, variant, student)
+
+    resp = await client.post(f"/ground-station/attempts/{attempt_id}/complete", headers=_headers(student))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "passed"
+
+    resp = await client.get(f"/missions/attempts/{attempt_id}", headers=_headers(student))
+    assert resp.json()["status"] == "passed"
+    assert resp.json()["score"] is None
+
+    # Idempotent — calling again doesn't error or change anything.
+    resp = await client.post(f"/ground-station/attempts/{attempt_id}/complete", headers=_headers(student))
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "passed"
+
+
+@pytest.mark.asyncio
+async def test_complete_attempt_requires_ownership(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _ground_station_mission(db, author=author)
+    owner = await _user(db)
+    stranger = await _user(db)
+    await db.commit()
+
+    attempt_id, _device_id = await _start_attempt_and_get_device(client, mission, variant, owner)
+
+    resp = await client.post(f"/ground-station/attempts/{attempt_id}/complete", headers=_headers(stranger))
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
 async def test_admin_register_device_requires_operations_role(db, client):
     student = await _user(db, roles=["student"])
     await db.flush()

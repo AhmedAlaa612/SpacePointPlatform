@@ -31,6 +31,12 @@ class AttemptDeviceOut(BaseModel):
     ingest_base_url: str
 
 
+class AttemptCompleteOut(BaseModel):
+    attempt_id: UUID
+    status: str
+    decided_at: datetime | None
+
+
 class GroundStationAttemptSummary(BaseModel):
     """The ops monitoring list — every ground_station attempt with its
     owner and rig status, one row per team/solo run."""
