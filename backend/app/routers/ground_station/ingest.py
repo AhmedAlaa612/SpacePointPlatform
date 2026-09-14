@@ -1,7 +1,8 @@
-"""Telemetry/command/photo ingest. Two authentication shapes share this
-surface: the on-site agent (device secret, `/devices/{id}/*`) and a
-student's own browser via Web Serial direct-connect (their normal JWT,
-`/devices/{id}/telemetry/browser`) — same processing either way."""
+"""Telemetry/command/photo ingest — no auth (2026-09-14, operator
+directive: the surface is already private via attempt ownership, see
+services/ground_station/access.py; the ESP32/agent/Web Serial browser
+path all just POST to a device id, nothing to configure). See
+routers/ground_station/deps.py for the reasoning."""
 
 import uuid
 from datetime import datetime, timezone
@@ -10,12 +11,10 @@ import redis.asyncio as redis
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.dependencies import get_current_active_user
 from app.db.session import get_db
 from app.models.ground_station.device import GroundStationDevice
-from app.models.user import User
-from app.routers.ground_station.deps import get_authenticated_device
-from app.schemas.ground_station import BrowserTelemetryIn, PhotoOut, TelemetryFrameIn
+from app.routers.ground_station.deps import get_open_device
+from app.schemas.ground_station import PhotoOut, TelemetryFrameIn
 from app.services import storage
 from app.services.games.realtime import get_realtime_redis_dep
 from app.services.ground_station.devices import pop_pending_commands, touch_last_seen
@@ -46,7 +45,7 @@ async def _ingest_and_broadcast(
 async def ingest_telemetry(
     device_id: uuid.UUID,
     frame: TelemetryFrameIn,
-    device: GroundStationDevice = Depends(get_authenticated_device),
+    device: GroundStationDevice = Depends(get_open_device),
     db: AsyncSession = Depends(get_db),
     realtime: redis.Redis | None = Depends(get_realtime_redis_dep),
 ):
@@ -55,26 +54,10 @@ async def ingest_telemetry(
     return {"status": "accepted"}
 
 
-@router.post("/telemetry/browser", status_code=202)
-async def ingest_telemetry_from_browser(
-    device_id: uuid.UUID,
-    frame: BrowserTelemetryIn,
-    user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db),
-    realtime: redis.Redis | None = Depends(get_realtime_redis_dep),
-):
-    """Web Serial direct-connect (`web_serial.js` in the legacy app) — the
-    student's own Chrome/Edge tab read this straight off the hardware, no
-    on-site agent involved. Still flows through the same DB+broadcast path
-    so every other connected viewer sees it too."""
-    await _ingest_and_broadcast(db, realtime, device_id, frame.data, None)
-    return {"status": "accepted"}
-
-
 @router.get("/commands/pending")
 async def pending_commands(
     device_id: uuid.UUID,
-    device: GroundStationDevice = Depends(get_authenticated_device),
+    device: GroundStationDevice = Depends(get_open_device),
     db: AsyncSession = Depends(get_db),
     realtime: redis.Redis | None = Depends(get_realtime_redis_dep),
 ):
@@ -90,7 +73,7 @@ async def ack_command(
     device_id: uuid.UUID,
     command_id: str,
     ack: dict,
-    device: GroundStationDevice = Depends(get_authenticated_device),
+    device: GroundStationDevice = Depends(get_open_device),
     realtime: redis.Redis | None = Depends(get_realtime_redis_dep),
 ):
     await safe_publish_to_device(realtime, str(device_id), "command_ack", {
@@ -106,7 +89,7 @@ async def ingest_photo(
     lat: float | None = Form(None),
     lon: float | None = Form(None),
     alt: float | None = Form(None),
-    device: GroundStationDevice = Depends(get_authenticated_device),
+    device: GroundStationDevice = Depends(get_open_device),
     db: AsyncSession = Depends(get_db),
     realtime: redis.Redis | None = Depends(get_realtime_redis_dep),
 ):

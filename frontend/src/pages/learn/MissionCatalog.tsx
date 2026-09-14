@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Antenna, Lock, Rocket, Sparkles, Unlock } from "lucide-react";
+import { Lock, Rocket, Sparkles, Unlock } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { fetchMissionCatalog, fetchMissionGraph, type MissionGraphNode } from "@/api/missions";
@@ -24,16 +24,6 @@ export default function MissionCatalog() {
         <h1 className="font-display text-2xl sm:text-3xl font-bold tracking-tight">Missions</h1>
         <p className="text-sm text-muted-foreground mt-1.5">Standalone challenges — attempt any time, pick your difficulty.</p>
       </div>
-
-      <Link to="/learn/ground-station" className="block">
-        <Card className="p-4 flex items-center gap-3 hover:ring-primary/30 transition-shadow">
-          <Antenna className="size-5 text-primary shrink-0" />
-          <div>
-            <div className="font-display text-sm font-semibold">Ground Station</div>
-            <div className="text-xs text-muted-foreground">Live CubeSat telemetry and command console — no mission required.</div>
-          </div>
-        </Card>
-      </Link>
 
       <Tabs defaultValue="missions">
         <TabsList>

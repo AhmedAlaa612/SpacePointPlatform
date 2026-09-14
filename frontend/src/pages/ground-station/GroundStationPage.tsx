@@ -1,12 +1,13 @@
-/** Ground Station — live CubeSat telemetry/command console, ported from the
- * legacy Madar platform's LoRa-Dashboard-V3. No mission/attempt/scoring
- * wrapper (see backend/app/models/ground_station/__init__.py) — any logged-in
- * user connects and sees live data from whichever rig is online. */
+/** Ground Station console — ported from the legacy Madar platform's
+ * LoRa-Dashboard-V3. `DeviceConsole` is the reusable live-console body;
+ * it's mounted by `pages/learn/GroundStationAttemptPage.tsx`, keyed to one
+ * mission attempt's rig (2026-09-14 rework — see that file and
+ * backend/app/services/ground_station/access.py for the ownership model). */
 import { useEffect, useRef, useState } from "react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { listDevices, listPhotos, type GroundStationDevice, type GroundStationPhoto } from "@/api/groundStation";
+import { listPhotos, type GroundStationDevice, type GroundStationPhoto } from "@/api/groundStation";
 import { useGroundStationSocket, type GroundStationMessage } from "@/hooks/useGroundStationSocket";
 import AttitudeCube from "@/components/ground-station/AttitudeCube";
 import CommandConsole from "@/components/ground-station/CommandConsole";
@@ -54,55 +55,7 @@ const CHARTS: { key: keyof TelemetryFrame; label: string; unit: string; color: s
   { key: "snr", label: "SNR", unit: "dB", color: "#50514F" },
 ];
 
-export default function GroundStationPage() {
-  const [devices, setDevices] = useState<GroundStationDevice[]>([]);
-  const [deviceId, setDeviceId] = useState<string | null>(null);
-
-  useEffect(() => {
-    listDevices().then((d) => {
-      setDevices(d);
-      if (d.length > 0) setDeviceId((cur) => cur ?? d[0].id);
-    });
-  }, []);
-
-  const selectedDevice = devices.find((d) => d.id === deviceId) ?? null;
-
-  return (
-    <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold">Ground Station</h1>
-          <p className="text-xs text-muted-foreground">
-            Live CubeSat telemetry and command console.
-          </p>
-        </div>
-        {devices.length > 1 && (
-          <select
-            value={deviceId ?? ""}
-            onChange={(e) => setDeviceId(e.target.value)}
-            className="text-xs rounded-lg ring-1 ring-border px-2 py-1.5 bg-background"
-          >
-            {devices.map((d) => (
-              <option key={d.id} value={d.id}>{d.label}</option>
-            ))}
-          </select>
-        )}
-      </div>
-
-      {devices.length === 0 && (
-        <div className="rounded-xl ring-1 ring-border p-6 text-center text-xs text-muted-foreground bg-card">
-          No ground station rigs registered yet.
-        </div>
-      )}
-
-      {/* Keyed by deviceId so switching rigs remounts fresh state (history,
-          acks, photos) instead of an effect manually resetting it. */}
-      {deviceId && selectedDevice && <DeviceConsole key={deviceId} deviceId={deviceId} device={selectedDevice} />}
-    </div>
-  );
-}
-
-function DeviceConsole({ deviceId, device }: { deviceId: string; device: GroundStationDevice }) {
+export function DeviceConsole({ deviceId, device }: { deviceId: string; device: GroundStationDevice }) {
   const [history, setHistory] = useState<TelemetryFrame[]>([]);
   const [acks, setAcks] = useState<AckEntry[]>([]);
   const [photos, setPhotos] = useState<GroundStationPhoto[]>([]);

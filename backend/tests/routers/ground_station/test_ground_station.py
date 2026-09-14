@@ -1,7 +1,6 @@
-"""Ground Station — device auth, command allowlist, admin registration.
-No `mission_attempts`/scoring involved (see models/ground_station/__init__.py) —
-this is a plain auth+allowlist surface, so `client` (no Redis) covers most of
-it; `realtime_client` covers the one broadcast-fan-out test.
+"""Ground Station — mission-attempt ownership (2026-09-14 rework), no auth
+on ingest, command allowlist. `client` (no Redis) covers most of it;
+`realtime_client` covers the one broadcast-fan-out test.
 """
 
 import uuid
@@ -11,8 +10,8 @@ from fastapi import status as http_status
 
 from app.core.security import create_access_token
 from app.models.ground_station.device import GroundStationDevice
+from app.models.missions.mission import Mission, MissionVariant
 from app.models.user import User
-from app.services.ground_station.devices import register_device
 
 
 async def _user(db, *, roles=None) -> User:
@@ -29,75 +28,161 @@ def _headers(user: User) -> dict:
     return {"Authorization": f"Bearer {create_access_token(user.id, user.role_values)}"}
 
 
-@pytest.mark.asyncio
-async def test_ingest_rejects_wrong_device_secret(db, client):
-    device, _secret = await register_device(db, label="Rig 1")
-    await db.flush()
-
-    resp = await client.post(
-        f"/ground-station/devices/{device.id}/telemetry",
-        json={"data": {"battery_v": 3.7}},
-        headers={"X-Device-Secret": "not-the-real-secret"},
+async def _ground_station_mission(db, *, author) -> tuple[Mission, MissionVariant]:
+    mission = Mission(
+        id=uuid.uuid4(), title="Router Ground Station", slug=f"router-ground-station-{uuid.uuid4().hex[:8]}",
+        kind="ground_station", authored_by=author.id, status="published", team_policy="either",
+        summary="Wire it up.",
     )
-    assert resp.status_code == http_status.HTTP_401_UNAUTHORIZED
+    db.add(mission)
+    await db.flush()
+    variant = MissionVariant(id=uuid.uuid4(), mission_id=mission.id, label="Standard", position=1, points=0, config={})
+    db.add(variant)
+    await db.flush()
+    return mission, variant
+
+
+async def _start_attempt_and_get_device(client, mission, variant, student) -> tuple[str, str]:
+    """Returns (attempt_id, device_id)."""
+    res = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    assert res.status_code == 201, res.text
+    attempt_id = res.json()["id"]
+
+    res = await client.get(f"/ground-station/attempts/{attempt_id}/device", headers=_headers(student))
+    assert res.status_code == 200, res.text
+    return attempt_id, res.json()["device"]["id"]
 
 
 @pytest.mark.asyncio
-async def test_ingest_accepts_correct_device_secret(db, client):
-    device, secret = await register_device(db, label="Rig 1")
-    await db.flush()
+async def test_ingest_requires_no_auth_at_all(db, client):
+    """Operator directive: the surface is private via attempt ownership,
+    so ingest itself takes nothing but a valid device id — no header."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _ground_station_mission(db, author=author)
+    student = await _user(db)
+    await db.commit()
 
-    resp = await client.post(
-        f"/ground-station/devices/{device.id}/telemetry",
-        json={"data": {"battery_v": 3.7}},
-        headers={"X-Device-Secret": secret},
-    )
+    _attempt_id, device_id = await _start_attempt_and_get_device(client, mission, variant, student)
+
+    resp = await client.post(f"/ground-station/devices/{device_id}/telemetry", json={"data": {"temp": 25.0}})
     assert resp.status_code == http_status.HTTP_202_ACCEPTED
 
-    refreshed = await db.get(GroundStationDevice, device.id)
+    refreshed = await db.get(GroundStationDevice, uuid.UUID(device_id))
     assert refreshed.status == "online"
     assert refreshed.last_seen_at is not None
 
 
 @pytest.mark.asyncio
+async def test_ingest_rejects_unknown_device(client):
+    resp = await client.post(f"/ground-station/devices/{uuid.uuid4()}/telemetry", json={"data": {"temp": 25.0}})
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_device_is_private_to_its_attempt_owner(db, client):
+    """The whole point of the rework: a device belongs to one attempt, and
+    nobody outside it (student-side) can see or touch it."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _ground_station_mission(db, author=author)
+    owner = await _user(db)
+    stranger = await _user(db)
+    await db.commit()
+
+    _attempt_id, device_id = await _start_attempt_and_get_device(client, mission, variant, owner)
+
+    resp = await client.get(f"/ground-station/devices/{device_id}", headers=_headers(stranger))
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+    resp = await client.get("/ground-station/devices", headers=_headers(stranger))
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+    resp = await client.get(f"/ground-station/devices/{device_id}", headers=_headers(owner))
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_staff_can_see_every_device(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _ground_station_mission(db, author=author)
+    owner = await _user(db)
+    ops = await _user(db, roles=["operations"])
+    await db.commit()
+
+    _attempt_id, device_id = await _start_attempt_and_get_device(client, mission, variant, owner)
+
+    resp = await client.get(f"/ground-station/devices/{device_id}", headers=_headers(ops))
+    assert resp.status_code == 200
+
+    resp = await client.get("/ground-station/admin/attempts", headers=_headers(ops))
+    assert resp.status_code == 200
+    assert len(resp.json()) == 1
+
+
+@pytest.mark.asyncio
 async def test_command_rejects_unknown_command_name(db, client):
-    device, _secret = await register_device(db, label="Rig 1")
-    user = await _user(db)
-    await db.flush()
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _ground_station_mission(db, author=author)
+    student = await _user(db)
+    await db.commit()
+
+    _attempt_id, device_id = await _start_attempt_and_get_device(client, mission, variant, student)
 
     resp = await client.post(
-        f"/ground-station/devices/{device.id}/commands",
+        f"/ground-station/devices/{device_id}/commands",
         json={"name": "DROP_TABLE_USERS"},
-        headers=_headers(user),
+        headers=_headers(student),
     )
     assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
 
 
 @pytest.mark.asyncio
 async def test_command_requires_login(db, client):
-    device, _secret = await register_device(db, label="Rig 1")
-    await db.flush()
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _ground_station_mission(db, author=author)
+    student = await _user(db)
+    await db.commit()
 
-    resp = await client.post(
-        f"/ground-station/devices/{device.id}/commands",
-        json={"name": "PING"},
-    )
+    _attempt_id, device_id = await _start_attempt_and_get_device(client, mission, variant, student)
+
+    resp = await client.post(f"/ground-station/devices/{device_id}/commands", json={"name": "PING"})
     assert resp.status_code == http_status.HTTP_401_UNAUTHORIZED
 
 
 @pytest.mark.asyncio
+async def test_command_requires_ownership(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _ground_station_mission(db, author=author)
+    owner = await _user(db)
+    stranger = await _user(db)
+    await db.commit()
+
+    _attempt_id, device_id = await _start_attempt_and_get_device(client, mission, variant, owner)
+
+    resp = await client.post(
+        f"/ground-station/devices/{device_id}/commands", json={"name": "PING"}, headers=_headers(stranger),
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
 async def test_command_queues_and_broadcasts_for_allowed_command(db, realtime_client, realtime_redis):
-    device, _secret = await register_device(db, label="Rig 1")
-    user = await _user(db)
-    await db.flush()
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _ground_station_mission(db, author=author)
+    student = await _user(db)
+    await db.commit()
+
+    _attempt_id, device_id = await _start_attempt_and_get_device(realtime_client, mission, variant, student)
 
     pubsub = realtime_redis.pubsub()
-    await pubsub.subscribe(f"ground-station:device:{device.id}")
+    await pubsub.subscribe(f"ground-station:device:{device_id}")
 
     resp = await realtime_client.post(
-        f"/ground-station/devices/{device.id}/commands",
+        f"/ground-station/devices/{device_id}/commands",
         json={"name": "ping"},  # lower-case on the way in — normalized to PING
-        headers=_headers(user),
+        headers=_headers(student),
     )
     assert resp.status_code == http_status.HTTP_200_OK
     assert resp.json()["name"] == "PING"
@@ -124,7 +209,7 @@ async def test_admin_register_device_requires_operations_role(db, client):
 
 
 @pytest.mark.asyncio
-async def test_admin_register_device_returns_secret_once(db, client):
+async def test_admin_register_device_needs_no_secret(db, client):
     ops = await _user(db, roles=["operations"])
     await db.flush()
 
@@ -133,6 +218,6 @@ async def test_admin_register_device_returns_secret_once(db, client):
     )
     assert resp.status_code == http_status.HTTP_200_OK
     body = resp.json()
-    assert body["device"]["label"] == "New Rig"
-    assert body["device"]["status"] == "offline"
-    assert len(body["secret"]) > 20
+    assert body["label"] == "New Rig"
+    assert body["status"] == "offline"
+    assert body["mission_attempt_id"] is None

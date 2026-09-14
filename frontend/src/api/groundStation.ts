@@ -10,6 +10,24 @@ export interface GroundStationDevice {
   label: string;
   status: "online" | "offline";
   last_seen_at: string | null;
+  mission_attempt_id: string | null;
+}
+
+export interface AttemptDevice {
+  device: GroundStationDevice;
+  ingest_base_url: string;
+}
+
+export interface GroundStationAttemptSummary {
+  attempt_id: string;
+  owner_label: string;
+  team_id: string | null;
+  user_id: string | null;
+  status: string;
+  started_at: string | null;
+  device_id: string | null;
+  device_status: "online" | "offline" | null;
+  device_last_seen_at: string | null;
 }
 
 export interface CommandQueued {
@@ -128,22 +146,22 @@ export async function getDeviceStats(deviceId: string): Promise<DeviceStats> {
 }
 
 export async function sendBrowserTelemetry(deviceId: string, data: Record<string, unknown>): Promise<void> {
-  await api.post(`/ground-station/devices/${deviceId}/telemetry/browser`, { data });
+  // No auth on ingest (2026-09-14) — Web Serial posts to the same open
+  // endpoint the agent/ESP32 use, not a JWT-authenticated variant anymore.
+  await api.post(`/ground-station/devices/${deviceId}/telemetry`, { data });
 }
 
-export interface DeviceRegisterResult {
-  device: GroundStationDevice;
-  /** Shown once, at registration/rotation time only — copy it into the
-   * agent's .env immediately, it can't be retrieved again. */
-  secret: string;
-}
-
-export async function registerDevice(label: string): Promise<DeviceRegisterResult> {
-  const { data } = await api.post<DeviceRegisterResult>("/ground-station/admin/devices", { label });
+export async function registerDevice(label: string): Promise<GroundStationDevice> {
+  const { data } = await api.post<GroundStationDevice>("/ground-station/admin/devices", { label });
   return data;
 }
 
-export async function rotateDeviceSecret(deviceId: string): Promise<DeviceRegisterResult> {
-  const { data } = await api.post<DeviceRegisterResult>(`/ground-station/admin/devices/${deviceId}/rotate-secret`);
+export async function getAttemptDevice(attemptId: string): Promise<AttemptDevice> {
+  const { data } = await api.get<AttemptDevice>(`/ground-station/attempts/${attemptId}/device`);
+  return data;
+}
+
+export async function listGroundStationAttempts(): Promise<GroundStationAttemptSummary[]> {
+  const { data } = await api.get<GroundStationAttemptSummary[]>("/ground-station/admin/attempts");
   return data;
 }

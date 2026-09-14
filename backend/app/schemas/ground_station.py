@@ -14,6 +14,7 @@ class DeviceOut(BaseModel):
     label: str
     status: DeviceStatus
     last_seen_at: datetime | None
+    mission_attempt_id: UUID | None = None
 
     model_config = {"from_attributes": True}
 
@@ -22,11 +23,26 @@ class DeviceRegisterIn(BaseModel):
     label: str
 
 
-class DeviceRegisterOut(BaseModel):
+class AttemptDeviceOut(BaseModel):
+    """A ground_station mission attempt's own rig — team/solo view, with
+    the plain device id being the whole "credential" now (no auth on
+    ingest, see routers/ground_station/deps.py)."""
     device: DeviceOut
-    # Shown once, at registration/rotation time only — goes into the agent's
-    # local .env, never stored or logged in plaintext again.
-    secret: str
+    ingest_base_url: str
+
+
+class GroundStationAttemptSummary(BaseModel):
+    """The ops monitoring list — every ground_station attempt with its
+    owner and rig status, one row per team/solo run."""
+    attempt_id: UUID
+    owner_label: str
+    team_id: UUID | None
+    user_id: UUID | None
+    status: str
+    started_at: datetime | None
+    device_id: UUID | None
+    device_status: DeviceStatus | None
+    device_last_seen_at: datetime | None
 
 
 class TelemetryFrameIn(BaseModel):
@@ -123,10 +139,3 @@ class DeviceStatsOut(BaseModel):
     first_seen: datetime | None
     last_seen: datetime | None
     active_connections: int
-
-
-class BrowserTelemetryIn(BaseModel):
-    """Web Serial direct-connect: the student's own browser read this off
-    the hardware and is forwarding it — same shape as the agent's, but
-    authenticated as the logged-in user rather than a device secret."""
-    data: dict[str, Any]
