@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.schemas.lms_admin import StudentSummaryOut
 from app.schemas.teams import TeamOut
 
 
@@ -248,6 +249,59 @@ class CompetitionImportConfirmIn(BaseModel):
     # single member-add path and the rest of the app's registration flows.
     send_ticket_email: bool = True
     send_welcome_email: bool = True
+
+
+class CompetitionAssignableStudentOut(StudentSummaryOut):
+    """The Assign tab's own search result (2026-09-14) — the same student
+    row `/lms/admin/students` returns, plus this cohort's own team state:
+    `team_id` (the roster grouping code) and `team_name` when this student
+    is already on a team in *this* cohort, both None otherwise. Lets the
+    tab show at a glance who still needs assigning, and drives the
+    `unassigned_only` filter server-side (ops's own ask: "see people not
+    assigned to teams yet with that code")."""
+    team_id: str | None = None
+    team_name: str | None = None
+
+
+class CompetitionAssignStudentRowIn(BaseModel):
+    """One row of the Assign tab's bulk submit — a student already found via
+    `/lms/admin/students` search, plus the Team ID ops typed in for them
+    (same editable-per-row feel as the Roster import table). `team_name` is
+    left in for parity with the CSV path's per-row rename fallback, but the
+    Assign tab itself never shows a name field — team naming stays the
+    student's own deadline-gated step (see `registration_import.py`'s
+    module docstring); ops assigning a bad name here is not a supported UI
+    path, just not actively blocked by this schema either."""
+    user_id: UUID
+    team_id: str
+    team_name: str | None = None
+
+
+class CompetitionAssignStudentsIn(BaseModel):
+    rows: list[CompetitionAssignStudentRowIn]
+
+    # Same default-on convention as the Roster import batch toggles — see
+    # that schema's own comment. `send_welcome_email` only matters for a row
+    # that turns out to need a *new* student account (see
+    # sync_registration_lms's own docstring) — every row here already has
+    # one from self-signup, so in practice this only ever gates the "you're
+    # registered for X" notice sync_registration_lms sends either way.
+    send_ticket_email: bool = True
+    send_welcome_email: bool = True
+
+
+class CompetitionAssignStudentRowOut(BaseModel):
+    row_number: int
+    user_id: UUID | None = None
+    team_id: str | None = None
+    team_name: str | None = None
+    disposition: str  # created|matched|error — same vocabulary as CompetitionImportRowOut
+    reason: str | None = None
+
+
+class CompetitionAssignStudentsOut(BaseModel):
+    summary: dict[str, int]
+    rows: list[CompetitionAssignStudentRowOut]
 
 
 class CompetitionAdvanceTeamsIn(BaseModel):

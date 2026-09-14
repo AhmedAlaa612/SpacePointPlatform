@@ -42,6 +42,17 @@ overwrites a name a team has already set for real (its own rename, or an
 ops fix) — only ever applies the sheet's name while the team is still at
 its own placeholder. See `app/models/team.py`'s module docstring for the
 full `roster_team_id`/`name` shape this relies on.
+
+Assign-existing-students (2026-09-14): a second entry point,
+`assign_existing_students`, for the requirement that replaced the roster
+sheet for this cohort type — students self-register via invite code first
+(routers/auth.py::student_signup, a Contact + User but no Registration
+yet), then ops finds them by search and assigns a Team ID in bulk from the
+Competition Judging screen, rather than ops holding their info in a
+spreadsheet at all. It shares `_register_and_assign_team` — the
+registration/LMS-sync/team-resolution core — with `_import_row` below;
+only the identity resolution step differs (a `user_id` already on hand vs.
+`resolve_or_create_contact` from raw sheet fields).
 """
 
 from __future__ import annotations
@@ -279,6 +290,76 @@ def preview_registration_sheet(file_bytes: bytes, filename: str | None = None) -
     return out
 
 
+async def _register_and_assign_team(
+    db: AsyncSession, *, contact_id: uuid.UUID, cohort: Cohort, team_id: str, team_name: str | None,
+    send_welcome_email: bool, fallback_email: str | None = None,
+) -> tuple[Team, Registration, bool]:
+    """Shared core of both entry points into a competition roster: the CSV
+    bulk import (`_import_row`) and assigning an already self-registered
+    student found by search (`_assign_row`). Given a contact who may or may
+    not already have a Registration in `cohort`, find-or-create it, sync
+    their LMS/User account, then find-or-create their Team by `team_id` —
+    the ops roster's external grouping key, see module docstring — and add
+    them to it. Returns (team, registration, is_new_registration); raises
+    HTTPException on a real failure (a team-name collision, or no
+    resolvable student account at all) for the caller to turn into a
+    row-level error rather than aborting the whole batch.
+
+    `fallback_email`, when given, covers the one case `sync_registration_lms`
+    returns None for despite the registration having gone through fine: the
+    contact's email already belongs to a *different*, unlinked User account
+    (see that function's own docstring) — looked up only if actually needed."""
+    existing_reg = (await db.execute(
+        select(Registration).where(Registration.contact_id == contact_id, Registration.cohort_id == cohort.id)
+    )).scalars().first()
+    is_new_registration = existing_reg is None
+    if existing_reg is None:
+        registration = await register(
+            db, contact_id=contact_id, cohort_id=cohort.id, registered_via="import", payment_status="waived",
+        )
+    else:
+        registration = existing_reg
+
+    user = await sync_registration_lms(
+        db, registration=registration, cohort=cohort, create_account=True,
+        send_welcome_email=send_welcome_email,
+    )
+    if user is None:
+        user = (
+            (await db.execute(select(User).where(User.email == fallback_email))).scalars().first()
+            if fallback_email else None
+        )
+        if user is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Registered, but couldn't create a student account (email may already belong to a different account)",
+            )
+
+    # Grouped by team_id, never by name — see module docstring. A team not
+    # found for this (cohort, team_id) yet is a brand new one; `name` falls
+    # back to `team_id` itself when there's no name for it yet, which is
+    # also exactly how "still unnamed" is detected elsewhere
+    # (Team.name == Team.roster_team_id).
+    team = (await db.execute(
+        select(Team).where(Team.cohort_id == cohort.id, Team.roster_team_id == team_id)
+    )).scalars().first()
+    if team is None:
+        team = await create_team(
+            db, name=team_name or team_id, created_by=user.id, cohort_id=cohort.id, member_ids=[user.id],
+            roster_team_id=team_id,
+        )
+    else:
+        if user.id not in await team_member_ids(db, team_id=team.id):
+            await join_team(db, team_id=team.id, user_id=user.id)
+        # Only apply a given name while the team is still at its own
+        # placeholder — never clobber a name a team already set for real
+        # (their own rename, or an ops fix), even on a re-import/re-assign.
+        if team_name and team.name == team.roster_team_id:
+            await rename_team(db, team_id=team.id, name=team_name)
+
+    return team, registration, is_new_registration
+
+
 async def _import_row(
     db: AsyncSession, *, row_number: int, raw: dict, cohort: Cohort, send_welcome_email: bool = True,
 ) -> ImportRowResult:
@@ -295,66 +376,17 @@ async def _import_row(
         role_event_source="import", organization_name=school, nationality=nationality,
     )
 
-    existing_reg = (await db.execute(
-        select(Registration).where(Registration.contact_id == contact.id, Registration.cohort_id == cohort.id)
-    )).scalars().first()
-    is_new_registration = existing_reg is None
-    if existing_reg is None:
-        try:
-            registration = await register(
-                db, contact_id=contact.id, cohort_id=cohort.id, registered_via="import", payment_status="waived",
-            )
-        except HTTPException as exc:
-            return ImportRowResult(row_number, team_id, team_name, email, "error", exc.detail)
-    else:
-        registration = existing_reg
-
-    user = await sync_registration_lms(
-        db, registration=registration, cohort=cohort, create_account=True,
-        send_welcome_email=send_welcome_email,
-    )
-    if user is None:
-        # The email already belongs to an existing User not linked to this
-        # contact (e.g. a pre-existing LMS account).  That's fine — look them
-        # up by email and still add them to the team; the registration was
-        # already created above, so they have a seat in this cohort either way.
-        user = (await db.execute(
-            select(User).where(User.email == email)
-        )).scalars().first()
-        if user is None:
-            return ImportRowResult(
-                row_number, team_id, team_name, email, "error",
-                "Registered, but couldn't create a student account (email may already belong to a different account)",
-            )
-
-    # Grouped by the sheet's team_id now, never by name — see module
-    # docstring. A team not found for this (cohort, team_id) yet is a brand
-    # new one; `name` falls back to `team_id` itself when the sheet has no
-    # name for it, which is also exactly how "still unnamed" is detected
-    # elsewhere (Team.name == Team.roster_team_id).
-    team = (await db.execute(
-        select(Team).where(Team.cohort_id == cohort.id, Team.roster_team_id == team_id)
-    )).scalars().first()
     try:
-        if team is None:
-            team = await create_team(
-                db, name=team_name or team_id, created_by=user.id, cohort_id=cohort.id, member_ids=[user.id],
-                roster_team_id=team_id,
-            )
-        else:
-            if user.id not in await team_member_ids(db, team_id=team.id):
-                await join_team(db, team_id=team.id, user_id=user.id)
-            # Only apply the sheet's name while the team is still at its own
-            # placeholder — never clobber a name a team already set for
-            # real (their own rename, or an ops fix), even on a re-import.
-            if team_name and team.name == team.roster_team_id:
-                await rename_team(db, team_id=team.id, name=team_name)
+        team, registration, is_new_registration = await _register_and_assign_team(
+            db, contact_id=contact.id, cohort=cohort, team_id=team_id, team_name=team_name,
+            send_welcome_email=send_welcome_email, fallback_email=email,
+        )
     except HTTPException as exc:
-        # A name collision (this row's team_name, or the team_id-as-
-        # placeholder-name, matching another team's real name
-        # case-insensitively) — flag the row rather than aborting the
-        # whole batch; the registration/account above already committed
-        # to the session either way.
+        # Either register()'s own failure, a team-name collision (this row's
+        # team_name, or the team_id-as-placeholder-name, matching another
+        # team's real name case-insensitively), or no resolvable account —
+        # flag the row rather than aborting the whole batch; the contact
+        # above already committed to the session either way.
         return ImportRowResult(row_number, team_id, team_name, email, "error", exc.detail)
 
     return ImportRowResult(
@@ -402,3 +434,91 @@ def results_as_dicts(results: list[ImportRowResult]) -> list[dict]:
 
 def preview_rows_as_dicts(rows: list[ImportPreviewRow]) -> list[dict]:
     return [asdict(r) for r in rows]
+
+
+# ── Assign existing (self-registered) students ──────────────────────────
+# See module docstring's "Assign-existing-students" section.
+
+@dataclass
+class AssignRowResult:
+    row_number: int
+    user_id: uuid.UUID | None
+    team_id: str | None
+    team_name: str | None
+    # Same vocabulary as ImportRowResult.disposition — "created" means a new
+    # Registration was created for this student (drives the ticket-email
+    # job below, same rule as the CSV path); "matched" means they already
+    # had one in this cohort (a re-assign, or a team move/fix) and nothing
+    # about their registration changed, only (maybe) their team.
+    disposition: Literal["created", "matched", "error"]
+    reason: str | None = None
+    registration_id: uuid.UUID | None = None
+
+
+async def _assign_row(
+    db: AsyncSession, *, row_number: int, user_id: uuid.UUID, team_id: str | None, team_name: str | None,
+    cohort: Cohort, send_welcome_email: bool,
+) -> AssignRowResult:
+    clean_team_id = _clean_str(team_id)
+    if not clean_team_id:
+        return AssignRowResult(row_number, user_id, team_id, team_name, "error", "Team ID is required")
+    clean_team_name = _clean_str(team_name)
+
+    user = await db.get(User, user_id)
+    if user is None:
+        return AssignRowResult(row_number, user_id, clean_team_id, clean_team_name, "error", "Student not found")
+    if user.contact_id is None:
+        return AssignRowResult(
+            row_number, user_id, clean_team_id, clean_team_name, "error",
+            "This student has no linked contact record — this shouldn't happen for a self-registered account",
+        )
+
+    try:
+        team, registration, is_new_registration = await _register_and_assign_team(
+            db, contact_id=user.contact_id, cohort=cohort, team_id=clean_team_id, team_name=clean_team_name,
+            send_welcome_email=send_welcome_email, fallback_email=user.email,
+        )
+    except HTTPException as exc:
+        return AssignRowResult(row_number, user_id, clean_team_id, clean_team_name, "error", exc.detail)
+
+    return AssignRowResult(
+        row_number, user_id, clean_team_id, team.name, "created" if is_new_registration else "matched",
+        registration_id=registration.id,
+    )
+
+
+async def assign_existing_students(
+    db: AsyncSession, *, cohort_id: uuid.UUID, rows: list[dict], send_welcome_email: bool = True,
+) -> list[AssignRowResult]:
+    """Ops flow (2026-09-14): a roster of students who already self-registered
+    via invite code (`routers/auth.py::student_signup` — a Contact + User,
+    no Registration yet) gets registered into this competition's cohort and
+    assigned to a team in one bulk action, driven from a search result
+    (Competition Judging → Assign tab) rather than a spreadsheet. `rows` is
+    `[{"row_number", "user_id", "team_id", "team_name"?}]` — each `user_id`
+    a hit from the existing `/lms/admin/students` search. Idempotent the
+    same way the CSV path is: re-running the same (user, team_id) pair
+    reports `matched` rather than duplicating anything."""
+    cohort = await db.get(Cohort, cohort_id)
+    if cohort is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+
+    results = []
+    for entry in rows:
+        result = await _assign_row(
+            db, row_number=entry["row_number"], user_id=entry["user_id"], team_id=entry.get("team_id"),
+            team_name=entry.get("team_name"), cohort=cohort, send_welcome_email=send_welcome_email,
+        )
+        results.append(result)
+    return results
+
+
+def summarize_assign_results(results: list[AssignRowResult]) -> dict:
+    summary = {"total": len(results), "created": 0, "matched": 0, "error": 0}
+    for r in results:
+        summary[r.disposition] += 1
+    return summary
+
+
+def assign_results_as_dicts(results: list[AssignRowResult]) -> list[dict]:
+    return [asdict(r) for r in results]

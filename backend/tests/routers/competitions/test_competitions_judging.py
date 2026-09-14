@@ -1032,3 +1032,230 @@ async def test_publishing_closes_scoring_and_unpublish_reopens_it(db, client):
         json={"criterion_scores": {"design": 25, "execution": 20}},
     )
     assert reopened.status_code == 200
+
+
+# ── Assign existing (self-registered) students (2026-09-14) ─────────────
+# The Assign tab: students self-register via invite code first
+# (routers/auth.py::student_signup — a Contact + User but no Registration
+# yet), then ops finds them by search and assigns a Team ID here, rather
+# than holding their info in a spreadsheet at all.
+
+async def _self_registered_student(db, *, full_name: str = "Self Signup Student") -> User:
+    email = f"selfsignup-{uuid.uuid4().hex[:8]}@example.com"
+    contact = Contact(id=uuid.uuid4(), full_name=full_name, email=email, contact_roles=["student"])
+    db.add(contact)
+    await db.flush()
+    user = User(
+        id=uuid.uuid4(), full_name=full_name, email=email, password_hash="x",
+        roles=["student"], status="active", contact_id=contact.id, must_change_password=False,
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
+@pytest.mark.asyncio
+async def test_assignable_students_reports_team_state_and_filters_unassigned(db, client):
+    """Ops's own ask (2026-09-14): "see people not assigned to teams yet
+    with that code I picked". Without the filter, every match comes back
+    with its current team state (None/None if not on one yet); with it,
+    already-teamed rows are dropped entirely."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    unassigned = await _self_registered_student(db, full_name="Not Yet Assigned")
+    assigned = await _self_registered_student(db, full_name="Already Assigned")
+    await db.commit()
+
+    pre_assign = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [{"user_id": str(assigned.id), "team_id": "T1"}]},
+        headers=_headers(ops),
+    )
+    assert pre_assign.status_code == 200, pre_assign.text
+
+    full = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        headers=_headers(ops),
+    )
+    assert full.status_code == 200, full.text
+    by_id = {r["id"]: r for r in full.json()}
+    assert by_id[str(unassigned.id)]["team_id"] is None
+    assert by_id[str(unassigned.id)]["team_name"] is None
+    assert by_id[str(assigned.id)]["team_id"] == "T1"
+    assert by_id[str(assigned.id)]["team_name"] == "T1"
+
+    filtered = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"unassigned_only": "true"},
+        headers=_headers(ops),
+    )
+    assert filtered.status_code == 200, filtered.text
+    filtered_ids = {r["id"] for r in filtered.json()}
+    assert str(unassigned.id) in filtered_ids
+    assert str(assigned.id) not in filtered_ids
+
+
+@pytest.mark.asyncio
+async def test_assignable_students_treats_a_manually_created_team_as_assigned(db, client):
+    """A team made by hand in the Teams tab has no roster_team_id at all —
+    `team_id` comes back None for its members, but `unassigned_only` must
+    still exclude them (assignment is keyed on membership, not on
+    roster_team_id being set)."""
+    from app.services.teams import create_team
+
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    student = await _self_registered_student(db)
+    await db.commit()
+
+    await create_team(db, name="Hand-Made Team", created_by=student.id, cohort_id=cohort.id, member_ids=[student.id])
+    await db.commit()
+
+    resp = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"unassigned_only": "true"},
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+    assert str(student.id) not in {r["id"] for r in resp.json()}
+
+    unfiltered = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        headers=_headers(ops),
+    )
+    row = next(r for r in unfiltered.json() if r["id"] == str(student.id))
+    assert row["team_id"] is None
+    assert row["team_name"] == "Hand-Made Team"
+
+
+@pytest.mark.asyncio
+async def test_assignable_students_honors_invite_code_filter(db, client):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    student = await _self_registered_student(db)
+    student.invitation_code_used = "BATCH1"
+    await db.commit()
+
+    hit = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"invite_code": "BATCH1"},
+        headers=_headers(ops),
+    )
+    assert hit.status_code == 200, hit.text
+    assert str(student.id) in {r["id"] for r in hit.json()}
+
+    miss = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"invite_code": "OTHERBATCH"},
+        headers=_headers(ops),
+    )
+    assert miss.status_code == 200, miss.text
+    assert str(student.id) not in {r["id"] for r in miss.json()}
+
+
+@pytest.mark.asyncio
+async def test_assign_students_registers_and_teams_up_self_registered_students(db, client):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    a = await _self_registered_student(db, full_name="Amir Salem")
+    b = await _self_registered_student(db, full_name="Lina Nasser")
+    await db.commit()
+
+    resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [
+            {"user_id": str(a.id), "team_id": "T1"},
+            {"user_id": str(b.id), "team_id": "T1"},
+        ]},
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["summary"] == {"total": 2, "created": 2, "matched": 0, "error": 0}
+
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert len(teams) == 1
+    assert teams[0].name == "T1"  # unnamed placeholder — student names it later
+    members = await team_member_ids(db, team_id=teams[0].id)
+    assert {a.id, b.id} <= set(members)
+
+
+@pytest.mark.asyncio
+async def test_assign_students_is_idempotent_and_reports_matched_on_repeat(db, client):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    student = await _self_registered_student(db)
+    await db.commit()
+
+    first = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [{"user_id": str(student.id), "team_id": "T1"}]},
+        headers=_headers(ops),
+    )
+    assert first.json()["summary"] == {"total": 1, "created": 1, "matched": 0, "error": 0}
+
+    second = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [{"user_id": str(student.id), "team_id": "T1"}]},
+        headers=_headers(ops),
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["summary"] == {"total": 1, "created": 0, "matched": 1, "error": 0}
+
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert len(teams) == 1
+
+
+@pytest.mark.asyncio
+async def test_assign_students_flags_an_unknown_user_id_without_failing_the_batch(db, client):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    real = await _self_registered_student(db)
+    await db.commit()
+
+    resp = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [
+            {"user_id": str(uuid.uuid4()), "team_id": "T1"},
+            {"user_id": str(real.id), "team_id": "T1"},
+        ]},
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["summary"] == {"total": 2, "created": 1, "matched": 0, "error": 1}
+    error_row = next(r for r in body["rows"] if r["disposition"] == "error")
+    assert "not found" in error_row["reason"].lower()
+
+
+@pytest.mark.asyncio
+async def test_assign_students_enqueues_a_ticket_email_only_for_newly_registered_rows(db, arq_client, arq_redis):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    a = await _self_registered_student(db)
+    b = await _self_registered_student(db)
+    await db.commit()
+
+    # b is already registered+teamed before this call, so re-assigning them
+    # (even to a different team) must not re-fire a ticket job — only a's
+    # row is genuinely new.
+    first = await arq_client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [{"user_id": str(b.id), "team_id": "T1"}]},
+        headers=_headers(ops),
+    )
+    assert first.status_code == 200, first.text
+
+    resp = await arq_client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [
+            {"user_id": str(a.id), "team_id": "T2"},
+            {"user_id": str(b.id), "team_id": "T2"},
+        ]},
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["summary"] == {"total": 2, "created": 1, "matched": 1, "error": 0}
+
+    queued_jobs = await arq_redis.zrange("arq:queue", 0, -1)
+    assert len(queued_jobs) == 2  # one for b's first assign, one for a's

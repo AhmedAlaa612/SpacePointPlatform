@@ -10,6 +10,7 @@ import uuid
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_current_active_user, require_lms_content
@@ -17,8 +18,11 @@ from app.db.session import get_db
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
+from app.models.team import Team, TeamMember
 from app.schemas.competitions import (
-    CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionImportConfirmIn,
+    CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionAssignableStudentOut,
+    CompetitionAssignStudentRowOut, CompetitionAssignStudentsIn, CompetitionAssignStudentsOut,
+    CompetitionImportConfirmIn,
     CompetitionImportPreviewOut, CompetitionImportPreviewRowOut, CompetitionImportResultOut,
     CompetitionImportRowOut, CompetitionJudgeInviteIn, CompetitionJudgeOut, CompetitionJudgeProgressOut,
     CompetitionLeaderboardRowOut, CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut,
@@ -30,6 +34,7 @@ from app.services.competitions import judging as judging_service
 from app.services.competitions import progression as progression_service
 from app.services.competitions import registration_import as import_service
 from app.services.competitions import team_management as team_service
+from app.services.lms import students as student_search_service
 from app.workers.settings import get_arq_redis, safe_enqueue
 
 router = APIRouter(
@@ -247,6 +252,80 @@ async def post_cohort_registration_import_confirm(
         rows=[
             CompetitionImportRowOut(**{k: v for k, v in r.items() if k != "registration_id"})
             for r in import_service.results_as_dicts(results)
+        ],
+    )
+
+
+@router.get("/cohorts/{cohort_id}/assignable-students", response_model=list[CompetitionAssignableStudentOut])
+async def get_cohort_assignable_students(
+    cohort_id: uuid.UUID, q: str | None = None, invite_code: str | None = None,
+    unassigned_only: bool = False, db: AsyncSession = Depends(get_db),
+):
+    """Backs the Assign tab's search — the same student search
+    `/lms/admin/students` does (name/email substring, invite-code batch
+    filter), scoped to `cohort_id` so each row also reports whether that
+    student is already on a team *in this cohort* (`team_id`/`team_name`,
+    both None if not). `unassigned_only=true` filters those already-teamed
+    rows out entirely — ops's own ask: "see people not assigned to teams
+    yet with that code I picked", so they aren't re-scanning a list of
+    students they already handled."""
+    await _get_cohort_or_404(db, cohort_id)
+    students = await student_search_service.search_students(db, q=q, invite_code=invite_code)
+
+    team_rows = (await db.execute(
+        select(TeamMember.user_id, Team.roster_team_id, Team.name)
+        .join(Team, Team.id == TeamMember.team_id)
+        .where(Team.cohort_id == cohort_id, TeamMember.user_id.in_([s.id for s in students]))
+    )).all()
+    # Keyed on membership, not on `roster_team_id` being set — a team
+    # created by hand in the Teams tab (no roster_team_id at all) still
+    # counts as "already assigned" here, even though its team_id is None.
+    team_by_user = {row.user_id: (row.roster_team_id, row.name) for row in team_rows}
+
+    out = []
+    for s in students:
+        if unassigned_only and s.id in team_by_user:
+            continue
+        team_id, team_name = team_by_user.get(s.id, (None, None))
+        out.append(CompetitionAssignableStudentOut(**s.model_dump(), team_id=team_id, team_name=team_name))
+    return out
+
+
+@router.post("/cohorts/{cohort_id}/assign-students", response_model=CompetitionAssignStudentsOut)
+async def post_cohort_assign_students(
+    cohort_id: uuid.UUID, body: CompetitionAssignStudentsIn, db: AsyncSession = Depends(get_db),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
+):
+    """Assign tab (2026-09-14): ops has already found these students via
+    `/lms/admin/students` search (they self-registered with an invite code)
+    and typed in a Team ID per row — this registers each one into `cohort`
+    and adds them to that team, creating the team if it's new. See
+    `registration_import.assign_existing_students`'s own docstring for why
+    this exists alongside the CSV roster-import path rather than replacing
+    it.
+
+    Same `send_ticket_email` rule as the CSV confirm endpoint: only a row
+    that actually created a new Registration (`disposition == "created"`)
+    gets a ticket-email job — a row that just moved an already-registered
+    student to a different team has nothing new to ticket."""
+    await _get_cohort_or_404(db, cohort_id)
+    rows = [
+        {"row_number": i, "user_id": r.user_id, "team_id": r.team_id, "team_name": r.team_name}
+        for i, r in enumerate(body.rows, start=1)
+    ]
+    results = await import_service.assign_existing_students(
+        db, cohort_id=cohort_id, rows=rows, send_welcome_email=body.send_welcome_email,
+    )
+    await db.commit()
+    if body.send_ticket_email:
+        for r in results:
+            if r.disposition == "created" and r.registration_id is not None:
+                await safe_enqueue(arq_redis, "send_ticket_email", str(r.registration_id))
+    return CompetitionAssignStudentsOut(
+        summary=import_service.summarize_assign_results(results),
+        rows=[
+            CompetitionAssignStudentRowOut(**{k: v for k, v in r.items() if k != "registration_id"})
+            for r in import_service.assign_results_as_dicts(results)
         ],
     )
 

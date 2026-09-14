@@ -1,20 +1,21 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
-import { ArrowLeft, ArrowUpRight, Download, Mail, Plus, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
+import { ArrowLeft, ArrowUpRight, Download, Mail, Plus, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
-import { searchStaffApi, type StaffOption } from "@/api/lms_admin"
+import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import {
-  advanceCohortTeamsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
+  advanceCohortTeamsApi, assignExistingStudentsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
   getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
-  previewCohortRegistrationImportApi,
+  previewCohortRegistrationImportApi, searchAssignableStudentsApi,
   inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi, registerAndAddTeamMemberApi,
   removeTeamMemberApi, renameTeamApi, resendJudgeOnboardingEmailApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
-  type CompetitionImportPreviewRow, type CompetitionImportResult, type CompetitionJudgeProgress,
+  type CompetitionAssignStudentsResult, type CompetitionImportPreviewRow, type CompetitionImportResult,
+  type CompetitionJudgeProgress,
   type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
 } from "@/api/competitions"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
@@ -22,9 +23,10 @@ import { Field } from "@/pages/admin/components/common"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
 
-type JudgingTab = "roster" | "teams" | "rubric" | "judges" | "results"
+type JudgingTab = "roster" | "assign" | "teams" | "rubric" | "judges" | "results"
 const TABS: { key: JudgingTab; label: string }[] = [
   { key: "roster", label: "Roster" },
+  { key: "assign", label: "Assign" },
   { key: "teams", label: "Teams" },
   { key: "rubric", label: "Rubric" },
   { key: "judges", label: "Judges" },
@@ -78,6 +80,7 @@ export default function CompetitionJudging() {
       </div>
 
       {tab === "roster" && <RosterTab cohortId={cohort.id} />}
+      {tab === "assign" && <AssignTab cohortId={cohort.id} />}
       {tab === "teams" && <TeamsTab cohortId={cohort.id} />}
       {tab === "rubric" && <RubricTab programId={cohort.program_id} />}
       {tab === "judges" && <JudgesTab cohortId={cohort.id} />}
@@ -313,6 +316,204 @@ function RosterTab({ cohortId }: { cohortId: string }) {
                     <td className="py-2 pr-3">{r.team_id ?? "—"}</td>
                     <td className="py-2 pr-3">{r.team_name ?? "—"}</td>
                     <td className="py-2 pr-3">{r.email ?? "—"}</td>
+                    <td className={`py-2 pr-3 ${r.disposition === "error" ? "text-red-600 dark:text-red-400" : "text-foreground"}`}>
+                      {r.disposition === "error" ? r.reason : r.disposition}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ================================================================== */
+/* Assign (existing self-registered students → team + registration)   */
+/* ================================================================== */
+// (2026-09-14) Requirements changed again: ops no longer holds student
+// info at all — students self-register with an invite code first
+// (routers/auth.py::student_signup), then ops finds them here and types
+// in a Team ID per row, same editable-cell feel as the Roster table
+// above. Team *naming* stays entirely the student's own deadline-gated
+// step (the `team_setup` checklist item) — this tab only ever assigns a
+// Team ID, never a display name.
+function AssignTab({ cohortId }: { cohortId: string }) {
+  const toast = useToast()
+  const [query, setQuery] = useState("")
+  const [inviteCode, setInviteCode] = useState("")
+  const [unassignedOnly, setUnassignedOnly] = useState(true)
+  const [teamIds, setTeamIds] = useState<Record<string, string>>({})
+  const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
+  const [sendTicketEmail, setSendTicketEmail] = useState(true)
+  const [result, setResult] = useState<CompetitionAssignStudentsResult | null>(null)
+
+  const { data: students = [], isLoading } = useQuery({
+    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, unassignedOnly],
+    queryFn: () => searchAssignableStudentsApi(cohortId, {
+      q: query || undefined, invite_code: inviteCode || undefined, unassigned_only: unassignedOnly,
+    }),
+  })
+  const { data: codes = [] } = useQuery({
+    queryKey: ["lms-admin-invite-codes"],
+    queryFn: listInviteCodesApi,
+  })
+
+  const assignMutation = useMutation({
+    mutationFn: (rows: { user_id: string; team_id: string }[]) =>
+      assignExistingStudentsApi(cohortId, rows, { send_welcome_email: sendWelcomeEmail, send_ticket_email: sendTicketEmail }),
+    onSuccess: (res) => {
+      setResult(res)
+      setTeamIds({})
+      toast.success(`Assigned: ${res.summary.created} newly registered, ${res.summary.matched} already registered, ${res.summary.error} errors`)
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to assign students")),
+  })
+
+  const rowsToSubmit = Object.entries(teamIds)
+    .filter(([, teamId]) => teamId.trim())
+    .map(([userId, teamId]) => ({ user_id: userId, team_id: teamId.trim() }))
+
+  return (
+    <div className="flex flex-col gap-4 max-w-4xl">
+      <p className="text-sm text-muted-foreground">
+        Find students who already signed up with an invite code, type in a Team ID for each, and assign them —
+        this registers them into this cohort and puts them on that team (creating it if it's new). Students set
+        their own team's display name later; a Team ID here is just the grouping code, not a name.
+      </p>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative max-w-md flex-1 min-w-[220px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search by name or email..."
+            className="w-full h-10 pl-8 pr-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+          />
+        </div>
+        <select
+          value={inviteCode}
+          onChange={(e) => setInviteCode(e.target.value)}
+          className="h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+        >
+          <option value="">All batches</option>
+          {codes.map((c) => (
+            <option key={c.id} value={c.code}>{c.label ? `${c.label} (${c.code})` : c.code}</option>
+          ))}
+          <option value="none">No code</option>
+        </select>
+        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+          <input type="checkbox" checked={unassignedOnly} onChange={(e) => setUnassignedOnly(e.target.checked)} />
+          Not on a team yet
+        </label>
+      </div>
+
+      {isLoading ? (
+        <Spinner />
+      ) : students.length === 0 ? (
+        <EmptyState
+          title="No students found"
+          hint={
+            unassignedOnly
+              ? "Everyone matching this search is already on a team — untick \"Not on a team yet\" to see them."
+              : query || inviteCode ? "Try a different search or batch." : "No student accounts exist yet."
+          }
+        />
+      ) : (
+        <div className="overflow-x-auto border border-border rounded-xl">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
+                <th className="py-2 pl-3 pr-2">Name</th>
+                <th className="py-2 pr-2">Email</th>
+                <th className="py-2 pr-2">Code used</th>
+                <th className="py-2 pr-2">Current team</th>
+                <th className="py-2 pr-3">Team ID</th>
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((s) => (
+                <tr key={s.id} className="border-b border-border/50">
+                  <td className="py-1.5 pl-3 pr-2 align-top pt-3 font-medium text-foreground whitespace-nowrap">{s.full_name}</td>
+                  <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground whitespace-nowrap">{s.email}</td>
+                  <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground whitespace-nowrap">
+                    {s.invite_code ? (s.invite_label ?? s.invite_code) : "—"}
+                  </td>
+                  <td className="py-1.5 pr-2 align-top pt-3 whitespace-nowrap">
+                    {s.team_name ? (
+                      <span className="text-xs font-semibold text-primary">{s.team_name}</span>
+                    ) : (
+                      <span className="text-muted-foreground">Not assigned</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-3">
+                    <input
+                      value={teamIds[s.id] ?? ""}
+                      onChange={(e) => setTeamIds((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                      placeholder="e.g. T1"
+                      className="w-32 h-8 px-2 rounded-lg border border-border bg-background text-sm"
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {rowsToSubmit.length > 0 && (
+        <>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+              <input type="checkbox" checked={sendWelcomeEmail} onChange={(e) => setSendWelcomeEmail(e.target.checked)} />
+              Send LMS onboarding mail
+            </label>
+            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+              <input type="checkbox" checked={sendTicketEmail} onChange={(e) => setSendTicketEmail(e.target.checked)} />
+              Send Ticket
+            </label>
+          </div>
+          <button
+            onClick={() => assignMutation.mutate(rowsToSubmit)}
+            disabled={assignMutation.isPending}
+            className="self-start flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
+          >
+            <Check size={14} /> {assignMutation.isPending ? "Assigning…" : `Assign & register (${rowsToSubmit.length})`}
+          </button>
+        </>
+      )}
+
+      {result && (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium text-foreground">
+              {result.summary.total} rows · {result.summary.created} newly registered · {result.summary.matched} already registered ·{" "}
+              {result.summary.error} errors
+            </p>
+            <button
+              onClick={() => setResult(null)}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
+                  <th className="py-2 pr-3">Team ID</th>
+                  <th className="py-2 pr-3">Team</th>
+                  <th className="py-2 pr-3">Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {result.rows.map((r) => (
+                  <tr key={r.row_number} className="border-b border-border/50">
+                    <td className="py-2 pr-3">{r.team_id ?? "—"}</td>
+                    <td className="py-2 pr-3">{r.team_name ?? "—"}</td>
                     <td className={`py-2 pr-3 ${r.disposition === "error" ? "text-red-600 dark:text-red-400" : "text-foreground"}`}>
                       {r.disposition === "error" ? r.reason : r.disposition}
                     </td>
