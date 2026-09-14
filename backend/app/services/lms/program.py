@@ -208,6 +208,26 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="Only a submission item can take multiple links",
         )
+    # 2026-09-14 — ops's own fixed label set (submission_link_labels) only
+    # means anything once submission_multi_link is on; each label needs
+    # actual text (a bare required-checkbox with nothing to label is
+    # meaningless), and labels must be unique or the required-link check
+    # in submit_program_item couldn't tell two "Team link"s apart.
+    if body.submission_link_labels is not None:
+        if not body.submission_multi_link:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail="submission_link_labels needs submission_multi_link on",
+            )
+        if not body.submission_link_labels:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Add at least one label, or leave it unset")
+        for spec in body.submission_link_labels:
+            spec.label = spec.label.strip()
+        if any(not spec.label for spec in body.submission_link_labels):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="A label can't be blank")
+        labels = [spec.label for spec in body.submission_link_labels]
+        if len(set(labels)) != len(labels):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Labels must be unique")
     # Roadmap board (2026-09) ─────────────────────────────────────────
     if body.mission_step_key is not None:
         if body.item_type != "mission_run":

@@ -389,6 +389,28 @@ function DrawerBody({
           <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
             Deadline passed — no longer accepting submissions
           </p>
+        ) : item.submission_link_labels?.length ? (
+          // Ops's own fixed label set (2026-09-14) — a fixed row per
+          // label, in ops's order; no adding/removing/renaming, only
+          // filling each one in. "required" ones block submission (see
+          // the CTA's disabled condition below).
+          <div className="flex flex-col gap-2.5" onClick={(e) => e.stopPropagation()}>
+            {item.submission_prompt && <p className="text-sm text-muted-foreground">{item.submission_prompt}</p>}
+            {item.submission_link_labels.map((spec, i) => (
+              <div key={spec.label} className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-foreground">
+                  {spec.label}{spec.required && <span className="text-destructive"> *</span>}
+                </label>
+                <input
+                  value={linksInput[i]?.url ?? ""}
+                  onChange={(e) => setLinksInput((prev) => prev.map((l, j) => j === i ? { ...l, url: e.target.value } : l))}
+                  placeholder="https://…"
+                  disabled={!canSubmit}
+                  className="h-12 px-3 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+                />
+              </div>
+            ))}
+          </div>
         ) : (
           <div className="flex flex-col gap-2.5" onClick={(e) => e.stopPropagation()}>
             {item.submission_prompt && <p className="text-sm text-muted-foreground">{item.submission_prompt}</p>}
@@ -467,7 +489,13 @@ function DrawerBody({
         )}
         {isSubmission && isMultiLink && !pastDeadline && (
           <Button
-            disabled={!canSubmit || !linksInput.some((l) => l.url.trim()) || submitLinksMutation.isPending}
+            disabled={
+              !canSubmit || submitLinksMutation.isPending
+              || !linksInput.some((l) => l.url.trim())
+              // Ops's own required labels (2026-09-14) block submission
+              // until each has a real link — optional ones don't.
+              || (item.submission_link_labels?.some((spec, i) => spec.required && !linksInput[i]?.url.trim()) ?? false)
+            }
             onClick={() => submitLinksMutation.mutate(
               linksInput
                 .filter((l) => l.url.trim())
@@ -518,9 +546,19 @@ export function TaskDrawer({
   // seeded from whatever's already submitted, one blank row for a fresh
   // item, resets per-item the same way every other drawer state does (via
   // the parent's `key={item?.id}` remount, not an effect).
-  const [linksInput, setLinksInput] = useState<SubmissionLink[]>(() =>
-    item?.submitted_links?.length ? item.submitted_links.map((l) => ({ ...l })) : [{ label: "", url: "" }],
-  );
+  const [linksInput, setLinksInput] = useState<SubmissionLink[]>(() => {
+    // Ops's own fixed label set (2026-09-14): one row per label, in ops's
+    // order, seeded from whatever's already submitted under that exact
+    // label — not just positionally, since ops can reorder/add labels
+    // after students have already submitted under the old set.
+    if (item?.submission_link_labels?.length) {
+      return item.submission_link_labels.map((spec) => ({
+        label: spec.label,
+        url: item.submitted_links?.find((l) => l.label === spec.label)?.url ?? "",
+      }));
+    }
+    return item?.submitted_links?.length ? item.submitted_links.map((l) => ({ ...l })) : [{ label: "", url: "" }];
+  });
   const [teamNameInput, setTeamNameInput] = useState(teamName ?? "");
   const [viewingPdf, setViewingPdf] = useState(false);
 

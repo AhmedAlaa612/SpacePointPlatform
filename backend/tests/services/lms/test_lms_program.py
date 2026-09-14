@@ -1192,3 +1192,59 @@ def test_submission_multi_link_rejected_on_a_non_submission_item():
         validate_item_payload(body)
     assert exc_info.value.status_code == 400
     assert "multiple links" in exc_info.value.detail
+
+
+# ── submission_link_labels authoring validation (2026-09-14) ───────────────
+
+def test_submission_link_labels_is_valid_with_multi_link_on():
+    body = LmsProgramItemIn(
+        item_type="submission", title="Team deliverable", submission_prompt="links",
+        submission_multi_link=True,
+        submission_link_labels=[{"label": "Member 1 link", "required": True}, {"label": "Team link", "required": False}],
+    )
+    validate_item_payload(body)  # does not raise
+    assert body.submission_link_labels[0].label == "Member 1 link"
+
+
+def test_submission_link_labels_rejected_without_multi_link():
+    body = LmsProgramItemIn(
+        item_type="submission", title="Team deliverable", submission_prompt="links",
+        submission_multi_link=False, submission_link_labels=[{"label": "Member 1 link", "required": True}],
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        validate_item_payload(body)
+    assert exc_info.value.status_code == 400
+    assert "submission_multi_link" in exc_info.value.detail
+
+
+def test_submission_link_labels_rejects_empty_list():
+    body = LmsProgramItemIn(
+        item_type="submission", title="Team deliverable", submission_prompt="links",
+        submission_multi_link=True, submission_link_labels=[],
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        validate_item_payload(body)
+    assert exc_info.value.status_code == 400
+
+
+def test_submission_link_labels_rejects_blank_label():
+    body = LmsProgramItemIn(
+        item_type="submission", title="Team deliverable", submission_prompt="links",
+        submission_multi_link=True, submission_link_labels=[{"label": "   ", "required": True}],
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        validate_item_payload(body)
+    assert exc_info.value.status_code == 400
+    assert "blank" in exc_info.value.detail
+
+
+def test_submission_link_labels_rejects_duplicate_labels():
+    body = LmsProgramItemIn(
+        item_type="submission", title="Team deliverable", submission_prompt="links",
+        submission_multi_link=True,
+        submission_link_labels=[{"label": "Team link", "required": True}, {"label": "Team link", "required": False}],
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        validate_item_payload(body)
+    assert exc_info.value.status_code == 400
+    assert "unique" in exc_info.value.detail

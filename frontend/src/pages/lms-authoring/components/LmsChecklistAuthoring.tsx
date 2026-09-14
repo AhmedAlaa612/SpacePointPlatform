@@ -21,6 +21,7 @@ import {
   getLmsProgramItemGuidelineVideoUrlApi,
   MISSION_STEP_KEYS,
   type LmsProgram, type LmsProgramItem, type LmsProgramItemInput, type LmsProgramItemType,
+  type LmsProgramItemLinkLabel,
 } from "@/api/lms_admin"
 import { errorDetail, toDatetimeLocalValue, itemToInput, ITEM_TYPES, TEAM_SCOPABLE_TYPES, ITEM_TYPE_META, PHASE_PICKER_KEYS } from "./LmsChecklistShared"
 
@@ -876,6 +877,13 @@ export function ItemForm({
   const [externalUrl, setExternalUrl] = useState(initial?.external_url ?? "")
   const [submissionPrompt, setSubmissionPrompt] = useState(initial?.submission_prompt ?? "")
   const [submissionMultiLink, setSubmissionMultiLink] = useState(initial?.submission_multi_link ?? false)
+  // Ops's own fixed label set for a multi-link submission (2026-09-14) —
+  // one row per label, each with its own required checkbox. Empty means
+  // "leave it free-text" (students type their own labels), same as
+  // before this existed.
+  const [linkLabels, setLinkLabels] = useState<LmsProgramItemLinkLabel[]>(
+    initial?.submission_link_labels ?? [],
+  )
   const [deadlineAt, setDeadlineAt] = useState(toDatetimeLocalValue(initial?.deadline_at))
   const [sessionDate, setSessionDate] = useState(initial?.session_date ?? "")
   const [sessionStartsAt, setSessionStartsAt] = useState(initial?.session_starts_at?.slice(0, 5) ?? "")
@@ -944,6 +952,13 @@ export function ItemForm({
     if (itemType === "mission_run" && !missionId) { setError("Pick a mission"); return }
     if (itemType === "external_link" && !externalUrl.trim()) { setError("A link is required"); return }
     if (itemType === "submission" && !externalUrl.trim() && !submissionPrompt.trim()) { setError("Add a link or a submission prompt"); return }
+    if (itemType === "submission" && submissionMultiLink && linkLabels.some((l) => !l.label.trim())) {
+      setError("Every label needs text — remove any blank rows"); return
+    }
+    if (itemType === "submission" && submissionMultiLink) {
+      const trimmedLabels = linkLabels.map((l) => l.label.trim().toLowerCase())
+      if (new Set(trimmedLabels).size !== trimmedLabels.length) { setError("Labels must be unique"); return }
+    }
     if (itemType === "quiz" && !cohortQuizTemplateId) { setError("Pick a quiz template"); return }
     if (guidelineKind === "link" && !guidelineUrl.trim()) { setError("A link guideline needs a URL"); return }
     if (guidelineKind === "video" && videoMode === "embed" && !guidelineUrl.trim()) {
@@ -965,6 +980,9 @@ export function ItemForm({
         external_url: (itemType === "external_link" || itemType === "submission") ? (externalUrl.trim() || null) : null,
         submission_prompt: itemType === "submission" ? (submissionPrompt.trim() || null) : null,
         submission_multi_link: itemType === "submission" ? submissionMultiLink : false,
+        submission_link_labels: itemType === "submission" && submissionMultiLink && linkLabels.length > 0
+          ? linkLabels.map((l) => ({ label: l.label.trim(), required: l.required }))
+          : null,
         deadline_at: (itemType === "submission" || itemType === "team_setup") && deadlineAt
           ? new Date(deadlineAt).toISOString() : null,
         session_date: itemType === "session" ? (sessionDate || null) : null,
@@ -1098,9 +1116,52 @@ export function ItemForm({
             rows={2} className={`${inputCls} h-auto py-2 resize-none`}
           />
           <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-            <input type="checkbox" checked={submissionMultiLink} onChange={(e) => setSubmissionMultiLink(e.target.checked)} />
-            Allow multiple links (e.g. Member 1 link, Member 2 link, Team link — each with an optional label)
+            <input
+              type="checkbox" checked={submissionMultiLink}
+              onChange={(e) => setSubmissionMultiLink(e.target.checked)}
+            />
+            Allow multiple links (e.g. Member 1 link, Member 2 link, Team link)
           </label>
+          {submissionMultiLink && (
+            <div className="flex flex-col gap-1.5 pl-1 border-l-2 border-border/60 ml-1">
+              <span className="text-[11px] text-muted-foreground">
+                Set the labels yourself, and tick "required" for any that must be filled in before the student can
+                submit. Leave this empty to let students type their own labels instead (the old behavior).
+              </span>
+              {linkLabels.map((l, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <input
+                    value={l.label}
+                    onChange={(e) => setLinkLabels((prev) => prev.map((x, j) => j === i ? { ...x, label: e.target.value } : x))}
+                    placeholder="e.g. Member 1 link"
+                    className={`${inputCls} flex-1`}
+                  />
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none shrink-0">
+                    <input
+                      type="checkbox" checked={l.required}
+                      onChange={(e) => setLinkLabels((prev) => prev.map((x, j) => j === i ? { ...x, required: e.target.checked } : x))}
+                    />
+                    required
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setLinkLabels((prev) => prev.filter((_, j) => j !== i))}
+                    aria-label="Remove label"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setLinkLabels((prev) => [...prev, { label: "", required: false }])}
+                className="self-start flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+              >
+                <Plus size={14} /> Add a label
+              </button>
+            </div>
+          )}
           <div className="flex flex-col gap-1">
             <input
               type="datetime-local" value={deadlineAt} onChange={(e) => setDeadlineAt(e.target.value)}

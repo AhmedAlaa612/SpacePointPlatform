@@ -32,6 +32,7 @@ export function itemToInput(item: LmsProgramItem): LmsProgramItemInput {
     course_id: item.course_id, mission_id: item.mission_id, variant_id: item.variant_id,
     external_url: item.external_url, submission_prompt: item.submission_prompt,
     submission_multi_link: item.submission_multi_link,
+    submission_link_labels: item.submission_link_labels,
     deadline_at: item.deadline_at, session_date: item.session_date, session_starts_at: item.session_starts_at,
     session_location: item.session_location, session_meeting_url: item.session_meeting_url,
     cohort_quiz_template_id: item.cohort_quiz_template_id,

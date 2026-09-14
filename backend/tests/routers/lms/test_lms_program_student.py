@@ -327,6 +327,68 @@ async def test_multi_link_submission_requires_at_least_one_link(db, client):
 
 
 @pytest.mark.asyncio
+async def test_multi_link_submission_enforces_ops_required_labels(db, client):
+    """Ops's own fixed label set (2026-09-14): submission_link_labels is the
+    one source of truth once set — a required label with no link is
+    rejected, an unrecognized label is rejected, and an optional label can
+    be skipped entirely."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Team deliverable", submission_multi_link=True,
+        submission_link_labels=[
+            {"label": "Member 1 link", "required": True},
+            {"label": "Member 2 link", "required": True},
+            {"label": "Team link", "required": False},
+        ],
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    # Missing a required label (Member 2 link) — rejected.
+    missing = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"links": [{"label": "Member 1 link", "url": "https://example.com/mem1"}]},
+    )
+    assert missing.status_code == http_status.HTTP_400_BAD_REQUEST
+    assert "Member 2 link" in missing.json()["detail"]
+
+    # A label ops never defined — rejected, not silently accepted/dropped.
+    unknown = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"links": [
+            {"label": "Member 1 link", "url": "https://example.com/mem1"},
+            {"label": "Member 2 link", "url": "https://example.com/mem2"},
+            {"label": "Mentor link", "url": "https://example.com/mentor"},
+        ]},
+    )
+    assert unknown.status_code == http_status.HTTP_400_BAD_REQUEST
+    assert "Mentor link" in unknown.json()["detail"]
+
+    # Both required labels present, optional Team link skipped — accepted.
+    ok = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"links": [
+            {"label": "Member 1 link", "url": "https://example.com/mem1"},
+            {"label": "Member 2 link", "url": "https://example.com/mem2"},
+        ]},
+    )
+    assert ok.status_code == 200, ok.text
+    body = ok.json()
+    assert body["status"] == "done"
+    assert [l["label"] for l in body["submitted_links"]] == ["Member 1 link", "Member 2 link"]
+    assert body["submission_link_labels"] == [
+        {"label": "Member 1 link", "required": True},
+        {"label": "Member 2 link", "required": True},
+        {"label": "Team link", "required": False},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_single_link_item_ignores_submission_multi_link_off_by_default(db, client):
     """A plain (non-multi) submission item still takes a bare `url`, same
     as before this feature existed — submission_multi_link defaults False."""
