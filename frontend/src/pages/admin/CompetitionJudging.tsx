@@ -96,14 +96,16 @@ const IMPORT_EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 // malformed-but-present email is a *warning*: ops can still confirm and
 // keep it (fix the address for that student later) rather than being
 // forced to invent one just to get past this screen.
-const BLOCKING_ISSUES = new Set(["Team name is required", "Member name is required", "Email is required"])
+const BLOCKING_ISSUES = new Set(["Team ID is required", "Member name is required", "Email is required"])
 const isBlockingIssue = (issue: string) => BLOCKING_ISSUES.has(issue)
 
 // Mirrors registration_import.py's `_row_issues` — for instant feedback as
 // ops edits a cell, before the real re-check happens server-side on confirm.
+// team_name is NOT checked here — it's optional (see CompetitionImportPreviewRow's
+// own comment); team_id is the required grouping key now.
 function rowIssues(row: CompetitionImportPreviewRow): string[] {
   const issues: string[] = []
-  if (!row.team_name?.trim()) issues.push("Team name is required")
+  if (!row.team_id?.trim()) issues.push("Team ID is required")
   if (!row.member_name?.trim()) issues.push("Member name is required")
   if (!row.email?.trim()) issues.push("Email is required")
   else if (!IMPORT_EMAIL_RE.test(row.email.trim())) issues.push("Email is not valid")
@@ -156,11 +158,13 @@ function RosterTab({ cohortId }: { cohortId: string }) {
       {!previewRows && (
         <>
           <p className="text-sm text-muted-foreground">
-            Upload the final roster exported from the registration form — columns <code>team_name</code>,{" "}
-            <code>member_name</code>, <code>email</code>, and optionally <code>phone</code>/<code>school</code>.
-            You'll get a preview to review before anything is created — a missing field blocks that row, a
-            malformed email is just flagged (fix it or leave it, your call). Re-uploading the same sheet later
-            just matches instead of duplicating.
+            Upload the final roster exported from the registration form — columns <code>team_id</code>,{" "}
+            <code>member_name</code>, <code>email</code>, and optionally <code>team_name</code>/<code>phone</code>/
+            <code>nationality</code>/<code>school</code>. A team with no <code>team_name</code> yet gets its{" "}
+            <code>team_id</code> as a placeholder — students set the real one themselves later. You'll get a
+            preview to review before anything is created — a missing field blocks that row, a malformed email is
+            just flagged (fix it or leave it, your call). Re-uploading the same sheet later just matches instead of
+            duplicating, and never overwrites a name a team already set for real.
           </p>
           <input
             ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
@@ -203,10 +207,12 @@ function RosterTab({ cohortId }: { cohortId: string }) {
               <thead>
                 <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
                   <th className="py-2 pl-3 pr-2">Row</th>
-                  <th className="py-2 pr-2">Team</th>
+                  <th className="py-2 pr-2">Team ID</th>
+                  <th className="py-2 pr-2">Team name</th>
                   <th className="py-2 pr-2">Member</th>
                   <th className="py-2 pr-2">Email</th>
                   <th className="py-2 pr-2">Phone</th>
+                  <th className="py-2 pr-2">Nationality</th>
                   <th className="py-2 pr-3">School</th>
                 </tr>
               </thead>
@@ -218,14 +224,14 @@ function RosterTab({ cohortId }: { cohortId: string }) {
                       blocked ? "bg-red-50 dark:bg-red-950/20" : r.issues.length > 0 ? "bg-amber-50 dark:bg-amber-950/20" : ""
                     }`}>
                       <td className="py-1.5 pl-3 pr-2 text-muted-foreground align-top pt-3">{r.row_number}</td>
-                      {(["team_name", "member_name", "email", "phone", "school"] as const).map((field) => (
+                      {(["team_id", "team_name", "member_name", "email", "phone", "nationality", "school"] as const).map((field) => (
                         <td key={field} className="py-1.5 pr-2">
                           <input
                             value={r[field] ?? ""}
                             onChange={(e) => updateRow(r.row_number, field, e.target.value)}
                             className={`w-full h-8 px-2 rounded-lg border bg-background text-sm ${
-                              (field === "team_name" || field === "member_name" || field === "email") &&
-                              r.issues.some((i) => i.toLowerCase().startsWith(field === "team_name" ? "team name" : field === "member_name" ? "member name" : "email"))
+                              (field === "team_id" || field === "member_name" || field === "email") &&
+                              r.issues.some((i) => i.toLowerCase().startsWith(field === "team_id" ? "team id" : field === "member_name" ? "member name" : "email"))
                                 ? (r.issues.some(isBlockingIssue) ? "border-red-400 dark:border-red-700" : "border-amber-400 dark:border-amber-700")
                                 : "border-border"
                             }`}
@@ -294,6 +300,7 @@ function RosterTab({ cohortId }: { cohortId: string }) {
               <thead>
                 <tr className="text-left text-xs text-muted-foreground uppercase tracking-wider border-b border-border">
                   <th className="py-2 pr-3">Row</th>
+                  <th className="py-2 pr-3">Team ID</th>
                   <th className="py-2 pr-3">Team</th>
                   <th className="py-2 pr-3">Email</th>
                   <th className="py-2 pr-3">Result</th>
@@ -303,6 +310,7 @@ function RosterTab({ cohortId }: { cohortId: string }) {
                 {result.rows.map((r) => (
                   <tr key={r.row_number} className="border-b border-border/50">
                     <td className="py-2 pr-3 text-muted-foreground">{r.row_number}</td>
+                    <td className="py-2 pr-3">{r.team_id ?? "—"}</td>
                     <td className="py-2 pr-3">{r.team_name ?? "—"}</td>
                     <td className="py-2 pr-3">{r.email ?? "—"}</td>
                     <td className={`py-2 pr-3 ${r.disposition === "error" ? "text-red-600 dark:text-red-400" : "text-foreground"}`}>
