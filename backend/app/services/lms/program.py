@@ -723,6 +723,35 @@ async def resolve_course_titles_by_cohort(
     }
 
 
+async def _sibling_individual_attempt(
+    db: AsyncSession, *, assignment_id: uuid.UUID, mission_id: uuid.UUID, exclude_item_id: uuid.UUID,
+) -> uuid.UUID | None:
+    """The individual-scope mirror of `_assign_team_mission_run`'s sibling
+    lookup: a mission split into several individual-scoped checklist steps
+    (mission_step_key) is meant to share ONE attempt across every step's
+    own progress row on this assignment, same grouping the team side and
+    the authoring Missions tab already assume. Within one `assign_lms_
+    program` call this stays safe without checking — `start_attempt`
+    flushes each new attempt immediately, so a later step's resume search
+    (still `in_progress`) already finds the earlier step's attempt — but
+    `sync_assignment_items` calls this per missing item on its own, often
+    long after the original attempt finished (passed/failed), where that
+    same resume search finds nothing and would otherwise mint a second,
+    disconnected attempt for the new step (found live, 2026-09-14)."""
+    return await db.scalar(
+        select(LmsProgramItemProgress.mission_attempt_id)
+        .join(LmsProgramItem, LmsProgramItem.id == LmsProgramItemProgress.item_id)
+        .where(
+            LmsProgramItemProgress.assignment_id == assignment_id,
+            LmsProgramItem.mission_id == mission_id,
+            LmsProgramItem.scope == "individual",
+            LmsProgramItem.id != exclude_item_id,
+            LmsProgramItemProgress.mission_attempt_id.isnot(None),
+        )
+        .limit(1)
+    )
+
+
 async def assign_lms_program(
     db: AsyncSession, *, user_id: uuid.UUID, cohort_id: uuid.UUID, registration_id: uuid.UUID | None = None,
 ) -> LmsProgramAssignment | None:
@@ -772,10 +801,16 @@ async def assign_lms_program(
                 # a placeholder like any other team-scoped item's.
                 await _assign_team_mission_run(db, item=item, cohort_id=cohort_id, user_id=user_id)
             else:
-                attempt = await assign_mission_run(
-                    db, mission_id=item.mission_id, user_id=user_id, cohort_id=cohort_id, variant_id=item.variant_id,
+                sibling_attempt_id = await _sibling_individual_attempt(
+                    db, assignment_id=assignment.id, mission_id=item.mission_id, exclude_item_id=item.id,
                 )
-                progress.mission_attempt_id = attempt.id
+                if sibling_attempt_id is not None:
+                    progress.mission_attempt_id = sibling_attempt_id
+                else:
+                    attempt = await assign_mission_run(
+                        db, mission_id=item.mission_id, user_id=user_id, cohort_id=cohort_id, variant_id=item.variant_id,
+                    )
+                    progress.mission_attempt_id = attempt.id
         db.add(progress)
 
     await db.flush()
@@ -790,8 +825,8 @@ async def _assign_team_mission_run(
     but only the first call for a given (item, team) actually creates the
     attempt; every later call for the same team finds `mission_attempt_id`
     already set and does nothing further. No-ops entirely if the student
-    isn't on a team for this cohort yet (no resync trigger once one forms
-    later — a known limitation, same as before).
+    isn't on a team for this cohort yet — `sync_team_mission_runs` below is
+    the resync trigger for when one forms later.
 
     Race-safe the same way `_get_or_create_team_progress` is: two
     teammates assigned via genuinely concurrent requests can both read
@@ -808,6 +843,33 @@ async def _assign_team_mission_run(
     team_progress = await _get_or_create_team_progress(db, item_id=item.id, team_id=team.id)
     if team_progress.mission_attempt_id is not None:
         return
+
+    # A mission split into several team-scoped steps (mission_step_key)
+    # shares ONE attempt across every step's own team-progress row —
+    # `team_mission_run_items` groups by mission_id on exactly that
+    # assumption. If a sibling step for this same (mission, team) already
+    # has an attempt, adopt it directly instead of going through
+    # `assign_mission_run`'s resume search below, which only resumes an
+    # attempt that's still `in_progress` — the moment the first step's
+    # attempt is passed/failed, that search would mint a second,
+    # disconnected attempt for this step, leaving the group's "shared"
+    # attempt ambiguous (found live, 2026-09-14).
+    sibling_attempt_id = await db.scalar(
+        select(LmsProgramTeamItemProgress.mission_attempt_id)
+        .join(LmsProgramItem, LmsProgramItem.id == LmsProgramTeamItemProgress.item_id)
+        .where(
+            LmsProgramTeamItemProgress.team_id == team.id,
+            LmsProgramItem.mission_id == item.mission_id,
+            LmsProgramItem.scope == "team",
+            LmsProgramItem.id != item.id,
+            LmsProgramTeamItemProgress.mission_attempt_id.isnot(None),
+        )
+        .limit(1)
+    )
+    if sibling_attempt_id is not None:
+        team_progress.mission_attempt_id = sibling_attempt_id
+        return
+
     try:
         async with db.begin_nested():
             attempt = await assign_mission_run(
@@ -816,6 +878,42 @@ async def _assign_team_mission_run(
             team_progress.mission_attempt_id = attempt.id
     except IntegrityError:
         await db.refresh(team_progress)
+
+
+async def sync_team_mission_runs(db: AsyncSession, *, team: Team) -> int:
+    """Resync trigger for `_assign_team_mission_run`'s own documented gap:
+    that function no-ops for a team-scoped mission_run item until the
+    student is actually on a team, and nothing re-ran it once one formed —
+    a team assigned to a cohort whose checklist was already handed out to
+    its members (the ordinary ops flow: register, then form teams) got a
+    team-scoped mission_run item permanently stuck at "not started" (found
+    live, 2026-09-14). Call this once whenever a team gains members or its
+    cohort scope: team creation (self-form or ops-assign, though a
+    self-formed team has no `cohort_id` so this no-ops for it) and
+    `join_team`. Safe to call any time — a no-op once every team-scoped
+    item's progress row already has an attempt.
+
+    Only needs one team member to drive `_assign_team_mission_run` (it
+    resolves the team from `(cohort_id, user_id)` but the row/attempt it
+    creates is team-owned, not per-member) — so this doesn't loop over
+    every teammate, just picks one."""
+    if team.cohort_id is None:
+        return 0
+    resolved = await effective_cohort_program_items(db, team.cohort_id)
+    if resolved is None:
+        return 0
+    _, items, _ = resolved
+    mission_run_items = [i for i in items if i.item_type == "mission_run" and i.scope == "team" and i.mission_id]
+    if not mission_run_items:
+        return 0
+    representative = await db.scalar(
+        select(TeamMember.user_id).where(TeamMember.team_id == team.id).limit(1)
+    )
+    if representative is None:
+        return 0
+    for item in mission_run_items:
+        await _assign_team_mission_run(db, item=item, cohort_id=team.cohort_id, user_id=representative)
+    return len(mission_run_items)
 
 
 async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssignment) -> int:
@@ -853,11 +951,17 @@ async def sync_assignment_items(db: AsyncSession, *, assignment: LmsProgramAssig
                     db, item=item, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
                 )
             else:
-                attempt = await assign_mission_run(
-                    db, mission_id=item.mission_id, user_id=assignment.user_id,
-                    cohort_id=assignment.cohort_id, variant_id=item.variant_id,
+                sibling_attempt_id = await _sibling_individual_attempt(
+                    db, assignment_id=assignment.id, mission_id=item.mission_id, exclude_item_id=item.id,
                 )
-                progress.mission_attempt_id = attempt.id
+                if sibling_attempt_id is not None:
+                    progress.mission_attempt_id = sibling_attempt_id
+                else:
+                    attempt = await assign_mission_run(
+                        db, mission_id=item.mission_id, user_id=assignment.user_id,
+                        cohort_id=assignment.cohort_id, variant_id=item.variant_id,
+                    )
+                    progress.mission_attempt_id = attempt.id
         db.add(progress)
     await db.flush()
     return len(missing)

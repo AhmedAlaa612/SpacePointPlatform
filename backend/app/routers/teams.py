@@ -23,6 +23,7 @@ from app.db.session import get_db
 from app.models.team import Team
 from app.models.user import User
 from app.schemas.teams import TeamOut
+from app.services.lms.program import sync_team_mission_runs
 from app.services.teams import join_team, leave_team, team_member_ids
 
 router = APIRouter(prefix="/teams", tags=["teams"])
@@ -47,6 +48,11 @@ async def join_team_endpoint(
     if current.id in await team_member_ids(db, team_id=team_id):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="Already a member of this team")
     await join_team(db, team_id=team_id, user_id=current.id)
+    # Picks up any team-scoped LMS checklist item that couldn't be assigned
+    # earlier because this team didn't exist/have a member yet — see
+    # `sync_team_mission_runs`'s own docstring. A no-op for a cohort-less
+    # (self-formed) team or a cohort with no such checklist item.
+    await sync_team_mission_runs(db, team=team)
     await db.commit()
     return await _team_out(db, team)
 

@@ -48,6 +48,7 @@ from app.schemas.missions_admin import (
 from app.schemas.missions_design import DesignStateOut
 from app.schemas.missions_manager import MissionManagerAssignIn, MissionManagerOut
 from app.services import storage
+from app.services.lms.program import sync_team_mission_runs
 from app.services.teams import create_team, team_member_ids
 from app.services.missions import assign_mission_run
 from app.services.missions.assignment import assign as assign_mission
@@ -156,6 +157,10 @@ async def assign_team(
     team = await create_team(
         db, name=body.name, created_by=current_user.id, cohort_id=body.cohort_id, member_ids=body.member_ids,
     )
+    # Assigns any team-scoped LMS checklist item this cohort's students
+    # were already handed but couldn't materialize for this team until it
+    # existed — see `sync_team_mission_runs`'s own docstring.
+    await sync_team_mission_runs(db, team=team)
     await db.commit()
     await db.refresh(team)
     return await _team_admin_out(db, team)

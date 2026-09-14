@@ -24,8 +24,9 @@ from app.models.user import User
 from app.schemas.lms_admin import LmsProgramItemIn
 from app.services.lms.program import (
     assign_lms_program, assignment_item_detail, certificate_gate_satisfied, fork_cohort_override,
-    get_student_checklist, guard_locked_submission_scope, resolve_cohort_program, sync_cohort_assignments,
-    sync_program_assignments, team_mission_run_items, validate_item_refs,
+    get_student_checklist, guard_locked_submission_scope, resolve_cohort_program, sync_assignment_items,
+    sync_cohort_assignments, sync_program_assignments, sync_team_mission_runs, team_mission_run_items,
+    validate_item_refs,
 )
 from app.services.missions import decide_attempt
 
@@ -948,3 +949,195 @@ async def test_gate_blocks_a_student_with_no_assignment_when_required(db):
     await db.commit()
 
     assert await certificate_gate_satisfied(db, cohort_id=cohort.id, user_id=student.id) is False
+
+
+# ── shared-attempt bugs (found live, 2026-09-14) ────────────────────────────
+
+@pytest.mark.asyncio
+async def test_sync_team_mission_runs_assigns_the_attempt_once_the_team_forms(db):
+    """Regression: `_assign_team_mission_run` no-ops for a team-scoped
+    mission_run item until the student is on a team, and nothing ever
+    resynced it once one formed — the ordinary ops flow (register
+    students, form teams afterward) left a team-scoped item permanently
+    stuck at 'not started' for every team formed post-assignment."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Late Team Checklist")
+    db.add(lms_program)
+    await db.flush()
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title=mission.title, mission_id=mission.id, variant_id=variant.id,
+        scope="team",
+    )
+    db.add(item)
+    await db.flush()
+    alice = await _student(db)
+    bob = await _student(db)
+    await db.commit()
+
+    # Assigned BEFORE any team exists — same as `test_assign_lms_program_
+    # skips_the_attempt_for_a_team_scoped_item_with_no_team_yet` above.
+    await assign_lms_program(db, user_id=alice.id, cohort_id=cohort.id)
+    await assign_lms_program(db, user_id=bob.id, cohort_id=cohort.id)
+    await db.commit()
+    assert await team_mission_run_items(db, team_id=uuid.uuid4()) == []  # no team yet, nothing to find
+
+    team = await create_team(db, name="Formed Late", created_by=alice.id, cohort_id=cohort.id, member_ids=[bob.id])
+    await db.commit()
+
+    # Without the resync trigger, the team's own progress row would still
+    # be missing/attempt-less here — `create_team` itself doesn't know
+    # about LMS checklists.
+    still_missing = await db.scalar(
+        select(LmsProgramTeamItemProgress.mission_attempt_id).where(
+            LmsProgramTeamItemProgress.item_id == item.id, LmsProgramTeamItemProgress.team_id == team.id,
+        )
+    )
+    assert still_missing is None
+
+    synced = await sync_team_mission_runs(db, team=team)
+    await db.commit()
+    assert synced == 1
+
+    team_progress = (await db.execute(
+        select(LmsProgramTeamItemProgress).where(
+            LmsProgramTeamItemProgress.item_id == item.id, LmsProgramTeamItemProgress.team_id == team.id,
+        )
+    )).scalars().one()
+    assert team_progress.mission_attempt_id is not None
+
+    runs = await team_mission_run_items(db, team_id=team.id)
+    assert len(runs) == 1
+    assert runs[0]["attempt_id"] == team_progress.mission_attempt_id
+    assert runs[0]["status"] == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_sync_team_mission_runs_is_a_noop_for_a_cohortless_team(db):
+    author = await _author(db)
+    alice = await _student(db)
+    team = await create_team(db, name="Self-formed", created_by=alice.id)  # no cohort_id
+    await db.commit()
+    assert await sync_team_mission_runs(db, team=team) == 0
+
+
+@pytest.mark.asyncio
+async def test_team_scoped_mission_split_into_steps_keeps_one_attempt_after_the_first_passes(db):
+    """Regression: a mission split into several team-scoped checklist steps
+    (mission_step_key) is supposed to share ONE attempt — but once the
+    first step's attempt is no longer `in_progress` (passed here), syncing
+    a later step used to mint a SECOND, disconnected attempt (its resume
+    search only matches `in_progress`), and `team_mission_run_items` would
+    then report whichever attempt happened to come first in position
+    order — stale once it's the passed one, hiding the team's real,
+    currently-active attempt from both the team and ops."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Split Team Mission")
+    db.add(lms_program)
+    await db.flush()
+    step_a = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title="Step A", mission_id=mission.id, variant_id=variant.id,
+        scope="team", mission_step_key="components",
+    )
+    db.add(step_a)
+    await db.flush()
+    alice = await _student(db)
+    bob = await _student(db)
+    team = await create_team(db, name="Split Team", created_by=alice.id, cohort_id=cohort.id, member_ids=[bob.id])
+    await db.commit()
+    await assign_lms_program(db, user_id=alice.id, cohort_id=cohort.id)
+    await assign_lms_program(db, user_id=bob.id, cohort_id=cohort.id)
+    await db.commit()
+
+    attempt = (await db.execute(select(MissionAttempt).where(MissionAttempt.mission_id == mission.id))).scalar_one()
+    await decide_attempt(db, attempt=attempt, passed=True)
+    await db.commit()
+
+    # Ops adds a second step to the same mission run AFTER the first
+    # attempt already passed, then syncs it onto both teammates.
+    step_b = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="mission_run", title="Step B", mission_id=mission.id, variant_id=variant.id,
+        scope="team", mission_step_key="conops",
+    )
+    db.add(step_b)
+    await db.flush()
+    alice_assignment = (await db.execute(
+        select(LmsProgramAssignment).where(
+            LmsProgramAssignment.user_id == alice.id, LmsProgramAssignment.cohort_id == cohort.id,
+        )
+    )).scalars().one()
+    await sync_assignment_items(db, assignment=alice_assignment)
+    await db.commit()
+
+    # Still exactly one MissionAttempt for this mission — step B's sync
+    # adopted step A's attempt instead of minting a second one.
+    attempts = (await db.execute(
+        select(MissionAttempt).where(MissionAttempt.mission_id == mission.id)
+    )).scalars().all()
+    assert len(attempts) == 1
+
+    runs = await team_mission_run_items(db, team_id=team.id)
+    assert len(runs) == 1
+    assert runs[0]["attempt_id"] == attempt.id
+    assert runs[0]["status"] == "passed"
+
+
+@pytest.mark.asyncio
+async def test_individual_mission_split_into_steps_keeps_one_attempt_after_the_first_passes(db):
+    """The individual-scope mirror of the team-side regression above:
+    `sync_assignment_items` adding a second individual-scoped step for a
+    mission whose original attempt already passed used to mint a second,
+    disconnected attempt for that new step — leaving it pointing at a
+    fresh, Design-less attempt instead of the one the student actually
+    finished the mission on."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Split Solo Mission")
+    db.add(lms_program)
+    await db.flush()
+    step_a = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title="Step A", mission_id=mission.id, variant_id=variant.id,
+        mission_step_key="components",
+    )
+    db.add(step_a)
+    await db.flush()
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    attempt = (await db.execute(
+        select(MissionAttempt).where(MissionAttempt.user_id == student.id)
+    )).scalar_one()
+    await decide_attempt(db, attempt=attempt, passed=True)
+    await db.commit()
+
+    step_b = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="mission_run", title="Step B", mission_id=mission.id, variant_id=variant.id,
+        mission_step_key="conops",
+    )
+    db.add(step_b)
+    await db.flush()
+    await sync_assignment_items(db, assignment=assignment)
+    await db.commit()
+
+    attempts = (await db.execute(
+        select(MissionAttempt).where(MissionAttempt.user_id == student.id)
+    )).scalars().all()
+    assert len(attempts) == 1  # step B reused step A's attempt, not a fresh one
+
+    step_b_progress = (await db.execute(
+        select(LmsProgramItemProgress).where(
+            LmsProgramItemProgress.assignment_id == assignment.id, LmsProgramItemProgress.item_id == step_b.id,
+        )
+    )).scalars().one()
+    assert step_b_progress.mission_attempt_id == attempt.id
