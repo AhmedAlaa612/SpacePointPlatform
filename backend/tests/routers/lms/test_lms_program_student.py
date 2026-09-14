@@ -259,6 +259,101 @@ async def test_submission_item_needs_a_link_before_it_can_self_check(db, client)
 
 
 @pytest.mark.asyncio
+async def test_multi_link_submission_takes_several_labeled_links(db, client):
+    """Ops's per-item toggle (2026-09-14): submission_multi_link=True takes
+    `links` instead of a bare `url` — first link still mirrors into
+    submitted_url so anything only reading that column sees something real."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Team deliverable", submission_multi_link=True,
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"links": [
+            {"label": "Member 1 link", "url": "https://example.com/mem1"},
+            {"label": "Member 2 link", "url": "https://example.com/mem2"},
+            {"label": None, "url": "https://example.com/team"},
+        ]},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "done"
+    assert body["submission_multi_link"] is True
+    assert body["submitted_url"] == "https://example.com/mem1"
+    assert [l["url"] for l in body["submitted_links"]] == [
+        "https://example.com/mem1", "https://example.com/mem2", "https://example.com/team",
+    ]
+    assert body["submitted_links"][0]["label"] == "Member 1 link"
+    assert body["submitted_links"][2]["label"] is None
+
+    # Round-trips back out of the checklist read too, not just the submit response.
+    detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    detail_item = next(i for i in detail.json()["items"] if i["id"] == str(item.id))
+    assert len(detail_item["submitted_links"]) == 3
+
+
+@pytest.mark.asyncio
+async def test_multi_link_submission_requires_at_least_one_link(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Team deliverable", submission_multi_link=True,
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    empty = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student), json={"links": []},
+    )
+    assert empty.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    no_links_key = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student), json={"url": "https://example.com"},
+    )
+    # A plain `url` on a multi-link item isn't a link list — still refused.
+    assert no_links_key.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_single_link_item_ignores_submission_multi_link_off_by_default(db, client):
+    """A plain (non-multi) submission item still takes a bare `url`, same
+    as before this feature existed — submission_multi_link defaults False."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Solo deliverable",
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"url": "https://example.com/solo"},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["submission_multi_link"] is False
+    assert body["submitted_url"] == "https://example.com/solo"
+    assert body["submitted_links"] is None
+
+
+@pytest.mark.asyncio
 async def test_cannot_submit_a_link_to_a_non_submission_item(db, client):
     author = await _author(db)
     cohort, lms_program = await _cohort_with_checklist(db, author=author)

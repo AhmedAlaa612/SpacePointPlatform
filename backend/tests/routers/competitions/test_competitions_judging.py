@@ -371,6 +371,35 @@ async def test_judge_team_detail_shows_who_submitted_and_when(db, client):
 
 
 @pytest.mark.asyncio
+async def test_judge_team_detail_groups_multiple_labeled_links_on_a_multi_link_submission(db, client):
+    """Ops's own ask (2026-09-14): several labeled links in one submission
+    (e.g. mem1/mem2/team link), and judges/ops see them grouped under the
+    one submission item rather than as several separate items."""
+    from app.models.lms.program import LmsProgramTeamItemProgress
+
+    ops, program, cohort, team, judge, poster_item = await _judge_setup(db)
+    poster_item.submission_multi_link = True
+    links = [
+        {"label": "Member 1 link", "url": "https://example.com/mem1"},
+        {"label": "Member 2 link", "url": "https://example.com/mem2"},
+        {"label": "Team link", "url": "https://example.com/team"},
+    ]
+    db.add(LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=poster_item.id, team_id=team.id, status="done",
+        submitted_url=links[0]["url"], submitted_links=links,
+    ))
+    await db.commit()
+
+    resp = await client.get(f"/competitions/judge/teams/{team.id}", headers=_headers(judge))
+    assert resp.status_code == 200, resp.text
+    submission = resp.json()["submissions"][0]
+    assert submission["submission_multi_link"] is True
+    assert len(submission["submitted_links"]) == 3
+    assert submission["submitted_links"][0] == {"label": "Member 1 link", "url": "https://example.com/mem1"}
+    assert submission["submitted_links"][2]["label"] == "Team link"
+
+
+@pytest.mark.asyncio
 async def test_judge_team_detail_mission_runs_is_empty_without_any_team_scoped_mission_run(db, client):
     """The safety property that matters most for Phase 3: `_judge_setup`'s
     team has only the pre-existing team-scoped submission item, no

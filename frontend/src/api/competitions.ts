@@ -72,6 +72,11 @@ export interface CompetitionSubmissionItem {
   item_type: string
   status: string
   submitted_url: string | null
+  // 2026-09-14 — set (alongside submitted_url mirroring the first link)
+  // only for a submission_multi_link item; render these grouped under the
+  // one submission instead of a bare link.
+  submission_multi_link: boolean
+  submitted_links: { label: string | null; url: string }[] | null
   updated_at: string | null
   updated_by_name: string | null
 }

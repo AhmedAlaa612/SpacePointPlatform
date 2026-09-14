@@ -1174,3 +1174,21 @@ def test_only_submission_and_team_setup_items_can_have_a_deadline():
     with pytest.raises(HTTPException) as exc_info:
         validate_item_payload(body)
     assert "submission or team_setup" in exc_info.value.detail
+
+
+# ── submission_multi_link authoring validation (2026-09-14) ────────────────
+
+def test_submission_multi_link_is_valid_on_a_submission_item():
+    body = LmsProgramItemIn(
+        item_type="submission", title="Team deliverable", submission_prompt="links",
+        submission_multi_link=True,
+    )
+    validate_item_payload(body)  # does not raise
+
+
+def test_submission_multi_link_rejected_on_a_non_submission_item():
+    body = LmsProgramItemIn(item_type="manual", title="Do a thing", submission_multi_link=True)
+    with pytest.raises(HTTPException) as exc_info:
+        validate_item_payload(body)
+    assert exc_info.value.status_code == 400
+    assert "multiple links" in exc_info.value.detail

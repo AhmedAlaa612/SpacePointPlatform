@@ -601,6 +601,8 @@ async def _checklist_item_out(
         updated_at=target.updated_at,
         mission_step_key=item.mission_step_key,
         poster_template_url=poster_template_url,
+        submission_multi_link=item.submission_multi_link,
+        submitted_links=target.submitted_links,
     )
 
 
@@ -686,7 +688,13 @@ async def submit_program_item(
     Auto-completes on submit: marks the item `done` right away, or
     `awaiting_confirmation` if the item requires ops sign-off. A
     `scope="team"` item writes to the shared team row — any teammate
-    submitting overrides whatever was there before, on purpose."""
+    submitting overrides whatever was there before, on purpose.
+
+    `submission_multi_link` items (2026-09-14, ops's own per-item toggle)
+    take `body.links` instead of `body.url` — several labeled links in one
+    submission (e.g. mem1/mem2/team link). `submitted_url` still gets set
+    to the first link either way, so anything only reading that column
+    (the poster path, older exports) keeps seeing something real."""
     assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     is_poster = item.item_type == "mission_run" and item.mission_step_key == "poster"
     if item.item_type != "submission" and not is_poster:
@@ -696,7 +704,21 @@ async def submit_program_item(
     if await checklist_item_locked(db, assignment=assignment, item=item):
         raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
     target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
-    target.submitted_url = body.url
+
+    is_multi = item.item_type == "submission" and item.submission_multi_link
+    if is_multi:
+        links = [link for link in (body.links or []) if link.url.strip()]
+        if not links:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit at least one link")
+        target.submitted_links = [link.model_dump() for link in links]
+        target.submitted_url = links[0].url
+        # The poster-attempt block below is unreachable here — is_multi
+        # requires item_type=="submission", is_poster requires
+        # item_type=="mission_run"; mutually exclusive by construction.
+    else:
+        if not body.url or not body.url.strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit a link")
+        target.submitted_url = body.url
     if item.requires_confirmation:
         target.status = "awaiting_confirmation"
     else:

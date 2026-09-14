@@ -457,6 +457,10 @@ class LmsProgramItemIn(BaseModel):
     variant_id: UUID | None = None
     external_url: str | None = Field(default=None, max_length=512)
     submission_prompt: str | None = None
+    # 2026-09-14 — ops's per-item toggle: allow several labeled links in
+    # one submission instead of one bare link. submission-only, validated
+    # against item_type in validate_item_payload.
+    submission_multi_link: bool = False
     # submission-only cutoff — validated against item_type in validate_item_payload.
     deadline_at: datetime | None = None
     # session-only fields — always self-contained, never a live FK (see
@@ -499,6 +503,7 @@ class LmsProgramItemOut(BaseModel):
     variant_id: UUID | None
     external_url: str | None
     submission_prompt: str | None
+    submission_multi_link: bool = False
     # True once a `pdf` item has a file uploaded (routers/lms/admin.py's
     # separate upload endpoint) — never the file itself or a URL, same
     # no-baked-in-signed-url posture the Curriculum Library list follows.

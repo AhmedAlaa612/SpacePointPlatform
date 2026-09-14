@@ -522,6 +522,13 @@ export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
 
 export type LmsProgramItemScope = "individual" | "team";
 
+/** One link in a multi-link submission (2026-09-14) — see
+ * LmsProgramChecklistItem.submission_multi_link. */
+export interface SubmissionLink {
+  label: string | null;
+  url: string;
+}
+
 export interface LmsProgramChecklistItem {
   id: string;
   position: number;
@@ -541,6 +548,11 @@ export interface LmsProgramChecklistItem {
    * on demand via `getChecklistItemPdfUrlApi`, never baked in here. */
   has_pdf: boolean;
   submitted_url: string | null;
+  /** Ops's per-item toggle (2026-09-14) — when true this item takes
+   * several labeled links instead of one; `submitted_links` carries the
+   * real answer (`submitted_url` still mirrors the first link). */
+  submission_multi_link: boolean;
+  submitted_links: SubmissionLink[] | null;
   /** submission-only cutoff — can no longer submit/replace past this;
    * already-submitted content and its confirmation are unaffected. */
   deadline_at: string | null;
@@ -626,6 +638,15 @@ export async function completeChecklistItem(assignmentId: string, itemId: string
 
 export async function submitChecklistItem(assignmentId: string, itemId: string, url: string): Promise<LmsProgramChecklistItem> {
   const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/submit`, { url });
+  return data;
+}
+
+/** `submission_multi_link` item's paste-back — several labeled links in
+ * one submission instead of one bare url. */
+export async function submitChecklistItemLinks(
+  assignmentId: string, itemId: string, links: SubmissionLink[],
+): Promise<LmsProgramChecklistItem> {
+  const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/submit`, { links });
   return data;
 }
 

@@ -345,6 +345,9 @@ export interface LmsProgramItem {
   variant_id: string | null;
   external_url: string | null;
   submission_prompt: string | null;
+  /** Ops's per-item toggle (2026-09-14) — a submission item takes several
+   * labeled links instead of one (e.g. Member 1/Member 2/Team link). */
+  submission_multi_link: boolean;
   /** True once a `pdf` item has a file uploaded — fetch the actual URL
    * on demand via `getLmsProgramItemPdfUrlApi`, never baked in here. */
   has_pdf: boolean;
@@ -410,6 +413,7 @@ export interface LmsProgramItemInput {
   variant_id?: string | null;
   external_url?: string | null;
   submission_prompt?: string | null;
+  submission_multi_link?: boolean;
   deadline_at?: string | null;
   session_date?: string | null;
   session_starts_at?: string | null;
@@ -536,6 +540,8 @@ export interface PendingConfirmation {
   item_id: string;
   title: string;
   submitted_url: string | null;
+  submission_multi_link: boolean;
+  submitted_links: { label: string | null; url: string }[] | null;
 }
 
 export interface LmsProgramRosterRow {
@@ -579,6 +585,8 @@ export interface LmsAssignmentItemDetail {
   item_type: LmsProgramItemType;
   status: string;
   submitted_url: string | null;
+  submission_multi_link: boolean;
+  submitted_links: { label: string | null; url: string }[] | null;
   completed_at: string | null;
   mission_attempt_id: string | null;
   confirmed_by_user_id: string | null;
