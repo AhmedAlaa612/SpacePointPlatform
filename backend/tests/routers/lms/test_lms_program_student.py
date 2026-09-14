@@ -389,6 +389,35 @@ async def test_multi_link_submission_enforces_ops_required_labels(db, client):
 
 
 @pytest.mark.asyncio
+async def test_checklist_read_carries_ops_labels_before_any_submission(db, client):
+    """Regression: get_student_checklist (GET /lms/programs/{id}, what the
+    board actually loads) builds its own row dicts rather than going
+    through _checklist_item_out — a field added to one without the other
+    is invisible on first page load even though it round-trips fine right
+    after a submit. submission_link_labels needs to show up here too, on
+    an item nobody has submitted anything to yet."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Team deliverable", submission_multi_link=True,
+        submission_link_labels=[{"label": "Member 1 link", "required": True}, {"label": "Team link", "required": False}],
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    assert resp.status_code == 200, resp.text
+    checklist_item = next(i for i in resp.json()["items"] if i["id"] == str(item.id))
+    assert checklist_item["submission_link_labels"] == [
+        {"label": "Member 1 link", "required": True}, {"label": "Team link", "required": False},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_single_link_item_ignores_submission_multi_link_off_by_default(db, client):
     """A plain (non-multi) submission item still takes a bare `url`, same
     as before this feature existed — submission_multi_link defaults False."""

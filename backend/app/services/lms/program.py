@@ -1586,6 +1586,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "submitted_url": submitted_url,
             "submission_multi_link": item.submission_multi_link,
             "submitted_links": submitted_links,
+            "submission_link_labels": item.submission_link_labels,
             "deadline_at": item.deadline_at,
             "session_date": item.session_date, "session_starts_at": item.session_starts_at,
             "session_location": item.session_location, "session_meeting_url": item.session_meeting_url,
