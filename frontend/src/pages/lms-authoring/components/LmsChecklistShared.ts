@@ -48,7 +48,7 @@ export const ITEM_TYPES: { value: LmsProgramItemType; label: string; icon: typeo
   { value: "manual", label: "Manual check-off", icon: ClipboardCheck },
   { value: "session", label: "Session", icon: Calendar },
   { value: "quiz", label: "Quiz", icon: HelpCircle },
-  { value: "team_setup", label: "Team setup (name)", icon: Users },
+  { value: "team_setup", label: "Team setup", icon: Users },
 ]
 
 // Mirrors the server-side rule in services/lms/program.py: a link-only
