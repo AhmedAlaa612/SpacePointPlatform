@@ -35,6 +35,11 @@ try:
 except ImportError:  # not needed in --simulate mode
     serial = None
 
+try:
+    import paho.mqtt.client as mqtt  # optional — only needed if MQTT_BROKER is set
+except ImportError:
+    mqtt = None
+
 
 def _env(name: str, default: str | None = None) -> str | None:
     return os.environ.get(name, default)
@@ -46,6 +51,13 @@ DEVICE_SECRET = _env("GROUND_STATION_DEVICE_SECRET")
 SERIAL_PORT = _env("GROUND_STATION_SERIAL_PORT", "/dev/ttyUSB0")
 SERIAL_BAUD = int(_env("GROUND_STATION_SERIAL_BAUD", "115200"))
 COMMAND_POLL_SECONDS = float(_env("GROUND_STATION_COMMAND_POLL_SECONDS", "1.0"))
+
+# MQTT — optional secondary telemetry source / command fallback, same
+# broker/topic scheme as the legacy app (backend/serial_reader.py):
+# `{prefix}/telemetry/#` inbound, `{prefix}/command/{device}` outbound.
+MQTT_BROKER = _env("GROUND_STATION_MQTT_BROKER")
+MQTT_PORT = int(_env("GROUND_STATION_MQTT_PORT", "1883"))
+MQTT_TOPIC_PREFIX = _env("GROUND_STATION_MQTT_TOPIC_PREFIX", "sat_dash")
 
 _HEADERS = {"X-Device-Secret": DEVICE_SECRET or ""}
 
@@ -95,6 +107,61 @@ def poll_commands_loop(write_to_hardware) -> None:
         time.sleep(COMMAND_POLL_SECONDS)
 
 
+# ------------------------------------------------------------------- mqtt --
+
+_mqtt_client = None  # module-level so write_to_hardware's MQTT fallback can reach it
+
+
+def start_mqtt() -> None:
+    """Background MQTT telemetry listener + command-publish path — runs
+    alongside serial/simulate, same dual-source design as the legacy app's
+    simultaneous serial+WiFi bridge threads."""
+    global _mqtt_client
+    if not MQTT_BROKER:
+        return
+    if mqtt is None:
+        print("[!] GROUND_STATION_MQTT_BROKER is set but paho-mqtt is not installed — "
+              "pip install -r requirements.txt")
+        return
+
+    def on_connect(client, userdata, flags, rc, properties=None):
+        if rc == 0:
+            print(f"[MQTT] Connected to {MQTT_BROKER}:{MQTT_PORT}")
+            client.subscribe(f"{MQTT_TOPIC_PREFIX}/telemetry/#")
+        else:
+            print(f"[!] MQTT connect failed, rc={rc}")
+
+    def on_message(client, userdata, msg):
+        try:
+            data = json.loads(msg.payload.decode("utf-8", errors="ignore"))
+        except json.JSONDecodeError:
+            data = {"raw_line": msg.payload.decode("utf-8", errors="ignore")}
+        send_telemetry(data)
+
+    client = mqtt.Client()
+    client.on_connect = on_connect
+    client.on_message = on_message
+    try:
+        client.connect_async(MQTT_BROKER, MQTT_PORT, 60)
+        client.loop_start()
+        _mqtt_client = client
+        print(f"[MQTT] Connecting to {MQTT_BROKER}:{MQTT_PORT}...")
+    except Exception as exc:
+        print(f"[!] MQTT setup error: {exc}")
+
+
+def mqtt_publish_command(line: str) -> bool:
+    if _mqtt_client is None:
+        return False
+    try:
+        _mqtt_client.publish(f"{MQTT_TOPIC_PREFIX}/command/{DEVICE_ID}", line, qos=1)
+        print(f"[CLOUD -> MQTT TX] {line}")
+        return True
+    except Exception as exc:
+        print(f"[!] MQTT publish failed: {exc}")
+        return False
+
+
 # ---------------------------------------------------------------- hardware --
 
 def _open_serial():
@@ -115,7 +182,9 @@ def run_hardware(conn) -> None:
             return True
         except Exception as exc:
             print(f"[!] Serial write failed: {exc}")
-            return False
+            # Priority 2 fallback, same order as the legacy app: MQTT relay
+            # when the direct serial link can't take the command.
+            return mqtt_publish_command(line)
 
     threading.Thread(target=poll_commands_loop, args=(write_to_hardware,), daemon=True).start()
 
@@ -175,6 +244,8 @@ def main() -> None:
     print(" Ground Station bridge")
     print(f" API: {API_BASE_URL}  Device: {DEVICE_ID}")
     print("=" * 60)
+
+    start_mqtt()
 
     if args.simulate:
         run_simulation()

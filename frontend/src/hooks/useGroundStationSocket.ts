@@ -12,7 +12,8 @@ export type GroundStationMessage =
   | { type: "command_queued"; payload: { id: string; name: string; arg: string | null; sent_by: string; queued_at: string } }
   | { type: "command_ack"; payload: { command_id: string; ok?: boolean; detail?: string; [k: string]: unknown } }
   | { type: "device_status"; payload: { status: "online" | "offline" } }
-  | { type: "photo_added"; payload: { path: string; url: string; captured_at: string } }
+  | { type: "photo_added"; payload: { path: string; url: string; captured_at: string; lat?: number | null; lon?: number | null; alt?: number | null } }
+  | { type: "alert"; payload: { id: string; alert_type: string; threshold: number; current_value: number; severity: string; occurred_at: string; message: string } }
 
 const BASE_DELAY_MS = 1000
 const MAX_DELAY_MS = 30000

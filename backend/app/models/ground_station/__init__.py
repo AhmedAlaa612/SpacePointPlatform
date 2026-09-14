@@ -11,5 +11,14 @@ Redis pub/sub rather than being written to new tables.
 """
 
 from app.models.ground_station.device import GroundStationDevice
+from app.models.ground_station.telemetry import (
+    GroundStationAlert,
+    GroundStationAlertThreshold,
+    GroundStationImage,
+    GroundStationTelemetry,
+)
 
-__all__ = ["GroundStationDevice"]
+__all__ = [
+    "GroundStationDevice", "GroundStationTelemetry", "GroundStationAlertThreshold",
+    "GroundStationAlert", "GroundStationImage",
+]

@@ -10,7 +10,7 @@ from redis.exceptions import RedisError
 
 from app.core.dependencies import get_ws_user
 from app.models.user import User
-from app.services.ground_station.realtime import device_channel, get_realtime_redis
+from app.services.ground_station.realtime import decr_active_connections, device_channel, get_realtime_redis, incr_active_connections
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,7 @@ async def ground_station_socket(websocket: WebSocket, device_id: str, user: User
         return
 
     await websocket.accept()
+    await incr_active_connections(redis_client, device_id)
     forward_task = asyncio.create_task(_forward_redis_to_ws(pubsub, websocket))
     drain_task = asyncio.create_task(_drain_client_messages(websocket))
     try:
@@ -57,4 +58,5 @@ async def ground_station_socket(websocket: WebSocket, device_id: str, user: User
         drain_task.cancel()
         await pubsub.unsubscribe()
         await pubsub.aclose()
+        await decr_active_connections(redis_client, device_id)
         await redis_client.aclose()

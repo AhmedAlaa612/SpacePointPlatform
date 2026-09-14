@@ -272,64 +272,196 @@ export async function generateTeacherImpactReport(name: string, summary: Teacher
   doc.save(`${name.replace(/\s+/g, "_")}_Impact_Report.pdf`)
 }
 
-/** Ground Station telemetry report — the legacy app's "Data Injection" /
- * mission-report export, ported to jsPDF directly rather than html2canvas
- * (no DOM snapshot needed, just the numbers and captured photos). */
+/** Ground Station telemetry report — ported from the legacy app's
+ * `exportPdf.js`: a branded "Space Purple" cover, a chart screenshot
+ * (html2canvas, same as the legacy report — a data-table alone can't show
+ * a trend the way a rendered chart can), a per-metric min/max/avg/count
+ * summary table, and the full readings table with page-break handling. */
 interface GroundStationTelemetrySample {
-  temp?: number
-  voltage?: number
-  current?: number
-  power?: number
-  rssi?: number
-  snr?: number
+  recorded_at: string
+  temp?: number | null
+  voltage?: number | null
+  current?: number | null
+  power?: number | null
+  rssi?: number | null
+  snr?: number | null
 }
 
-export function buildGroundStationReport(
+const GS_ACCENT: [number, number, number] = [155, 114, 192]
+const GS_ACCENT_GLOW: [number, number, number] = [101, 63, 132]
+const GS_BG_DARK: [number, number, number] = [13, 6, 24]
+const GS_BG_MID: [number, number, number] = [36, 17, 52]
+const GS_BG_CARD: [number, number, number] = [45, 24, 64]
+const GS_WHITE: [number, number, number] = [255, 255, 255]
+
+const GS_METRICS: { key: keyof GroundStationTelemetrySample; label: string; unit: string }[] = [
+  { key: "temp", label: "Temperature", unit: "degC" },
+  { key: "voltage", label: "Voltage", unit: "V" },
+  { key: "current", label: "Current", unit: "mA" },
+  { key: "power", label: "Power", unit: "mW" },
+  { key: "rssi", label: "RSSI", unit: "dBm" },
+]
+
+function gsStats(rows: GroundStationTelemetrySample[]) {
+  return GS_METRICS.map((m) => {
+    const vals = rows.map((r) => r[m.key]).filter((v): v is number => v != null)
+    if (!vals.length) return { ...m, min: "--", max: "--", avg: "--", count: 0 }
+    const min = Math.min(...vals), max = Math.max(...vals)
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length
+    return { ...m, min: min.toFixed(2), max: max.toFixed(2), avg: avg.toFixed(2), count: vals.length }
+  })
+}
+
+export async function buildGroundStationReport(
   deviceLabel: string,
   history: GroundStationTelemetrySample[],
-  photos: { url: string; captured_at: string }[],
+  photoCount: number,
+  chartElement?: HTMLElement | null,
 ) {
-  const doc = new jsPDF({ unit: "mm", format: "a4" })
-  const w = doc.internal.pageSize.getWidth()
-  const M = 18
+  const html2canvas = (await import("html2canvas")).default
 
-  doc.setTextColor(...INK)
+  let chartImgData: string | null = null
+  if (chartElement) {
+    const snap = await html2canvas(chartElement, { backgroundColor: "#0d0618", scale: 2, useCORS: true, logging: false })
+    chartImgData = snap.toDataURL("image/png")
+  }
+
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" })
+  const PW = doc.internal.pageSize.getWidth()
+  const PH = doc.internal.pageSize.getHeight()
+  let y = 0
+
+  const fill = (c: [number, number, number]) => doc.setFillColor(...c)
+  const draw = (c: [number, number, number]) => doc.setDrawColor(...c)
+  const color = (c: [number, number, number]) => doc.setTextColor(...c)
+
+  fill(GS_BG_DARK)
+  doc.rect(0, 0, PW, PH, "F")
+
+  fill(GS_BG_MID)
+  doc.rect(0, 0, PW, 32, "F")
+  draw(GS_ACCENT_GLOW)
+  doc.setLineWidth(0.8)
+  doc.line(0, 32, PW, 32)
+
   doc.setFont("helvetica", "bold")
   doc.setFontSize(18)
-  doc.text("Ground Station — Telemetry Report", M, 24)
-
+  color(GS_WHITE)
+  doc.text("Cube-Sat Ground Station", 14, 14)
   doc.setFont("helvetica", "normal")
   doc.setFontSize(10)
-  doc.setTextColor(...MUTED)
-  doc.text(`Rig: ${deviceLabel}`, M, 32)
-  doc.text(new Date().toLocaleString(), w - M, 32, { align: "right" })
+  color(GS_ACCENT)
+  doc.text("TELEMETRY MISSION REPORT", 14, 21)
 
-  doc.setDrawColor(...INK)
-  doc.setLineWidth(0.5)
-  doc.line(M, 36, w - M, 36)
+  doc.setFontSize(8)
+  color(GS_WHITE)
+  doc.text(`Generated: ${new Date().toLocaleString()}`, PW - 14, 12, { align: "right" })
+  color(GS_ACCENT)
+  doc.text(`Rig: ${deviceLabel}`, PW - 14, 20, { align: "right" })
 
-  const last = history[history.length - 1] ?? {}
-  const fields: [string, string][] = [
-    ["Temperature", last.temp !== undefined ? `${last.temp.toFixed(1)} °C` : "--"],
-    ["Battery voltage", last.voltage !== undefined ? `${last.voltage.toFixed(2)} V` : "--"],
-    ["Current", last.current !== undefined ? `${last.current.toFixed(2)} A` : "--"],
-    ["Power", last.power !== undefined ? `${last.power.toFixed(1)} mW` : "--"],
-    ["Signal (RSSI)", last.rssi !== undefined ? `${last.rssi.toFixed(0)} dBm` : "--"],
-    ["SNR", last.snr !== undefined ? `${last.snr.toFixed(1)} dB` : "--"],
-    ["Samples collected", String(history.length)],
-    ["Photos archived", String(photos.length)],
+  y = 42
+
+  const pills: [string, string][] = [
+    ["Samples", String(history.length)],
+    ["Photos archived", String(photoCount)],
+    ["Range", history.length ? `${new Date(history[0].recorded_at).toLocaleString()} → ${new Date(history[history.length - 1].recorded_at).toLocaleString()}` : "--"],
   ]
-
-  let y = 48
-  doc.setTextColor(...INK)
-  fields.forEach(([label, value]) => {
-    doc.setFont("helvetica", "bold")
-    doc.setFontSize(10)
-    doc.text(label, M, y)
-    doc.setFont("helvetica", "normal")
-    doc.text(value, M + 60, y)
-    y += 8
+  const pillW = (PW - 28 - 6) / 3
+  pills.forEach(([label, value], i) => {
+    const px = 14 + i * (pillW + 3)
+    fill(GS_BG_CARD); draw(GS_ACCENT_GLOW); doc.setLineWidth(0.3)
+    doc.roundedRect(px, y, pillW, 12, 2, 2, "FD")
+    doc.setFont("helvetica", "bold"); doc.setFontSize(6.5); color(GS_ACCENT)
+    doc.text(label.toUpperCase(), px + 3, y + 4.5)
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); color(GS_WHITE)
+    doc.text(value.length > 40 ? value.slice(0, 39) + "…" : value, px + 3, y + 9.5)
   })
+  y += 18
+
+  if (chartImgData) {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10); color(GS_ACCENT)
+    doc.text("[ Chart ]", 14, y + 4)
+    y += 8
+    const chartH = 60
+    fill(GS_BG_CARD)
+    doc.rect(14, y, PW - 28, chartH, "F")
+    doc.addImage(chartImgData, "PNG", 14, y, PW - 28, chartH)
+    draw(GS_ACCENT_GLOW); doc.setLineWidth(0.3)
+    doc.rect(14, y, PW - 28, chartH)
+    y += chartH + 8
+  }
+
+  doc.setFont("helvetica", "bold"); doc.setFontSize(10); color(GS_ACCENT)
+  doc.text("[ Metric Summary ]", 14, y + 4)
+  y += 9
+
+  const stats = gsStats(history)
+  const statsColW = [(PW - 28) * 0.28, (PW - 28) * 0.18, (PW - 28) * 0.18, (PW - 28) * 0.18, (PW - 28) * 0.18]
+  const statsHeaders = ["Metric", "Min", "Max", "Avg", "Readings"]
+  fill([45, 30, 80])
+  doc.rect(14, y, PW - 28, 7, "F")
+  doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); color(GS_WHITE)
+  let cx = 14
+  statsHeaders.forEach((h, i) => { doc.text(h, cx + 2, y + 5); cx += statsColW[i] })
+  y += 7
+
+  stats.forEach((s, si) => {
+    fill(si % 2 === 0 ? GS_BG_CARD : GS_BG_MID)
+    doc.rect(14, y, PW - 28, 7, "F")
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); color(GS_WHITE)
+    const cells = [`${s.label} (${s.unit})`, s.min, s.max, s.avg, String(s.count)]
+    cx = 14
+    cells.forEach((c, i) => { doc.text(c, cx + 2, y + 5); cx += statsColW[i] })
+    y += 7
+  })
+  y += 8
+
+  if (history.length > 0) {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(10); color(GS_ACCENT)
+    doc.text("[ Data Table ]", 14, y + 4)
+    y += 9
+
+    const colW = [(PW - 28) * 0.28, (PW - 28) * 0.14, (PW - 28) * 0.14, (PW - 28) * 0.16, (PW - 28) * 0.14, (PW - 28) * 0.14]
+    const headers = ["Time", "Temp", "Voltage", "Current", "Power", "RSSI"]
+    fill([45, 30, 80])
+    doc.rect(14, y, PW - 28, 6, "F")
+    doc.setFont("helvetica", "bold"); doc.setFontSize(6.5); color(GS_WHITE)
+    cx = 14
+    headers.forEach((h, i) => { doc.text(h, cx + 1.5, y + 4.2); cx += colW[i] })
+    y += 6
+
+    doc.setFont("helvetica", "normal"); doc.setFontSize(6); color(GS_WHITE)
+    history.forEach((row, ri) => {
+      if (y + 6 > PH - 12) {
+        doc.addPage()
+        fill(GS_BG_DARK)
+        doc.rect(0, 0, PW, PH, "F")
+        y = 14
+      }
+      fill(ri % 2 === 0 ? GS_BG_CARD : GS_BG_MID)
+      doc.rect(14, y, PW - 28, 6, "F")
+      const cells = [
+        new Date(row.recorded_at).toLocaleTimeString(),
+        row.temp?.toFixed(1) ?? "--", row.voltage?.toFixed(2) ?? "--",
+        row.current?.toFixed(1) ?? "--", row.power?.toFixed(1) ?? "--", row.rssi?.toFixed(0) ?? "--",
+      ]
+      cx = 14
+      cells.forEach((c, i) => { doc.text(c, cx + 1.5, y + 4); cx += colW[i] })
+      y += 6
+    })
+  }
+
+  const totalPages = doc.internal.pages.length - 1
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p)
+    fill(GS_BG_MID)
+    doc.rect(0, PH - 10, PW, 10, "F")
+    draw(GS_ACCENT_GLOW); doc.setLineWidth(0.3)
+    doc.line(0, PH - 10, PW, PH - 10)
+    doc.setFont("helvetica", "normal"); doc.setFontSize(7); color(GS_ACCENT)
+    doc.text("Cube-Sat Ground Station — Telemetry Export", 14, PH - 4)
+    doc.text(`Page ${p} of ${totalPages}`, PW - 14, PH - 4, { align: "right" })
+  }
 
   doc.save(`GroundStation_${deviceLabel.replace(/\s+/g, "_")}_Report.pdf`)
 }

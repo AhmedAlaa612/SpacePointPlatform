@@ -22,6 +22,32 @@ def device_channel(device_id: str) -> str:
     return f"ground-station:device:{device_id}"
 
 
+def _connections_key(device_id: str) -> str:
+    return f"ground-station:device:{device_id}:connections"
+
+
+async def incr_active_connections(client: redis.Redis, device_id: str) -> None:
+    await client.incr(_connections_key(device_id))
+
+
+async def decr_active_connections(client: redis.Redis, device_id: str) -> None:
+    remaining = await client.decr(_connections_key(device_id))
+    if remaining <= 0:
+        await client.delete(_connections_key(device_id))
+
+
+async def active_connection_count(client: redis.Redis | None, device_id: str) -> int:
+    """Live-viewer count — legacy's `active_connections` in `/api/stats`,
+    scoped per device here since Live Games' Redis pool already gives every
+    WS connection its own subscriber; this reuses the same connection for a
+    simple counter rather than tracking sockets in-process (which wouldn't
+    span multiple API workers)."""
+    if client is None:
+        return 0
+    raw = await client.get(_connections_key(device_id))
+    return int(raw) if raw else 0
+
+
 async def publish_to_device(client: redis.Redis, device_id: str, type: MessageType, payload: dict) -> None:
     await client.publish(device_channel(device_id), json.dumps({"type": type, "payload": payload}))
 

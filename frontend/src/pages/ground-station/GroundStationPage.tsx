@@ -2,7 +2,7 @@
  * legacy Madar platform's LoRa-Dashboard-V3. No mission/attempt/scoring
  * wrapper (see backend/app/models/ground_station/__init__.py) — any logged-in
  * user connects and sees live data from whichever rig is online. */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
@@ -11,12 +11,18 @@ import { useGroundStationSocket, type GroundStationMessage } from "@/hooks/useGr
 import AttitudeCube from "@/components/ground-station/AttitudeCube";
 import CommandConsole from "@/components/ground-station/CommandConsole";
 import MissionGallery from "@/components/ground-station/MissionGallery";
+import HistoryPanel from "@/components/ground-station/HistoryPanel";
+import AlertsPanel from "@/components/ground-station/AlertsPanel";
+import EarthGlobe from "@/components/ground-station/EarthGlobe";
+import TacticalMap from "@/components/ground-station/TacticalMap";
+import WebSerialConnect from "@/components/ground-station/WebSerialConnect";
 import { buildGroundStationReport } from "@/lib/pdf";
 
 const MAX_TREND_POINTS = 240;
 
 interface TelemetryFrame {
   t: number;
+  recorded_at: string;
   temp?: number;
   voltage?: number;
   current?: number;
@@ -26,6 +32,9 @@ interface TelemetryFrame {
   pitch?: number;
   roll?: number;
   yaw?: number;
+  lat?: number;
+  lon?: number;
+  alt?: number;
 }
 
 interface AckEntry {
@@ -97,6 +106,9 @@ function DeviceConsole({ deviceId, device }: { deviceId: string; device: GroundS
   const [history, setHistory] = useState<TelemetryFrame[]>([]);
   const [acks, setAcks] = useState<AckEntry[]>([]);
   const [photos, setPhotos] = useState<GroundStationPhoto[]>([]);
+  const [alertRefreshToken, setAlertRefreshToken] = useState(0);
+  const [exporting, setExporting] = useState(false);
+  const liveChartsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     listPhotos(deviceId).then(setPhotos).catch(() => setPhotos([]));
@@ -107,9 +119,10 @@ function DeviceConsole({ deviceId, device }: { deviceId: string; device: GroundS
       const d = msg.payload.data as Record<string, number>;
       setHistory((h) => {
         const next: TelemetryFrame = {
-          t: h.length,
+          t: h.length, recorded_at: msg.payload.recorded_at,
           temp: d.temp, voltage: d.voltage, current: d.current, power: d.power,
           rssi: d.rssi, snr: d.snr, pitch: d.pitch, roll: d.roll, yaw: d.yaw,
+          lat: d.lat, lon: (d.lon ?? d.lng), alt: d.alt,
         };
         const out = [...h, next];
         return out.length > MAX_TREND_POINTS ? out.slice(out.length - MAX_TREND_POINTS) : out;
@@ -121,26 +134,44 @@ function DeviceConsole({ deviceId, device }: { deviceId: string; device: GroundS
         at: new Date().toISOString(),
       }]);
     } else if (msg.type === "photo_added") {
-      setPhotos((p) => [...p, { path: msg.payload.path, url: msg.payload.url, captured_at: msg.payload.captured_at }]);
+      setPhotos((p) => [...p, {
+        path: msg.payload.path, url: msg.payload.url, captured_at: msg.payload.captured_at,
+        lat: msg.payload.lat ?? null, lon: msg.payload.lon ?? null, alt: msg.payload.alt ?? null,
+      }]);
+    } else if (msg.type === "alert") {
+      setAlertRefreshToken((n) => n + 1);
     }
   });
 
   const latest = history[history.length - 1];
 
+  async function exportPdf() {
+    setExporting(true);
+    try {
+      await buildGroundStationReport(device.label, history, photos.length, liveChartsRef.current);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-end gap-3">
-        <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${connected ? "text-emerald-500" : "text-muted-foreground"}`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-muted-foreground"}`} />
-          {connected ? "Live" : "Connecting…"}
-        </span>
-        <button
-          type="button"
-          onClick={() => buildGroundStationReport(device.label, history, photos)}
-          className="text-xs rounded-lg ring-1 ring-border px-3 py-1.5 hover:bg-muted"
-        >
-          Export PDF
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <WebSerialConnect deviceId={deviceId} />
+        <div className="flex items-center gap-3">
+          <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${connected ? "text-emerald-500" : "text-muted-foreground"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-muted-foreground"}`} />
+            {connected ? "Live" : "Connecting…"}
+          </span>
+          <button
+            type="button"
+            onClick={() => void exportPdf()}
+            disabled={exporting}
+            className="text-xs rounded-lg ring-1 ring-border px-3 py-1.5 hover:bg-muted disabled:opacity-50"
+          >
+            {exporting ? "Generating…" : "Export PDF"}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
@@ -156,7 +187,7 @@ function DeviceConsole({ deviceId, device }: { deviceId: string; device: GroundS
       </div>
 
       {history.length >= 2 ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div ref={liveChartsRef} className="grid grid-cols-1 lg:grid-cols-2 gap-3">
           {CHARTS.map((c) => (
             <div key={c.key} className="rounded-xl ring-1 ring-border overflow-hidden bg-card">
               <div className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -193,6 +224,13 @@ function DeviceConsole({ deviceId, device }: { deviceId: string; device: GroundS
         <AttitudeCube pitch={latest.pitch} roll={latest.roll} yaw={latest.yaw} />
       )}
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <EarthGlobe lat={latest?.lat ?? null} lon={latest?.lon ?? null} alt={latest?.alt ?? null} />
+        <TacticalMap lat={latest?.lat ?? null} lon={latest?.lon ?? null} />
+      </div>
+
+      <HistoryPanel deviceId={deviceId} />
+      <AlertsPanel deviceId={deviceId} refreshToken={alertRefreshToken} />
       <CommandConsole deviceId={deviceId} acks={acks} />
       <MissionGallery photos={photos} />
     </div>
