@@ -13,11 +13,13 @@ from sqlalchemy import select
 
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.sessions.registration import Registration
 from app.models.spine.contact import Contact
 from app.models.team import Team
 from app.models.user import User
 from app.services.competitions.registration_import import (
-    REQUIRED_COLUMNS, import_registrations, parse_registration_sheet, summarize,
+    REQUIRED_COLUMNS, assign_existing_students, import_registrations, parse_registration_sheet, summarize,
+    summarize_assign_results,
 )
 from app.services.teams import create_team, team_member_ids
 
@@ -375,3 +377,181 @@ async def test_import_adds_pre_existing_user_to_team(db):
     assert teams[0].name == "Falcon Eye"
     members = await team_member_ids(db, team_id=teams[0].id)
     assert existing_user.id in members
+
+
+# ── Assign existing (self-registered) students (2026-09-14) ─────────────
+
+async def _make_self_registered_student(db, *, full_name: str = "Self Registered", email: str | None = None) -> User:
+    """Mirrors what routers/auth.py::student_signup actually leaves behind:
+    a Contact + a User with `contact_id` set — no Registration in any
+    cohort yet. That's exactly the gap `assign_existing_students` closes."""
+    from app.core.security import get_password_hash
+
+    email = email or f"self-{uuid.uuid4().hex[:6]}@example.com"
+    contact = Contact(id=uuid.uuid4(), full_name=full_name, email=email, contact_roles=["student"])
+    db.add(contact)
+    await db.flush()
+    user = User(
+        id=uuid.uuid4(), full_name=full_name, email=email, password_hash=get_password_hash("dummy"),
+        roles=["student"], status="active", contact_id=contact.id, must_change_password=False,
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
+@pytest.mark.asyncio
+async def test_assign_registers_a_self_registered_student_into_a_new_team(db):
+    cohort = await _make_cohort(db)
+    student = await _make_self_registered_student(db)
+    await db.commit()
+
+    results = await assign_existing_students(
+        db, cohort_id=cohort.id, rows=[{"row_number": 1, "user_id": student.id, "team_id": "T1"}],
+    )
+    await db.commit()
+
+    assert summarize_assign_results(results) == {"total": 1, "created": 1, "matched": 0, "error": 0}
+    assert results[0].registration_id is not None
+
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert len(teams) == 1
+    assert teams[0].roster_team_id == "T1"
+    assert teams[0].name == "T1"  # unnamed placeholder — student names it later
+    assert student.id in await team_member_ids(db, team_id=teams[0].id)
+
+    reg = (await db.execute(
+        select(Registration).where(Registration.contact_id == student.contact_id, Registration.cohort_id == cohort.id)
+    )).scalar_one()
+    assert reg.id == results[0].registration_id
+
+
+@pytest.mark.asyncio
+async def test_assign_joins_an_existing_team_by_id_and_is_idempotent(db):
+    cohort = await _make_cohort(db)
+    a = await _make_self_registered_student(db, full_name="Student A")
+    b = await _make_self_registered_student(db, full_name="Student B")
+    await db.commit()
+
+    first = await assign_existing_students(
+        db, cohort_id=cohort.id, rows=[{"row_number": 1, "user_id": a.id, "team_id": "T1"}],
+    )
+    await db.commit()
+    assert summarize_assign_results(first)["created"] == 1
+
+    second = await assign_existing_students(
+        db, cohort_id=cohort.id, rows=[{"row_number": 1, "user_id": b.id, "team_id": "T1"}],
+    )
+    await db.commit()
+    assert summarize_assign_results(second) == {"total": 1, "created": 1, "matched": 0, "error": 0}
+
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert len(teams) == 1
+    members = set(await team_member_ids(db, team_id=teams[0].id))
+    assert {a.id, b.id} <= members
+
+    # Re-running the exact same (student, team) pair reports `matched`, not
+    # a duplicate registration or a second join.
+    third = await assign_existing_students(
+        db, cohort_id=cohort.id, rows=[{"row_number": 1, "user_id": a.id, "team_id": "T1"}],
+    )
+    await db.commit()
+    assert summarize_assign_results(third) == {"total": 1, "created": 0, "matched": 1, "error": 0}
+    teams_again = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert len(teams_again) == 1
+
+
+@pytest.mark.asyncio
+async def test_assign_a_row_with_no_team_id_errors_without_failing_the_batch(db):
+    cohort = await _make_cohort(db)
+    a = await _make_self_registered_student(db)
+    b = await _make_self_registered_student(db)
+    await db.commit()
+
+    results = await assign_existing_students(
+        db, cohort_id=cohort.id,
+        rows=[
+            {"row_number": 1, "user_id": a.id, "team_id": ""},
+            {"row_number": 2, "user_id": b.id, "team_id": "T1"},
+        ],
+    )
+    await db.commit()
+
+    summary = summarize_assign_results(results)
+    assert summary["error"] == 1 and summary["created"] == 1
+    error_row = next(r for r in results if r.disposition == "error")
+    assert "Team ID" in error_row.reason
+
+
+@pytest.mark.asyncio
+async def test_assign_an_unknown_user_id_errors_without_failing_the_batch(db):
+    cohort = await _make_cohort(db)
+    real = await _make_self_registered_student(db)
+    await db.commit()
+
+    results = await assign_existing_students(
+        db, cohort_id=cohort.id,
+        rows=[
+            {"row_number": 1, "user_id": uuid.uuid4(), "team_id": "T1"},
+            {"row_number": 2, "user_id": real.id, "team_id": "T1"},
+        ],
+    )
+    await db.commit()
+
+    summary = summarize_assign_results(results)
+    assert summary["error"] == 1 and summary["created"] == 1
+    error_row = next(r for r in results if r.disposition == "error")
+    assert "not found" in error_row.reason.lower()
+
+
+@pytest.mark.asyncio
+async def test_assign_flags_a_team_name_collision_without_failing_the_batch(db):
+    """A student assigned into a fresh team_id whose fallback placeholder
+    name (the team_id itself) collides case-insensitively with an existing
+    real team name — same class of conflict the CSV path guards against."""
+    from app.core.security import get_password_hash
+
+    cohort = await _make_cohort(db)
+    creator = User(
+        id=uuid.uuid4(), full_name="Team Creator", email=f"creator-{uuid.uuid4().hex[:6]}@example.com",
+        password_hash=get_password_hash("dummy"), roles=["student"], status="active",
+    )
+    db.add(creator)
+    await db.flush()
+    existing = await create_team(db, name="Falcon", created_by=creator.id, cohort_id=cohort.id)
+    student = await _make_self_registered_student(db)
+    await db.commit()
+
+    results = await assign_existing_students(
+        db, cohort_id=cohort.id, rows=[{"row_number": 1, "user_id": student.id, "team_id": "FALCON"}],
+    )
+    await db.commit()
+
+    assert summarize_assign_results(results) == {"total": 1, "created": 0, "matched": 0, "error": 1}
+    assert "already exists" in results[0].reason
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert len(teams) == 1
+    assert teams[0].id == existing.id
+
+
+@pytest.mark.asyncio
+async def test_assign_does_not_touch_a_student_with_no_contact(db):
+    """Structurally shouldn't happen for a self-registered account (signup
+    always sets contact_id), but a User with no contact_id must still error
+    cleanly rather than blow up on `resolve_or_create_contact`-free logic
+    downstream that assumes one."""
+    from app.core.security import get_password_hash
+
+    cohort = await _make_cohort(db)
+    orphan = User(
+        id=uuid.uuid4(), full_name="No Contact", email=f"orphan-{uuid.uuid4().hex[:6]}@example.com",
+        password_hash=get_password_hash("dummy"), roles=["student"], status="active",
+    )
+    db.add(orphan)
+    await db.commit()
+
+    results = await assign_existing_students(
+        db, cohort_id=cohort.id, rows=[{"row_number": 1, "user_id": orphan.id, "team_id": "T1"}],
+    )
+    await db.commit()
+    assert summarize_assign_results(results) == {"total": 1, "created": 0, "matched": 0, "error": 1}

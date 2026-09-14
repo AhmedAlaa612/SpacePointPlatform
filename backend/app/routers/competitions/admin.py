@@ -18,7 +18,8 @@ from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
 from app.models.user import User
 from app.schemas.competitions import (
-    CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionImportConfirmIn,
+    CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionAssignStudentRowOut,
+    CompetitionAssignStudentsIn, CompetitionAssignStudentsOut, CompetitionImportConfirmIn,
     CompetitionImportPreviewOut, CompetitionImportPreviewRowOut, CompetitionImportResultOut,
     CompetitionImportRowOut, CompetitionJudgeInviteIn, CompetitionJudgeOut, CompetitionJudgeProgressOut,
     CompetitionLeaderboardRowOut, CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut,
@@ -247,6 +248,45 @@ async def post_cohort_registration_import_confirm(
         rows=[
             CompetitionImportRowOut(**{k: v for k, v in r.items() if k != "registration_id"})
             for r in import_service.results_as_dicts(results)
+        ],
+    )
+
+
+@router.post("/cohorts/{cohort_id}/assign-students", response_model=CompetitionAssignStudentsOut)
+async def post_cohort_assign_students(
+    cohort_id: uuid.UUID, body: CompetitionAssignStudentsIn, db: AsyncSession = Depends(get_db),
+    arq_redis: ArqRedis | None = Depends(get_arq_redis),
+):
+    """Assign tab (2026-09-14): ops has already found these students via
+    `/lms/admin/students` search (they self-registered with an invite code)
+    and typed in a Team ID per row — this registers each one into `cohort`
+    and adds them to that team, creating the team if it's new. See
+    `registration_import.assign_existing_students`'s own docstring for why
+    this exists alongside the CSV roster-import path rather than replacing
+    it.
+
+    Same `send_ticket_email` rule as the CSV confirm endpoint: only a row
+    that actually created a new Registration (`disposition == "created"`)
+    gets a ticket-email job — a row that just moved an already-registered
+    student to a different team has nothing new to ticket."""
+    await _get_cohort_or_404(db, cohort_id)
+    rows = [
+        {"row_number": i, "user_id": r.user_id, "team_id": r.team_id, "team_name": r.team_name}
+        for i, r in enumerate(body.rows, start=1)
+    ]
+    results = await import_service.assign_existing_students(
+        db, cohort_id=cohort_id, rows=rows, send_welcome_email=body.send_welcome_email,
+    )
+    await db.commit()
+    if body.send_ticket_email:
+        for r in results:
+            if r.disposition == "created" and r.registration_id is not None:
+                await safe_enqueue(arq_redis, "send_ticket_email", str(r.registration_id))
+    return CompetitionAssignStudentsOut(
+        summary=import_service.summarize_assign_results(results),
+        rows=[
+            CompetitionAssignStudentRowOut(**{k: v for k, v in r.items() if k != "registration_id"})
+            for r in import_service.assign_results_as_dicts(results)
         ],
     )
 

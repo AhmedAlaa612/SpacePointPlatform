@@ -250,6 +250,47 @@ class CompetitionImportConfirmIn(BaseModel):
     send_welcome_email: bool = True
 
 
+class CompetitionAssignStudentRowIn(BaseModel):
+    """One row of the Assign tab's bulk submit — a student already found via
+    `/lms/admin/students` search, plus the Team ID ops typed in for them
+    (same editable-per-row feel as the Roster import table). `team_name` is
+    left in for parity with the CSV path's per-row rename fallback, but the
+    Assign tab itself never shows a name field — team naming stays the
+    student's own deadline-gated step (see `registration_import.py`'s
+    module docstring); ops assigning a bad name here is not a supported UI
+    path, just not actively blocked by this schema either."""
+    user_id: UUID
+    team_id: str
+    team_name: str | None = None
+
+
+class CompetitionAssignStudentsIn(BaseModel):
+    rows: list[CompetitionAssignStudentRowIn]
+
+    # Same default-on convention as the Roster import batch toggles — see
+    # that schema's own comment. `send_welcome_email` only matters for a row
+    # that turns out to need a *new* student account (see
+    # sync_registration_lms's own docstring) — every row here already has
+    # one from self-signup, so in practice this only ever gates the "you're
+    # registered for X" notice sync_registration_lms sends either way.
+    send_ticket_email: bool = True
+    send_welcome_email: bool = True
+
+
+class CompetitionAssignStudentRowOut(BaseModel):
+    row_number: int
+    user_id: UUID | None = None
+    team_id: str | None = None
+    team_name: str | None = None
+    disposition: str  # created|matched|error — same vocabulary as CompetitionImportRowOut
+    reason: str | None = None
+
+
+class CompetitionAssignStudentsOut(BaseModel):
+    summary: dict[str, int]
+    rows: list[CompetitionAssignStudentRowOut]
+
+
 class CompetitionAdvanceTeamsIn(BaseModel):
     team_ids: list[UUID]
     to_cohort_id: UUID

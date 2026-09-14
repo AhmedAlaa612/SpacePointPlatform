@@ -123,6 +123,25 @@ export interface CompetitionImportPreview {
   rows: CompetitionImportPreviewRow[]
 }
 
+/** Assign tab (2026-09-14): a row of the bulk "assign already
+ * self-registered students to teams" action. Same disposition vocabulary
+ * as `CompetitionImportRow` — `created` means a new Registration was made
+ * for this student, `matched` means they already had one (a re-assign or
+ * team move). */
+export interface CompetitionAssignStudentRow {
+  row_number: number
+  user_id: string | null
+  team_id: string | null
+  team_name: string | null
+  disposition: "created" | "matched" | "error"
+  reason: string | null
+}
+
+export interface CompetitionAssignStudentsResult {
+  summary: { total: number; created: number; matched: number; error: number }
+  rows: CompetitionAssignStudentRow[]
+}
+
 export interface CompetitionAdvanceResult {
   team_id: string
   team_name: string
@@ -240,6 +259,19 @@ export const confirmCohortRegistrationImportApi = (
 ) =>
   api.post<CompetitionImportResult>(
     `/competitions/admin/cohorts/${cohortId}/registration-import/confirm`, { rows, ...options },
+  ).then((r) => r.data)
+
+/** Assign tab: registers each already self-registered student (found via
+ * `searchStudentsApi`) into `cohortId` and adds them to the Team ID ops
+ * typed in for their row, creating the team if it's new. Idempotent the
+ * same way the roster import is — see `CompetitionAssignStudentRow`. */
+export const assignExistingStudentsApi = (
+  cohortId: string,
+  rows: { user_id: string; team_id: string }[],
+  options?: { send_ticket_email?: boolean; send_welcome_email?: boolean },
+) =>
+  api.post<CompetitionAssignStudentsResult>(
+    `/competitions/admin/cohorts/${cohortId}/assign-students`, { rows, ...options },
   ).then((r) => r.data)
 
 export const advanceCohortTeamsApi = (
