@@ -10,6 +10,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.schemas.lms_admin import StudentSummaryOut
 from app.schemas.teams import TeamOut
 
 
@@ -248,6 +249,18 @@ class CompetitionImportConfirmIn(BaseModel):
     # single member-add path and the rest of the app's registration flows.
     send_ticket_email: bool = True
     send_welcome_email: bool = True
+
+
+class CompetitionAssignableStudentOut(StudentSummaryOut):
+    """The Assign tab's own search result (2026-09-14) — the same student
+    row `/lms/admin/students` returns, plus this cohort's own team state:
+    `team_id` (the roster grouping code) and `team_name` when this student
+    is already on a team in *this* cohort, both None otherwise. Lets the
+    tab show at a glance who still needs assigning, and drives the
+    `unassigned_only` filter server-side (ops's own ask: "see people not
+    assigned to teams yet with that code")."""
+    team_id: str | None = None
+    team_name: str | None = None
 
 
 class CompetitionAssignStudentRowIn(BaseModel):

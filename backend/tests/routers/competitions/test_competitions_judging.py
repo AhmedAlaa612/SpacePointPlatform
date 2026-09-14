@@ -1055,6 +1055,105 @@ async def _self_registered_student(db, *, full_name: str = "Self Signup Student"
 
 
 @pytest.mark.asyncio
+async def test_assignable_students_reports_team_state_and_filters_unassigned(db, client):
+    """Ops's own ask (2026-09-14): "see people not assigned to teams yet
+    with that code I picked". Without the filter, every match comes back
+    with its current team state (None/None if not on one yet); with it,
+    already-teamed rows are dropped entirely."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    unassigned = await _self_registered_student(db, full_name="Not Yet Assigned")
+    assigned = await _self_registered_student(db, full_name="Already Assigned")
+    await db.commit()
+
+    pre_assign = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [{"user_id": str(assigned.id), "team_id": "T1"}]},
+        headers=_headers(ops),
+    )
+    assert pre_assign.status_code == 200, pre_assign.text
+
+    full = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        headers=_headers(ops),
+    )
+    assert full.status_code == 200, full.text
+    by_id = {r["id"]: r for r in full.json()}
+    assert by_id[str(unassigned.id)]["team_id"] is None
+    assert by_id[str(unassigned.id)]["team_name"] is None
+    assert by_id[str(assigned.id)]["team_id"] == "T1"
+    assert by_id[str(assigned.id)]["team_name"] == "T1"
+
+    filtered = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"unassigned_only": "true"},
+        headers=_headers(ops),
+    )
+    assert filtered.status_code == 200, filtered.text
+    filtered_ids = {r["id"] for r in filtered.json()}
+    assert str(unassigned.id) in filtered_ids
+    assert str(assigned.id) not in filtered_ids
+
+
+@pytest.mark.asyncio
+async def test_assignable_students_treats_a_manually_created_team_as_assigned(db, client):
+    """A team made by hand in the Teams tab has no roster_team_id at all —
+    `team_id` comes back None for its members, but `unassigned_only` must
+    still exclude them (assignment is keyed on membership, not on
+    roster_team_id being set)."""
+    from app.services.teams import create_team
+
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    student = await _self_registered_student(db)
+    await db.commit()
+
+    await create_team(db, name="Hand-Made Team", created_by=student.id, cohort_id=cohort.id, member_ids=[student.id])
+    await db.commit()
+
+    resp = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"unassigned_only": "true"},
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+    assert str(student.id) not in {r["id"] for r in resp.json()}
+
+    unfiltered = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        headers=_headers(ops),
+    )
+    row = next(r for r in unfiltered.json() if r["id"] == str(student.id))
+    assert row["team_id"] is None
+    assert row["team_name"] == "Hand-Made Team"
+
+
+@pytest.mark.asyncio
+async def test_assignable_students_honors_invite_code_filter(db, client):
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    student = await _self_registered_student(db)
+    student.invitation_code_used = "BATCH1"
+    await db.commit()
+
+    hit = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"invite_code": "BATCH1"},
+        headers=_headers(ops),
+    )
+    assert hit.status_code == 200, hit.text
+    assert str(student.id) in {r["id"] for r in hit.json()}
+
+    miss = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"invite_code": "OTHERBATCH"},
+        headers=_headers(ops),
+    )
+    assert miss.status_code == 200, miss.text
+    assert str(student.id) not in {r["id"] for r in miss.json()}
+
+
+@pytest.mark.asyncio
 async def test_assign_students_registers_and_teams_up_self_registered_students(db, client):
     ops = await _ops(db)
     _program, cohort = await _program_and_cohort(db)

@@ -123,6 +123,25 @@ export interface CompetitionImportPreview {
   rows: CompetitionImportPreviewRow[]
 }
 
+/** Assign tab's search result — the same student row `/lms/admin/students`
+ * returns, plus this cohort's own team state: `team_id`/`team_name` are
+ * set when the student is already on a team in *this* cohort, both null
+ * otherwise. Backs the "only show unassigned" filter. */
+export interface CompetitionAssignableStudent {
+  id: string
+  full_name: string
+  nickname: string | null
+  email: string
+  invite_code: string | null
+  invite_label: string | null
+  school_name: string | null
+  grade: string | null
+  status: string | null
+  created_at: string | null
+  team_id: string | null
+  team_name: string | null
+}
+
 /** Assign tab (2026-09-14): a row of the bulk "assign already
  * self-registered students to teams" action. Same disposition vocabulary
  * as `CompetitionImportRow` — `created` means a new Registration was made
@@ -261,10 +280,21 @@ export const confirmCohortRegistrationImportApi = (
     `/competitions/admin/cohorts/${cohortId}/registration-import/confirm`, { rows, ...options },
   ).then((r) => r.data)
 
+/** Assign tab's own cohort-scoped student search — same name/email +
+ * invite-code filters as `searchStudentsApi`, plus `unassigned_only` to
+ * drop students already on a team in this cohort. */
+export const searchAssignableStudentsApi = (
+  cohortId: string,
+  params: { q?: string; invite_code?: string; unassigned_only?: boolean } = {},
+) =>
+  api.get<CompetitionAssignableStudent[]>(
+    `/competitions/admin/cohorts/${cohortId}/assignable-students`, { params },
+  ).then((r) => r.data)
+
 /** Assign tab: registers each already self-registered student (found via
- * `searchStudentsApi`) into `cohortId` and adds them to the Team ID ops
- * typed in for their row, creating the team if it's new. Idempotent the
- * same way the roster import is — see `CompetitionAssignStudentRow`. */
+ * `searchAssignableStudentsApi`) into `cohortId` and adds them to the Team
+ * ID ops typed in for their row, creating the team if it's new. Idempotent
+ * the same way the roster import is — see `CompetitionAssignStudentRow`. */
 export const assignExistingStudentsApi = (
   cohortId: string,
   rows: { user_id: string; team_id: string }[],

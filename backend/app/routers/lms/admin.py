@@ -105,6 +105,7 @@ from app.services.lms.admin_progress import (
 from app.services.lms import cohort_quiz as cohort_quiz_service
 from app.services.lms.invite_grants import grant_invite_code_access
 from app.services.lms.my_programs import my_programs
+from app.services.lms import students as student_search_service
 from app.services.lms.program import (
     PROGRAM_ITEM_PDF_BUCKET, check_item_conflicts, effective_cohort_program_items, fork_cohort_override,
     guard_locked_submission_scope, item_out, items_out, next_position, renumber_program_items, reorder_program_items,
@@ -261,53 +262,11 @@ async def search_students(
     `none` selects students with no code at all — the ones who signed up
     before the gate existed; without it they'd be unreachable through the
     filter, since "no code" isn't a code you can type.
-    """
-    stmt = select(User).where(User.roles.any("student"))
-    if q:
-        like = f"%{q.strip()}%"
-        stmt = stmt.where(or_(User.full_name.ilike(like), User.email.ilike(like)))
-    if invite_code:
-        if invite_code.strip().lower() == "none":
-            stmt = stmt.where(User.invitation_code_used.is_(None))
-        else:
-            stmt = stmt.where(User.invitation_code_used == invite_code.strip().upper())
-    rows = (await db.execute(stmt.order_by(User.full_name).limit(50))).scalars().all()
 
-    labels = dict((await db.execute(
-        select(InvitationCode.code, InvitationCode.label).where(InvitationCode.kind == "student")
-    )).all())
-
-    # School and grade live on the linked spine Contact, not on `users` —
-    # resolved in two batched queries rather than one pair per row.
-    contact_ids = [u.contact_id for u in rows if u.contact_id]
-    contacts = {
-        c.id: c for c in (
-            (await db.execute(select(Contact).where(Contact.id.in_(contact_ids)))).scalars().all()
-            if contact_ids else []
-        )
-    }
-    org_ids = {c.organization_id for c in contacts.values() if c.organization_id}
-    orgs = {
-        o.id: o for o in (
-            (await db.execute(select(Organization).where(Organization.id.in_(org_ids)))).scalars().all()
-            if org_ids else []
-        )
-    }
-
-    out = []
-    for u in rows:
-        contact = contacts.get(u.contact_id) if u.contact_id else None
-        org = orgs.get(contact.organization_id) if contact and contact.organization_id else None
-        out.append(StudentSummaryOut(
-            id=u.id, full_name=u.full_name, nickname=u.nickname, email=u.email,
-            invite_code=u.invitation_code_used,
-            invite_label=labels.get(u.invitation_code_used) if u.invitation_code_used else None,
-            school_name=org.name_latin if org else None,
-            grade=contact.grade if contact else None,
-            status=u.status,
-            created_at=u.created_at,
-        ))
-    return out
+    The actual query lives in `services/lms/students.py` (extracted
+    2026-09-14) — the Competition Judging Assign tab's cohort-scoped search
+    reuses it rather than re-implementing this from scratch."""
+    return await student_search_service.search_students(db, q=q, invite_code=invite_code)
 
 
 # ── student invite codes (2026-08-13) ───────────────────────────────────────

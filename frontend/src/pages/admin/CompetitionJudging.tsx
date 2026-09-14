@@ -4,14 +4,14 @@ import { Link, useParams } from "@tanstack/react-router"
 import { ArrowLeft, ArrowUpRight, Download, Mail, Plus, Search, Trash2, Trophy, Upload, UserPlus, UserMinus, Pencil, X, Check } from "lucide-react"
 import { getCohortApi, getCohortsApi } from "@/api/sessions/cohorts"
 import type { Cohort } from "@/types/sessions"
-import { searchStaffApi, searchStudentsApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
+import { searchStaffApi, listInviteCodesApi, type StaffOption } from "@/api/lms_admin"
 import { UserProfileModal } from "@/components/UserProfileModal"
 import {
   advanceCohortTeamsApi, assignExistingStudentsApi, createCohortTeamApi, deleteTeamApi, downloadCohortResultsWorkbookApi,
   getCohortExportTop20Api,
   confirmCohortRegistrationImportApi,
   getCohortJudgesApi, getCohortLeaderboardApi, getCohortPublicationApi, getCohortTeamsApi, getProgramRubricApi,
-  previewCohortRegistrationImportApi,
+  previewCohortRegistrationImportApi, searchAssignableStudentsApi,
   inviteCohortJudgeApi, publishCohortResultsApi, putProgramRubricApi, registerAndAddTeamMemberApi,
   removeTeamMemberApi, renameTeamApi, resendJudgeOnboardingEmailApi, revokeCohortJudgeApi, unpublishCohortResultsApi,
   type CompetitionAssignStudentsResult, type CompetitionImportPreviewRow, type CompetitionImportResult,
@@ -344,14 +344,17 @@ function AssignTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const [query, setQuery] = useState("")
   const [inviteCode, setInviteCode] = useState("")
+  const [unassignedOnly, setUnassignedOnly] = useState(true)
   const [teamIds, setTeamIds] = useState<Record<string, string>>({})
   const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
   const [sendTicketEmail, setSendTicketEmail] = useState(true)
   const [result, setResult] = useState<CompetitionAssignStudentsResult | null>(null)
 
   const { data: students = [], isLoading } = useQuery({
-    queryKey: ["lms-admin-students", query, inviteCode],
-    queryFn: () => searchStudentsApi({ q: query || undefined, invite_code: inviteCode || undefined }),
+    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, unassignedOnly],
+    queryFn: () => searchAssignableStudentsApi(cohortId, {
+      q: query || undefined, invite_code: inviteCode || undefined, unassigned_only: unassignedOnly,
+    }),
   })
   const { data: codes = [] } = useQuery({
     queryKey: ["lms-admin-invite-codes"],
@@ -402,6 +405,10 @@ function AssignTab({ cohortId }: { cohortId: string }) {
           ))}
           <option value="none">No code</option>
         </select>
+        <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+          <input type="checkbox" checked={unassignedOnly} onChange={(e) => setUnassignedOnly(e.target.checked)} />
+          Not on a team yet
+        </label>
       </div>
 
       {isLoading ? (
@@ -409,7 +416,11 @@ function AssignTab({ cohortId }: { cohortId: string }) {
       ) : students.length === 0 ? (
         <EmptyState
           title="No students found"
-          hint={query || inviteCode ? "Try a different search or batch." : "No student accounts exist yet."}
+          hint={
+            unassignedOnly
+              ? "Everyone matching this search is already on a team — untick \"Not on a team yet\" to see them."
+              : query || inviteCode ? "Try a different search or batch." : "No student accounts exist yet."
+          }
         />
       ) : (
         <div className="overflow-x-auto border border-border rounded-xl">
@@ -419,6 +430,7 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                 <th className="py-2 pl-3 pr-2">Name</th>
                 <th className="py-2 pr-2">Email</th>
                 <th className="py-2 pr-2">Code used</th>
+                <th className="py-2 pr-2">Current team</th>
                 <th className="py-2 pr-3">Team ID</th>
               </tr>
             </thead>
@@ -429,6 +441,13 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                   <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground whitespace-nowrap">{s.email}</td>
                   <td className="py-1.5 pr-2 align-top pt-3 text-muted-foreground whitespace-nowrap">
                     {s.invite_code ? (s.invite_label ?? s.invite_code) : "—"}
+                  </td>
+                  <td className="py-1.5 pr-2 align-top pt-3 whitespace-nowrap">
+                    {s.team_name ? (
+                      <span className="text-xs font-semibold text-primary">{s.team_name}</span>
+                    ) : (
+                      <span className="text-muted-foreground">Not assigned</span>
+                    )}
                   </td>
                   <td className="py-1.5 pr-3">
                     <input
