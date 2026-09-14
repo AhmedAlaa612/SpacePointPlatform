@@ -29,6 +29,7 @@ async def ingest_telemetry(
     realtime: redis.Redis | None = Depends(get_realtime_redis_dep),
 ):
     await touch_last_seen(db, device)
+    await db.commit()
     await safe_publish_to_device(realtime, str(device_id), "telemetry_frame", {
         "data": frame.data,
         "recorded_at": (frame.recorded_at or datetime.now(timezone.utc)).isoformat(),
@@ -44,6 +45,7 @@ async def pending_commands(
     realtime: redis.Redis | None = Depends(get_realtime_redis_dep),
 ):
     await touch_last_seen(db, device)
+    await db.commit()
     if realtime is None:
         return {"commands": []}
     return {"commands": await pop_pending_commands(realtime, str(device_id))}
