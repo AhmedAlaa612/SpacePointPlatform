@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import { Check, ExternalLink, Play, X, type LucideIcon } from "lucide-react";
 import {
   completeChecklistItem, getChecklistItemGuidelineVideoUrlApi, getChecklistItemPdfUrlApi, setTeamNameChecklistItem,
@@ -18,6 +19,17 @@ import {
 } from "./roadmap";
 
 const SELF_CHECK_TYPES = new Set<LmsProgramChecklistItem["item_type"]>(["manual", "pdf", "external_link", "session"]);
+
+/** Same 2-line pattern every other student page in this app already
+ * duplicates locally (LearnProfile.tsx, MissionPage.tsx, etc.) rather than
+ * a shared import — axios's own `err.message` is a generic "Request
+ * failed with status code 400", never the backend's actual reason, so a
+ * mutation that skips this shows the student an unhelpful, effectively
+ * unhandled-looking error instead of what's really wrong. */
+function errorDetail(err: unknown, fallback: string): string {
+  if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
+  return fallback;
+}
 
 /** Per-item, per-browser "did they open the guideline yet" flag — the
  * final CTA stays disabled until this is true (design spec: "The guideline
@@ -465,7 +477,7 @@ export function TaskDrawer({
       queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
     },
     onError: (err) => {
-      toast.error(err.message || "Failed to complete item.");
+      toast.error(errorDetail(err, "Failed to complete item."));
     },
   });
   const submitMutation = useMutation({
@@ -476,9 +488,16 @@ export function TaskDrawer({
       queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
     },
     onError: (err) => {
-      toast.error(err.message || "Failed to submit. Please check your link.");
+      toast.error(errorDetail(err, "Failed to submit. Please check your link."));
     },
   });
+  // A stale local clock can make the drawer *think* the deadline hasn't
+  // passed (pastDeadline below is computed client-side) even though the
+  // server — the only clock that actually matters — disagrees. Rather
+  // than let the student keep hitting the same rejected save, a 400 whose
+  // reason names the deadline flips this so the drawer immediately shows
+  // the real "locked" state instead of the form.
+  const [teamNameDeadlinePassed, setTeamNameDeadlinePassed] = useState(false);
   const teamNameMutation = useMutation({
     mutationFn: (name: string) => setTeamNameChecklistItem(assignmentId, item!.id, name),
     onSuccess: () => {
@@ -487,7 +506,9 @@ export function TaskDrawer({
       queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
     },
     onError: (err) => {
-      toast.error(err.message || "That name might already be taken — try another.");
+      const detail = errorDetail(err, "That name might already be taken — try another.");
+      toast.error(detail);
+      if (detail.toLowerCase().includes("deadline")) setTeamNameDeadlinePassed(true);
     },
   });
 
@@ -557,7 +578,12 @@ export function TaskDrawer({
   const canSubmit = !hasGuideline || guidelineOpened;
   // Once the deadline passes, the paste-link form is hidden — already
   // submitted content above stays visible/reviewable. Posters remain editable anytime.
-  const pastDeadline = !isPoster && !!item.deadline_at && new Date(item.deadline_at) < new Date();
+  // `teamNameDeadlinePassed` (server-confirmed, see teamNameMutation above)
+  // is ORed in so a stale local clock can't leave the team-setup form
+  // showing as open after the server has already said otherwise — isTeamSetup
+  // and isSubmission are never both true for the same item, so this never
+  // affects the submission form's own reading of this same flag.
+  const pastDeadline = (!isPoster && !!item.deadline_at && new Date(item.deadline_at) < new Date()) || teamNameDeadlinePassed;
   const Icon = iconForItem(item);
 
   const bodyProps: DrawerBodyProps = {
