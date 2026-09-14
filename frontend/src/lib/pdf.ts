@@ -271,3 +271,65 @@ export async function generateTeacherImpactReport(name: string, summary: Teacher
 
   doc.save(`${name.replace(/\s+/g, "_")}_Impact_Report.pdf`)
 }
+
+/** Ground Station telemetry report — the legacy app's "Data Injection" /
+ * mission-report export, ported to jsPDF directly rather than html2canvas
+ * (no DOM snapshot needed, just the numbers and captured photos). */
+interface GroundStationTelemetrySample {
+  temp?: number
+  voltage?: number
+  current?: number
+  power?: number
+  rssi?: number
+  snr?: number
+}
+
+export function buildGroundStationReport(
+  deviceLabel: string,
+  history: GroundStationTelemetrySample[],
+  photos: { url: string; captured_at: string }[],
+) {
+  const doc = new jsPDF({ unit: "mm", format: "a4" })
+  const w = doc.internal.pageSize.getWidth()
+  const M = 18
+
+  doc.setTextColor(...INK)
+  doc.setFont("helvetica", "bold")
+  doc.setFontSize(18)
+  doc.text("Ground Station — Telemetry Report", M, 24)
+
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(10)
+  doc.setTextColor(...MUTED)
+  doc.text(`Rig: ${deviceLabel}`, M, 32)
+  doc.text(new Date().toLocaleString(), w - M, 32, { align: "right" })
+
+  doc.setDrawColor(...INK)
+  doc.setLineWidth(0.5)
+  doc.line(M, 36, w - M, 36)
+
+  const last = history[history.length - 1] ?? {}
+  const fields: [string, string][] = [
+    ["Temperature", last.temp !== undefined ? `${last.temp.toFixed(1)} °C` : "--"],
+    ["Battery voltage", last.voltage !== undefined ? `${last.voltage.toFixed(2)} V` : "--"],
+    ["Current", last.current !== undefined ? `${last.current.toFixed(2)} A` : "--"],
+    ["Power", last.power !== undefined ? `${last.power.toFixed(1)} mW` : "--"],
+    ["Signal (RSSI)", last.rssi !== undefined ? `${last.rssi.toFixed(0)} dBm` : "--"],
+    ["SNR", last.snr !== undefined ? `${last.snr.toFixed(1)} dB` : "--"],
+    ["Samples collected", String(history.length)],
+    ["Photos archived", String(photos.length)],
+  ]
+
+  let y = 48
+  doc.setTextColor(...INK)
+  fields.forEach(([label, value]) => {
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(10)
+    doc.text(label, M, y)
+    doc.setFont("helvetica", "normal")
+    doc.text(value, M + 60, y)
+    y += 8
+  })
+
+  doc.save(`GroundStation_${deviceLabel.replace(/\s+/g, "_")}_Report.pdf`)
+}

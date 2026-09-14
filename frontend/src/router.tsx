@@ -156,6 +156,7 @@ import DesignMissionPage from "@/pages/learn/DesignMissionPage";
 import OperateMissionPage from "@/pages/learn/OperateMissionPage";
 import OperateBriefingPage from "@/pages/learn/OperateBriefingPage";
 import DesignBriefingPage from "@/pages/learn/DesignBriefingPage";
+import GroundStationPage from "@/pages/ground-station/GroundStationPage";
 
 // LMS authoring surface (LM1-13) — shared by operations + facilitator
 // (backend's require_lms_content), own top-level path so one URL space works
@@ -1124,6 +1125,15 @@ const learnOperateBriefingRoute = createRoute({
   }),
 });
 
+// Ground Station (2026-09) — live CubeSat telemetry/command tool, ported
+// from the legacy Madar platform. No mission/attempt shape — a plain
+// logged-in-gated tool page, not a graded activity.
+const learnGroundStationRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/ground-station",
+  component: GroundStationPage,
+});
+
 const learnProgramRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/programs/$cohortId",
@@ -1167,7 +1177,7 @@ const routeTree = rootRoute.addChildren([
     learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
     learnGamesRoute, learnGamePlayRoute,
     learnMissionsRoute, learnDesignBriefingRoute, learnDesignMissionRoute, learnOperateBriefingRoute,
-    learnOperateMissionRoute, learnMissionRoute,
+    learnOperateMissionRoute, learnMissionRoute, learnGroundStationRoute,
   ]),
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,

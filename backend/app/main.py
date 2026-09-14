@@ -18,6 +18,7 @@ from app.routers.ambassadors import router as ambassadors_router
 from app.routers.instructors import router as instructors_router
 from app.routers.inventory import router as inventory_router
 from app.routers.games import router as games_router
+from app.routers.ground_station import router as ground_station_router
 from app.routers.instructor_assessment import router as instructor_assessment_router
 from app.services.games.realtime import get_realtime_redis
 from app.routers.competitions import router as competitions_router
@@ -136,6 +137,10 @@ app.include_router(teams_router)
 
 # Live games domain (Live Games Phase 2C): /games/*
 app.include_router(games_router)
+
+# Ground Station domain (2026-09): /ground-station/*, /ws/ground-station/*
+# — live CubeSat telemetry/command tool ported from the legacy Madar platform.
+app.include_router(ground_station_router)
 
 # Competition judging domain (2026-08-24): /competitions/*
 app.include_router(competitions_router)
