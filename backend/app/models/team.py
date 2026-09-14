@@ -13,9 +13,26 @@ existing intern query, and one missed filter is a silent cross-domain leak
 `interns.Team`, now doubly true since this table is meant to be shared
 across domains itself. `cohort_id` is NULL for a self-formed team from a
 public catalog — cohort-scoped teams are named uniquely per cohort
-(`UNIQUE(cohort_id, name)`), not globally, so two cohorts can both have a
-"Team Alpha"; self-formed teams (`cohort_id` NULL) aren't deduplicated by
-name at all — NULL never equals NULL in a unique constraint.
+(case-insensitively — enforced by a `lower(name)` expression unique index,
+migration `b4f1c8e30a72_learner_teams_roster_id_ci_name`, not declarable as
+a plain `UniqueConstraint` here), not globally, so two cohorts can both
+have a "Team Alpha"; self-formed teams (`cohort_id` NULL) aren't
+deduplicated by name at all — NULL never equals NULL in a unique
+constraint/index.
+
+`roster_team_id` (2026-09-14, competition roster import) is the *import's*
+grouping key — an external id/code from ops's roster sheet, e.g. "T-014" —
+kept deliberately separate from `name`: a roster import groups students
+into a team well before that team necessarily has a real display name
+(see `services/competitions/registration_import.py`). NULL for any team
+not created through that import path (ops's ad-hoc "Add team", a
+self-formed team, every team that predates this column). When a row's
+sheet has no team name yet, `name` is seeded to this same value as a
+literal placeholder — `name == roster_team_id` is how a team's "still
+unnamed" state is detected, rather than a separate boolean/NULL name.
+`UNIQUE(cohort_id, roster_team_id)` (NULLs excluded per Postgres's usual
+distinct-NULL behavior) keeps a re-imported sheet idempotent: the same
+team_id in the same cohort always resolves back to the same row.
 
 Two membership tables, deliberately different lifetimes: `TeamMember` is
 the current roster (changes over time); a *consumer* like
@@ -37,11 +54,19 @@ from app.db.base import Base
 class Team(Base):
     __tablename__ = "learner_teams"
     __table_args__ = (
-        UniqueConstraint("cohort_id", "name", name="uq_learner_teams_cohort_name"),
+        # The real, enforced name-uniqueness constraint is a case-insensitive
+        # expression index (`lower(name)`), added by migration
+        # b4f1c8e30a72 — SQLAlchemy's declarative UniqueConstraint can't
+        # express `lower(...)`, so it isn't declared here; this table has no
+        # plain-column uniqueness on `name` at all anymore.
+        UniqueConstraint("cohort_id", "roster_team_id", name="uq_learner_teams_cohort_roster_team_id"),
     )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(80), nullable=False)
+    name = Column(String(100), nullable=False)
+    # See module docstring — the roster import's grouping key, distinct
+    # from `name`. NULL for any team not created via that import.
+    roster_team_id = Column(String(64), nullable=True)
     cohort_id = Column(UUID(as_uuid=True), ForeignKey("cohorts.id", ondelete="CASCADE"), nullable=True)
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

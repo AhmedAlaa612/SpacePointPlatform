@@ -1,5 +1,7 @@
-"""Competition registration import (2026-08-24) — idempotent on email,
-teams grouped by team_name, a bad row errors without failing the batch.
+"""Competition registration import (2026-08-24, team_id grouping + deferred
+naming 2026-09-14) — idempotent on email, teams grouped by team_id (not
+name — the roster's own external team code), a bad row errors without
+failing the batch.
 """
 
 import io
@@ -11,12 +13,13 @@ from sqlalchemy import select
 
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.spine.contact import Contact
 from app.models.team import Team
 from app.models.user import User
 from app.services.competitions.registration_import import (
     REQUIRED_COLUMNS, import_registrations, parse_registration_sheet, summarize,
 )
-from app.services.teams import team_member_ids
+from app.services.teams import create_team, team_member_ids
 
 
 async def _make_cohort(db) -> Cohort:
@@ -33,9 +36,16 @@ async def _make_cohort(db) -> Cohort:
 
 
 def _workbook(rows: list[dict]) -> bytes:
+    """Column set is the union of every row's own keys, in first-seen
+    order — lets each test only spell out the fields it actually cares
+    about (real sheets vary in which optional columns they carry too)."""
+    columns: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in columns:
+                columns.append(key)
     wb = openpyxl.Workbook()
     sheet = wb.active
-    columns = ["team_name", "member_name", "email", "phone", "school"]
     sheet.append(columns)
     for row in rows:
         sheet.append([row.get(c) for c in columns])
@@ -48,12 +58,14 @@ def _workbook(rows: list[dict]) -> bytes:
 async def test_parse_requires_columns():
     from fastapi import HTTPException
     wb = openpyxl.Workbook()
-    wb.active.append(["team_name", "member_name"])  # missing email
+    wb.active.append(["team_id", "member_name"])  # missing email
     buf = io.BytesIO()
     wb.save(buf)
     with pytest.raises(HTTPException):
         parse_registration_sheet(buf.getvalue())
     assert "email" in REQUIRED_COLUMNS
+    assert "team_id" in REQUIRED_COLUMNS
+    assert "team_name" not in REQUIRED_COLUMNS  # optional now — see module docstring
 
 
 @pytest.mark.asyncio
@@ -62,9 +74,9 @@ async def test_import_creates_teams_and_student_accounts(db):
     await db.commit()
 
     file_bytes = _workbook([
-        {"team_name": "Falcon Eye", "member_name": "Amir Salem", "email": f"amir-{uuid.uuid4().hex[:6]}@example.com"},
-        {"team_name": "Falcon Eye", "member_name": "Lina Nasser", "email": f"lina-{uuid.uuid4().hex[:6]}@example.com"},
-        {"team_name": "Silent Comet", "member_name": "Zaid Omar", "email": f"zaid-{uuid.uuid4().hex[:6]}@example.com"},
+        {"team_id": "T1", "team_name": "Falcon Eye", "member_name": "Amir Salem", "email": f"amir-{uuid.uuid4().hex[:6]}@example.com"},
+        {"team_id": "T1", "team_name": "Falcon Eye", "member_name": "Lina Nasser", "email": f"lina-{uuid.uuid4().hex[:6]}@example.com"},
+        {"team_id": "T2", "team_name": "Silent Comet", "member_name": "Zaid Omar", "email": f"zaid-{uuid.uuid4().hex[:6]}@example.com"},
     ])
     rows = parse_registration_sheet(file_bytes)
     results = await import_registrations(db, cohort_id=cohort.id, rows=rows)
@@ -75,6 +87,7 @@ async def test_import_creates_teams_and_student_accounts(db):
 
     teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
     assert {t.name for t in teams} == {"Falcon Eye", "Silent Comet"}
+    assert {t.roster_team_id for t in teams} == {"T1", "T2"}
     falcon = next(t for t in teams if t.name == "Falcon Eye")
     assert len(await team_member_ids(db, team_id=falcon.id)) == 2
 
@@ -83,11 +96,115 @@ async def test_import_creates_teams_and_student_accounts(db):
 
 
 @pytest.mark.asyncio
+async def test_import_falls_back_to_the_team_id_when_team_name_is_blank(db):
+    """The roster's whole point (2026-09-14): a team can be onboarded with
+    only its id, no name yet — students set the real one themselves later.
+    `name` is seeded to `team_id` as a literal placeholder rather than left
+    NULL — see app/models/team.py's module docstring."""
+    cohort = await _make_cohort(db)
+    await db.commit()
+
+    file_bytes = _workbook([
+        {"team_id": "T-014", "member_name": "Amir Salem", "email": f"amir-{uuid.uuid4().hex[:6]}@example.com"},
+    ])
+    results = await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes))
+    await db.commit()
+
+    assert summarize(results) == {"total": 1, "created": 1, "matched": 0, "error": 0}
+    team = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalar_one()
+    assert team.roster_team_id == "T-014"
+    assert team.name == "T-014"  # still unnamed — name == roster_team_id
+
+
+@pytest.mark.asyncio
+async def test_reimport_never_clobbers_a_name_the_team_already_set(db):
+    """A team that renamed itself (or that ops fixed) between two imports of
+    the same sheet must keep that name — only ever apply the sheet's name
+    while the team is still at its own placeholder."""
+    cohort = await _make_cohort(db)
+    await db.commit()
+
+    email = f"amir-{uuid.uuid4().hex[:6]}@example.com"
+    file_bytes = _workbook([{"team_id": "T-014", "member_name": "Amir Salem", "email": email}])
+    await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes))
+    await db.commit()
+
+    team = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalar_one()
+    assert team.name == "T-014"
+    team.name = "Falcon Eye"  # simulates the team's own rename
+    await db.commit()
+
+    # Re-import the exact same sheet (still no team_name column at all).
+    results = await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes))
+    await db.commit()
+    assert summarize(results) == {"total": 1, "created": 0, "matched": 1, "error": 0}
+
+    await db.refresh(team)
+    assert team.name == "Falcon Eye"
+
+    # Now the sheet DOES carry a name for this team_id — still must not
+    # overwrite the real one already set.
+    named_file = _workbook([{"team_id": "T-014", "team_name": "Something Else", "member_name": "Amir Salem", "email": email}])
+    await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(named_file))
+    await db.commit()
+    await db.refresh(team)
+    assert team.name == "Falcon Eye"
+
+
+@pytest.mark.asyncio
+async def test_import_flags_a_team_name_collision_without_failing_the_batch(db):
+    """Case-insensitive (models/team.py) — an existing real team name
+    collides with another team's fallback-to-team_id placeholder just as
+    easily as with an explicit team_name, so this covers both directions."""
+    from app.core.security import get_password_hash
+
+    cohort = await _make_cohort(db)
+    creator = User(
+        id=uuid.uuid4(), full_name="Team Creator", email=f"creator-{uuid.uuid4().hex[:6]}@example.com",
+        password_hash=get_password_hash("dummy"), roles=["student"], status="active",
+    )
+    db.add(creator)
+    await db.flush()
+    existing = await create_team(db, name="Falcon", created_by=creator.id, cohort_id=cohort.id)
+    await db.commit()
+
+    file_bytes = _workbook([
+        {"team_id": "FALCON", "member_name": "Amir Salem", "email": f"amir-{uuid.uuid4().hex[:6]}@example.com"},
+    ])
+    results = await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes))
+    await db.commit()
+
+    summary = summarize(results)
+    assert summary == {"total": 1, "created": 0, "matched": 0, "error": 1}
+    assert "already exists" in results[0].reason
+
+    # The other team is untouched, and no second team got created.
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert len(teams) == 1
+    assert teams[0].id == existing.id
+
+
+@pytest.mark.asyncio
+async def test_import_captures_nationality_on_the_contact(db):
+    cohort = await _make_cohort(db)
+    await db.commit()
+    email = f"amir-{uuid.uuid4().hex[:6]}@example.com"
+    file_bytes = _workbook([
+        {"team_id": "T1", "member_name": "Amir Salem", "email": email, "nationality": "Emirati"},
+    ])
+    await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes))
+    await db.commit()
+
+    contact = (await db.execute(select(Contact).where(Contact.email == email))).scalar_one()
+    assert contact.nationality == "Emirati"
+
+
+@pytest.mark.asyncio
 async def test_import_is_idempotent_on_email(db):
     cohort = await _make_cohort(db)
     await db.commit()
     email = f"repeat-{uuid.uuid4().hex[:6]}@example.com"
-    file_bytes = _workbook([{"team_name": "Falcon Eye", "member_name": "Amir Salem", "email": email}])
+    file_bytes = _workbook([{"team_id": "T1", "team_name": "Falcon Eye", "member_name": "Amir Salem", "email": email}])
 
     first = await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes))
     await db.commit()
@@ -106,14 +223,33 @@ async def test_a_row_missing_a_required_field_errors_without_failing_the_batch(d
     cohort = await _make_cohort(db)
     await db.commit()
     file_bytes = _workbook([
-        {"team_name": "Falcon Eye", "member_name": "", "email": f"noname-{uuid.uuid4().hex[:6]}@example.com"},
-        {"team_name": "Falcon Eye", "member_name": "Lina Nasser", "email": f"lina2-{uuid.uuid4().hex[:6]}@example.com"},
+        {"team_id": "T1", "member_name": "", "email": f"noname-{uuid.uuid4().hex[:6]}@example.com"},
+        {"team_id": "T1", "member_name": "Lina Nasser", "email": f"lina2-{uuid.uuid4().hex[:6]}@example.com"},
     ])
     results = await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes))
     await db.commit()
 
     summary = summarize(results)
     assert summary["error"] == 1 and summary["created"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_row_missing_team_id_errors_even_with_a_team_name_present(db):
+    """team_id, not team_name, is the required grouping key now — a row with
+    a name but a blank id still errors (the column exists, so this is the
+    per-row blocking-issue path, not the missing-column 422 above it)."""
+    cohort = await _make_cohort(db)
+    await db.commit()
+    file_bytes = _workbook([
+        {"team_id": None, "team_name": "Falcon Eye", "member_name": "Amir Salem", "email": f"amir-{uuid.uuid4().hex[:6]}@example.com"},
+        {"team_id": "T1", "team_name": "Falcon Eye", "member_name": "Lina Nasser", "email": f"lina-{uuid.uuid4().hex[:6]}@example.com"},
+    ])
+    results = await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes))
+    await db.commit()
+    summary = summarize(results)
+    assert summary["error"] == 1 and summary["created"] == 1
+    error_row = next(r for r in results if r.disposition == "error")
+    assert "Team ID" in error_row.reason
 
 
 @pytest.mark.asyncio
@@ -126,9 +262,9 @@ async def test_import_accepts_the_ops_selection_tracker_headers(db):
 
     wb = openpyxl.Workbook()
     sheet = wb.active
-    sheet.append(["Team Name", "Student Name", "Email", "Phone", "School / University"])
+    sheet.append(["Team Name", "Team ID", "Student Name", "Email", "Phone", "School / University"])
     sheet.append([
-        "Falcon Eye", "Amir Salem", f"amir-{uuid.uuid4().hex[:6]}@example.com", "0501234567", "SABIS",
+        "Falcon Eye", "T1", "Amir Salem", f"amir-{uuid.uuid4().hex[:6]}@example.com", "0501234567", "SABIS",
     ])
     buf = io.BytesIO()
     wb.save(buf)
@@ -151,7 +287,7 @@ async def test_import_accepts_a_csv_export_of_the_same_tracker(db):
     await db.commit()
 
     email = f"csvrow-{uuid.uuid4().hex[:6]}@example.com"
-    csv_text = f"Team Name,Student Name,Email,Phone,School / University\r\nFalcon Eye,Amir Salem,{email},0501234567,SABIS\r\n"
+    csv_text = f"Team Name,Team ID,Student Name,Email,Phone,School / University\r\nFalcon Eye,T1,Amir Salem,{email},0501234567,SABIS\r\n"
     file_bytes = b"\xef\xbb\xbf" + csv_text.encode("utf-8")  # UTF-8 BOM, as Excel/Sheets stamp it
 
     rows = parse_registration_sheet(file_bytes, filename="eligible.csv")
@@ -174,7 +310,8 @@ def test_parse_rejects_a_non_spreadsheet_file_cleanly():
 async def test_import_finds_the_header_past_the_trackers_title_and_stage_rows(db):
     """Ops's real "Eligible" export (the one that actually broke): a title
     row, a stage-description row, THEN the header on row 3 — not row 1.
-    Real shape, real columns, straight from the file that failed."""
+    Real shape, real columns, straight from the file that failed. This
+    sheet carries both Team Name and Team ID — the real, common case."""
     cohort = await _make_cohort(db)
     await db.commit()
 
@@ -182,9 +319,9 @@ async def test_import_finds_the_header_past_the_trackers_title_and_stage_rows(db
     csv_text = (
         "Eligible Applicants — Before Qualifier,,,,,,,,,,,,,\r\n"
         "Stage 2: Confirm eligibility before the qualifier; eligible candidates are sent for NSA approval.,,,,,,,,,,,,,\r\n"
-        "Application ID,Student Name,Email,Phone,School / University,Age / Grade,Emirate,Team Name,Team ID,"
+        "Application ID,Student Name,Nationality,Email,Phone,School / University,Age / Grade,Emirate,Team Name,Team ID,"
         "Eligibility Status,Eligibility Check,Eligible?,Reason / Notes,Sent to NSA?\r\n"
-        f"1,ed1,{email},,msa,12,yes,edos,1,,,,,\r\n"
+        f"1,ed1,Emirati,{email},,msa,12,yes,edos,1,,,,,\r\n"
     )
     file_bytes = csv_text.encode("utf-8")
 
@@ -222,7 +359,7 @@ async def test_import_adds_pre_existing_user_to_team(db):
     await db.commit()
 
     file_bytes = _workbook([
-        {"team_name": "Falcon Eye", "member_name": "Existing Student", "email": email},
+        {"team_id": "T1", "team_name": "Falcon Eye", "member_name": "Existing Student", "email": email},
     ])
     rows = parse_registration_sheet(file_bytes)
     results = await import_registrations(db, cohort_id=cohort.id, rows=rows)

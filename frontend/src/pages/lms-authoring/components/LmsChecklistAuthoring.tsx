@@ -957,13 +957,14 @@ export function ItemForm({
         description: description.trim() || null,
         optional,
         requires_confirmation: requiresConfirmation,
-        scope: TEAM_SCOPABLE_TYPES.has(itemType) && teamScoped ? "team" : "individual",
+        scope: itemType === "team_setup" || (TEAM_SCOPABLE_TYPES.has(itemType) && teamScoped) ? "team" : "individual",
         course_id: itemType === "course" ? courseId : null,
         mission_id: itemType === "mission_run" ? missionId : null,
         variant_id: itemType === "mission_run" ? (variantId || null) : null,
         external_url: (itemType === "external_link" || itemType === "submission") ? (externalUrl.trim() || null) : null,
         submission_prompt: itemType === "submission" ? (submissionPrompt.trim() || null) : null,
-        deadline_at: itemType === "submission" && deadlineAt ? new Date(deadlineAt).toISOString() : null,
+        deadline_at: (itemType === "submission" || itemType === "team_setup") && deadlineAt
+          ? new Date(deadlineAt).toISOString() : null,
         session_date: itemType === "session" ? (sessionDate || null) : null,
         session_starts_at: itemType === "session" ? (sessionStartsAt || null) : null,
         session_location: itemType === "session" ? (sessionLocation.trim() || null) : null,
@@ -1107,6 +1108,20 @@ export function ItemForm({
         </>
       )}
 
+      {itemType === "team_setup" && (
+        <div className="flex flex-col gap-1">
+          <input
+            type="datetime-local" value={deadlineAt} onChange={(e) => setDeadlineAt(e.target.value)}
+            className={inputCls}
+          />
+          <span className="text-[11px] text-muted-foreground">
+            Deadline (optional). Leave blank for no deadline. After it passes, the team can no longer change their
+            name — until then, any teammate can set or change it as many times as they want. A team with no name
+            yet shows their roster team ID as a placeholder.
+          </span>
+        </div>
+      )}
+
       {itemType === "quiz" && (
         <div className="flex flex-col gap-1">
           <select
@@ -1233,6 +1248,11 @@ export function ItemForm({
           <span className="text-xs text-muted-foreground">
             {teamScoped ? "Shared with the whole team — one team run." : "Each student runs their own."}
             {initial && " Can't be changed — delete and re-add the item to switch."}
+          </span>
+        )}
+        {itemType === "team_setup" && (
+          <span className="text-xs text-muted-foreground">
+            Always shared with the whole team — any teammate can set or change it until the deadline.
           </span>
         )}
       </div>

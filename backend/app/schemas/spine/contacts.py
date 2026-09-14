@@ -136,6 +136,7 @@ class ContactDetail(BaseModel):
     city: Optional[str] = None
     date_of_birth: Optional[date] = None
     grade: Optional[str] = None
+    nationality: Optional[str] = None
     lifecycle_stage: str
     owner_user_id: Optional[UUID] = None
     organization_id: Optional[UUID] = None
@@ -166,6 +167,7 @@ class ContactUpdate(BaseModel):
     city: Optional[str] = None
     date_of_birth: Optional[date] = None
     grade: Optional[str] = None
+    nationality: Optional[str] = None
     lifecycle_stage: Optional[str] = None
     owner_user_id: Optional[UUID] = None
     organization_id: Optional[UUID] = None

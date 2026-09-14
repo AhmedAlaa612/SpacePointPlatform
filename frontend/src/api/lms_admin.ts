@@ -318,10 +318,13 @@ export const deleteCheckpointApi = (id: string) => api.delete<void>(`/lms/admin/
 // Replaces the old program_curriculum flat course list (above, removed) —
 // see backend/app/models/lms/program.py's module docstring for the full shape.
 
-export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz";
+export type LmsProgramItemType =
+  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup";
 /** individual (default): per-student progress. team: the whole Team shares
- * one progress row — only valid for submission/external_link/manual items
- * (enforced server-side in services/lms/program.py). */
+ * one progress row — only valid for submission/external_link/manual/
+ * mission_run/team_setup items (enforced server-side in
+ * services/lms/program.py). `team_setup` is always team — there's no
+ * individual variant, so authoring it never offers the choice. */
 export type LmsProgramItemScope = "individual" | "team";
 
 export interface LmsProgramItem {

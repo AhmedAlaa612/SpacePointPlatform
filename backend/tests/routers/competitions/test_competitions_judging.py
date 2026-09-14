@@ -683,9 +683,9 @@ async def test_registration_import_preview_then_confirm_creates_teams(db, client
 
     wb = openpyxl.Workbook()
     sheet = wb.active
-    sheet.append(["team_name", "member_name", "email", "phone", "school"])
-    sheet.append(["Falcon Eye", "Amir Salem", f"amir-{uuid.uuid4().hex[:6]}@example.com", "", ""])
-    sheet.append(["Falcon Eye", "Lina Nasser", f"lina-{uuid.uuid4().hex[:6]}@example.com", "", ""])
+    sheet.append(["team_id", "team_name", "member_name", "email", "phone", "school"])
+    sheet.append(["T1", "Falcon Eye", "Amir Salem", f"amir-{uuid.uuid4().hex[:6]}@example.com", "", ""])
+    sheet.append(["T1", "Falcon Eye", "Lina Nasser", f"lina-{uuid.uuid4().hex[:6]}@example.com", "", ""])
     buf = io.BytesIO()
     wb.save(buf)
 
@@ -726,8 +726,8 @@ async def test_registration_import_preview_flags_a_malformed_email_but_confirm_c
 
     wb = openpyxl.Workbook()
     sheet = wb.active
-    sheet.append(["team_name", "member_name", "email", "phone", "school"])
-    sheet.append(["Falcon Eye", "Amir Salem", "456", "", ""])  # shifted-column garbage, the prod incident shape
+    sheet.append(["team_id", "team_name", "member_name", "email", "phone", "school"])
+    sheet.append(["T1", "Falcon Eye", "Amir Salem", "456", "", ""])  # shifted-column garbage, the prod incident shape
     buf = io.BytesIO()
     wb.save(buf)
 
@@ -767,9 +767,9 @@ async def test_registration_import_confirm_enqueues_a_ticket_email_per_created_r
 
     wb = openpyxl.Workbook()
     sheet = wb.active
-    sheet.append(["team_name", "member_name", "email", "phone", "school"])
-    sheet.append(["Falcon Eye", "Amir Salem", f"amir-{uuid.uuid4().hex[:6]}@example.com", "", ""])
-    sheet.append(["Falcon Eye", "Lina Nasser", f"lina-{uuid.uuid4().hex[:6]}@example.com", "", ""])
+    sheet.append(["team_id", "team_name", "member_name", "email", "phone", "school"])
+    sheet.append(["T1", "Falcon Eye", "Amir Salem", f"amir-{uuid.uuid4().hex[:6]}@example.com", "", ""])
+    sheet.append(["T1", "Falcon Eye", "Lina Nasser", f"lina-{uuid.uuid4().hex[:6]}@example.com", "", ""])
     buf = io.BytesIO()
     wb.save(buf)
 
@@ -808,9 +808,9 @@ async def test_registration_import_confirm_with_a_duplicate_email_enqueues_only_
     dup_email = f"dup-{uuid.uuid4().hex[:6]}@example.com"
     wb = openpyxl.Workbook()
     sheet = wb.active
-    sheet.append(["team_name", "member_name", "email", "phone", "school"])
-    sheet.append(["Falcon Eye", "Amir Salem", dup_email, "", ""])
-    sheet.append(["Falcon Eye", "Amir Salem", dup_email, "", ""])
+    sheet.append(["team_id", "team_name", "member_name", "email", "phone", "school"])
+    sheet.append(["T1", "Falcon Eye", "Amir Salem", dup_email, "", ""])
+    sheet.append(["T1", "Falcon Eye", "Amir Salem", dup_email, "", ""])
     buf = io.BytesIO()
     wb.save(buf)
 
@@ -858,8 +858,8 @@ async def test_registration_import_confirm_can_opt_the_batch_out_of_ticket_and_w
 
     wb = openpyxl.Workbook()
     sheet = wb.active
-    sheet.append(["team_name", "member_name", "email", "phone", "school"])
-    sheet.append(["Silent Comet", "Zaid Omar", f"zaid-{uuid.uuid4().hex[:6]}@example.com", "", ""])
+    sheet.append(["team_id", "team_name", "member_name", "email", "phone", "school"])
+    sheet.append(["T2", "Silent Comet", "Zaid Omar", f"zaid-{uuid.uuid4().hex[:6]}@example.com", "", ""])
     buf = io.BytesIO()
     wb.save(buf)
 
@@ -892,7 +892,7 @@ async def test_registration_import_confirm_still_refuses_a_row_missing_a_require
     _program, cohort = await _program_and_cohort(db)
     await db.commit()
 
-    row = {"row_number": 2, "team_name": "Falcon Eye", "member_name": "", "email": "amir@example.com", "phone": None, "school": None}
+    row = {"row_number": 2, "team_id": "T1", "team_name": "Falcon Eye", "member_name": "", "email": "amir@example.com", "phone": None, "school": None}
     confirm_resp = await client.post(
         f"/competitions/admin/cohorts/{cohort.id}/registration-import/confirm",
         json={"rows": [row]},

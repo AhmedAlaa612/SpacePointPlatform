@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 
 # from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -36,6 +36,7 @@ from app.core.dependencies import get_current_active_user, require_lms_student
 from app.db.session import get_db
 from app.models.lms import Course, CourseModule, Enrollment, ItemProgress, ModuleItem, VideoCheckpoint
 from app.models.lms.learning_path import LearningPath, LearningPathStep
+from app.models.team import Team
 from app.models.lms.program import (
     LmsProgramAssignment, LmsProgramItem, LmsProgramItemProgress, LmsProgramTeamItemProgress,
 )
@@ -60,6 +61,7 @@ from app.schemas.lms import (
     LmsProgramChecklistItemOut,
     LmsProgramChecklistOut,
     LmsProgramItemSubmitIn,
+    LmsProgramTeamNameIn,
     ModuleItemOut,
     ModuleLockOut,
     ModuleOut,
@@ -714,6 +716,63 @@ async def submit_program_item(
             design = await ensure_design(db, attempt=attempt)
             design.poster_url = body.url
             design.updated_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(target)
+    return await _checklist_item_out(db, item=item, target=target)
+
+
+@router.post("/programs/{assignment_id}/items/{item_id}/team-name", response_model=LmsProgramChecklistItemOut)
+async def set_team_name(
+    assignment_id: uuid.UUID, item_id: uuid.UUID, body: LmsProgramTeamNameIn,
+    db: AsyncSession = Depends(get_db), current: User = Depends(require_lms_student),
+):
+    """A `team_setup` item's one action — rename the caller's own team.
+    Always team-scoped (validate_item_payload rejects any other scope at
+    authoring time), so any teammate can call this as many times as they
+    want until the deadline — last write wins, same convention every other
+    team-scoped write already follows (see `submit_program_item` above).
+    Writes straight to `Team.name` — the item's own progress row only
+    tracks *that* the team did it (status/who/when), never a second copy
+    of the name itself, so every other view that reads `Team.name` (ops's
+    Teams tab, judge views, this same checklist's own top-level
+    `team_name`) sees the change with no extra wiring."""
+    assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
+    if item.item_type != "team_setup":
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This item isn't a team setup step")
+    if item.deadline_at is not None and datetime.now(timezone.utc) > item.deadline_at:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="The deadline to set your team name has passed")
+    if await checklist_item_locked(db, assignment=assignment, item=item):
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="This step isn't unlocked yet")
+    target = await checklist_item_write_target(db, assignment=assignment, item=item, individual=individual, user_id=current.id)
+    if not isinstance(target, LmsProgramTeamItemProgress):
+        # Can't happen given item.scope is forced to "team" at authoring
+        # time (validate_item_payload) — guard rather than silently write
+        # to the wrong row if that invariant is ever broken.
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail="This team setup item is misconfigured")
+    team = await db.get(Team, target.team_id)
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Team name can't be empty")
+    collision = await db.scalar(
+        select(Team.id).where(
+            Team.cohort_id == team.cohort_id, Team.id != team.id, func.lower(Team.name) == name.lower(),
+        )
+    )
+    if collision is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail="That team name is already taken")
+    team.name = name
+
+    if item.requires_confirmation:
+        target.status = "awaiting_confirmation"
+    else:
+        target.status = "done"
+        target.completed_at = datetime.now(timezone.utc)
+    target.updated_by_user_id = current.id
+    target.updated_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(target)

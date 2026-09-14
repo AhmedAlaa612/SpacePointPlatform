@@ -516,7 +516,8 @@ export async function submitCheckpointAnswer(
 // new checklist entity, `lms_program_assignments`. Mounted at
 // /learn/checklists to keep well clear of that existing route.
 
-export type LmsProgramItemType = "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz";
+export type LmsProgramItemType =
+  | "course" | "mission_run" | "external_link" | "submission" | "pdf" | "manual" | "session" | "quiz" | "team_setup";
 export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
 
 export type LmsProgramItemScope = "individual" | "team";
@@ -625,6 +626,16 @@ export async function completeChecklistItem(assignmentId: string, itemId: string
 
 export async function submitChecklistItem(assignmentId: string, itemId: string, url: string): Promise<LmsProgramChecklistItem> {
   const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/submit`, { url });
+  return data;
+}
+
+/** A `team_setup` item's one action — see routers/lms/student.py's
+ * set_team_name. Any teammate can call this as many times as they want
+ * until the item's deadline — last write wins. Writes straight to the
+ * team's real name, so the checklist's own top-level `team_name` (and
+ * every other view that reads it) reflects it immediately. */
+export async function setTeamNameChecklistItem(assignmentId: string, itemId: string, name: string): Promise<LmsProgramChecklistItem> {
+  const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/team-name`, { name });
   return data;
 }
 

@@ -192,6 +192,7 @@ class CompetitionTeamDetailOut(BaseModel):
 
 class CompetitionImportRowOut(BaseModel):
     row_number: int
+    team_id: str | None = None
     team_name: str | None = None
     email: str | None = None
     disposition: str  # created|matched|error
@@ -206,12 +207,17 @@ class CompetitionImportResultOut(BaseModel):
 class CompetitionImportPreviewRowOut(BaseModel):
     """One parsed sheet row, before anything is written. `issues` is empty
     for a clean row; non-empty means ops needs to fix it (in the browser,
-    via the confirm payload below) before it can be committed."""
+    via the confirm payload below) before it can be committed. `team_name`
+    is optional (2026-09-14) — a blank one just means this team hasn't
+    named itself yet, not a bad row; `team_id` (the sheet's own grouping
+    key) is what's actually required."""
     row_number: int
+    team_id: str | None = None
     team_name: str | None = None
     member_name: str | None = None
     email: str | None = None
     phone: str | None = None
+    nationality: str | None = None
     school: str | None = None
     issues: list[str] = []
 
@@ -226,10 +232,12 @@ class CompetitionImportConfirmRowIn(BaseModel):
     `issues`: the server re-validates on the way in rather than trusting
     whatever the client last saw."""
     row_number: int
+    team_id: str | None = None
     team_name: str | None = None
     member_name: str | None = None
     email: str | None = None
     phone: str | None = None
+    nationality: str | None = None
     school: str | None = None
 
 

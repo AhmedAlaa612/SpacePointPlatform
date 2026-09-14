@@ -5,6 +5,7 @@ certificate_gate_satisfied. Redis-free, HTTP-free.
 """
 
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -26,7 +27,7 @@ from app.services.lms.program import (
     assign_lms_program, assignment_item_detail, certificate_gate_satisfied, fork_cohort_override,
     get_student_checklist, guard_locked_submission_scope, resolve_cohort_program, sync_assignment_items,
     sync_cohort_assignments, sync_program_assignments, sync_team_mission_runs, team_mission_run_items,
-    validate_item_refs,
+    validate_item_payload, validate_item_refs,
 )
 from app.services.missions import decide_attempt
 
@@ -1141,3 +1142,35 @@ async def test_individual_mission_split_into_steps_keeps_one_attempt_after_the_f
         )
     )).scalars().one()
     assert step_b_progress.mission_attempt_id == attempt.id
+
+
+# ── team_setup authoring validation (2026-09-14) ────────────────────────────
+
+def test_team_setup_must_be_team_scoped():
+    body = LmsProgramItemIn(item_type="team_setup", title="Name your team", scope="individual")
+    with pytest.raises(HTTPException) as exc_info:
+        validate_item_payload(body)
+    assert exc_info.value.status_code == 400
+    assert "always team-scoped" in exc_info.value.detail
+
+
+def test_team_setup_team_scoped_is_valid():
+    body = LmsProgramItemIn(item_type="team_setup", title="Name your team", scope="team")
+    validate_item_payload(body)  # does not raise
+
+
+def test_team_setup_accepts_a_deadline():
+    body = LmsProgramItemIn(
+        item_type="team_setup", title="Name your team", scope="team",
+        deadline_at=datetime(2030, 1, 1, tzinfo=timezone.utc),
+    )
+    validate_item_payload(body)  # does not raise
+
+
+def test_only_submission_and_team_setup_items_can_have_a_deadline():
+    body = LmsProgramItemIn(
+        item_type="manual", title="Do a thing", deadline_at=datetime(2030, 1, 1, tzinfo=timezone.utc),
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        validate_item_payload(body)
+    assert "submission or team_setup" in exc_info.value.detail

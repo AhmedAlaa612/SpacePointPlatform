@@ -49,6 +49,12 @@ class Contact(Base):
     # systems vary (American/British/etc.), and nothing here validates or
     # acts on the value.
     grade = Column(String(32), nullable=True)
+    # Citizenship, not residence — deliberately distinct from `country`
+    # above (which is location/CRM-ish). Added for the competition roster
+    # import (2026-09-14), where eligibility is nationality-gated by an
+    # external authority (NSA) rather than where the student lives. Free
+    # text, same posture as `grade` — nothing here validates or acts on it.
+    nationality = Column(String(64), nullable=True)
 
     owner_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     organization_id = Column(UUID(as_uuid=True), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True)

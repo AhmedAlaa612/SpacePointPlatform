@@ -3,8 +3,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from "@tanstack/react-query";
 import { Check, ExternalLink, Play, X, type LucideIcon } from "lucide-react";
 import {
-  completeChecklistItem, getChecklistItemGuidelineVideoUrlApi, getChecklistItemPdfUrlApi, submitChecklistItem,
-  type LmsProgramChecklistItem,
+  completeChecklistItem, getChecklistItemGuidelineVideoUrlApi, getChecklistItemPdfUrlApi, setTeamNameChecklistItem,
+  submitChecklistItem, type LmsProgramChecklistItem,
 } from "@/api/lms";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -61,6 +61,8 @@ interface DrawerBodyProps {
   guidelineVideoInfo: VideoPlaybackInfo | null | undefined;
   isAutoTracked: boolean;
   isSubmission: boolean;
+  isTeamSetup: boolean;
+  teamName: string | null;
   isPoster: boolean;
   onOpenMadar?: () => void;
   isSelfCheck: boolean;
@@ -71,6 +73,9 @@ interface DrawerBodyProps {
   submitUrl: string;
   setSubmitUrl: (url: string) => void;
   submitMutation: UseMutationResult<LmsProgramChecklistItem, Error, string>;
+  teamNameInput: string;
+  setTeamNameInput: (name: string) => void;
+  teamNameMutation: UseMutationResult<LmsProgramChecklistItem, Error, string>;
   Icon: LucideIcon;
   completeMutation: UseMutationResult<LmsProgramChecklistItem, Error, void>;
 }
@@ -97,8 +102,9 @@ interface DrawerBodyProps {
  * used to reach via closure is now an explicit prop instead. */
 function DrawerBody({
   item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
-  submissionReference, guidelineVideoUploaded, guidelineVideoInfo, isAutoTracked, isSubmission, isPoster, onOpenMadar,
-  isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl, setSubmitUrl, submitMutation, Icon, completeMutation,
+  submissionReference, guidelineVideoUploaded, guidelineVideoInfo, isAutoTracked, isSubmission, isTeamSetup, teamName,
+  isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl, setSubmitUrl, submitMutation,
+  teamNameInput, setTeamNameInput, teamNameMutation, Icon, completeMutation,
 }: DrawerBodyProps) {
   return (
     <>
@@ -243,6 +249,37 @@ function DrawerBody({
         </div>
       )}
 
+      {/* Team setup — name (or rename) your team. Always shared: any
+          teammate can change it right up until the deadline, last write
+          wins, same convention every other team-scoped item follows. */}
+      {isTeamSetup && (
+        <div className="flex flex-col gap-2.5 rounded-xl ring-1 ring-border p-4 text-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Current name</span>
+            {item.updated_by_name && (
+              <span className="text-xs text-muted-foreground">
+                Set by {item.updated_by_name}
+                {item.updated_at && ` · ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+              </span>
+            )}
+          </div>
+          <span className="text-lg font-semibold text-foreground">{teamName ?? "—"}</span>
+          {pastDeadline ? (
+            <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
+              Deadline passed — your team's name is locked in
+            </p>
+          ) : (
+            <input
+              value={teamNameInput}
+              onChange={(e) => setTeamNameInput(e.target.value)}
+              placeholder="Your team's name"
+              maxLength={100}
+              className="h-12 px-4 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors"
+            />
+          )}
+        </div>
+      )}
+
       {isAutoTracked && (
         <p className="rounded-xl ring-1 ring-border p-4 text-sm text-muted-foreground">
           {target.kind === "course"
@@ -310,11 +347,20 @@ function DrawerBody({
 
       {/* Exactly one primary action, whatever this item's type. */}
       <div className="mt-auto pt-3 flex flex-col gap-2.5 border-t border-border">
-        {!canSubmit && (isSubmission || isSelfCheck) && !done && !awaiting && (
+        {!canSubmit && (isSubmission || isSelfCheck || isTeamSetup) && !done && !awaiting && (
           <p className="text-xs text-muted-foreground text-center">View the guide above first</p>
         )}
         {isAutoTracked && (
           <Button onClick={doWork} className="h-[52px] text-base gap-2">{workLabel}</Button>
+        )}
+        {isTeamSetup && !pastDeadline && (
+          <Button
+            disabled={!canSubmit || !teamNameInput.trim() || teamNameMutation.isPending}
+            onClick={() => teamNameMutation.mutate(teamNameInput.trim())}
+            className="h-[52px] text-base"
+          >
+            {teamNameMutation.isPending ? "Saving…" : teamName ? "Update team name" : "Save team name"}
+          </Button>
         )}
         {isSubmission && !pastDeadline && (
           <Button
@@ -354,16 +400,18 @@ function DrawerBody({
  * lifted from the old `ChecklistItemRow` (`LearnChecklist.tsx`, now
  * retired), not rewritten. */
 export function TaskDrawer({
-  item, assignmentId, onClose, onChanged,
+  item, assignmentId, teamName, onClose, onChanged,
 }: {
   item: LmsProgramChecklistItem | null;
   assignmentId: string;
+  teamName: string | null;
   onClose: () => void;
   onChanged: () => void;
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [submitUrl, setSubmitUrl] = useState("");
+  const [teamNameInput, setTeamNameInput] = useState(teamName ?? "");
   const [viewingPdf, setViewingPdf] = useState(false);
 
   // A `pdf`-type item's own content IS its guideline even when
@@ -431,6 +479,17 @@ export function TaskDrawer({
       toast.error(err.message || "Failed to submit. Please check your link.");
     },
   });
+  const teamNameMutation = useMutation({
+    mutationFn: (name: string) => setTeamNameChecklistItem(assignmentId, item!.id, name),
+    onSuccess: () => {
+      toast.success("Team name saved!");
+      onChanged();
+      queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
+    },
+    onError: (err) => {
+      toast.error(err.message || "That name might already be taken — try another.");
+    },
+  });
 
   if (!item) return null;
 
@@ -470,6 +529,7 @@ export function TaskDrawer({
   const hasGuideline = !!effectiveGuidelineKind;
   const isAutoTracked = (item.item_type === "course" || item.item_type === "mission_run" || item.item_type === "quiz") && !isPoster;
   const isSubmission = item.item_type === "submission" || isPoster;
+  const isTeamSetup = item.item_type === "team_setup";
   const isSelfCheck = SELF_CHECK_TYPES.has(item.item_type);
   const done = item.status === "done";
   const awaiting = item.status === "awaiting_confirmation";
@@ -503,8 +563,8 @@ export function TaskDrawer({
   const bodyProps: DrawerBodyProps = {
     item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
     submissionReference, guidelineVideoUploaded: !!item.guideline_video_uploaded, guidelineVideoInfo, isAutoTracked,
-    isSubmission, isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl,
-    setSubmitUrl, submitMutation, Icon, completeMutation,
+    isSubmission, isTeamSetup, teamName, isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline,
+    submitUrl, setSubmitUrl, submitMutation, teamNameInput, setTeamNameInput, teamNameMutation, Icon, completeMutation,
   };
 
   return (
