@@ -150,6 +150,53 @@ async def test_mission_progress_all_lists_every_attempting_student(db, client):
 
 
 @pytest.mark.asyncio
+async def test_mission_progress_all_reports_design_step_completion(db, client):
+    """2026-09-14 regression: design_steps_for_attempts never called
+    compute_dashboard() at all — a bare NameError on every design-mission
+    attempt, 500ing this whole endpoint. Only a design-kind mission with a
+    real Design row exercises that code path (a submission-kind mission's
+    attempts skip it entirely, which is why the other test above never
+    caught this)."""
+    from app.models.missions.design import Design
+
+    ops = await _staff(db)
+    mission = Mission(
+        id=uuid.uuid4(), title="Design Progress Mission", slug=f"dpm-{uuid.uuid4().hex[:8]}",
+        kind="design", status="published", authored_by=ops.id,
+    )
+    db.add(mission)
+    await db.flush()
+    variant = MissionVariant(
+        id=uuid.uuid4(), mission_id=mission.id, label="Engineer", position=1, points=200,
+        config={
+            "max_storage_kb": 1_048_576.0, "required_storage_margin_kb": 0.0,
+            "power_per_solar_cell_w": 1.1, "maximum_budget_aed": 2000.0,
+            "assumed_distance_km": 500.0, "transmit_power_dbm": 30.0,
+            "good_link_margin_threshold_db": 3.0, "weak_link_margin_threshold_db": 0.0,
+            "max_depth_of_discharge_pct": 30.0, "required_downlink_margin_fraction": 0.10,
+        },
+    )
+    db.add(variant)
+    await db.flush()
+
+    student = await _student(db, cohort_id=None, name="Designing Dana")
+    attempt = MissionAttempt(
+        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, user_id=student.id,
+        attempt_no=1, status="in_progress", payload={},
+    )
+    db.add(attempt)
+    await db.flush()
+    db.add(Design(id=uuid.uuid4(), attempt_id=attempt.id, design_name="Dana's CubeSat"))
+    await db.commit()
+
+    resp = await client.get(f"/lms/admin/progress/missions/{mission.id}", headers=_headers(ops))
+    assert resp.status_code == 200, resp.text
+    row = next(r for r in resp.json()["rows"] if r["full_name"] == "Designing Dana")
+    assert "steps" in row
+    assert isinstance(row["steps"], dict) and row["steps"]
+
+
+@pytest.mark.asyncio
 async def test_mission_progress_all_404s_for_unknown_mission(db, client):
     ops = await _staff(db)
     await db.commit()

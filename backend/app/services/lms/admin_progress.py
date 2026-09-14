@@ -532,6 +532,7 @@ async def design_steps_for_attempts(
         if attempt is None:
             continue
         variant_config = configs_by_variant.get(attempt.variant_id, {})
+        dashboard = await compute_dashboard(db, design=design, variant_config=variant_config, attempt=attempt)
         steps_out = {key: bool(step["is_valid"]) for key, step in dashboard["steps"].items()}
         steps_out["poster"] = bool(design.poster_url and design.poster_url.strip())
         out[design.attempt_id] = steps_out
