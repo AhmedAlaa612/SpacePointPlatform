@@ -603,6 +603,7 @@ async def _checklist_item_out(
         poster_template_url=poster_template_url,
         submission_multi_link=item.submission_multi_link,
         submitted_links=target.submitted_links,
+        submission_link_labels=item.submission_link_labels,
     )
 
 
@@ -710,6 +711,29 @@ async def submit_program_item(
         links = [link for link in (body.links or []) if link.url.strip()]
         if not links:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit at least one link")
+        # 2026-09-14 — ops's own fixed label set (submission_link_labels):
+        # once set, it's the one source of truth for which slots this
+        # item's form shows, so a link under any other label is rejected
+        # (never silently dropped or silently accepted) and every required
+        # label needs a real link before this goes through. An older
+        # multi-link item authored before this existed (submission_link_labels
+        # is None/empty) keeps taking free-text, student-entered labels,
+        # none of them required — completely unchanged.
+        label_specs = item.submission_link_labels or []
+        if label_specs:
+            valid_labels = [spec["label"] for spec in label_specs]
+            required_labels = [spec["label"] for spec in label_specs if spec.get("required")]
+            submitted_labels = {link.label for link in links}
+            unknown = sorted(submitted_labels - set(valid_labels))
+            if unknown:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, detail=f"Unrecognized link label(s): {', '.join(unknown)}",
+                )
+            missing = [label for label in required_labels if label not in submitted_labels]
+            if missing:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, detail=f"Missing required link(s): {', '.join(missing)}",
+                )
         target.submitted_links = [link.model_dump() for link in links]
         target.submitted_url = links[0].url
         # The poster-attempt block below is unreachable here — is_multi

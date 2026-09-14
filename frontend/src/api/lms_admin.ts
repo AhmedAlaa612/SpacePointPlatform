@@ -327,6 +327,13 @@ export type LmsProgramItemType =
  * individual variant, so authoring it never offers the choice. */
 export type LmsProgramItemScope = "individual" | "team";
 
+/** One entry in ops's own fixed label set for a `submission_multi_link`
+ * item (2026-09-14) — see `LmsProgramItem.submission_link_labels`. */
+export interface LmsProgramItemLinkLabel {
+  label: string;
+  required: boolean;
+}
+
 export interface LmsProgramItem {
   id: string;
   position: number;
@@ -348,6 +355,10 @@ export interface LmsProgramItem {
   /** Ops's per-item toggle (2026-09-14) — a submission item takes several
    * labeled links instead of one (e.g. Member 1/Member 2/Team link). */
   submission_multi_link: boolean;
+  /** Ops's own fixed label set for this item (2026-09-14), in the order
+   * ops entered them — null keeps (or reverts to) free-text,
+   * student-entered labels. */
+  submission_link_labels: LmsProgramItemLinkLabel[] | null;
   /** True once a `pdf` item has a file uploaded — fetch the actual URL
    * on demand via `getLmsProgramItemPdfUrlApi`, never baked in here. */
   has_pdf: boolean;
@@ -414,6 +425,7 @@ export interface LmsProgramItemInput {
   external_url?: string | null;
   submission_prompt?: string | null;
   submission_multi_link?: boolean;
+  submission_link_labels?: LmsProgramItemLinkLabel[] | null;
   deadline_at?: string | null;
   session_date?: string | null;
   session_starts_at?: string | null;

@@ -148,6 +148,17 @@ class LmsProgramItem(Base):
     # submitted_links) is decided by this flag at submit time — see
     # routers/lms/student.py::submit_program_item.
     submission_multi_link = Column(Boolean, nullable=False, default=False, server_default="false")
+    # 2026-09-14: ops's own fixed label set for a submission_multi_link item
+    # — `[{"label": str, "required": bool}, ...]`, in the order ops entered
+    # them (e.g. "Member 1 link" required, "Member 2 link" required, "Team
+    # link" optional). NULL for a non-multi-link item, or for a multi-link
+    # item authored before this existed — that older shape (free-text,
+    # student-entered labels, none required) still works unchanged;
+    # routers/lms/student.py::submit_program_item and the frontend both
+    # fall back to it when this is empty. Once set, this is the one source
+    # of truth for which slots the student's form shows and which of them
+    # block submission — see that same function's required-label check.
+    submission_link_labels = Column(JSONB, nullable=True)
     # A `pdf` item's hosted file — same two-step shape as a module
     # `attachment` item (create the item, then a separate multipart upload
     # attaches the file): stored path in the `lms-attachments` bucket, NULL

@@ -18,6 +18,16 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 ModuleItemKind = Literal["video", "text", "quiz", "flashcards", "attachment", "mission"]
 
 
+class LmsProgramItemLinkLabel(BaseModel):
+    """One entry in ops's own fixed label set for a `submission_multi_link`
+    item (2026-09-14) — see `LmsProgramItem.submission_link_labels`'s own
+    comment. Deliberately a separate class from `schemas.lms.LmsSubmissionLinkLabel`
+    rather than a shared import, same posture as this module's own docstring
+    on staying decoupled from the student-facing schema file."""
+    label: str = Field(min_length=1, max_length=80)
+    required: bool = False
+
+
 class InstructorOptionOut(BaseModel):
     """One row for the course-authoring instructor picker (LMS redesign,
     2026-08-06) — deliberately minimal, not the full User shape."""
@@ -461,6 +471,12 @@ class LmsProgramItemIn(BaseModel):
     # one submission instead of one bare link. submission-only, validated
     # against item_type in validate_item_payload.
     submission_multi_link: bool = False
+    # 2026-09-14 — ops's own fixed label set for a submission_multi_link
+    # item, in the order ops entered them. submission_multi_link-only,
+    # validated against submission_multi_link in validate_item_payload;
+    # None keeps (or reverts to) the older free-text student-entered-label
+    # behavior.
+    submission_link_labels: list[LmsProgramItemLinkLabel] | None = None
     # submission-only cutoff — validated against item_type in validate_item_payload.
     deadline_at: datetime | None = None
     # session-only fields — always self-contained, never a live FK (see
@@ -504,6 +520,7 @@ class LmsProgramItemOut(BaseModel):
     external_url: str | None
     submission_prompt: str | None
     submission_multi_link: bool = False
+    submission_link_labels: list[LmsProgramItemLinkLabel] | None = None
     # True once a `pdf` item has a file uploaded (routers/lms/admin.py's
     # separate upload endpoint) — never the file itself or a URL, same
     # no-baked-in-signed-url posture the Curriculum Library list follows.

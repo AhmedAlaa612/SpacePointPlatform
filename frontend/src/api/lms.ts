@@ -529,6 +529,13 @@ export interface SubmissionLink {
   url: string;
 }
 
+/** One entry in ops's own fixed label set for a `submission_multi_link`
+ * item (2026-09-14) — see LmsProgramChecklistItem.submission_link_labels. */
+export interface SubmissionLinkLabel {
+  label: string;
+  required: boolean;
+}
+
 export interface LmsProgramChecklistItem {
   id: string;
   position: number;
@@ -553,6 +560,11 @@ export interface LmsProgramChecklistItem {
    * real answer (`submitted_url` still mirrors the first link). */
   submission_multi_link: boolean;
   submitted_links: SubmissionLink[] | null;
+  /** Ops's own fixed label set (2026-09-14), in the order ops entered them
+   * — null when this item is either not multi-link or is an older
+   * multi-link item authored before this existed (that one still takes
+   * free-text, student-entered labels, none required). */
+  submission_link_labels: SubmissionLinkLabel[] | null;
   /** submission-only cutoff — can no longer submit/replace past this;
    * already-submitted content and its confirmation are unaffected. */
   deadline_at: string | null;

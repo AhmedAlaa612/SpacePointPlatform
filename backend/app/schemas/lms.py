@@ -441,6 +441,15 @@ class LmsSubmissionLink(BaseModel):
     url: str = Field(min_length=1, max_length=512)
 
 
+class LmsSubmissionLinkLabel(BaseModel):
+    """One entry in ops's own fixed label set for a `submission_multi_link`
+    item (2026-09-14) — see `LmsProgramItem.submission_link_labels`'s own
+    comment. `required` is ops's per-label checkbox: a required label
+    blocks submission until it has a link, an optional one doesn't."""
+    label: str = Field(min_length=1, max_length=80)
+    required: bool = False
+
+
 class LmsProgramChecklistItemOut(BaseModel):
     id: UUID
     position: int
@@ -474,6 +483,11 @@ class LmsProgramChecklistItemOut(BaseModel):
     # is true; `submitted_url` above still mirrors its first link either way.
     submission_multi_link: bool = False
     submitted_links: list[LmsSubmissionLink] | None = None
+    # 2026-09-14 — ops's own fixed label set for this item, in the order
+    # ops entered them; None when the item is either not multi-link or is
+    # an older multi-link item authored before this existed (that one
+    # still takes free-text, student-entered labels — see submit_program_item).
+    submission_link_labels: list[LmsSubmissionLinkLabel] | None = None
     # submission-only cutoff — students can no longer submit/replace once
     # past; already-submitted content and its confirmation are unaffected.
     deadline_at: datetime | None = None
