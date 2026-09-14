@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
+  Antenna,
   Award,
   Bell,
   BookOpen,
@@ -111,6 +112,7 @@ const ICONS: Record<string, LucideIcon> = {
   "Check-in": QrCode,
   Operations: Warehouse,
   Inventory: Warehouse,
+  "Ground Station Devices": Antenna,
   "Admin Hub": UserCog,
   Kits: Boxes,
   "My Kits & Items": Boxes,
@@ -220,6 +222,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       INVENTORY_GROUP,
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
+      mk("Ground Station Devices", "/operations/ground-station-devices"),
     ];
   }
   if (pathname.startsWith("/admin")) {
@@ -434,6 +437,7 @@ function getNavItems(pathname: string, activeRole: Role | null): NavItem[] {
       INVENTORY_GROUP,
       mk("Learn", "/learn"),
       mk("Sessions Calendar", "/operations/calendar"),
+      mk("Ground Station Devices", "/operations/ground-station-devices"),
     ];
   }
   if (activeRole === "storekeeper") {

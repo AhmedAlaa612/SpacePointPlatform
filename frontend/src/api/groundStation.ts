@@ -130,3 +130,20 @@ export async function getDeviceStats(deviceId: string): Promise<DeviceStats> {
 export async function sendBrowserTelemetry(deviceId: string, data: Record<string, unknown>): Promise<void> {
   await api.post(`/ground-station/devices/${deviceId}/telemetry/browser`, { data });
 }
+
+export interface DeviceRegisterResult {
+  device: GroundStationDevice;
+  /** Shown once, at registration/rotation time only — copy it into the
+   * agent's .env immediately, it can't be retrieved again. */
+  secret: string;
+}
+
+export async function registerDevice(label: string): Promise<DeviceRegisterResult> {
+  const { data } = await api.post<DeviceRegisterResult>("/ground-station/admin/devices", { label });
+  return data;
+}
+
+export async function rotateDeviceSecret(deviceId: string): Promise<DeviceRegisterResult> {
+  const { data } = await api.post<DeviceRegisterResult>(`/ground-station/admin/devices/${deviceId}/rotate-secret`);
+  return data;
+}
