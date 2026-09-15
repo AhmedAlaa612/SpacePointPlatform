@@ -57,17 +57,21 @@ export default function LmsLearningPathDetail() {
   const invalidateRoster = () => queryClient.invalidateQueries({ queryKey: ["lms-admin-learning-path-roster", pathId] })
 
   const [bulkResult, setBulkResult] = useState<BulkGrantResult | null>(null)
+  const [assignError, setAssignError] = useState("")
   const grantMutation = useMutation({
     mutationFn: (userId: string) => grantLearningPathEnrollmentApi(pathId, userId),
-    onSuccess: invalidateRoster,
+    onSuccess: () => { setAssignError(""); invalidateRoster() },
+    onError: (e: unknown) => setAssignError(errorDetail(e, "Couldn't grant access")),
   })
   const bulkGrantMutation = useMutation({
     mutationFn: (role: string) => bulkGrantLearningPathEnrollmentApi(pathId, { role }),
-    onSuccess: (result) => { setBulkResult(result); invalidateRoster() },
+    onSuccess: (result) => { setAssignError(""); setBulkResult(result); invalidateRoster() },
+    onError: (e: unknown) => setAssignError(errorDetail(e, "Couldn't grant access")),
   })
   const revokeMutation = useMutation({
     mutationFn: (userId: string) => revokeLearningPathEnrollmentApi(pathId, userId),
-    onSuccess: invalidateRoster,
+    onSuccess: () => { setAssignError(""); invalidateRoster() },
+    onError: (e: unknown) => setAssignError(errorDetail(e, "Couldn't revoke access")),
   })
 
   const publishMutation = useMutation({
@@ -260,6 +264,11 @@ export default function LmsLearningPathDetail() {
       </div>
 
       <AssignPanel
+        // A path grant is N course Enrollment rows, not one row of its own
+        // (see LearningPathRosterRow's own docstring) — `id` is the user_id
+        // itself, not a synthetic per-grant id like the course/mission
+        // version has. onRevoke below gets that same user_id back and
+        // passes it straight to revokeLearningPathEnrollmentApi.
         roster={roster.map((r) => ({
           id: r.user_id, userId: r.user_id, name: r.student_name, email: r.student_email, status: r.status,
         }))}
@@ -272,6 +281,7 @@ export default function LmsLearningPathDetail() {
         revokePending={revokeMutation.isPending}
         bulkResult={bulkResult}
       />
+      {assignError && <p className="text-xs text-red-500 max-w-2xl">{assignError}</p>}
 
       {editOpen && (
         <EditPathModal

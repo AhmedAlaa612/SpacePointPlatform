@@ -545,6 +545,21 @@ async def test_path_revoke_deactivates_every_step_and_drops_off_the_roster(db, c
     assert roster.json() == []
 
 
+@pytest.mark.asyncio
+async def test_path_revoke_404s_when_the_user_was_never_granted(db, client):
+    ops = await _user(db)
+    staff = await _user(db, roles=["facilitator"])
+    path = await _path(db, author=ops)
+    course, _ = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course.id, position=1))
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/admin/learning-paths/{path.id}/enrollments/{staff.id}/revoke", headers=_headers(ops),
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
 # ── path_progress state rollup (service layer) ──────────────────────────────
 
 @pytest.mark.asyncio

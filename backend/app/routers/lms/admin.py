@@ -2443,9 +2443,13 @@ async def learning_path_roster(
     for user_id, course_id in rows:
         owned_by_user.setdefault(user_id, set()).add(course_id)
 
+    users = {
+        u.id: u for u in
+        (await db.execute(select(User).where(User.id.in_(owned_by_user.keys())))).scalars().all()
+    }
     out = []
     for user_id, owned in owned_by_user.items():
-        user = await db.get(User, user_id)
+        user = users.get(user_id)
         out.append(LearningPathRosterRowOut(
             user_id=user_id,
             student_name=user.full_name if user else "(deleted user)",
@@ -2500,7 +2504,10 @@ async def revoke_path_enrollment(
 ):
     """Deactivates every ops-sourced enrollment this user holds among the
     path's current steps — the path has no row of its own to flip, so
-    revoke fans out across its courses the same way grant does."""
+    revoke fans out across its courses the same way grant does. 404s if
+    nothing matched (never granted, or a stale/wrong user_id) rather than
+    silently no-op'ing — same "revoke a specific real thing, else 404"
+    posture the course version gets from `db.get(Enrollment, ...)`."""
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
@@ -2511,6 +2518,8 @@ async def revoke_path_enrollment(
             Enrollment.source == "ops", *enrollment_is_active(),
         )
     )).scalars().all()
+    if not rows:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No path enrollment found for this user")
     for enrollment in rows:
         enrollment.status = "inactive"
     await db.commit()
