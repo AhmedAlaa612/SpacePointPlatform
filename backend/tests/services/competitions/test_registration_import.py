@@ -221,6 +221,67 @@ async def test_import_is_idempotent_on_email(db):
 
 
 @pytest.mark.asyncio
+async def test_reimport_reuses_an_already_registered_contact_even_without_a_matching_alias(db):
+    """Production bug (2026-09-15): an email got re-uploaded onto a cohort
+    where it was already fully registered and on a team, but landed on a
+    *second*, alias-less Contact instead of being recognized as the same
+    person — `resolve_or_create_contact`'s alias matching never got a
+    chance to find the first one. Simulated here by creating the first
+    Contact/User/Registration/team-membership directly (bypassing
+    `resolve_or_create_contact` entirely, exactly like the corrupted
+    production state), then re-importing the same email: the row must
+    reuse that existing contact via `_find_existing_contact_by_email`
+    (contacts already registered in this cohort, by email) rather than
+    minting a second Contact and a second Registration."""
+    from app.core.security import get_password_hash
+
+    from app.services.sessions.registration import register
+    from app.services.teams import create_team
+
+    cohort = await _make_cohort(db)
+    email = f"dup-{uuid.uuid4().hex[:6]}@example.com"
+
+    contact = Contact(id=uuid.uuid4(), full_name="Mohammad Sultan", email=email, contact_roles=["student"])
+    db.add(contact)
+    await db.flush()
+    user = User(
+        id=uuid.uuid4(), full_name="Mohammad Sultan", email=email, password_hash=get_password_hash("dummy"),
+        roles=["student"], status="active", contact_id=contact.id, must_change_password=False,
+    )
+    db.add(user)
+    await db.flush()
+    registration = await register(
+        db, contact_id=contact.id, cohort_id=cohort.id, registered_via="import", payment_status="waived",
+    )
+    team = await create_team(
+        db, name="Falcon Eye", created_by=user.id, cohort_id=cohort.id, member_ids=[user.id], roster_team_id="T1",
+    )
+    await db.commit()
+
+    file_bytes = _workbook([
+        {"team_id": "T1", "team_name": "Falcon Eye", "member_name": "Mohammad Sultan", "email": email},
+    ])
+    results = await import_registrations(db, cohort_id=cohort.id, rows=parse_registration_sheet(file_bytes))
+    await db.commit()
+
+    assert summarize(results) == {"total": 1, "created": 0, "matched": 1, "error": 0}
+    assert results[0].registration_id == registration.id
+
+    contacts = (await db.execute(select(Contact).where(Contact.email == email))).scalars().all()
+    assert len(contacts) == 1, "a re-upload of an already-registered email must not mint a second Contact"
+
+    registrations = (
+        await db.execute(select(Registration).where(Registration.cohort_id == cohort.id))
+    ).scalars().all()
+    assert len(registrations) == 1, "a re-upload of an already-registered email must not create a second Registration"
+
+    teams = (await db.execute(select(Team).where(Team.cohort_id == cohort.id))).scalars().all()
+    assert len(teams) == 1
+    members = await team_member_ids(db, team_id=team.id)
+    assert members == [user.id]
+
+
+@pytest.mark.asyncio
 async def test_a_row_missing_a_required_field_errors_without_failing_the_batch(db):
     cohort = await _make_cohort(db)
     await db.commit()

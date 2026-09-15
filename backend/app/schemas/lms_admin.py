@@ -86,21 +86,32 @@ class InviteCodeUpdate(BaseModel):
 class InviteCodeGrantCreate(BaseModel):
     course_id: UUID | None = None
     learning_path_id: UUID | None = None
+    # 2026-09-15 — the cohort whose program (base or override) this grant
+    # assigns; see InvitationCodeGrant's own docstring for why this holds
+    # a cohort rather than an lms_program_id.
+    cohort_id: UUID | None = None
 
     @model_validator(mode="after")
     def _exactly_one(self) -> "InviteCodeGrantCreate":
-        if (self.course_id is None) == (self.learning_path_id is None):
-            raise ValueError("Provide exactly one of course_id or learning_path_id")
+        provided = [v is not None for v in (self.course_id, self.learning_path_id, self.cohort_id)]
+        if sum(provided) != 1:
+            raise ValueError("Provide exactly one of course_id, learning_path_id, or cohort_id")
         return self
 
 
 class InviteCodeGrantOut(BaseModel):
     id: UUID
-    product_type: Literal["course", "learning_path"]
+    product_type: Literal["course", "learning_path", "lms_program"]
     course_id: UUID | None = None
     course_title: str | None = None
     learning_path_id: UUID | None = None
     learning_path_title: str | None = None
+    cohort_id: UUID | None = None
+    # Display only — the cohort's own name plus whichever program it
+    # currently resolves to, so the admin list reads as "grants Fall 2026
+    # Batch's program" rather than a bare cohort id.
+    cohort_name: str | None = None
+    lms_program_name: str | None = None
     created_at: datetime | None = None
 
 

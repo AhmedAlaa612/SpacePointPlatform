@@ -66,17 +66,18 @@ from typing import Literal
 
 import openpyxl
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.registration import Registration
+from app.models.spine.contact import Contact
 from app.models.team import Team
 from app.models.user import User
 from app.services.competitions.team_management import rename_team
 from app.services.lms.ops_integration import sync_registration_lms
 from app.services.sessions.registration import register
-from app.services.spine.identity import resolve_or_create_contact
+from app.services.spine.identity import normalize_email, resolve_or_create_contact
 from app.services.teams import create_team, join_team, team_member_ids
 
 REQUIRED_COLUMNS = ["team_id", "member_name", "email"]
@@ -290,6 +291,30 @@ def preview_registration_sheet(file_bytes: bytes, filename: str | None = None) -
     return out
 
 
+async def _find_existing_contact_by_email(db: AsyncSession, *, email: str | None, cohort_id: uuid.UUID) -> uuid.UUID | None:
+    """A re-uploaded row's email is the one signal ops actually cares about
+    (identity theory aside) — checked directly against contacts already
+    registered in *this* cohort, before `_import_row` touches
+    `resolve_or_create_contact`'s alias-matching at all. Belt-and-suspenders
+    against that path somehow minting a second Contact for an email that
+    already has a Registration here (seen in production, 2026-09-15 — full
+    root cause still open): reusing the earliest-registered contact for
+    that email means `_register_and_assign_team`'s own
+    already-registered/already-on-team check (right below) is what actually
+    runs for a repeat upload, instead of a fresh Contact slipping past it
+    and creating a duplicate Registration."""
+    norm = normalize_email(email)
+    if norm is None:
+        return None
+    return (await db.execute(
+        select(Registration.contact_id)
+        .join(Contact, Contact.id == Registration.contact_id)
+        .where(func.lower(Contact.email) == norm, Registration.cohort_id == cohort_id)
+        .order_by(Registration.created_at.asc())
+        .limit(1)
+    )).scalars().first()
+
+
 async def _register_and_assign_team(
     db: AsyncSession, *, contact_id: uuid.UUID, cohort: Cohort, team_id: str, team_name: str | None,
     send_welcome_email: bool, fallback_email: str | None = None,
@@ -371,10 +396,14 @@ async def _import_row(
         row.team_id, row.team_name, row.member_name, row.email, row.phone, row.nationality, row.school,
     )
 
-    contact, _evaluation = await resolve_or_create_contact(
-        db, full_name=member_name, phone=phone, email=email, contact_roles=["student"],
-        role_event_source="import", organization_name=school, nationality=nationality,
-    )
+    existing_contact_id = await _find_existing_contact_by_email(db, email=email, cohort_id=cohort.id)
+    if existing_contact_id is not None:
+        contact = await db.get(Contact, existing_contact_id)
+    else:
+        contact, _evaluation = await resolve_or_create_contact(
+            db, full_name=member_name, phone=phone, email=email, contact_roles=["student"],
+            role_event_source="import", organization_name=school, nationality=nationality,
+        )
 
     try:
         team, registration, is_new_registration = await _register_and_assign_team(
