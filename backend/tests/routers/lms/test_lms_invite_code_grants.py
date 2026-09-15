@@ -14,6 +14,9 @@ from app.models.instructors.invitation_code import InvitationCode
 from app.models.lms import Course, Enrollment
 from app.models.lms.invite_grant import InvitationCodeGrant
 from app.models.lms.learning_path import LearningPath, LearningPathStep
+from app.models.lms.program import LmsProgram, LmsProgramAssignment, LmsProgramItem
+from app.models.sessions.cohort import Cohort
+from app.models.sessions.program import Program
 from app.models.user import User
 
 
@@ -67,6 +70,33 @@ async def _code(db, *, code="BATCH1") -> InvitationCode:
     db.add(row)
     await db.flush()
     return row
+
+
+async def _cohort_with_program(db, *, author) -> tuple[Cohort, LmsProgram]:
+    """A cohort whose program has one course item — enough to prove a
+    "program" grant actually calls assign_lms_program (LmsProgramAssignment
+    row + the course item's own enrollment), same fixture shape
+    test_lms_program_student.py's own _cohort_with_checklist uses."""
+    program = Program(
+        id=uuid.uuid4(), code=f"IGP-{uuid.uuid4().hex[:8]}", name="Invite Grant Program",
+        program_type="workshop", pricing_model="free", active=True,
+    )
+    db.add(program)
+    await db.flush()
+    cohort = Cohort(id=uuid.uuid4(), program_id=program.id, name="Invite Grant Cohort", status="running")
+    db.add(cohort)
+    await db.flush()
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Invite Grant Checklist")
+    db.add(lms_program)
+    await db.flush()
+    course = await _course(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="course", title=course.title, course_id=course.id,
+    )
+    db.add(item)
+    await db.flush()
+    return cohort, lms_program
 
 
 # ── admin grant CRUD ──────────────────────────────────────────────────────────
@@ -125,6 +155,44 @@ async def test_creating_a_path_grant_enrols_every_step_course(db, client):
 
 
 @pytest.mark.asyncio
+async def test_creating_a_program_grant_assigns_existing_code_holders_immediately(db, client):
+    """2026-09-15 — a "program" grant stores cohort_id (an LmsProgram is
+    never assigned standalone, only resolved from a cohort), and applies
+    via assign_lms_program the same way registering into that cohort
+    would: an LmsProgramAssignment row, plus every course item enrolled."""
+    ops = await _ops(db)
+    code = await _code(db)
+    author = await _ops(db)
+    cohort, lms_program = await _cohort_with_program(db, author=author)
+    old_holder = await _student(db, name="Old", code=code.code)
+    unrelated = await _student(db, name="Unrelated", code="OTHERCODE")
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/admin/invite-codes/{code.id}/grants", headers=_headers(ops), json={"cohort_id": str(cohort.id)},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["accounts_enrolled"] == 1
+    assert body["grant"]["product_type"] == "lms_program"
+    assert body["grant"]["cohort_name"] == cohort.name
+    assert body["grant"]["lms_program_name"] == lms_program.name
+
+    assignment = (await db.execute(
+        select(LmsProgramAssignment).where(
+            LmsProgramAssignment.user_id == old_holder.id, LmsProgramAssignment.cohort_id == cohort.id,
+        )
+    )).scalars().first()
+    assert assignment is not None
+    assert assignment.lms_program_id == lms_program.id
+
+    untouched = (await db.execute(
+        select(LmsProgramAssignment).where(LmsProgramAssignment.user_id == unrelated.id)
+    )).scalars().first()
+    assert untouched is None
+
+
+@pytest.mark.asyncio
 async def test_duplicate_grant_is_409(db, client):
     ops = await _ops(db)
     code = await _code(db)
@@ -144,13 +212,41 @@ async def test_duplicate_grant_is_409(db, client):
 
 
 @pytest.mark.asyncio
-async def test_grant_requires_exactly_one_of_course_or_path(db, client):
+async def test_duplicate_program_grant_is_409(db, client):
     ops = await _ops(db)
     code = await _code(db)
+    author = await _ops(db)
+    cohort, _ = await _cohort_with_program(db, author=author)
+    await db.commit()
+
+    first = await client.post(
+        f"/lms/admin/invite-codes/{code.id}/grants", headers=_headers(ops), json={"cohort_id": str(cohort.id)},
+    )
+    assert first.status_code == 201, first.text
+
+    dup = await client.post(
+        f"/lms/admin/invite-codes/{code.id}/grants", headers=_headers(ops), json={"cohort_id": str(cohort.id)},
+    )
+    assert dup.status_code == http_status.HTTP_409_CONFLICT
+
+
+@pytest.mark.asyncio
+async def test_grant_requires_exactly_one_of_course_path_or_cohort(db, client):
+    ops = await _ops(db)
+    code = await _code(db)
+    author = await _ops(db)
+    course = await _course(db, author=author)
+    cohort, _ = await _cohort_with_program(db, author=author)
     await db.commit()
 
     neither = await client.post(f"/lms/admin/invite-codes/{code.id}/grants", headers=_headers(ops), json={})
     assert neither.status_code == http_status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    all_three = await client.post(
+        f"/lms/admin/invite-codes/{code.id}/grants", headers=_headers(ops),
+        json={"course_id": str(course.id), "cohort_id": str(cohort.id)},
+    )
+    assert all_three.status_code == http_status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
 @pytest.mark.asyncio
@@ -226,6 +322,34 @@ async def test_new_signup_on_a_granted_code_is_auto_enrolled(db, client):
     )).scalars().first()
     assert enrolled is not None
     assert enrolled.status == "active" and enrolled.source == "invite_code"
+
+
+@pytest.mark.asyncio
+async def test_new_signup_on_a_program_granted_code_is_assigned(db, client):
+    ops = await _ops(db)
+    code = await _code(db, code="PROGRAMBATCH")
+    author = await _ops(db)
+    cohort, lms_program = await _cohort_with_program(db, author=author)
+    await db.commit()
+
+    await client.post(
+        f"/lms/admin/invite-codes/{code.id}/grants", headers=_headers(ops), json={"cohort_id": str(cohort.id)},
+    )
+
+    resp = await client.post("/auth/signup", json={
+        "invite_code": "programbatch",
+        "full_name": "Program Signup", "email": "programsignup@example.com", "password": "pass-fresh",
+    })
+    assert resp.status_code == http_status.HTTP_201_CREATED, resp.text
+
+    user = (await db.execute(select(User).where(User.email == "programsignup@example.com"))).scalars().first()
+    assignment = (await db.execute(
+        select(LmsProgramAssignment).where(
+            LmsProgramAssignment.user_id == user.id, LmsProgramAssignment.cohort_id == cohort.id,
+        )
+    )).scalars().first()
+    assert assignment is not None
+    assert assignment.lms_program_id == lms_program.id
 
 
 # ── learning path bulk grant ──────────────────────────────────────────────────

@@ -397,16 +397,26 @@ async def delete_invite_code(
 async def _invite_code_grant_out(db: AsyncSession, grant: InvitationCodeGrant) -> InviteCodeGrantOut:
     course_title = None
     learning_path_title = None
+    cohort_name = None
+    lms_program_name = None
     if grant.course_id is not None:
         course = await db.get(Course, grant.course_id)
         course_title = course.title if course else None
     if grant.learning_path_id is not None:
         path = await db.get(LearningPath, grant.learning_path_id)
         learning_path_title = path.title if path else None
+    if grant.cohort_id is not None:
+        cohort = await db.get(Cohort, grant.cohort_id)
+        cohort_name = cohort.name if cohort else None
+        if cohort is not None:
+            resolved = await resolve_cohort_program(db, grant.cohort_id)
+            if resolved is not None:
+                lms_program_name = resolved[0].name
     return InviteCodeGrantOut(
         id=grant.id, product_type=grant.product_type,
         course_id=grant.course_id, course_title=course_title,
         learning_path_id=grant.learning_path_id, learning_path_title=learning_path_title,
+        cohort_id=grant.cohort_id, cohort_name=cohort_name, lms_program_name=lms_program_name,
         created_at=grant.created_at,
     )
 
@@ -451,7 +461,7 @@ async def create_invite_code_grant(
                 InvitationCodeGrant.invitation_code_id == code_id, InvitationCodeGrant.course_id == body.course_id,
             )
         )).first()
-    else:
+    elif body.learning_path_id is not None:
         if await db.get(LearningPath, body.learning_path_id) is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
         clash = (await db.execute(
@@ -460,11 +470,20 @@ async def create_invite_code_grant(
                 InvitationCodeGrant.learning_path_id == body.learning_path_id,
             )
         )).first()
+    else:
+        if await db.get(Cohort, body.cohort_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+        clash = (await db.execute(
+            select(InvitationCodeGrant.id).where(
+                InvitationCodeGrant.invitation_code_id == code_id, InvitationCodeGrant.cohort_id == body.cohort_id,
+            )
+        )).first()
     if clash is not None:
         raise HTTPException(status.HTTP_409_CONFLICT, detail="Already granted to this code")
 
     grant, accounts_enrolled = await grant_invite_code_access(
         db, invitation_code=code, course_id=body.course_id, learning_path_id=body.learning_path_id,
+        cohort_id=body.cohort_id,
     )
     await db.commit()
     return InviteCodeGrantCreateOut(

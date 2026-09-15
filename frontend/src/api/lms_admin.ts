@@ -723,17 +723,26 @@ export const updateInviteCodeApi = (id: string, data: Partial<{
 export const deleteInviteCodeApi = (id: string) =>
   api.delete<void>(`/lms/admin/invite-codes/${id}`).then((r) => r.data);
 
-// ── invite-code course/path grants (2026-08-21) ─────────────────────────────
-// "This code batch gets these courses/paths free" — applies immediately to
-// everyone who's ever used the code, and to every future signup on it.
+// ── invite-code course/path/program grants (2026-08-21, program added
+// 2026-09-15) ─────────────────────────────────────────────────────────────
+// "This code batch gets these courses/paths/program free" — applies
+// immediately to everyone who's ever used the code, and to every future
+// signup on it. A "program" grant is stored as a cohort_id, not an
+// lms_program_id — an LmsProgram is never assigned standalone, only
+// resolved from a cohort (which program that cashes out to can change if
+// the cohort's own override changes) — see the backend model's own
+// docstring.
 
 export interface InviteCodeGrant {
   id: string;
-  product_type: "course" | "learning_path";
+  product_type: "course" | "learning_path" | "lms_program";
   course_id: string | null;
   course_title: string | null;
   learning_path_id: string | null;
   learning_path_title: string | null;
+  cohort_id: string | null;
+  cohort_name: string | null;
+  lms_program_name: string | null;
   created_at: string | null;
 }
 
@@ -741,7 +750,7 @@ export const listInviteCodeGrantsApi = (codeId: string) =>
   api.get<InviteCodeGrant[]>(`/lms/admin/invite-codes/${codeId}/grants`).then((r) => r.data);
 
 export const createInviteCodeGrantApi = (
-  codeId: string, data: { course_id?: string; learning_path_id?: string },
+  codeId: string, data: { course_id?: string; learning_path_id?: string; cohort_id?: string },
 ) => api.post<{ grant: InviteCodeGrant; accounts_enrolled: number }>(
   `/lms/admin/invite-codes/${codeId}/grants`, data,
 ).then((r) => r.data);
