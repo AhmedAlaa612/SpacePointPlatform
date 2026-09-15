@@ -15,6 +15,7 @@ import MissionGallery from "@/components/ground-station/MissionGallery";
 import HistoryPanel from "@/components/ground-station/HistoryPanel";
 import AlertsPanel from "@/components/ground-station/AlertsPanel";
 import EarthGlobe from "@/components/ground-station/EarthGlobe";
+import SimToggle from "@/components/ground-station/SimToggle";
 import WebSerialConnect from "@/components/ground-station/WebSerialConnect";
 import { isWebSerialConnected, writeSerialCommand } from "@/lib/groundStationWebSerial";
 import { buildGroundStationReport } from "@/lib/pdf";
@@ -139,7 +140,10 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <WebSerialConnect deviceId={deviceId} />
+        <div className="flex flex-wrap items-center gap-2">
+          <WebSerialConnect deviceId={deviceId} />
+          <SimToggle deviceId={deviceId} />
+        </div>
         <div className="flex items-center gap-3">
           <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${connected ? "text-emerald-500" : "text-muted-foreground"}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-500" : "bg-muted-foreground"}`} />
