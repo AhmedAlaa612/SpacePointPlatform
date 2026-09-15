@@ -347,11 +347,14 @@ function AssignTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const [query, setQuery] = useState("")
   const [inviteCode, setInviteCode] = useState("")
-  // Defaults to "my actual roster" (registered here, no team yet) — the
-  // common case ops opens this tab for. Widening any of the three finds
-  // an unregistered invite-code signup, or reviews who already has a
-  // team/LMS access.
-  const [registeredOnly, setRegisteredOnly] = useState(true)
+  // Unchecked by default (2026-09-15, flipped from the original "on" —
+  // ops kept landing here first and having to untick it to find anyone not
+  // already registered, since the platform-wide search underneath it just
+  // became reliable now that a selected batch isn't silently capped, see
+  // students.py::search_cohort_assignable_students). teamStatus still
+  // defaults to "no team yet" — that's the actual "my roster to still
+  // process" narrowing this tab is built around.
+  const [registeredOnly, setRegisteredOnly] = useState(false)
   const [teamStatus, setTeamStatus] = useState<TeamStatusFilter>("no_team")
   const [lmsStatus, setLmsStatus] = useState<LmsStatusFilter>("all")
   const [teamIds, setTeamIds] = useState<Record<string, string>>({})
