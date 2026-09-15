@@ -148,6 +148,26 @@
   animation: fadeInUp 0.45s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* Ground Station telemetry cards' diagonal glint — ported from the legacy
+   Madar dashboard's `.card::before` "holo-sweep". Scoped to
+   `.gs-holo-card`, not a platform-wide loop. */
+@keyframes holoSweep {
+  0% { transform: translate(-20%, -20%) rotate(0deg); }
+  100% { transform: translate(20%, 20%) rotate(0deg); }
+}
+.gs-holo-card {
+  position: relative;
+  overflow: hidden;
+}
+.gs-holo-card::before {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  background: linear-gradient(45deg, transparent 45%, rgba(255, 255, 255, 0.12) 50%, transparent 55%);
+  animation: holoSweep 6s linear infinite;
+  pointer-events: none;
+}
+
 /* CompletionCelebration's checkmark — a small overshoot bounce, not just
    a fade, so "you finished this" actually reads as a micro-celebration. */
 @keyframes checkPop {

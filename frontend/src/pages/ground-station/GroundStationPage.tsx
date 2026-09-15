@@ -46,13 +46,15 @@ interface AckEntry {
   at: string;
 }
 
+// Same per-metric colors as the legacy dashboard's charts.js `metrics`
+// array, kept for visual parity.
 const CHARTS: { key: keyof TelemetryFrame; label: string; unit: string; color: string }[] = [
-  { key: "temp", label: "Temperature", unit: "°C", color: "#F7B267" },
-  { key: "voltage", label: "Battery voltage", unit: "V", color: "#6DD3FB" },
-  { key: "current", label: "Current", unit: "A", color: "#A77DFF" },
-  { key: "power", label: "Power", unit: "mW", color: "#70C1B3" },
-  { key: "rssi", label: "Signal (RSSI)", unit: "dBm", color: "#F25F5C" },
-  { key: "snr", label: "SNR", unit: "dB", color: "#50514F" },
+  { key: "temp", label: "Temperature", unit: "°C", color: "#ff6b6b" },
+  { key: "voltage", label: "Voltage", unit: "V", color: "#00c6ff" },
+  { key: "current", label: "Current", unit: "A", color: "#f9d423" },
+  { key: "power", label: "Power", unit: "mW", color: "#a855f7" },
+  { key: "rssi", label: "Signal RSSI", unit: "dBm", color: "#00ff7f" },
+  { key: "snr", label: "SNR", unit: "dB", color: "#39ff14" },
 ];
 
 export function DeviceConsole({ deviceId, device }: { deviceId: string; device: GroundStationDevice }) {
@@ -136,41 +138,41 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        {CHARTS.map((c) => (
-          <div key={c.key} className="rounded-xl ring-1 ring-border p-3 bg-card text-center">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{c.label}</div>
-            <div className="font-mono text-sm font-semibold">
-              {latest?.[c.key] !== undefined ? Number(latest[c.key]).toFixed(1) : "--"}
-              <span className="text-[10px] text-muted-foreground ml-0.5">{c.unit}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
       {history.length >= 2 ? (
-        <div ref={liveChartsRef} className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div ref={liveChartsRef} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {CHARTS.map((c) => (
-            <div key={c.key} className="rounded-xl ring-1 ring-border overflow-hidden bg-card">
-              <div className="px-4 pt-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                {c.label}
+            <div
+              key={c.key}
+              className="gs-holo-card rounded-2xl p-5 flex flex-col gap-4 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] backdrop-blur-md transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_15px_35px_rgba(0,0,0,0.4),0_0_18px_rgba(101,63,132,0.35)]"
+              style={{ background: "rgba(101,63,132,0.08)", border: "1px solid rgba(101,63,132,0.25)" }}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="text-xs uppercase tracking-widest" style={{ color: "rgba(215,210,203,0.75)" }}>
+                  {c.label}
+                </div>
+                <div className="text-right leading-none">
+                  <span className="text-2xl font-semibold text-white">
+                    {latest?.[c.key] !== undefined ? Number(latest[c.key]).toFixed(2) : "--"}
+                  </span>
+                  <span className="ml-1 text-xs tracking-wide" style={{ color: "rgba(215,210,203,0.75)" }}>{c.unit}</span>
+                </div>
               </div>
-              <ResponsiveContainer width="100%" height={120}>
-                <AreaChart data={history} margin={{ top: 4, right: 12, left: 0, bottom: 0 }}>
+              <ResponsiveContainer width="100%" height={90}>
+                <AreaChart data={history} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
                   <defs>
                     <linearGradient id={`gs-grad-${c.key}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={c.color} stopOpacity={0.35} />
+                      <stop offset="0%" stopColor={c.color} stopOpacity={0.4} />
                       <stop offset="100%" stopColor={c.color} stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="2 4" stroke="currentColor" className="text-border" vertical={false} />
-                  <XAxis dataKey="t" tick={{ fontSize: 9 }} stroke="currentColor" className="text-muted-foreground" minTickGap={30} />
-                  <YAxis tick={{ fontSize: 9 }} stroke="currentColor" className="text-muted-foreground" width={38} />
+                  <CartesianGrid strokeDasharray="2 4" stroke="rgba(255,255,255,0.08)" vertical={false} />
+                  <XAxis dataKey="t" tick={{ fontSize: 9, fill: "rgba(255,255,255,0.5)" }} stroke="rgba(255,255,255,0.1)" minTickGap={30} />
+                  <YAxis tick={{ fontSize: 9, fill: "rgba(255,255,255,0.5)" }} stroke="rgba(255,255,255,0.1)" width={32} />
                   <Tooltip
-                    contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid var(--border)", background: "var(--card)", color: "var(--foreground)" }}
-                    formatter={(v) => [`${Number(v ?? 0).toFixed(1)} ${c.unit}`, c.label] as [string, string]}
+                    contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid rgba(101,63,132,0.4)", background: "rgba(20,10,30,0.95)", color: "#fff" }}
+                    formatter={(v) => [`${Number(v ?? 0).toFixed(2)} ${c.unit}`, c.label] as [string, string]}
                   />
-                  <Area type="monotone" dataKey={c.key as string} stroke={c.color} strokeWidth={1.8} fill={`url(#gs-grad-${c.key})`} isAnimationActive={false} dot={false} />
+                  <Area type="monotone" dataKey={c.key as string} stroke={c.color} strokeWidth={2} fill={`url(#gs-grad-${c.key})`} isAnimationActive={false} dot={false} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
