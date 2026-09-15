@@ -23,14 +23,22 @@ from app.models.user import User
 _STAFF_ROLES = {"operations", "facilitator"}
 
 
+def is_staff(user: User) -> bool:
+    """The one admin-or-staff check every domain's per-resource access
+    helper composes with (mission managers, cohort instructors, ground
+    station device owners, ...) — shared here so the staff-role set has a
+    single source of truth instead of drifting between copies."""
+    roles = user.role_values
+    return "admin" in roles or bool(_STAFF_ROLES & set(roles))
+
+
 async def is_mission_manager(db: AsyncSession, *, mission_id: uuid.UUID, user_id: uuid.UUID) -> bool:
     row = await db.get(MissionManager, (mission_id, user_id))
     return row is not None
 
 
 async def require_mission_manager_or_staff(db: AsyncSession, *, mission_id: uuid.UUID, user: User) -> None:
-    roles = user.role_values
-    if "admin" in roles or _STAFF_ROLES & set(roles):
+    if is_staff(user):
         return
     if await is_mission_manager(db, mission_id=mission_id, user_id=user.id):
         return
@@ -55,8 +63,7 @@ async def require_design_library_editor(db: AsyncSession, *, user: User) -> None
     not overridden. The bounding safeguards are retire-not-delete and the
     `updated_by` audit trail, both enforced in `routers/missions/library.py`.
     """
-    roles = user.role_values
-    if "admin" in roles or _STAFF_ROLES & set(roles):
+    if is_staff(user):
         return
 
     from app.models.missions.mission import Mission

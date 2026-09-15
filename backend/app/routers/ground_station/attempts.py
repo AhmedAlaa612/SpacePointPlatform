@@ -15,7 +15,7 @@ from app.models.missions.mission import MissionAttempt
 from app.models.team import Team
 from app.models.user import User
 from app.schemas.ground_station import AttemptCompleteOut, AttemptDeviceOut, DeviceOut
-from app.services.ground_station.access import require_attempt_access
+from app.services.ground_station.access import require_ground_station_attempt
 from app.services.ground_station.devices import get_or_create_device_for_attempt
 
 router = APIRouter(prefix="/ground-station/attempts", tags=["ground-station-attempts"])
@@ -30,7 +30,7 @@ async def get_attempt_device(
     attempt = await db.get(MissionAttempt, attempt_id)
     if attempt is None:
         raise HTTPException(404, detail="Attempt not found")
-    await require_attempt_access(db, attempt=attempt, user=user)
+    await require_ground_station_attempt(db, attempt=attempt, user=user)
 
     label = user.full_name
     if attempt.team_id is not None:
@@ -56,7 +56,7 @@ async def complete_attempt(
     attempt = await db.get(MissionAttempt, attempt_id)
     if attempt is None:
         raise HTTPException(404, detail="Attempt not found")
-    await require_attempt_access(db, attempt=attempt, user=user)
+    await require_ground_station_attempt(db, attempt=attempt, user=user)
 
     if attempt.status not in ("passed",):
         attempt.status = "passed"

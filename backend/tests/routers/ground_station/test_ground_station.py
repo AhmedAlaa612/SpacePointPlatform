@@ -55,6 +55,23 @@ async def _start_attempt_and_get_device(client, mission, variant, student) -> tu
     return attempt_id, res.json()["device"]["id"]
 
 
+async def _other_kind_mission(db, *, author) -> tuple[Mission, MissionVariant]:
+    """A same-shape, different-`kind` mission — for proving the
+    `/ground-station/attempts/*` routes are scoped to `ground_station`
+    attempts specifically, not any attempt the caller happens to own."""
+    mission = Mission(
+        id=uuid.uuid4(), title="Build a Radio", slug=f"not-ground-station-{uuid.uuid4().hex[:8]}",
+        kind="submission", authored_by=author.id, status="published", team_policy="either",
+        summary="Unrelated mission kind.",
+    )
+    db.add(mission)
+    await db.flush()
+    variant = MissionVariant(id=uuid.uuid4(), mission_id=mission.id, label="Standard", position=1, points=50, config={})
+    db.add(variant)
+    await db.flush()
+    return mission, variant
+
+
 @pytest.mark.asyncio
 async def test_ingest_requires_no_auth_at_all(db, client):
     """Operator directive: the surface is private via attempt ownership,
@@ -235,6 +252,84 @@ async def test_complete_attempt_requires_ownership(db, client):
 
     resp = await client.post(f"/ground-station/attempts/{attempt_id}/complete", headers=_headers(stranger))
     assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_complete_attempt_rejects_a_non_ground_station_attempt(db, client):
+    """The security-review finding: `complete_attempt` must not let a
+    student self-pass an attempt against some other mission kind just
+    because they own it — ownership alone isn't enough, it has to be a
+    ground_station attempt too."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _other_kind_mission(db, author=author)
+    student = await _user(db)
+    await db.commit()
+
+    res = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    assert res.status_code == 201, res.text
+    attempt_id = res.json()["id"]
+    assert res.json()["status"] != "passed"
+
+    resp = await client.post(f"/ground-station/attempts/{attempt_id}/complete", headers=_headers(student))
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+    resp = await client.get(f"/missions/attempts/{attempt_id}", headers=_headers(student))
+    assert resp.json()["status"] != "passed"
+
+
+@pytest.mark.asyncio
+async def test_get_attempt_device_rejects_a_non_ground_station_attempt(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _other_kind_mission(db, author=author)
+    student = await _user(db)
+    await db.commit()
+
+    res = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    assert res.status_code == 201, res.text
+    attempt_id = res.json()["id"]
+
+    resp = await client.get(f"/ground-station/attempts/{attempt_id}/device", headers=_headers(student))
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_acknowledge_alert_is_scoped_to_its_own_device(db, client):
+    """The other security-review finding: `acknowledge_alert` looked an
+    alert up by id alone, so someone authorized for device A's URL could
+    acknowledge (and read back) an alert that actually belongs to device
+    B, as long as they had or guessed its id. Must 404 instead."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _ground_station_mission(db, author=author)
+    owner_a = await _user(db)
+    owner_b = await _user(db)
+    await db.commit()
+
+    _attempt_a, device_a = await _start_attempt_and_get_device(client, mission, variant, owner_a)
+    _attempt_b, device_b = await _start_attempt_and_get_device(client, mission, variant, owner_b)
+
+    resp = await client.post(f"/ground-station/devices/{device_b}/telemetry", json={"data": {"temp": 999}})
+    assert resp.status_code == http_status.HTTP_202_ACCEPTED
+
+    resp = await client.get(f"/ground-station/devices/{device_b}/alerts", headers=_headers(owner_b))
+    assert resp.status_code == 200
+    alerts = resp.json()
+    assert len(alerts) == 1
+    alert_id = alerts[0]["id"]
+    assert alerts[0]["acknowledged"] is False
+
+    # device_a's own owner, hitting device_a's ack URL with device_b's alert id.
+    resp = await client.post(
+        f"/ground-station/devices/{device_a}/alerts/{alert_id}/acknowledge", headers=_headers(owner_a),
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+    # Untouched — still unacknowledged on its real device.
+    resp = await client.get(f"/ground-station/devices/{device_b}/alerts", headers=_headers(owner_b))
+    assert resp.json()[0]["acknowledged"] is False
 
 
 @pytest.mark.asyncio

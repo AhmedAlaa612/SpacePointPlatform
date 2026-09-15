@@ -14,14 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ground_station.device import GroundStationDevice
-from app.models.missions.mission import MissionAttempt, MissionAttemptMember
+from app.models.missions.mission import Mission, MissionAttempt, MissionAttemptMember
 from app.models.user import User
+from app.services.missions.authorization import is_staff
 
-_STAFF_ROLES = {"admin", "operations", "facilitator"}
-
-
-def is_staff(user: User) -> bool:
-    return bool(_STAFF_ROLES & set(user.role_values))
+__all__ = ["is_staff", "require_device_access", "require_attempt_access", "require_ground_station_attempt", "visible_device_ids"]
 
 
 async def _owns_attempt(db: AsyncSession, attempt: MissionAttempt, user: User) -> bool:
@@ -51,6 +48,20 @@ async def require_attempt_access(db: AsyncSession, *, attempt: MissionAttempt, u
     if is_staff(user):
         return
     if not await _owns_attempt(db, attempt, user):
+        raise HTTPException(404, detail="Attempt not found")
+
+
+async def require_ground_station_attempt(db: AsyncSession, *, attempt: MissionAttempt, user: User) -> None:
+    """`require_attempt_access` plus the check every route under
+    `/ground-station/attempts/` actually needs: the attempt has to belong
+    to a `ground_station` mission. Without this, an owner (or staff acting
+    on behalf of one) could point these routes at *any* attempt id they can
+    see — including, via `complete_attempt`, self-passing an unrelated
+    quiz/design run by flipping its status to `passed`. 404s either way,
+    same "don't leak" convention as the rest of this module."""
+    await require_attempt_access(db, attempt=attempt, user=user)
+    mission = await db.get(Mission, attempt.mission_id)
+    if mission is None or mission.kind != "ground_station":
         raise HTTPException(404, detail="Attempt not found")
 
 

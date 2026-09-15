@@ -10,7 +10,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ground_station.telemetry import (
@@ -155,9 +155,15 @@ async def list_alerts(db: AsyncSession, device_id: uuid.UUID, active_only: bool 
     return list((await db.execute(stmt)).scalars().all())
 
 
-async def acknowledge_alert(db: AsyncSession, alert_id: uuid.UUID) -> GroundStationAlert | None:
+async def acknowledge_alert(db: AsyncSession, device_id: uuid.UUID, alert_id: uuid.UUID) -> GroundStationAlert | None:
+    """Scoped by device as well as alert id — the route only proves the
+    caller is authorized for `device_id`, so looking the alert up by id
+    alone would let anyone acknowledge (and read back) an alert that
+    belongs to a different device they don't own."""
     alert = (await db.execute(
-        select(GroundStationAlert).where(GroundStationAlert.id == alert_id)
+        select(GroundStationAlert).where(
+            GroundStationAlert.id == alert_id, GroundStationAlert.device_id == device_id,
+        )
     )).scalars().first()
     if alert is None:
         return None
@@ -189,9 +195,10 @@ async def list_images(db: AsyncSession, device_id: uuid.UUID) -> list[GroundStat
 
 
 async def device_stats(db: AsyncSession, device_id: uuid.UUID) -> dict:
-    total = (await db.execute(
-        select(GroundStationTelemetry.id).where(GroundStationTelemetry.device_id == device_id)
-    )).scalars().all()
+    total = await db.scalar(
+        select(func.count()).select_from(GroundStationTelemetry)
+        .where(GroundStationTelemetry.device_id == device_id)
+    )
     first = (await db.execute(
         select(GroundStationTelemetry.recorded_at)
         .where(GroundStationTelemetry.device_id == device_id)
@@ -202,4 +209,4 @@ async def device_stats(db: AsyncSession, device_id: uuid.UUID) -> dict:
         .where(GroundStationTelemetry.device_id == device_id)
         .order_by(GroundStationTelemetry.recorded_at.desc()).limit(1)
     )).scalars().first()
-    return {"packets_received": len(total), "first_seen": first, "last_seen": last}
+    return {"packets_received": total or 0, "first_seen": first, "last_seen": last}

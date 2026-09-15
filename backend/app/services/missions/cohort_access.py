@@ -26,16 +26,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.sessions.session import Session, SessionInstructor
 from app.models.user import User
-
-_STAFF_ROLES = {"operations", "facilitator"}
+from app.services.missions.authorization import is_staff
 
 
 async def instructor_cohort_ids(db: AsyncSession, *, user: User) -> set[uuid.UUID] | None:
     """`None` means no restriction (staff — operations/facilitator/admin).
     Otherwise the set of cohort_ids this instructor is assigned to via
     `SessionInstructor`, derived from `Session.cohort_id` — may be empty."""
-    roles = user.role_values
-    if "admin" in roles or _STAFF_ROLES & set(roles):
+    if is_staff(user):
         return None
     rows = (await db.execute(
         select(Session.cohort_id)

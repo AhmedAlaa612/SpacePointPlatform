@@ -136,7 +136,7 @@ async def acknowledge_device_alert(
     device: GroundStationDevice = Depends(get_authorized_device),
     db: AsyncSession = Depends(get_db),
 ):
-    alert = await acknowledge_alert(db, alert_id)
+    alert = await acknowledge_alert(db, device.id, alert_id)
     if alert is None:
         raise HTTPException(status_code=404, detail="Alert not found")
     await db.commit()

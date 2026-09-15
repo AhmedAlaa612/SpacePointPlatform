@@ -8,13 +8,17 @@ already exists).
 """
 
 import asyncio
+import sys
 import uuid
+from pathlib import Path
 
-from sqlalchemy import select
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.db.session import AsyncSessionLocal
-from app.models.missions.mission import Mission, MissionVariant
-from app.models.user import User
+from sqlalchemy import select  # noqa: E402
+
+from app.db.session import AsyncSessionLocal  # noqa: E402
+from app.models.missions.mission import Mission, MissionVariant  # noqa: E402
+from app.models.user import User  # noqa: E402
 
 SLUG = "ground-station"
 
