@@ -66,7 +66,7 @@ export default function LmsStudents() {
         <select
           value={inviteCode}
           onChange={(e) => setInviteCode(e.target.value)}
-          className="h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          className="w-auto shrink-0 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
         >
           <option value="">All batches</option>
           {codes.map((c) => (
@@ -79,7 +79,7 @@ export default function LmsStudents() {
         <select
           value={loginStatus}
           onChange={(e) => setLoginStatus(e.target.value as "all" | "never" | "has_logged_in")}
-          className="h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          className="w-auto shrink-0 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
         >
           <option value="all">Any login status</option>
           <option value="never">Never logged in</option>
