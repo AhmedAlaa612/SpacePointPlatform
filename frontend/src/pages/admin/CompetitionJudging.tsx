@@ -469,6 +469,7 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                 <th className="py-2 pr-2">Code used</th>
                 <th className="py-2 pr-2">Current team</th>
                 <th className="py-2 pr-2">LMS access</th>
+                <th className="py-2 pr-2">Login</th>
                 <th className="py-2 pr-3">Team ID</th>
               </tr>
             </thead>
@@ -492,6 +493,15 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                       <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Yes</span>
                     ) : (
                       <span className="text-muted-foreground">No</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-2 align-top pt-3 whitespace-nowrap">
+                    {s.last_login_at ? (
+                      <span className="text-muted-foreground">{new Date(s.last_login_at).toLocaleDateString()}</span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                        NEVER LOGGED IN
+                      </span>
                     )}
                   </td>
                   <td className="py-1.5 pr-3">

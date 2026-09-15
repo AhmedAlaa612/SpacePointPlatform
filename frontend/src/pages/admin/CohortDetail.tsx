@@ -589,6 +589,14 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                           Cancelled
                         </span>
                       )}
+                      {!r.last_login_at && (
+                        <span
+                          className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
+                          title="No LMS account exists yet, or one does but nobody's ever logged into it"
+                        >
+                          Never logged in
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">
                       {r.student_phone ?? "—"}

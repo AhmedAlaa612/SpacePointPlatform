@@ -92,6 +92,9 @@ export interface StudentSummary {
   grade: string | null;
   status: string | null;
   created_at: string | null;
+  /** Set the moment a login actually succeeds — null means this account
+   * (self-signup or ops-created) has never once been logged into. */
+  last_login_at: string | null;
 }
 
 export interface InviteCode {

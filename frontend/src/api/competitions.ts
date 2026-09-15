@@ -147,6 +147,9 @@ export interface CompetitionAssignableStudent {
   grade: string | null
   status: string | null
   created_at: string | null
+  /** Set the moment a login actually succeeds — null means this account
+   * has never once been logged into. */
+  last_login_at: string | null
   team_id: string | null
   team_name: string | null
   registered: boolean

@@ -89,7 +89,7 @@ export default function LmsStudents() {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {["Name", "Email", "School", "Grade", "Code used", "Joined", "Status", ""].map((header, i) => (
+                {["Name", "Email", "School", "Grade", "Code used", "Joined", "Login", "Status", ""].map((header, i) => (
                   <th
                     key={i}
                     className="text-left font-medium text-muted-foreground px-4 py-2.5 whitespace-nowrap text-xs uppercase tracking-wider"
@@ -128,6 +128,15 @@ export default function LmsStudents() {
                   </td>
                   <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                     {s.created_at ? new Date(s.created_at).toLocaleDateString() : "—"}
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {s.last_login_at ? (
+                      <span className="text-muted-foreground">{new Date(s.last_login_at).toLocaleDateString()}</span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                        NEVER LOGGED IN
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <span

@@ -143,6 +143,11 @@ class StudentSummaryOut(BaseModel):
     grade: str | None = None
     status: str | None = None
     created_at: datetime | None = None
+    # 2026-09-16 — set on `User` the moment a login actually succeeds
+    # (routers/auth.py::login). None means this account has never once been
+    # logged into — the account existing (self-signup, or an ops-created
+    # invite) says nothing about whether anyone ever actually opened it.
+    last_login_at: datetime | None = None
 
 
 class StudentProgramOut(BaseModel):

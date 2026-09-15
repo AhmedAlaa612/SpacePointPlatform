@@ -61,6 +61,7 @@ async def _summarize_users(db: AsyncSession, users: list[User]) -> list[StudentS
             grade=contact.grade if contact else None,
             status=u.status,
             created_at=u.created_at,
+            last_login_at=u.last_login_at,
         ))
     return out
 

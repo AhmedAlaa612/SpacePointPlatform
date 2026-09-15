@@ -416,6 +416,9 @@ export interface Registration {
   total_cohort_sessions_count?: number;
   attendance_records?: RegistrationAttendance[];
   created_at: string;
+  /** The linked LMS account's own last_login_at — null means either no
+   * account exists yet, or one does but nobody's ever logged into it. */
+  last_login_at: string | null;
 }
 
 export type ImportRowDisposition = "create" | "link" | "already_registered" | "review" | "error";
