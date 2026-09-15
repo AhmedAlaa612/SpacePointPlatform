@@ -208,6 +208,10 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="Only a submission item can take multiple links",
         )
+    if body.submission_field_type == "text" and body.item_type != "submission":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="Only a submission item can be a text field",
+        )
     # 2026-09-14 — ops's own fixed label set (submission_link_labels) only
     # means anything once submission_multi_link is on; each label needs
     # actual text (a bare required-checkbox with nothing to label is
@@ -530,6 +534,8 @@ async def team_submission_items(db: AsyncSession, *, team_id: uuid.UUID) -> list
             "item_id": item.id, "title": item.title, "item_type": item.item_type,
             "status": progress.status if progress else "pending",
             "submitted_url": progress.submitted_url if progress else None,
+            "submission_field_type": item.submission_field_type,
+            "submitted_text": progress.submitted_text if progress else None,
             "submission_multi_link": item.submission_multi_link,
             "submitted_links": progress.submitted_links if progress else None,
             "updated_at": progress.updated_at if progress else None,
@@ -1555,6 +1561,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         )
         statuses[item.id] = status
         submitted_url = team_progress.submitted_url if team_progress is not None else progress.submitted_url
+        submitted_text = team_progress.submitted_text if team_progress is not None else progress.submitted_text
         submitted_links = team_progress.submitted_links if team_progress is not None else progress.submitted_links
         if item.item_type == "mission_run" and attempt_id:
             dash = await _design_dashboard_for_attempt(db, mission_attempt_id=attempt_id, cache=dashboard_cache)
@@ -1584,6 +1591,8 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "external_url": item.external_url, "submission_prompt": item.submission_prompt,
             "has_pdf": item.pdf_path is not None,
             "submitted_url": submitted_url,
+            "submission_field_type": item.submission_field_type,
+            "submitted_text": submitted_text,
             "submission_multi_link": item.submission_multi_link,
             "submitted_links": submitted_links,
             "submission_link_labels": item.submission_link_labels,
@@ -1706,6 +1715,11 @@ async def cohort_program_roster(
                     team_progress_by_item[item.id].submitted_url if item.id in team_progress_by_item
                     else progress.submitted_url
                 ),
+                "submission_field_type": item.submission_field_type,
+                "submitted_text": (
+                    team_progress_by_item[item.id].submitted_text if item.id in team_progress_by_item
+                    else progress.submitted_text
+                ),
                 "submission_multi_link": item.submission_multi_link,
                 "submitted_links": (
                     team_progress_by_item[item.id].submitted_links if item.id in team_progress_by_item
@@ -1754,6 +1768,11 @@ async def program_roster(
                 "submitted_url": (
                     team_progress_by_item[item.id].submitted_url if item.id in team_progress_by_item
                     else progress.submitted_url
+                ),
+                "submission_field_type": item.submission_field_type,
+                "submitted_text": (
+                    team_progress_by_item[item.id].submitted_text if item.id in team_progress_by_item
+                    else progress.submitted_text
                 ),
                 "submission_multi_link": item.submission_multi_link,
                 "submitted_links": (
@@ -1818,6 +1837,8 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
         out.append({
             "item_id": item.id, "title": item.title, "item_type": item.item_type,
             "status": status, "submitted_url": submitted_url,
+            "submission_field_type": item.submission_field_type,
+            "submitted_text": target.submitted_text,
             "submission_multi_link": item.submission_multi_link,
             "submitted_links": target.submitted_links,
             "completed_at": completed_at, "mission_attempt_id": attempt_id,

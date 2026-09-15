@@ -487,6 +487,10 @@ class LmsProgramItemIn(BaseModel):
     variant_id: UUID | None = None
     external_url: str | None = Field(default=None, max_length=512)
     submission_prompt: str | None = None
+    # 2026-09-16 — the single-field submission's own type (link or text).
+    # Only meaningful when submission_multi_link is False; ignored (a
+    # multi-link item picks its type per field) but harmless otherwise.
+    submission_field_type: Literal["text", "link"] = "link"
     # 2026-09-14 — ops's per-item toggle: allow several labeled links in
     # one submission instead of one bare link. submission-only, validated
     # against item_type in validate_item_payload.
@@ -539,6 +543,7 @@ class LmsProgramItemOut(BaseModel):
     variant_id: UUID | None
     external_url: str | None
     submission_prompt: str | None
+    submission_field_type: Literal["text", "link"] = "link"
     submission_multi_link: bool = False
     submission_link_labels: list[LmsProgramItemLinkLabel] | None = None
     # True once a `pdf` item has a file uploaded (routers/lms/admin.py's

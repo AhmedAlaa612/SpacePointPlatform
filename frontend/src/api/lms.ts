@@ -561,6 +561,10 @@ export interface LmsProgramChecklistItem {
    * on demand via `getChecklistItemPdfUrlApi`, never baked in here. */
   has_pdf: boolean;
   submitted_url: string | null;
+  /** The plain (non-multi) submission's own type — link (default) or text.
+   * Only meaningful when submission_multi_link is false. */
+  submission_field_type: "text" | "link";
+  submitted_text: string | null;
   /** Ops's per-item toggle (2026-09-14) — when true this item takes
    * several labeled links instead of one; `submitted_links` carries the
    * real answer (`submitted_url` still mirrors the first link). */
@@ -656,6 +660,13 @@ export async function completeChecklistItem(assignmentId: string, itemId: string
 
 export async function submitChecklistItem(assignmentId: string, itemId: string, url: string): Promise<LmsProgramChecklistItem> {
   const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/submit`, { url });
+  return data;
+}
+
+/** A plain (non-multi) item whose submission_field_type is "text" (2026-09-16)
+ * takes this instead of submitChecklistItem's `url`. */
+export async function submitChecklistItemText(assignmentId: string, itemId: string, text: string): Promise<LmsProgramChecklistItem> {
+  const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/submit`, { text });
   return data;
 }
 

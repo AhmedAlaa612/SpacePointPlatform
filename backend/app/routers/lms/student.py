@@ -594,6 +594,8 @@ async def _checklist_item_out(
         external_url=item.external_url, submission_prompt=item.submission_prompt,
         has_pdf=item.pdf_path is not None,
         submitted_url=submitted_url,
+        submission_field_type=item.submission_field_type,
+        submitted_text=target.submitted_text,
         deadline_at=item.deadline_at,
         session_date=item.session_date, session_starts_at=item.session_starts_at,
         session_location=item.session_location, session_meeting_url=item.session_meeting_url,
@@ -772,10 +774,23 @@ async def submit_program_item(
         # The poster-attempt block below is unreachable here — is_multi
         # requires item_type=="submission", is_poster requires
         # item_type=="mission_run"; mutually exclusive by construction.
+    elif item.item_type == "submission" and item.submission_field_type == "text":
+        # 2026-09-16 — a plain (non-multi) submission item can itself be a
+        # text field, not just a link; is_poster is unaffected (it's always
+        # item_type=="mission_run", never "submission"). Clears the other
+        # column on every submit, not just sets this one, so flipping ops's
+        # own submission_field_type after a student already answered under
+        # the old type doesn't leave a stale value in the column nobody
+        # reads anymore.
+        if not body.text or not body.text.strip():
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit an answer")
+        target.submitted_text = body.text.strip()
+        target.submitted_url = None
     else:
         if not body.url or not body.url.strip():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit a link")
         target.submitted_url = body.url
+        target.submitted_text = None
     if item.requires_confirmation:
         target.status = "awaiting_confirmation"
     else:
