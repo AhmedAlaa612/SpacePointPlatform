@@ -1281,11 +1281,15 @@ async def test_assignable_students_a_large_batch_is_not_truncated_by_the_open_se
     already narrowed to a single invite-code batch, which is bounded on its
     own the same way a cohort roster is (_registered_cohort_users is fully
     uncapped for that same reason). A batch bigger than the cap silently lost
-    members, and "All batches" (no invite_code — genuinely unbounded) could
-    end up showing *fewer* relevant people than one specific batch, since the
-    unfiltered query burned its cap on unrelated platform students while a
-    batch mostly didn't. This pins "a batch over the old 50-row cap comes
-    back whole" so the cap regresses loudly if it comes back."""
+    members, and "All batches" (no invite_code) could end up showing *fewer*
+    relevant people than one specific batch, since the unfiltered query
+    burned its cap on unrelated platform students while a batch mostly
+    didn't. The cap was then dropped entirely (not just for a selected
+    batch) after the same symptom showed up again on the plain "no filter at
+    all" case — an alphabetically-first slice of the whole platform is no
+    more useful there than it was for one batch. This pins "querying past
+    the old 50-row cap comes back whole" for both shapes so it regresses
+    loudly if either cap comes back."""
     ops = await _ops(db)
     _program, cohort = await _program_and_cohort(db)
     batch_students = [
@@ -1293,17 +1297,30 @@ async def test_assignable_students_a_large_batch_is_not_truncated_by_the_open_se
     ]
     for s in batch_students:
         s.invitation_code_used = "BIGBATCH"
+    other_students = [
+        await _self_registered_student(db, full_name=f"Zzz Other Student {i:03d}") for i in range(10)
+    ]
     await db.commit()
 
-    resp = await client.get(
+    by_batch = await client.get(
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
         params={"invite_code": "BIGBATCH", "registered_only": "false"},
         headers=_headers(ops),
     )
-    assert resp.status_code == 200, resp.text
-    ids = {r["id"] for r in resp.json()}
-    assert len(ids) == 55
-    assert {str(s.id) for s in batch_students} <= ids
+    assert by_batch.status_code == 200, by_batch.text
+    batch_ids = {r["id"] for r in by_batch.json()}
+    assert len(batch_ids) == 55
+    assert {str(s.id) for s in batch_students} <= batch_ids
+
+    unfiltered = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"registered_only": "false"},
+        headers=_headers(ops),
+    )
+    assert unfiltered.status_code == 200, unfiltered.text
+    all_ids = {r["id"] for r in unfiltered.json()}
+    assert {str(s.id) for s in batch_students} <= all_ids
+    assert {str(s.id) for s in other_students} <= all_ids
 
 
 @pytest.mark.asyncio

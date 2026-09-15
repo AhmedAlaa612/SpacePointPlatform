@@ -153,14 +153,15 @@ async def search_cohort_assignable_students(
 ) -> list[CompetitionAssignableStudentOut]:
     """Backs the Assign tab's search + filters (`registered_only` added
     2026-09-15 alongside `team_status`/`lms_status`, replacing the old
-    boolean `unassigned_only`). `registered_only=False` keeps the original
-    platform-wide student search (capped at 50, same as `/lms/admin/
-    students`) so ops can still find an unregistered invite-code signup to
-    assign; `registered_only=True` instead starts from this cohort's own
-    Registration rows (`_registered_cohort_users` above), uncapped, since
-    "everyone actually registered in my competition" is the whole point of
-    that view and a cohort's roster is bounded by nature, unlike an
-    open-ended name search."""
+    boolean `unassigned_only`). `registered_only=False` searches the whole
+    platform's student accounts (uncapped, see the note inline below — this
+    used to mirror `search_students`'s 50-row cap and that caused real
+    confusion, since "all matches" and "this one batch" behaved
+    inconsistently) so ops can still find an unregistered invite-code
+    signup to assign; `registered_only=True` instead starts from this
+    cohort's own Registration rows (`_registered_cohort_users` above),
+    same idea, since "everyone actually registered in my competition" is
+    the whole point of that view."""
     if registered_only:
         users = await _registered_cohort_users(db, cohort_id=cohort_id, q=q, invite_code=invite_code)
         registered_ids = {u.id for u in users}
@@ -174,21 +175,20 @@ async def search_cohort_assignable_students(
                 stmt = stmt.where(User.invitation_code_used.is_(None))
             else:
                 stmt = stmt.where(User.invitation_code_used == invite_code.strip().upper())
+        # No cap at all here (2026-09-15, dropped the last remaining 50-row
+        # one) — same reasoning as _registered_cohort_users being fully
+        # uncapped: this is one cohort's Assign tab, not an open platform-wide
+        # directory, and the actual boundedness comes from the filters above
+        # (q/invite_code/team_status/lms_status), not from an arbitrary row
+        # count. A cap here silently returns an alphabetically-first slice —
+        # "All batches" showing fewer relevant people than one specific batch
+        # (found live) was one symptom of that; capping only the *unfiltered*
+        # case still left "no filter at all" returning a near-random slice of
+        # the whole platform's students instead of an honest "here's
+        # everyone, now filter" — worse than just querying it all. Diverges
+        # from search_students/`/lms/admin/students` on purpose: that one is
+        # a genuine platform-wide people-finder with no cohort to bound it by.
         stmt = stmt.order_by(User.full_name)
-        # The 50-row cap only makes sense for a genuinely open-ended name/email
-        # search across the whole platform's students — the same reasoning
-        # search_students already documents (and the same cap it uses). A
-        # specific batch is naturally bounded, same as a cohort roster
-        # (_registered_cohort_users above is fully uncapped for that exact
-        # reason) — capping it too was silently truncating to an
-        # alphabetically-first slice of the *entire platform* before this
-        # batch's own members were even filtered in, so "All batches" could
-        # show fewer relevant people than picking one specific batch (2026-09-15,
-        # found live). Not a bigger cap — no cap, same as the registered-only
-        # path already gets, rather than trading one silent truncation point
-        # for a higher one.
-        if not invite_code:
-            stmt = stmt.limit(50)
         users = (await db.execute(stmt)).scalars().all()
 
         contact_ids = [u.contact_id for u in users if u.contact_id]
