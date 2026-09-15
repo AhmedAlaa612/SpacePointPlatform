@@ -21,7 +21,10 @@ const MAX_DELAY_MS = 30000
 export function useGroundStationSocket(deviceId: string | null, onMessage: (msg: GroundStationMessage) => void) {
   const [connected, setConnected] = useState(false)
   const onMessageRef = useRef(onMessage)
-  onMessageRef.current = onMessage
+
+  useEffect(() => {
+    onMessageRef.current = onMessage
+  }, [onMessage])
 
   useEffect(() => {
     if (!deviceId) return
