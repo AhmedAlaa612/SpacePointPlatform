@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { ackCommand, listPhotos, type GroundStationDevice, type GroundStationPhoto } from "@/api/groundStation";
+import { ackCommand, getHistory, listPhotos, type GroundStationDevice, type GroundStationPhoto } from "@/api/groundStation";
 import { useGroundStationSocket, type GroundStationMessage } from "@/hooks/useGroundStationSocket";
 import AttitudeCube from "@/components/ground-station/AttitudeCube";
 import CommandConsole from "@/components/ground-station/CommandConsole";
@@ -67,6 +67,24 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
 
   useEffect(() => {
     listPhotos(deviceId).then(setPhotos).catch(() => setPhotos([]));
+  }, [deviceId]);
+
+  useEffect(() => {
+    // Seed the live cards from what's already recorded — otherwise a rig
+    // that posted data five minutes ago (and hasn't since) shows
+    // "Collecting telemetry" forever just because no *new* frame has
+    // arrived over the socket since this tab opened.
+    getHistory(deviceId, 60)
+      .then((res) => {
+        setHistory(res.data.slice(-MAX_TREND_POINTS).map((p, i) => ({
+          t: i, recorded_at: p.recorded_at,
+          temp: p.temp ?? undefined, voltage: p.voltage ?? undefined, current: p.current ?? undefined,
+          power: p.power ?? undefined, rssi: p.rssi ?? undefined, snr: p.snr ?? undefined,
+          pitch: p.pitch ?? undefined, roll: p.roll ?? undefined, yaw: p.yaw ?? undefined,
+          lat: p.lat ?? undefined, lon: p.lon ?? undefined, alt: p.alt ?? undefined,
+        })));
+      })
+      .catch(() => undefined);
   }, [deviceId]);
 
   const { connected } = useGroundStationSocket(deviceId, (msg: GroundStationMessage) => {
