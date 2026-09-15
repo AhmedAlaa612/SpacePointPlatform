@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta, timezone
 
 import uuid as uuid_lib
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.dependencies import get_current_active_user
-from app.core.rate_limit import enforce_rate_limit
+from app.core.rate_limit import client_ip, enforce_rate_limit
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -48,6 +49,16 @@ from app.services.notification import create_notification as notify
 from app.services.spine.identity import ensure_guardian_relationship, resolve_or_create_contact
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Auth journey logging (2026-09-15): plain stdlib logging, no structured/JSON
+# formatter exists in this codebase yet, so these follow the same
+# "logger.warning('event description: key=%s', value)" convention the rest of
+# the app already uses (e.g. services/lms/invite_grants.py) rather than
+# inventing a second style. The "auth.<endpoint> <outcome>" prefix is what
+# makes them greppable as a journey — `grep 'auth.login failed'` or `grep
+# 'user=<id>'` reconstructs what happened without cross-referencing the bare
+# uvicorn access log against request bodies nobody logs.
+logger = logging.getLogger(__name__)
 
 # B6: the existing rate_limit.py brake is 1000 req/min/IP (deliberately
 # generous — a whole school shares one IP), useless against password
@@ -130,19 +141,23 @@ async def _load_applicant_profile(db: AsyncSession, user_id) -> ApplicantProfile
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(data: LoginRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    ip = client_ip(request)
+    email = _lower_email(data.email)
+
     # Emails are stored lowercased (_lower_email), but rows written before
     # that normalization existed — or through a path that missed it — can
     # still hold mixed case. Lowercase the login input too, or a user whose
     # stored email has a capital letter can never log in with any casing.
     user = (
-        await db.execute(select(User).where(User.email == _lower_email(data.email)))
+        await db.execute(select(User).where(User.email == email))
     ).scalars().first()
 
     # Checked before the password compare, on purpose — a locked account
     # gets the same 429 regardless of whether this guess would've been
     # right, so lockout state itself can't be probed.
     if user and user.locked_until and user.locked_until > datetime.now(timezone.utc):
+        logger.warning("auth.login blocked (locked_out): user=%s ip=%s", user.id, ip)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed attempts — try again later",
@@ -154,6 +169,17 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
             if user.failed_login_count >= _MAX_FAILED_LOGIN_ATTEMPTS:
                 user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=_LOCKOUT_MINUTES)
             await db.commit()
+            logger.warning(
+                "auth.login failed (bad_password): user=%s ip=%s failed_count=%s",
+                user.id, ip, user.failed_login_count,
+            )
+        else:
+            # Logged with the raw attempted email, not a user id — there's no
+            # account to key on. This is the line that tells "one address
+            # retried a few times" (wrong portal / forgot password) apart
+            # from "many different addresses from one IP" (credential
+            # stuffing) — the thing raw access logs can't answer on their own.
+            logger.warning("auth.login failed (unknown_email): email=%s ip=%s", email, ip)
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     # Correct password proven — reset lockout state regardless of what the
@@ -164,10 +190,12 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     roles = user.role_values
     if "admin" not in roles and user.status != "active":
         await db.commit()
+        logger.warning("auth.login failed (inactive_account): user=%s ip=%s", user.id, ip)
         raise HTTPException(status_code=403, detail="Account deactivated, contact admin")
 
     user.last_login_at = datetime.now(timezone.utc)
     await db.commit()
+    logger.info("auth.login success: user=%s roles=%s ip=%s", user.id, roles, ip)
 
     return {
         "access_token": create_access_token(user.id, roles),
@@ -207,9 +235,11 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
     existing Contact views show it without needing to know about the new
     structured field."""
     enforce_rate_limit(request)
+    ip = client_ip(request)
 
     email = _lower_email(data.email)
     if await _email_taken(db, email):
+        logger.info("auth.signup rejected (duplicate_email): email=%s ip=%s", email, ip)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="An account with this email already exists — log in instead.",
@@ -223,6 +253,7 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
     # error, and so it can't be bypassed by a client that omits the key.
     code = data.invite_code.strip().upper() if data.invite_code else None
     if not code:
+        logger.info("auth.signup rejected (missing_invite_code): email=%s ip=%s", email, ip)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="An invite code is required to sign up. Ask your instructor for one.",
@@ -230,7 +261,11 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
     # kind='student': an instructor-pool code must not open student signup.
     # An ambassador's personal referral code still works (it's kind-agnostic
     # inside resolve_invite_code) — the operator's explicit call.
-    invitation, ambassador = await resolve_invite_code(db, code, kind="student")
+    try:
+        invitation, ambassador = await resolve_invite_code(db, code, kind="student")
+    except HTTPException:
+        logger.info("auth.signup rejected (bad_invite_code): code=%s email=%s ip=%s", code, email, ip)
+        raise
     referred_by_ambassador_id = ambassador.id if ambassador else None
 
     city = await db.get(City, data.city_id) if data.city_id else None
@@ -290,6 +325,7 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
 
     await db.commit()
     await db.refresh(user)
+    logger.info("auth.signup success: user=%s email=%s invite_code=%s ip=%s", user.id, email, code, ip)
 
     roles = user.role_values
     return {
@@ -727,15 +763,18 @@ async def set_password(
     try:
         user_id = decode_password_set_token(data.token)
     except JWTError:
+        logger.warning("auth.set_password rejected (bad_or_expired_token)")
         raise HTTPException(status_code=400, detail="This link is invalid or has expired")
 
     user = await db.get(User, uuid_lib.UUID(user_id))
     if user is None:
+        logger.warning("auth.set_password rejected (user_deleted): user=%s", user_id)
         raise HTTPException(status_code=400, detail="This link is invalid or has expired")
 
     user.password_hash = get_password_hash(data.new_password)
     user.must_change_password = False
     await db.commit()
+    logger.info("auth.set_password success: user=%s", user.id)
     return {"detail": "password set"}
 
 
@@ -758,11 +797,18 @@ async def forgot_password(
     is registered, so this can't be used to enumerate accounts — an unknown
     address silently does nothing."""
     enforce_rate_limit(request)
+    ip = client_ip(request)
 
     email = _lower_email(data.email)
     user = (await db.execute(select(User).where(User.email == email))).scalars().first()
     if user is not None:
         await send_set_password_email(user, purpose="reset", expires_delta=timedelta(hours=24))
+        logger.info("auth.forgot_password requested: user=%s ip=%s", user.id, ip)
+    else:
+        # Same non-committal response either way (see docstring above) — but
+        # the server-side log doesn't need to preserve that ambiguity, and
+        # knowing whether this was a real account matters for the journey.
+        logger.info("auth.forgot_password requested (unknown_email): email=%s ip=%s", email, ip)
 
     return {"detail": "If an account exists for that email, a password reset link has been sent."}
 

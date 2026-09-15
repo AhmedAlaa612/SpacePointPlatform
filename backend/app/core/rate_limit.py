@@ -37,7 +37,7 @@ _PRUNE_EVERY_SECONDS = 300
 _last_prune = 0.0
 
 
-def _client_ip(request: Request) -> str:
+def client_ip(request: Request) -> str:
     """The address nginx actually saw.
 
     X-Forwarded-For is a client-supplied header that our proxy *appends* to
@@ -73,7 +73,7 @@ def enforce_rate_limit(
     Called explicitly inside a route rather than as a FastAPI dependency, so it
     can run after the honeypot check decides whether a request counts at all.
     """
-    ip = _client_ip(request)
+    ip = client_ip(request)
     now = time.monotonic()
     _prune(now)
 
