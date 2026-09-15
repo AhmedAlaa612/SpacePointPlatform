@@ -532,7 +532,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
             <select
               value={regLoginFilter}
               onChange={(e) => setRegLoginFilter(e.target.value as "all" | "never" | "has_logged_in")}
-              className="h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer shrink-0"
+              className="w-auto shrink-0 h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
             >
               <option value="all">Any login status</option>
               <option value="never">Never logged in</option>
