@@ -262,20 +262,22 @@ async def get_cohort_assignable_students(
     registered_only: bool = False,
     team_status: Literal["all", "has_team", "no_team"] = "all",
     lms_status: Literal["all", "has_access", "no_access"] = "all",
+    login_status: Literal["all", "never", "has_logged_in"] = "all",
     db: AsyncSession = Depends(get_db),
 ):
     """Backs the Assign tab's search + filters (2026-09-15: `registered_only`,
     `team_status`, `lms_status` replaced the original boolean
-    `unassigned_only`). See `student_search_service.search_cohort_assignable_students`
-    for what each does — `registered_only` switches the candidate set
-    between "matches my search, anywhere on the platform" (the original
-    behavior, for finding an unregistered invite-code signup to assign)
-    and "actually registered in this cohort" (for viewing the roster
-    itself); `team_status`/`lms_status` filter either set further."""
+    `unassigned_only`; `login_status` added 2026-09-16). See
+    `student_search_service.search_cohort_assignable_students` for what each
+    does — `registered_only` switches the candidate set between "matches my
+    search, anywhere on the platform" (the original behavior, for finding an
+    unregistered invite-code signup to assign) and "actually registered in
+    this cohort" (for viewing the roster itself); `team_status`/`lms_status`/
+    `login_status` filter either set further."""
     await _get_cohort_or_404(db, cohort_id)
     return await student_search_service.search_cohort_assignable_students(
         db, cohort_id=cohort_id, q=q, invite_code=invite_code, registered_only=registered_only,
-        team_status=team_status, lms_status=lms_status,
+        team_status=team_status, lms_status=lms_status, login_status=login_status,
     )
 
 

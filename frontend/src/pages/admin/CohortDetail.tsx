@@ -129,6 +129,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const [addSessionOpen, setAddSessionOpen] = useState(false)
   const [drawerError, setDrawerError] = useState<string | null>(null)
   const [regSearch, setRegSearch] = useState("")
+  const [regLoginFilter, setRegLoginFilter] = useState<"all" | "never" | "has_logged_in">("all")
   const [deleteTarget, setDeleteTarget] = useState<Registration | null>(null)
   const [cancelTarget, setCancelTarget] = useState<Registration | null>(null)
   const [certificateTarget, setCertificateTarget] = useState<Registration | null>(null)
@@ -162,6 +163,8 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   // dozens of rows — searching beats scrolling. Matches every field shown on
   // the row so "the school" or "the parent's number" both work.
   const filteredRegistrations = registrations.filter((r) => {
+    if (regLoginFilter === "never" && r.last_login_at) return false
+    if (regLoginFilter === "has_logged_in" && !r.last_login_at) return false
     const q = regSearch.trim().toLowerCase()
     if (!q) return true
     return [
@@ -516,14 +519,25 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           Registrations{registrations.length > 0 ? ` (${registrations.length}${cohort.capacity != null ? ` / ${cohort.capacity}` : ""})` : ""}
         </p>
         {registrations.length > 0 && (
-          <div className="relative mb-2">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-            <input
-              value={regSearch}
-              onChange={(e) => setRegSearch(e.target.value)}
-              placeholder="Search name, phone, email, school…"
-              className="w-full h-9 pl-9 pr-3 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors"
-            />
+          <div className="flex items-center gap-2 mb-2">
+            <div className="relative flex-1">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <input
+                value={regSearch}
+                onChange={(e) => setRegSearch(e.target.value)}
+                placeholder="Search name, phone, email, school…"
+                className="w-full h-9 pl-9 pr-3 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+            <select
+              value={regLoginFilter}
+              onChange={(e) => setRegLoginFilter(e.target.value as "all" | "never" | "has_logged_in")}
+              className="h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer shrink-0"
+            >
+              <option value="all">Any login status</option>
+              <option value="never">Never logged in</option>
+              <option value="has_logged_in">Has logged in</option>
+            </select>
           </div>
         )}
         {drawerError && (
@@ -534,7 +548,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         {isLoading ? <Spinner /> : registrations.length === 0 ? (
           <EmptyState title="No registrations yet" />
         ) : filteredRegistrations.length === 0 ? (
-          <EmptyState title={`No registrations match "${regSearch}"`} />
+          <EmptyState title={regSearch ? `No registrations match "${regSearch}"` : "No registrations match this filter"} />
         ) : (
           <div className="flex flex-col gap-2">
             {filteredRegistrations.map((r) => {

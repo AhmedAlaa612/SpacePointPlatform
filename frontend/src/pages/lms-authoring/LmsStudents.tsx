@@ -30,11 +30,12 @@ export default function LmsStudents() {
   const search = useSearch({ strict: false }) as { invite_code?: string }
   const [query, setQuery] = useState("")
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
+  const [loginStatus, setLoginStatus] = useState<"all" | "never" | "has_logged_in">("all")
   const inviteCode = search.invite_code ?? ""
 
   const { data: students = [], isLoading } = useQuery({
-    queryKey: ["lms-admin-students", query, inviteCode],
-    queryFn: () => searchStudentsApi({ q: query || undefined, invite_code: inviteCode || undefined }),
+    queryKey: ["lms-admin-students", query, inviteCode, loginStatus],
+    queryFn: () => searchStudentsApi({ q: query || undefined, invite_code: inviteCode || undefined, login_status: loginStatus }),
   })
   const { data: codes = [] } = useQuery({
     queryKey: ["lms-admin-invite-codes"],
@@ -74,6 +75,15 @@ export default function LmsStudents() {
           {/* Students who signed up before the invite gate existed have no
               code at all — without this they'd be unreachable by filter. */}
           <option value="none">No code</option>
+        </select>
+        <select
+          value={loginStatus}
+          onChange={(e) => setLoginStatus(e.target.value as "all" | "never" | "has_logged_in")}
+          className="h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+        >
+          <option value="all">Any login status</option>
+          <option value="never">Never logged in</option>
+          <option value="has_logged_in">Has logged in</option>
         </select>
       </div>
 

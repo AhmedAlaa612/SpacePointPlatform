@@ -1275,6 +1275,37 @@ async def test_assignable_students_honors_invite_code_filter(db, client):
 
 
 @pytest.mark.asyncio
+async def test_assignable_students_login_status_filter(db, client):
+    """login_status (2026-09-16) reads User.last_login_at directly — account
+    existing (self-registered here) says nothing about whether it's ever
+    actually been opened."""
+    from datetime import datetime, timezone
+
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    never_logged_in = await _self_registered_student(db, full_name="Never Logged In Assignee")
+    has_logged_in = await _self_registered_student(db, full_name="Has Logged In Assignee")
+    has_logged_in.last_login_at = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    await db.commit()
+
+    never = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"login_status": "never"}, headers=_headers(ops),
+    )
+    never_ids = {r["id"] for r in never.json()}
+    assert str(never_logged_in.id) in never_ids
+    assert str(has_logged_in.id) not in never_ids
+
+    has = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"login_status": "has_logged_in"}, headers=_headers(ops),
+    )
+    has_ids = {r["id"] for r in has.json()}
+    assert str(has_logged_in.id) in has_ids
+    assert str(never_logged_in.id) not in has_ids
+
+
+@pytest.mark.asyncio
 async def test_assignable_students_a_large_batch_is_not_truncated_by_the_open_search_cap(db, client):
     """Found live (2026-09-15): with "Registered to this cohort" off, the
     platform-wide branch capped every query at 50 rows — including one

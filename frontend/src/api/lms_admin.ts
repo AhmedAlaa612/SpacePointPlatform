@@ -734,7 +734,9 @@ export const revokeLearningPathEnrollmentApi = (pathId: string, userId: string) 
 
 // ── student management (2026-08-12) ─────────────────────────────────────────
 
-export const searchStudentsApi = (params: { q?: string; invite_code?: string } = {}) =>
+export const searchStudentsApi = (
+  params: { q?: string; invite_code?: string; login_status?: "all" | "never" | "has_logged_in" } = {},
+) =>
   api.get<StudentSummary[]>("/lms/admin/students", { params }).then((r) => r.data);
 
 // ── student invite codes (2026-08-13) ───────────────────────────────────────

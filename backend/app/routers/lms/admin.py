@@ -253,6 +253,7 @@ async def search_staff(
 async def search_students(
     q: str | None = None,
     invite_code: str | None = None,
+    login_status: Literal["all", "never", "has_logged_in"] = "all",
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_lms_content),
 ):
@@ -264,10 +265,14 @@ async def search_students(
     before the gate existed; without it they'd be unreachable through the
     filter, since "no code" isn't a code you can type.
 
+    `login_status` (2026-09-16) filters on whether the account has ever
+    actually been logged into (`User.last_login_at`), not just whether it
+    exists.
+
     The actual query lives in `services/lms/students.py` (extracted
     2026-09-14) — the Competition Judging Assign tab's cohort-scoped search
     reuses it rather than re-implementing this from scratch."""
-    return await student_search_service.search_students(db, q=q, invite_code=invite_code)
+    return await student_search_service.search_students(db, q=q, invite_code=invite_code, login_status=login_status)
 
 
 # ── student invite codes (2026-08-13) ───────────────────────────────────────
