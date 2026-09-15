@@ -342,6 +342,7 @@ function RosterTab({ cohortId }: { cohortId: string }) {
 // Team ID, never a display name.
 type TeamStatusFilter = "all" | "has_team" | "no_team"
 type LmsStatusFilter = "all" | "has_access" | "no_access"
+type LoginStatusFilter = "all" | "never" | "has_logged_in"
 
 function AssignTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
@@ -357,16 +358,17 @@ function AssignTab({ cohortId }: { cohortId: string }) {
   const [registeredOnly, setRegisteredOnly] = useState(false)
   const [teamStatus, setTeamStatus] = useState<TeamStatusFilter>("no_team")
   const [lmsStatus, setLmsStatus] = useState<LmsStatusFilter>("all")
+  const [loginStatus, setLoginStatus] = useState<LoginStatusFilter>("all")
   const [teamIds, setTeamIds] = useState<Record<string, string>>({})
   const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
   const [sendTicketEmail, setSendTicketEmail] = useState(true)
   const [result, setResult] = useState<CompetitionAssignStudentsResult | null>(null)
 
   const { data: students = [], isLoading } = useQuery({
-    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, registeredOnly, teamStatus, lmsStatus],
+    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, registeredOnly, teamStatus, lmsStatus, loginStatus],
     queryFn: () => searchAssignableStudentsApi(cohortId, {
       q: query || undefined, invite_code: inviteCode || undefined, registered_only: registeredOnly,
-      team_status: teamStatus, lms_status: lmsStatus,
+      team_status: teamStatus, lms_status: lmsStatus, login_status: loginStatus,
     }),
   })
   const { data: codes = [] } = useQuery({
@@ -446,6 +448,15 @@ function AssignTab({ cohortId }: { cohortId: string }) {
           <option value="no_access">No LMS access</option>
           <option value="has_access">Has LMS access</option>
         </select>
+        <select
+          value={loginStatus}
+          onChange={(e) => setLoginStatus(e.target.value as LoginStatusFilter)}
+          className="w-auto shrink-0 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+        >
+          <option value="all">Any login status</option>
+          <option value="never">Never logged in</option>
+          <option value="has_logged_in">Has logged in</option>
+        </select>
       </div>
 
       {isLoading ? (
@@ -469,6 +480,7 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                 <th className="py-2 pr-2">Code used</th>
                 <th className="py-2 pr-2">Current team</th>
                 <th className="py-2 pr-2">LMS access</th>
+                <th className="py-2 pr-2">Login</th>
                 <th className="py-2 pr-3">Team ID</th>
               </tr>
             </thead>
@@ -492,6 +504,15 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                       <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Yes</span>
                     ) : (
                       <span className="text-muted-foreground">No</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-2 align-top pt-3 whitespace-nowrap">
+                    {s.last_login_at ? (
+                      <span className="text-muted-foreground">{new Date(s.last_login_at).toLocaleDateString()}</span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                        NEVER LOGGED IN
+                      </span>
                     )}
                   </td>
                   <td className="py-1.5 pr-3">

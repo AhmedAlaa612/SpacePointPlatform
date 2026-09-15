@@ -147,6 +147,9 @@ export interface CompetitionAssignableStudent {
   grade: string | null
   status: string | null
   created_at: string | null
+  /** Set the moment a login actually succeeds — null means this account
+   * has never once been logged into. */
+  last_login_at: string | null
   team_id: string | null
   team_name: string | null
   registered: boolean
@@ -294,14 +297,15 @@ export const confirmCohortRegistrationImportApi = (
 /** Assign tab's own cohort-scoped student search — same name/email +
  * invite-code filters as `searchStudentsApi`, plus `registered_only`
  * (restrict to students who actually have a Registration in this cohort,
- * vs. the default platform-wide search) and `team_status`/`lms_status`
- * filters. */
+ * vs. the default platform-wide search) and `team_status`/`lms_status`/
+ * `login_status` filters. */
 export const searchAssignableStudentsApi = (
   cohortId: string,
   params: {
     q?: string; invite_code?: string; registered_only?: boolean
     team_status?: "all" | "has_team" | "no_team"
     lms_status?: "all" | "has_access" | "no_access"
+    login_status?: "all" | "never" | "has_logged_in"
   } = {},
 ) =>
   api.get<CompetitionAssignableStudent[]>(

@@ -30,11 +30,12 @@ export default function LmsStudents() {
   const search = useSearch({ strict: false }) as { invite_code?: string }
   const [query, setQuery] = useState("")
   const [profileUserId, setProfileUserId] = useState<string | null>(null)
+  const [loginStatus, setLoginStatus] = useState<"all" | "never" | "has_logged_in">("all")
   const inviteCode = search.invite_code ?? ""
 
   const { data: students = [], isLoading } = useQuery({
-    queryKey: ["lms-admin-students", query, inviteCode],
-    queryFn: () => searchStudentsApi({ q: query || undefined, invite_code: inviteCode || undefined }),
+    queryKey: ["lms-admin-students", query, inviteCode, loginStatus],
+    queryFn: () => searchStudentsApi({ q: query || undefined, invite_code: inviteCode || undefined, login_status: loginStatus }),
   })
   const { data: codes = [] } = useQuery({
     queryKey: ["lms-admin-invite-codes"],
@@ -75,6 +76,15 @@ export default function LmsStudents() {
               code at all — without this they'd be unreachable by filter. */}
           <option value="none">No code</option>
         </select>
+        <select
+          value={loginStatus}
+          onChange={(e) => setLoginStatus(e.target.value as "all" | "never" | "has_logged_in")}
+          className="h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+        >
+          <option value="all">Any login status</option>
+          <option value="never">Never logged in</option>
+          <option value="has_logged_in">Has logged in</option>
+        </select>
       </div>
 
       {isLoading ? (
@@ -89,7 +99,7 @@ export default function LmsStudents() {
           <table className="min-w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/40">
-                {["Name", "Email", "School", "Grade", "Code used", "Joined", "Status", ""].map((header, i) => (
+                {["Name", "Email", "School", "Grade", "Code used", "Joined", "Login", "Status", ""].map((header, i) => (
                   <th
                     key={i}
                     className="text-left font-medium text-muted-foreground px-4 py-2.5 whitespace-nowrap text-xs uppercase tracking-wider"
@@ -128,6 +138,15 @@ export default function LmsStudents() {
                   </td>
                   <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                     {s.created_at ? new Date(s.created_at).toLocaleDateString() : "—"}
+                  </td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {s.last_login_at ? (
+                      <span className="text-muted-foreground">{new Date(s.last_login_at).toLocaleDateString()}</span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                        NEVER LOGGED IN
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <span

@@ -102,6 +102,12 @@ class RegistrationOut(BaseModel):
     total_cohort_sessions_count: int = 0
     attendance_records: list[RegistrationAttendanceOut] = []
     created_at: datetime
+    # 2026-09-16 — the linked LMS account's own last_login_at, resolved the
+    # same contact_id-first/email-fallback way get_or_create_student_account
+    # does. None means either there's no LMS account at all yet, or there is
+    # one but nobody has ever actually logged into it — registering (or
+    # being desk-registered) is not the same as opening the account.
+    last_login_at: datetime | None = None
 
 
 class ConfirmPaymentRequest(BaseModel):

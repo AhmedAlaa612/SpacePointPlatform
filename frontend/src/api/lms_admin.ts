@@ -92,6 +92,9 @@ export interface StudentSummary {
   grade: string | null;
   status: string | null;
   created_at: string | null;
+  /** Set the moment a login actually succeeds — null means this account
+   * (self-signup or ops-created) has never once been logged into. */
+  last_login_at: string | null;
 }
 
 export interface InviteCode {
@@ -734,7 +737,9 @@ export const revokeLearningPathEnrollmentApi = (pathId: string, userId: string) 
 
 // ── student management (2026-08-12) ─────────────────────────────────────────
 
-export const searchStudentsApi = (params: { q?: string; invite_code?: string } = {}) =>
+export const searchStudentsApi = (
+  params: { q?: string; invite_code?: string; login_status?: "all" | "never" | "has_logged_in" } = {},
+) =>
   api.get<StudentSummary[]>("/lms/admin/students", { params }).then((r) => r.data);
 
 // ── student invite codes (2026-08-13) ───────────────────────────────────────

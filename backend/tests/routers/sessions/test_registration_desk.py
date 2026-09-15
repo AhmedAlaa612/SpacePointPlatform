@@ -229,6 +229,49 @@ async def test_list_registrations_shows_student_and_guardian_and_flags(db, clien
 
 
 @pytest.mark.asyncio
+async def test_list_registrations_reports_last_login_at_of_the_linked_account(db, client, operations_headers):
+    """2026-09-16 — resolved contact_id-first, email-fallback, same as
+    get_or_create_student_account. A registrant with no LMS account at all,
+    one with an account nobody's ever logged into, and one who's actually
+    logged in should all read differently."""
+    from app.models.user import User
+
+    cohort = await _make_cohort(db)
+    no_account = _new_contact(full_name="No Account Yet", email="no-account@example.com")
+    never_logged_in = _new_contact(full_name="Never Logged In", email="never-logged-in@example.com")
+    has_logged_in = _new_contact(full_name="Has Logged In", email="has-logged-in@example.com")
+    db.add_all([no_account, never_logged_in, has_logged_in])
+    await db.flush()
+
+    from datetime import datetime, timezone
+    login_time = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
+    db.add(User(
+        id=uuid.uuid4(), full_name="Never Logged In", email=never_logged_in.email, password_hash="x",
+        roles=["student"], status="active", contact_id=never_logged_in.id, must_change_password=False,
+    ))
+    # Resolved by email fallback, not contact_id — the account predates the
+    # link, same gap get_or_create_student_account's own fallback covers.
+    db.add(User(
+        id=uuid.uuid4(), full_name="Has Logged In", email=has_logged_in.email, password_hash="x",
+        roles=["student"], status="active", contact_id=None, must_change_password=False,
+        last_login_at=login_time,
+    ))
+    await db.flush()
+
+    for contact in (no_account, never_logged_in, has_logged_in):
+        await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="desk")
+    await db.commit()
+
+    resp = await client.get(f"/sessions/cohorts/{cohort.id}/registrations", headers=operations_headers)
+    assert resp.status_code == 200, resp.text
+    by_name = {r["student_name"]: r["last_login_at"] for r in resp.json()}
+    assert by_name["No Account Yet"] is None
+    assert by_name["Never Logged In"] is None
+    assert by_name["Has Logged In"] is not None
+    assert by_name["Has Logged In"].startswith("2026-09-01")
+
+
+@pytest.mark.asyncio
 async def test_list_registrations_requires_operations_role(db, client, other_role_headers):
     cohort = await _make_cohort(db)
     resp = await client.get(f"/sessions/cohorts/{cohort.id}/registrations", headers=other_role_headers)

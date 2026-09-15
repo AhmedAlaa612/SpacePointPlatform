@@ -61,19 +61,26 @@ async def _summarize_users(db: AsyncSession, users: list[User]) -> list[StudentS
             grade=contact.grade if contact else None,
             status=u.status,
             created_at=u.created_at,
+            last_login_at=u.last_login_at,
         ))
     return out
 
 
 async def search_students(
-    db: AsyncSession, *, q: str | None = None, invite_code: str | None = None, limit: int = 50,
+    db: AsyncSession, *, q: str | None = None, invite_code: str | None = None,
+    login_status: Literal["all", "never", "has_logged_in"] = "all", limit: int = 50,
 ) -> list[StudentSummaryOut]:
     """Name/email substring search over student accounts, capped at `limit` rows.
 
     `invite_code` filters to one batch. The literal string `none` selects
     students with no code at all — the ones who signed up before the gate
     existed; without it they'd be unreachable through the filter, since "no
-    code" isn't a code you can type."""
+    code" isn't a code you can type.
+
+    `login_status` (2026-09-16) filters on `User.last_login_at` — "never"
+    finds an account (however it was created) that's never actually been
+    opened, same signal search_cohort_assignable_students's own
+    login_status filters on."""
     stmt = select(User).where(User.roles.any("student"))
     if q:
         like = f"%{q.strip()}%"
@@ -83,6 +90,10 @@ async def search_students(
             stmt = stmt.where(User.invitation_code_used.is_(None))
         else:
             stmt = stmt.where(User.invitation_code_used == invite_code.strip().upper())
+    if login_status == "never":
+        stmt = stmt.where(User.last_login_at.is_(None))
+    elif login_status == "has_logged_in":
+        stmt = stmt.where(User.last_login_at.is_not(None))
     rows = (await db.execute(stmt.order_by(User.full_name).limit(limit))).scalars().all()
     return await _summarize_users(db, rows)
 
@@ -150,6 +161,7 @@ async def search_cohort_assignable_students(
     registered_only: bool = False,
     team_status: Literal["all", "has_team", "no_team"] = "all",
     lms_status: Literal["all", "has_access", "no_access"] = "all",
+    login_status: Literal["all", "never", "has_logged_in"] = "all",
 ) -> list[CompetitionAssignableStudentOut]:
     """Backs the Assign tab's search + filters (`registered_only` added
     2026-09-15 alongside `team_status`/`lms_status`, replacing the old
@@ -161,7 +173,9 @@ async def search_cohort_assignable_students(
     signup to assign; `registered_only=True` instead starts from this
     cohort's own Registration rows (`_registered_cohort_users` above),
     same idea, since "everyone actually registered in my competition" is
-    the whole point of that view."""
+    the whole point of that view. `login_status` (2026-09-16) filters on
+    `User.last_login_at` — "never" means the account (however it was
+    created) has never actually been opened, not just that it exists."""
     if registered_only:
         users = await _registered_cohort_users(db, cohort_id=cohort_id, q=q, invite_code=invite_code)
         registered_ids = {u.id for u in users}
@@ -230,6 +244,10 @@ async def search_cohort_assignable_students(
         if lms_status == "has_access" and not has_lms:
             continue
         if lms_status == "no_access" and has_lms:
+            continue
+        if login_status == "never" and u.last_login_at is not None:
+            continue
+        if login_status == "has_logged_in" and u.last_login_at is None:
             continue
         team_id, team_name = team_by_user.get(u.id, (None, None))
         out.append(CompetitionAssignableStudentOut(
