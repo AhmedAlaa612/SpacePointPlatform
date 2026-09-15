@@ -12,7 +12,7 @@ export async function signup(data: {
   full_name: string;
   email: string;
   password: string;
-  phone?: string;
+  phone: string;
   date_of_birth?: string;
   invite_code?: string;
   parent_name?: string;

@@ -64,6 +64,7 @@ from app.schemas.lms_admin import (
     ItemUpdate,
     LearningPathAdminOut,
     LearningPathCreate,
+    LearningPathRosterRowOut,
     LearningPathStepIn,
     LearningPathStepOut,
     LearningPathUpdate,
@@ -2408,6 +2409,113 @@ async def bulk_grant_enrollment(
     return BulkGrantOut(granted=granted, already_enrolled=already_enrolled, skipped_no_account=skipped_no_account)
 
 
+async def _learning_path_step_course_ids(db: AsyncSession, path_id: uuid.UUID) -> list[uuid.UUID]:
+    return list((await db.execute(
+        select(LearningPathStep.course_id).where(LearningPathStep.learning_path_id == path_id)
+    )).scalars().all())
+
+
+@router.get("/learning-paths/{path_id}/roster", response_model=list[LearningPathRosterRowOut])
+async def learning_path_roster(
+    path_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """The named-individual assignment roster (2026-09-15) — courses have
+    had this (`course_roster`/`grant_enrollment`) since P1-5; paths only
+    had the cohort/role bulk grant. One row per user with at least one
+    ops-sourced enrollment among the path's current steps, `steps_owned`
+    tracking partial vs. full grants (mirrors `bulk_grant_path_enrollment`'s
+    own "block only when fully owned" reading of ownership)."""
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    step_course_ids = await _learning_path_step_course_ids(db, path_id)
+    if not step_course_ids:
+        return []
+
+    rows = (await db.execute(
+        select(Enrollment.user_id, Enrollment.course_id).where(
+            Enrollment.course_id.in_(step_course_ids), Enrollment.source == "ops", *enrollment_is_active(),
+        )
+    )).all()
+    owned_by_user: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for user_id, course_id in rows:
+        owned_by_user.setdefault(user_id, set()).add(course_id)
+
+    out = []
+    for user_id, owned in owned_by_user.items():
+        user = await db.get(User, user_id)
+        out.append(LearningPathRosterRowOut(
+            user_id=user_id,
+            student_name=user.full_name if user else "(deleted user)",
+            student_email=user.email if user else "",
+            status="active",
+            steps_owned=len(owned), steps_total=len(step_course_ids),
+        ))
+    return out
+
+
+@router.post(
+    "/learning-paths/{path_id}/enrollments", response_model=LearningPathRosterRowOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def grant_path_enrollment(
+    path_id: uuid.UUID,
+    body: EnrollmentGrantIn,
+    db: AsyncSession = Depends(get_db),
+    current: User = Depends(require_lms_content),
+):
+    """Put a named person into every one of a path's current courses at
+    once (2026-09-15) — the path equivalent of `grant_enrollment`, so a
+    single staff account can be handed a whole path the same way it can
+    already be handed one course. Re-granting an already-fully-owned path
+    is a no-op per step (`enroll` reactivates/dedupes on its own)."""
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    student = await db.get(User, body.user_id)
+    if student is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="User not found")
+    step_course_ids = await _learning_path_step_course_ids(db, path_id)
+    if not step_course_ids:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This path has no courses yet")
+
+    for course_id in step_course_ids:
+        await enroll(db, user_id=body.user_id, course_id=course_id, source="ops", granted_by=current.id)
+    await db.commit()
+
+    return LearningPathRosterRowOut(
+        user_id=student.id, student_name=student.full_name, student_email=student.email,
+        status="active", steps_owned=len(step_course_ids), steps_total=len(step_course_ids),
+    )
+
+
+@router.post("/learning-paths/{path_id}/enrollments/{user_id}/revoke", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_path_enrollment(
+    path_id: uuid.UUID,
+    user_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_lms_content),
+):
+    """Deactivates every ops-sourced enrollment this user holds among the
+    path's current steps — the path has no row of its own to flip, so
+    revoke fans out across its courses the same way grant does."""
+    path = await db.get(LearningPath, path_id)
+    if path is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
+    step_course_ids = await _learning_path_step_course_ids(db, path_id)
+    rows = (await db.execute(
+        select(Enrollment).where(
+            Enrollment.user_id == user_id, Enrollment.course_id.in_(step_course_ids),
+            Enrollment.source == "ops", *enrollment_is_active(),
+        )
+    )).scalars().all()
+    for enrollment in rows:
+        enrollment.status = "inactive"
+    await db.commit()
+
+
 @router.post("/learning-paths/{path_id}/enrollments/bulk", response_model=BulkGrantOut)
 async def bulk_grant_path_enrollment(
     path_id: uuid.UUID,
@@ -2424,9 +2532,7 @@ async def bulk_grant_path_enrollment(
     path = await db.get(LearningPath, path_id)
     if path is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Learning path not found")
-    step_course_ids = list((await db.execute(
-        select(LearningPathStep.course_id).where(LearningPathStep.learning_path_id == path_id)
-    )).scalars().all())
+    step_course_ids = await _learning_path_step_course_ids(db, path_id)
     if not step_course_ids:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="This path has no courses yet")
 

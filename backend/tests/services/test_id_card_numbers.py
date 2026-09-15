@@ -118,6 +118,7 @@ async def test_signup_response_card_id_uses_student_prefix(db, client):
     await db.commit()
 
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": "cardtest",
         "full_name": "Card Student", "email": "cardstudent@example.com", "password": "pass-card",
     })

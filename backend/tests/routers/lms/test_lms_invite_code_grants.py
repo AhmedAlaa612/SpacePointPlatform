@@ -345,6 +345,7 @@ async def test_new_signup_on_a_granted_code_is_auto_enrolled(db, client):
     )
 
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": "grantbatch",
         "full_name": "Fresh Signup", "email": "freshsignup@example.com", "password": "pass-fresh",
     })
@@ -371,6 +372,7 @@ async def test_new_signup_on_a_program_granted_code_is_assigned(db, client):
     )
 
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": "programbatch",
         "full_name": "Program Signup", "email": "programsignup@example.com", "password": "pass-fresh",
     })

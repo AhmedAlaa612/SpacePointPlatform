@@ -80,6 +80,7 @@ async def test_signup_is_rate_limited_the_same_way_the_public_form_is(db, client
     monkeypatch.setattr(auth_router, "enforce_rate_limit", _always_trips)
 
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "full_name": "Rate Limited", "email": "ratelimited@example.com", "password": "pass-ratelimited",
     })
     assert resp.status_code == http_status.HTTP_429_TOO_MANY_REQUESTS

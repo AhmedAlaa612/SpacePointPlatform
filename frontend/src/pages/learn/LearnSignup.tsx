@@ -50,7 +50,7 @@ export default function LearnSignup() {
       try {
         const user = await signup({
           full_name: fullName, email, password,
-          phone: phone.trim() ? phone.trim() : undefined,
+          phone: phone.trim(),
           date_of_birth: dob || undefined,
           country: country || undefined,
           city_id: cityId || undefined,
@@ -114,7 +114,8 @@ export default function LearnSignup() {
             />
             <input
               type="tel"
-              placeholder="Phone (optional)"
+              placeholder="Phone"
+              required
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className="h-11 px-4 rounded-xl text-sm bg-background ring-1 ring-border focus:outline-none focus:ring-primary/50 transition-shadow"

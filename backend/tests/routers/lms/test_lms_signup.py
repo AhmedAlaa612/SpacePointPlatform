@@ -96,6 +96,7 @@ async def test_signup_links_to_an_existing_contact_by_email(db, client):
     await db.commit()
 
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": BATCH_CODE,
         "full_name": "Rashid",
         "email": "rashid@example.com",
@@ -118,6 +119,7 @@ async def test_signup_links_to_an_existing_contact_by_email(db, client):
 @pytest.mark.asyncio
 async def test_duplicate_email_is_a_friendly_409(db, client):
     first = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": BATCH_CODE,
         "full_name": "Mariam",
         "email": "mariam@example.com",
@@ -126,6 +128,7 @@ async def test_duplicate_email_is_a_friendly_409(db, client):
     assert first.status_code == http_status.HTTP_201_CREATED
 
     second = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": BATCH_CODE,
         "full_name": "Mariam Two",
         "email": "MARIAM@example.com",  # case-insensitive duplicate
@@ -167,6 +170,7 @@ async def test_signed_up_student_can_log_in(db, client):
 @pytest.mark.asyncio
 async def test_signup_stores_date_of_birth_on_contact_and_exposes_it_via_me(db, client):
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": BATCH_CODE,
         "full_name": "Dana", "email": "dana@example.com", "password": "pass-dana",
         "date_of_birth": "2012-03-14",
@@ -191,6 +195,7 @@ async def test_signup_with_valid_admin_invite_code_increments_usage(db, client):
     await db.commit()
 
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "full_name": "Iman", "email": "iman@example.com", "password": "pass-iman",
         "invite_code": "student1",
     })
@@ -213,6 +218,7 @@ async def test_signup_with_ambassador_referral_code_sets_invited_by(db, client):
     await db.commit()
 
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "full_name": "Zaid", "email": "zaid@example.com", "password": "pass-zaid",
         "invite_code": "refer123",
     })
@@ -225,6 +231,7 @@ async def test_signup_with_ambassador_referral_code_sets_invited_by(db, client):
 @pytest.mark.asyncio
 async def test_signup_with_invalid_invite_code_is_400_and_creates_no_user(db, client):
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "full_name": "Noone", "email": "noone@example.com", "password": "pass-noone",
         "invite_code": "TOTALLY-FAKE",
     })
@@ -237,6 +244,7 @@ async def test_signup_with_invalid_invite_code_is_400_and_creates_no_user(db, cl
 @pytest.mark.asyncio
 async def test_signup_with_parent_info_creates_guardian_relationship(db, client):
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": BATCH_CODE,
         "full_name": "Layla", "email": "layla@example.com", "password": "pass-layla",
         "parent_name": "Fatima", "parent_phone": "+971501234567", "parent_email": "fatima@example.com",
@@ -267,6 +275,7 @@ async def test_signup_with_only_parent_name_does_not_create_guardian(db, client)
     """Mirrors PublicRegistrationRequest's rule exactly — both name and phone
     are required before a guardian contact/relationship is created."""
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": BATCH_CODE,
         "full_name": "Omar", "email": "omar@example.com", "password": "pass-omar",
         "parent_name": "Someone",
@@ -290,6 +299,7 @@ async def test_signup_with_country_and_city_id_persists_and_exposes_via_me(db, c
     await db.commit()
 
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": BATCH_CODE,
         "full_name": "Farah", "email": "farah@example.com", "password": "pass-farah",
         "country": "AE", "city_id": str(city.id),
@@ -317,6 +327,7 @@ async def test_update_me_sets_city_id(db, client):
     await db.commit()
 
     signup = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": BATCH_CODE,
         "full_name": "Update City Test", "email": "updatecity@example.com", "password": "pass-update",
     })
@@ -336,6 +347,7 @@ async def test_signup_with_other_city_persists_and_updates(db, client):
     gap-filled onto the contact's free-text city so CRM views show it, editable
     via PATCH /auth/me."""
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": BATCH_CODE,
         "full_name": "Layla", "email": "layla@example.com", "password": "pass-layla",
         "country": "EG", "city_other": "Alexandria",
@@ -356,6 +368,21 @@ async def test_signup_with_other_city_persists_and_updates(db, client):
     assert updated.status_code == http_status.HTTP_200_OK, updated.text
     assert updated.json()["city_other"] == "Cairo"
 
+@pytest.mark.asyncio
+async def test_signup_without_a_phone_is_422(db, client):
+    """Phone became required 2026-09-15 — a payload without one never
+    reaches the handler at all (Pydantic rejects it), so no user/contact
+    gets created."""
+    resp = await client.post("/auth/signup", json={
+        "invite_code": BATCH_CODE,
+        "full_name": "No Phone", "email": "nophone@example.com", "password": "pass-nophone",
+    })
+    assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_ENTITY, resp.text
+    assert (await db.execute(
+        select(User).where(User.email == "nophone@example.com")
+    )).scalars().first() is None
+
+
 # ── invite-code gate + pool split (2026-08-13) ──────────────────────────────
 
 @pytest.mark.asyncio
@@ -363,6 +390,7 @@ async def test_signup_without_an_invite_code_is_refused(db, client):
     """The gate itself. Ported from Madar, where registration required a
     valid, active, non-exhausted code."""
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "full_name": "No Code", "email": "nocode@example.com", "password": "pass-nocode",
     })
     assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
@@ -375,6 +403,7 @@ async def test_signup_without_an_invite_code_is_refused(db, client):
 @pytest.mark.asyncio
 async def test_a_blank_invite_code_is_refused_too(db, client):
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": "   ",
         "full_name": "Blank Code", "email": "blank@example.com", "password": "pass-blank",
     })
@@ -391,6 +420,7 @@ async def test_an_instructor_pool_code_does_not_open_student_signup(db, client):
     await db.commit()
 
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": "INSTRONLY",
         "full_name": "Wrong Pool", "email": "wrongpool@example.com", "password": "pass-wrong",
     })
@@ -411,12 +441,14 @@ async def test_an_inactive_or_exhausted_student_code_is_refused(db, client):
     await db.commit()
 
     off = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": "DISABLED",
         "full_name": "A", "email": "disabled-code@example.com", "password": "pass-a",
     })
     assert off.status_code == http_status.HTTP_400_BAD_REQUEST
 
     full = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": "FULLUP",
         "full_name": "B", "email": "full-code@example.com", "password": "pass-b",
     })
@@ -429,6 +461,7 @@ async def test_the_code_is_stamped_onto_the_student(db, client):
     """Madar's "code stamped onto the user permanently" — this is what makes
     the students-management batch filter possible."""
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": BATCH_CODE.lower(),  # case-insensitive on the way in
         "full_name": "Stamped", "email": "stamped@example.com", "password": "pass-stamp",
     })
@@ -451,6 +484,7 @@ async def test_an_ambassador_referral_code_still_admits_a_student(db, client):
     await db.commit()
 
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": "ambgate",
         "full_name": "Referred", "email": "referred@example.com", "password": "pass-ref",
     })

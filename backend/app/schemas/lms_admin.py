@@ -686,6 +686,24 @@ class EnrollmentGrantIn(BaseModel):
     user_id: UUID
 
 
+class LearningPathRosterRowOut(BaseModel):
+    """A path is a bundle of course Enrollment rows (checkout.py::fulfill,
+    bulk_grant_path_enrollment), never a single row of its own — so unlike
+    `EnrollmentAdminOut`, `user_id` itself is the identity revoke takes
+    (`POST /learning-paths/{path_id}/enrollments/{user_id}/revoke`
+    deactivates every ops-sourced enrollment across the path's current
+    steps for that user), not a synthetic per-grant id. Only ops-sourced
+    (`source="ops"`) enrollments count towards this roster — the same
+    named-individual assignment surface `grant_enrollment`/`course_roster`
+    give courses, not self-enrol or checkout purchases."""
+    user_id: UUID
+    student_name: str
+    student_email: str
+    status: str
+    steps_owned: int
+    steps_total: int
+
+
 class BulkGrantIn(BaseModel):
     """Exactly one of cohort_id (every student with an active registration in
     that cohort) or role (every user holding that role — D2, staff can take

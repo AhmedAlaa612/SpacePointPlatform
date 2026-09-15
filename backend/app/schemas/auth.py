@@ -10,22 +10,24 @@ class LoginRequest(BaseModel):
 
 
 class StudentSignupRequest(BaseModel):
-    """LMS student self-signup (LM1-4). Phone optional — email is the account
-    key, exactly as it is for /auth/login.
+    """LMS student self-signup (LM1-4). Phone required (2026-09-15 — ops
+    needs a working number for every competition/cohort registrant, same
+    posture PublicRegistrationRequest/registration_desk already have);
+    email is still the account key, exactly as it is for /auth/login.
 
     date_of_birth/invite_code/parent_*/country/city_id (2026-08-08) are all
-    optional, same posture as phone — collected if given, never required to
-    sign up. invite_code is validated against the same admin-code/
-    ambassador-referral mechanism instructor-apply uses
-    (services/invitations.py). parent_name + parent_phone together create a
-    linked guardian contact, mirroring PublicRegistrationRequest's identical
-    rule. city_id references the same admin-configurable `cities` table
-    instructors' deliver_city_ids uses (GET /public/cities)."""
+    optional — collected if given, never required to sign up. invite_code
+    is validated against the same admin-code/ambassador-referral mechanism
+    instructor-apply uses (services/invitations.py). parent_name +
+    parent_phone together create a linked guardian contact, mirroring
+    PublicRegistrationRequest's identical rule. city_id references the same
+    admin-configurable `cities` table instructors' deliver_city_ids uses
+    (GET /public/cities)."""
 
     full_name: str
     email: EmailStr
     password: str
-    phone: str | None = None
+    phone: str
     date_of_birth: date | None = None
     invite_code: str | None = None
     parent_name: str | None = None

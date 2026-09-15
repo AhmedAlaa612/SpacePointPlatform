@@ -67,6 +67,20 @@ export interface BulkGrantResult {
   skipped_no_account: number;
 }
 
+/** A path's named-individual assignment row (2026-09-15) — unlike a course
+ * enrollment, a path grant is several Enrollment rows under the hood (one
+ * per step), so `user_id` itself is the identity revoke takes, not a
+ * synthetic id. `steps_owned`/`steps_total` distinguish a full grant from
+ * a partial one (e.g. a step added to the path after the grant). */
+export interface LearningPathRosterRow {
+  user_id: string;
+  student_name: string;
+  student_email: string;
+  status: string;
+  steps_owned: number;
+  steps_total: number;
+}
+
 export interface StudentSummary {
   id: string;
   full_name: string;
@@ -701,6 +715,19 @@ export const bulkGrantLearningPathEnrollmentApi = (pathId: string, body: { role?
 
 export const revokeCourseEnrollmentApi = (enrollmentId: string) =>
   api.post<AdminEnrollment>(`/lms/admin/enrollments/${enrollmentId}/revoke`).then((r) => r.data);
+
+// Named-individual path assignment (2026-09-15) — the path equivalent of
+// listCourseRosterApi/grantCourseEnrollmentApi/revokeCourseEnrollmentApi.
+export const listLearningPathRosterApi = (pathId: string) =>
+  api.get<LearningPathRosterRow[]>(`/lms/admin/learning-paths/${pathId}/roster`).then((r) => r.data);
+
+export const grantLearningPathEnrollmentApi = (pathId: string, userId: string) =>
+  api.post<LearningPathRosterRow>(
+    `/lms/admin/learning-paths/${pathId}/enrollments`, { user_id: userId },
+  ).then((r) => r.data);
+
+export const revokeLearningPathEnrollmentApi = (pathId: string, userId: string) =>
+  api.post<void>(`/lms/admin/learning-paths/${pathId}/enrollments/${userId}/revoke`).then((r) => r.data);
 
 // ── student management (2026-08-12) ─────────────────────────────────────────
 

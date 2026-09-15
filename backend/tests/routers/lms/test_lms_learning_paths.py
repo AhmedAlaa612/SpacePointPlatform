@@ -392,6 +392,159 @@ async def test_admin_grant_enrolls_into_invite_path_regardless_of_access_mode(db
     assert {r.course_id for r in rows} == {course_a.id, course_b.id}
 
 
+# ── named-individual grant/roster/revoke (2026-09-15) ───────────────────────
+# The path equivalent of grant_enrollment/course_roster/revoke_enrollment —
+# courses have had a "put this specific staff account in" surface since
+# P1-5; paths only had the cohort/role bulk grant until now.
+
+@pytest.mark.asyncio
+async def test_path_grant_enrolls_every_step_and_appears_on_the_roster(db, client):
+    ops = await _user(db)
+    staff = await _user(db, roles=["facilitator"])
+    path = await _path(db, author=ops)
+    course_a, _ = await _course_with_one_module_one_item(db, author=ops)
+    course_b, _ = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course_a.id, position=1))
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course_b.id, position=2))
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/admin/learning-paths/{path.id}/enrollments", headers=_headers(ops),
+        json={"user_id": str(staff.id)},
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["user_id"] == str(staff.id)
+    assert body["steps_owned"] == 2 and body["steps_total"] == 2
+
+    rows = (await db.execute(
+        select(Enrollment).where(Enrollment.user_id == staff.id, Enrollment.source == "ops")
+    )).scalars().all()
+    assert {r.course_id for r in rows} == {course_a.id, course_b.id}
+
+    roster = await client.get(f"/lms/admin/learning-paths/{path.id}/roster", headers=_headers(ops))
+    assert roster.status_code == 200, roster.text
+    row = next(r for r in roster.json() if r["user_id"] == str(staff.id))
+    assert row["steps_owned"] == 2 and row["steps_total"] == 2
+    assert row["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_path_grant_works_on_an_invite_only_path(db, client):
+    """access_mode only gates self-`/start` (P1-4 posture) — a named-
+    individual grant is always allowed, same as the course version."""
+    ops = await _user(db)
+    staff = await _user(db, roles=["facilitator"])
+    path = await _path(db, author=ops, access_mode="invite")
+    course, _ = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course.id, position=1))
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/admin/learning-paths/{path.id}/enrollments", headers=_headers(ops),
+        json={"user_id": str(staff.id)},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+@pytest.mark.asyncio
+async def test_path_grant_404s_for_unknown_user(db, client):
+    ops = await _user(db)
+    path = await _path(db, author=ops)
+    course, _ = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course.id, position=1))
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/admin/learning-paths/{path.id}/enrollments", headers=_headers(ops),
+        json={"user_id": str(uuid.uuid4())},
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_path_grant_404s_for_a_path_with_no_steps_yet(db, client):
+    ops = await _user(db)
+    staff = await _user(db, roles=["facilitator"])
+    path = await _path(db, author=ops)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/admin/learning-paths/{path.id}/enrollments", headers=_headers(ops),
+        json={"user_id": str(staff.id)},
+    )
+    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+
+
+@pytest.mark.asyncio
+async def test_path_roster_only_counts_ops_sourced_enrollments(db, client):
+    """A student who self-enrolled in one of the path's courses on their own
+    must not show up on the ops assignment roster — same "named-individual
+    surface, not self-enrol" rule search_staff enforces on the picker side."""
+    ops = await _user(db)
+    self_enrolled = await _user(db, roles=["student"])
+    path = await _path(db, author=ops)
+    course, _ = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course.id, position=1))
+    await db.flush()
+    await enroll(db, user_id=self_enrolled.id, course_id=course.id, source="self")
+    await db.commit()
+
+    resp = await client.get(f"/lms/admin/learning-paths/{path.id}/roster", headers=_headers(ops))
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_path_roster_reports_partial_ownership(db, client):
+    ops = await _user(db)
+    staff = await _user(db, roles=["facilitator"])
+    path = await _path(db, author=ops)
+    course_a, _ = await _course_with_one_module_one_item(db, author=ops)
+    course_b, _ = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course_a.id, position=1))
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course_b.id, position=2))
+    await db.flush()
+    await enroll(db, user_id=staff.id, course_id=course_a.id, source="ops", granted_by=ops.id)
+    await db.commit()
+
+    resp = await client.get(f"/lms/admin/learning-paths/{path.id}/roster", headers=_headers(ops))
+    assert resp.status_code == 200, resp.text
+    row = next(r for r in resp.json() if r["user_id"] == str(staff.id))
+    assert row["steps_owned"] == 1 and row["steps_total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_path_revoke_deactivates_every_step_and_drops_off_the_roster(db, client):
+    ops = await _user(db)
+    staff = await _user(db, roles=["facilitator"])
+    path = await _path(db, author=ops)
+    course_a, _ = await _course_with_one_module_one_item(db, author=ops)
+    course_b, _ = await _course_with_one_module_one_item(db, author=ops)
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course_a.id, position=1))
+    db.add(LearningPathStep(id=uuid.uuid4(), learning_path_id=path.id, course_id=course_b.id, position=2))
+    await db.commit()
+
+    grant = await client.post(
+        f"/lms/admin/learning-paths/{path.id}/enrollments", headers=_headers(ops),
+        json={"user_id": str(staff.id)},
+    )
+    assert grant.status_code == 201, grant.text
+
+    revoke = await client.post(
+        f"/lms/admin/learning-paths/{path.id}/enrollments/{staff.id}/revoke", headers=_headers(ops),
+    )
+    assert revoke.status_code == http_status.HTTP_204_NO_CONTENT
+
+    rows = (await db.execute(
+        select(Enrollment).where(Enrollment.user_id == staff.id, Enrollment.source == "ops")
+    )).scalars().all()
+    assert rows and all(r.status == "inactive" for r in rows), "rows survive, just deactivated"
+
+    roster = await client.get(f"/lms/admin/learning-paths/{path.id}/roster", headers=_headers(ops))
+    assert roster.json() == []
+
+
 # ── path_progress state rollup (service layer) ──────────────────────────────
 
 @pytest.mark.asyncio

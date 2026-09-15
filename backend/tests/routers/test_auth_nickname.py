@@ -37,6 +37,7 @@ async def test_student_signup_gets_a_nickname_immediately(db, client):
     ))
     await db.commit()
     resp = await client.post("/auth/signup", json={
+        "phone": "+971501234567",
         "invite_code": "NICKBATCH",
         "full_name": "New Explorer", "email": f"explorer-{uuid.uuid4().hex[:8]}@example.com", "password": "verypass123",
     })
