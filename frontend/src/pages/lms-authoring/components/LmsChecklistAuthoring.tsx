@@ -1140,7 +1140,7 @@ export function ItemForm({
                   <select
                     value={l.field_type}
                     onChange={(e) => setLinkLabels((prev) => prev.map((x, j) => j === i ? { ...x, field_type: e.target.value as "text" | "link" } : x))}
-                    className="h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs shrink-0 cursor-pointer"
+                    className="w-auto shrink-0 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs cursor-pointer"
                   >
                     <option value="link">Link</option>
                     <option value="text">Text</option>
