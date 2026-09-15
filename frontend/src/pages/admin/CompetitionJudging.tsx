@@ -593,6 +593,17 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to create team")),
   })
 
+  // Client-side (2026-09-16) — `teams` is already the whole cohort roster in
+  // one fetch (getCohortTeamsApi has no search param), and member_names
+  // rides along on every row already, so there's nothing to round-trip to
+  // the server for.
+  const [search, setSearch] = useState("")
+  const filteredTeams = teams.filter((team) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return team.name.toLowerCase().includes(q) || team.member_names.some((n) => n.toLowerCase().includes(q))
+  })
+
   if (isLoading) return <Spinner />
 
   return (
@@ -619,12 +630,24 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
         </button>
       </div>
 
+      <div className="relative max-w-sm">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by team or student name..."
+          className="w-full h-10 pl-8 pr-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+        />
+      </div>
+
       <div className="flex flex-col gap-3">
-        {teams.map((team) => (
+        {filteredTeams.map((team) => (
           <TeamCard key={team.id} team={team} onChanged={invalidate} />
         ))}
-        {teams.length === 0 && (
+        {teams.length === 0 ? (
           <EmptyState title="No teams yet" hint="Add one above, or import a roster from the Roster tab." />
+        ) : filteredTeams.length === 0 && (
+          <EmptyState title="No teams found" hint="Try a different name." />
         )}
       </div>
     </div>

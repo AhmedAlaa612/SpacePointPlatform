@@ -341,11 +341,14 @@ export type LmsProgramItemType =
  * individual variant, so authoring it never offers the choice. */
 export type LmsProgramItemScope = "individual" | "team";
 
-/** One entry in ops's own fixed label set for a `submission_multi_link`
- * item (2026-09-14) — see `LmsProgramItem.submission_link_labels`. */
+/** One entry in ops's own fixed field set for a `submission_multi_link`
+ * item (2026-09-14, text fields added 2026-09-16) — see
+ * `LmsProgramItem.submission_link_labels`. field_type picks whether the
+ * student sees a link input or a text area for this slot. */
 export interface LmsProgramItemLinkLabel {
   label: string;
   required: boolean;
+  field_type: "text" | "link";
 }
 
 export interface LmsProgramItem {
@@ -567,7 +570,7 @@ export interface PendingConfirmation {
   title: string;
   submitted_url: string | null;
   submission_multi_link: boolean;
-  submitted_links: { label: string | null; url: string }[] | null;
+  submitted_links: { label: string | null; url: string | null; text: string | null }[] | null;
 }
 
 export interface LmsProgramRosterRow {
@@ -612,7 +615,7 @@ export interface LmsAssignmentItemDetail {
   status: string;
   submitted_url: string | null;
   submission_multi_link: boolean;
-  submitted_links: { label: string | null; url: string }[] | null;
+  submitted_links: { label: string | null; url: string | null; text: string | null }[] | null;
   completed_at: string | null;
   mission_attempt_id: string | null;
   confirmed_by_user_id: string | null;

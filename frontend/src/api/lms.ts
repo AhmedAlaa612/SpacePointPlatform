@@ -522,18 +522,24 @@ export type LmsProgramItemStatus = "pending" | "done" | "awaiting_confirmation";
 
 export type LmsProgramItemScope = "individual" | "team";
 
-/** One link in a multi-link submission (2026-09-14) — see
- * LmsProgramChecklistItem.submission_multi_link. */
+/** One entry in a multi-field submission (2026-09-14) — see
+ * LmsProgramChecklistItem.submission_multi_link. Exactly one of url/text is
+ * ever populated, matching this entry's label's own field_type
+ * (2026-09-16) — never both. */
 export interface SubmissionLink {
   label: string | null;
-  url: string;
+  url: string | null;
+  text: string | null;
 }
 
-/** One entry in ops's own fixed label set for a `submission_multi_link`
- * item (2026-09-14) — see LmsProgramChecklistItem.submission_link_labels. */
+/** One entry in ops's own fixed field set for a `submission_multi_link`
+ * item (2026-09-14, text fields added 2026-09-16) — see
+ * LmsProgramChecklistItem.submission_link_labels. field_type picks whether
+ * this slot renders as a link input or a text area. */
 export interface SubmissionLinkLabel {
   label: string;
   required: boolean;
+  field_type: "text" | "link";
 }
 
 export interface LmsProgramChecklistItem {
