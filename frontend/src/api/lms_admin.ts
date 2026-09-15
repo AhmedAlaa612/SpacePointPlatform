@@ -372,6 +372,9 @@ export interface LmsProgramItem {
   variant_id: string | null;
   external_url: string | null;
   submission_prompt: string | null;
+  /** The plain (non-multi) submission's own type — link (default) or text.
+   * Only meaningful when submission_multi_link is false. */
+  submission_field_type: "text" | "link";
   /** Ops's per-item toggle (2026-09-14) — a submission item takes several
    * labeled links instead of one (e.g. Member 1/Member 2/Team link). */
   submission_multi_link: boolean;
@@ -444,6 +447,7 @@ export interface LmsProgramItemInput {
   variant_id?: string | null;
   external_url?: string | null;
   submission_prompt?: string | null;
+  submission_field_type?: "text" | "link";
   submission_multi_link?: boolean;
   submission_link_labels?: LmsProgramItemLinkLabel[] | null;
   deadline_at?: string | null;
@@ -572,6 +576,8 @@ export interface PendingConfirmation {
   item_id: string;
   title: string;
   submitted_url: string | null;
+  submission_field_type: "text" | "link";
+  submitted_text: string | null;
   submission_multi_link: boolean;
   submitted_links: { label: string | null; url: string | null; text: string | null }[] | null;
 }
@@ -617,6 +623,8 @@ export interface LmsAssignmentItemDetail {
   item_type: LmsProgramItemType;
   status: string;
   submitted_url: string | null;
+  submission_field_type: "text" | "link";
+  submitted_text: string | null;
   submission_multi_link: boolean;
   submitted_links: { label: string | null; url: string | null; text: string | null }[] | null;
   completed_at: string | null;

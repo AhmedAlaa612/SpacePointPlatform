@@ -876,6 +876,11 @@ export function ItemForm({
   const [variantId, setVariantId] = useState(initial?.variant_id ?? "")
   const [externalUrl, setExternalUrl] = useState(initial?.external_url ?? "")
   const [submissionPrompt, setSubmissionPrompt] = useState(initial?.submission_prompt ?? "")
+  // The plain (non-multi) submission's own type (2026-09-16) — ignored once
+  // submissionMultiLink is on, where each field picks its own type instead.
+  const [submissionFieldType, setSubmissionFieldType] = useState<"text" | "link">(
+    initial?.submission_field_type ?? "link",
+  )
   const [submissionMultiLink, setSubmissionMultiLink] = useState(initial?.submission_multi_link ?? false)
   // Ops's own fixed label set for a multi-link submission (2026-09-14) —
   // one row per label, each with its own required checkbox. Empty means
@@ -979,6 +984,7 @@ export function ItemForm({
         variant_id: itemType === "mission_run" ? (variantId || null) : null,
         external_url: (itemType === "external_link" || itemType === "submission") ? (externalUrl.trim() || null) : null,
         submission_prompt: itemType === "submission" ? (submissionPrompt.trim() || null) : null,
+        submission_field_type: itemType === "submission" ? submissionFieldType : "link",
         submission_multi_link: itemType === "submission" ? submissionMultiLink : false,
         submission_link_labels: itemType === "submission" && submissionMultiLink && linkLabels.length > 0
           ? linkLabels.map((l) => ({ label: l.label.trim(), required: l.required, field_type: l.field_type }))
@@ -1115,6 +1121,19 @@ export function ItemForm({
             value={submissionPrompt} onChange={(e) => setSubmissionPrompt(e.target.value)} placeholder="What should the student submit back?"
             rows={2} className={`${inputCls} h-auto py-2 resize-none`}
           />
+          {!submissionMultiLink && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-muted-foreground">The student submits</label>
+              <select
+                value={submissionFieldType}
+                onChange={(e) => setSubmissionFieldType(e.target.value as "text" | "link")}
+                className="w-auto shrink-0 h-9 px-3 border border-border bg-card text-foreground rounded-lg text-sm cursor-pointer"
+              >
+                <option value="link">A link</option>
+                <option value="text">A text answer</option>
+              </select>
+            </div>
+          )}
           <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
             <input
               type="checkbox" checked={submissionMultiLink}
@@ -1140,7 +1159,7 @@ export function ItemForm({
                   <select
                     value={l.field_type}
                     onChange={(e) => setLinkLabels((prev) => prev.map((x, j) => j === i ? { ...x, field_type: e.target.value as "text" | "link" } : x))}
-                    className="h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs shrink-0 cursor-pointer"
+                    className="w-auto shrink-0 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs cursor-pointer"
                   >
                     <option value="link">Link</option>
                     <option value="text">Text</option>

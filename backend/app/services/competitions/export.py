@@ -64,7 +64,9 @@ async def export_results_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> 
                     for link in links
                 )
             else:
-                link_text = item["submitted_url"] or ""
+                # A plain (non-multi) item can itself be a text field
+                # (2026-09-16) — same cell either way.
+                link_text = item["submitted_url"] or item.get("submitted_text") or ""
             submissions.append([
                 team.name, item["title"], item["item_type"], item["status"],
                 link_text,

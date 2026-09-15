@@ -705,7 +705,7 @@ function AssignmentItemRow({
   const isAwaiting = item.status === "awaiting_confirmation"
   const isPoster = item.mission_step_key === "poster"
   const hasActions = Boolean(
-    item.submitted_url || (item.submission_multi_link && item.submitted_links?.length) || canViewRun
+    item.submitted_url || item.submitted_text || (item.submission_multi_link && item.submitted_links?.length) || canViewRun
     || (isQuiz && (isDone || cohortId)) || isPoster,
   )
 
@@ -785,6 +785,16 @@ function AssignmentItemRow({
                 >
                   <ExternalLink size={13} /> {isPoster ? "View Poster" : "Submission"}
                 </a>
+              ) : item.submitted_text ? (
+                // A plain single-field submission's own type can be text
+                // (2026-09-16) — no link to open, so this is a static badge;
+                // the full answer is in the title tooltip.
+                <span
+                  title={item.submitted_text}
+                  className="h-8 px-3 rounded-lg border border-border/60 bg-muted/40 text-foreground text-xs font-bold flex items-center gap-1.5 shrink-0 max-w-[240px]"
+                >
+                  <span className="truncate">{item.submitted_text}</span>
+                </span>
               ) : isPoster ? (
                 <span className="h-8 px-2.5 rounded-lg border border-border/60 bg-muted/40 text-muted-foreground text-xs font-medium flex items-center gap-1.5 shrink-0">
                   No poster submitted yet

@@ -489,6 +489,13 @@ class LmsProgramChecklistItemOut(BaseModel):
     has_pdf: bool = False
     # What the student themself submitted back, for a `submission` item.
     submitted_url: str | None = None
+    # 2026-09-16 — the single-field submission's own type, and its answer
+    # when that type is "text". Only meaningful when submission_multi_link
+    # is False; defaults to "link" so every item authored before this
+    # existed (the only kind there was) reads exactly as it did — a link
+    # paste-back into submitted_url above.
+    submission_field_type: Literal["text", "link"] = "link"
+    submitted_text: str | None = None
     # 2026-09-14 — see LmsProgramItem.submission_multi_link's own comment.
     # `submitted_links` is only ever populated when `submission_multi_link`
     # is true; `submitted_url` above still mirrors its first link either way.
@@ -577,9 +584,13 @@ class LmsProgramTeamNameIn(BaseModel):
 
 
 class LmsProgramItemSubmitIn(BaseModel):
-    # Single-link items (the default) send `url`; a `submission_multi_link`
-    # item sends `links` instead — routers/lms/student.py::submit_program_item
-    # picks which is required off the item's own flag rather than here, so
-    # the 400 reads as "this item needs N links" instead of a bare 422.
+    # Single-link items (the default) send `url`; a single *text*-type item
+    # (2026-09-16, item.submission_field_type == "text") sends `text`
+    # instead; a `submission_multi_link` item sends `links` instead of
+    # either — routers/lms/student.py::submit_program_item picks which is
+    # required off the item's own fields rather than here, so the 400 reads
+    # as "submit a link"/"submit an answer"/"this item needs N fields"
+    # instead of a bare 422.
     url: str | None = None
+    text: str | None = Field(default=None, max_length=4000)
     links: list[LmsSubmissionLink] | None = None

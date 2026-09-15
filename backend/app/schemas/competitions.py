@@ -6,6 +6,7 @@ per-judge scoring, the leaderboard, and judge-roster management. See
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -150,6 +151,9 @@ class CompetitionSubmissionItemOut(BaseModel):
     item_type: str
     status: str
     submitted_url: str | None = None
+    # 2026-09-16 — see LmsProgramItem.submission_field_type's own comment.
+    submission_field_type: Literal["text", "link"] = "link"
+    submitted_text: str | None = None
     # 2026-09-14 — set (alongside submitted_url mirroring the first link)
     # only for a submission_multi_link item; the judge/ops team-detail view
     # renders these grouped under the one submission instead of a bare link.

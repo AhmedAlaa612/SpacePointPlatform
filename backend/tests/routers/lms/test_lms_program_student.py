@@ -508,6 +508,54 @@ async def test_checklist_read_carries_ops_labels_before_any_submission(db, clien
 
 
 @pytest.mark.asyncio
+async def test_single_field_submission_can_itself_be_text(db, client):
+    """submission_field_type (2026-09-16): a plain (non-multi) submission
+    item can be a text answer instead of a link — takes body.text, stored
+    in submitted_text, submitted_url left None. Symmetric with the
+    link-type default: submit an answer, missing it is a 400, and it
+    round-trips through both the submit response and the checklist read."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Design writeup", submission_field_type="text",
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    missing = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student), json={},
+    )
+    assert missing.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    # A stray `url` on a text-type item doesn't satisfy it either.
+    wrong_field = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"url": "https://example.com"},
+    )
+    assert wrong_field.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"text": "We built a CubeSat with a deployable solar array."},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "done"
+    assert body["submission_field_type"] == "text"
+    assert body["submitted_text"] == "We built a CubeSat with a deployable solar array."
+    assert body["submitted_url"] is None
+
+    detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    detail_item = next(i for i in detail.json()["items"] if i["id"] == str(item.id))
+    assert detail_item["submitted_text"] == "We built a CubeSat with a deployable solar array."
+    assert detail_item["submission_field_type"] == "text"
+
+
+@pytest.mark.asyncio
 async def test_single_link_item_ignores_submission_multi_link_off_by_default(db, client):
     """A plain (non-multi) submission item still takes a bare `url`, same
     as before this feature existed — submission_multi_link defaults False."""

@@ -5,7 +5,7 @@ import { isAxiosError } from "axios";
 import { Check, ExternalLink, Plus, Play, Trash2, X, type LucideIcon } from "lucide-react";
 import {
   completeChecklistItem, getChecklistItemGuidelineVideoUrlApi, getChecklistItemPdfUrlApi, setTeamNameChecklistItem,
-  submitChecklistItem, submitChecklistItemLinks,
+  submitChecklistItem, submitChecklistItemText, submitChecklistItemLinks,
   type LmsProgramChecklistItem, type SubmissionLink, type SubmissionLinkLabel,
 } from "@/api/lms";
 import { Button } from "@/components/ui/button";
@@ -97,6 +97,9 @@ interface DrawerBodyProps {
   submitUrl: string;
   setSubmitUrl: (url: string) => void;
   submitMutation: UseMutationResult<LmsProgramChecklistItem, Error, string>;
+  submitText: string;
+  setSubmitText: (text: string) => void;
+  submitTextMutation: UseMutationResult<LmsProgramChecklistItem, Error, string>;
   linksInput: SubmissionLink[];
   setLinksInput: (links: SubmissionLink[] | ((prev: SubmissionLink[]) => SubmissionLink[])) => void;
   submitLinksMutation: UseMutationResult<LmsProgramChecklistItem, Error, SubmissionLink[]>;
@@ -131,9 +134,14 @@ function DrawerBody({
   item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
   submissionReference, guidelineVideoUploaded, guidelineVideoInfo, isAutoTracked, isSubmission, isMultiLink, isTeamSetup, teamName,
   isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl, setSubmitUrl, submitMutation,
+  submitText, setSubmitText, submitTextMutation,
   linksInput, setLinksInput, submitLinksMutation,
   teamNameInput, setTeamNameInput, teamNameMutation, Icon, completeMutation,
 }: DrawerBodyProps) {
+  // A plain (non-multi) submission item can itself be a text field
+  // (2026-09-16) — isPoster is excluded on purpose, it's always
+  // item_type=="mission_run" and always link-only regardless of this flag.
+  const isTextSubmission = item.item_type === "submission" && !isMultiLink && item.submission_field_type === "text";
   return (
     <>
       <div className="flex items-center justify-between gap-2">
@@ -358,7 +366,7 @@ function DrawerBody({
         </div>
       )}
 
-      {isSubmission && !isMultiLink && item.submitted_url && (
+      {isSubmission && !isMultiLink && !isTextSubmission && item.submitted_url && (
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
           <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
           <a
@@ -376,11 +384,35 @@ function DrawerBody({
         </div>
       )}
 
+      {isTextSubmission && item.submitted_text && (
+        <div className="flex flex-col gap-1 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-1.5 font-medium text-foreground">
+            <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" /> Submitted
+            {item.updated_at &&
+              ` ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+            {item.updated_by_name && ` by ${item.updated_by_name}`}
+          </div>
+          <p className="whitespace-pre-wrap text-foreground pl-5">{item.submitted_text}</p>
+        </div>
+      )}
+
       {isSubmission && !isMultiLink && (
         pastDeadline ? (
           <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
             Deadline passed — no longer accepting submissions
           </p>
+        ) : isTextSubmission ? (
+          <div className="flex flex-col gap-2.5" onClick={(e) => e.stopPropagation()}>
+            {item.submission_prompt && <p className="text-sm text-muted-foreground">{item.submission_prompt}</p>}
+            <textarea
+              value={submitText || item.submitted_text || ""}
+              onChange={(e) => setSubmitText(e.target.value)}
+              placeholder="Type your answer…"
+              rows={5}
+              disabled={!canSubmit}
+              className="px-4 py-3 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50 resize-y"
+            />
+          </div>
         ) : (
           <div className="flex flex-col gap-2.5" onClick={(e) => e.stopPropagation()}>
             {item.submission_prompt ? (
@@ -496,7 +528,7 @@ function DrawerBody({
             {teamNameMutation.isPending ? "Saving…" : teamName ? "Update team name" : "Save team name"}
           </Button>
         )}
-        {isSubmission && !isMultiLink && !pastDeadline && (
+        {isSubmission && !isMultiLink && !isTextSubmission && !pastDeadline && (
           <Button
             disabled={!canSubmit || (!submitUrl && !item.submitted_url) || submitMutation.isPending}
             onClick={() => submitMutation.mutate(submitUrl || item.submitted_url || "")}
@@ -510,6 +542,19 @@ function DrawerBody({
                 : "Replace submission"
               : isPoster
               ? "Submit poster"
+              : "Submit for review"}
+          </Button>
+        )}
+        {isTextSubmission && !pastDeadline && (
+          <Button
+            disabled={!canSubmit || (!submitText.trim() && !item.submitted_text) || submitTextMutation.isPending}
+            onClick={() => submitTextMutation.mutate((submitText || item.submitted_text || "").trim())}
+            className="h-[52px] text-base"
+          >
+            {submitTextMutation.isPending
+              ? "Submitting…"
+              : item.submitted_text
+              ? "Replace submission"
               : "Submit for review"}
           </Button>
         )}
@@ -577,6 +622,10 @@ export function TaskDrawer({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [submitUrl, setSubmitUrl] = useState("");
+  // The plain single-text-field submission's own input (2026-09-16) —
+  // separate from submitUrl since a text answer and a link answer are
+  // mutually exclusive per item.submission_field_type, never both at once.
+  const [submitText, setSubmitText] = useState("");
   // Multi-link submission rows (2026-09-14, ops's per-item toggle) —
   // seeded from whatever's already submitted, one blank row for a fresh
   // item, resets per-item the same way every other drawer state does (via
@@ -662,6 +711,17 @@ export function TaskDrawer({
     },
     onError: (err) => {
       toast.error(errorDetail(err, "Failed to submit. Please check your link."));
+    },
+  });
+  const submitTextMutation = useMutation({
+    mutationFn: (text: string) => submitChecklistItemText(assignmentId, item!.id, text),
+    onSuccess: () => {
+      toast.success("Submission received!");
+      onChanged();
+      queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
+    },
+    onError: (err) => {
+      toast.error(errorDetail(err, "Failed to submit. Please try again."));
     },
   });
   const submitLinksMutation = useMutation({
@@ -775,7 +835,8 @@ export function TaskDrawer({
     item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
     submissionReference, guidelineVideoUploaded: !!item.guideline_video_uploaded, guidelineVideoInfo, isAutoTracked,
     isSubmission, isMultiLink, isTeamSetup, teamName, isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline,
-    submitUrl, setSubmitUrl, submitMutation, linksInput, setLinksInput, submitLinksMutation,
+    submitUrl, setSubmitUrl, submitMutation, submitText, setSubmitText, submitTextMutation,
+    linksInput, setLinksInput, submitLinksMutation,
     teamNameInput, setTeamNameInput, teamNameMutation, Icon, completeMutation,
   };
 

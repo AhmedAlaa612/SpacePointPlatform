@@ -72,6 +72,9 @@ export interface CompetitionSubmissionItem {
   item_type: string
   status: string
   submitted_url: string | null
+  // The plain (non-multi) submission's own type — link (default) or text.
+  submission_field_type: "text" | "link"
+  submitted_text: string | null
   // 2026-09-14 — set (alongside submitted_url mirroring the first link)
   // only for a submission_multi_link item; render these grouped under the
   // one submission instead of a bare link.

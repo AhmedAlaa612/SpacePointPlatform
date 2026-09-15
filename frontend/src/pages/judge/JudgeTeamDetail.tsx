@@ -155,12 +155,15 @@ export default function JudgeTeamDetail() {
                   <div>
                     <p className="text-sm font-medium text-foreground">{s.title}</p>
                     <p className="text-xs text-muted-foreground">
-                      {s.submitted_url && s.updated_at
+                      {(s.submitted_url || s.submitted_text) && s.updated_at
                         ? `Submitted ${formatSubmittedAt(s.updated_at)}${s.updated_by_name ? ` by ${s.updated_by_name}` : ""}`
                         : s.status.replace("_", " ")}
                     </p>
                   </div>
-                  {!s.submission_multi_link && (
+                  {/* A plain (non-multi) item can itself be a text field
+                      (2026-09-16) — rendered below the header, not as an
+                      "Open" button, so it's here only for the link case. */}
+                  {!s.submission_multi_link && s.submission_field_type !== "text" && (
                     s.submitted_url ? (
                       <a
                         href={ensureAbsoluteUrl(s.submitted_url)} target="_blank" rel="noreferrer"
@@ -173,6 +176,13 @@ export default function JudgeTeamDetail() {
                     )
                   )}
                 </div>
+                {!s.submission_multi_link && s.submission_field_type === "text" && (
+                  s.submitted_text ? (
+                    <p className="whitespace-pre-wrap text-sm text-foreground pl-1">{s.submitted_text}</p>
+                  ) : (
+                    <span className="text-xs text-muted-foreground pl-1">Not submitted</span>
+                  )
+                )}
                 {/* Multi-field submission (2026-09-14, text fields added
                     2026-09-16) — every labeled field grouped under the one
                     submission, instead of a single "Open" button for a bare
