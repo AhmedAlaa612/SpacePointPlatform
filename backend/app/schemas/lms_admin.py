@@ -19,13 +19,17 @@ ModuleItemKind = Literal["video", "text", "quiz", "flashcards", "attachment", "m
 
 
 class LmsProgramItemLinkLabel(BaseModel):
-    """One entry in ops's own fixed label set for a `submission_multi_link`
-    item (2026-09-14) — see `LmsProgramItem.submission_link_labels`'s own
-    comment. Deliberately a separate class from `schemas.lms.LmsSubmissionLinkLabel`
-    rather than a shared import, same posture as this module's own docstring
-    on staying decoupled from the student-facing schema file."""
+    """One entry in ops's own fixed field set for a `submission_multi_link`
+    item (2026-09-14, text fields added 2026-09-16) — see
+    `LmsProgramItem.submission_link_labels`'s own comment. Deliberately a
+    separate class from `schemas.lms.LmsSubmissionLinkLabel` rather than a
+    shared import, same posture as this module's own docstring on staying
+    decoupled from the student-facing schema file. `field_type` decides
+    whether the student sees a link input or a text area; defaults to
+    "link" so every field authored before this existed is unaffected."""
     label: str = Field(min_length=1, max_length=80)
     required: bool = False
+    field_type: Literal["text", "link"] = "link"
 
 
 class InstructorOptionOut(BaseModel):

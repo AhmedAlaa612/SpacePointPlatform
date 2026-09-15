@@ -51,12 +51,18 @@ async def export_results_workbook(db: AsyncSession, *, cohort_id: uuid.UUID) -> 
     for team in teams:
         for item in await team_submission_items(db, team_id=team.id):
             links = item.get("submitted_links")
-            # Multi-link items (2026-09-14) get every labeled link crammed
-            # into the one "Link" cell, one per line — a second Link2/Link3
-            # column would need to be as wide as the max links any item on
-            # this cohort ever has, which nothing here tracks up front.
+            # Multi-field items (2026-09-14, text fields added 2026-09-16)
+            # get every labeled field crammed into the one "Link" cell, one
+            # per line — a second Link2/Link3 column would need to be as
+            # wide as the max fields any item on this cohort ever has,
+            # which nothing here tracks up front. A text field's answer
+            # goes in the same cell as any link's, since it's still "what
+            # this team submitted" either way.
             if links:
-                link_text = "\n".join(f"{link['label']}: {link['url']}" if link.get("label") else link["url"] for link in links)
+                link_text = "\n".join(
+                    f"{link['label']}: {link['url'] or link['text']}" if link.get("label") else (link["url"] or link["text"])
+                    for link in links
+                )
             else:
                 link_text = item["submitted_url"] or ""
             submissions.append([

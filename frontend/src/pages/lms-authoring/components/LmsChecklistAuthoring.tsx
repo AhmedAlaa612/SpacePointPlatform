@@ -981,7 +981,7 @@ export function ItemForm({
         submission_prompt: itemType === "submission" ? (submissionPrompt.trim() || null) : null,
         submission_multi_link: itemType === "submission" ? submissionMultiLink : false,
         submission_link_labels: itemType === "submission" && submissionMultiLink && linkLabels.length > 0
-          ? linkLabels.map((l) => ({ label: l.label.trim(), required: l.required }))
+          ? linkLabels.map((l) => ({ label: l.label.trim(), required: l.required, field_type: l.field_type }))
           : null,
         deadline_at: (itemType === "submission" || itemType === "team_setup") && deadlineAt
           ? new Date(deadlineAt).toISOString() : null,
@@ -1120,13 +1120,14 @@ export function ItemForm({
               type="checkbox" checked={submissionMultiLink}
               onChange={(e) => setSubmissionMultiLink(e.target.checked)}
             />
-            Allow multiple links (e.g. Member 1 link, Member 2 link, Team link)
+            Allow multiple fields (e.g. Member 1 link, Team link, a text writeup)
           </label>
           {submissionMultiLink && (
             <div className="flex flex-col gap-1.5 pl-1 border-l-2 border-border/60 ml-1">
               <span className="text-[11px] text-muted-foreground">
-                Set the labels yourself, and tick "required" for any that must be filled in before the student can
-                submit. Leave this empty to let students type their own labels instead (the old behavior).
+                Set the fields yourself — each one a link or a text area — and tick "required" for any that must be
+                filled in before the student can submit. Leave this empty to let students type their own link labels
+                instead (the old behavior; text fields need at least one field set here).
               </span>
               {linkLabels.map((l, i) => (
                 <div key={i} className="flex items-center gap-2">
@@ -1136,6 +1137,14 @@ export function ItemForm({
                     placeholder="e.g. Member 1 link"
                     className={`${inputCls} flex-1`}
                   />
+                  <select
+                    value={l.field_type}
+                    onChange={(e) => setLinkLabels((prev) => prev.map((x, j) => j === i ? { ...x, field_type: e.target.value as "text" | "link" } : x))}
+                    className="h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs shrink-0 cursor-pointer"
+                  >
+                    <option value="link">Link</option>
+                    <option value="text">Text</option>
+                  </select>
                   <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none shrink-0">
                     <input
                       type="checkbox" checked={l.required}
@@ -1146,7 +1155,7 @@ export function ItemForm({
                   <button
                     type="button"
                     onClick={() => setLinkLabels((prev) => prev.filter((_, j) => j !== i))}
-                    aria-label="Remove label"
+                    aria-label="Remove field"
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:text-destructive transition-colors"
                   >
                     <X size={14} />
@@ -1155,10 +1164,10 @@ export function ItemForm({
               ))}
               <button
                 type="button"
-                onClick={() => setLinkLabels((prev) => [...prev, { label: "", required: false }])}
+                onClick={() => setLinkLabels((prev) => [...prev, { label: "", required: false, field_type: "link" }])}
                 className="self-start flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
               >
-                <Plus size={14} /> Add a label
+                <Plus size={14} /> Add a field
               </button>
             </div>
           )}

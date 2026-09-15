@@ -149,15 +149,19 @@ class LmsProgramItem(Base):
     # routers/lms/student.py::submit_program_item.
     submission_multi_link = Column(Boolean, nullable=False, default=False, server_default="false")
     # 2026-09-14: ops's own fixed label set for a submission_multi_link item
-    # — `[{"label": str, "required": bool}, ...]`, in the order ops entered
-    # them (e.g. "Member 1 link" required, "Member 2 link" required, "Team
-    # link" optional). NULL for a non-multi-link item, or for a multi-link
-    # item authored before this existed — that older shape (free-text,
-    # student-entered labels, none required) still works unchanged;
-    # routers/lms/student.py::submit_program_item and the frontend both
-    # fall back to it when this is empty. Once set, this is the one source
-    # of truth for which slots the student's form shows and which of them
-    # block submission — see that same function's required-label check.
+    # — `[{"label": str, "required": bool, "field_type": "link"|"text"},
+    # ...]`, in the order ops entered them (e.g. "Member 1 link" required,
+    # "Member 2 link" required, "Team link" optional, "Design writeup" as a
+    # required text field). `field_type` (2026-09-16, defaults to "link" for
+    # every row written before it existed) picks whether the student's form
+    # shows a link input or a text area for that slot. NULL for a
+    # non-multi-link item, or for a multi-link item authored before this
+    # existed — that older shape (free-text, student-entered labels, none
+    # required, link-only) still works unchanged; routers/lms/student.py::
+    # submit_program_item and the frontend both fall back to it when this
+    # is empty. Once set, this is the one source of truth for which slots
+    # the student's form shows and which of them block submission — see
+    # that same function's required-label check.
     submission_link_labels = Column(JSONB, nullable=True)
     # A `pdf` item's hosted file — same two-step shape as a module
     # `attachment` item (create the item, then a separate multipart upload
@@ -287,8 +291,11 @@ class LmsProgramItemProgress(Base):
     # sees *something* real rather than nothing.
     submitted_url = Column(String(512), nullable=True)
     # 2026-09-14: a `submission_multi_link` item's real answer — a list of
-    # `{"label": str | None, "url": str}`, ops-controlled per item (e.g.
-    # "Member 1 link", "Member 2 link", "Team link" all in one submission).
+    # `{"label": str | None, "url": str | None, "text": str | None}`,
+    # ops-controlled per item (e.g. "Member 1 link", "Member 2 link", "Team
+    # link", "Design writeup" all in one submission). Exactly one of
+    # url/text is ever set per entry, matching that label's own
+    # `field_type` (2026-09-16) on `LmsProgramItem.submission_link_labels`.
     # NULL for every non-multi-link item.
     submitted_links = Column(JSONB, nullable=True)
     # When submitted_url (or status) last changed. No updated_by column —

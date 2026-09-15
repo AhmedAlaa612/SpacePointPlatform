@@ -431,23 +431,34 @@ LmsProgramItemStatus = Literal["pending", "done", "awaiting_confirmation"]
 
 
 class LmsSubmissionLink(BaseModel):
-    """One link in a multi-link submission (2026-09-14, ops's own toggle —
-    see LmsProgramItem.submission_multi_link) — `label` is free text (e.g.
-    "Member 1 link", "Team link"), optional so a stray extra link doesn't
-    need one. Not validated as a real URL beyond non-empty, same posture
-    the single-link `submitted_url`/`LmsProgramItemSubmitIn.url` has
-    always had."""
+    """One entry in a multi-field submission (2026-09-14, ops's own toggle —
+    see LmsProgramItem.submission_multi_link; field_type added 2026-09-16).
+    `label` is free text (e.g. "Member 1 link", "Team link"), optional so a
+    stray extra entry doesn't need one. Exactly one of `url`/`text` is ever
+    populated, matching the field's own `field_type` — a link isn't
+    validated as a real URL beyond non-empty (same posture the single-link
+    `submitted_url`/`LmsProgramItemSubmitIn.url` has always had), and text
+    is free-form paragraph content, not a link. Both optional at the schema
+    level (routers/lms/student.py::submit_program_item enforces "at least
+    one of them, matching this label's configured type" — the schema can't
+    know which type a given label is on its own)."""
     label: str | None = Field(default=None, max_length=80)
-    url: str = Field(min_length=1, max_length=512)
+    url: str | None = Field(default=None, max_length=512)
+    text: str | None = Field(default=None, max_length=4000)
 
 
 class LmsSubmissionLinkLabel(BaseModel):
-    """One entry in ops's own fixed label set for a `submission_multi_link`
-    item (2026-09-14) — see `LmsProgramItem.submission_link_labels`'s own
-    comment. `required` is ops's per-label checkbox: a required label
-    blocks submission until it has a link, an optional one doesn't."""
+    """One entry in ops's own fixed field set for a `submission_multi_link`
+    item (2026-09-14, "link" originally; text fields added 2026-09-16) —
+    see `LmsProgramItem.submission_link_labels`'s own comment. `required`
+    is ops's per-field checkbox: a required field blocks submission until
+    it has an answer, an optional one doesn't. `field_type` decides whether
+    the student sees a single-line link input or a multi-line text area —
+    defaults to "link" so every field authored before this existed keeps
+    behaving exactly as it did."""
     label: str = Field(min_length=1, max_length=80)
     required: bool = False
+    field_type: Literal["text", "link"] = "link"
 
 
 class LmsProgramChecklistItemOut(BaseModel):

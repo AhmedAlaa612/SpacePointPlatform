@@ -692,10 +692,11 @@ async def submit_program_item(
     submitting overrides whatever was there before, on purpose.
 
     `submission_multi_link` items (2026-09-14, ops's own per-item toggle)
-    take `body.links` instead of `body.url` — several labeled links in one
-    submission (e.g. mem1/mem2/team link). `submitted_url` still gets set
-    to the first link either way, so anything only reading that column
-    (the poster path, older exports) keeps seeing something real."""
+    take `body.links` instead of `body.url` — several labeled fields in one
+    submission (e.g. mem1/mem2/team link, or a text writeup alongside a
+    link). `submitted_url` still gets set to the first *link*-type field's
+    value when there is one, so anything only reading that column (the
+    poster path, older exports) keeps seeing something real."""
     assignment, item, individual = await _own_progress_row(db, assignment_id=assignment_id, item_id=item_id, user=current)
     is_poster = item.item_type == "mission_run" and item.mission_step_key == "poster"
     if item.item_type != "submission" and not is_poster:
@@ -708,34 +709,66 @@ async def submit_program_item(
 
     is_multi = item.item_type == "submission" and item.submission_multi_link
     if is_multi:
-        links = [link for link in (body.links or []) if link.url.strip()]
-        if not links:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit at least one link")
         # 2026-09-14 — ops's own fixed label set (submission_link_labels):
         # once set, it's the one source of truth for which slots this
-        # item's form shows, so a link under any other label is rejected
+        # item's form shows, so an entry under any other label is rejected
         # (never silently dropped or silently accepted) and every required
-        # label needs a real link before this goes through. An older
+        # label needs a real answer before this goes through. An older
         # multi-link item authored before this existed (submission_link_labels
         # is None/empty) keeps taking free-text, student-entered labels,
-        # none of them required — completely unchanged.
+        # none of them required, link-only — completely unchanged.
         label_specs = item.submission_link_labels or []
         if label_specs:
+            # field_type (2026-09-16) — each label is either a link or a
+            # text field; a submitted entry's *value* lives in whichever of
+            # url/text matches its own label's type, never the other one
+            # (the schema can't enforce this itself since it doesn't know
+            # which label a given entry is for until now).
+            spec_by_label = {spec["label"]: spec for spec in label_specs}
+
+            def _value(link) -> str:
+                field_type = (spec_by_label.get(link.label) or {}).get("field_type", "link")
+                raw = link.text if field_type == "text" else link.url
+                return (raw or "").strip()
+
+            filled = [(link, _value(link)) for link in (body.links or [])]
+            filled = [(link, value) for link, value in filled if value]
+            if not filled:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Fill in at least one field")
+
             valid_labels = [spec["label"] for spec in label_specs]
             required_labels = [spec["label"] for spec in label_specs if spec.get("required")]
-            submitted_labels = {link.label for link in links}
+            submitted_labels = {link.label for link, _ in filled}
             unknown = sorted(submitted_labels - set(valid_labels))
             if unknown:
                 raise HTTPException(
-                    status.HTTP_400_BAD_REQUEST, detail=f"Unrecognized link label(s): {', '.join(unknown)}",
+                    status.HTTP_400_BAD_REQUEST, detail=f"Unrecognized field label(s): {', '.join(unknown)}",
                 )
             missing = [label for label in required_labels if label not in submitted_labels]
             if missing:
                 raise HTTPException(
-                    status.HTTP_400_BAD_REQUEST, detail=f"Missing required link(s): {', '.join(missing)}",
+                    status.HTTP_400_BAD_REQUEST, detail=f"Missing required field(s): {', '.join(missing)}",
                 )
-        target.submitted_links = [link.model_dump() for link in links]
-        target.submitted_url = links[0].url
+
+            entries = []
+            for link, value in filled:
+                field_type = spec_by_label[link.label].get("field_type", "link")
+                entries.append({
+                    "label": link.label,
+                    "url": value if field_type == "link" else None,
+                    "text": value if field_type == "text" else None,
+                })
+            target.submitted_links = entries
+            # First *link*-type answer, not just the first entry — an
+            # all-text item genuinely has no link to mirror here, so this
+            # stays None rather than pointing at prose that isn't a URL.
+            target.submitted_url = next((e["url"] for e in entries if e["url"]), None)
+        else:
+            links = [link for link in (body.links or []) if (link.url or "").strip()]
+            if not links:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Submit at least one link")
+            target.submitted_links = [{"label": link.label, "url": link.url, "text": None} for link in links]
+            target.submitted_url = links[0].url
         # The poster-attempt block below is unreachable here — is_multi
         # requires item_type=="submission", is_poster requires
         # item_type=="mission_run"; mutually exclusive by construction.
