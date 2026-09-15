@@ -39,7 +39,7 @@ class Registration(Base):
     # registered" notice — see ops_integration.py::send_registration_onboarding_email)
     # last went out for this registration. Same shape as ticket_sent_at.
     onboarding_sent_at = Column(DateTime(timezone=True), nullable=True)
-    registered_via = Column(String(16), nullable=False)  # form|import|desk
+    registered_via = Column(String(16), nullable=False)  # form|import|desk|invite_code
     import_batch_id = Column(UUID(as_uuid=True), ForeignKey("import_batches.id", ondelete="SET NULL"), nullable=True)
 
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

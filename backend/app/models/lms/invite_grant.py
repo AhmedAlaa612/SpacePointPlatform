@@ -12,16 +12,24 @@ A "program" grant doesn't reference `LmsProgram` directly — an LmsProgram
 is never assigned on its own (`assign_lms_program` always resolves it
 *from* a cohort, since a cohort's own override can reshape the checklist —
 see `services/lms/program.py::resolve_cohort_program`). So `cohort_id`
-here is the one field a program grant actually needs; which program that
-cashes out to is whatever that cohort currently resolves to, same as a
-student registering into it normally.
+here is the one field a program grant actually needs.
+
+Unlike a course/path grant (which only ever touches `Enrollment`), a
+program grant is the *full* cohort-registration experience — a real
+`Registration` row (roster, attendance-eligible, the onboarding email),
+not just the checklist — see `services/lms/invite_grants.py::
+_register_into_cohort`, which reuses the same `register()` ->
+`sync_registration_lms()` chain a human desk-registering someone goes
+through. `payment_status` is always "waived", same "free, no Stripe
+checkout" posture as a course/path grant.
 
 Applies to both new signups (`routers/auth.py::student_signup`, right where
 `invitation.used_count` is bumped) and retroactively to everyone who already
 used the code (`services/lms/invite_grants.py::grant_invite_code_access`,
 called the moment ops attaches the grant). Removing a grant only stops it
-applying going forward — it does not revoke enrollments already made,
-mirroring how deleting a `LearningPath` never touches its students' access.
+applying going forward — it does not revoke enrollments/registrations
+already made, mirroring how deleting a `LearningPath` never touches its
+students' access.
 """
 
 import uuid

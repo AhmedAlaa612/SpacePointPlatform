@@ -17,6 +17,8 @@ from app.models.lms.learning_path import LearningPath, LearningPathStep
 from app.models.lms.program import LmsProgram, LmsProgramAssignment, LmsProgramItem
 from app.models.sessions.cohort import Cohort
 from app.models.sessions.program import Program
+from app.models.sessions.registration import Registration
+from app.models.spine.contact import Contact
 from app.models.user import User
 
 
@@ -34,6 +36,23 @@ async def _student(db, *, name="Student", code=None) -> User:
     user = User(
         id=uuid.uuid4(), full_name=name, email=f"{name.lower()}-{uuid.uuid4().hex[:6]}@example.com",
         password_hash="x", roles=["student"], status="active", invitation_code_used=code,
+    )
+    db.add(user)
+    await db.flush()
+    return user
+
+
+async def _student_with_contact(db, *, name="Student", code=None) -> User:
+    """A "program" grant needs a real Registration, which needs a
+    contact_id — same shape a real student_signup account always has
+    (resolve_or_create_contact runs first), unlike the bare _student()
+    helper above every other grant test uses."""
+    contact = Contact(id=uuid.uuid4(), full_name=name, email=f"{name.lower()}-{uuid.uuid4().hex[:6]}@example.com")
+    db.add(contact)
+    await db.flush()
+    user = User(
+        id=uuid.uuid4(), full_name=name, email=f"{name.lower()}-{uuid.uuid4().hex[:6]}@example.com",
+        password_hash="x", roles=["student"], status="active", invitation_code_used=code, contact_id=contact.id,
     )
     db.add(user)
     await db.flush()
@@ -155,17 +174,19 @@ async def test_creating_a_path_grant_enrols_every_step_course(db, client):
 
 
 @pytest.mark.asyncio
-async def test_creating_a_program_grant_assigns_existing_code_holders_immediately(db, client):
+async def test_creating_a_program_grant_registers_existing_code_holders_immediately(db, client):
     """2026-09-15 — a "program" grant stores cohort_id (an LmsProgram is
-    never assigned standalone, only resolved from a cohort), and applies
-    via assign_lms_program the same way registering into that cohort
-    would: an LmsProgramAssignment row, plus every course item enrolled."""
+    never assigned standalone, only resolved from a cohort) and is the
+    *full* registration experience, not just the checklist: a real
+    Registration row (register() -> sync_registration_lms(), same chain a
+    human desk-registering someone goes through), which in turn produces
+    the LmsProgramAssignment and enrolls every course item."""
     ops = await _ops(db)
     code = await _code(db)
     author = await _ops(db)
     cohort, lms_program = await _cohort_with_program(db, author=author)
-    old_holder = await _student(db, name="Old", code=code.code)
-    unrelated = await _student(db, name="Unrelated", code="OTHERCODE")
+    old_holder = await _student_with_contact(db, name="Old", code=code.code)
+    unrelated = await _student_with_contact(db, name="Unrelated", code="OTHERCODE")
     await db.commit()
 
     resp = await client.post(
@@ -178,6 +199,14 @@ async def test_creating_a_program_grant_assigns_existing_code_holders_immediatel
     assert body["grant"]["cohort_name"] == cohort.name
     assert body["grant"]["lms_program_name"] == lms_program.name
 
+    registration = (await db.execute(
+        select(Registration).where(Registration.contact_id == old_holder.contact_id, Registration.cohort_id == cohort.id)
+    )).scalars().first()
+    assert registration is not None
+    assert registration.status == "registered"
+    assert registration.registered_via == "invite_code"
+    assert registration.payment_status == "waived"
+
     assignment = (await db.execute(
         select(LmsProgramAssignment).where(
             LmsProgramAssignment.user_id == old_holder.id, LmsProgramAssignment.cohort_id == cohort.id,
@@ -185,11 +214,16 @@ async def test_creating_a_program_grant_assigns_existing_code_holders_immediatel
     )).scalars().first()
     assert assignment is not None
     assert assignment.lms_program_id == lms_program.id
+    assert assignment.registration_id == registration.id
 
     untouched = (await db.execute(
-        select(LmsProgramAssignment).where(LmsProgramAssignment.user_id == unrelated.id)
+        select(Registration).where(Registration.contact_id == unrelated.contact_id)
     )).scalars().first()
     assert untouched is None
+    untouched_assignment = (await db.execute(
+        select(LmsProgramAssignment).where(LmsProgramAssignment.user_id == unrelated.id)
+    )).scalars().first()
+    assert untouched_assignment is None
 
 
 @pytest.mark.asyncio
@@ -343,6 +377,12 @@ async def test_new_signup_on_a_program_granted_code_is_assigned(db, client):
     assert resp.status_code == http_status.HTTP_201_CREATED, resp.text
 
     user = (await db.execute(select(User).where(User.email == "programsignup@example.com"))).scalars().first()
+    registration = (await db.execute(
+        select(Registration).where(Registration.contact_id == user.contact_id, Registration.cohort_id == cohort.id)
+    )).scalars().first()
+    assert registration is not None
+    assert registration.registered_via == "invite_code"
+
     assignment = (await db.execute(
         select(LmsProgramAssignment).where(
             LmsProgramAssignment.user_id == user.id, LmsProgramAssignment.cohort_id == cohort.id,

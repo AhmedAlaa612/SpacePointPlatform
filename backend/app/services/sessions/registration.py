@@ -44,8 +44,10 @@ ACTIVE_REGISTRATION_STATUSES = ("registered", "attended", "completed")
 
 # registered_via -> touchpoint channel. 'form' is the public web form; 'import'
 # is a bulk sheet upload (no human channel, hence 'system'); 'desk' is an ops
-# staff member registering someone in person/by phone.
-_CHANNEL_BY_REGISTERED_VIA = {"form": "web", "import": "system", "desk": "offline"}
+# staff member registering someone in person/by phone; 'invite_code' (2026-09-15)
+# is an ops-attached InvitationCodeGrant firing automatically, also no human
+# channel on this end.
+_CHANNEL_BY_REGISTERED_VIA = {"form": "web", "import": "system", "desk": "offline", "invite_code": "system"}
 
 
 async def resolve_registration_price(
@@ -70,7 +72,7 @@ async def register(
     *,
     contact_id: UUID,
     cohort_id: UUID,
-    registered_via: Literal["form", "import", "desk"],
+    registered_via: Literal["form", "import", "desk", "invite_code"],
     payer_contact_id: UUID | None = None,
     price_charged: float | None = None,
     source_touchpoint_id: UUID | None = None,
