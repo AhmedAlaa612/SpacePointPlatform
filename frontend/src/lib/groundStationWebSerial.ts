@@ -25,6 +25,10 @@ export function isWebSerialSupported(): boolean {
   return "serial" in navigator;
 }
 
+export function isWebSerialConnected(): boolean {
+  return serialPort !== null;
+}
+
 export async function connectWebSerial(callbacks: SerialCallbacks): Promise<boolean> {
   if (!isWebSerialSupported()) {
     throw new Error("Web Serial API is not supported in this browser. Please use Chrome or Edge.");

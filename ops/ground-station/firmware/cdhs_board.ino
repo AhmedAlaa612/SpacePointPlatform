@@ -11,6 +11,17 @@
  * (temp + voltage required; roll/pitch/yaw optional, triggers the ADCS
  * dispatch when yaw is present). No wrapper prefix needed — bare JSON.
  *
+ * Also listens for commands the Command Console queues (Web Serial writes
+ * them down the same open port as `CMD <NAME>\n`, see writeSerialCommand
+ * in groundStationWebSerial.ts — same wire shape the on-site agent uses).
+ * PING/GET_STATUS/FAKE do something real on this board; SPIN_CW/SPIN_CCW/
+ * STOP (reaction wheels) and TAKE_PICTURE (camera) aren't hardware this
+ * board has — they're ADCS-board and camera-rig commands respectively —
+ * so this just says so over Serial rather than silently no-op'ing. Either
+ * way the ack the browser sends back just reflects "the write succeeded",
+ * same fire-and-forget model as ops/ground-station/agent/agent.py's
+ * ack_command — nobody here waits for or parses a response line.
+ *
  * Libraries (Arduino Library Manager):
  *   - Adafruit INA219
  *   - Adafruit MPU6050 + Adafruit Unified Sensor
@@ -30,6 +41,8 @@ Adafruit_MPU6050 mpu;
 float roll = 0, pitch = 0, yaw = 0;
 unsigned long lastSample = 0;
 unsigned long lastTime = 0;
+bool fakeMode = false;
+String cmdBuffer;
 
 float readTmp102() {
   Wire.beginTransmission(TMP102_ADDR);
@@ -61,29 +74,80 @@ void setup() {
   lastTime = millis();
 }
 
+void handleCommand(String cmd) {
+  cmd.trim();
+  int space = cmd.indexOf(' ');
+  String name = (space < 0) ? cmd : cmd.substring(0, space);
+  name.toUpperCase();
+
+  if (name == "PING") {
+    Serial.println("[CDHS] PONG");
+  } else if (name == "GET_STATUS") {
+    lastSample = 0; // forces the next loop() iteration to send immediately
+  } else if (name == "FAKE") {
+    fakeMode = !fakeMode;
+    Serial.println(fakeMode ? "[CDHS] simulated-data mode ON" : "[CDHS] simulated-data mode OFF");
+  } else if (name == "SPIN_CW" || name == "SPIN_CCW" || name == "STOP") {
+    Serial.println("[CDHS] " + name + " ignored — reaction wheels live on the ADCS board, not this one");
+  } else if (name == "TAKE_PICTURE") {
+    Serial.println("[CDHS] TAKE_PICTURE ignored — no camera on this rig");
+  } else {
+    Serial.println("[CDHS] unknown command: " + name);
+  }
+}
+
+void pollCommands() {
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n') {
+      cmdBuffer.trim();
+      if (cmdBuffer.startsWith("CMD ")) {
+        handleCommand(cmdBuffer.substring(4));
+      }
+      cmdBuffer = "";
+    } else if (c != '\r') {
+      cmdBuffer += c;
+    }
+  }
+}
+
 void loop() {
+  pollCommands();
+
   unsigned long now = millis();
   if (now - lastSample < 1000) return;
   lastSample = now;
 
-  float temp = readTmp102();
-  float voltage = ina219.getBusVoltage_V();
-  float current = ina219.getCurrent_mA() / 1000.0f; // -> A
-  float power = voltage * current;
-
+  float temp, voltage, current, power;
   sensors_event_t accel, gyro, mpuTemp;
-  mpu.getEvent(&accel, &gyro, &mpuTemp);
   float dt = (now - lastTime) / 1000.0f;
   lastTime = now;
 
-  float accRoll  =  atan2(accel.acceleration.y, accel.acceleration.z) * 180.0 / PI;
-  float accPitch = -atan2(accel.acceleration.x, accel.acceleration.z) * 180.0 / PI;
-  float alpha = 0.96f;
-  roll  = alpha * (roll  + gyro.gyro.x * dt * 180.0 / PI) + (1 - alpha) * accRoll;
-  pitch = alpha * (pitch + gyro.gyro.y * dt * 180.0 / PI) + (1 - alpha) * accPitch;
-  yaw += gyro.gyro.z * dt * 180.0 / PI;
-  if (yaw > 180) yaw -= 360;
-  if (yaw < -180) yaw += 360;
+  if (fakeMode) {
+    float t = now / 1000.0;
+    temp = 25.0 + 5.0 * sin(t * 0.1);
+    voltage = 3.7 + 0.3 * sin(t * 0.05);
+    current = 0.4 + 0.1 * sin(t * 0.2);
+    power = voltage * current;
+    roll = 10.0 * sin(t * 0.3);
+    pitch = 8.0 * cos(t * 0.25);
+    yaw = fmod(t * 5.0, 360.0);
+  } else {
+    temp = readTmp102();
+    voltage = ina219.getBusVoltage_V();
+    current = ina219.getCurrent_mA() / 1000.0f; // -> A
+    power = voltage * current;
+
+    mpu.getEvent(&accel, &gyro, &mpuTemp);
+    float accRoll  =  atan2(accel.acceleration.y, accel.acceleration.z) * 180.0 / PI;
+    float accPitch = -atan2(accel.acceleration.x, accel.acceleration.z) * 180.0 / PI;
+    float alpha = 0.96f;
+    roll  = alpha * (roll  + gyro.gyro.x * dt * 180.0 / PI) + (1 - alpha) * accRoll;
+    pitch = alpha * (pitch + gyro.gyro.y * dt * 180.0 / PI) + (1 - alpha) * accPitch;
+    yaw += gyro.gyro.z * dt * 180.0 / PI;
+    if (yaw > 180) yaw -= 360;
+    if (yaw < -180) yaw += 360;
+  }
 
   Serial.print("{\"temp\":");
   Serial.print(temp, 2);

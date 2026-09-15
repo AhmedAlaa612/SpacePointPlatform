@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { listPhotos, type GroundStationDevice, type GroundStationPhoto } from "@/api/groundStation";
+import { ackCommand, listPhotos, type GroundStationDevice, type GroundStationPhoto } from "@/api/groundStation";
 import { useGroundStationSocket, type GroundStationMessage } from "@/hooks/useGroundStationSocket";
 import AttitudeCube from "@/components/ground-station/AttitudeCube";
 import CommandConsole from "@/components/ground-station/CommandConsole";
@@ -16,6 +16,7 @@ import HistoryPanel from "@/components/ground-station/HistoryPanel";
 import AlertsPanel from "@/components/ground-station/AlertsPanel";
 import EarthGlobe from "@/components/ground-station/EarthGlobe";
 import WebSerialConnect from "@/components/ground-station/WebSerialConnect";
+import { isWebSerialConnected, writeSerialCommand } from "@/lib/groundStationWebSerial";
 import { buildGroundStationReport } from "@/lib/pdf";
 
 const MAX_TREND_POINTS = 240;
@@ -79,6 +80,15 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
         const out = [...h, next];
         return out.length > MAX_TREND_POINTS ? out.slice(out.length - MAX_TREND_POINTS) : out;
       });
+    } else if (msg.type === "command_queued") {
+      // Best-effort forwarding: whichever open tab actually has Web Serial
+      // connected to the rig relays the command down the wire and acks it
+      // — same fire-and-forget model as the on-site agent's ack_command.
+      // A no-op for every other viewer (isWebSerialConnected() is false).
+      if (isWebSerialConnected()) {
+        const line = msg.payload.arg ? `${msg.payload.name} ${msg.payload.arg}` : msg.payload.name;
+        void writeSerialCommand(line).then((ok) => void ackCommand(deviceId, msg.payload.id, ok));
+      }
     } else if (msg.type === "command_ack") {
       setAcks((a) => [...a, {
         commandId: msg.payload.command_id, name: msg.payload.command_id.slice(0, 8),

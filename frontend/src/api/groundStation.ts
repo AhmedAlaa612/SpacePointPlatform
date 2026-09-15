@@ -117,6 +117,15 @@ export async function sendCommand(deviceId: string, name: string, arg?: string):
   return data;
 }
 
+/** Ack a command this browser tab forwarded to the rig over its own open
+ * Web Serial connection — the no-auth ingest counterpart to what the
+ * on-site agent's ack_command() does after writing to a real serial port.
+ * Fire-and-forget by design: `ok` just means the write succeeded, not that
+ * the firmware executed it (see cdhs_board.ino's comment on this). */
+export async function ackCommand(deviceId: string, commandId: string, ok: boolean, detail?: string): Promise<void> {
+  await api.post(`/ground-station/devices/${deviceId}/commands/${commandId}/ack`, { ok, detail: detail ?? "" });
+}
+
 export async function listPhotos(deviceId: string): Promise<GroundStationPhoto[]> {
   const { data } = await api.get<GroundStationPhoto[]>(`/ground-station/devices/${deviceId}/photos`);
   return data;
