@@ -174,7 +174,22 @@ async def search_cohort_assignable_students(
                 stmt = stmt.where(User.invitation_code_used.is_(None))
             else:
                 stmt = stmt.where(User.invitation_code_used == invite_code.strip().upper())
-        users = (await db.execute(stmt.order_by(User.full_name).limit(50))).scalars().all()
+        stmt = stmt.order_by(User.full_name)
+        # The 50-row cap only makes sense for a genuinely open-ended name/email
+        # search across the whole platform's students — the same reasoning
+        # search_students already documents (and the same cap it uses). A
+        # specific batch is naturally bounded, same as a cohort roster
+        # (_registered_cohort_users above is fully uncapped for that exact
+        # reason) — capping it too was silently truncating to an
+        # alphabetically-first slice of the *entire platform* before this
+        # batch's own members were even filtered in, so "All batches" could
+        # show fewer relevant people than picking one specific batch (2026-09-15,
+        # found live). Not a bigger cap — no cap, same as the registered-only
+        # path already gets, rather than trading one silent truncation point
+        # for a higher one.
+        if not invite_code:
+            stmt = stmt.limit(50)
+        users = (await db.execute(stmt)).scalars().all()
 
         contact_ids = [u.contact_id for u in users if u.contact_id]
         registered_contact_ids = set((await db.execute(

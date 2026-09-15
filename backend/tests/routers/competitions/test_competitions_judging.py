@@ -1275,6 +1275,38 @@ async def test_assignable_students_honors_invite_code_filter(db, client):
 
 
 @pytest.mark.asyncio
+async def test_assignable_students_a_large_batch_is_not_truncated_by_the_open_search_cap(db, client):
+    """Found live (2026-09-15): with "Registered to this cohort" off, the
+    platform-wide branch capped every query at 50 rows — including one
+    already narrowed to a single invite-code batch, which is bounded on its
+    own the same way a cohort roster is (_registered_cohort_users is fully
+    uncapped for that same reason). A batch bigger than the cap silently lost
+    members, and "All batches" (no invite_code — genuinely unbounded) could
+    end up showing *fewer* relevant people than one specific batch, since the
+    unfiltered query burned its cap on unrelated platform students while a
+    batch mostly didn't. This pins "a batch over the old 50-row cap comes
+    back whole" so the cap regresses loudly if it comes back."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    batch_students = [
+        await _self_registered_student(db, full_name=f"Batch Student {i:03d}") for i in range(55)
+    ]
+    for s in batch_students:
+        s.invitation_code_used = "BIGBATCH"
+    await db.commit()
+
+    resp = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"invite_code": "BIGBATCH", "registered_only": "false"},
+        headers=_headers(ops),
+    )
+    assert resp.status_code == 200, resp.text
+    ids = {r["id"] for r in resp.json()}
+    assert len(ids) == 55
+    assert {str(s.id) for s in batch_students} <= ids
+
+
+@pytest.mark.asyncio
 async def test_assign_students_registers_and_teams_up_self_registered_students(db, client):
     ops = await _ops(db)
     _program, cohort = await _program_and_cohort(db)
