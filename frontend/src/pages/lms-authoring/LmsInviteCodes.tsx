@@ -261,7 +261,7 @@ function GrantsPanel({ code }: { code: InviteCode }) {
         <select
           value={pickerType}
           onChange={(e) => { setPickerType(e.target.value as "course" | "path" | "program"); setPickerId("") }}
-          className="h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          className="w-auto shrink-0 h-9 px-2 border border-border bg-card text-foreground rounded-lg text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
         >
           <option value="course">Course</option>
           <option value="path">Path</option>
