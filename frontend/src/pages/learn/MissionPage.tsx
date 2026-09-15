@@ -96,6 +96,12 @@ export default function MissionPage() {
     if (mission.kind === "operate" && !decided) {
       navigate({ to: "/learn/missions/operate/$attemptId", params: { attemptId: activeAttempt.id }, replace: true });
     }
+    // Ground Station is a live console too, not a single-attempt form —
+    // same "own route, keyed on the attempt" treatment as operate. Unlike
+    // operate it's never "decided" (no scoring), so no decided-guard here.
+    if (mission.kind === "ground_station") {
+      navigate({ to: "/learn/missions/ground-station/$attemptId", params: { attemptId: activeAttempt.id }, replace: true });
+    }
   }, [mission, activeAttempt, decided, navigate]);
 
   const handleStart = async () => {

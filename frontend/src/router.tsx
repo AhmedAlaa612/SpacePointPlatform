@@ -116,6 +116,7 @@ import InventoryWarehouses from "@/pages/operations/inventory/Warehouses";
 import InventoryCatalog from "@/pages/operations/inventory/Catalog";
 import InventoryFulfilment from "@/pages/operations/inventory/Fulfilment";
 import DeliverySettings from "@/pages/operations/DeliverySettings";
+import GroundStationDevices from "@/pages/operations/GroundStationDevices";
 
 // Unified apply flow
 import ApplyFlow from "@/pages/apply/ApplyFlow";
@@ -156,6 +157,7 @@ import DesignMissionPage from "@/pages/learn/DesignMissionPage";
 import OperateMissionPage from "@/pages/learn/OperateMissionPage";
 import OperateBriefingPage from "@/pages/learn/OperateBriefingPage";
 import DesignBriefingPage from "@/pages/learn/DesignBriefingPage";
+import GroundStationAttemptPage from "@/pages/learn/GroundStationAttemptPage";
 
 // LMS authoring surface (LM1-13) — shared by operations + facilitator
 // (backend's require_lms_content), own top-level path so one URL space works
@@ -744,6 +746,7 @@ const operationsRoutes = [
   createRoute({ getParentRoute: po, path: "/inventory/catalog", component: InventoryCatalog }),
   createRoute({ getParentRoute: po, path: "/inventory/fulfilment", component: InventoryFulfilment }),
   createRoute({ getParentRoute: po, path: "/delivery-settings", component: DeliverySettings }),
+  createRoute({ getParentRoute: po, path: "/ground-station-devices", component: GroundStationDevices }),
 ];
 
 // Judge surface (Competition domain, 2026-08-24) — a temporary, cohort-scoped
@@ -1124,6 +1127,16 @@ const learnOperateBriefingRoute = createRoute({
   }),
 });
 
+// Ground Station (2026-09-14 rework) — now a real mission (solo or team,
+// no scoring), same "own route, keyed on the attempt" shape as Operate.
+// Reachable only by starting the mission from the catalog — no bare
+// /learn/ground-station route anymore, since a rig belongs to one attempt.
+const learnGroundStationAttemptRoute = createRoute({
+  getParentRoute: () => learnLayoutRoute,
+  path: "/missions/ground-station/$attemptId",
+  component: GroundStationAttemptPage,
+});
+
 const learnProgramRoute = createRoute({
   getParentRoute: () => learnLayoutRoute,
   path: "/programs/$cohortId",
@@ -1167,7 +1180,7 @@ const routeTree = rootRoute.addChildren([
     learnProfileRoute, learnProgramRoute, learnLeaderboardRoute,
     learnGamesRoute, learnGamePlayRoute,
     learnMissionsRoute, learnDesignBriefingRoute, learnDesignMissionRoute, learnOperateBriefingRoute,
-    learnOperateMissionRoute, learnMissionRoute,
+    learnOperateMissionRoute, learnMissionRoute, learnGroundStationAttemptRoute,
   ]),
   applyAmbassadorRoute,
   applyAmbassadorCodeRoute,

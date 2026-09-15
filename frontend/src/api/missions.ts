@@ -18,7 +18,7 @@ export interface MissionCatalogItem {
   title: string;
   slug: string;
   summary: string | null;
-  kind: "design" | "submission" | "quiz" | "checklist" | "operate" | "external";
+  kind: "design" | "submission" | "quiz" | "checklist" | "operate" | "external" | "ground_station";
   track: string | null;
   image_url: string | null;
   variants: MissionVariantSummary[];
