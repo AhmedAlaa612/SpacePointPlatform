@@ -7,9 +7,7 @@
  * out into its own bordered sub-panel with CCW/STOP/CW laid out
  * left-to-right the way the physical controls read — but styled in the
  * platform's own purple (`--primary`), not a legacy-style multi-color
- * scheme. No camera button: the CDHS kit (see
- * ops/ground-station/firmware/cdhs_board.ino) has no camera, so
- * TAKE_PICTURE has nothing to do on the rig students actually build. */
+ * scheme. */
 import { useState } from "react";
 import { sendCommand } from "@/api/groundStation";
 
@@ -76,10 +74,11 @@ export default function CommandConsole({ deviceId, acks }: Props) {
       <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "rgba(215,210,203,0.75)" }}>
         Status &amp; sim
       </div>
-      <div className="grid grid-cols-3 gap-2 mb-4">
+      <div className="grid grid-cols-2 gap-2 mb-4">
         <Btn name="PING" pending={pending} onFire={(n) => void fire(n)} className="py-2.5">Ping</Btn>
         <Btn name="GET_STATUS" pending={pending} onFire={(n) => void fire(n)} className="py-2.5">Get status</Btn>
         <Btn name="FAKE" pending={pending} onFire={(n) => void fire(n)} className="py-2.5">Toggle sim</Btn>
+        <Btn name="TAKE_PICTURE" pending={pending} onFire={(n) => void fire(n)} className="py-2.5">Take a picture</Btn>
       </div>
 
       <div
