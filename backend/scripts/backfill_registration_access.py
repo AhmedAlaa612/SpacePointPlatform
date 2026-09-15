@@ -24,26 +24,37 @@ It never creates a new User and never sends any email (`assign_lms_program`
 itself sends none) — this only closes the checklist-access gap on an
 account that already exists.
 
-It also *reports* (read-only, never writes) two related anomalies:
+It also *reports* (read-only, never writes, unless --cancel-duplicates is
+given — see below) two related anomalies:
   - "registered but not on any team", in cohorts that have teams at all —
     should be near zero, since the importer's fallback path above already
     handles team join even when the LMS-access call above got skipped; a
     non-zero count here is a different bug, not this gap.
   - duplicate-registration groups: more than one Registration in the same
     cohort for contacts sharing a normalized email — pre-existing
-    duplicates from before registration_import.py's own email-dedup fix.
-    Deciding which one to keep (a ticket already sent on more than one? a
-    different session subset picked?) is a human call this script
-    deliberately does not make.
+    duplicates from before registration_import.py's own email-dedup fix
+    (observed in production, 2026-09-15: the same roster sheet imported
+    three times ~25-30 minutes apart, each run minting fresh Contact rows
+    instead of matching the ones from the run before — timestamps too far
+    apart to be a race, an ops/UI issue instead).
+
+--cancel-duplicates (opt-in, off by default even without --dry-run): for
+each duplicate group, marks every Registration except the earliest
+`status="cancelled"`, keeping the row for audit history rather than
+deleting it. Safe with respect to LMS access and team membership — both
+are keyed off User, not Registration, so nothing about either changes.
 
 USAGE
-    python -m scripts.backfill_registration_access [--dry-run] [--cohort-id UUID]
+    python -m scripts.backfill_registration_access [--dry-run] [--cohort-id UUID] [--cancel-duplicates]
 
 IDEMPOTENCY
     Only ever writes an LmsProgramAssignment for a (user, cohort) pair that
     doesn't have one yet — a pair fixed by an earlier run (or by the live
     app) is never revisited, same UNIQUE(user_id, cohort_id) idempotency
-    `assign_lms_program` itself already guarantees. Safe to run more than
+    `assign_lms_program` itself already guarantees. --cancel-duplicates is
+    likewise idempotent: a group with only one non-cancelled Registration
+    left (from an earlier run of this flag) is no longer a "duplicate
+    group" at all, so a second run leaves it alone. Safe to run more than
     once, and safe to run while the app is live.
 """
 
@@ -168,12 +179,12 @@ async def report_team_gaps(
     return gaps
 
 
-async def report_duplicate_registrations(
+async def _group_duplicate_registrations(
     db: AsyncSession, *, cohort_id: uuid.UUID | None = None,
-) -> list[dict]:
-    """Read-only. More than one Registration in the same cohort for contacts
-    sharing a normalized email. Reported, never touched — see module
-    docstring for why picking one to keep is a human call."""
+) -> dict[tuple[uuid.UUID, str], list[Registration]]:
+    """(cohort_id, normalized email) -> its Registrations, oldest first.
+    Shared by the read-only report and the opt-in cancellation below, so
+    both agree on exactly what counts as a duplicate group."""
     query = select(Registration).where(Registration.status != "cancelled")
     if cohort_id is not None:
         query = query.where(Registration.cohort_id == cohort_id)
@@ -187,25 +198,61 @@ async def report_duplicate_registrations(
         key = (reg.cohort_id, contact.email.strip().lower())
         by_key[key].append(reg)
 
-    out = []
-    for (cid, email), regs in by_key.items():
-        if len(regs) > 1:
-            out.append({
-                "cohort_id": cid,
-                "email": email,
-                "registration_ids": sorted(r.id for r in regs),
-                "created_at": sorted(r.created_at for r in regs),
-            })
-    return out
+    for regs in by_key.values():
+        regs.sort(key=lambda r: r.created_at)
+    return {key: regs for key, regs in by_key.items() if len(regs) > 1}
 
 
-async def run(dry_run: bool = False, cohort_id: uuid.UUID | None = None) -> None:
+async def report_duplicate_registrations(
+    db: AsyncSession, *, cohort_id: uuid.UUID | None = None,
+) -> list[dict]:
+    """Read-only. More than one Registration in the same cohort for contacts
+    sharing a normalized email. Reported, never touched — see module
+    docstring for why picking one to keep is a human call."""
+    groups = await _group_duplicate_registrations(db, cohort_id=cohort_id)
+    return [
+        {
+            "cohort_id": cid,
+            "email": email,
+            "registration_ids": sorted(r.id for r in regs),
+            "created_at": [r.created_at for r in regs],
+        }
+        for (cid, email), regs in groups.items()
+    ]
+
+
+async def cancel_duplicate_registrations(
+    db: AsyncSession, *, cohort_id: uuid.UUID | None = None,
+) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    """Opt-in cleanup (never run implicitly by `backfill_lms_access` or the
+    read-only report above): for every duplicate group, keeps the
+    earliest-created Registration and marks every later one in the group
+    `status="cancelled"`. Rows are kept, not deleted, for audit history.
+    Safe with respect to LMS access and team membership — both are keyed
+    off `User`, not `Registration` (`LmsProgramAssignment` is
+    UNIQUE(user_id, cohort_id), `TeamMember`'s PK is (team_id, user_id)),
+    so cancelling the extra Registration rows for the same physical
+    student never touches either. Returns (kept_id, cancelled_id) pairs."""
+    groups = await _group_duplicate_registrations(db, cohort_id=cohort_id)
+    cancelled: list[tuple[uuid.UUID, uuid.UUID]] = []
+    for regs in groups.values():
+        kept, *extras = regs
+        for reg in extras:
+            reg.status = "cancelled"
+            cancelled.append((kept.id, reg.id))
+    return cancelled
+
+
+async def run(
+    dry_run: bool = False, cohort_id: uuid.UUID | None = None, cancel_duplicates: bool = False,
+) -> None:
     from app.db.session import AsyncSessionLocal
 
     async with AsyncSessionLocal() as db:
         access_report = await backfill_lms_access(db, cohort_id=cohort_id)
         team_gaps = await report_team_gaps(db, cohort_id=cohort_id)
         dupes = await report_duplicate_registrations(db, cohort_id=cohort_id)
+        cancelled = await cancel_duplicate_registrations(db, cohort_id=cohort_id) if cancel_duplicates else []
 
         if dry_run:
             await db.rollback()
@@ -236,17 +283,34 @@ async def run(dry_run: bool = False, cohort_id: uuid.UUID | None = None) -> None
         print(f"    cohort={dupe['cohort_id']} email={dupe['email']} "
               f"registrations={dupe['registration_ids']} created_at={dupe['created_at']}")
 
+    if cancel_duplicates:
+        label = "DRY RUN — would cancel" if dry_run else "cancelled"
+        print()
+        print(f"[backfill_registration_access] {label} {len(cancelled)} duplicate registration(s) "
+              f"(kept the earliest per group):")
+        for kept_id, cancelled_id in cancelled:
+            print(f"    kept={kept_id} cancelled={cancelled_id}")
+    elif dupes:
+        print()
+        print("[backfill_registration_access] pass --cancel-duplicates to cancel every duplicate "
+              "except the earliest per group (kept registration is never touched).")
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--dry-run", action="store_true", help="Report what would happen; write nothing.")
     p.add_argument("--cohort-id", type=uuid.UUID, default=None, help="Limit to one cohort.")
+    p.add_argument(
+        "--cancel-duplicates", action="store_true",
+        help="Also cancel every duplicate registration except the earliest per (cohort, email) group. "
+             "Off by default even without --dry-run.",
+    )
     return p.parse_args(argv)
 
 
 def main() -> None:
     args = parse_args()
-    asyncio.run(run(dry_run=args.dry_run, cohort_id=args.cohort_id))
+    asyncio.run(run(dry_run=args.dry_run, cohort_id=args.cohort_id, cancel_duplicates=args.cancel_duplicates))
 
 
 if __name__ == "__main__":

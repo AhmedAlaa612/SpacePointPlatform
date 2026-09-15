@@ -13,7 +13,7 @@ from app.models.user import User
 from app.services.sessions.registration import register
 from app.services.teams import create_team
 from scripts.backfill_registration_access import (
-    backfill_lms_access, report_duplicate_registrations, report_team_gaps,
+    backfill_lms_access, cancel_duplicate_registrations, report_duplicate_registrations, report_team_gaps,
 )
 
 
@@ -217,3 +217,72 @@ async def test_duplicate_registration_report_is_empty_for_a_single_registration(
     dupes = await report_duplicate_registrations(db, cohort_id=cohort.id)
 
     assert dupes == []
+
+
+@pytest.mark.asyncio
+async def test_cancel_duplicates_keeps_the_earliest_and_cancels_the_rest(db):
+    author = await _author(db)
+    cohort, _ = await _cohort_with_program(db, author=author)
+    email = f"cancel-{uuid.uuid4().hex[:6]}@example.com"
+
+    contact_a = await _contact(db, full_name="Dupe One", email=email)
+    contact_b = await _contact(db, full_name="Dupe Two", email=email)
+    contact_c = await _contact(db, full_name="Dupe Three", email=email)
+    reg_a = await register(db, contact_id=contact_a.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
+    reg_b = await register(db, contact_id=contact_b.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
+    reg_c = await register(db, contact_id=contact_c.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
+    await db.commit()
+
+    cancelled = await cancel_duplicate_registrations(db, cohort_id=cohort.id)
+    await db.commit()
+
+    assert sorted(reg_id for _, reg_id in cancelled) == sorted([reg_b.id, reg_c.id])
+    assert all(kept_id == reg_a.id for kept_id, _ in cancelled)
+
+    await db.refresh(reg_a)
+    await db.refresh(reg_b)
+    await db.refresh(reg_c)
+    assert reg_a.status == "registered"
+    assert reg_b.status == "cancelled"
+    assert reg_c.status == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_cancel_duplicates_leaves_non_duplicate_registrations_alone(db):
+    author = await _author(db)
+    cohort, _ = await _cohort_with_program(db, author=author)
+    email = f"alone-{uuid.uuid4().hex[:6]}@example.com"
+
+    contact = await _contact(db, full_name="Just One", email=email)
+    registration = await register(
+        db, contact_id=contact.id, cohort_id=cohort.id, registered_via="import", payment_status="waived",
+    )
+    await db.commit()
+
+    cancelled = await cancel_duplicate_registrations(db, cohort_id=cohort.id)
+    await db.commit()
+
+    assert cancelled == []
+    await db.refresh(registration)
+    assert registration.status == "registered"
+
+
+@pytest.mark.asyncio
+async def test_cancel_duplicates_is_idempotent_on_a_second_run(db):
+    author = await _author(db)
+    cohort, _ = await _cohort_with_program(db, author=author)
+    email = f"idempotent-{uuid.uuid4().hex[:6]}@example.com"
+
+    contact_a = await _contact(db, full_name="Dupe One", email=email)
+    contact_b = await _contact(db, full_name="Dupe Two", email=email)
+    await register(db, contact_id=contact_a.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
+    await register(db, contact_id=contact_b.id, cohort_id=cohort.id, registered_via="import", payment_status="waived")
+    await db.commit()
+
+    first = await cancel_duplicate_registrations(db, cohort_id=cohort.id)
+    await db.commit()
+    assert len(first) == 1
+
+    second = await cancel_duplicate_registrations(db, cohort_id=cohort.id)
+    await db.commit()
+    assert second == []
