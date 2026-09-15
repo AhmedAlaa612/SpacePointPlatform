@@ -1,6 +1,15 @@
 import logging
 from contextlib import asynccontextmanager
 
+# Without this, every logger.info() in the app is silently dropped: the root
+# logger defaults to WARNING with no handler, and uvicorn's own logging setup
+# (uvicorn.config.LOGGING_CONFIG) only configures its "uvicorn"/"uvicorn.access"
+# loggers — it never touches the root logger or raises its level, confirmed
+# against uvicorn's default config (disable_existing_loggers=False, no root
+# entry). Called at import time, before uvicorn's own dictConfig runs, so it's
+# the root level that ends up in effect for every "app.*" logger.
+logging.basicConfig(level=logging.INFO)
+
 from arq import create_pool
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
