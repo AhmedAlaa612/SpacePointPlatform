@@ -1,0 +1,253 @@
+"""Backfill LMS access stranded by the "email already on a different
+account" gap (2026-09-15), and report (never auto-fix) the fallout of the
+roster re-upload bug fixed the same day in
+services/competitions/registration_import.py.
+
+Root cause: `get_or_create_student_account` (services/lms/ops_integration.py)
+returns (None, False) — and `sync_registration_lms` therefore skips
+`assign_lms_program` entirely — whenever a registration's contact has no
+linked User AND some *other* account already owns that email. The
+competition roster importer's own `fallback_email` path already covers the
+*team*-membership half of this gap (it looks up that existing user by email
+and still adds them to the team via `_register_and_assign_team`), but never
+retroactively calls `assign_lms_program` — so the student ends up
+Registered=yes, Team=yes, LMS checklist access=NO. Confirmed against
+production logs (~2026-09) via the recurring "get_or_create_student_account:
+email %s is already on a different account, skipping" warning.
+
+This script closes the LMS-access half directly: for every non-cancelled
+Registration whose contact resolves to a User (either its own linked one,
+or — the gap case — the pre-existing account that already holds that
+email) but has no LmsProgramAssignment yet for that (user, cohort), it
+calls `assign_lms_program` the same way `sync_registration_lms` would have.
+It never creates a new User and never sends any email (`assign_lms_program`
+itself sends none) — this only closes the checklist-access gap on an
+account that already exists.
+
+It also *reports* (read-only, never writes) two related anomalies:
+  - "registered but not on any team", in cohorts that have teams at all —
+    should be near zero, since the importer's fallback path above already
+    handles team join even when the LMS-access call above got skipped; a
+    non-zero count here is a different bug, not this gap.
+  - duplicate-registration groups: more than one Registration in the same
+    cohort for contacts sharing a normalized email — pre-existing
+    duplicates from before registration_import.py's own email-dedup fix.
+    Deciding which one to keep (a ticket already sent on more than one? a
+    different session subset picked?) is a human call this script
+    deliberately does not make.
+
+USAGE
+    python -m scripts.backfill_registration_access [--dry-run] [--cohort-id UUID]
+
+IDEMPOTENCY
+    Only ever writes an LmsProgramAssignment for a (user, cohort) pair that
+    doesn't have one yet — a pair fixed by an earlier run (or by the live
+    app) is never revisited, same UNIQUE(user_id, cohort_id) idempotency
+    `assign_lms_program` itself already guarantees. Safe to run more than
+    once, and safe to run while the app is live.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import uuid
+from collections import defaultdict
+from dataclasses import dataclass, field
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.lms.program import LmsProgramAssignment
+from app.models.sessions.registration import Registration
+from app.models.spine.contact import Contact
+from app.models.team import Team, TeamMember
+from app.models.user import User
+from app.services.lms.program import assign_lms_program
+
+logger = logging.getLogger("scripts.backfill_registration_access")
+
+
+@dataclass
+class AccessReport:
+    assigned: list[tuple[uuid.UUID, uuid.UUID, str]] = field(default_factory=list)
+    already_ok: int = 0
+    no_user: list[uuid.UUID] = field(default_factory=list)
+    no_program: int = 0
+    errors: list[tuple[uuid.UUID, str]] = field(default_factory=list)
+
+
+async def _resolve_user(db: AsyncSession, contact: Contact) -> User | None:
+    """Same resolution order `get_or_create_student_account` itself follows,
+    minus the "create a brand new one" branch — a registration old enough
+    to need backfilling already went through that function once; no
+    account existing at all here means the contact has no email, not that
+    creation is still pending."""
+    linked = (await db.execute(
+        select(User).where(User.contact_id == contact.id).order_by(User.created_at)
+    )).scalars().first()
+    if linked is not None:
+        return linked
+    if not contact.email:
+        return None
+    return (await db.execute(
+        select(User).where(User.email == contact.email).order_by(User.created_at)
+    )).scalars().first()
+
+
+async def backfill_lms_access(db: AsyncSession, *, cohort_id: uuid.UUID | None = None) -> AccessReport:
+    query = select(Registration).where(Registration.status != "cancelled")
+    if cohort_id is not None:
+        query = query.where(Registration.cohort_id == cohort_id)
+    registrations = (await db.execute(query)).scalars().all()
+
+    report = AccessReport()
+    for reg in registrations:
+        contact = await db.get(Contact, reg.contact_id)
+        if contact is None:
+            continue
+        user = await _resolve_user(db, contact)
+        if user is None:
+            report.no_user.append(reg.id)
+            continue
+
+        existing = await db.scalar(
+            select(LmsProgramAssignment).where(
+                LmsProgramAssignment.user_id == user.id, LmsProgramAssignment.cohort_id == reg.cohort_id,
+            )
+        )
+        if existing is not None:
+            report.already_ok += 1
+            continue
+
+        try:
+            assignment = await assign_lms_program(
+                db, user_id=user.id, cohort_id=reg.cohort_id, registration_id=reg.id,
+            )
+        except Exception as exc:  # pragma: no cover - defensive, mirrors sync_registration_lms's own discipline
+            logger.exception("assign_lms_program failed for registration %s", reg.id)
+            report.errors.append((reg.id, str(exc)))
+            continue
+
+        if assignment is not None:
+            report.assigned.append((reg.id, user.id, user.email))
+        else:
+            report.no_program += 1
+
+    return report
+
+
+async def report_team_gaps(
+    db: AsyncSession, *, cohort_id: uuid.UUID | None = None,
+) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    """Read-only. Registered students in a cohort that has teams at all, who
+    aren't a member of any team in it. See module docstring for why this
+    should already be near zero."""
+    cohorts_with_teams = set((await db.execute(
+        select(Team.cohort_id).where(Team.cohort_id.is_not(None)).distinct()
+    )).scalars().all())
+    if cohort_id is not None:
+        cohorts_with_teams &= {cohort_id}
+
+    gaps: list[tuple[uuid.UUID, uuid.UUID]] = []
+    for cid in cohorts_with_teams:
+        regs = (await db.execute(
+            select(Registration).where(Registration.cohort_id == cid, Registration.status != "cancelled")
+        )).scalars().all()
+        member_user_ids = set((await db.execute(
+            select(TeamMember.user_id).join(Team, Team.id == TeamMember.team_id).where(Team.cohort_id == cid)
+        )).scalars().all())
+        for reg in regs:
+            contact = await db.get(Contact, reg.contact_id)
+            if contact is None:
+                continue
+            user = await _resolve_user(db, contact)
+            if user is not None and user.id not in member_user_ids:
+                gaps.append((reg.id, user.id))
+    return gaps
+
+
+async def report_duplicate_registrations(
+    db: AsyncSession, *, cohort_id: uuid.UUID | None = None,
+) -> list[dict]:
+    """Read-only. More than one Registration in the same cohort for contacts
+    sharing a normalized email. Reported, never touched — see module
+    docstring for why picking one to keep is a human call."""
+    query = select(Registration).where(Registration.status != "cancelled")
+    if cohort_id is not None:
+        query = query.where(Registration.cohort_id == cohort_id)
+    registrations = (await db.execute(query)).scalars().all()
+
+    by_key: dict[tuple[uuid.UUID, str], list[Registration]] = defaultdict(list)
+    for reg in registrations:
+        contact = await db.get(Contact, reg.contact_id)
+        if contact is None or not contact.email:
+            continue
+        key = (reg.cohort_id, contact.email.strip().lower())
+        by_key[key].append(reg)
+
+    out = []
+    for (cid, email), regs in by_key.items():
+        if len(regs) > 1:
+            out.append({
+                "cohort_id": cid,
+                "email": email,
+                "registration_ids": sorted(r.id for r in regs),
+                "created_at": sorted(r.created_at for r in regs),
+            })
+    return out
+
+
+async def run(dry_run: bool = False, cohort_id: uuid.UUID | None = None) -> None:
+    from app.db.session import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        access_report = await backfill_lms_access(db, cohort_id=cohort_id)
+        team_gaps = await report_team_gaps(db, cohort_id=cohort_id)
+        dupes = await report_duplicate_registrations(db, cohort_id=cohort_id)
+
+        if dry_run:
+            await db.rollback()
+        else:
+            await db.commit()
+
+    label = "DRY RUN — would grant" if dry_run else "granted"
+    print(f"[backfill_registration_access] {label} LMS program access to "
+          f"{len(access_report.assigned)} registration(s):")
+    for reg_id, user_id, email in access_report.assigned:
+        print(f"    registration={reg_id} user={user_id} email={email}")
+    print(f"[backfill_registration_access] already had access: {access_report.already_ok}")
+    print(f"[backfill_registration_access] no resolvable user account (no email on contact): "
+          f"{len(access_report.no_user)} {access_report.no_user}")
+    print(f"[backfill_registration_access] cohort has no LMS program/checklist (expected no-op): "
+          f"{access_report.no_program}")
+    if access_report.errors:
+        print(f"[backfill_registration_access] ERRORS while assigning: {access_report.errors}")
+
+    print()
+    print(f"[backfill_registration_access] registered-but-not-on-any-team anomalies: {len(team_gaps)}")
+    for reg_id, user_id in team_gaps:
+        print(f"    registration={reg_id} user={user_id}")
+
+    print()
+    print(f"[backfill_registration_access] duplicate-registration groups (same cohort, same email): {len(dupes)}")
+    for dupe in dupes:
+        print(f"    cohort={dupe['cohort_id']} email={dupe['email']} "
+              f"registrations={dupe['registration_ids']} created_at={dupe['created_at']}")
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--dry-run", action="store_true", help="Report what would happen; write nothing.")
+    p.add_argument("--cohort-id", type=uuid.UUID, default=None, help="Limit to one cohort.")
+    return p.parse_args(argv)
+
+
+def main() -> None:
+    args = parse_args()
+    asyncio.run(run(dry_run=args.dry_run, cohort_id=args.cohort_id))
+
+
+if __name__ == "__main__":
+    main()
