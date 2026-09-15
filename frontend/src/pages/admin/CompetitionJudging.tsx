@@ -390,8 +390,14 @@ function AssignTab({ cohortId }: { cohortId: string }) {
     .map(([userId, teamId]) => ({ user_id: userId, team_id: teamId.trim() }))
 
   return (
-    <div className="flex flex-col gap-4 max-w-4xl">
-      <p className="text-sm text-muted-foreground">
+    // Wider than the other tabs' max-w-2xl/3xl/4xl (2026-09-15) — this is
+    // the one tab with a 6-column table (name/email/code/team/LMS/team ID
+    // input), and 4xl was clipping the Team ID column on an ordinary desktop
+    // viewport despite the table's own overflow-x-auto, since that scrolls
+    // the table *within* an already-too-narrow container instead of the
+    // container just using the room the page actually has.
+    <div className="flex flex-col gap-4 max-w-6xl">
+      <p className="text-sm text-muted-foreground max-w-4xl">
         Find students who already signed up with an invite code, type in a Team ID for each, and assign them —
         this registers them into this cohort and puts them on that team (creating it if it's new). Students set
         their own team's display name later; a Team ID here is just the grouping code, not a name.
