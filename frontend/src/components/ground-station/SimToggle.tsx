@@ -11,6 +11,11 @@ const INTERVAL_MS = 1000;
 
 interface Props {
   deviceId: string;
+  /** Fired the instant sim flips on or off, so the console can clear
+   * whatever's currently on screen — otherwise switching back to "control"
+   * just leaves the last simulated reading frozen there, which reads as
+   * live data that never actually stopped. */
+  onToggle?: (on: boolean) => void;
 }
 
 function fakeFrame() {
@@ -28,9 +33,15 @@ function fakeFrame() {
   };
 }
 
-export default function SimToggle({ deviceId }: Props) {
+export default function SimToggle({ deviceId, onToggle }: Props) {
   const [simOn, setSimOn] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function toggle() {
+    const next = !simOn;
+    setSimOn(next);
+    onToggle?.(next);
+  }
 
   useEffect(() => {
     if (!simOn) return;
@@ -48,7 +59,7 @@ export default function SimToggle({ deviceId }: Props) {
       <span className="pl-2 text-xs text-muted-foreground">Sat control</span>
       <button
         type="button"
-        onClick={() => setSimOn((v) => !v)}
+        onClick={toggle}
         className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
           simOn ? "bg-violet-500/20 text-violet-500 ring-1 ring-violet-500/40" : "text-muted-foreground hover:bg-muted"
         }`}

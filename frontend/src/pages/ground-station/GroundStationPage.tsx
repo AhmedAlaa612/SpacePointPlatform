@@ -142,7 +142,7 @@ export function DeviceConsole({ deviceId, device }: { deviceId: string; device: 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <WebSerialConnect deviceId={deviceId} />
-          <SimToggle deviceId={deviceId} />
+          <SimToggle deviceId={deviceId} onToggle={() => setHistory([])} />
         </div>
         <div className="flex items-center gap-3">
           <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${connected ? "text-emerald-500" : "text-muted-foreground"}`}>
