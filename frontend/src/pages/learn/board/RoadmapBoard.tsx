@@ -118,10 +118,17 @@ export default function RoadmapBoard() {
       </div>
 
       {/* key remounts the drawer per item — its own per-item local state
-          (guidelineOpened, submitUrl) resets via fresh useState instead of
-          a useEffect+setState reset on item change. */}
+          (guidelineOpened, submitUrl, teamNameDeadlinePassed) resets via
+          fresh useState instead of a useEffect+setState reset on item
+          change. deadline_at rides along in the key too (2026-09-15) — an
+          admin editing just the deadline on an already-open item doesn't
+          change its id, so without this a student who'd already hit the
+          "deadline passed" 400 (which latches teamNameDeadlinePassed, see
+          TaskDrawer) would keep seeing the drawer locked after the deadline
+          was extended, until they closed and reopened it by hand. */}
       <TaskDrawer
-        key={openItem?.id ?? "closed"} item={openItem} assignmentId={assignmentId} teamName={checklist.team_name}
+        key={`${openItem?.id ?? "closed"}:${openItem?.deadline_at ?? ""}`}
+        item={openItem} assignmentId={assignmentId} teamName={checklist.team_name}
         onClose={() => setOpenItemId(null)} onChanged={invalidate}
       />
     </div>
