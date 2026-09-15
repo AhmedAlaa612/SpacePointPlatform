@@ -1115,13 +1115,23 @@ async def test_assignable_students_reports_team_state_and_filters_unassigned(db,
 
     filtered = await client.get(
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
-        params={"unassigned_only": "true"},
+        params={"team_status": "no_team"},
         headers=_headers(ops),
     )
     assert filtered.status_code == 200, filtered.text
     filtered_ids = {r["id"] for r in filtered.json()}
     assert str(unassigned.id) in filtered_ids
     assert str(assigned.id) not in filtered_ids
+
+    has_team = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"team_status": "has_team"},
+        headers=_headers(ops),
+    )
+    assert has_team.status_code == 200, has_team.text
+    has_team_ids = {r["id"] for r in has_team.json()}
+    assert str(assigned.id) in has_team_ids
+    assert str(unassigned.id) not in has_team_ids
 
 
 @pytest.mark.asyncio
@@ -1142,7 +1152,7 @@ async def test_assignable_students_treats_a_manually_created_team_as_assigned(db
 
     resp = await client.get(
         f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
-        params={"unassigned_only": "true"},
+        params={"team_status": "no_team"},
         headers=_headers(ops),
     )
     assert resp.status_code == 200, resp.text
@@ -1155,6 +1165,88 @@ async def test_assignable_students_treats_a_manually_created_team_as_assigned(db
     row = next(r for r in unfiltered.json() if r["id"] == str(student.id))
     assert row["team_id"] is None
     assert row["team_name"] == "Hand-Made Team"
+
+
+@pytest.mark.asyncio
+async def test_assignable_students_registered_only_excludes_unregistered_matches(db, client):
+    """`registered_only` switches the candidate set from "matches my
+    search, anywhere on the platform" to "actually has a Registration in
+    this cohort" — a student who merely matches the search but never
+    registered here must disappear once the filter is on, and the one who
+    got assigned (which registers them) must show up as `registered`."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    never_registered = await _self_registered_student(db, full_name="Never Registered")
+    will_register = await _self_registered_student(db, full_name="Will Register")
+    await db.commit()
+
+    assign = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [{"user_id": str(will_register.id), "team_id": "T1"}]},
+        headers=_headers(ops),
+    )
+    assert assign.status_code == 200, assign.text
+
+    unfiltered = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students", headers=_headers(ops),
+    )
+    by_id = {r["id"]: r for r in unfiltered.json()}
+    assert by_id[str(never_registered.id)]["registered"] is False
+    assert by_id[str(will_register.id)]["registered"] is True
+
+    registered_only = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"registered_only": "true"}, headers=_headers(ops),
+    )
+    assert registered_only.status_code == 200, registered_only.text
+    ids = {r["id"] for r in registered_only.json()}
+    assert str(will_register.id) in ids
+    assert str(never_registered.id) not in ids
+
+
+@pytest.mark.asyncio
+async def test_assignable_students_lms_status_filter(db, client):
+    """`lms_status` reports/filters on this cohort's own LmsProgramAssignment
+    — independent of team status, since assign-then-check-in on the
+    checklist is a separate step from getting teamed up."""
+    ops = await _ops(db)
+    program, cohort = await _program_and_cohort(db)
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Checklist")
+    db.add(lms_program)
+    await db.flush()
+    db.add(LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="manual", title="Bring your kit",
+    ))
+    await db.flush()
+    student = await _self_registered_student(db, full_name="Has Access After Assign")
+    await db.commit()
+
+    before = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"q": "Has Access After Assign"}, headers=_headers(ops),
+    )
+    row = next(r for r in before.json() if r["id"] == str(student.id))
+    assert row["lms_access"] is False
+
+    assign = await client.post(
+        f"/competitions/admin/cohorts/{cohort.id}/assign-students",
+        json={"rows": [{"user_id": str(student.id), "team_id": "T1"}]},
+        headers=_headers(ops),
+    )
+    assert assign.status_code == 200, assign.text
+
+    has_access = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"lms_status": "has_access"}, headers=_headers(ops),
+    )
+    assert str(student.id) in {r["id"] for r in has_access.json()}
+
+    no_access = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"lms_status": "no_access"}, headers=_headers(ops),
+    )
+    assert str(student.id) not in {r["id"] for r in no_access.json()}
 
 
 @pytest.mark.asyncio

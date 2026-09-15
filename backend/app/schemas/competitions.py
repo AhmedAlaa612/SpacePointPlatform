@@ -258,15 +258,23 @@ class CompetitionImportConfirmIn(BaseModel):
 
 
 class CompetitionAssignableStudentOut(StudentSummaryOut):
-    """The Assign tab's own search result (2026-09-14) — the same student
-    row `/lms/admin/students` returns, plus this cohort's own team state:
-    `team_id` (the roster grouping code) and `team_name` when this student
-    is already on a team in *this* cohort, both None otherwise. Lets the
-    tab show at a glance who still needs assigning, and drives the
-    `unassigned_only` filter server-side (ops's own ask: "see people not
-    assigned to teams yet with that code")."""
+    """The Assign tab's own search result (2026-09-14, `registered`/
+    `lms_access` added 2026-09-15) — the same student row `/lms/admin/
+    students` returns, plus this cohort's own state: `team_id` (the roster
+    grouping code) and `team_name` when this student is already on a team
+    in *this* cohort (both None otherwise), whether they have a
+    Registration here at all (`registered` — the tab's search is
+    platform-wide by default, so this distinguishes an actual competition
+    registrant from someone who merely matched the name/email search), and
+    whether they already have this cohort's LMS program checklist
+    (`lms_access`, via `LmsProgramAssignment`, regardless of how they got
+    it — invite-code grant, desk registration, or the Assign flow itself).
+    Drives the `registered_only`/`team_status`/`lms_status` filters
+    server-side, same idea as the original `unassigned_only` filter."""
     team_id: str | None = None
     team_name: str | None = None
+    registered: bool = False
+    lms_access: bool = False
 
 
 class CompetitionAssignStudentRowIn(BaseModel):

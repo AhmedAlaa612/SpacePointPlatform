@@ -129,9 +129,13 @@ export interface CompetitionImportPreview {
 }
 
 /** Assign tab's search result — the same student row `/lms/admin/students`
- * returns, plus this cohort's own team state: `team_id`/`team_name` are
- * set when the student is already on a team in *this* cohort, both null
- * otherwise. Backs the "only show unassigned" filter. */
+ * returns, plus this cohort's own state: `team_id`/`team_name` are set
+ * when the student is already on a team in *this* cohort (both null
+ * otherwise), `registered` says whether they have an actual Registration
+ * here (the search itself is platform-wide unless `registered_only` is
+ * set), and `lms_access` says whether they already have this cohort's LMS
+ * program checklist. Backs the `registered_only`/`team_status`/
+ * `lms_status` filters. */
 export interface CompetitionAssignableStudent {
   id: string
   full_name: string
@@ -145,6 +149,8 @@ export interface CompetitionAssignableStudent {
   created_at: string | null
   team_id: string | null
   team_name: string | null
+  registered: boolean
+  lms_access: boolean
 }
 
 /** Assign tab (2026-09-14): a row of the bulk "assign already
@@ -286,11 +292,17 @@ export const confirmCohortRegistrationImportApi = (
   ).then((r) => r.data)
 
 /** Assign tab's own cohort-scoped student search — same name/email +
- * invite-code filters as `searchStudentsApi`, plus `unassigned_only` to
- * drop students already on a team in this cohort. */
+ * invite-code filters as `searchStudentsApi`, plus `registered_only`
+ * (restrict to students who actually have a Registration in this cohort,
+ * vs. the default platform-wide search) and `team_status`/`lms_status`
+ * filters. */
 export const searchAssignableStudentsApi = (
   cohortId: string,
-  params: { q?: string; invite_code?: string; unassigned_only?: boolean } = {},
+  params: {
+    q?: string; invite_code?: string; registered_only?: boolean
+    team_status?: "all" | "has_team" | "no_team"
+    lms_status?: "all" | "has_access" | "no_access"
+  } = {},
 ) =>
   api.get<CompetitionAssignableStudent[]>(
     `/competitions/admin/cohorts/${cohortId}/assignable-students`, { params },

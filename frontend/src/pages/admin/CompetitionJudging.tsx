@@ -340,20 +340,30 @@ function RosterTab({ cohortId }: { cohortId: string }) {
 // above. Team *naming* stays entirely the student's own deadline-gated
 // step (the `team_setup` checklist item) — this tab only ever assigns a
 // Team ID, never a display name.
+type TeamStatusFilter = "all" | "has_team" | "no_team"
+type LmsStatusFilter = "all" | "has_access" | "no_access"
+
 function AssignTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const [query, setQuery] = useState("")
   const [inviteCode, setInviteCode] = useState("")
-  const [unassignedOnly, setUnassignedOnly] = useState(true)
+  // Defaults to "my actual roster" (registered here, no team yet) — the
+  // common case ops opens this tab for. Widening any of the three finds
+  // an unregistered invite-code signup, or reviews who already has a
+  // team/LMS access.
+  const [registeredOnly, setRegisteredOnly] = useState(true)
+  const [teamStatus, setTeamStatus] = useState<TeamStatusFilter>("no_team")
+  const [lmsStatus, setLmsStatus] = useState<LmsStatusFilter>("all")
   const [teamIds, setTeamIds] = useState<Record<string, string>>({})
   const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
   const [sendTicketEmail, setSendTicketEmail] = useState(true)
   const [result, setResult] = useState<CompetitionAssignStudentsResult | null>(null)
 
   const { data: students = [], isLoading } = useQuery({
-    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, unassignedOnly],
+    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, registeredOnly, teamStatus, lmsStatus],
     queryFn: () => searchAssignableStudentsApi(cohortId, {
-      q: query || undefined, invite_code: inviteCode || undefined, unassigned_only: unassignedOnly,
+      q: query || undefined, invite_code: inviteCode || undefined, registered_only: registeredOnly,
+      team_status: teamStatus, lms_status: lmsStatus,
     }),
   })
   const { data: codes = [] } = useQuery({
@@ -397,7 +407,7 @@ function AssignTab({ cohortId }: { cohortId: string }) {
         <select
           value={inviteCode}
           onChange={(e) => setInviteCode(e.target.value)}
-          className="h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+          className="w-auto shrink-0 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
         >
           <option value="">All batches</option>
           {codes.map((c) => (
@@ -406,9 +416,27 @@ function AssignTab({ cohortId }: { cohortId: string }) {
           <option value="none">No code</option>
         </select>
         <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
-          <input type="checkbox" checked={unassignedOnly} onChange={(e) => setUnassignedOnly(e.target.checked)} />
-          Not on a team yet
+          <input type="checkbox" checked={registeredOnly} onChange={(e) => setRegisteredOnly(e.target.checked)} />
+          Registered to this cohort
         </label>
+        <select
+          value={teamStatus}
+          onChange={(e) => setTeamStatus(e.target.value as TeamStatusFilter)}
+          className="w-auto shrink-0 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+        >
+          <option value="all">Any team status</option>
+          <option value="no_team">No team yet</option>
+          <option value="has_team">Has a team</option>
+        </select>
+        <select
+          value={lmsStatus}
+          onChange={(e) => setLmsStatus(e.target.value as LmsStatusFilter)}
+          className="w-auto shrink-0 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+        >
+          <option value="all">Any LMS access</option>
+          <option value="no_access">No LMS access</option>
+          <option value="has_access">Has LMS access</option>
+        </select>
       </div>
 
       {isLoading ? (
@@ -417,8 +445,8 @@ function AssignTab({ cohortId }: { cohortId: string }) {
         <EmptyState
           title="No students found"
           hint={
-            unassignedOnly
-              ? "Everyone matching this search is already on a team — untick \"Not on a team yet\" to see them."
+            registeredOnly
+              ? "Nobody registered to this cohort matches these filters — untick \"Registered to this cohort\" to search everyone."
               : query || inviteCode ? "Try a different search or batch." : "No student accounts exist yet."
           }
         />
@@ -431,6 +459,7 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                 <th className="py-2 pr-2">Email</th>
                 <th className="py-2 pr-2">Code used</th>
                 <th className="py-2 pr-2">Current team</th>
+                <th className="py-2 pr-2">LMS access</th>
                 <th className="py-2 pr-3">Team ID</th>
               </tr>
             </thead>
@@ -447,6 +476,13 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                       <span className="text-xs font-semibold text-primary">{s.team_name}</span>
                     ) : (
                       <span className="text-muted-foreground">Not assigned</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-2 align-top pt-3 whitespace-nowrap">
+                    {s.lms_access ? (
+                      <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Yes</span>
+                    ) : (
+                      <span className="text-muted-foreground">No</span>
                     )}
                   </td>
                   <td className="py-1.5 pr-3">
