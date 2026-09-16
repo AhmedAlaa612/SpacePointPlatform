@@ -146,6 +146,17 @@ _REGISTERED_NOTICE_COPY: dict[str, dict[str, str]] = {
 }
 
 
+def build_set_password_link(user: User, expires_delta: timedelta | None = None) -> str:
+    """The same link `send_set_password_email` mints and emails, factored out
+    for callers that need the raw URL itself — e.g. an ops action that hands
+    it to staff to paste into WhatsApp rather than sending it by email."""
+    from app.core.config import settings
+    token = create_password_set_token(user.id, expires_delta=expires_delta or _LINK_VALIDITY)
+    is_student = "student" in user.role_values
+    set_password_path = "/learn/set-password" if is_student else "/set-password"
+    return f"{settings.FRONTEND_URL}{set_password_path}?token={token}"
+
+
 async def send_set_password_email(
     user: User, *, purpose: str = "welcome", expires_delta: timedelta | None = None,
     audience: Literal["student", "judge", "portal"] = "portal", context: str | None = None,
@@ -175,7 +186,7 @@ async def send_set_password_email(
     now, not a "get to it whenever" invite."""
     from app.core.config import settings
     validity = expires_delta or _LINK_VALIDITY
-    token = create_password_set_token(user.id, expires_delta=validity)
+    link = build_set_password_link(user, expires_delta=validity)
     # LearnSetPassword is mounted at both paths for exactly this reason (see
     # its own docstring) — a student's link should log them back in at
     # /learn/login, everyone else's at the portal /login, so `roleHomePath`
@@ -183,9 +194,7 @@ async def send_set_password_email(
     # split decides the login link quoted in the email body below, since
     # it's the same "which shell does this account belong to" question.
     is_student = "student" in user.role_values
-    set_password_path = "/learn/set-password" if is_student else "/set-password"
     login_path = "/learn/login" if is_student else "/login"
-    link = f"{settings.FRONTEND_URL}{set_password_path}?token={token}"
     login_link = f"{settings.FRONTEND_URL}{login_path}"
     copy = _AUDIENCE_COPY[audience]
     if purpose != "welcome":
