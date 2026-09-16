@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.course import Course, CourseModule, ModuleItem
@@ -58,15 +59,32 @@ async def _progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID
             ItemProgress.item_id == item_id,
         )
     )).scalars().first()
-    if row is None:
-        row = ItemProgress(
-            id=uuid.uuid4(),
-            user_id=user_id,
-            item_id=item_id,
-            status="not_started",
-            quiz_attempts=0,
-        )
-        db.add(row)
+    if row is not None:
+        return row
+    return await _create_progress_row(db, user_id, item_id)
+
+
+async def _create_progress_row(db: AsyncSession, user_id: uuid.UUID, item_id: uuid.UUID) -> ItemProgress:
+    """Insert a fresh ItemProgress row, tolerating a concurrent insert of the
+    same (user_id, item_id) row — e.g. a double-fired mark-watched call, or
+    two tabs open on the same item. The SAVEPOINT confines a lost race to
+    this insert instead of poisoning the caller's whole transaction — same
+    pattern as services/lms/quiz.py::_create_progress_row and
+    certificates.py::issue_course_certificate."""
+    row = ItemProgress(
+        id=uuid.uuid4(), user_id=user_id, item_id=item_id,
+        status="not_started", quiz_attempts=0,
+    )
+    try:
+        async with db.begin_nested():
+            db.add(row)
+    except IntegrityError:
+        row = (await db.execute(
+            select(ItemProgress).where(
+                ItemProgress.user_id == user_id,
+                ItemProgress.item_id == item_id,
+            )
+        )).scalars().first()
     return row
 
 

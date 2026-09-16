@@ -32,7 +32,7 @@ from app.services.lms import (
     submit_quiz,
     unlock_state,
 )
-from app.services.lms.progress import COMPLETED_STATUSES, batch_course_completion
+from app.services.lms.progress import COMPLETED_STATUSES, _create_progress_row, batch_course_completion
 
 
 # ── factories ───────────────────────────────────────────────────────────────
@@ -269,6 +269,33 @@ async def test_item_progress_marks_viewed_items_completed(db):
         text.id: ("completed", True),
         attachment.id: ("completed", True),
     }
+
+
+@pytest.mark.asyncio
+async def test_concurrent_progress_row_creation_does_not_crash(db):
+    """Two near-simultaneous POST /lms/items/{id}/progress calls (a double
+    click, or a flaky client retry) can both find no existing row and both
+    try to insert one for the same (user_id, item_id) — same race
+    services/lms/quiz.py::_create_progress_row already guards against; this
+    is progress.py's own copy of that get-or-create, which needs the
+    identical guard."""
+    course = await _course(db)
+    m = await _module(db, course)
+    video = await _item(db, m, position=1, kind="video", content={})
+    student = await _user(db)
+
+    first = await _create_progress_row(db, student.id, video.id)
+    second = await _create_progress_row(db, student.id, video.id)
+    assert first.id == second.id
+
+    rows = (await db.execute(
+        select(ItemProgress).where(ItemProgress.user_id == student.id, ItemProgress.item_id == video.id)
+    )).scalars().all()
+    assert len(rows) == 1
+
+    # The SAVEPOINT must confine the lost race to this insert, not poison
+    # the caller's whole transaction — the session stays usable afterward.
+    await item_progress(db, user_id=student.id, item_id=video.id, action="video-watched")
 
 
 @pytest.mark.asyncio
