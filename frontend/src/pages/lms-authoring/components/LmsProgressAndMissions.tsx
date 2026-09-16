@@ -685,10 +685,18 @@ function AssignmentItemRow({
   item, cohortId, assignmentId,
 }: { item: LmsAssignmentItemDetail; cohortId?: string; assignmentId: string }) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [showRun, setShowRun] = useState(false)
   const [showQuizReview, setShowQuizReview] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
-  const canViewRun = item.item_type === "mission_run" && !!item.mission_attempt_id
+  const isMissionRun = item.item_type === "mission_run" && !!item.mission_attempt_id
+  // DesignRunDetail replicates the Design wizard off a `Design` row that
+  // only a design-kind attempt ever has — a Ground Station (or any other
+  // non-design) run has no such row, so pointing it there just 404s
+  // ("Couldn't load this run's detail."). Those get a link to the same
+  // live console ops already can open from the Ground Station page.
+  const canViewRun = isMissionRun && item.mission_kind === "design"
+  const canOpenConsole = isMissionRun && item.mission_kind === "ground_station"
   const isQuiz = item.item_type === "quiz"
 
   const resetMutation = useMutation({
@@ -705,8 +713,8 @@ function AssignmentItemRow({
   const isAwaiting = item.status === "awaiting_confirmation"
   const isPoster = item.mission_step_key === "poster"
   const hasActions = Boolean(
-    item.submitted_url || item.submitted_text || (item.submission_multi_link && item.submitted_links?.length) || canViewRun
-    || (isQuiz && (isDone || cohortId)) || isPoster,
+    item.submitted_url || item.submitted_text || (item.submission_multi_link && item.submitted_links?.length)
+    || canViewRun || canOpenConsole || (isQuiz && (isDone || cohortId)) || isPoster,
   )
 
   return (
@@ -810,6 +818,21 @@ function AssignmentItemRow({
                 >
                   <Play size={13} className="text-primary" />
                   {showRun ? "Hide run" : "View run"}
+                </Button>
+              )}
+
+              {canOpenConsole && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void navigate({
+                    to: "/learn/missions/ground-station/$attemptId",
+                    params: { attemptId: item.mission_attempt_id as string },
+                  })}
+                  className="h-8 text-xs font-semibold gap-1.5 shrink-0"
+                >
+                  <Play size={13} className="text-primary" />
+                  Open console
                 </Button>
               )}
 

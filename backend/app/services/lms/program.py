@@ -1812,6 +1812,10 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
     team_progress_by_item = await _team_progress_by_item(
         db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
     )
+    mission_ids = {item.mission_id for item, _ in pairs if item.mission_id}
+    mission_kinds = dict((await db.execute(
+        select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids))
+    )).all()) if mission_ids else {}
 
     out = []
     dashboard_cache: dict[uuid.UUID, dict | None] = {}
@@ -1844,6 +1848,7 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
             "completed_at": completed_at, "mission_attempt_id": attempt_id,
             "confirmed_by_user_id": confirmed_by_user_id,
             "mission_step_key": item.mission_step_key,
+            "mission_kind": mission_kinds.get(item.mission_id) if item.mission_id else None,
         })
     return out
 

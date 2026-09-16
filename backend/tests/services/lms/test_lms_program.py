@@ -336,6 +336,10 @@ async def test_assignment_item_detail_surfaces_the_teams_attempt_for_ops(db):
     assert details is not None
     assert len(details) == 1
     assert details[0]["mission_attempt_id"] is not None
+    # A viewer needs to know which kind of run this is (design vs.
+    # ground_station vs. ...) to decide whether DesignRunDetail can even
+    # render it — a ground_station attempt has no Design row to read.
+    assert details[0]["mission_kind"] == mission.kind
 
 
 @pytest.mark.asyncio
