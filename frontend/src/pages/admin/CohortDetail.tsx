@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
 import * as XLSX from "xlsx"
 import {
-  ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download, FileSpreadsheet,
+  ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download, FileSpreadsheet, Copy,
   CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical,
 } from "lucide-react"
 import type {
@@ -24,7 +24,7 @@ import { SessionsTable } from "@/pages/admin/components/SessionsTable"
 import {
   getCohortApi, getSessionsApi,
   generateSessionsApi, addSessionApi,
-  getRegistrationsApi, resendTicketApi, resendOnboardingEmailApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
+  getRegistrationsApi, resendTicketApi, resendOnboardingEmailApi, getSetPasswordLinkApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
   deleteRegistrationApi, downloadCohortCertificatesApi,
   updateCohortApi,
 } from "@/api/sessions/cohorts"
@@ -233,6 +233,18 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       else toast.error("Send failed — check SMTP")
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to send onboarding email")),
+  })
+  const copySetPasswordLinkMutation = useMutation({
+    mutationFn: getSetPasswordLinkApi,
+    onSuccess: async ({ link }) => {
+      try {
+        await navigator.clipboard.writeText(link)
+        toast.success("Set-password link copied")
+      } catch {
+        toast.error("Couldn't copy to clipboard")
+      }
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to get set-password link")),
   })
   const cancelMutation = useMutation({
     mutationFn: cancelRegistrationApi,
@@ -703,6 +715,12 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                           disabled={resendOnboardingMutation.isPending}
                         >
                           <Mail size={14} /> {r.onboarding_sent ? "Resend onboarding email" : "Send onboarding email"}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => copySetPasswordLinkMutation.mutate(r.id)}
+                          disabled={copySetPasswordLinkMutation.isPending}
+                        >
+                          <Copy size={14} /> Copy set-password link
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setPaymentTarget(r)}>
                           <Wallet size={14} /> Confirm payment

@@ -92,7 +92,8 @@ from app.services.sessions import materials as materials_service
 from app.services.sessions import staffing as staffing_service
 from app.services.sessions import reports as reports_service
 from app.services.lms.ops_integration import (
-    deactivate_registration_enrollments, send_registration_onboarding_email, sync_registration_lms,
+    build_set_password_link, deactivate_registration_enrollments, send_registration_onboarding_email,
+    sync_registration_lms,
 )
 from app.services.sessions.registration import format_cohort_dates, register
 from app.services.spine.identity import resolve_or_create_contact
@@ -1134,6 +1135,26 @@ async def resend_onboarding_email(
     sent = await send_registration_onboarding_email(db, user=user, registration=registration, cohort=cohort)
     await db.commit()
     return {"sent": sent}
+
+
+@router.post("/registrations/{registration_id}/set-password-link")
+async def get_set_password_link(
+    registration_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Hands ops the raw set-password link instead of emailing it — for
+    students who don't check the inbox that email went to, ops copies this
+    and sends it themselves over WhatsApp/SMS. Same token/link
+    `resend-onboarding-email` sends by mail (build_set_password_link)."""
+    registration = await db.get(Registration, registration_id)
+    if registration is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
+    user = (await db.execute(select(User).where(User.contact_id == registration.contact_id))).scalars().first()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No LMS account linked to this registration")
+
+    return {"link": build_set_password_link(user)}
 
 
 @router.post("/registrations/{registration_id}/cancel")

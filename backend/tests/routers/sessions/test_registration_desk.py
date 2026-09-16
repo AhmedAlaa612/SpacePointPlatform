@@ -278,6 +278,66 @@ async def test_list_registrations_requires_operations_role(db, client, other_rol
     assert resp.status_code == 403
 
 
+# ── Set-password link ────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_get_set_password_link_returns_a_usable_token(db, client, operations_headers):
+    from app.core.config import settings
+    from app.core.security import decode_password_set_token
+    from app.models.user import User
+
+    cohort = await _make_cohort(db)
+    contact = _new_contact(full_name="Needs A Password", email="needs-password@example.com")
+    db.add(contact)
+    await db.flush()
+    user = User(
+        id=uuid.uuid4(), full_name="Needs A Password", email=contact.email, password_hash="x",
+        roles=["student"], status="active", contact_id=contact.id, must_change_password=True,
+    )
+    db.add(user)
+    registration = await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="desk")
+    await db.commit()
+
+    resp = await client.post(
+        f"/sessions/registrations/{registration.id}/set-password-link", headers=operations_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    link = resp.json()["link"]
+    assert link.startswith(f"{settings.FRONTEND_URL}/learn/set-password?token=")
+    token = link.split("token=", 1)[1]
+    assert decode_password_set_token(token) == str(user.id)
+
+
+@pytest.mark.asyncio
+async def test_get_set_password_link_404s_without_a_linked_account(db, client, operations_headers):
+    cohort = await _make_cohort(db)
+    contact = _new_contact(full_name="No Account Here")
+    db.add(contact)
+    await db.flush()
+    registration = await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="desk")
+    await db.commit()
+
+    resp = await client.post(
+        f"/sessions/registrations/{registration.id}/set-password-link", headers=operations_headers,
+    )
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_set_password_link_requires_operations_role(db, client, other_role_headers):
+    cohort = await _make_cohort(db)
+    contact = _new_contact(full_name="Irrelevant")
+    db.add(contact)
+    await db.flush()
+    registration = await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="desk")
+    await db.commit()
+
+    resp = await client.post(
+        f"/sessions/registrations/{registration.id}/set-password-link", headers=other_role_headers,
+    )
+    assert resp.status_code == 403
+
+
 @pytest.mark.asyncio
 async def test_list_registrations_includes_certificate_url_when_issued(db, client, operations_headers):
     from app.models.certificate import Certificate
