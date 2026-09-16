@@ -82,6 +82,11 @@ class LmsAssignmentItemDetailOut(BaseModel):
     mission_attempt_id: UUID | None = None
     confirmed_by_user_id: UUID | None = None
     mission_step_key: str | None = None
+    # 2026-09-17 — which kind of mission this run belongs to (e.g. "design"
+    # vs "ground_station"), so a viewer can tell a Design run (which has a
+    # DesignRunDetail replica to show) from a Ground Station run (which
+    # doesn't — there's no Design row to read, just a live console).
+    mission_kind: str | None = None
 
 
 class LmsProgramRosterRowOut(BaseModel):

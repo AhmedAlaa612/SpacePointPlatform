@@ -631,6 +631,7 @@ export interface LmsAssignmentItemDetail {
   mission_attempt_id: string | null;
   confirmed_by_user_id: string | null;
   mission_step_key?: string | null;
+  mission_kind: string | null;
 }
 
 export const getAssignmentItemsApi = (cohortId: string, assignmentId: string) =>
