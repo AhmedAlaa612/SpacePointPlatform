@@ -55,6 +55,7 @@ from app.schemas.teams import TeamCreateIn, TeamOut
 from app.services import storage
 from app.services.curriculum import is_unlocked, prerequisite_status
 from app.services.missions import start_attempt
+from app.services.missions.authorization import is_staff
 from app.services.missions.serialize import variant_student_view
 from app.services.teams import create_team, team_member_ids, teams_for_user
 from app.services.missions.verifiers.quiz import submit_quiz_attempt
@@ -290,7 +291,15 @@ async def _own_attempt(db: AsyncSession, attempt_id: uuid.UUID, user: User) -> M
 async def get_mission_attempt(
     attempt_id: uuid.UUID, db: AsyncSession = Depends(get_db), current: User = Depends(get_current_active_user),
 ):
-    attempt = await _own_attempt(db, attempt_id, current)
+    # Staff can view any attempt read-only (e.g. Ground Station ops watching
+    # a student's run) — same "staff OR owner" composition as
+    # services/ground_station/access.py. Submitting stays owner-only below.
+    if is_staff(current):
+        attempt = await db.get(MissionAttempt, attempt_id)
+        if attempt is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Attempt not found")
+    else:
+        attempt = await _own_attempt(db, attempt_id, current)
     variant = await db.get(MissionVariant, attempt.variant_id)
     return await _attempt_out(db, attempt, variant_label=variant.label if variant else "")
 
