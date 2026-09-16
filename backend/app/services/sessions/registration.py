@@ -166,9 +166,16 @@ async def register(
         ticket_token=secrets.token_urlsafe(32),
         registered_via=registered_via,
     )
-    db.add(registration)
     try:
+        # `db.add()` happens *inside* the nested block, not before it —
+        # begin_nested() autoflushes whatever's already pending as the
+        # first step of opening its SAVEPOINT, before the SAVEPOINT exists.
+        # Adding `registration` first would put its INSERT in that
+        # pre-SAVEPOINT autoflush, so a duplicate-key IntegrityError would
+        # poison the whole outer transaction instead of just this nested
+        # scope, leaving the session unusable for the caller's next query.
         async with db.begin_nested():
+            db.add(registration)
             await db.flush()
     except IntegrityError as exc:
         raise HTTPException(

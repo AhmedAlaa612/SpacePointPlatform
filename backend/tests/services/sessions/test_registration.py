@@ -105,6 +105,11 @@ async def test_duplicate_registration_raises_409(db):
         await register(db, contact_id=contact.id, cohort_id=cohort.id, registered_via="form")
     assert exc_info.value.status_code == 409
 
+    # The 409 must come from a SAVEPOINT rollback, not one that poisons the
+    # whole session — a caller (e.g. invite_grants.py looping over many
+    # users) needs to keep querying/writing on this same `db` afterward.
+    assert await db.get(type(contact), contact.id) is not None
+
 
 # ── register(): a few extra cases worth locking in ──────────────────────────
 
