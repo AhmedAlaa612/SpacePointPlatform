@@ -66,6 +66,21 @@ function useIsDark(): boolean {
   return isDark
 }
 
+/** Recharts' `YAxis width` is a fixed pixel prop, not CSS — a label
+ * column wide enough for a full checklist-item title on desktop (180px)
+ * leaves almost nothing for the bar itself on a ~360px phone. Watched
+ * live (2026-09-17) rather than read once, so rotating a phone doesn't
+ * strand the chart in its old layout. */
+function useIsMobile(): boolean {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 640)
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 640)
+    window.addEventListener("resize", onResize)
+    return () => window.removeEventListener("resize", onResize)
+  }, [])
+  return isMobile
+}
+
 function SectionCard({ title, hint, action, children }: {
   title: string; hint?: string; action?: React.ReactNode; children: React.ReactNode
 }) {
@@ -118,10 +133,12 @@ function ChartTooltip({ active, payload, label, unit }: {
  * own `denominator` says which, so this never infers it). */
 function CompletionRateChart({ items, isDark }: { items: CompetitionAnalyticsItem[]; isDark: boolean }) {
   const c = isDark ? CHART.dark : CHART.light
+  const isMobile = useIsMobile()
+  const maxChars = isMobile ? 16 : 28
   const rows = items.map((item) => ({
     ...item,
     // Truncated for the axis; the tooltip and the row label carry the full title.
-    shortTitle: item.title.length > 28 ? `${item.title.slice(0, 27)}…` : item.title,
+    shortTitle: item.title.length > maxChars ? `${item.title.slice(0, maxChars - 1)}…` : item.title,
   }))
 
   return (
@@ -132,11 +149,14 @@ function CompletionRateChart({ items, isDark }: { items: CompetitionAnalyticsIte
         <LegendSwatch color={c.track} label="Not submitted" />
       </div>
       <ResponsiveContainer width="100%" height={Math.max(160, rows.length * 38)}>
-        <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 56, bottom: 4, left: 8 }} barCategoryGap="28%">
+        <BarChart
+          data={rows} layout="vertical"
+          margin={{ top: 4, right: isMobile ? 32 : 56, bottom: 4, left: 8 }} barCategoryGap="28%"
+        >
           <CartesianGrid horizontal={false} stroke={c.grid} />
           <XAxis type="number" tick={{ fontSize: 11, fill: c.ink }} stroke={c.grid} allowDecimals={false} />
           <YAxis
-            type="category" dataKey="shortTitle" width={180}
+            type="category" dataKey="shortTitle" width={isMobile ? 108 : 180}
             tick={{ fontSize: 11, fill: c.ink }} stroke={c.grid} interval={0}
           />
           <Tooltip
@@ -500,6 +520,12 @@ function AttentionList({ data }: { data: CompetitionAnalytics }) {
 
 function MissionsBlock({ missions, isDark }: { missions: CompetitionAnalytics["missions"]; isDark: boolean }) {
   const c = isDark ? CHART.dark : CHART.light
+  const isMobile = useIsMobile()
+  const maxChars = isMobile ? 16 : 28
+  const rows = missions.map((m) => ({
+    ...m,
+    shortTitle: m.title.length > maxChars ? `${m.title.slice(0, maxChars - 1)}…` : m.title,
+  }))
   return (
     <SectionCard
       title="Mission runs"
@@ -510,11 +536,17 @@ function MissionsBlock({ missions, isDark }: { missions: CompetitionAnalytics["m
         <LegendSwatch color={c.awaiting} label="Started" />
         <LegendSwatch color={c.track} label="Not started" />
       </div>
-      <ResponsiveContainer width="100%" height={Math.max(120, missions.length * 46)}>
-        <BarChart data={missions} layout="vertical" margin={{ top: 4, right: 40, bottom: 4, left: 8 }} barCategoryGap="28%">
+      <ResponsiveContainer width="100%" height={Math.max(120, rows.length * 46)}>
+        <BarChart
+          data={rows} layout="vertical"
+          margin={{ top: 4, right: isMobile ? 24 : 40, bottom: 4, left: 8 }} barCategoryGap="28%"
+        >
           <CartesianGrid horizontal={false} stroke={c.grid} />
           <XAxis type="number" tick={{ fontSize: 11, fill: c.ink }} stroke={c.grid} allowDecimals={false} />
-          <YAxis type="category" dataKey="title" width={160} tick={{ fontSize: 11, fill: c.ink }} stroke={c.grid} interval={0} />
+          <YAxis
+            type="category" dataKey="shortTitle" width={isMobile ? 100 : 160}
+            tick={{ fontSize: 11, fill: c.ink }} stroke={c.grid} interval={0}
+          />
           <Tooltip cursor={{ fill: c.track, opacity: 0.35 }} content={<ChartTooltip />} />
           <Bar dataKey="passed" stackId="m" name="Passed" fill={c.done} stroke="transparent" strokeWidth={2} />
           <Bar dataKey="in_progress" stackId="m" name="Started" fill={c.awaiting} stroke="transparent" strokeWidth={2} />

@@ -72,12 +72,15 @@ export default function CompetitionJudging() {
 
       <PageHeader title={`Judging — ${cohort.name}`} subtitle={cohort.program_name ?? "—"} />
 
-      <div className="flex gap-1 border-b border-border">
+      {/* overflow-x-auto + shrink-0 (2026-09-17) — seven tabs since Analysis
+          landed no longer fits a phone width; without this the row just
+          clipped past "Results" with no way to reach it by touch. */}
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors shrink-0 whitespace-nowrap ${
               tab === t.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
