@@ -5,7 +5,7 @@ per-judge scoring, the leaderboard, and judge-roster management. See
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 from uuid import UUID
 
@@ -339,3 +339,92 @@ class CompetitionAdvanceResultOut(BaseModel):
     team_name: str
     to_team_id: UUID
     members_advanced: int
+
+
+# ── Team analytics (2026-09-16) ─────────────────────────────────────────
+# The Analysis tab's one payload — see `services/competitions/analytics.py`
+# for where each number comes from, and in particular why `mission_run`
+# items are reported in `missions` rather than as `items` bars.
+
+class CompetitionAnalyticsItemOut(BaseModel):
+    """One checklist item's completion rate. `denominator` names what
+    `total` counts — teams for a team-scoped item, students holding this
+    cohort's assignment for an individual one — so the frontend never has
+    to infer it from `scope`."""
+    item_id: UUID
+    title: str
+    item_type: str
+    scope: Literal["team", "individual"]
+    position: int
+    optional: bool
+    deadline_at: datetime | None = None
+    denominator: Literal["teams", "students"]
+    total: int
+    done: int
+    awaiting: int
+    pending: int
+    pct: int
+
+
+class CompetitionAnalyticsMissionOut(BaseModel):
+    mission_id: UUID
+    title: str
+    scope: Literal["team", "individual"]
+    total: int
+    passed: int
+    in_progress: int
+    not_started: int
+
+
+class CompetitionAnalyticsTeamOut(BaseModel):
+    """One team's progress against the cohort's *required* team-scoped
+    deliverables. `missing_titles` is every one of those not yet done —
+    awaiting_confirmation included, since ops confirming it is exactly
+    the outstanding work."""
+    team_id: UUID
+    team_name: str
+    roster_team_id: str | None = None
+    member_count: int
+    member_names: list[str] = []
+    never_logged_in: int
+    items_total: int
+    items_done: int
+    awaiting: int
+    pct: int
+    missing_titles: list[str] = []
+    last_activity_at: datetime | None = None
+    stalled: bool
+
+
+class CompetitionAnalyticsActivityOut(BaseModel):
+    date: date
+    updates: int
+
+
+class CompetitionAnalyticsTotalsOut(BaseModel):
+    teams: int
+    students_on_teams: int
+    avg_team_size: float
+    empty_teams: int
+    registered_students: int
+    students_without_team: int
+    assigned_students: int
+    never_logged_in: int
+    deliverables_per_team: int
+    deliverables_done: int
+    deliverables_awaiting: int
+    teams_complete: int
+    teams_not_started: int
+    teams_stalled: int
+    avg_team_pct: int
+
+
+class CompetitionAnalyticsOut(BaseModel):
+    cohort_id: UUID
+    cohort_name: str
+    totals: CompetitionAnalyticsTotalsOut
+    items: list[CompetitionAnalyticsItemOut] = []
+    missions: list[CompetitionAnalyticsMissionOut] = []
+    teams: list[CompetitionAnalyticsTeamOut] = []
+    activity: list[CompetitionAnalyticsActivityOut] = []
+    stalled_after_days: int
