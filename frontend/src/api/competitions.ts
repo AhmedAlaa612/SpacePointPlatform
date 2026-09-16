@@ -418,20 +418,35 @@ export interface CompetitionAnalyticsMission {
   not_started: number
 }
 
+export interface CompetitionAnalyticsDeliverable {
+  item_id: string
+  title: string
+  status: string
+  submitted_url: string | null
+  submitted_text: string | null
+  submitted_links: { label: string | null; url: string | null; text: string | null }[] | null
+}
+
+export interface CompetitionAnalyticsTeamMember {
+  name: string
+  last_login_at: string | null
+}
+
 export interface CompetitionAnalyticsTeam {
   team_id: string
   team_name: string
   roster_team_id: string | null
   member_count: number
-  member_names: string[]
+  members: CompetitionAnalyticsTeamMember[]
   never_logged_in: number
   items_total: number
   items_done: number
   awaiting: number
   pct: number
-  /** Every required team deliverable not yet done — awaiting_confirmation
-   * included, since ops confirming it is the outstanding work. */
-  missing_titles: string[]
+  /** Every required team deliverable — awaiting_confirmation counts as not
+   * done, since ops confirming it is the outstanding work, but a done or
+   * awaiting item still carries whatever the team actually submitted. */
+  deliverables: CompetitionAnalyticsDeliverable[]
   last_activity_at: string | null
   stalled: boolean
 }

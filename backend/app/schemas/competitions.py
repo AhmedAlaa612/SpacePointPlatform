@@ -376,22 +376,40 @@ class CompetitionAnalyticsMissionOut(BaseModel):
     not_started: int
 
 
+class CompetitionAnalyticsDeliverableOut(BaseModel):
+    """One required team-scoped deliverable's state for one team —
+    every one of them, not just the missing ones, so a done item can show
+    what was actually submitted instead of ops having to click through to
+    the checklist for it."""
+    item_id: UUID
+    title: str
+    status: str
+    submitted_url: str | None = None
+    submitted_text: str | None = None
+    submitted_links: list[LmsSubmissionLink] | None = None
+
+
+class CompetitionAnalyticsTeamMemberOut(BaseModel):
+    name: str
+    last_login_at: datetime | None = None
+
+
 class CompetitionAnalyticsTeamOut(BaseModel):
     """One team's progress against the cohort's *required* team-scoped
-    deliverables. `missing_titles` is every one of those not yet done —
-    awaiting_confirmation included, since ops confirming it is exactly
-    the outstanding work."""
+    deliverables. `deliverables` covers every one of them — done ones
+    carry their submitted content, the rest are ops's outstanding work
+    (awaiting_confirmation included, since confirming it is exactly that)."""
     team_id: UUID
     team_name: str
     roster_team_id: str | None = None
     member_count: int
-    member_names: list[str] = []
+    members: list[CompetitionAnalyticsTeamMemberOut] = []
     never_logged_in: int
     items_total: int
     items_done: int
     awaiting: int
     pct: int
-    missing_titles: list[str] = []
+    deliverables: list[CompetitionAnalyticsDeliverableOut] = []
     last_activity_at: datetime | None = None
     stalled: bool
 

@@ -178,8 +178,12 @@ async def test_awaiting_confirmation_is_its_own_bucket_and_never_counts_as_done(
     assert teams["Done"]["pct"] == 100
     assert teams["Waiting"]["pct"] == 0
     assert teams["Waiting"]["awaiting"] == 1
-    # The unconfirmed item is still what the team is missing, so ops sees it.
-    assert teams["Waiting"]["missing_titles"] == ["Poster"]
+    # The unconfirmed item is still what the team is missing, so ops sees it,
+    # along with the link the team actually submitted for it.
+    waiting_deliverable = teams["Waiting"]["deliverables"][0]
+    assert waiting_deliverable["title"] == "Poster"
+    assert waiting_deliverable["status"] == "awaiting_confirmation"
+    assert waiting_deliverable["submitted_url"] == "https://example.com/poster.pdf"
     assert result["totals"]["deliverables_awaiting"] == 1
     assert result["totals"]["teams_complete"] == 1
     assert result["totals"]["teams_not_started"] == 2

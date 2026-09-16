@@ -12,6 +12,7 @@ import {
 import {
   getCohortTeamAnalyticsApi,
   type CompetitionAnalytics, type CompetitionAnalyticsItem, type CompetitionAnalyticsTeam,
+  type CompetitionAnalyticsDeliverable,
 } from "@/api/competitions"
 import { Spinner, EmptyState, StatCard } from "@/components/ui/primitives"
 
@@ -285,6 +286,56 @@ function relativeTime(iso: string | null): string {
   return new Date(iso).toLocaleDateString()
 }
 
+/** Every required deliverable, not just what's missing — a done or
+ * awaiting item shows what the team actually submitted (a link, several
+ * labelled links, or free text) instead of making ops open the checklist
+ * to find out. */
+function DeliverableList({ deliverables }: { deliverables: CompetitionAnalyticsDeliverable[] }) {
+  return (
+    <ul className="mt-1 flex flex-col gap-1">
+      {deliverables.map((d) => (
+        <li key={d.item_id} className="flex flex-wrap items-baseline gap-1.5">
+          <span
+            className={
+              d.status === "done"
+                ? "text-emerald-600 dark:text-emerald-400"
+                : d.status === "awaiting_confirmation"
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-muted-foreground"
+            }
+          >
+            {d.status === "done" ? "✓" : d.status === "awaiting_confirmation" ? "⏳" : "—"}
+          </span>
+          <span className="text-foreground font-medium">{d.title}:</span>
+          {d.submitted_links && d.submitted_links.length > 0 ? (
+            <span className="flex flex-wrap gap-x-1.5">
+              {d.submitted_links.map((link, i) => (
+                <a
+                  key={i} href={link.url ?? undefined} target="_blank" rel="noreferrer"
+                  className="text-primary underline truncate max-w-[220px]"
+                >
+                  {link.label || link.url || link.text || "link"}
+                </a>
+              ))}
+            </span>
+          ) : d.submitted_url ? (
+            <a
+              href={d.submitted_url} target="_blank" rel="noreferrer"
+              className="text-primary underline truncate max-w-[240px]"
+            >
+              {d.submitted_url}
+            </a>
+          ) : d.submitted_text ? (
+            <span className="text-foreground truncate max-w-[280px]">{d.submitted_text}</span>
+          ) : (
+            <span className="text-muted-foreground italic">not submitted</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 type SortKey = "pct" | "name" | "members" | "activity"
 
 function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDark: boolean }) {
@@ -299,7 +350,7 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
       ? teams.filter((t) =>
           t.team_name.toLowerCase().includes(q) ||
           (t.roster_team_id ?? "").toLowerCase().includes(q) ||
-          t.member_names.some((n) => n.toLowerCase().includes(q)))
+          t.members.some((m) => m.name.toLowerCase().includes(q)))
       : teams
     const sorted = [...filtered]
     if (sort === "pct") sorted.sort((a, b) => b.pct - a.pct || a.team_name.localeCompare(b.team_name))
@@ -322,10 +373,10 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
       Total: t.items_total,
       "Completion %": t.pct,
       "Awaiting confirmation": t.awaiting,
-      Missing: t.missing_titles.join("; "),
+      Missing: t.deliverables.filter((d) => d.status !== "done").map((d) => d.title).join("; "),
       "Last activity": t.last_activity_at ? new Date(t.last_activity_at).toISOString().slice(0, 10) : "",
       Stalled: t.stalled ? "yes" : "",
-      Roster: t.member_names.join("; "),
+      Roster: t.members.map((m) => `${m.name} (${m.last_login_at ? relativeTime(m.last_login_at) : "never logged in"})`).join("; "),
     })))
     const book = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(book, sheet, "Team progress")
@@ -420,18 +471,31 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
               </button>
 
               {expanded === team.team_id && (
-                <div className="px-3 pb-3 pt-1 border-t border-border/50 flex flex-col gap-2 text-xs">
+                <div className="px-3 pb-3 pt-1 border-t border-border/50 flex flex-col gap-2.5 text-xs">
                   <div>
                     <span className="text-muted-foreground">Roster: </span>
-                    <span className="text-foreground">
-                      {team.member_names.length > 0 ? team.member_names.join(", ") : "No members yet"}
-                    </span>
+                    {team.members.length === 0 ? (
+                      <span className="text-foreground">No members yet</span>
+                    ) : (
+                      <span className="text-foreground">
+                        {team.members.map((m, i) => (
+                          <span key={m.name + i}>
+                            {i > 0 && ", "}
+                            {m.name} <span className="text-muted-foreground">
+                              ({m.last_login_at ? `last login ${relativeTime(m.last_login_at)}` : "never logged in"})
+                            </span>
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Still missing: </span>
-                    <span className="text-foreground">
-                      {team.missing_titles.length > 0 ? team.missing_titles.join(", ") : "Nothing — all deliverables done"}
-                    </span>
+                    <span className="text-muted-foreground">Deliverables: </span>
+                    {team.deliverables.length === 0 ? (
+                      <span className="text-foreground">Nothing required</span>
+                    ) : (
+                      <DeliverableList deliverables={team.deliverables} />
+                    )}
                   </div>
                   <div>
                     <span className="text-muted-foreground">Last activity: </span>
@@ -450,7 +514,6 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
 /* ── Attention list ───────────────────────────────────────────────── */
 
 function AttentionList({ data }: { data: CompetitionAnalytics }) {
-  const stalled = data.teams.filter((t) => t.stalled)
   const notStarted = data.teams.filter((t) => t.items_done === 0 && t.items_total > 0)
   const empty = data.teams.filter((t) => t.member_count === 0)
   const solo = data.teams.filter((t) => t.member_count === 1)
@@ -461,11 +524,6 @@ function AttentionList({ data }: { data: CompetitionAnalytics }) {
       key: "awaiting", tone: "amber" as const,
       label: `${awaiting.length} ${awaiting.length === 1 ? "team is" : "teams are"} waiting on your confirmation`,
       names: awaiting.map((t) => `${t.team_name} (${t.awaiting})`),
-    },
-    {
-      key: "stalled", tone: "amber" as const,
-      label: `${stalled.length} ${stalled.length === 1 ? "team has" : "teams have"} gone quiet for ${data.stalled_after_days}+ days`,
-      names: stalled.map((t) => t.team_name),
     },
     {
       key: "notStarted", tone: "amber" as const,

@@ -353,17 +353,28 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
         members = [users_by_id[uid] for uid in member_ids if uid in users_by_id]
         done = 0
         awaiting = 0
-        missing: list[str] = []
+        # Every required deliverable, not just the missing ones — ops asked
+        # to see what a team actually submitted here (link/text), not just
+        # a bare "still missing" title, so a done item carries its content
+        # straight from the shared team-progress row rather than making
+        # ops click through to the checklist for it.
+        deliverables: list[dict] = []
         last_activity: datetime | None = None
         for item in required_team_items:
             progress = progress_by_team_item.get((team.id, item.id))
             status = progress.status if progress is not None else "pending"
             if status == "done":
                 done += 1
-            else:
-                missing.append(item.title)
-                if status == "awaiting_confirmation":
-                    awaiting += 1
+            elif status == "awaiting_confirmation":
+                awaiting += 1
+            deliverables.append({
+                "item_id": item.id,
+                "title": item.title,
+                "status": status,
+                "submitted_url": progress.submitted_url if progress is not None else None,
+                "submitted_text": progress.submitted_text if progress is not None else None,
+                "submitted_links": progress.submitted_links if progress is not None else None,
+            })
         for item in team_items:
             progress = progress_by_team_item.get((team.id, item.id))
             if progress is not None and progress.updated_at is not None:
@@ -375,13 +386,13 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
             "team_name": team.name,
             "roster_team_id": team.roster_team_id,
             "member_count": len(member_ids),
-            "member_names": [m.full_name for m in members],
+            "members": [{"name": m.full_name, "last_login_at": m.last_login_at} for m in members],
             "never_logged_in": sum(1 for m in members if m.last_login_at is None),
             "items_total": total,
             "items_done": done,
             "awaiting": awaiting,
             "pct": _pct(done, total),
-            "missing_titles": missing,
+            "deliverables": deliverables,
             "last_activity_at": last_activity,
             "stalled": (
                 done < total
