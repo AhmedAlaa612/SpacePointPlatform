@@ -184,20 +184,9 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       "Student Name": r.student_name,
       "Phone": r.student_phone ?? "",
       "Email": r.student_email ?? "",
-      "Date of Birth": r.student_date_of_birth ?? "",
-      "Grade": r.student_grade ?? "",
       "School": r.student_organization_name ?? "",
-      "Guardian Name": r.guardian_name ?? "",
-      "Guardian Phone": r.guardian_phone ?? "",
-      "Status": r.status,
-      "Payment Status": r.payment_status,
-      "Price Charged": r.price_charged ?? "",
       "Ticket Sent": r.ticket_sent ? "Yes" : "No",
       "Onboarding Sent": r.onboarding_sent ? "Yes" : "No",
-      "Checked In": r.checked_in ? "Yes" : "No",
-      "Certificate Issued": r.certificate_issued ? "Yes" : "No",
-      "Attended Sessions": r.attended_sessions_count ?? 0,
-      "Total Sessions": r.total_cohort_sessions_count ?? 0,
       "Registered At": r.created_at ? new Date(r.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "",
       "Last Login At": r.last_login_at ? new Date(r.last_login_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "Never logged in",
     }))
@@ -207,20 +196,9 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       { wch: 24 }, // Student Name
       { wch: 16 }, // Phone
       { wch: 26 }, // Email
-      { wch: 14 }, // Date of Birth
-      { wch: 10 }, // Grade
       { wch: 22 }, // School
-      { wch: 20 }, // Guardian Name
-      { wch: 16 }, // Guardian Phone
-      { wch: 12 }, // Status
-      { wch: 14 }, // Payment Status
-      { wch: 14 }, // Price Charged
       { wch: 12 }, // Ticket Sent
       { wch: 16 }, // Onboarding Sent
-      { wch: 12 }, // Checked In
-      { wch: 16 }, // Certificate Issued
-      { wch: 16 }, // Attended Sessions
-      { wch: 14 }, // Total Sessions
       { wch: 14 }, // Registered At
       { wch: 16 }, // Last Login At
     ]
