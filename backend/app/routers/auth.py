@@ -288,6 +288,14 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
         await notify(db, referred_by_ambassador_id, "New Student Signup",
                      f"{data.full_name} signed up as a student with your invite code.", type="student")
 
+    # Signup hands back a session the same shape as /auth/login does, so it
+    # counts as one — otherwise last_login_at stays NULL forever for every
+    # self-signup student (only /auth/login sets it), and every "never
+    # logged in" admin view (students list, assign list, registration desk)
+    # wrongly flags students who set their own password and are using the
+    # account.
+    user.last_login_at = datetime.now(timezone.utc)
+
     await db.commit()
     await db.refresh(user)
 

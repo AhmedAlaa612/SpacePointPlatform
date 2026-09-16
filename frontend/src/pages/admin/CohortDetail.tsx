@@ -1,8 +1,9 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
+import * as XLSX from "xlsx"
 import {
-  ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download,
+  ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download, FileSpreadsheet,
   CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical,
 } from "lucide-react"
 import type {
@@ -173,6 +174,39 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       r.status, r.payment_status,
     ].some((v) => (v ?? "").toString().toLowerCase().includes(q))
   })
+
+  // Client-side, from whatever's currently on screen — respects the search
+  // box and login-status filter above rather than always dumping every
+  // registration, same as the mission behind those filters in the first
+  // place (e.g. filter to "never logged in", export just that batch).
+  const handleExportRegistrations = () => {
+    const rows = filteredRegistrations.map((r) => ({
+      "Student Name": r.student_name,
+      "Phone": r.student_phone ?? "",
+      "Email": r.student_email ?? "",
+      "School": r.student_organization_name ?? "",
+      "Ticket Sent": r.ticket_sent ? "Yes" : "No",
+      "Onboarding Sent": r.onboarding_sent ? "Yes" : "No",
+      "Registered At": r.created_at ? new Date(r.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "",
+      "Last Login At": r.last_login_at ? new Date(r.last_login_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "Never logged in",
+    }))
+
+    const ws = XLSX.utils.json_to_sheet(rows)
+    ws["!cols"] = [
+      { wch: 24 }, // Student Name
+      { wch: 16 }, // Phone
+      { wch: 26 }, // Email
+      { wch: 22 }, // School
+      { wch: 12 }, // Ticket Sent
+      { wch: 16 }, // Onboarding Sent
+      { wch: 14 }, // Registered At
+      { wch: 16 }, // Last Login At
+    ]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Registrations")
+    XLSX.writeFile(wb, `${cohort.name.replace(/[^a-z0-9]+/gi, "_")}_registrations.xlsx`)
+  }
 
   const invalidateCohort = () => {
     queryClient.invalidateQueries({ queryKey: ["sessions-cohort", cohort.id] })
@@ -538,6 +572,14 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
               <option value="never">Never logged in</option>
               <option value="has_logged_in">Has logged in</option>
             </select>
+            <button
+              onClick={handleExportRegistrations}
+              disabled={filteredRegistrations.length === 0}
+              title="Export the rows shown below to an .xlsx file"
+              className="flex items-center gap-1.5 h-9 px-3 shrink-0 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              <FileSpreadsheet size={14} /> Export
+            </button>
           </div>
         )}
         {drawerError && (
