@@ -383,3 +383,92 @@ export const getMyJudgeTeamMissionRunDetailApi = (teamId: string, attemptId: str
 export const submitMyJudgeScoreApi = (
   teamId: string, data: { criterion_scores: Record<string, number>; bonus_points?: number; submitted?: boolean },
 ) => api.put<CompetitionScore>(`/competitions/judge/teams/${teamId}/score`, data).then((r) => r.data)
+
+// ── Team analytics (2026-09-16) ─────────────────────────────────────────
+// Backs the Judging page's Analysis tab — one payload, mirroring
+// `CompetitionAnalyticsOut` in backend/app/schemas/competitions.py. See
+// `services/competitions/analytics.py` for where each number comes from
+// (in particular: `mission_run` items are reported under `missions`, not
+// as `items` rows, because their real completion is per-design-step).
+
+export interface CompetitionAnalyticsItem {
+  item_id: string
+  title: string
+  item_type: string
+  scope: "team" | "individual"
+  position: number
+  optional: boolean
+  deadline_at: string | null
+  /** What `total` counts — so the UI never infers it from `scope`. */
+  denominator: "teams" | "students"
+  total: number
+  done: number
+  awaiting: number
+  pending: number
+  pct: number
+}
+
+export interface CompetitionAnalyticsMission {
+  mission_id: string
+  title: string
+  scope: "team" | "individual"
+  total: number
+  passed: number
+  in_progress: number
+  not_started: number
+}
+
+export interface CompetitionAnalyticsTeam {
+  team_id: string
+  team_name: string
+  roster_team_id: string | null
+  member_count: number
+  member_names: string[]
+  never_logged_in: number
+  items_total: number
+  items_done: number
+  awaiting: number
+  pct: number
+  /** Every required team deliverable not yet done — awaiting_confirmation
+   * included, since ops confirming it is the outstanding work. */
+  missing_titles: string[]
+  last_activity_at: string | null
+  stalled: boolean
+}
+
+export interface CompetitionAnalyticsActivity {
+  date: string
+  updates: number
+}
+
+export interface CompetitionAnalyticsTotals {
+  teams: number
+  students_on_teams: number
+  avg_team_size: number
+  empty_teams: number
+  registered_students: number
+  students_without_team: number
+  assigned_students: number
+  never_logged_in: number
+  deliverables_per_team: number
+  deliverables_done: number
+  deliverables_awaiting: number
+  teams_complete: number
+  teams_not_started: number
+  teams_stalled: number
+  avg_team_pct: number
+}
+
+export interface CompetitionAnalytics {
+  cohort_id: string
+  cohort_name: string
+  totals: CompetitionAnalyticsTotals
+  items: CompetitionAnalyticsItem[]
+  missions: CompetitionAnalyticsMission[]
+  teams: CompetitionAnalyticsTeam[]
+  activity: CompetitionAnalyticsActivity[]
+  stalled_after_days: number
+}
+
+export const getCohortTeamAnalyticsApi = (cohortId: string) =>
+  api.get<CompetitionAnalytics>(`/competitions/admin/cohorts/${cohortId}/team-analytics`).then((r) => r.data)

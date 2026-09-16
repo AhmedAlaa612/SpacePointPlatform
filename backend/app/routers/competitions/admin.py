@@ -20,7 +20,8 @@ from app.models.sessions.program import Program
 from app.models.user import User
 from app.models.team import Team
 from app.schemas.competitions import (
-    CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionAssignableStudentOut,
+    CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionAnalyticsOut,
+    CompetitionAssignableStudentOut,
     CompetitionAssignStudentRowOut, CompetitionAssignStudentsIn, CompetitionAssignStudentsOut,
     CompetitionImportConfirmIn,
     CompetitionImportPreviewOut, CompetitionImportPreviewRowOut, CompetitionImportResultOut,
@@ -28,6 +29,7 @@ from app.schemas.competitions import (
     CompetitionLeaderboardRowOut, CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut,
     CompetitionTeamCreateIn, CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
 )
+from app.services.competitions import analytics as analytics_service
 from app.services.competitions import export as export_service
 from app.services.competitions import judges as judges_service
 from app.services.competitions import judging as judging_service
@@ -190,6 +192,20 @@ async def _team_cohort_id(db: AsyncSession, team_id: uuid.UUID) -> uuid.UUID:
     if team is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
     return team.cohort_id
+
+
+# ── Team analytics (2026-09-16) ─────────────────────────────────────────
+# One payload for the Judging page's Analysis tab. Read-only and cohort
+# -scoped, same as every other progress view here; deliberately team-first,
+# since per-student checklist progress already has its own surface (the
+# cohort's LMS > Progress tab).
+
+@router.get("/cohorts/{cohort_id}/team-analytics", response_model=CompetitionAnalyticsOut)
+async def get_cohort_team_analytics(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await analytics_service.cohort_team_analytics(db, cohort_id=cohort_id)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    return CompetitionAnalyticsOut(**result)
 
 
 # ── Registration import, progression ────────────────────────────────────

@@ -18,16 +18,23 @@ import {
   type CompetitionJudgeProgress,
   type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
 } from "@/api/competitions"
+import { CompetitionAnalysisTab } from "@/pages/admin/components/CompetitionAnalysis"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 import { Field } from "@/pages/admin/components/common"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
 
-type JudgingTab = "roster" | "assign" | "teams" | "rubric" | "judges" | "results"
+type JudgingTab = "roster" | "assign" | "teams" | "analysis" | "rubric" | "judges" | "results"
 const TABS: { key: JudgingTab; label: string }[] = [
   { key: "roster", label: "Roster" },
   { key: "assign", label: "Assign" },
   { key: "teams", label: "Teams" },
+  // Analysis (2026-09-16) — read-only team progress across the whole
+  // cohort. Sits next to Teams because it answers the question the
+  // Teams tab makes you ask ("how are they all actually doing?"), and
+  // before the judging tabs because it is about the run-up, not the
+  // scoring.
+  { key: "analysis", label: "Analysis" },
   { key: "rubric", label: "Rubric" },
   { key: "judges", label: "Judges" },
   { key: "results", label: "Results" },
@@ -65,12 +72,15 @@ export default function CompetitionJudging() {
 
       <PageHeader title={`Judging — ${cohort.name}`} subtitle={cohort.program_name ?? "—"} />
 
-      <div className="flex gap-1 border-b border-border">
+      {/* overflow-x-auto + shrink-0 (2026-09-17) — seven tabs since Analysis
+          landed no longer fits a phone width; without this the row just
+          clipped past "Results" with no way to reach it by touch. */}
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors shrink-0 whitespace-nowrap ${
               tab === t.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -82,6 +92,7 @@ export default function CompetitionJudging() {
       {tab === "roster" && <RosterTab cohortId={cohort.id} />}
       {tab === "assign" && <AssignTab cohortId={cohort.id} />}
       {tab === "teams" && <TeamsTab cohortId={cohort.id} />}
+      {tab === "analysis" && <CompetitionAnalysisTab cohortId={cohort.id} />}
       {tab === "rubric" && <RubricTab programId={cohort.program_id} />}
       {tab === "judges" && <JudgesTab cohortId={cohort.id} />}
       {tab === "results" && <ResultsTab cohortId={cohort.id} cohortName={cohort.name} programId={cohort.program_id} />}
@@ -597,6 +608,25 @@ function AssignTab({ cohortId }: { cohortId: string }) {
 /* ================================================================== */
 /* Teams (manual management — complements Roster import)               */
 /* ================================================================== */
+/** Same chip shape `CohortDetail.tsx`'s own counter row uses — read-only
+ * here, since every number is already visible in the list below it. */
+function TeamStatChip({ label, value, tone = "default" }: {
+  label: string; value: React.ReactNode; tone?: "default" | "alert"
+}) {
+  return (
+    <div
+      className={`flex items-center justify-center gap-1.5 h-9 px-4 rounded-xl border text-sm ${
+        tone === "alert"
+          ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+          : "border-border bg-card text-foreground"
+      }`}
+    >
+      <span className="font-semibold tabular-nums leading-none flex items-center">{value}</span>
+      <span className="text-xs text-muted-foreground leading-none flex items-center">{label}</span>
+    </div>
+  )
+}
+
 function TeamsTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
@@ -625,6 +655,14 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
     return team.name.toLowerCase().includes(q) || team.member_names.some((n) => n.toLowerCase().includes(q))
   })
 
+  // Derived here rather than fetched (2026-09-16): `teams` is already the
+  // whole cohort roster, so the counts ops asked for on this tab cost
+  // nothing. A student on two teams in one cohort shouldn't be counted
+  // twice — not DB-enforced (see models/team.py), so dedupe rather than
+  // summing member_ids.length.
+  const studentsOnTeams = new Set(teams.flatMap((t) => t.member_ids)).size
+  const emptyTeams = teams.filter((t) => t.member_ids.length === 0).length
+
   if (isLoading) return <Spinner />
 
   return (
@@ -634,6 +672,15 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
         teams — without re-uploading a whole sheet. Adding a member by name + email registers them if
         they're new, or matches an existing account if that email already has one — same as a Roster row.
       </p>
+
+      {teams.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <TeamStatChip label={teams.length === 1 ? "team" : "teams"} value={teams.length} />
+          <TeamStatChip label="students on teams" value={studentsOnTeams} />
+          <TeamStatChip label="avg team size" value={(studentsOnTeams / teams.length).toFixed(1)} />
+          {emptyTeams > 0 && <TeamStatChip label="with no members" value={emptyTeams} tone="alert" />}
+        </div>
+      )}
 
       <div className="flex items-end gap-2">
         <Field label="New team name">

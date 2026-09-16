@@ -302,3 +302,77 @@ changes; the third and fourth just confirm existing design decisions with no cod
 - **The dashboard deliverable has no platform template** — teams build it themselves (vibecoded) and
   submit a link, same as poster/video/circuit/CAD. Ops gives guides, not a builder. Also already
   exactly how `scope="team"` + `submission`/`external_link` items work; no new mechanism needed.
+
+---
+
+## 5. Team analytics — the Analysis tab (2026-09-16)
+
+Ops could list teams but never count them, and nothing showed team progress across a cohort at
+all. Per-*student* checklist progress already had a home (`cohort_program_roster` →
+`ProgressPanel`, the cohort's LMS > Progress tab, one expandable row per student); what nothing
+surfaced was the other axis — how many teams there are, how far each has got, and which single
+deliverable the cohort as a whole is stuck on.
+
+Two pieces, both read-only:
+
+- **Teams tab stat strip** — teams, students on teams, average team size, empty teams. Derived
+  client-side from the team list `getCohortTeamsApi` already returns, so it costs no request.
+  Member ids are deduped rather than summed: a student on two teams in one cohort isn't
+  DB-prevented (see `models/team.py`), so summing `member_ids.length` would double-count them.
+- **Analysis tab** (`CompetitionAnalysis.tsx`, 7th tab on the Judging page) — one payload from
+  `GET /competitions/admin/cohorts/{id}/team-analytics`, backed by
+  `services/competitions/analytics.py`. KPI row, a completion-rate bar per checklist item, a
+  team-completion distribution, a 30-day activity chart, a sortable/exportable per-team table,
+  and a needs-attention list.
+
+### Where a "done" comes from
+
+The one subtle part, and the reason the service has a long module docstring:
+
+- `scope="team"` items (`submission`/`external_link`/`manual`/`team_setup`) —
+  `lms_program_team_item_progress.status` is literal truth. Nothing auto-tracks these.
+- `scope="individual"` items — the stored `lms_program_item_progress.status`, except `course`
+  (reconciled via `batch_course_completion`, same rule `_course_item_done` applies) and `quiz`
+  (a submitted `CohortQuizAttempt`, score irrelevant, same rule `_cohort_quiz_item_done`
+  applies). Stored status for those two lags until someone opens the checklist; reconciling
+  here means a bar never understates them. Both batch, which is why they're the two that get it.
+- `mission_run` items (either scope) are **excluded from the completion bars** and reported in
+  their own block off each run's shared `MissionAttempt.status`. Their real completion is
+  per-design-step, resolved through a Design dashboard that costs a query cascade per attempt
+  (`refresh_item_progress` → `_design_dashboard_for_attempt`) — a bar labelled "Build the
+  CubeSat" sitting at a stale stored status would be worse than no bar.
+
+`awaiting_confirmation` counts as **not done** everywhere, matching what the checklist shows the
+student, but is reported as its own bucket: "everyone submitted and ops hasn't confirmed" and
+"nobody submitted" are different problems with different fixes.
+
+Each bar names its own `denominator` (`teams` or `students`) rather than leaving the frontend to
+infer it from `scope`. The student denominator is *assigned* students, not registered ones — a
+student registered but never assigned the checklist has no progress row for anything, and
+counting them against every bar would read as the cohort failing rather than as an assignment
+gap (which the KPI row reports separately, as "not on a team" / assigned counts).
+
+### Performance
+
+Set-based throughout — a fixed number of queries regardless of roster size, joined in Python.
+Resolving each team on its own would walk straight into the N+1 shape `batch_course_completion`
+exists to avoid (B11, then the 7B-1 progress grid); "every team × every checklist item" is
+exactly the screen where it bites.
+
+### Chart colours
+
+A **status** encoding (done / awaiting confirmation / not submitted), not a categorical one, and
+both themes are *selected* rather than auto-flipped — each pair validated against the surface it
+actually renders on: light `#047857`/`#d97706` on white (CVD ΔE 11.0), dark `#199e70`/`#c98500`
+on the dark card `#1A0F26` (CVD ΔE 8.4), all four clearing 3:1 contrast. "Not submitted" is a
+neutral track, not a third hue — it's the unfilled remainder of the bar, not a series competing
+for identity. Every bar carries a legend and a direct percentage label, so meaning never rests
+on colour alone. Hex rather than theme tokens because a CSS var in an SVG `fill` doesn't resolve
+reliably, same reason `instructors/admin/Overview.tsx` hardcodes its own.
+
+### Not included
+
+Judging/score analytics — the Results tab already owns scores, and duplicating them here would
+mean a second place to reason about the blind-until-published gate. Cross-cohort (stage-over-
+stage) comparison is likewise out: every progress view in this codebase is cohort-scoped, and a
+Qualifier-vs-Finalists view is a different question from "how is this stage going".
