@@ -42,13 +42,34 @@ comments notify the owning ambassador; ambassador comments notify every admin).
 
 ### Points/titles/badges
 
-Points are an append-only ledger (`PointsTransaction`, type `earn`/`adjust`) — no balance column; lifetime points are the sum of the ledger (optionally scoped to a season). Points are awarded for: converting a lead (1000 default), recruiting a teacher who becomes active (500 default), completing an approved task (task's own `points_reward`), and delivering a teacher session (200 default, to both the teacher and their referring ambassador). All reward amounts are editable `system_settings` values.
+Points are an append-only ledger (`PointsTransaction`, type `earn`/`adjust`) — no balance column; lifetime points are the sum of the ledger (optionally scoped to a season, `stats.py::season_start()` — start of the current UTC calendar month). Points are awarded for: converting a lead (1000 default), recruiting a teacher who becomes active (500 default), completing an approved task (task's own `points_reward`), and delivering a teacher session (200 default, to both the teacher and their referring ambassador). All reward amounts are editable `system_settings` values, read via `services/points.py::get_setting_int`.
 
-**Titles** are an admin-configured rank ladder keyed by `min_points`, per audience (ambassador or teacher) — current/next title and progress-to-next are computed from lifetime points. **Badges** (`BadgeDefinition` + `Achievement`) are separate, milestone-based unlocks: admin defines a `criteria_type` (e.g. converted leads, active teachers, sessions delivered, lifetime points) and a threshold; a check runs after any points/status-changing event and grants a badge the first time a threshold is crossed.
+**Titles** are an admin-configured rank ladder keyed by `min_points`, per audience (`ambassador` or `teacher`) — current/next title and progress-to-next are computed from lifetime points (`services/ambassadors/titles.py::resolve_title_progress`). **Badges** (`BadgeDefinition` + `Achievement`) are separate, milestone-based unlocks: admin defines a `criteria_type` and a `threshold` per audience; a check runs after any points/status-changing event and grants a badge the first time a threshold is crossed. The full criteria-type list (`services/ambassadors/achievements.py::CRITERIA_TYPES`) is **`converted_leads`, `active_teachers`, `sessions_done`, `students_reached`, `lifetime_points`** for ambassadors — teachers only get the last three (`TEACHER_CRITERIA_TYPES`, since they have no leads/network of their own). `GET /badges/criteria-types` (admin-only) surfaces this split to the admin Badges editor UI.
+
+### Tasks
+
+An `AmbassadorTask` is assignable work with a points reward and an approval workflow — separate from
+the Interns-domain `Task` model, despite the shared name (that one lives under `models/interns/`, see
+[`HANDOFF_INTERNS.md`](./HANDOFF_INTERNS.md)). Who can assign to whom is enforced in the handler, not
+the schema (`tasks.py::create_task`): admin can assign to any active ambassador or teacher; an
+ambassador can only assign to a teacher they personally invited (`invited_by_id == current_user.id`).
+The status machine (`tasks.py::ASSIGNEE_TRANSITIONS`/`OWNER_TRANSITIONS`) is stricter than a flat
+enum:
+
+- The **assignee** can move `pending → accepted`, and `accepted → submitted` or `edit_requested →
+  submitted` (attaching `submission` text on the way to `submitted`).
+- The **owner** (task creator) or any **admin** can move `submitted → approved`/`rejected`/`edit_requested`.
+- **`rejected` is a dead end for the assignee** — there's no transition back to `submitted` from
+  `rejected` (only from `accepted` or `edit_requested`), and `PATCH /tasks/{id}` (`TaskUpdate`) can't
+  touch `status` at all. The only way out of `rejected` is the owner/admin setting a new status
+  directly via `PUT /tasks/{id}/status`, since the owner-side transition table also doesn't offer a
+  path out of it — in practice a rejected task effectively needs a brand-new task.
+- Points (`task.points_reward`) are awarded exactly once on `→ approved` (guarded by `points_awarded`,
+  same pattern as leads/sessions) and reversed if approval is later revoked or the task is deleted.
 
 ### Teacher sessions
 
-A `TeacherSession` is a teaching event a teacher schedules (title, date, planned students). Lifecycle: teacher creates it (status `pending`) → their recruiting ambassador (or admin) approves or rejects it → the ambassador marks materials sent (requires `approved`) → the teacher marks it done (requires approved + materials sent + the date has passed), recording attendance and triggering the point awards above. A teacher or admin can edit/cancel/delete a session; a teacher editing an already-approved/rejected session resets it back to `pending` for re-review. Deleting a `done` session reverses the points it had awarded.
+A `TeacherSession` is a teaching event a teacher schedules (title, date, planned students). Lifecycle: teacher creates it (status `pending`) → their recruiting ambassador (or admin) approves or rejects it → the ambassador marks materials sent (requires `approved`) → the teacher marks it done (requires approved + materials sent + the date has passed), recording attendance and triggering the point awards above. Status also includes `cancelled` (`network.py::cancel_session`, teacher or admin only, blocked once `done`/already `cancelled`). A teacher or admin can edit/cancel/delete a session; a teacher editing an already-approved/rejected session resets it back to `pending` for re-review (with a notification to the recruiting ambassador). Deleting a `done` session reverses the points it had awarded (to both the teacher and, if any, their referring ambassador).
 
 ## Main DB tables
 
