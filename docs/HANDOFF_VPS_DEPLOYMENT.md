@@ -5,7 +5,21 @@ in production, how a change gets from a commit to a live server, and the operati
 aren't obvious from reading the code. Written 2026-08-10 from direct, hands-on observation of a
 real deploy + a real bulk content import — not from documentation review. **Updated 2026-09-05**
 after the R2/video-compression rollout (PR #44 and follow-ups) actually deployed and all existing
-video content migrated — see §2, §6, §7, and the new §9.
+video content migrated — see §2, §6, §7, and §9.
+
+**Re-verified 2026-09-17** (routine doc-freshness pass, no VPS access this session — see the note
+below). This pass cross-checked every claim below against what's actually checked into this repo
+today: `ops/deploy-backend.sh`, `ops/deploy-frontend.sh`, `ops/backup_db.sh`, `ops/restore_db.sh`,
+`backend/Dockerfile`, `docker-compose.dev.yml`, and the video/storage code under `backend/app/`.
+Both deploy scripts now live in the repo (`ops/`) rather than being VPS-only artifacts — a real
+improvement since 2026-09-05, they're reviewable and diffable now, and `ops/legacy/` holds the
+simpler pre-rewrite versions for reference. Corrections from this pass are called out inline as
+**[2026-09-17]**. Nothing that requires an actual SSH session (current `docker ps` output, nginx
+site files, the real Postgres config, whether cron jobs are installed) could be checked this
+pass — those claims are left as "documented, not re-verified" rather than guessed at. The detailed
+current video architecture (upload, transcode, storage-backend routing, playback token/playlist/
+segment/key endpoints) has moved to its own living doc: **[`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md)**
+— §7 here is now a short pointer to it plus the VPS-specific operational facts that belong here.
 
 **This file deliberately contains no real secrets.** See §0.
 
@@ -31,6 +45,10 @@ in one of those files instead, not here.
   `madar`, `selfie`, `lms`, ...) is a plain A record pointing at the current VPS IP above — one
   box serves all of them.
 
+**[2026-09-17] Nothing in this section is checked into the repo** (no Terraform/Ansible/inventory
+file, no DNS-as-code) — it's operator knowledge, unverifiable from this codebase alone. Carried
+forward as documented, not re-confirmed this pass.
+
 ---
 
 ## 2. What's actually running on the VPS
@@ -44,6 +62,14 @@ in one of those files instead, not here.
 | `spacepoint-worker-video` | same image | `arq app.workers.main.VideoWorkerSettings` — `transcode_video` only, on its own queue (`arq:queue:video`), `max_jobs=1`. **Confirmed live** — deployed 2026-09-05, has drained every course's full re-encode/migrate-to-R2 backlog since (130 videos, ~34.6GB source → ~3GB output, see §9). Same bind-mounts/env-file/restart policy as `spacepoint-worker`; recreated the same way, but the swap order is deliberately different (stops the old container before starting the new one, not start-new-then-retire-old) — two containers both enforcing `max_jobs=1` against the same queue at once would let two encodes run concurrently. If this container isn't running, `transcode_video` jobs queue and never run — uploads/re-encodes sit "pending" forever with no visible error. |
 | `spacepoint-redis` | `redis:7-alpine` | `127.0.0.1:6379`. **Not** recreated by `deploy-backend.sh` — confirmed by direct observation (uptime survives backend deploys), so the arq queue's state isn't lost on a routine deploy. Also holds the `transcoding:{video_id}` lock keys used by `deploy-backend.sh --check`'s preflight (§3). |
 
+**[2026-09-17]** This table's shape is confirmed against `ops/deploy-backend.sh`, which is now
+checked into the repo and recreates exactly these four containers by name (`spacepoint-api`,
+`spacepoint-worker`, `spacepoint-worker-video`, plus reads `spacepoint-redis` for the preflight
+lock check) — see §3. The actual live `docker ps` output on the VPS itself was **not**
+re-observed this pass (no VPS access); this row is "matches what the deploy script would produce",
+not a fresh direct observation. Video architecture detail (what `transcode_video` actually does,
+the per-video `storage_backend` routing) has moved to [`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md).
+
 **Not in Docker:**
 
 - **nginx** — TLS via certbot, auto-renewing. One file per domain under
@@ -54,7 +80,10 @@ in one of those files instead, not here.
   with `application/octet-stream` from the default `mime.types`, which the browser refuses to load
   as an ES module. A regex `location` block always wins over the plain `location /` prefix block
   regardless of file order, which is why this was scoped here instead of editing the shared system
-  `mime.types` (would affect every other app on the box).
+  `mime.types` (would affect every other app on the box). **[2026-09-17] No nginx config is checked
+  into this repo** (no `nginx/` directory, no config-management tooling), so none of this section —
+  the `.mjs` fix, `client_max_body_size`, the per-domain file layout — could be re-verified against
+  anything in the repo this pass. Documented from the 2026-09-05 hands-on pass, not re-confirmed.
 - **PostgreSQL 16**, port 5432 — the real database (`spacepoint_unified`) lives here. A
   *separate* PostgreSQL 17 also exists on this box on port 5433, left over from using its newer
   `pg_restore` during an earlier migration — don't confuse the two; the app only ever talks to
@@ -62,42 +91,105 @@ in one of those files instead, not here.
   requires a Postgres restart to take effect) to cover the second worker container: 3 uvicorn
   workers × 15 (`pool_size=10`+`max_overflow=5`) + 2 worker containers × 15 = 75 possible app
   connections, and 150 leaves real headroom for manual `psql`/`pg_dump` sessions on top.
+  **[2026-09-17]** The pool-sizing arithmetic is confirmed against the repo: `backend/Dockerfile`
+  still runs `uvicorn --workers 3`, and `pool_size=10`/`max_overflow=5` is set in
+  `backend/app/db/session.py` (checked). The **actual production `max_connections` value** — i.e.
+  whether the bump to 150 really happened and is still in effect — lives in
+  `/etc/postgresql/16/main/postgresql.conf` on the VPS, which is outside this repo; not
+  re-verified this pass, carried forward as documented. Same for "Postgres 16 runs natively (not
+  Docker) on port 5432" itself — true as of the 2026-09-05 hands-on pass, consistent with there
+  being no Postgres service in `docker-compose.dev.yml` beyond the *dev* container (which
+  deliberately binds `5433:5432` so it never collides with a real local Postgres — see that file's
+  own comment), but there is no VPS-side infra file in this repo to re-confirm it against.
 - **`/etc/spacepoint/env`** (mode `0600`) — the real env file `spacepoint-api`, `spacepoint-worker`,
   and `spacepoint-worker-video` all load via `--env-file`. Real values are outside this repo (§0). One trap:
   **this file is only read at container *creation***, so editing it and expecting the change to
-  take effect immediately does nothing — the container needs to actually restart/recreate.
+  take effect immediately does nothing — the container needs to actually restart/recreate. Confirmed
+  again this pass: every `docker run`/`docker rm -f && docker run` pair in `ops/deploy-backend.sh`
+  passes `--env-file "$ENV_FILE"` fresh at creation time, with no in-place env reload path.
 
 ---
 
 ## 3. The deploy scripts (`/usr/local/bin/` on the VPS)
 
-**`deploy-backend.sh`** — observed output, in order (steps 1-4 confirmed by direct observation;
-step 3b is new with the R2/video-optimization branch, not yet observed on a real deploy):
-1. `docker pull` the `:latest` image from GHCR.
-2. Recreate `spacepoint-api`; wait for it to report healthy (migrations run first, inside the
-   container's own entrypoint, before `uvicorn` binds).
-3. Recreate `spacepoint-worker`.
-3b. Recreate `spacepoint-worker-video`, waiting on arq's own `--check` health check (not
-    `/health/worker`, which only reflects `spacepoint-worker`'s heartbeat key and says nothing
-    about the video queue).
-4. Fails loudly and doesn't leave a broken container running if the health check doesn't pass —
-   confirmed this is a real, working guard, not just a comment for `spacepoint-api`/`spacepoint-worker`;
-   the same pattern is now applied to `spacepoint-worker-video` but rehearse it once before trusting it.
+**[2026-09-17] Both scripts now live in this repo**, at `ops/deploy-backend.sh` and
+`ops/deploy-frontend.sh` — reviewable/diffable in git rather than only existing as
+hand-installed files on the VPS. Install with `sudo install -m 755 ops/deploy-backend.sh
+/usr/local/bin/deploy-backend.sh` (each script's own header says so). `ops/legacy/` holds the
+earlier, simpler versions of both (no rollback, no video worker, no frontend backup/rollback) —
+kept for reference, not installed anywhere; don't confuse the two when checking what's actually
+running on the VPS. Everything below in this section is read directly from the current
+`ops/deploy-backend.sh` / `ops/deploy-frontend.sh`, not re-observed from a live deploy this pass.
 
-Preflight (`deploy-backend.sh --check`) also refuses to proceed if any video is mid-transcode:
-a fresh upload/transcode shows as `videos.status='processing'` in Postgres, but a swap-in-place
-re-encode (e.g. "Migrate to R2") never changes `status` — the row stays `"ready"` the whole time
-by design, so the DB check alone is blind to it. The transcode job holds a `transcoding:{video_id}`
-Redis key for that window instead; preflight checks both.
+**`deploy-backend.sh`**
+```
+deploy-backend.sh                 # normal deploy, auto-rollback armed
+deploy-backend.sh --no-rollback   # REQUIRED for destructive migrations
+deploy-backend.sh --check         # preflight only, changes nothing
+```
+In order:
+1. **Preflight** (`preflight()`): checks the live `spacepoint-api` container's config hasn't
+   drifted from what this script assumes (network mode, restart policy, storage bind-mount), that
+   no video is `status='processing'` (a fresh transcode mid-flight — recreating the worker
+   SIGKILLs it), and that no `transcoding:{video_id}` Redis key exists (a swap-in-place re-encode
+   mid-flight, e.g. "Migrate to R2" — its DB `status` never changes, so this lock is the only
+   signal; see [`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md)). Any drift blocks the deploy unless
+   `--check` (report-only) was passed.
+2. `docker pull` the `:latest` image from GHCR; snapshot the running `spacepoint-api` image ID
+   (for rollback) and the current `alembic_version` (to detect whether a migration commits).
+3. Recreate `spacepoint-api` (`docker rm -f` + `docker run`); poll `/health` until it answers 200
+   or the container exits (migrations run first, inside the entrypoint, before `uvicorn` binds).
+   **On failure here, the script auto-rolls-back the API image** — but only if migrations have
+   *not* committed yet (`alembic_version` unchanged); if they have, it refuses to roll the image
+   back (new schema + old code is worse than being down) and tells you to restore the pre-deploy
+   dump instead. `--no-rollback` disables the auto-rollback outright — required whenever the
+   deploy carries a migration with `drop_table`/`drop_column`/a not-null backfill, per the script's
+   own comment block.
+4. Start a **new** `spacepoint-worker` container, wait for `/health/worker`'s heartbeat, then
+   retire the old one — zero-downtime (briefly two workers dequeue the same IO-bound queue, which
+   is harmless). A worker-only failure here does **not** take the already-healthy API back down.
+5. **Video worker**: the opposite swap order on purpose — **stop** the old
+   `spacepoint-worker-video` first, *then* start the new one and wait for arq's own `--check`
+   health check (not `/health/worker`, which only reflects the main worker's heartbeat key and
+   says nothing about the video queue). Two containers both enforcing `max_jobs=1` against
+   `arq:queue:video` at once would let two ffmpeg encodes run concurrently — exactly what that
+   setting exists to prevent — so this queue accepts a brief gap (queued jobs just wait) instead
+   of the zero-downtime pattern used for the main worker. If the new one fails health, the old one
+   (only stopped, not removed) is restarted rather than leaving video transcoding dark.
 
-**`deploy-frontend.sh`** — observed output, in order:
+Confirmed **already executed successfully in production** once — the archived
+`docs/archive/HANDOFF_COMPETITION_DAY_DEPLOY.md` records this exact script shipping the
+`spacepoint-worker-video` container live on 2026-09-05 and both workers confirmed healthy
+afterward — so "not yet observed on a real deploy" (this doc's earlier wording) is now stale;
+strike it.
+
+**`deploy-frontend.sh`**
+```
+deploy-frontend.sh            # download the latest build and swap it in
+deploy-frontend.sh --rollback # restore the most recent backup
+deploy-frontend.sh --list     # show available backups
+```
+**[2026-09-17]** More capable than previously documented here — it now keeps its own backup
+history, not just "safe against a failed download":
 1. `gh release download frontend-latest` — the one stable release tag CI republishes to every
    time (§5), so this script never needs to know a specific version/run ID.
-2. Extract to a staging directory, verify `index.html` exists.
-3. Swap into `/var/www/spacepoint-unified/dist` — **this one directory is what every domain's
-   nginx `root` points at** (portal, lms, any future vanity domain), so one frontend deploy
-   updates all of them simultaneously.
-4. Safe against a failed download — won't wipe the live site if the download itself fails.
+2. Extract to a staging directory (`$ROOT/.dist-staging`, a *sibling* of the live `dist/`, not
+   `/tmp` — deliberately, so the final swap stays on one filesystem and can be a true atomic
+   `mv` rather than a cross-filesystem copy). Refuses to proceed unless both `index.html` **and**
+   a non-empty `assets/` directory are present — a build with only `index.html` produces a blank
+   white page that would otherwise pass the old check.
+3. Before swapping, copies the *current* live `dist/` into `$ROOT/backups/<timestamp>/` (keeps
+   the last 5, older ones pruned) — this is what makes `--rollback` possible, and it exists
+   because `frontend-latest` is a mutable tag: once a new build republishes to it, the build being
+   replaced may not be re-downloadable from GitHub at all.
+4. Swaps into `/var/www/spacepoint-unified/dist` via two renames (`dist` → `dist.old`, staging →
+   `dist`) — **this one directory is what every domain's nginx `root` points at** (portal, lms,
+   any future vanity domain), so one frontend deploy updates all of them simultaneously.
+5. Safe against a failed download or a truncated build — won't touch the live site if either
+   check fails.
+
+`--rollback` restores the most recent entry under `$ROOT/backups/`; `--list` shows what's
+available. Neither existed in the version this doc previously described.
 
 Standard sequence when both sides changed: `deploy-backend.sh && deploy-frontend.sh` (backend
 first). Deploy is **manual on purpose** — CI builds the artifact; a human (or an agent, if
@@ -137,6 +229,10 @@ server {
 Then `sudo certbot --nginx -d <domain>` rewrites this into the standard `listen 443 ssl` +
 `http→https` redirect shape, same as every other domain on this box.
 
+**[2026-09-17] The nginx pattern itself (the `server { ... }` block above) could not be
+re-verified this pass** — no nginx config is checked into this repo, only referenced by these
+docs. Carried forward as documented from the 2026-09-05 pass.
+
 **Non-obvious fact this depends on, confirmed against the real CI config:** the frontend's API
 base URL is baked in at **build time**
 (`VITE_API_URL=https://portal.spacepoint.ae/api`, set in `.github/workflows/build-frontend.yml`),
@@ -155,7 +251,8 @@ not resolved relative to whichever domain actually served the page. Consequences
 
 ## 5. CI/CD (GitHub Actions)
 
-Two workflows, `.github/workflows/`:
+Two workflows, `.github/workflows/` — **re-confirmed against the actual workflow YAML this pass
+[2026-09-17], unchanged from what this doc already said:**
 
 - **`build-backend.yml`** — triggers on push to `main` touching `backend/**` (or manual
   `workflow_dispatch`). Builds and pushes `ghcr.io/ahmedalaa612/spacepoint-api:latest`.
@@ -182,13 +279,23 @@ deployed."
 **host disk**, bind-mounted into `spacepoint-api`, `spacepoint-worker`, and `spacepoint-worker-video`
 at `/data/storage`, Fernet-encrypted at rest and decrypted on every read. This is real, persistent storage — **not**
 the ephemeral per-container filesystem from the §3 gotcha; a deploy does not touch it. Buckets in
-active use include `lms-video-sources`, `lms-hls`, `lms-attachments`, `internship-letters`
+active use include `video-sources` (video pre-transcode sources — **[2026-09-17] corrected from
+`lms-video-sources`**, which was never the real constant; `backend/app/services/video_service.py::
+SOURCE_BUCKET = "video-sources"` is what's actually checked into the repo), `lms-hls` (video HLS
+output — kept under its original name even though the video service is no longer LMS-only, see
+that file's own comment on why renaming it once already broke playback), `lms-attachments`
+(checklist/program PDF attachments — `backend/app/routers/lms/admin.py::ATTACHMENT_BUCKET` /
+`backend/app/services/lms/program.py::PROGRAM_ITEM_PDF_BUCKET`), `internship-letters`
 (2026-08-20 — the internship request/letter domain, `HANDOFF_INTERNSHIP.md`), plus the
-pre-existing document/certificate buckets.
+pre-existing document/certificate buckets. All four of those bucket-name constants were
+re-confirmed by reading the actual code this pass.
 
-**As of 2026-09-05, video HLS output is per-video, not per-bucket** — see §9. Every other bucket
-above (attachments, letters, documents) is still 100% local disk; only `videos.storage_backend`
-rows moved.
+**As of 2026-09-05, video HLS output is per-video, not per-bucket.** Every other bucket
+above (attachments, letters, documents) is still 100% local disk; only some `videos` rows'
+`storage_backend` moved to R2 — and, per code now checked into the repo, **every genuinely new
+video upload lands on R2 unconditionally** (`video_service.py::_NEW_UPLOAD_BACKEND = "r2"`, not a
+setting — see [`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md) §"Storage backend routing" for the full
+current picture, which is more specific than this doc needs to restate).
 
 ---
 

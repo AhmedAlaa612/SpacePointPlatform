@@ -2,7 +2,27 @@
 
 Back to [`HANDOFF.md`](./HANDOFF.md).
 
+> Status: verified 2026-09-17 against the actual routers/services/models/frontend routes below (not
+> just re-reading the previous version of this doc). Confirmed: every endpoint path and role guard in
+> `routers/interns/{admin,leader,intern,shared}.py` + `app/main.py`'s mount, every table/column in
+> `models/interns/*.py`, the `WorkStatus`/`SubmissionStatus` enum values in `models/enums.py`, the
+> kanban drag/submit logic in `KanbanBoard.tsx`, and the frontend route guards in `router.tsx`. Fixed
+> a stale frontend path prefix (see "Key files") and added the mission-proposal pages that live under
+> `/interns/*` but belong to a different domain (see "Not part of this domain" below).
+
 Project/task tracking for interns organized into teams, with a kanban board driving day-to-day work.
+
+Not part of this domain, despite living under the same `/interns/*` frontend routes: proposing and
+managing **Missions** (the LMS's game/simulator-based learning content). `pages/interns/ProposeMission.tsx`
+(`/interns/propose-mission`) and `pages/interns/ManageMissions.tsx` (`/interns/manage-missions`) call
+`api/missions_proposals`/`api/missions_manager`, which hit `backend/app/routers/missions/*` and
+`backend/app/models/missions/mission.py` — a completely separate backend domain documented in
+[`HANDOFF_LMS.md`](./HANDOFF_LMS.md) §4 (`mission_proposals`, `mission_managers` tables) and in
+[`MISSIONS_INTERN_SPEC.md`](./MISSIONS_INTERN_SPEC.md) (the intern-facing walkthrough of that flow).
+They're mounted under `/interns/*` purely because interns are the audience, not because the kanban
+backend has anything to do with them. `pages/interns/Calendar.tsx` and `pages/interns/Leaderboard.tsx`
+are also mounted here (`/interns/calendar`, `/interns/leaderboard`) but are both unimplemented "TBD"
+placeholder pages today — no backing endpoints.
 
 ## Roles and permissions
 
@@ -13,7 +33,7 @@ Project/task tracking for interns organized into teams, with a kanban board driv
 - **`intern`** (`routers/interns/intern.py`, `/interns/intern/*` — `require_intern` also accepts `leader`) — read-only on projects and epics; sees only tasks assigned to themself; can update status only on their own assigned tasks and submit work; can view (not manage) their own team; can create and view their own proposals.
 - **shared** (`routers/interns/shared.py`, no extra role restriction) — self-service profile (`/users/me`), viewing any team's member list.
 
-Frontend role split lives in `Dashboard.tsx`/`KanbanBoard.tsx`: admin gets the full project/epic/task kanban; leader and intern share the `KanbanBoard` component, but leader additionally gets epic drill-down, task creation, proposal review, and module management, while intern only gets "propose idea" / "my proposals" and a submit dialog when dragging a task to done. Route guards live in `frontend/src/router.tsx`: `/interns/*` requires `intern`/`leader`/`admin`; `/interns/admin` requires `admin`.
+Frontend role split lives in `Dashboard.tsx`/`KanbanBoard.tsx`: admin gets the full project/epic/task kanban; leader and intern share the `KanbanBoard` component, but leader additionally gets epic drill-down, task creation, proposal review, and module management, while intern only gets "propose idea" / "my proposals" and a submit dialog when dragging a task to done. Route guards live in `frontend/src/router.tsx`: `internsLayoutRoute`'s `beforeLoad` requires `active_role` to be `intern`/`leader`/`admin` (else redirects to `/`); the nested `/interns/admin` route additionally requires `admin`.
 
 ## Key flows
 
@@ -50,16 +70,46 @@ An intern submits finished work via `POST /intern/tasks/{id}/submit`, creating a
 | `mind_map_layouts` | Per-epic node-position layout (JSON) |
 | `task_mind_map_notes` | Per-task free-text note |
 
+## Gotchas
+
+- **`routers/interns/admin.py`'s `assign_task` has no matching unassign endpoint** — only `leader.py`
+  exposes `DELETE /leader/tasks/{id}/assign/{user_id}`. An admin who wants to unassign someone from a
+  task has to do it as if they were the leader route (no `/admin/tasks/{id}/assign/{user_id}` DELETE
+  exists at all) — there simply isn't an admin-side unassign call today.
+- **`require_intern` (`app/core/dependencies.py`) accepts both `intern` and `leader`** — so
+  `/interns/intern/*` isn't intern-exclusive; a leader can hit those endpoints too (e.g. a leader
+  could technically call `POST /intern/tasks/{id}/submit` on a task they're assigned to). This is
+  intentional (a leader can also be a working member of their own team) but easy to misread as a
+  strict role split.
+- **`Team` is ambiguous at the SQLAlchemy-registry level** — a second, unrelated `Team` model exists
+  at `app/models/team.py` (domain-agnostic learner teams, different feature). `models/interns/project.py`
+  and `models/interns/epic.py` both import the interns `Team` class object for their `relationship()`
+  calls specifically to avoid this collision (see the 2026-08-17 comments in those files) — never use
+  a bare `"Team"` string in a new `relationship()` inside `models/interns/`.
+- **`Epic.status` and `Task.status` share one Postgres enum type** (`work_status`, `create_type=False`
+  in both `models/interns/epic.py` and `models/interns/task.py`) — a migration touching one must
+  account for the other; there's no separate `epic_status`/`task_status` type.
+- **A leader's team is resolved by matching `Team.leader_id == user.id`**, not by any role-scoped
+  team membership (`leader.py:35-40`, `_get_leader_team`). A user with the `leader` role but no team
+  actually pointing `leader_id` at them gets a 404 on every leader endpoint that needs their team —
+  there's no separate "you're a leader with no team yet" state.
+- **Frontend kanban components live under `pages/interns/components/`, not a top-level `src/components/`
+  directory** — there's no `frontend/src/components/kanban/` at all; everything board-related is
+  nested inside `pages/interns/components/kanban/` and `pages/interns/components/`. See "Key files"
+  below for the corrected paths (an earlier version of this doc had them wrong).
+
 ## Key files
 
 | Area | Backend | Frontend |
 |---|---|---|
-| Routers | `routers/interns/{admin,leader,intern,shared}.py` | — |
+| Routers | `routers/interns/{admin,leader,intern,shared}.py`, mounted at `/interns` in `main.py` | — |
 | Services | `services/interns/{team,project,epic,module,task,proposal,mind_map}.py` | — |
 | Models | `models/interns/{project,team,epic,module,task,submission,proposal,mind_map}.py` | — |
-| Board/hierarchy | — | `pages/interns/Dashboard.tsx`, `components/kanban/{KanbanBoard,Column,TaskCard,TaskModal,CreateSubtaskModal,EpicDetailModal}.tsx`, `components/ManageModulesModal.tsx` |
+| Board/hierarchy | — | `pages/interns/Dashboard.tsx`, `pages/interns/components/kanban/{KanbanBoard,Column,TaskCard,TaskModal,CreateSubtaskModal,EpicDetailModal}.tsx`, `pages/interns/components/ManageModulesModal.tsx` |
 | Teams | — | `pages/interns/Admin.tsx` |
-| Submissions/proposals | — | `SubmitDialog`, `CreateProposalModal`/`LeaderProposalsModal`/`InternProposalsModal` (inside `KanbanBoard.tsx`), `components/ProposalDetailDialog.tsx` |
-| Mind map | — | `pages/interns/MindMap.tsx`, `ProjectMindMap.tsx`, `components/mindmap/SharedNodes.tsx` |
+| Submissions/proposals | — | `SubmitDialog` (inside `KanbanBoard.tsx`), `pages/interns/components/ProposalDetailDialog.tsx` |
+| Mind map | — | `pages/interns/MindMap.tsx`, `pages/interns/ProjectMindMap.tsx`, `pages/interns/components/mindmap/SharedNodes.tsx` |
 | Tracker | — | `pages/interns/Tracker.tsx` |
-| Routing | — | `router.tsx` (role guards) |
+| Missions (separate domain, see note above) | `routers/missions/*`, `models/missions/mission.py` — see `HANDOFF_LMS.md` | `pages/interns/ProposeMission.tsx`, `pages/interns/ManageMissions.tsx` |
+| Placeholder pages | — | `pages/interns/Calendar.tsx`, `pages/interns/Leaderboard.tsx` (both unimplemented "TBD" stubs) |
+| Routing | — | `router.tsx` (`internsLayoutRoute`/`internsRoutes` — role guards) |
