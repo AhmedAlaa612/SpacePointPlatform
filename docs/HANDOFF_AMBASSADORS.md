@@ -2,21 +2,43 @@
 
 Back to [`HANDOFF.md`](./HANDOFF.md).
 
+> Status: verified 2026-09-17 against every router in `routers/ambassadors/` (`leads`, `network`,
+> `teacher`, `tasks`, `materials`, `titles`, `badges`, `points`, `achievements`, `dashboard`,
+> `public`, `admin`), every model in `models/ambassadors/`, `services/ambassadors/{achievements,
+> titles,stats}.py`, `services/points.py`, `app/main.py`'s mount, and the frontend route guards in
+> `router.tsx` plus `pages/ambassadors/*`. This pass corrected a wrong lead-type claim, added the
+> missing `students_reached` badge criterion, documented the task approval state machine (not
+> previously described), and flagged a genuinely misleading column name and a stale code comment as
+> gotchas — see below.
+
 Lead-generation and gamified recruiting for ambassadors, who in turn recruit and manage teachers delivering workshops.
 
 ## Roles and permissions
 
-- **`admin`** — full control domain-wide: approves/rejects leads, views all leads/activity/leaderboard/points-log, manages titles and badges (CRUD), manages tasks (assign to any ambassador/teacher, approve/reject), can act on any network/session (bypasses ownership checks everywhere), edits `system_settings` (point-reward amounts), approves pending ambassador/teacher signups, views deep-dive stats per ambassador/teacher. Frontend: `/ambassadors/admin/*` pages (Network, Tasks, Leads, Sessions, Titles, Badges, Settings) plus `AdminAmbassador.tsx`.
-- **`ambassador`** — creates/edits/withdraws their own leads; sees only their own leads and comments; manages the teachers/instructors they've recruited (`/network/*`) — approves/rejects teacher applications, approves/rejects teacher sessions, marks materials sent; creates tasks for teachers they invited; browses/adds materials; sees a dashboard/leaderboard/achievements scoped to the ambassador audience. Frontend: `Dashboard.tsx`, `Leads.tsx`, `Network.tsx`, `network/teacher/$teacherId`, `Tasks.tsx`, `Leaderboard.tsx`, `Materials.tsx`.
-- **`teacher`** — creates/edits/cancels their own delivery sessions and marks them done; cannot see or act on leads or network-management endpoints; sees a teacher-scoped dashboard/leaderboard instead of the ambassador one. Frontend: `TeacherPortal.tsx`, `TeacherProfile.tsx`; blocked from `/leads` and `/network` by route guards.
+- **`admin`** — full control domain-wide: approves/rejects leads, views all leads/activity/leaderboard/points-log, manages titles and badges (CRUD), manages tasks (assign to any ambassador/teacher, approve/reject), can act on any network/session (bypasses ownership checks everywhere), edits `system_settings` (point-reward amounts), approves pending ambassador/teacher signups via `PUT /ambassadors/admin/users/{id}/status`, views deep-dive stats per ambassador/teacher (`GET /admin/users/{id}/ambassador-stats`/`teacher-stats`). Frontend: `/ambassadors/admin/*` pages (Network, Tasks, Leads, Sessions, Titles, Badges, Settings) plus `AdminAmbassador.tsx` (the ambassador/teacher deep-dive page, at `/ambassadors/admin/ambassador/$ambassadorId`).
+- **`ambassador`** — creates/edits/withdraws their own leads; sees only their own leads and comments; manages the teachers/instructors they've recruited (`/network/*`) — approves/rejects teacher applications, approves/rejects teacher sessions, marks materials sent; creates and assigns tasks to teachers they invited (and only teachers they invited — `tasks.py:46-48`); adds/edits/deletes materials (any ambassador can edit/delete any material's own upload, or an admin can edit/delete any material — `materials.py:16-26`); sees a dashboard/leaderboard/achievements scoped to the ambassador audience. Frontend: `Dashboard.tsx`, `Leads.tsx`, `Network.tsx`, `network/teacher/$teacherId`, `Tasks.tsx`, `Leaderboard.tsx`, `Materials.tsx`.
+- **`teacher`** — creates/edits/cancels their own delivery sessions and marks them done; cannot see or act on leads or network-management endpoints; can browse (but not add) the materials library like any other authenticated user (`materials.py:29-35`, no role check on `GET /materials`); sees a teacher-scoped dashboard/leaderboard instead of the ambassador one. Frontend: `TeacherPortal.tsx`, `TeacherProfile.tsx`; blocked from `/leads` and `/network` by route guards in `router.tsx`.
 
-The core split: ambassadors run the recruiting/lead pipeline and manage a downstream network of teachers; teachers only manage their own delivery sessions and never see leads or other users' data. Both share tasks, materials, leaderboard, and title/badge mechanics, scoped to their own audience.
+The core split: ambassadors run the recruiting/lead pipeline and manage a downstream network of teachers; teachers only manage their own delivery sessions and never see leads or other users' data. Both share tasks, materials, leaderboard, and title/badge mechanics, scoped to their own audience. Route guards (`frontend/src/router.tsx`, `ambassadorsLayoutRoute`) admit `ambassador`/`teacher`/`admin` at `/ambassadors/*`, with `/leads` and `/network*` further restricted to `ambassador`/`admin`, and `/admin/*` restricted to `admin`; a `teacher` landing on bare `/ambassadors` is redirected straight to `/ambassadors/teacher-portal`.
 
 ## Key flows
 
 ### Leads
 
-A `Lead` is a prospective B2B company or B2C individual contact an ambassador submits (`type`: `B2B` / `distributor`; company required for B2B). Created via `POST /leads` (status starts `submitted`), which notifies admins. The ambassador can edit while still `submitted`, and withdraw while `submitted`/`in review`. Admin moves it through `submitted` → `in review` → `converted`/`closed`. On the transition to `converted` (guarded to fire once via a `points_awarded` flag), the owning ambassador is awarded points (`lead_points_reward`, default 1000, configurable in `system_settings`), and badge/achievement checks run. Reverting from `converted` reverses the points. Comments on a lead are threaded and notify the other party.
+A `Lead` is a prospective B2B company or B2C individual contact an ambassador submits. `type` is a
+free-text string, not a DB enum — the frontend (`Leads.tsx`) only ever sends `"B2B"` or `"B2C"`, and
+the backend only special-cases `"B2B"` (company required; `leads.py:41-42`). **The model's own inline
+comment is stale** (`models/ambassadors/lead.py:15`: `# 'B2B', 'distributor'`) — nothing in the
+running code sends or checks `"distributor"`; treat the comment as aspirational/outdated, not as the
+real value set. Created via `POST /leads` (status starts `submitted`), which notifies admins. The
+ambassador can edit while still `submitted`, and withdraw while `submitted`/`in review`. Admin moves
+it through `submitted` → `in review` → `converted`/`closed` (`PUT /leads/{id}/status`, any of these
+four literal strings — no server-side enum validation beyond that fixed set). On the transition to
+`converted` (guarded to fire once via a `points_awarded` flag), the owning ambassador is awarded
+points (`lead_points_reward`, default 1000, configurable in `system_settings`), and badge/achievement
+checks run. Reverting from `converted` (to any other status) reverses the points — deleting a
+`points_awarded` lead does too. Comments on a lead are threaded and notify the other party (admin
+comments notify the owning ambassador; ambassador comments notify every admin).
 
 ### Points/titles/badges
 

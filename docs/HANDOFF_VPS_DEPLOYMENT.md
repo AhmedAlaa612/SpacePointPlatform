@@ -374,9 +374,11 @@ actual portal access, not just a repo read.
 - HTTP/2 not confirmed enabled (`listen 443 ssl;` vs `listen 443 ssl http2;` on nginx 1.24) —
   still an open item, not addressed by this round of work.
 - **Still outstanding, only this**: the Phase F load test from
-  `docs/HANDOFF_COMPETITION_DAY_DEPLOY.md` (synthetic concurrent-request test + a real multi-viewer
-  playback test) has not been run yet against the now-fully-migrated content. Everything else on
-  that runbook's go/no-go checklist is done.
+  `docs/archive/HANDOFF_COMPETITION_DAY_DEPLOY.md` (synthetic concurrent-request test + a real
+  multi-viewer playback test) has not been run yet against the now-fully-migrated content.
+  Everything else on that runbook's go/no-go checklist is done. **[2026-09-17] Not re-checked this
+  pass** — whether this load test ran at any point since 2026-09-05 needs someone with the actual
+  event/production history, not a repo read.
 - Old local HLS output for already-migrated videos is still on disk (`source_bucket`/`source_path`
   are deliberately never deleted, for rollback safety) — reclaiming that space is explicitly
   deferred to after the competition, not an oversight.
