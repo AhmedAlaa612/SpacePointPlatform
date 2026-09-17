@@ -21,9 +21,8 @@ race fix `quiz.py` already had (PR #88, 2026-09-16); a whole new sibling domain,
 Knowledge Quiz (§19), shipped this month and had no mention here at all. **Ground Station**
 (hardware/device pairing/websocket telemetry/commands/alerts — `backend/app/{models,routers,
 services}/ground_station/`) is now documented separately in
-[`HANDOFF_GROUND_STATION.md`](./HANDOFF_GROUND_STATION.md) (a parallel doc pass, may not exist
-yet at the exact moment you're reading this) — this file only covers the *checklist-item* side
-of a `ground_station`-kind mission (§18), not the console/rig internals.
+[`HANDOFF_GROUND_STATION.md`](./HANDOFF_GROUND_STATION.md) — this file only covers the
+*checklist-item* side of a `ground_station`-kind mission (§18), not the console/rig internals.
 
 ---
 

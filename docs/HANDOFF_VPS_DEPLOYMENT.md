@@ -301,47 +301,46 @@ current picture, which is more specific than this doc needs to restate).
 
 ## 7. R2 video storage (added 2026-09-05, PR #44 + follow-ups)
 
-Every video (LMS module, Library, checklist guideline, facilitator Training) now runs through the
-same `video_service` pipeline: compress to 1080p h264/aac, 10s HLS segments, and land on **one of
-two backends per row**, tracked by `videos.storage_backend` (`"r2"` or `NULL`/local) — there is no
-global on/off switch, and there never will be; it's an incremental, reversible, per-video decision.
+**[2026-09-17] Full current architecture has moved to its own living doc:
+[`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md).** This was previously the only place any of this was
+written down (plus two now-archived event runbooks); it no longer needs to be, so this section is
+now just the operational facts a person deploying to the VPS specifically needs, cross-checked
+against the code this pass. For the full picture — upload/transcode pipeline, the per-video
+storage-backend column, playback token/playlist/segment/key endpoints, encode settings and why —
+go to `HANDOFF_VIDEO.md`.
 
-- **One R2 bucket for everything.** `storage_r2.py` maps `(app_bucket, path)` → key
-  `f"{app_bucket}/{path}"` inside a single real R2 bucket (`R2_BUCKET` in
-  `/etc/spacepoint/env`) — app-level "buckets" are just key prefixes, same convention as local
-  storage.
-- **`source_bucket`/`source_path` always point at local disk, never R2, and are never deleted** —
-  deliberate: it's the rollback path. `playlist_path`/`key_path` (the HLS output actually served to
-  students) is the only thing that differs per backend.
-- **Old local HLS output for already-migrated videos is deliberately kept on disk, not cleaned
-  up** — reclaiming that space is explicitly deferred to after the competition, not a bug or an
-  oversight if `df -h /var/lib/spacepoint` still looks full post-migration.
-- **Migration/status tool**: `python -m scripts.video_migrate_to_r2` (run inside `spacepoint-api`
-  or `spacepoint-worker`, per its own docstring) — `--status`, `--sizes` (real object sizes/ratios,
-  read-only, no download), `--convert`/`--reencode --course <id>` (enqueues onto
-  `arq:queue:video`, drained by `spacepoint-worker-video`, `max_jobs=1` so it's strictly serial —
-  batch per course, not all at once), `--move --to vps --video-id <id>` (the actual rollback path).
-  **All 130 pre-existing videos were migrated this way as of 2026-09-05** — `--sizes` showed
-  ~34.6GB source → ~3GB output (≈9% of original, ~31.6GB saved), ratios in the 6-11% range across
-  every course, all confirmed `on=r2`.
-- **Known real bug, fixed**: the migration script's `--convert`/`--reencode` originally called
-  `redis.enqueue_job()` directly without `_queue_name="arq:queue:video"`, landing jobs on the
-  default queue neither worker consumed — they'd sit at `status='pending'` indefinitely with no
-  error. Fixed in the same PR that added the script; if a job is ever seen stuck `pending` for more
-  than a couple minutes, this is the first thing to check (re-running `--reencode` for that one
-  video id re-enqueues it correctly).
+**What still belongs here, VPS-side:**
+
+- **R2 credentials must be in `/etc/spacepoint/env` *before* any container carrying this code is
+  (re)created** — confirmed in code: `video_service.py::_NEW_UPLOAD_BACKEND = "r2"` means every
+  fresh video upload targets R2 unconditionally (not opt-in, not gated by a setting), so a
+  container started without working `R2_ACCOUNT_ID`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/
+  `R2_BUCKET` fails every video upload outright the moment someone tries one (`storage_r2.py`
+  raises `RuntimeError` from `_client()`/`_endpoint()` if any are missing). Remember §2's trap:
+  the env file is only read at container creation.
+- **R2 bucket CORS** must list the real production domains (`https://portal.spacepoint.ae`,
+  `https://lms.spacepoint.ae`), not just `localhost` from local dev — otherwise hls.js fails every
+  segment fetch with a generic, misleading error. Set via Cloudflare dashboard → R2 → bucket →
+  Settings → CORS Policy. (This is a Cloudflare-dashboard fact, not something checked into the
+  repo — not re-verified this pass.)
+- **Migration/status tool**: `python -m scripts.video_migrate_to_r2`, run inside `spacepoint-api`
+  or `spacepoint-worker` (confirmed present at `backend/scripts/video_migrate_to_r2.py` this
+  pass — flags are `--status`, `--sizes`, `--link-legacy-library`, `--move --to r2|vps`,
+  `--convert`, `--reencode`; see `HANDOFF_VIDEO.md` for what each does).
 - **R2 dashboard "Metrics" tab is not real-time and is not proof of anything being wrong.**
   `Average Storage`/`Data Retrieved` are periodic snapshots that can show `0 B` for up to ~24h
   after a real migration, even while `Class A/B Operations` and `Request Distribution` correctly
   show live non-zero traffic immediately. Trust `--sizes` (reads the actual bucket contents) or the
   dashboard's **Objects** tab (real listing) over the **Metrics** tab if they ever seem to
   disagree.
-- **CORS** on the bucket must list the real production domains (`https://portal.spacepoint.ae`,
-  `https://lms.spacepoint.ae`), not just `localhost` from local dev — otherwise hls.js fails every
-  segment fetch with a generic, misleading error. Set via Cloudflare dashboard → R2 → bucket →
-  Settings → CORS Policy.
-- See `docs/HANDOFF_VIDEO_R2_EXECUTION.md` for the original design/encode-settings rationale and
-  `docs/HANDOFF_COMPETITION_DAY_DEPLOY.md` for the runbook this was actually executed against.
+- **As of 2026-09-05, 130 pre-existing videos across all 9 courses were migrated this way** —
+  `--sizes` showed ~34.6GB source → ~3GB output (≈9% of original, ~31.6GB saved). This is a
+  point-in-time fact, not re-measured this pass (no VPS/R2 access) — current real counts need a
+  fresh `--status`/`--sizes` run on the VPS.
+- The original design rationale (why 10s segments, why the remux-gate fix, encode settings) and
+  the runbook this was executed against are now in `docs/archive/HANDOFF_VIDEO_R2_EXECUTION.md`
+  and `docs/archive/HANDOFF_COMPETITION_DAY_DEPLOY.md` — retired, historical, not living docs
+  (see `docs/archive/README.md`). `HANDOFF_VIDEO.md` is what carries forward from them.
 
 ---
 
@@ -350,7 +349,12 @@ global on/off switch, and there never will be; it's an incremental, reversible, 
 A point-in-time snapshot — verify against `git log`, `docker ps`, and the actual site before
 trusting this section specifically (everything above it is architecture/mechanism and ages much
 slower than this list). Supersedes the 2026-08-10 snapshot this section used to hold; the items
-below either close out or update items from that list.
+below either close out or update items from that list. **[2026-09-17] Left as-is from the
+2026-09-05 pass** — it's explicitly a dated snapshot, not a claim about today. The one item worth
+flagging: the "Three-way Add-resource UX" and R2-migration bullets below are consistent with the
+code read for this pass (§6-§7, `HANDOFF_VIDEO.md`), so nothing here looked wrong, but nobody
+re-walked the live site this session to confirm current behavior — that needs a human/agent with
+actual portal access, not just a repo read.
 
 - `lms.spacepoint.ae` is live, per §4's pattern.
 - LMS Phase 1 is functionally complete and deployed — course content, video pipeline, quizzes,
@@ -381,15 +385,27 @@ below either close out or update items from that list.
 
 ## 9. Related docs
 
+**[2026-09-17] Updated** — the three video/R2 runbooks this section used to point at were moved
+to `docs/archive/` on this date (retired, event-specific, superseded by a living doc); links below
+reflect their current location.
+
 - **`docs/HANDOFF.md`** (this repo) — general repo orientation; §11 points here for deploy detail.
 - **`docs/HANDOFF_LMS.md`** (this repo) — LMS/Missions/Games architecture, including the
   TCP-congestion-control video-latency lesson (§2).
-- **`docs/HANDOFF_VIDEO_R2_EXECUTION.md`** (this repo) — original R2 design doc: encode settings,
-  segment-length reasoning, bucket-region tradeoffs. §5.3's rollback section is superseded by the
-  per-video `storage_backend` design actually shipped — see §7 above.
-- **`docs/HANDOFF_COMPETITION_DAY_DEPLOY.md`** (this repo) — the runbook this rollout was actually
-  executed against; its go/no-go checklist tracks what's still open (as of 2026-09-05, just the
-  Phase F load test).
+- **[`docs/HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md)** (this repo) — **the current living doc** for
+  video storage/delivery architecture: upload, transcode pipeline, the per-video storage-backend
+  column, playback token/playlist/segment/key endpoints, encode settings. Start here for anything
+  video-related instead of §6/§7 above, which are now just the VPS-operational subset.
+- **`docs/archive/HANDOFF_VIDEO_R2_EXECUTION.md`** (moved from `docs/`, 2026-09-17) — the original
+  R2 design doc: encode-settings rationale, segment-length reasoning, bucket-region tradeoffs.
+  Historical — executed, and superseded as a living reference by `HANDOFF_VIDEO.md`. Its §5.3
+  rollback section was already superseded in-repo by the per-video `storage_backend` design
+  actually shipped (see §7 above) before the archive move.
+- **`docs/archive/HANDOFF_COMPETITION_DAY_DEPLOY.md`** (moved from `docs/`, 2026-09-17) — the
+  runbook the 2026-09-05 rollout was actually executed against. That deploy happened; this is now
+  history, not a live checklist.
+- **`docs/archive/README.md`** — index of what's archived and why, written the same day these two
+  moved.
 - **`HANDOFF_PRODUCTION_LIVE.md`, `vps_envs.md`, `secrets.md`** — real credentials and
   point-in-time infra snapshots. **Not in this repo, by design** (§0). If you're an agent without
   access to those files, the architecture in this doc is enough to reason about the system; you
