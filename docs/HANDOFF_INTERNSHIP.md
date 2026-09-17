@@ -2,6 +2,15 @@
 
 Back to [`HANDOFF.md`](./HANDOFF.md).
 
+> Status: verified 2026-09-17 against `routers/internship.py`, `models/internship.py`,
+> `services/internship/{approval,allowed_role_requests,ref_number}.py`, the intern-application hooks
+> in `routers/admin/applications.py` and `routers/instructors/admin.py::review_applicant`, and the
+> frontend (`PersonalDocuments.tsx`, `RoleRequests.tsx`, `Applications.tsx`,
+> `components/InternshipLetterFields.tsx`). This doc was already accurate in detail; this pass found
+> no incorrect claims — only additions (a gotchas section) and softened one unverifiable specific
+> number. Cross-link to `HANDOFF_INSTRUCTORS.md` §"In-app contract signing" still resolves — that
+> section still exists there.
+
 Not the interns kanban domain ([`HANDOFF_INTERNS.md`](./HANDOFF_INTERNS.md) — projects, epics,
 tasks, teams — a completely different bounded context that just happens to share the word
 "intern"). This is the HR-side pipeline: a person requests the `intern` role, an admin reviews
@@ -57,8 +66,8 @@ dispatches on `target_role` — today only `"intern"` has a handler
    auto-incrementing per calendar year, row-locked, admin-overridable (override to `Y` and the
    next auto-number in that year becomes `Y + 1`; rolls over to `1` on the first approval of a new
    year). Lazily seeded per year from the highest `ref_number` already on `intern_profiles`, which
-   is what lets the bulk-imported historical rows (up to `85/2026`) and this counter coexist
-   without a separate seeding step.
+   is what lets the bulk-imported historical rows (whatever the highest imported ref number for that
+   year happens to be) and this counter coexist without a separate seeding step.
 4. Generates the unsigned letter (`services/documents/internship_letter.py` — docxtpl fills
    `app/static/templates/docx/internship_letter.docx` -> LibreOffice -> PDF, same technique as
    `services/documents/contract.py`, including the anchored-signature-image trick), uploads to the
@@ -157,6 +166,42 @@ treatment `resolve_internship_request_fields` applies for the real approve flow 
 request also carries `requested_duration_weeks` (same fallback pattern the "Start date override"
 field's UI already used) since an admin who hasn't typed a duration yet should still see the
 applicant's real number in the preview, not 0.
+
+## Gotchas
+
+- **The role grant reassigns the array rather than appending in place**
+  (`services/internship/approval.py:92-93`, `approve_internship`: `user.roles = list(user.roles or
+  []) + [UserRole.intern]`) — same SQLAlchemy change-tracking gotcha called out for
+  `onboard_application` in the instructors domain: mutating `user.roles` with `.append()` wouldn't be
+  seen as a change by SQLAlchemy's ORM, so it must be reassigned.
+- **`activity_description` has no admin-facing form field at all** (`components/
+  InternshipLetterFields.tsx:10-16`) — it's hardcoded to `"research and development"` in
+  `emptyInternshipApprove()` and never rendered, even though `InternshipApprove.activity_description`
+  is a real, independently-settable field on the schema. A future direction change (real activities per
+  intern) needs a form field added here, not just a schema/backend change.
+- **`resolve_internship_request_fields` never overrides `start_date`**, even when
+  `approve.start_date_override` is set (`services/internship/approval.py:41-44`, explicit in the
+  docstring) — it always returns the raw *requested* date, because `resolve_start_date()` downstream
+  needs both the requested date and the override to apply the day-after-approval rule. Reading just
+  this function in isolation can look like a bug (override being ignored); it isn't — check
+  `approve_internship()`'s call to `resolve_start_date()` too.
+- **The "Start date override" field defaults to showing the requester's date but is NOT actually
+  set** (`routers/internship.py` docstring @ "Start date resolution" section above) — the underlying
+  `start_date_override` stays `None` until the admin edits the field, so the auto-resolve rule still
+  runs. Don't assume a populated-looking date input means an override is active.
+- **`peek_next_ref_number` can drift under concurrent approvals** (`services/internship/ref_number.py:46-48`,
+  explicit in the docstring) — it reads the counter without locking, purely for the preview PDF. This
+  is fine (cosmetic only) but don't repurpose it for anything that needs a guaranteed-correct number.
+- **Path 2's `pending_intern_details` silently no-ops if empty** (`routers/instructors/admin.py`,
+  the `also_grant_role == "intern"` branch) — an `ApplicantProfile` built some other way (e.g. seeded
+  directly, not through `onboard_application`) still gets the `intern` role granted with no letter and
+  no crash. Don't assume every `also_grant_role == "intern"` approval produces an internship letter.
+- **`GET /intern/internship-letter` and `POST /intern/internship-letter/sign` both use `require_intern`**,
+  the same dependency the *interns kanban* domain's `/interns/intern/*` routes use
+  (`app/core/dependencies.py`: `require_intern = RequireRole(["intern", "leader"])`) — it also passes
+  a `leader` from the *other* domain. That's almost certainly harmless here (a kanban team leader who
+  also happens to hold the HR `intern` role would just see their own letter), but it's a shared
+  dependency object, not something this domain defines itself.
 
 ## Main DB tables
 

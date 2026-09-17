@@ -8,15 +8,36 @@ one of the largest surfaces in the codebase (courses, missions, live quiz games,
 component catalog, student accounts) with no map of its own until now. If you're here because
 `HANDOFF.md` §7 pointed you at a table you don't recognize, this is where it lives.
 
+**2026-09-17 verification pass**: this file was checked line-by-line against the current code
+(not rewritten from scratch — most of it still held up). What changed this pass: the
+`LearnNav.tsx` references in §1 were stale (deleted 2026-09, replaced by `LearnSidebar.tsx` +
+`LearnMobileTabBar.tsx` — see §1); `Mission.kind` picked up a seventh value, `ground_station`
+(§4); the staff-can-view-any-attempt-but-not-submit authorization
+(`routers/missions/student.py::get_mission_attempt`, PR #86) and the `mission_kind`-gated
+"View run"/"Open console" split on the ops Progress tab (`services/lms/program.py::
+assignment_item_detail`, PR #87) are both real and confirmed present — both added 2026-09-16;
+`services/lms/progress.py::_create_progress_row` picked up the same SAVEPOINT-and-retry-select
+race fix `quiz.py` already had (PR #88, 2026-09-16); a whole new sibling domain, the Cohort
+Knowledge Quiz (§19), shipped this month and had no mention here at all. **Ground Station**
+(hardware/device pairing/websocket telemetry/commands/alerts — `backend/app/{models,routers,
+services}/ground_station/`) is now documented separately in
+[`HANDOFF_GROUND_STATION.md`](./HANDOFF_GROUND_STATION.md) — this file only covers the
+*checklist-item* side of a `ground_station`-kind mission (§18), not the console/rig internals.
+
 ---
 
 ## 1. Two surfaces, one backend
 
-- **`/learn`** — the student-facing app. Own shell (`LearnShell.tsx` + `LearnNav.tsx`), own
-  login/signup, mounted **outside** the portal's `AppShell`/`Sidebar` — same precedent as
-  `ApplicantShell`. Mobile-first: content is full-bleed, a bottom tab bar on phones. **Import
-  discipline**: nothing under `frontend/src/pages/learn/**` may import
-  `components/layout/Sidebar` or anything under `pages/operations/**`.
+- **`/learn`** — the student-facing app. Own shell (`LearnShell.tsx`), own login/signup, mounted
+  **outside** the portal's `AppShell`/`Sidebar` — same precedent as `ApplicantShell`. Desktop nav
+  is a fixed `LearnSidebar.tsx` (2026-09, Roadmap board redesign — replaced the old horizontal
+  `LearnNav.tsx`, which is deleted); mobile is unchanged, `pages/learn/nav/LearnMobileTabBar.tsx`,
+  a bottom tab bar. Both pull their link list from `pages/learn/nav/navItems.ts` and share the
+  "Back to portal" button/profile menu/notifications bell from `pages/learn/nav/LearnNavShared.tsx`
+  — hidden for students, since `/learn` already is home for them. **Import discipline**: nothing
+  under `frontend/src/pages/learn/**` may import `components/layout/Sidebar` (the portal's own)
+  or anything under `pages/operations/**` — `LearnSidebar.tsx` copies the portal sidebar's width/
+  spacing/classes by hand rather than reusing it, on purpose (see that file's own docblock).
 - **`/lms-authoring`** — staff-facing authoring/admin, reached from the portal's normal
   `AppShell`. Courses, missions, the component library, games, progress, invite codes.
 - **`student` is its own role** (`backend/app/models/enums.py::UserRole`), added in the LMS
@@ -79,6 +100,18 @@ redesign, 2026-08-21, which replaced `program_curriculum`/`cohort_curriculum` ou
   app.** Switching to BBR took first-segment load from 11.2s to 1.7s. If HLS playback feels slow
   again, check `sysctl net.ipv4.tcp_congestion_control` on the VPS before assuming the pipeline
   regressed — this exact symptom looks identical to a transcode/CDN problem from the app side.
+- **`item_progress` get-or-create race, fixed 2026-09-16**: `services/lms/progress.py::
+  _create_progress_row` (called by `_progress_row`, the get-or-create every `POST
+  /lms/items/{id}/progress` call goes through) used to be a plain SELECT-then-INSERT — two
+  near-simultaneous requests for the same `(user_id, item_id)` (a double-click, a flaky client
+  retry) could both miss the SELECT and both INSERT, and the loser 500'd on
+  `uq_item_progress_user_item`. Fixed by wrapping the insert in `db.begin_nested()` (a SAVEPOINT)
+  and re-`SELECT`ing on `IntegrityError` instead of letting it bubble — a lost race now just
+  returns the winner's row. `services/lms/quiz.py::_create_progress_row` already had this exact
+  shape (and `certificates.py::issue_course_certificate` has a third copy of the same idiom);
+  `progress.py`'s own get-or-create was the one place it hadn't been ported to yet. If you add a
+  fourth get-or-create against a uniquely-constrained table anywhere in this domain, use this
+  pattern from the start rather than waiting for the 500 to show up in production.
 - A course attaches to the Sessions domain's Programs/Cohorts (see `HANDOFF_SESSIONS.md`) as one
   `course`-type item inside an **LMS Program checklist** now — §11 below — a different attachment
   path than a student's own enrollment.
@@ -109,13 +142,38 @@ budget (`design_data_budget_entries`, `_power_`, `_mass_`, `_cost_`, `_link_budg
 Team identity (`learner_teams`, `learner_team_members`) is **not** listed here — it moved out to
 a top-level, domain-agnostic model since 2026-08-17 (see the Team generalization bullet below).
 
-- **`Mission.kind`** ∈ `design | submission | quiz | checklist | operate | external`
-  (`VERIFIER_KINDS`, `services/missions/verifiers/__init__.py`) — one verifier module per kind
-  (`verifiers/design.py`, `operate.py`, `quiz.py`, `submission.py`) grades/dispatches an
-  attempt. A `missions` row has no `mission_id` per student — **all of a design mission is one
-  `missions` row**, `kind='design'`, with up to three `mission_variants` (difficulty levels:
-  Cadet/Engineer/Flight Director) a student picks from. Don't create a mission per cohort or
-  per subsystem.
+- **`Mission.kind`** ∈ `design | submission | quiz | checklist | operate | external | ground_station`
+  (`schemas/missions_admin.py::MissionKind` — the authoritative list; `Mission.kind`'s own
+  docstring/inline comment in `models/missions/mission.py` is stale, still says
+  `design|submission|quiz|checklist|external`, missing both `operate` and `ground_station` — a
+  code comment bug, not a behavior one). `VERIFIER_KINDS`
+  (`services/missions/verifiers/__init__.py`) is a narrower set — `{submission, quiz, checklist,
+  design, operate, external}` — one verifier module per kind (`verifiers/design.py`, `operate.py`,
+  `quiz.py`, `submission.py`) grades/dispatches an attempt through `decide_attempt`/`submit_*`.
+  **`ground_station` is deliberately not in that set**: it has no grading/points path at all — a
+  ground_station attempt is flipped straight from `in_progress` to `passed` by the student's own
+  `POST /ground-station/attempts/{id}/complete` (`routers/ground_station/attempts.py`, "self-serve
+  done for checklist tracking... `score` stays null and nothing runs through `decide_attempt`/
+  `award_points`"). See §18 for how that surfaces on the LMS checklist side; hardware/device/
+  telemetry/command internals are `HANDOFF_GROUND_STATION.md`'s, not this file's. A `missions` row
+  has no `mission_id` per student — **all of a design mission is one `missions` row**,
+  `kind='design'`, with up to three `mission_variants` (difficulty levels: Cadet/Engineer/Flight
+  Director) a student picks from. Don't create a mission per cohort or per subsystem.
+- **Staff can view (never submit) any mission attempt** (`routers/missions/student.py::
+  get_mission_attempt`, PR #86, 2026-09-16) — `GET /missions/attempts/{id}` checks
+  `is_staff(current)` (`services/missions/authorization.py` — admin/operations/facilitator)
+  *before* falling back to the owner-or-team-member check `_own_attempt` does; a staff caller
+  skips ownership entirely and can load any attempt by id. Real motivation: Ground Station ops
+  watching a student's live run 404'd on this endpoint before the fix (staff isn't the attempt's
+  owner and isn't on its team roster). **`POST /missions/attempts/{id}/submit` was deliberately
+  left owner-only** — `submit_mission_attempt` still calls the strict `_own_attempt`, no
+  `is_staff` bypass — so staff can look but can't grade-by-submitting on a student's behalf
+  through this path. Note this generic endpoint returns the generic `MissionAttemptOut`, not a
+  kind's full console state — the design (`/missions/design/attempts/{id}`) and operate
+  (`/missions/operate/attempts/{id}`) routes each layer their *own*, still strictly owner-only
+  `_own_design_attempt`/`_own_operate_attempt` on top of `_own_attempt` and don't carry this
+  bypass; staff view a design run's real detail through the separate admin/instructor
+  `.../attempts/{id}/design-detail` routes instead (§14), not by pretending to be the owner here.
 - **Design mission** — pick components from `design_component_library` (the real Madar catalog
   — see §6), balance six budgets (data/power/mass/cost/link/energy), CONOPS modes. Frozen
   snapshot per design (F2): a finished design keeps the specs it was built with even if the
@@ -303,29 +361,46 @@ budget entries; this one only hides it from new picks.
 
 ```
 frontend/src/pages/learn/          # student surface
-  LearnShell.tsx, LearnNav.tsx     # own shell/nav — see import-discipline note in §1
-  LearnLanding.tsx                 # /learn home — hero is <SatkitAssembly>, see §9
-  LearnCatalog.tsx, LearnCourse.tsx, LearnPlayer.tsx, LearnPaths.tsx, LearnProgram.tsx
+  LearnShell.tsx                    # own shell — see import-discipline note in §1
+  LearnSidebar.tsx                  # desktop nav (2026-09, replaces deleted LearnNav.tsx)
+  nav/  LearnMobileTabBar.tsx, LearnNavShared.tsx, navItems.ts   # mobile nav + shared nav bits
+  LearnLanding.tsx                  # /learn home — hero is <SatkitAssembly>, see §9
+  LearnCatalog.tsx, LearnCourse.tsx, LearnMyCourses.tsx, LearnPaths.tsx, LearnPath.tsx,
+  LearnProgram.tsx, LearnCheckoutSuccess.tsx
+  PlayerLayout.tsx, LearnPlayer.tsx, ItemPane.tsx, VideoPlayer.tsx, Rail.tsx,
+  CourseProgress.tsx, CompletionCelebration.tsx     # course-player pieces, split out of LearnPlayer
+  LearnChecklists.tsx               # /learn/checklists list — §11
+  board/  RoadmapBoard.tsx, TileField.tsx, TraceLayer.tsx, TaskDrawer.tsx, TaskTile.tsx,
+          NextTaskCard.tsx, FinalGateBar.tsx, roadmap.ts   # the gated visual board — §17
   MissionCatalog.tsx, MissionPage.tsx, DesignMissionPage.tsx, DesignBriefingPage.tsx
+  missions/  MadarPhaseBoard.tsx, MadarPhaseDrawer.tsx   # phase-tile view embedded in DesignMissionPage
   OperateMissionPage.tsx, OperateBriefingPage.tsx, OperateDebriefPanel.tsx
-  LearnGames.tsx, GamePlay.tsx, LearnLeaderboard.tsx
+  GroundStationAttemptPage.tsx      # `mission_kind="ground_station"` console — internals in
+                                     # HANDOFF_GROUND_STATION.md, not here; see §18
+  LearnGames.tsx, GamePlay.tsx, LearnLeaderboard.tsx, CohortQuizPage.tsx   # §19
+  LearnLogin.tsx, LearnSignup.tsx, ForgotPassword.tsx, LearnSetPassword.tsx, LearnProfile.tsx
 
 frontend/src/pages/lms-authoring/  # staff surface (+ instructor — role-aware end-to-end, see §14)
-  LmsCourses.tsx, LmsCourseDetail.tsx, LmsCurriculum.tsx, LmsLearningPaths.tsx
+  LmsCourses.tsx, LmsCourseDetail.tsx, LmsModuleDetail.tsx, LmsLearningPaths.tsx,
+  LmsLearningPathDetail.tsx
   LmsMissions.tsx, LmsMissionDetail.tsx, LmsDesignLibrary.tsx   # the component library editor
-  LmsGames.tsx, LmsGameDetail.tsx
+  LmsGames.tsx, LmsGameDetail.tsx, LmsCohortQuizAdmin.tsx   # "Quiz Bank" nav item, §19
   LmsProgressGrid.tsx, LmsStudents.tsx, LmsStudentDetail.tsx
   LmsInviteCodes.tsx
   LmsProgramAdmin.tsx   # curriculum route (§11) — checklist authoring + progress/gates/review, see §14
                          # (CohortMissions.tsx, listed here pre-2026-08-22, is deleted — merged into this)
+  components/  AssignPanel.tsx, DesignRunDetail.tsx, ItemPicker.tsx, LmsChecklistAuthoring.tsx,
+               LmsCohortSection.tsx, LmsComponentConfigPanel.tsx, LmsProgressAndMissions.tsx,
+               MissionAuthorsSection.tsx, MissionContentSection.tsx, PrerequisitesSection.tsx
 ```
 
-Ops-role sidebar nav order (`Sidebar.tsx`, 2026-08-22): Courses, Learning Paths, Programs, Live Quiz,
-Missions, Students, Invite Codes, Progress, Component library. Says **"LMS"**, not "LMS Courses" —
-it covers all of the above now, not just courses. Plain-instructor nav (2026-08-22): Overview,
-Sessions, Library Resources, Personal Documents, Instructor ID Card, Payments, **LMS Programs**
-(renamed from "Programs"), Learn, SatKit Training, My Kits & Items — a different audience from the
-ops nav, deliberately reordered/renamed separately.
+Ops-role sidebar nav order (`Sidebar.tsx`'s `LMS_GROUP`, checked 2026-09-17): Courses, Learning
+Paths, Programs, Live Quiz, **Quiz Bank** (`/lms-authoring/quiz-bank`, new 2026-09 — §19), Missions,
+Students, Invite Codes, Progress, Component library. Says **"LMS"**, not "LMS Courses" — it covers
+all of the above now, not just courses. Plain-instructor nav (2026-08-22): Overview, Sessions,
+Library Resources, Personal Documents, Instructor ID Card, Payments, **LMS Programs** (renamed from
+"Programs"), Learn, SatKit Training, My Kits & Items — a different audience from the ops nav,
+deliberately reordered/renamed separately.
 
 ## 9. The `/learn` hero (`frontend/src/components/satkit/`)
 
@@ -385,10 +460,16 @@ what used to be the separate `CohortMissions.tsx` page, now deleted).
 - **Item types**: `course` (enrolls immediately on assignment — sequence position governs
   checklist display/certificate-gating only, never actual access), `mission_run` (ops-assigned via
   the endpoint below, never student-started), `external_link`, `submission` (paste-a-link-back,
-  same shape as the Poster tab), `article`, `manual`. `optional` items don't block the
+  same shape as the Poster tab), `article`, `manual`, plus two added since (both
+  `AUTO_TRACKED_TYPES` in `services/lms/program.py`, meaning their status is computed, never
+  self-checked): `quiz` (2026-09 — a Cohort Knowledge Quiz template, §19; done once submitted,
+  score never gates the checklist) and `team_setup` (2026-09-14, Competition team onboarding —
+  always `scope="team"`, the one item type where that's enforced rather than optional; see
+  `HANDOFF_COMPETITIONS.md`, this isn't an LMS-domain feature). `optional` items don't block the
   certificate; `requires_confirmation` items need an instructor/ops confirm click instead of the
   student's own self-check (self-check is the default everywhere else — operator call: "not
-  everything can be trackable").
+  everything can be trackable"). Only `submission`/`external_link`/`manual`/`mission_run`/
+  `team_setup` can be `scope="team"` — `course` and `quiz` are always individual.
 - **Assignment is automatic, at registration time** — `sync_registration_lms` calls
   `assign_lms_program()` exactly where it used to call `enroll_in_cohort_curriculum()`. A cohort
   with no attached checklist is a no-op, same as before. Items are materialized once, at
@@ -821,3 +902,88 @@ other eight, not a step of its own to confirm).
   gated this page's own display and never reached the Roadmap board's checklist-item completion —
   the gap this amendment closes) and calls `confirmDesignStep` on the Complete button, disabled
   until `tabIsDone` says the step's real requirements are met.
+
+## 18. `ground_station`-kind missions on the LMS checklist (2026-09)
+
+**Hardware pairing, device ownership, websocket telemetry, thresholds/alerts and the live
+command console are documented in [`HANDOFF_GROUND_STATION.md`](./HANDOFF_GROUND_STATION.md)**
+(`backend/app/{models,routers,services}/ground_station/`, `frontend/src/pages/ground-station/`,
+`frontend/src/pages/learn/GroundStationAttemptPage.tsx`) — not here. This section covers only how
+a `ground_station`-kind mission surfaces as an ordinary `mission_run` checklist item, since that
+plumbing is genuinely this file's (`services/lms/program.py`).
+
+- **Attempt lifecycle is generic, not kind-specific**: a `ground_station` mission is created,
+  gated by readiness/access_mode, and its `MissionAttempt` started through the exact same
+  `start_attempt()`/`assign_mission_run()` paths every other kind uses (§4) — `ground_station` was
+  deliberately left out of `VERIFIER_KINDS` (§4) because it never gets *graded*, but it's a normal
+  `Mission`/`MissionAttempt` row in every other respect: cohort attribution, prerequisites, ops
+  assignment via `POST /missions/admin/attempts/assign`, all unchanged.
+- **"Done" on the checklist is `attempt.status == "passed"`, set by the student's own self-serve
+  complete call** — `POST /ground-station/attempts/{id}/complete`
+  (`routers/ground_station/attempts.py::complete_attempt`), idempotent, no `mission_step_key`
+  involved (a ground_station `mission_run` item is always whole-mission, never phase-split the way
+  a design item can be). `services/lms/program.py::_mission_run_item_done` reads this the same
+  way it reads any other kind's plain "attempt passed" case — the design-specific
+  dashboard/confirmed-steps branch (§17) never runs for a `ground_station` attempt. **No points,
+  no `decide_attempt`, no verifier runs** — marking a ground_station run done only flips the one
+  field the checklist auto-tracking reads; if this domain ever needs to actually grade a
+  ground_station run (vs. today's "did the exercise" completion), that's new work, not a flag flip.
+- **The ops Progress tab's "View run" vs. "Open console" split** (`components/
+  LmsProgressAndMissions.tsx::AssignmentItemRow`, PR #87, 2026-09-16) — `assignment_item_detail()`
+  (`services/lms/program.py`) threads `mission_kind` onto every item it returns (a fresh `Mission`
+  lookup keyed by `item.mission_id`, batched once per call, not per item). The row picks the button
+  by that field: `mission_kind === "design"` → **View run** (`DesignRunDetail`, reads a `Design`
+  row via the design-detail endpoints, §14); `mission_kind === "ground_station"` → **Open console**
+  (navigates straight to `/learn/missions/ground-station/$attemptId`, the same live console page
+  ops can already reach from the Ground Station page). **Before this fix, every `mission_run` item
+  got the View-run button unconditionally** — clicking it on a ground_station attempt 500'd,
+  because `DesignRunDetail` calls the design-detail endpoint against an attempt with no `Design`
+  row at all. **Gotcha for a third mission kind**: `operate`-kind `mission_run` items get *neither*
+  button today (`canViewRun`/`canOpenConsole` are both false for `mission_kind === "operate"`) —
+  not a bug exactly, just unbuilt; nobody has put an `operate` mission behind an LMS checklist item
+  in production yet, so a staff "watch this live" affordance for it was never asked for. If that
+  changes, this is the file and the pattern to extend.
+- Same staff-can-view-not-submit posture applies here as everywhere else — see §4's `GET
+  /missions/attempts/{id}` bullet; a Ground Station device/console permission model of its own
+  (who may pair a device, issue a command, etc.) is `HANDOFF_GROUND_STATION.md`'s to document.
+
+## 19. Cohort Knowledge Quiz (2026-09)
+
+A brand-new, LMS-checklist-only quiz domain — not documented at all before this pass. Tables:
+`cohort_quiz_questions`, `cohort_quiz_templates`, `cohort_quiz_template_questions`,
+`cohort_quiz_attempts`, `cohort_quiz_answers` (`backend/app/models/lms/cohort_quiz.py`). Backend:
+`services/lms/cohort_quiz.py` (+ `cohort_quiz_importer.py` for bulk CSV/XLSX question import),
+`routers/lms/cohort_quiz_admin.py` (`/lms/admin/cohort-quiz/*`, `require_lms_content`). Frontend:
+`LmsCohortQuizAdmin.tsx` (ops authoring, the sidebar's new "Quiz Bank" item — §8), `CohortQuizPage.tsx`
+(student play, `/learn/...`).
+
+- **Deliberately a third, separate quiz-shaped domain** — the model's own docstring is explicit
+  about why it isn't a fourth copy of an existing shape: `ModuleItem.kind="quiz"`
+  (`services/lms/quiz.py`) is in-course practice, random-N sampling from one course's own pool,
+  unlimited retries; `instructor_assessment` is a randomized scenario draw for instructor
+  applicants. This one is a **per-cohort diagnostic** — every student assigned the same checklist
+  item gets the exact same hand-picked, ordered question set (`CohortQuizTemplateQuestion`, not a
+  draw-size config), and gets exactly **one attempt, no retries** (`UNIQUE(program_item_id,
+  user_id)` on `cohort_quiz_attempts`). `topic` on a question is a free-text tag, not a `Course` FK
+  — a cohort quiz is meant to cross-cut topics that don't map 1:1 to a real course.
+  `question_order`/`option_order` freeze at attempt-start (`CohortQuizAttempt.question_order`,
+  JSONB) so a mid-attempt refresh never reshuffles — same idiom `AssessmentAttempt.question_order`
+  already uses for instructor applicants.
+  `question_id` is `ondelete="SET NULL"` on the template-question join, on purpose: retiring a bank
+  question must not silently shrink a template already handed to a cohort.
+- **It's framed as a diagnostic, not a pass/fail gate** — same posture as the whole-course
+  completion model. `services/lms/program.py::_cohort_quiz_item_done` only checks the attempt was
+  *submitted*; `score`/`topic_breakdown` never factor into whether the checklist tile goes green.
+  `topic_breakdown` (`{"<topic>": {"correct", "total"}}`) is per-attempt only — a cross-cohort
+  strengths/weaknesses view is computed live by summing every submitted attempt
+  (`get_student_topic_breakdown`), never stored as a rollup.
+- **Checklist wiring**: `quiz` joined `course`/`mission_run` in `AUTO_TRACKED_TYPES`
+  (`services/lms/program.py`) — no student self-check, status is always derived. A checklist
+  `quiz` item's `LmsProgramItem.cohort_quiz_template_id` points at the template; student endpoints
+  are cohort/assignment-scoped, not global: `POST /lms/programs/{assignment_id}/items/{item_id}/
+  quiz/{start,submit}`, `GET .../quiz/result` (`routers/lms/student.py`). Instructor read-only
+  result view mirrors this at `routers/lms/instructor.py` (cohort-scoped, same `require_cohort_access`
+  posture as everything else instructor-side in this domain).
+- **Not built**: retries of any kind (a genuinely locked-in v1 decision, not a gap); per-question
+  time limits beyond the existing per-question timer auto-submitting blank on timeout (that part
+  is built — see `CohortQuizAnswer`'s own docstring on `selected_option_index=None`).
