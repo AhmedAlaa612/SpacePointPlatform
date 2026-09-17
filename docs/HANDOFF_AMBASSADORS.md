@@ -15,7 +15,7 @@ Lead-generation and gamified recruiting for ambassadors, who in turn recruit and
 
 ## Roles and permissions
 
-- **`admin`** — full control domain-wide: approves/rejects leads, views all leads/activity/leaderboard/points-log, manages titles and badges (CRUD), manages tasks (assign to any ambassador/teacher, approve/reject), can act on any network/session (bypasses ownership checks everywhere), edits `system_settings` (point-reward amounts), approves pending ambassador/teacher signups via `PUT /ambassadors/admin/users/{id}/status`, views deep-dive stats per ambassador/teacher (`GET /admin/users/{id}/ambassador-stats`/`teacher-stats`). Frontend: `/ambassadors/admin/*` pages (Network, Tasks, Leads, Sessions, Titles, Badges, Settings) plus `AdminAmbassador.tsx` (the ambassador/teacher deep-dive page, at `/ambassadors/admin/ambassador/$ambassadorId`).
+- **`admin`** — full control domain-wide: approves/rejects leads, views all leads/activity/leaderboard/points-log, manages titles and badges (CRUD), manages tasks (assign to any ambassador/teacher, approve/reject), can act on any network/session (bypasses ownership checks everywhere), edits `system_settings` (point-reward amounts), approves pending ambassador/teacher signups via `PUT /ambassadors/admin/users/{id}/status`, views deep-dive stats per ambassador/teacher (`GET /ambassadors/admin/users/{id}/ambassador-stats`/`teacher-stats` — note the `/ambassadors/admin/users/...` path is this domain's own router, distinct from the generic `/admin/users/*` account-CRUD router, see Gotchas). Frontend: `/ambassadors/admin/*` pages (Network, Tasks, Leads, Sessions, Titles, Badges, Settings) plus `AdminAmbassador.tsx` (the ambassador/teacher deep-dive page, at `/ambassadors/admin/ambassador/$ambassadorId`).
 - **`ambassador`** — creates/edits/withdraws their own leads; sees only their own leads and comments; manages the teachers/instructors they've recruited (`/network/*`) — approves/rejects teacher applications, approves/rejects teacher sessions, marks materials sent; creates and assigns tasks to teachers they invited (and only teachers they invited — `tasks.py:46-48`); adds/edits/deletes materials (any ambassador can edit/delete any material's own upload, or an admin can edit/delete any material — `materials.py:16-26`); sees a dashboard/leaderboard/achievements scoped to the ambassador audience. Frontend: `Dashboard.tsx`, `Leads.tsx`, `Network.tsx`, `network/teacher/$teacherId`, `Tasks.tsx`, `Leaderboard.tsx`, `Materials.tsx`.
 - **`teacher`** — creates/edits/cancels their own delivery sessions and marks them done; cannot see or act on leads or network-management endpoints; can browse (but not add) the materials library like any other authenticated user (`materials.py:29-35`, no role check on `GET /materials`); sees a teacher-scoped dashboard/leaderboard instead of the ambassador one. Frontend: `TeacherPortal.tsx`, `TeacherProfile.tsx`; blocked from `/leads` and `/network` by route guards in `router.tsx`.
 
@@ -71,18 +71,49 @@ enum:
 
 A `TeacherSession` is a teaching event a teacher schedules (title, date, planned students). Lifecycle: teacher creates it (status `pending`) → their recruiting ambassador (or admin) approves or rejects it → the ambassador marks materials sent (requires `approved`) → the teacher marks it done (requires approved + materials sent + the date has passed), recording attendance and triggering the point awards above. Status also includes `cancelled` (`network.py::cancel_session`, teacher or admin only, blocked once `done`/already `cancelled`). A teacher or admin can edit/cancel/delete a session; a teacher editing an already-approved/rejected session resets it back to `pending` for re-review (with a notification to the recruiting ambassador). Deleting a `done` session reverses the points it had awarded (to both the teacher and, if any, their referring ambassador).
 
+## Gotchas
+
+- **`PointsTransaction.ambassador_id` and `Achievement.ambassador_id` are misleadingly named** — both
+  columns hold a `teacher`'s user id too whenever the event is teacher-scoped (e.g.
+  `network.py::mark_done` calls `award_points(db, current_user.id, ...)` where `current_user` is the
+  *teacher*; `achievements.check_and_grant(db, teacher_id, audience="teacher")` inserts an
+  `Achievement` row with `ambassador_id=teacher_id`). There is no separate `teacher_id`/generic
+  `user_id` column on either table — don't assume every row in `points_transactions` or `achievements`
+  belongs to an ambassador when querying directly.
+- **`GET /achievements/me` is hardcoded to the `ambassador` audience** (`routers/ambassadors/
+  achievements.py:17`: `ach_service.list_for(db, current_user.id)` — no `audience` param, defaults to
+  `"ambassador"`). A teacher calling it gets ambassador-audience badge definitions checked against
+  their own id, which is not meaningful. The real teacher-badges surface is the `achievements` field
+  already embedded in `GET /teacher/summary`'s response (`routers/ambassadors/teacher.py:53`, which
+  correctly passes `audience="teacher"`) — the frontend teacher pages use that, not `/achievements/me`.
+- **`routers/ambassadors/admin.py`'s module docstring is stale**: it says generic Users CRUD "already
+  lives at `/interns/admin/users`" — that endpoint doesn't exist. Generic user management actually
+  lives at `/admin/users/*` (`routers/admin/users.py`, mounted directly under `/admin` in `main.py`,
+  nothing to do with `/interns`). This router's own `PUT /admin/users/{id}/status` is a narrower,
+  status-only endpoint for activating pending ambassador/teacher signups — not a substitute for full
+  user CRUD, and not the same router the docstring points at.
+- **`GET /dashboard/stats` and `GET /titles`/`GET /badges` (list) have no role check beyond being
+  logged in** (`get_current_active_user`) — a `teacher` can call the ambassador dashboard-stats
+  endpoint and will just get mostly-zero/irrelevant numbers back (it unconditionally treats
+  `current_user.id` as an ambassador id), rather than a 403. Not a security issue (no cross-user data
+  leak), but don't rely on a 403 there for role-gating in tests or new frontend code.
+- **`Lead.type` and `TeacherSession.status`/`AmbassadorTask.status` are plain `String` columns, not DB
+  enums** — validation (where it exists at all) happens in the router, not the schema or the database.
+  A malformed/unexpected value can still be written directly via a script or a future endpoint that
+  forgets the check.
+
 ## Main DB tables
 
 | Table | What it holds |
 |---|---|
 | `leads` | B2B/B2C lead submitted by an ambassador; status pipeline |
 | `lead_comments` | Threaded comments on a lead |
-| `points_transactions` | Append-only points ledger |
+| `points_transactions` | Append-only points ledger — `ambassador_id` also holds teacher ids for teacher-scoped events (see Gotchas) |
 | `titles` | Admin-configured rank ladder, per audience |
-| `badge_definitions` | Admin-configured milestone badge (criteria + threshold), per audience |
-| `achievements` | Badges actually earned by a user |
-| `teacher_sessions` | A teaching session with approval workflow and attendance |
-| `ambassador_tasks` | Assignable task with approval workflow and point reward |
+| `badge_definitions` | Admin-configured milestone badge (criteria type + threshold), per audience — `criteria_type` ∈ `converted_leads`/`active_teachers`/`sessions_done`/`students_reached`/`lifetime_points` (ambassador), or the last three for teacher |
+| `achievements` | Badges actually earned by a user — same `ambassador_id` caveat as `points_transactions` |
+| `teacher_sessions` | A teaching session with approval workflow and attendance; `status` ∈ `pending`/`approved`/`done`/`rejected`/`cancelled` |
+| `ambassador_tasks` | Assignable task with approval workflow and point reward; `status` ∈ `pending`/`accepted`/`submitted`/`approved`/`rejected`/`edit_requested` |
 | `materials` | Shared teaching material library |
 | `system_settings` | Generic key/value config (point-reward amounts, etc.) |
 
@@ -90,8 +121,11 @@ A `TeacherSession` is a teaching event a teacher schedules (title, date, planned
 
 | Area | Backend | Frontend |
 |---|---|---|
-| Leads | `routers/ambassadors/leads.py`, models `lead.py`, `lead_comment.py`, `schemas/ambassadors/lead.py` | `Leads.tsx`, `admin/Leads.tsx`, `components/LeadDetailModal.tsx` |
-| Points/gamification | `services/points.py`, `services/ambassadors/{titles,achievements,stats}.py`, routers `points.py`, `titles.py`, `badges.py`, `achievements.py`, `dashboard.py`, `public.py`, models `points_transaction.py`, `title.py`, `badge_definition.py`, `achievement.py` | `Dashboard.tsx`, `Leaderboard.tsx`, `admin/Titles.tsx`, `admin/Badges.tsx`, `components/title.tsx`, `components/Leaderboard.tsx`, `components/Celebration.tsx` |
-| Teacher sessions | `routers/ambassadors/network.py` (approve/reject/material-sent/done), `teacher.py` (teacher's own summary), model `teacher_session.py` | `Network.tsx`, `admin/Sessions.tsx`, `admin/Network.tsx`, `TeacherPortal.tsx`, `TeacherProfile.tsx`, `components/SessionDetailModal.tsx`, `components/{NetworkTree,FullNetworkTree}.tsx` |
-| Tasks & materials | `routers/ambassadors/tasks.py`, `materials.py`, models `task.py`, `material.py` | `Tasks.tsx`, `admin/Tasks.tsx`, `components/TaskDetailModal.tsx`, `Materials.tsx` |
-| Admin cross-cutting | `routers/ambassadors/admin.py` (network tree, activity feed, leaderboard, points log, settings, deep-dive stats), model `system_setting.py` | — |
+| Leads | `routers/ambassadors/leads.py`, models `lead.py`, `lead_comment.py`, `schemas/ambassadors/lead.py` | `pages/ambassadors/Leads.tsx`, `pages/ambassadors/admin/Leads.tsx`, `pages/ambassadors/components/LeadDetailModal.tsx` |
+| Points/gamification | `services/points.py`, `services/ambassadors/{titles,achievements,stats}.py`, routers `points.py`, `titles.py`, `badges.py`, `achievements.py`, `dashboard.py`, `public.py`, models `points_transaction.py`, `title.py`, `badge_definition.py`, `achievement.py` | `pages/ambassadors/Dashboard.tsx`, `pages/ambassadors/Leaderboard.tsx`, `pages/ambassadors/admin/{Titles,Badges}.tsx`, `pages/ambassadors/components/{title,Leaderboard,Celebration}.tsx` |
+| Tasks | `routers/ambassadors/tasks.py`, model `task.py`, schema `schemas/ambassadors/task.py` | `pages/ambassadors/Tasks.tsx`, `pages/ambassadors/admin/Tasks.tsx`, `pages/ambassadors/components/TaskDetailModal.tsx` |
+| Materials | `routers/ambassadors/materials.py`, model `material.py` | `pages/ambassadors/Materials.tsx` |
+| Teacher sessions | `routers/ambassadors/network.py` (approve/reject/material-sent/done), `teacher.py` (teacher's own summary + leaderboard), model `teacher_session.py` | `pages/ambassadors/Network.tsx`, `pages/ambassadors/admin/{Sessions,Network}.tsx`, `pages/ambassadors/{TeacherPortal,TeacherProfile}.tsx`, `pages/ambassadors/components/{SessionDetailModal,NetworkTree,FullNetworkTree}.tsx` |
+| Admin cross-cutting | `routers/ambassadors/admin.py` (network tree, activity feed, leaderboard, points log, settings, deep-dive stats, account activation), model `system_setting.py` | `pages/ambassadors/admin/Settings.tsx`, `pages/ambassadors/AdminAmbassador.tsx` |
+| Public/shareable profile | `routers/ambassadors/public.py` (no auth) | — |
+| Routing | — | `router.tsx` (`ambassadorsLayoutRoute`/`ambassadorsRoutes`) |
