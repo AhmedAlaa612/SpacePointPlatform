@@ -40,9 +40,10 @@ schema head: see `HANDOFF.md` §1 rather than a number here that will drift.
   sessions can be partly staffed; there is no single cohort-level staffing state to read.
 
 **2026-09 — the staffing marketplace grew an assessment gate and cohort-shaped closes got a
-duplicate-email fix.** Not fully documented here (owned by `HANDOFF_INSTRUCTORS.md`, which does
-not yet cover it either — flagged as an open question below), but it directly gates this domain's
-endpoints, so know it exists: `services/instructor_assessment/{gate,ranking}.py` (new tables under
+duplicate-email fix.** Not fully documented here — the assessment/ranking system itself (question
+bank, attempts, priority-score weighting) is owned by
+[`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md)'s "Instructor Assessment" section — but it
+directly gates this domain's endpoints, so know it exists: `services/instructor_assessment/{gate,ranking}.py` (new tables under
 `models/instructor_assessment/`) can require an instructor to have submitted an assessment before
 `register_interest`/`register_cohort_interest` will accept them (`assert_assessment_passed`,
 called from `staffing.py`/`cohort_staffing.py`), and adds ranking/performance columns to
@@ -354,11 +355,12 @@ registration's `RegistrationSession` restriction, 409 already recorded.
 
 ## Open questions from this pass
 
-- **`services/instructor_assessment/` is a real, load-bearing dependency of this domain's
-  staffing endpoints (it can block `register_interest`) but isn't documented anywhere** —
-  `HANDOFF_INSTRUCTORS.md` doesn't mention it either as of this writing. Someone who owns that
-  domain should give it a proper write-up; this file only notes that it exists and where it hooks
-  in (see the 2026-09 note near the top).
+- ~~`services/instructor_assessment/` is a real, load-bearing dependency of this domain's staffing
+  endpoints (it can block `register_interest`) but isn't documented anywhere~~ — resolved in the
+  same pass that added this note: [`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md)'s
+  "Instructor Assessment" section now covers the question bank, attempts, and priority-score
+  ranking in full. This file still only notes where it hooks into staffing (see the 2026-09 note
+  near the top) — read the Instructors doc for the system itself.
 - **Whether the `/operations/{contacts,merge-reviews,checkin,this-week}` missing-nav-entry gap
   above is a known, accepted state or an oversight** — I could not find any product decision
   recorded about it either way; flagging rather than guessing.

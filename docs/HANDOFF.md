@@ -3,8 +3,15 @@
 **Entry point for anyone (human or agent) picking up this codebase.** This file is a *map*:
 where everything is and what it does. Depth lives in the per-domain files linked below.
 
-**Last verified against the code: 2026-08-21 (invite-code course/path grants, learning-path bulk
-grant, and Stripe promo codes — the operator's three access/pricing requests).**
+**Last verified against the code: 2026-09-17**, as part of a doc-freshness pass: every per-domain
+doc below was individually re-verified against current code that same day (see each file's own
+status line for exactly what was checked), two previously-undocumented domains got their first
+doc (Ground Station, the current Video architecture), and four docs describing finished one-off
+events (not living domains) were moved to `docs/archive/` — see `docs/archive/README.md`. This
+top-level file itself only got a targeted pass (§1–2, the schema-head/container-count corrections
+below, and the domain table) — it was not rewritten section-by-section the way the per-domain
+docs were, so treat §3 onward as orientation carried forward from 2026-08-21 and verify anything
+load-bearing against the code before relying on it.
 
 ---
 
@@ -13,7 +20,7 @@ grant, and Stripe promo codes — the operator's three access/pricing requests).
 | | |
 |---|---|
 | **Live at** | `https://portal.spacepoint.ae` |
-| **Schema head** | `d4e81f3a06c5` — single Alembic head. Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
+| **Schema head** | `a3f7c1e9b284` — single Alembic head (re-checked 2026-09-17 via `alembic heads`; this file previously cited two different, both-stale head IDs in §1 and §9 — don't trust either old value). Production follows `main` deploys; the API container runs `alembic upgrade head` before binding its port |
 | **Branch** | `main` = production. `v2-dev` tracks it |
 | **What's live** | Registration, bulk import, check-in, staffing marketplace (multiple calls per session + cohort-level campaigns), instructor delivery + payment letters, attendance, certificates, calendar, ops dashboard, **inventory end to end** (kits, warehouses, stock, custody, equipment, fulfilment, public QR scan), plus the pre-existing interns / ambassadors / instructors domains, **the internship request/letter domain** (an existing account requests the intern role, admin approves, an in-app-signed internship letter is generated — see `HANDOFF_INTERNSHIP.md`) — **and the LMS/Missions/Games domain**: student accounts, courses + encrypted-HLS video (Stripe Checkout for paid courses and learning-path bundles, both with promo-code support), learning paths (now with a one-shot cohort/role bulk grant), the CubeSat design + Flight Operations missions with a real 36-part component library, Live Quiz games, cohort-scoped instructor progress/gating/review, the **LMS Program checklist** (mixed-item-type program tracks replacing the old flat course-list curriculum), and **invite-code course/path grants** — a school/cohort batch code can carry a standing free-access list applied to every holder, old or new. See [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) |
 | **Tests** | 1591 collected, `pytest` from `backend/`. A handful need a live Redis and error without one — everything else is broker-free. Nine (`test_applicant_role_promotion.py`, `test_intern_application_letter.py`, `test_internship.py`) need a working LibreOffice headless PDF conversion — unrelated to LMS, pre-existing in any environment where `soffice --headless --convert-to pdf` doesn't produce output |
@@ -28,18 +35,20 @@ expect them to exist, and nothing here depends on them.)
 
 | Read | For |
 |---|---|
-| [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) | Student accounts, courses, learning paths, the CubeSat design + Flight Operations missions, the component library, Live Quiz games — the whole `/learn` + `/lms-authoring` surface |
-| [`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md) | In progress — a competition is a flagged `Program` with team-scoped checklist items, built on top of the LMS Program domain above, not a new one |
+| [`HANDOFF_LMS.md`](./HANDOFF_LMS.md) | Student accounts, courses, learning paths, the CubeSat design + Flight Operations missions, Live Quiz games, the Cohort Knowledge Quiz domain — the whole `/learn` + `/lms-authoring` surface. Ground Station's hardware/telemetry internals live in their own doc (below); this one covers the `mission_run` checklist-item/mission-kind side only |
+| [`HANDOFF_GROUND_STATION.md`](./HANDOFF_GROUND_STATION.md) | New 2026-09-17 — previously undocumented. Live CubeSat telemetry/command console: device provisioning, the telemetry ingest → Redis pub/sub → websocket flow, alerts/thresholds, the ops device/attempt view, and how it plugs into a `ground_station`-kind mission |
+| [`HANDOFF_COMPETITIONS.md`](./HANDOFF_COMPETITIONS.md) | A competition is a flagged `Program` with team-scoped checklist items, built on top of the LMS Program domain above, not a new one. Also covers judging, registration import/progression, manual team management, the Assign tab, and the Analysis tab (team-progress dashboard) |
 | [`HANDOFF_SPINE.md`](./HANDOFF_SPINE.md) | Contacts / identity matching / merge review |
 | [`HANDOFF_SESSIONS.md`](./HANDOFF_SESSIONS.md) | Programs, cohorts, sessions, registration, staffing, delivery |
-| [`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md) | Applicant pipeline, contracts, payments, certificates |
+| [`HANDOFF_INSTRUCTORS.md`](./HANDOFF_INSTRUCTORS.md) | Applicant pipeline, contracts, payments, certificates. Also covers Instructor Assessment (the question-bank/priority-ranking system gating staffing) and the Documents system (four distinct mechanisms, not one shared engine — see that doc) |
 | [`HANDOFF_INTERNS.md`](./HANDOFF_INTERNS.md) | Projects, epics, tasks, kanban, teams |
 | [`HANDOFF_INTERNSHIP.md`](./HANDOFF_INTERNSHIP.md) | The HR-side intern pipeline: role request -> admin approval -> in-app-signed internship letter (not the kanban domain above, despite the name) |
 | [`MISSIONS_INTERN_SPEC.md`](./MISSIONS_INTERN_SPEC.md) | Intern-facing: how to propose a mission, what gets ported vs. rebuilt, lessons from the first real port (SatKit → Operate Your Satellite, Phase 2B) |
-| [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions |
-| [`HANDOFF_VPS_DEPLOYMENT.md`](./HANDOFF_VPS_DEPLOYMENT.md) | What's actually running on the VPS, the deploy scripts' real behavior, storage layout |
+| [`HANDOFF_AMBASSADORS.md`](./HANDOFF_AMBASSADORS.md) | Leads, points/titles/badges, teacher sessions, the task approval state machine |
+| [`HANDOFF_VPS_DEPLOYMENT.md`](./HANDOFF_VPS_DEPLOYMENT.md) | What's actually running on the VPS, the deploy scripts' real behavior (including their auto-rollback logic), storage layout |
+| [`HANDOFF_VIDEO.md`](./HANDOFF_VIDEO.md) | New 2026-09-17 — previously only existed as event-specific migration runbooks (now archived). The current video architecture: per-row storage backend (new uploads always go to R2), the transcode pipeline, playback token/HLS mechanics, the two ARQ workers |
 | [`OPS_BACKUPS.md`](./OPS_BACKUPS.md) | Database backup script — usage, cron, restore |
-| [`HANDOFF_AGENT_COLLAB.md`](./HANDOFF_AGENT_COLLAB.md) | Not architecture — process: how the operator works, git/verification discipline for multiple agents touching this repo concurrently, current domain-ownership split |
+| [`archive/README.md`](./archive/README.md) | Docs retired 2026-09-17 for describing a finished, one-off event rather than a living domain (an agent-collab scope note, the video R2 migration plan + its pre-deploy review fixes, the competition-day deploy runbook) — kept for history, not current |
 
 Credentials are in `secrets.md` / `vps_envs.md`, kept out of version control (one directory
 above this repo). Production env file: `/etc/spacepoint/env`.
