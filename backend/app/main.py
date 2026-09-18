@@ -1,5 +1,4 @@
 import logging
-import uuid
 from contextlib import asynccontextmanager
 
 from arq import create_pool
@@ -7,14 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
-from app.core.log_context import (
-    bind_request_context,
-    bind_user_label,
-    client_ip as get_client_ip,
-    configure_logging,
-    reset_request_context,
-    reset_user_label,
-)
+from app.core.log_context import RequestContextMiddleware, configure_logging
 
 # Must run before any router import below — those transitively import every
 # service/model module, and this needs to be active before any of them could
@@ -108,25 +100,21 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Without this the browser can read every *other* response header fine
+    # but silently drops X-Request-ID — CORS hides any response header not
+    # explicitly exposed, even same-origin-looking XHR/fetch calls that go
+    # through this middleware at all (any cross-origin call, which is most
+    # of them: the frontend and API run on different ports even in dev).
+    expose_headers=["X-Request-ID"],
 )
 
-
-@app.middleware("http")
-async def request_context_middleware(request: Request, call_next):
-    """Binds request_id/client_ip for every log line emitted while handling
-    this request (app/core/log_context.py); get_current_user/_optional bind
-    user_label once auth resolves. Websocket connections aren't wrapped by
-    HTTP middleware, so they don't get this — a known, accepted gap."""
-    request_id = uuid.uuid4().hex[:12]
-    tokens = bind_request_context(request_id=request_id, ip=get_client_ip(request))
-    user_token = bind_user_label("-")
-    try:
-        response = await call_next(request)
-        response.headers["X-Request-ID"] = request_id
-        return response
-    finally:
-        reset_request_context(tokens)
-        reset_user_label(user_token)
+# Raw ASGI middleware, not @app.middleware("http") — see
+# RequestContextMiddleware's own docstring (app/core/log_context.py) for
+# why: BaseHTTPMiddleware's dispatch function returns before the response
+# is actually sent, so resetting context there (the previous version of
+# this) ran before uvicorn's own access-log line and any unhandled
+# exception's traceback log ever saw it.
+app.add_middleware(RequestContextMiddleware)
 
 
 app.include_router(auth.router)

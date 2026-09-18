@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ── component library (the picker) ──────────────────────────────────────
@@ -102,7 +102,9 @@ class DesignComponentOut(BaseModel):
 
 class DesignComponentAddIn(BaseModel):
     library_component_id: UUID
-    quantity: int = 1
+    # Same DB-protecting ceiling as the budget-entry quantity fields above —
+    # DesignComponent.quantity is also a 32-bit Integer.
+    quantity: int = Field(default=1, ge=0, le=1_000_000)
 
 
 # ── CONOPS ────────────────────────────────────────────────────────────────
@@ -141,7 +143,9 @@ class PowerEntrySaveIn(BaseModel):
 
 
 class MassEntrySaveIn(BaseModel):
-    quantity: int | None = None
+    # DB-protecting ceiling, same reasoning as DesignUpdateIn.selected_solar_cells
+    # — the column is a 32-bit Integer, no real design touches this range.
+    quantity: int | None = Field(default=None, ge=0, le=1_000_000)
     mass_per_unit_g: float | None = None
     length_mm: float | None = None
     width_mm: float | None = None
@@ -150,7 +154,7 @@ class MassEntrySaveIn(BaseModel):
 
 
 class CostEntrySaveIn(BaseModel):
-    quantity: int | None = None
+    quantity: int | None = Field(default=None, ge=0, le=1_000_000)
     cost_per_unit_aed: float | None = None
     # vendor/priority capped to match DesignCostBudgetEntry's DB columns
     # (String(80)/String(12)) — same class of bug as purchase_link below.
@@ -205,6 +209,19 @@ class DesignUpdateIn(BaseModel):
     selected_solar_cells: int | None = Field(default=None, ge=0, le=100_000)
     battery_capacity_wh: float | None = None
     poster_url: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _no_explicit_null_on_required_columns(self):
+        """design_name/selected_cubesat_size/selected_solar_cells back
+        NOT NULL Design columns — Optional here only so a partial PATCH can
+        omit them (update_design uses model_dump(exclude_unset=True)).
+        Omission is fine; an *explicit* null isn't excluded by that, and
+        used to sail through setattr straight into a NOT NULL column,
+        crashing at the driver layer (IntegrityError) -> 500."""
+        for field in ("design_name", "selected_cubesat_size", "selected_solar_cells"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be set to null")
+        return self
 
 
 # ── the dashboard (composed summary) ────────────────────────────────────

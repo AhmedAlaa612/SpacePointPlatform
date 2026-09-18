@@ -1094,6 +1094,57 @@ async def test_team_scoped_mission_split_into_steps_keeps_one_attempt_after_the_
 
 
 @pytest.mark.asyncio
+async def test_team_mission_run_items_finds_the_attempt_even_when_an_earlier_step_has_no_row_yet(db):
+    """Regression: a split run's steps don't all necessarily get their
+    LmsProgramTeamItemProgress row's mission_attempt_id populated at the
+    same moment — step A's row can exist with mission_attempt_id still
+    null while step B's already carries the real, shared attempt. Reading
+    "first item that HAS a progress row" instead of "first item whose row
+    actually carries an attempt id" used to report the run as not_started
+    in that case, even though it had genuinely started."""
+    author = await _author(db)
+    program, cohort = await _program_and_cohort(db)
+    mission, variant = await _mission_with_variant(db, author=author, team_policy="team")
+    lms_program = LmsProgram(id=uuid.uuid4(), program_id=program.id, name="Partially Synced Split Mission")
+    db.add(lms_program)
+    await db.flush()
+    step_a = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="mission_run", title="Step A", mission_id=mission.id, variant_id=variant.id,
+        scope="team", mission_step_key="components",
+    )
+    step_b = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=2,
+        item_type="mission_run", title="Step B", mission_id=mission.id, variant_id=variant.id,
+        scope="team", mission_step_key="conops",
+    )
+    db.add_all([step_a, step_b])
+    await db.flush()
+    alice = await _student(db)
+    team = await create_team(db, name="Partial Sync Team", created_by=alice.id, cohort_id=cohort.id)
+    attempt = MissionAttempt(
+        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, team_id=team.id,
+        attempt_no=1, status="in_progress", payload={},
+    )
+    db.add(attempt)
+    await db.flush()
+    # Step A's row exists (assigned) but hasn't picked up the attempt yet;
+    # step B's already has it — same shared run, disagreeing rows.
+    db.add(LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=step_a.id, team_id=team.id, status="pending", mission_attempt_id=None,
+    ))
+    db.add(LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=step_b.id, team_id=team.id, status="pending", mission_attempt_id=attempt.id,
+    ))
+    await db.commit()
+
+    runs = await team_mission_run_items(db, team_id=team.id)
+    assert len(runs) == 1
+    assert runs[0]["attempt_id"] == attempt.id
+    assert runs[0]["status"] == "in_progress"
+
+
+@pytest.mark.asyncio
 async def test_individual_mission_split_into_steps_keeps_one_attempt_after_the_first_passes(db):
     """The individual-scope mirror of the team-side regression above:
     `sync_assignment_items` adding a second individual-scoped step for a
