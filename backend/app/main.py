@@ -1,4 +1,5 @@
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
 from arq import create_pool
@@ -6,6 +7,24 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.core.log_context import (
+    bind_request_context,
+    bind_user_label,
+    client_ip as get_client_ip,
+    configure_logging,
+    reset_request_context,
+    reset_user_label,
+)
+
+# Must run before any router import below — those transitively import every
+# service/model module, and this needs to be active before any of them could
+# ever log. Safe to call at import time (rather than needing an on_startup
+# hook, unlike the worker process — see app/workers/main.py): uvicorn's own
+# Config.__init__ runs its own dictConfig *before* it imports "app.main:app",
+# so this call runs strictly after uvicorn's and wins, since it explicitly
+# redeclares the uvicorn.* logger names below.
+configure_logging(level=settings.LOG_LEVEL)
+
 from app.routers import admin, auth, documents, notifications
 from app.routers.apply import router as apply_router
 from app.routers.internship import router as internship_router
@@ -90,6 +109,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_context_middleware(request: Request, call_next):
+    """Binds request_id/client_ip for every log line emitted while handling
+    this request (app/core/log_context.py); get_current_user/_optional bind
+    user_label once auth resolves. Websocket connections aren't wrapped by
+    HTTP middleware, so they don't get this — a known, accepted gap."""
+    request_id = uuid.uuid4().hex[:12]
+    tokens = bind_request_context(request_id=request_id, ip=get_client_ip(request))
+    user_token = bind_user_label("-")
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        reset_request_context(tokens)
+        reset_user_label(user_token)
+
 
 app.include_router(auth.router)
 app.include_router(files_router)          # public (HMAC-signed): /files/* — local storage backend
