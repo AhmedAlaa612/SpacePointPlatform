@@ -265,6 +265,18 @@ export const downloadCohortResultsWorkbookApi = async (cohortId: string, cohortN
   URL.revokeObjectURL(url)
 }
 
+/** One .xlsx: a 'Quiz Summary' sheet and a 'Quiz Answers' sheet (per-question
+ * answers grouped by Team and Quiz) — for reviewing cohort quiz diagnostic results. */
+export const downloadCohortQuizAnswersWorkbookApi = async (cohortId: string, cohortName: string) => {
+  const res = await api.get(`/competitions/admin/cohorts/${cohortId}/quiz-answers.xlsx`, { responseType: "blob" })
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `${cohortName.replace(/[^a-z0-9]+/gi, "_")}_quiz_answers.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export const getCohortPublicationApi = (cohortId: string) =>
   api.get<CompetitionPublication>(`/competitions/admin/cohorts/${cohortId}/publication`).then((r) => r.data)
 
@@ -428,8 +440,21 @@ export interface CompetitionAnalyticsDeliverable {
 }
 
 export interface CompetitionAnalyticsTeamMember {
+  user_id?: string
   name: string
   last_login_at: string | null
+}
+
+export interface CompetitionTeamQuizSubmission {
+  user_id: string
+  student_name: string
+  assignment_id: string | null
+  item_id: string
+  quiz_title: string
+  status: "submitted" | "in_progress" | "not_started"
+  score: number | null
+  total: number | null
+  submitted_at: string | null
 }
 
 export interface CompetitionAnalyticsTeam {
@@ -449,6 +474,8 @@ export interface CompetitionAnalyticsTeam {
   deliverables: CompetitionAnalyticsDeliverable[]
   /** Team-scoped Design mission runs on this team's checklist, if any. */
   mission_runs: CompetitionMissionRun[]
+  /** Cohort quiz submissions for members of this team. */
+  quiz_submissions?: CompetitionTeamQuizSubmission[]
   last_activity_at: string | null
   stalled: boolean
 }

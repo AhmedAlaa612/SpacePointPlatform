@@ -6,16 +6,18 @@ import {
   Tooltip, XAxis, YAxis,
 } from "recharts"
 import {
-  AlertTriangle, ChevronDown, ChevronRight, Clock, FileSpreadsheet, Search,
+  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, Eye, FileSpreadsheet, Loader2, Search,
   Rocket, UserX, Users, UsersRound,
 } from "lucide-react"
 import {
-  getCohortTeamAnalyticsApi,
+  getCohortTeamAnalyticsApi, downloadCohortQuizAnswersWorkbookApi,
   type CompetitionAnalytics, type CompetitionAnalyticsItem, type CompetitionAnalyticsTeam,
-  type CompetitionAnalyticsDeliverable, type CompetitionMissionRun,
+  type CompetitionAnalyticsDeliverable, type CompetitionMissionRun, type CompetitionTeamQuizSubmission,
 } from "@/api/competitions"
 import { Spinner, EmptyState, StatCard } from "@/components/ui/primitives"
+import { Button } from "@/components/ui/button"
 import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
+import { QuizAnswersReview } from "@/pages/lms-authoring/components/LmsProgressAndMissions"
 
 /* ================================================================== */
 /* Analysis tab (2026-09-16)                                           */
@@ -371,13 +373,94 @@ function MissionRunRow({ run }: { run: CompetitionMissionRun }) {
   )
 }
 
+/** One student's quiz submission under an expanded Team row.
+ * If submitted, shows score and an expand button to inspect per-question
+ * answers (QuizAnswersReview), mirroring individual progress in LMS tab. */
+function TeamQuizSubmissionRow({
+  submission, cohortId,
+}: {
+  submission: CompetitionTeamQuizSubmission; cohortId: string
+}) {
+  const [showAnswers, setShowAnswers] = useState(false)
+  const isSubmitted = submission.status === "submitted"
+  const isInProgress = submission.status === "in_progress"
+  const canViewAnswers = isSubmitted && !!submission.assignment_id
+
+  return (
+    <div className="border border-border/70 rounded-xl bg-card/60 overflow-hidden shadow-xs">
+      <div className="p-2.5 sm:p-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+          {isSubmitted ? (
+            <div className="w-6 h-6 rounded-md bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-500/30 shrink-0">
+              <CheckCircle2 size={13} />
+            </div>
+          ) : isInProgress ? (
+            <div className="w-6 h-6 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-500/30 shrink-0">
+              <Clock size={13} />
+            </div>
+          ) : (
+            <div className="w-6 h-6 rounded-md bg-muted text-muted-foreground flex items-center justify-center border border-border/50 shrink-0">
+              <Circle size={13} />
+            </div>
+          )}
+
+          <div className="min-w-0 flex-1 flex items-baseline gap-2 flex-wrap">
+            <span className="font-semibold text-foreground text-xs sm:text-sm">{submission.student_name}</span>
+            <span className="text-muted-foreground text-[11px] truncate">· {submission.quiz_title}</span>
+          </div>
+
+          {isSubmitted && submission.score !== null && submission.total !== null && (
+            <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+              {submission.score} / {submission.total} correct
+              {submission.total > 0 && ` (${Math.round((submission.score / submission.total) * 100)}%)`}
+            </span>
+          )}
+
+          {!isSubmitted && (
+            <span className="text-[11px] font-medium text-muted-foreground capitalize shrink-0">
+              {submission.status.replace("_", " ")}
+            </span>
+          )}
+        </div>
+
+        {canViewAnswers && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setShowAnswers((v) => !v)}
+            className="h-7 text-xs font-semibold gap-1.5 shrink-0"
+          >
+            <Eye size={12} className="text-primary" />
+            {showAnswers ? "Hide answers" : "View answers"}
+          </Button>
+        )}
+      </div>
+
+      {showAnswers && submission.assignment_id && (
+        <div className="p-3 border-t border-border/60 bg-muted/20">
+          <QuizAnswersReview
+            cohortId={cohortId}
+            assignmentId={submission.assignment_id}
+            itemId={submission.item_id}
+          />
+        </div>
+      )}
+    </div>
+  )
+}
+
 type SortKey = "pct" | "name" | "members" | "activity"
 
-function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDark: boolean }) {
+function TeamTable({
+  teams, isDark, cohortId, cohortName,
+}: {
+  teams: CompetitionAnalyticsTeam[]; isDark: boolean; cohortId: string; cohortName?: string
+}) {
   const c = isDark ? CHART.dark : CHART.light
   const [search, setSearch] = useState("")
   const [sort, setSort] = useState<SortKey>("pct")
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [exportingQuiz, setExportingQuiz] = useState(false)
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -397,6 +480,17 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
     }
     return sorted
   }, [teams, search, sort])
+
+  const exportQuizAnswers = async () => {
+    try {
+      setExportingQuiz(true)
+      await downloadCohortQuizAnswersWorkbookApi(cohortId, cohortName || "cohort")
+    } catch (e) {
+      console.error("Failed to export quiz answers", e)
+    } finally {
+      setExportingQuiz(false)
+    }
+  }
 
   const exportXlsx = () => {
     const sheet = XLSX.utils.json_to_sheet(rows.map((t) => ({
@@ -423,12 +517,23 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
       title="Team progress"
       hint="Against this cohort's required team deliverables. Awaiting confirmation counts as not done — confirming it is the outstanding work."
       action={
-        <button
-          onClick={exportXlsx}
-          className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0"
-        >
-          <FileSpreadsheet size={14} /> Export
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={exportQuizAnswers}
+            disabled={exportingQuiz}
+            className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+            title="Export all quiz answers grouped by team and quiz"
+          >
+            {exportingQuiz ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
+            Export Quiz Answers
+          </button>
+          <button
+            onClick={exportXlsx}
+            className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 cursor-pointer"
+          >
+            <FileSpreadsheet size={14} /> Export Progress
+          </button>
+        </div>
       }
     >
       <div className="flex items-center gap-2 flex-wrap">
@@ -538,6 +643,20 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
                       <div className="mt-1 flex flex-col gap-1.5">
                         {team.mission_runs.map((run) => (
                           <MissionRunRow key={run.mission_id} run={run} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {team.quiz_submissions && team.quiz_submissions.length > 0 && (
+                    <div>
+                      <span className="text-muted-foreground">Quiz submissions: </span>
+                      <div className="mt-1.5 flex flex-col gap-1.5">
+                        {team.quiz_submissions.map((sub) => (
+                          <TeamQuizSubmissionRow
+                            key={`${sub.user_id}-${sub.item_id}`}
+                            submission={sub}
+                            cohortId={cohortId}
+                          />
                         ))}
                       </div>
                     </div>
@@ -741,7 +860,7 @@ export function CompetitionAnalysisTab({ cohortId }: { cohortId: string }) {
 
       {data.missions.length > 0 && <MissionsBlock missions={data.missions} isDark={isDark} />}
 
-      <TeamTable teams={data.teams} isDark={isDark} />
+      <TeamTable teams={data.teams} isDark={isDark} cohortId={cohortId} cohortName={data.cohort_name} />
       <AttentionList data={data} />
     </div>
   )

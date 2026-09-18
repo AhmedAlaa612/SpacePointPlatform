@@ -391,6 +391,19 @@ async def export_cohort_results_workbook(cohort_id: uuid.UUID, db: AsyncSession 
     )
 
 
+@router.get("/cohorts/{cohort_id}/quiz-answers.xlsx")
+async def export_cohort_quiz_answers_workbook(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Exports all quiz answers for the cohort, grouped by team and quiz,
+    with an overview summary sheet and per-question answer breakdown sheet."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    content = await export_service.export_quiz_answers_workbook(db, cohort_id=cohort_id)
+    safe_name = "".join(c if c.isalnum() or c in " -_" else "_" for c in cohort.name).strip() or cohort_id
+    return Response(
+        content=content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name} quiz answers.xlsx"'},
+    )
+
+
 @router.get("/cohorts/{cohort_id}/publication", response_model=CompetitionPublicationOut)
 async def get_cohort_publication(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await _get_cohort_or_404(db, cohort_id)

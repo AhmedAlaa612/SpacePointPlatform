@@ -142,10 +142,11 @@ async def _individual_done_user_ids(
     user_by_assignment = {aid: uid for aid, uid in assignments}
     assigned_user_ids = set(user_by_assignment.values())
 
+    assignment_by_user = {uid: aid for aid, uid in assignments}
     done_by_item: dict[uuid.UUID, set[uuid.UUID]] = {i.id: set() for i in items}
     awaiting_by_item: dict[uuid.UUID, set[uuid.UUID]] = {i.id: set() for i in items}
     if not items or not user_by_assignment:
-        return done_by_item, awaiting_by_item, assigned_user_ids
+        return done_by_item, awaiting_by_item, assigned_user_ids, assignment_by_user
 
     rows = (await db.execute(
         select(LmsProgramItemProgress.item_id, LmsProgramItemProgress.assignment_id, LmsProgramItemProgress.status)
@@ -191,7 +192,7 @@ async def _individual_done_user_ids(
                 done_by_item[item_id].add(user_id)
                 awaiting_by_item[item_id].discard(user_id)
 
-    return done_by_item, awaiting_by_item, assigned_user_ids
+    return done_by_item, awaiting_by_item, assigned_user_ids, assignment_by_user
 
 
 def _mission_attempt_lookup(
@@ -377,9 +378,22 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
     )).scalars().all()) if progress_item_ids and team_ids else []
     progress_by_team_item = {(p.team_id, p.item_id): p for p in team_progress}
 
-    done_users_by_item, awaiting_users_by_item, assigned_user_ids = await _individual_done_user_ids(
+    done_users_by_item, awaiting_users_by_item, assigned_user_ids, assignment_by_user = await _individual_done_user_ids(
         db, items=individual_items, cohort_id=cohort_id,
     )
+
+    quiz_items = [i for i in items if i.item_type == "quiz"]
+    quiz_attempts_by_user_item: dict[tuple[uuid.UUID, uuid.UUID], CohortQuizAttempt] = {}
+    if quiz_items and on_a_team:
+        quiz_item_ids = [i.id for i in quiz_items]
+        quiz_attempts = (await db.execute(
+            select(CohortQuizAttempt).where(
+                CohortQuizAttempt.program_item_id.in_(quiz_item_ids),
+                (CohortQuizAttempt.cohort_id == cohort_id) | (CohortQuizAttempt.user_id.in_(list(on_a_team))),
+            )
+        )).scalars().all()
+        for att in quiz_attempts:
+            quiz_attempts_by_user_item[(att.user_id, att.program_item_id)] = att
 
     # ── per-item completion rate ────────────────────────────────────────
     item_rows = []
@@ -453,6 +467,24 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
             if progress is not None and progress.updated_at is not None:
                 if last_activity is None or progress.updated_at > last_activity:
                     last_activity = progress.updated_at
+
+        quiz_subs = []
+        for q_item in quiz_items:
+            for uid in member_ids:
+                u = users_by_id.get(uid)
+                att = quiz_attempts_by_user_item.get((uid, q_item.id))
+                quiz_subs.append({
+                    "user_id": uid,
+                    "student_name": u.full_name if u else "Student",
+                    "assignment_id": assignment_by_user.get(uid),
+                    "item_id": q_item.id,
+                    "quiz_title": q_item.title,
+                    "status": att.status if att else "not_started",
+                    "score": att.score if att else None,
+                    "total": att.total if att else None,
+                    "submitted_at": att.submitted_at if att else None,
+                })
+
         total = len(required_team_items)
         team_rows.append({
             "team_id": team.id,
@@ -466,6 +498,7 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
             "awaiting": awaiting,
             "pct": _pct(done, total),
             "deliverables": deliverables,
+            "quiz_submissions": quiz_subs,
             "last_activity_at": last_activity,
             "stalled": (
                 done < total
