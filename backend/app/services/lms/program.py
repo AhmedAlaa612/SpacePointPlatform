@@ -1508,6 +1508,26 @@ async def team_final_locked(db: AsyncSession, *, assignment: LmsProgramAssignmen
     return team is not None and team.final_locked_at is not None
 
 
+async def team_final_locked_for_attempt(db: AsyncSession, *, attempt_id: uuid.UUID) -> bool:
+    """Same check as `team_final_locked`, but keyed off a `MissionAttempt`
+    rather than an assignment/item pair — for the design-mission write
+    endpoints (`routers/missions/design.py`), which mutate an attempt
+    directly and never see the checklist item that owns it. A team-scoped
+    `mission_run` item's shared attempt lives on `LmsProgramTeamItemProgress.
+    mission_attempt_id` (see that column's own docstring); an attempt with
+    no such row is either individual-scoped or not on any checklist at
+    all, and is never blocked by a team's lock."""
+    team_id = await db.scalar(
+        select(LmsProgramTeamItemProgress.team_id).where(
+            LmsProgramTeamItemProgress.mission_attempt_id == attempt_id,
+        )
+    )
+    if team_id is None:
+        return False
+    team = await db.get(Team, team_id)
+    return team is not None and team.final_locked_at is not None
+
+
 async def team_final_submit_readiness(
     db: AsyncSession, *, assignment: LmsProgramAssignment,
 ) -> tuple[bool, str | None]:
