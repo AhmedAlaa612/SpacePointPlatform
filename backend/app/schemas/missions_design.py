@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # ── component library (the picker) ──────────────────────────────────────
@@ -151,7 +151,11 @@ class CostEntrySaveIn(BaseModel):
     cost_per_unit_aed: float | None = None
     vendor: str | None = None
     priority: str | None = None
-    purchase_link: str | None = None
+    # Matches DesignCostBudgetEntry.purchase_link's DB column (String(512))
+    # — a pasted marketplace/tracking URL over that length used to sail
+    # past validation and crash the save at the driver layer
+    # (StringDataRightTruncationError -> 500) instead of a clean 400.
+    purchase_link: str | None = Field(default=None, max_length=512)
     notes: str | None = None
 
 
@@ -185,7 +189,11 @@ class DesignUpdateIn(BaseModel):
     orbit_duration_min: float | None = None
     orbits_per_day: float | None = None
     selected_cubesat_size: Literal["1U", "2U", "3U", "6U"] | None = None
-    selected_solar_cells: int | None = None
+    # No real CubeSat design gets anywhere near 100,000 cells — this is a
+    # DB-protecting ceiling, not a domain constraint. Without it a huge
+    # pasted/typed value sailed past validation and only failed at the
+    # driver layer (OverflowError against the Integer column) -> 500.
+    selected_solar_cells: int | None = Field(default=None, ge=0, le=100_000)
     battery_capacity_wh: float | None = None
     poster_url: str | None = None
 

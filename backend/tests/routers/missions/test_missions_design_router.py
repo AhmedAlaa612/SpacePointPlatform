@@ -461,6 +461,29 @@ async def test_design_state_has_no_poster_template_url_outside_any_cohort(db, cl
 
 
 @pytest.mark.asyncio
+async def test_update_design_rejects_an_absurd_solar_cell_count(db, client):
+    """selected_solar_cells has no realistic upper bound in the domain, but
+    the DB column is a 32-bit Integer — an unbounded schema used to let a
+    huge pasted value sail past validation and 500 at the driver layer
+    (OverflowError) instead of a clean 422."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    resp = await client.patch(
+        f"/missions/design/attempts/{attempt_id}",
+        headers=_headers(student), json={"selected_solar_cells": 400_000_000_000_000_000},
+    )
+    assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, resp.text
+
+
+@pytest.mark.asyncio
 async def test_update_design_accepts_poster_url_with_no_deadline(db, client):
     author = await _user(db, roles=["operations"])
     mission, variant = await _design_mission(db, author=author)
@@ -521,3 +544,57 @@ async def test_update_design_allows_poster_url_after_cohort_ends(db, client):
         headers=_headers(student), json={"design_name": "Renamed"},
     )
     assert other.status_code == 200, other.text
+
+
+async def _attempt_with_component(client, *, mission, variant, student, library):
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+    add = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components", headers=_headers(student),
+        json={"library_component_id": str(library.id), "quantity": 1},
+    )
+    return attempt_id, add.json()["components"][0]["id"]
+
+
+@pytest.mark.asyncio
+async def test_cost_budget_rejects_an_overlong_purchase_link(db, client):
+    """DesignCostBudgetEntry.purchase_link is a DB String(512) — a pasted
+    marketplace/tracking URL past that length used to sail through
+    CostEntrySaveIn's unbounded str and crash at the driver layer
+    (StringDataRightTruncationError -> 500) instead of a clean 422."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    await db.commit()
+    student = await _user(db)
+    await db.commit()
+
+    attempt_id, dc_id = await _attempt_with_component(client, mission=mission, variant=variant, student=student, library=library)
+
+    resp = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components/{dc_id}/cost-budget", headers=_headers(student),
+        json={"purchase_link": "https://example.com/" + "x" * 500},
+    )
+    assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, resp.text
+
+
+@pytest.mark.asyncio
+async def test_cost_budget_accepts_a_purchase_link_at_the_max_length(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    await db.commit()
+    student = await _user(db)
+    await db.commit()
+
+    attempt_id, dc_id = await _attempt_with_component(client, mission=mission, variant=variant, student=student, library=library)
+
+    link = "https://example.com/" + "x" * (512 - len("https://example.com/"))
+    assert len(link) == 512
+    resp = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components/{dc_id}/cost-budget", headers=_headers(student),
+        json={"purchase_link": link},
+    )
+    assert resp.status_code == 200, resp.text

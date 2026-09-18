@@ -126,6 +126,77 @@ async def test_cannot_add_a_retired_component(db):
         await design_service.add_component(db, design_id=design.id, library_component_id=library.id)
 
 
+# ── Budget entry upserts (real INSERT ... ON CONFLICT, not select-then-insert) ──
+
+@pytest.mark.asyncio
+async def test_save_cost_entry_updates_in_place_rather_than_duplicating(db):
+    """The old select-then-insert raced: two near-simultaneous saves for the
+    same component (double-click, a resent request) could both see "no row
+    yet" and both INSERT, the second hitting the unique constraint on
+    design_component_id and 500ing. Calling save_cost_entry twice for the
+    same key must land as one row with the latest values, never a crash —
+    same regression shape as test_concurrent_progress_row_creation_does_not_crash
+    in tests/services/lms/test_lms_services.py."""
+    from sqlalchemy import select as sa_select
+
+    from app.models.missions.design import DesignCostBudgetEntry
+
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)
+    attempt = await start_attempt(db, user_id=student.id, mission_id=mission.id, variant_id=variant.id)
+    design = await ensure_design(db, attempt=attempt)
+    library = await _library_component(db)
+    dc = await design_service.add_component(db, design_id=design.id, library_component_id=library.id)
+
+    first = await design_service.save_cost_entry(db, design_component_id=dc.id, cost_per_unit_aed=50.0, vendor="A")
+    second = await design_service.save_cost_entry(db, design_component_id=dc.id, cost_per_unit_aed=75.0, vendor="B")
+    assert first.id == second.id
+    assert second.cost_per_unit_aed == 75.0
+    assert second.vendor == "B"
+
+    rows = (await db.execute(
+        sa_select(DesignCostBudgetEntry).where(DesignCostBudgetEntry.design_component_id == dc.id)
+    )).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].cost_per_unit_aed == 75.0
+
+
+@pytest.mark.asyncio
+async def test_save_link_entry_updates_in_place_rather_than_duplicating(db):
+    """Same upsert guarantee, but keyed on design_id (not
+    design_component_id) — the link budget is one row per design, not per
+    component."""
+    from sqlalchemy import select as sa_select
+
+    from app.models.missions.design import DesignLinkBudgetEntry
+
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)
+    attempt = await start_attempt(db, user_id=student.id, mission_id=mission.id, variant_id=variant.id)
+    design = await ensure_design(db, attempt=attempt)
+
+    first = await design_service.save_link_entry(
+        db, design_id=design.id, band_profile="UHF",
+        downlink_frequency_mhz=437.5, uplink_frequency_mhz=145.8,
+        satellite_antenna_gain_dbi=2.0, data_rate_kbps=9.6, required_signal_quality_db=9.6,
+    )
+    second = await design_service.save_link_entry(
+        db, design_id=design.id, band_profile="S-band",
+        downlink_frequency_mhz=2400.0, uplink_frequency_mhz=2100.0,
+        satellite_antenna_gain_dbi=5.0, data_rate_kbps=19.2, required_signal_quality_db=9.6,
+    )
+    assert first.id == second.id
+    assert second.band_profile == "S-band"
+    assert second.is_saved is True
+
+    rows = (await db.execute(
+        sa_select(DesignLinkBudgetEntry).where(DesignLinkBudgetEntry.design_id == design.id)
+    )).scalars().all()
+    assert len(rows) == 1
+
+
 # ── Dashboard composition + mark_design_complete ────────────────────────
 
 async def _build_passing_design(db, design_id, library_id):
