@@ -905,7 +905,7 @@ function AssignmentItemRow({
  * correct/incorrect, how long they took, and what they left unanswered
  * (`selected_index: null`), all of which feeds the evaluation the same way
  * a mission run's detail does. */
-function QuizAnswersReview({ cohortId, assignmentId, itemId }: { cohortId: string; assignmentId: string; itemId: string }) {
+export function QuizAnswersReview({ cohortId, assignmentId, itemId }: { cohortId: string; assignmentId: string; itemId: string }) {
   const { data: result, isLoading, isError, error } = useQuery({
     queryKey: ["cohort-quiz-review", cohortId, assignmentId, itemId],
     queryFn: () => getInstructorCohortQuizReviewApi(cohortId, assignmentId, itemId),

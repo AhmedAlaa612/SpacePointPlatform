@@ -394,6 +394,18 @@ class CompetitionAnalyticsTeamMemberOut(BaseModel):
     last_login_at: datetime | None = None
 
 
+class CompetitionTeamQuizSubmissionOut(BaseModel):
+    user_id: UUID
+    student_name: str
+    assignment_id: UUID | None = None
+    item_id: UUID
+    quiz_title: str
+    status: str
+    score: int | None = None
+    total: int | None = None
+    submitted_at: datetime | None = None
+
+
 class CompetitionAnalyticsTeamOut(BaseModel):
     """One team's progress against the cohort's *required* team-scoped
     deliverables. `deliverables` covers every one of them — done ones
@@ -416,6 +428,7 @@ class CompetitionAnalyticsTeamOut(BaseModel):
     # for any cohort with no team-scoped mission_run item, which is most
     # of them today.
     mission_runs: list[CompetitionMissionRunOut] = []
+    quiz_submissions: list[CompetitionTeamQuizSubmissionOut] = []
     last_activity_at: datetime | None = None
     stalled: bool
 
