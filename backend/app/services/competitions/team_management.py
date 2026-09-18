@@ -16,6 +16,7 @@ member-listing view with names/emails resolved.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -177,3 +178,36 @@ async def register_and_add_member(
 
 async def remove_member(db: AsyncSession, *, team_id: uuid.UUID, user_id: uuid.UUID) -> None:
     await leave_team(db, team_id=team_id, user_id=user_id)
+
+
+async def finalize_team_submission(db: AsyncSession, *, team_id: uuid.UUID, locked_by_user_id: uuid.UUID) -> Team:
+    """The FINAL GATE button's one write — the caller (the student router)
+    has already checked `team_final_submit_readiness`
+    (`services/lms/program.py`), so this function only performs the
+    mutation itself, staying a plain reusable write rather than
+    re-deriving checklist status here too. Idempotent: calling it again on
+    an already-locked team is a no-op, not a second lock — a stale
+    double-click must never clobber the original `final_locked_by`/
+    `final_locked_at`."""
+    team = await db.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    if team.final_locked_at is None:
+        team.final_locked_at = datetime.now(timezone.utc)
+        team.final_locked_by = locked_by_user_id
+        await db.flush()
+    return team
+
+
+async def unlock_team_submission(db: AsyncSession, *, team_id: uuid.UUID) -> Team:
+    """Ops-only reopen — clears both lock columns so the team's checklist
+    writes are unblocked again. See `Team.final_locked_at`'s own docstring
+    for why this is the only way a lock ever clears (a team can never
+    re-open its own submission)."""
+    team = await db.get(Team, team_id)
+    if team is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Team not found")
+    team.final_locked_at = None
+    team.final_locked_by = None
+    await db.flush()
+    return team

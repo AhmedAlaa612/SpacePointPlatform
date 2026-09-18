@@ -274,3 +274,32 @@ async def test_ops_deletes_an_unscored_team_but_not_a_scored_one(db, client):
 
     still_there = (await db.execute(select(Team).where(Team.id == scored_team.id))).scalars().first()
     assert still_there is not None
+
+
+@pytest.mark.asyncio
+async def test_ops_unlocks_a_finally_submitted_team(db, client):
+    """The only way a team's final-submission lock ever clears — see
+    Team.final_locked_at's own docstring. Not itself testing the student
+    side of finalize_team_submission (covered in
+    tests/routers/lms/test_lms_program_student.py); this only exercises
+    unlock_team_submission's own write and the endpoint around it."""
+    from app.services.competitions.team_management import finalize_team_submission
+
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    student = await _student(db)
+    await db.commit()
+    team = await create_team(db, name="Locked In", created_by=student.id, cohort_id=cohort.id, member_ids=[])
+    await db.commit()
+    await finalize_team_submission(db, team_id=team.id, locked_by_user_id=student.id)
+    await db.commit()
+
+    locked = (await db.execute(select(Team).where(Team.id == team.id))).scalars().first()
+    assert locked.final_locked_at is not None
+
+    resp = await client.post(f"/competitions/admin/teams/{team.id}/unlock", headers=_headers(ops))
+    assert resp.status_code == http_status.HTTP_200_OK, resp.text
+
+    await db.refresh(locked)
+    assert locked.final_locked_at is None
+    assert locked.final_locked_by is None

@@ -1497,6 +1497,52 @@ async def checklist_item_locked(db: AsyncSession, *, assignment: LmsProgramAssig
     return locked.get(item.id, False)
 
 
+async def team_final_locked(db: AsyncSession, *, assignment: LmsProgramAssignment, item: LmsProgramItem) -> bool:
+    """True once this item's team has already finally submitted (see
+    `Team.final_locked_at`'s own docstring) — checked only for
+    `scope=="team"` items; an individual-scoped item is never blocked by
+    the team's lock."""
+    if item.scope != "team":
+        return False
+    team = await team_for_cohort_member(db, cohort_id=assignment.cohort_id, user_id=assignment.user_id)
+    return team is not None and team.final_locked_at is not None
+
+
+async def team_final_submit_readiness(
+    db: AsyncSession, *, assignment: LmsProgramAssignment,
+) -> tuple[bool, str | None]:
+    """True once every required (non-optional) item on this assignment's
+    checklist is `"done"` — individual-scoped items included, not just
+    team-scoped ones. Deliberately the exact same condition
+    `RoadmapBoard.tsx`'s `allDone` prop already computes (`pct === 100`
+    over every required item, `RoadmapBoard.tsx:54`) — the board's "FINAL
+    GATE" card literally reads "Complete every task above to finish", not
+    "every team task", so the button's enabled state and this check must
+    agree on what "every task" means. Only ever blocks *this* teammate's
+    own click, though: enforcement afterward (`team_final_locked`) freezes
+    only the team-scoped rows, never a teammate's individual ones. Uses
+    the same live-refreshed status `get_student_checklist` shows (via
+    `refresh_item_progress`, not the cheaper stored-only
+    `_effective_status`). Returns `(ready, reason)` — `reason` is a
+    human-readable string for the 400 detail when not ready."""
+    pairs = await _assignment_items_and_progress(db, assignment.id)
+    team_progress_by_item = await _team_progress_by_item(
+        db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
+    )
+    dashboard_cache: dict[uuid.UUID, dict | None] = {}
+    for item, progress in pairs:
+        if item.optional:
+            continue
+        team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
+        item_status = await refresh_item_progress(
+            db, progress=team_progress or progress, item=item, user_id=assignment.user_id,
+            dashboard_cache=dashboard_cache,
+        )
+        if item_status != "done":
+            return False, f"'{item.title}' isn't done yet"
+    return True, None
+
+
 async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, user_id: uuid.UUID) -> dict | None:
     """None means either the assignment doesn't exist or belongs to a
     different student — the router turns both into a plain 404, never
@@ -1634,6 +1680,10 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         # with no team yet (or a program with no team-scoped items at all)
         # gets None, same as cohort_name for a program with no cohort.
         "team_name": team.name if team is not None else None,
+        # None means still editable — see Team.final_locked_at's own
+        # docstring. Same "resolved from the already-loaded team" posture
+        # as team_name above, no extra query.
+        "team_final_locked_at": team.final_locked_at if team is not None else None,
         "certificate_required": program.certificate_required,
         "certificate_earned": await _certificate_earned(db, assignment.registration_id),
         "items": items_out,
