@@ -909,7 +909,12 @@ async def test_individual_and_team_items_on_the_same_checklist_stay_independent(
 # ── Final submission lock (2026-09) ─────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_final_submit_rejects_until_every_required_item_is_done(db, client):
+async def test_final_submit_rejects_until_every_required_team_item_is_done(db, client):
+    """Readiness only gates on team-scoped items — a teammate's own
+    unrelated individual item never blocks it (2026-09-19, found live: an
+    earlier version required every item, individual ones included, and a
+    single leftover personal task kept the button permanently disabled
+    even once the team's own deliverables were all in)."""
     author = await _author(db)
     cohort, lms_program = await _cohort_with_checklist(db, author=author)
     individual_item = LmsProgramItem(
@@ -932,15 +937,15 @@ async def test_final_submit_rejects_until_every_required_item_is_done(db, client
     resp = await client.post(f"/lms/programs/{assignment_a.id}/final-submit", headers=_headers(student_a))
     assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
 
-    # The team item is done, but the individual one isn't — still not ready.
-    # "every task above", not just the team ones (see team_final_submit_readiness).
+    # The team item is done — ready, even though the unrelated individual
+    # item never got touched.
     submitted = await client.post(
         f"/lms/programs/{assignment_a.id}/items/{team_item.id}/submit", headers=_headers(student_a),
         json={"url": "https://canva.com/design/poster"},
     )
     assert submitted.status_code == 200
     resp = await client.post(f"/lms/programs/{assignment_a.id}/final-submit", headers=_headers(student_a))
-    assert resp.status_code == http_status.HTTP_400_BAD_REQUEST
+    assert resp.status_code == 200, resp.text
 
 
 @pytest.mark.asyncio

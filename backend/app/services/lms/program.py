@@ -1531,17 +1531,15 @@ async def team_final_locked_for_attempt(db: AsyncSession, *, attempt_id: uuid.UU
 async def team_final_submit_readiness(
     db: AsyncSession, *, assignment: LmsProgramAssignment,
 ) -> tuple[bool, str | None]:
-    """True once every required (non-optional) item on this assignment's
-    checklist is `"done"` — individual-scoped items included, not just
-    team-scoped ones. Deliberately the exact same condition
-    `RoadmapBoard.tsx`'s `allDone` prop already computes (`pct === 100`
-    over every required item, `RoadmapBoard.tsx:54`) — the board's "FINAL
-    GATE" card literally reads "Complete every task above to finish", not
-    "every team task", so the button's enabled state and this check must
-    agree on what "every task" means. Only ever blocks *this* teammate's
-    own click, though: enforcement afterward (`team_final_locked`) freezes
-    only the team-scoped rows, never a teammate's individual ones. Uses
-    the same live-refreshed status `get_student_checklist` shows (via
+    """True once every required (non-optional), *team-scoped* item on this
+    assignment's checklist is `"done"` — an individual-scoped item never
+    blocks this (2026-09-19, reversed from an earlier version that also
+    required every individual item done: the user's own testing found a
+    single leftover personal task kept "Final Submit" disabled even
+    though the team's own deliverables were all in). `RoadmapBoard.tsx`
+    computes the button's enabled state the same way (`teamReady`,
+    filtered to `item.scope === "team"`), so the two must keep agreeing.
+    Uses the same live-refreshed status `get_student_checklist` shows (via
     `refresh_item_progress`, not the cheaper stored-only
     `_effective_status`). Returns `(ready, reason)` — `reason` is a
     human-readable string for the 400 detail when not ready."""
@@ -1551,9 +1549,9 @@ async def team_final_submit_readiness(
     )
     dashboard_cache: dict[uuid.UUID, dict | None] = {}
     for item, progress in pairs:
-        if item.optional:
+        if item.optional or item.scope != "team":
             continue
-        team_progress = team_progress_by_item.get(item.id) if item.scope == "team" else None
+        team_progress = team_progress_by_item.get(item.id)
         item_status = await refresh_item_progress(
             db, progress=team_progress or progress, item=item, user_id=assignment.user_id,
             dashboard_cache=dashboard_cache,

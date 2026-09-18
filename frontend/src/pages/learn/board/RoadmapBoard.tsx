@@ -61,6 +61,13 @@ export default function RoadmapBoard() {
   const doneCount = requiredItems.filter((i) => i.status === "done").length;
   const pct = requiredItems.length ? Math.round((100 * doneCount) / requiredItems.length) : 100;
   const groups = groupByCheckpoint(items);
+  // "Final Submit" is a team action — only the team's own required
+  // deliverables gate it, not a teammate's unrelated personal task (found
+  // live, 2026-09-19: a leftover individual item kept the button disabled
+  // even once every team deliverable was in). Mirrors the backend's own
+  // team_final_submit_readiness, which checks the same subset.
+  const requiredTeamItems = requiredItems.filter((i) => i.scope === "team");
+  const teamReady = requiredTeamItems.length > 0 && requiredTeamItems.every((i) => i.status === "done");
   const openItem = items.find((i) => i.id === openItemId) ?? null;
 
   if (error) return <div className="mx-auto max-w-[900px] px-5 py-10"><p className="text-sm text-destructive">Couldn't load this program.</p></div>;
@@ -122,7 +129,7 @@ export default function RoadmapBoard() {
           )}
 
           <FinalGateBar
-            groups={groups} allDone={pct === 100} locked={!!checklist.team_final_locked_at}
+            groups={groups} teamReady={teamReady} locked={!!checklist.team_final_locked_at}
             hasTeam={!!checklist.team_name} assignmentId={assignmentId} onFinalized={invalidate}
           />
         </div>
