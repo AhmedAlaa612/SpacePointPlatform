@@ -198,6 +198,8 @@ export interface CompetitionJudgeTeam {
   member_ids: string[]
   member_names: string[]
   already_scored: boolean
+  // Team hit "Final Submit" — its checklist is frozen, only ops can reopen it.
+  locked: boolean
 }
 
 export interface CompetitionTeam {
@@ -360,6 +362,12 @@ export const renameTeamApi = (teamId: string, name: string) =>
 export const deleteTeamApi = (teamId: string) =>
   api.delete<void>(`/competitions/admin/teams/${teamId}`).then((r) => r.data)
 
+/** Reopens a team's checklist after "Final Submit" — see
+ * routers/competitions/admin.py::unlock_team. The only way that lock
+ * ever clears; a team can never re-open its own submission. */
+export const unlockTeamApi = (teamId: string) =>
+  api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/unlock`).then((r) => r.data)
+
 export const addExistingTeamMemberApi = (teamId: string, userId: string) =>
   api.post<CompetitionTeam>(`/competitions/admin/teams/${teamId}/members`, { user_id: userId }).then((r) => r.data)
 
@@ -478,6 +486,8 @@ export interface CompetitionAnalyticsTeam {
   quiz_submissions?: CompetitionTeamQuizSubmission[]
   last_activity_at: string | null
   stalled: boolean
+  /** Team hit "Final Submit" — its checklist is frozen, only ops can reopen it. */
+  locked: boolean
 }
 
 export interface CompetitionAnalyticsActivity {

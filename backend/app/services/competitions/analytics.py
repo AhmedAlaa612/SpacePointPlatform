@@ -504,6 +504,7 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
                 done < total
                 and (last_activity is None or (now - last_activity) > timedelta(days=STALLED_AFTER_DAYS))
             ),
+            "locked": team.final_locked_at is not None,
         })
     team_rows.sort(key=lambda r: (-r["pct"], r["team_name"].lower()))
 

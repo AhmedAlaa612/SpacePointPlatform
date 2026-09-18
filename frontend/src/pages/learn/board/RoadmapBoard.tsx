@@ -113,7 +113,10 @@ export default function RoadmapBoard() {
             />
           )}
 
-          <FinalGateBar groups={groups} allDone={pct === 100} />
+          <FinalGateBar
+            groups={groups} allDone={pct === 100} locked={!!checklist.team_final_locked_at}
+            hasTeam={!!checklist.team_name} assignmentId={assignmentId} onFinalized={invalidate}
+          />
         </div>
       </div>
 

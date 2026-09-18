@@ -76,7 +76,9 @@ async def list_my_teams(
     out = []
     for team in teams:
         base = await _team_out(db, team)
-        out.append(CompetitionJudgeTeamOut(**base.model_dump(), already_scored=team.id in scored))
+        out.append(CompetitionJudgeTeamOut(
+            **base.model_dump(), already_scored=team.id in scored, locked=team.final_locked_at is not None,
+        ))
     return out
 
 
