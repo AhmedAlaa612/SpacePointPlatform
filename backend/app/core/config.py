@@ -6,6 +6,9 @@ class Settings(BaseSettings):
 
     PROJECT_NAME: str = "SpacePoint Unified Platform"
 
+    # Structured logging (app/core/log_context.py)
+    LOG_LEVEL: str = "INFO"
+
     # Database — async driver, e.g.
     # postgresql+asyncpg://postgres:postgres@host:5432/postgres
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/spacepoint"

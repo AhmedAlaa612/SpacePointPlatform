@@ -92,6 +92,9 @@ export interface StudentSummary {
   grade: string | null;
   status: string | null;
   created_at: string | null;
+  /** Set the moment a login actually succeeds — null means this account
+   * (self-signup or ops-created) has never once been logged into. */
+  last_login_at: string | null;
 }
 
 export interface InviteCode {
@@ -341,11 +344,14 @@ export type LmsProgramItemType =
  * individual variant, so authoring it never offers the choice. */
 export type LmsProgramItemScope = "individual" | "team";
 
-/** One entry in ops's own fixed label set for a `submission_multi_link`
- * item (2026-09-14) — see `LmsProgramItem.submission_link_labels`. */
+/** One entry in ops's own fixed field set for a `submission_multi_link`
+ * item (2026-09-14, text fields added 2026-09-16) — see
+ * `LmsProgramItem.submission_link_labels`. field_type picks whether the
+ * student sees a link input or a text area for this slot. */
 export interface LmsProgramItemLinkLabel {
   label: string;
   required: boolean;
+  field_type: "text" | "link";
 }
 
 export interface LmsProgramItem {
@@ -366,6 +372,9 @@ export interface LmsProgramItem {
   variant_id: string | null;
   external_url: string | null;
   submission_prompt: string | null;
+  /** The plain (non-multi) submission's own type — link (default) or text.
+   * Only meaningful when submission_multi_link is false. */
+  submission_field_type: "text" | "link";
   /** Ops's per-item toggle (2026-09-14) — a submission item takes several
    * labeled links instead of one (e.g. Member 1/Member 2/Team link). */
   submission_multi_link: boolean;
@@ -438,6 +447,7 @@ export interface LmsProgramItemInput {
   variant_id?: string | null;
   external_url?: string | null;
   submission_prompt?: string | null;
+  submission_field_type?: "text" | "link";
   submission_multi_link?: boolean;
   submission_link_labels?: LmsProgramItemLinkLabel[] | null;
   deadline_at?: string | null;
@@ -566,8 +576,10 @@ export interface PendingConfirmation {
   item_id: string;
   title: string;
   submitted_url: string | null;
+  submission_field_type: "text" | "link";
+  submitted_text: string | null;
   submission_multi_link: boolean;
-  submitted_links: { label: string | null; url: string }[] | null;
+  submitted_links: { label: string | null; url: string | null; text: string | null }[] | null;
 }
 
 export interface LmsProgramRosterRow {
@@ -611,12 +623,15 @@ export interface LmsAssignmentItemDetail {
   item_type: LmsProgramItemType;
   status: string;
   submitted_url: string | null;
+  submission_field_type: "text" | "link";
+  submitted_text: string | null;
   submission_multi_link: boolean;
-  submitted_links: { label: string | null; url: string }[] | null;
+  submitted_links: { label: string | null; url: string | null; text: string | null }[] | null;
   completed_at: string | null;
   mission_attempt_id: string | null;
   confirmed_by_user_id: string | null;
   mission_step_key?: string | null;
+  mission_kind: string | null;
 }
 
 export const getAssignmentItemsApi = (cohortId: string, assignmentId: string) =>
@@ -731,7 +746,9 @@ export const revokeLearningPathEnrollmentApi = (pathId: string, userId: string) 
 
 // ── student management (2026-08-12) ─────────────────────────────────────────
 
-export const searchStudentsApi = (params: { q?: string; invite_code?: string } = {}) =>
+export const searchStudentsApi = (
+  params: { q?: string; invite_code?: string; login_status?: "all" | "never" | "has_logged_in" } = {},
+) =>
   api.get<StudentSummary[]>("/lms/admin/students", { params }).then((r) => r.data);
 
 // ── student invite codes (2026-08-13) ───────────────────────────────────────

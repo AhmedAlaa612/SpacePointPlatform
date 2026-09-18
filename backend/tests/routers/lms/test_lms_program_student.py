@@ -382,10 +382,99 @@ async def test_multi_link_submission_enforces_ops_required_labels(db, client):
     assert body["status"] == "done"
     assert [l["label"] for l in body["submitted_links"]] == ["Member 1 link", "Member 2 link"]
     assert body["submission_link_labels"] == [
-        {"label": "Member 1 link", "required": True},
-        {"label": "Member 2 link", "required": True},
-        {"label": "Team link", "required": False},
+        {"label": "Member 1 link", "required": True, "field_type": "link"},
+        {"label": "Member 2 link", "required": True, "field_type": "link"},
+        {"label": "Team link", "required": False, "field_type": "link"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_multi_field_submission_takes_a_text_field_alongside_a_link_field(db, client):
+    """field_type (2026-09-16): a "text" field takes body.links[].text, not
+    .url — stored with url=None so a judge/export reader can tell a
+    paragraph of prose apart from a link without guessing. submitted_url
+    still mirrors the one *link*-type field, not the text one."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Team deliverable", submission_multi_link=True,
+        submission_link_labels=[
+            {"label": "Design writeup", "required": True, "field_type": "text"},
+            {"label": "Team link", "required": False, "field_type": "link"},
+        ],
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"links": [
+            {"label": "Design writeup", "text": "We built a CubeSat with a deployable solar array."},
+            {"label": "Team link", "url": "https://example.com/team"},
+        ]},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "done"
+    writeup, team_link = body["submitted_links"]
+    assert writeup == {
+        "label": "Design writeup", "url": None,
+        "text": "We built a CubeSat with a deployable solar array.",
+    }
+    assert team_link == {"label": "Team link", "url": "https://example.com/team", "text": None}
+    # The one link-type field's value, not the text field's.
+    assert body["submitted_url"] == "https://example.com/team"
+
+
+@pytest.mark.asyncio
+async def test_a_required_text_field_blocks_submission_same_as_a_required_link_would(db, client):
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Team deliverable", submission_multi_link=True,
+        submission_link_labels=[
+            {"label": "Design writeup", "required": True, "field_type": "text"},
+            {"label": "Team link", "required": False, "field_type": "link"},
+        ],
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    # Only the optional link filled in — the required text field is still
+    # genuinely missing, same "missing required field(s)" path a required
+    # link would take.
+    missing = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"links": [{"label": "Team link", "url": "https://example.com/team"}]},
+    )
+    assert missing.status_code == http_status.HTTP_400_BAD_REQUEST
+    assert "Design writeup" in missing.json()["detail"]
+
+    # A stray .url on a text-type field doesn't count as an answer — it's
+    # entirely ignored, same as if nothing had been sent for that field at
+    # all, so this 400s as "nothing filled in", not "missing Design writeup".
+    wrong_field = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"links": [{"label": "Design writeup", "url": "https://example.com/oops"}]},
+    )
+    assert wrong_field.status_code == http_status.HTTP_400_BAD_REQUEST
+    assert wrong_field.json()["detail"] == "Fill in at least one field"
+
+    ok = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"links": [{"label": "Design writeup", "text": "Our design writeup."}]},
+    )
+    assert ok.status_code == 200, ok.text
+    # No link-type field at all — nothing real to mirror into submitted_url.
+    assert ok.json()["submitted_url"] is None
 
 
 @pytest.mark.asyncio
@@ -413,8 +502,57 @@ async def test_checklist_read_carries_ops_labels_before_any_submission(db, clien
     assert resp.status_code == 200, resp.text
     checklist_item = next(i for i in resp.json()["items"] if i["id"] == str(item.id))
     assert checklist_item["submission_link_labels"] == [
-        {"label": "Member 1 link", "required": True}, {"label": "Team link", "required": False},
+        {"label": "Member 1 link", "required": True, "field_type": "link"},
+        {"label": "Team link", "required": False, "field_type": "link"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_single_field_submission_can_itself_be_text(db, client):
+    """submission_field_type (2026-09-16): a plain (non-multi) submission
+    item can be a text answer instead of a link — takes body.text, stored
+    in submitted_text, submitted_url left None. Symmetric with the
+    link-type default: submit an answer, missing it is a 400, and it
+    round-trips through both the submit response and the checklist read."""
+    author = await _author(db)
+    cohort, lms_program = await _cohort_with_checklist(db, author=author)
+    item = LmsProgramItem(
+        id=uuid.uuid4(), owner_type="program", owner_id=lms_program.id, position=1,
+        item_type="submission", title="Design writeup", submission_field_type="text",
+    )
+    db.add(item)
+    student = await _student(db)
+    await db.commit()
+    assignment = await assign_lms_program(db, user_id=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    missing = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student), json={},
+    )
+    assert missing.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    # A stray `url` on a text-type item doesn't satisfy it either.
+    wrong_field = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"url": "https://example.com"},
+    )
+    assert wrong_field.status_code == http_status.HTTP_400_BAD_REQUEST
+
+    resp = await client.post(
+        f"/lms/programs/{assignment.id}/items/{item.id}/submit", headers=_headers(student),
+        json={"text": "We built a CubeSat with a deployable solar array."},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "done"
+    assert body["submission_field_type"] == "text"
+    assert body["submitted_text"] == "We built a CubeSat with a deployable solar array."
+    assert body["submitted_url"] is None
+
+    detail = await client.get(f"/lms/programs/{assignment.id}", headers=_headers(student))
+    detail_item = next(i for i in detail.json()["items"] if i["id"] == str(item.id))
+    assert detail_item["submitted_text"] == "We built a CubeSat with a deployable solar array."
+    assert detail_item["submission_field_type"] == "text"
 
 
 @pytest.mark.asyncio

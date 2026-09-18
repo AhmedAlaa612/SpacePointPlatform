@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from html import escape
 
 import redis.asyncio as redis
@@ -92,7 +92,8 @@ from app.services.sessions import materials as materials_service
 from app.services.sessions import staffing as staffing_service
 from app.services.sessions import reports as reports_service
 from app.services.lms.ops_integration import (
-    deactivate_registration_enrollments, send_registration_onboarding_email, sync_registration_lms,
+    build_set_password_link, deactivate_registration_enrollments, send_registration_onboarding_email,
+    sync_registration_lms,
 )
 from app.services.sessions.registration import format_cohort_dates, register
 from app.services.spine.identity import resolve_or_create_contact
@@ -892,6 +893,32 @@ async def list_registrations(
     certified_ids: set[uuid.UUID] = set()
     att_by_reg: dict[uuid.UUID, dict[uuid.UUID, AttendanceRecord]] = {}
 
+    # last_login_at per registrant (2026-09-16) — same contact_id-first,
+    # email-fallback account resolution get_or_create_student_account and
+    # services/lms/students.py::_registered_cohort_users both use, so
+    # "linked account" here means the same thing it does everywhere else.
+    student_contact_ids = [student.id for _, student, _, _ in rows]
+    last_login_by_contact: dict[uuid.UUID, datetime | None] = {}
+    if student_contact_ids:
+        linked_users = (await db.execute(
+            select(User.contact_id, User.email, User.last_login_at)
+            .where(User.contact_id.in_(student_contact_ids))
+        )).all()
+        last_login_by_contact = {u.contact_id: u.last_login_at for u in linked_users}
+        resolved_contact_ids = set(last_login_by_contact.keys())
+
+        missing_emails = {
+            student.email for _, student, _, _ in rows
+            if student.id not in resolved_contact_ids and student.email
+        }
+        if missing_emails:
+            by_email = dict((await db.execute(
+                select(User.email, User.last_login_at).where(User.email.in_(missing_emails))
+            )).all())
+            for _, student, _, _ in rows:
+                if student.id not in resolved_contact_ids and student.email in by_email:
+                    last_login_by_contact[student.id] = by_email[student.email]
+
     if registration_ids:
         att_records = (await db.execute(
             select(AttendanceRecord)
@@ -968,6 +995,7 @@ async def list_registrations(
                 total_cohort_sessions_count=total_sessions_count,
                 attendance_records=att_list,
                 created_at=reg.created_at,
+                last_login_at=last_login_by_contact.get(reg.contact_id),
             )
         )
     return result_registrations
@@ -1107,6 +1135,26 @@ async def resend_onboarding_email(
     sent = await send_registration_onboarding_email(db, user=user, registration=registration, cohort=cohort)
     await db.commit()
     return {"sent": sent}
+
+
+@router.post("/registrations/{registration_id}/set-password-link")
+async def get_set_password_link(
+    registration_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_operations),
+):
+    """Hands ops the raw set-password link instead of emailing it — for
+    students who don't check the inbox that email went to, ops copies this
+    and sends it themselves over WhatsApp/SMS. Same token/link
+    `resend-onboarding-email` sends by mail (build_set_password_link)."""
+    registration = await db.get(Registration, registration_id)
+    if registration is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Registration not found")
+    user = (await db.execute(select(User).where(User.contact_id == registration.contact_id))).scalars().first()
+    if user is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No LMS account linked to this registration")
+
+    return {"link": build_set_password_link(user)}
 
 
 @router.post("/registrations/{registration_id}/cancel")

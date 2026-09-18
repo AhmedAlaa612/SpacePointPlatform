@@ -19,13 +19,17 @@ ModuleItemKind = Literal["video", "text", "quiz", "flashcards", "attachment", "m
 
 
 class LmsProgramItemLinkLabel(BaseModel):
-    """One entry in ops's own fixed label set for a `submission_multi_link`
-    item (2026-09-14) — see `LmsProgramItem.submission_link_labels`'s own
-    comment. Deliberately a separate class from `schemas.lms.LmsSubmissionLinkLabel`
-    rather than a shared import, same posture as this module's own docstring
-    on staying decoupled from the student-facing schema file."""
+    """One entry in ops's own fixed field set for a `submission_multi_link`
+    item (2026-09-14, text fields added 2026-09-16) — see
+    `LmsProgramItem.submission_link_labels`'s own comment. Deliberately a
+    separate class from `schemas.lms.LmsSubmissionLinkLabel` rather than a
+    shared import, same posture as this module's own docstring on staying
+    decoupled from the student-facing schema file. `field_type` decides
+    whether the student sees a link input or a text area; defaults to
+    "link" so every field authored before this existed is unaffected."""
     label: str = Field(min_length=1, max_length=80)
     required: bool = False
+    field_type: Literal["text", "link"] = "link"
 
 
 class InstructorOptionOut(BaseModel):
@@ -143,6 +147,11 @@ class StudentSummaryOut(BaseModel):
     grade: str | None = None
     status: str | None = None
     created_at: datetime | None = None
+    # 2026-09-16 — set on `User` the moment a login actually succeeds
+    # (routers/auth.py::login). None means this account has never once been
+    # logged into — the account existing (self-signup, or an ops-created
+    # invite) says nothing about whether anyone ever actually opened it.
+    last_login_at: datetime | None = None
 
 
 class StudentProgramOut(BaseModel):
@@ -478,6 +487,10 @@ class LmsProgramItemIn(BaseModel):
     variant_id: UUID | None = None
     external_url: str | None = Field(default=None, max_length=512)
     submission_prompt: str | None = None
+    # 2026-09-16 — the single-field submission's own type (link or text).
+    # Only meaningful when submission_multi_link is False; ignored (a
+    # multi-link item picks its type per field) but harmless otherwise.
+    submission_field_type: Literal["text", "link"] = "link"
     # 2026-09-14 — ops's per-item toggle: allow several labeled links in
     # one submission instead of one bare link. submission-only, validated
     # against item_type in validate_item_payload.
@@ -530,6 +543,7 @@ class LmsProgramItemOut(BaseModel):
     variant_id: UUID | None
     external_url: str | None
     submission_prompt: str | None
+    submission_field_type: Literal["text", "link"] = "link"
     submission_multi_link: bool = False
     submission_link_labels: list[LmsProgramItemLinkLabel] | None = None
     # True once a `pdf` item has a file uploaded (routers/lms/admin.py's

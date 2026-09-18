@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 if TYPE_CHECKING:
@@ -114,10 +115,22 @@ async def add_component(
     return dc
 
 
-async def remove_component(db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID) -> None:
+async def _get_owned_component(
+    db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID,
+) -> DesignComponent:
+    """Fetches a DesignComponent and confirms it belongs to `design_id`,
+    404ing otherwise — shared by remove_component and the budget-entry
+    ownership check below, both of which take a component id straight
+    off the URL path with nothing else confirming it's one of the
+    caller's own."""
     dc = await db.get(DesignComponent, design_component_id)
     if dc is None or dc.design_id != design_id:
         raise HTTPException(404, detail="Design component not found")
+    return dc
+
+
+async def remove_component(db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID) -> None:
+    dc = await _get_owned_component(db, design_id=design_id, design_component_id=design_component_id)
     await db.delete(dc)
     await db.flush()
 
@@ -181,75 +194,99 @@ async def save_mode_duration(db: AsyncSession, *, design_mode_id: uuid.UUID, dur
 
 # ── Budget entry saves (student overrides of the frozen snapshot) ──────
 
-async def save_data_entry(db: AsyncSession, *, design_component_id: uuid.UUID, **fields) -> DesignDataBudgetEntry:
+async def _upsert_budget_entry(
+    db: AsyncSession, *, model: type, key_column: str, key_value: uuid.UUID, fields: dict,
+    owning_design_id: uuid.UUID | None = None,
+):
+    """Real upsert (INSERT ... ON CONFLICT DO UPDATE), keyed on `key_column`
+    — `design_component_id` for every budget entry below except the link
+    budget (`design_id`: RF is a spacecraft-level property, not
+    per-component). Replaces a select-then-insert that used to race: two
+    near-simultaneous saves for the same key (double-click, a resent
+    request) could both see "no row yet" and both INSERT, the second
+    hitting the unique constraint on `key_column` and 500ing instead of
+    just landing the later write. `key_column` has a real unique
+    constraint on every one of these tables, so it's a valid conflict
+    target.
+
+    `owning_design_id`, when given, confirms `key_value` (a
+    design_component_id) actually belongs to the caller's own design
+    before writing anything — the router only validates the *attempt*
+    belongs to the caller (`_own_design_attempt`), not that the
+    component id in the URL path is one of that design's own components.
+    Same check `remove_component` above already does; pre-existing gap in
+    the select-then-insert this replaced, not introduced by the upsert
+    rewrite — closing it here, the one place every budget save now goes
+    through. Not needed for the link budget (`design_id` is already the
+    caller's own design — see save_link_entry)."""
+    if owning_design_id is not None:
+        await _get_owned_component(db, design_id=owning_design_id, design_component_id=key_value)
+
+    now = datetime.now(timezone.utc)
+    values = {**fields, "id": uuid.uuid4(), key_column: key_value, "updated_at": now}
+    await db.execute(
+        pg_insert(model).values(**values).on_conflict_do_update(
+            index_elements=[key_column], set_={**fields, "updated_at": now},
+        )
+    )
+    # The ON CONFLICT UPDATE above happens at the SQL layer, outside the
+    # ORM's attribute tracking — if this entry's identity is already in the
+    # session (e.g. an earlier save this same request/test), a plain
+    # select() would just hand back that same, now-stale, Python object
+    # instead of the row's fresh values. populate_existing forces a real
+    # reload.
     entry = (await db.execute(
-        select(DesignDataBudgetEntry).where(DesignDataBudgetEntry.design_component_id == design_component_id)
-    )).scalars().first()
-    if entry is None:
-        entry = DesignDataBudgetEntry(id=uuid.uuid4(), design_component_id=design_component_id)
-        db.add(entry)
-    for k, v in fields.items():
-        setattr(entry, k, v)
-    entry.updated_at = datetime.now(timezone.utc)
+        select(model).where(getattr(model, key_column) == key_value).execution_options(populate_existing=True)
+    )).scalar_one()
     await db.flush()
     return entry
 
 
-async def save_power_entry(db: AsyncSession, *, design_component_id: uuid.UUID, **fields) -> DesignPowerBudgetEntry:
-    entry = (await db.execute(
-        select(DesignPowerBudgetEntry).where(DesignPowerBudgetEntry.design_component_id == design_component_id)
-    )).scalars().first()
-    if entry is None:
-        entry = DesignPowerBudgetEntry(id=uuid.uuid4(), design_component_id=design_component_id)
-        db.add(entry)
-    for k, v in fields.items():
-        setattr(entry, k, v)
-    entry.updated_at = datetime.now(timezone.utc)
-    await db.flush()
-    return entry
+async def save_data_entry(
+    db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID, **fields
+) -> DesignDataBudgetEntry:
+    return await _upsert_budget_entry(
+        db, model=DesignDataBudgetEntry, key_column="design_component_id",
+        key_value=design_component_id, fields=fields, owning_design_id=design_id,
+    )
 
 
-async def save_mass_entry(db: AsyncSession, *, design_component_id: uuid.UUID, **fields) -> DesignMassBudgetEntry:
-    entry = (await db.execute(
-        select(DesignMassBudgetEntry).where(DesignMassBudgetEntry.design_component_id == design_component_id)
-    )).scalars().first()
-    if entry is None:
-        entry = DesignMassBudgetEntry(id=uuid.uuid4(), design_component_id=design_component_id)
-        db.add(entry)
-    for k, v in fields.items():
-        setattr(entry, k, v)
-    entry.updated_at = datetime.now(timezone.utc)
-    await db.flush()
-    return entry
+async def save_power_entry(
+    db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID, **fields
+) -> DesignPowerBudgetEntry:
+    return await _upsert_budget_entry(
+        db, model=DesignPowerBudgetEntry, key_column="design_component_id",
+        key_value=design_component_id, fields=fields, owning_design_id=design_id,
+    )
 
 
-async def save_cost_entry(db: AsyncSession, *, design_component_id: uuid.UUID, **fields) -> DesignCostBudgetEntry:
-    entry = (await db.execute(
-        select(DesignCostBudgetEntry).where(DesignCostBudgetEntry.design_component_id == design_component_id)
-    )).scalars().first()
-    if entry is None:
-        entry = DesignCostBudgetEntry(id=uuid.uuid4(), design_component_id=design_component_id)
-        db.add(entry)
-    for k, v in fields.items():
-        setattr(entry, k, v)
-    entry.updated_at = datetime.now(timezone.utc)
-    await db.flush()
-    return entry
+async def save_mass_entry(
+    db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID, **fields
+) -> DesignMassBudgetEntry:
+    return await _upsert_budget_entry(
+        db, model=DesignMassBudgetEntry, key_column="design_component_id",
+        key_value=design_component_id, fields=fields, owning_design_id=design_id,
+    )
+
+
+async def save_cost_entry(
+    db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID, **fields
+) -> DesignCostBudgetEntry:
+    return await _upsert_budget_entry(
+        db, model=DesignCostBudgetEntry, key_column="design_component_id",
+        key_value=design_component_id, fields=fields, owning_design_id=design_id,
+    )
 
 
 async def save_link_entry(db: AsyncSession, *, design_id: uuid.UUID, **fields) -> DesignLinkBudgetEntry:
-    entry = (await db.execute(
-        select(DesignLinkBudgetEntry).where(DesignLinkBudgetEntry.design_id == design_id)
-    )).scalars().first()
-    if entry is None:
-        entry = DesignLinkBudgetEntry(id=uuid.uuid4(), design_id=design_id)
-        db.add(entry)
-    for k, v in fields.items():
-        setattr(entry, k, v)
-    entry.is_saved = True  # F6 fix — a real recorded fact, set exactly once the save endpoint runs
-    entry.updated_at = datetime.now(timezone.utc)
-    await db.flush()
-    return entry
+    # is_saved is not part of LinkEntrySaveIn — merged in here rather than
+    # left to the caller, same F6-fix guarantee the old code enforced:
+    # a real recorded fact, set exactly once the save endpoint runs,
+    # on both the first save and every resave.
+    return await _upsert_budget_entry(
+        db, model=DesignLinkBudgetEntry, key_column="design_id",
+        key_value=design_id, fields={**fields, "is_saved": True},
+    )
 
 
 # ── Gathering DB rows into the pure calculators' input shape ───────────

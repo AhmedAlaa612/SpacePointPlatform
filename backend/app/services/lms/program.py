@@ -208,6 +208,10 @@ def validate_item_payload(body: LmsProgramItemIn) -> None:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, detail="Only a submission item can take multiple links",
         )
+    if body.submission_field_type == "text" and body.item_type != "submission":
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, detail="Only a submission item can be a text field",
+        )
     # 2026-09-14 — ops's own fixed label set (submission_link_labels) only
     # means anything once submission_multi_link is on; each label needs
     # actual text (a bare required-checkbox with nothing to label is
@@ -530,6 +534,8 @@ async def team_submission_items(db: AsyncSession, *, team_id: uuid.UUID) -> list
             "item_id": item.id, "title": item.title, "item_type": item.item_type,
             "status": progress.status if progress else "pending",
             "submitted_url": progress.submitted_url if progress else None,
+            "submission_field_type": item.submission_field_type,
+            "submitted_text": progress.submitted_text if progress else None,
             "submission_multi_link": item.submission_multi_link,
             "submitted_links": progress.submitted_links if progress else None,
             "updated_at": progress.updated_at if progress else None,
@@ -584,11 +590,21 @@ async def team_mission_run_items(db: AsyncSession, *, team_id: uuid.UUID) -> lis
     )).scalars().all()
     # Any one item in a group's team progress row carries the run's
     # attempt id — they were all created against the same team_id, so
-    # whichever item's row got created first is the answer for the group.
+    # whichever item's row actually carries one is the answer for the
+    # group. Must check mission_attempt_id itself, not just that a
+    # progress row exists for that item: a step can have a progress row
+    # with a still-null mission_attempt_id (assigned before the shared
+    # attempt was created) while a later step in the same group already
+    # has it — stopping at "first row that exists" rather than "first row
+    # that actually carries an attempt id" used to report that run as
+    # not_started even once it had genuinely started.
     team_progress_by_item = {r.item_id: r for r in team_progress_rows}
     attempt_id_by_mission: dict[uuid.UUID, uuid.UUID | None] = {
         mission_id: next(
-            (team_progress_by_item[gi.id].mission_attempt_id for gi in group_items if gi.id in team_progress_by_item),
+            (
+                row.mission_attempt_id for gi in group_items
+                if (row := team_progress_by_item.get(gi.id)) is not None and row.mission_attempt_id is not None
+            ),
             None,
         )
         for mission_id, group_items in groups.items()
@@ -1555,6 +1571,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         )
         statuses[item.id] = status
         submitted_url = team_progress.submitted_url if team_progress is not None else progress.submitted_url
+        submitted_text = team_progress.submitted_text if team_progress is not None else progress.submitted_text
         submitted_links = team_progress.submitted_links if team_progress is not None else progress.submitted_links
         if item.item_type == "mission_run" and attempt_id:
             dash = await _design_dashboard_for_attempt(db, mission_attempt_id=attempt_id, cache=dashboard_cache)
@@ -1584,6 +1601,8 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
             "external_url": item.external_url, "submission_prompt": item.submission_prompt,
             "has_pdf": item.pdf_path is not None,
             "submitted_url": submitted_url,
+            "submission_field_type": item.submission_field_type,
+            "submitted_text": submitted_text,
             "submission_multi_link": item.submission_multi_link,
             "submitted_links": submitted_links,
             "submission_link_labels": item.submission_link_labels,
@@ -1706,6 +1725,11 @@ async def cohort_program_roster(
                     team_progress_by_item[item.id].submitted_url if item.id in team_progress_by_item
                     else progress.submitted_url
                 ),
+                "submission_field_type": item.submission_field_type,
+                "submitted_text": (
+                    team_progress_by_item[item.id].submitted_text if item.id in team_progress_by_item
+                    else progress.submitted_text
+                ),
                 "submission_multi_link": item.submission_multi_link,
                 "submitted_links": (
                     team_progress_by_item[item.id].submitted_links if item.id in team_progress_by_item
@@ -1755,6 +1779,11 @@ async def program_roster(
                     team_progress_by_item[item.id].submitted_url if item.id in team_progress_by_item
                     else progress.submitted_url
                 ),
+                "submission_field_type": item.submission_field_type,
+                "submitted_text": (
+                    team_progress_by_item[item.id].submitted_text if item.id in team_progress_by_item
+                    else progress.submitted_text
+                ),
                 "submission_multi_link": item.submission_multi_link,
                 "submitted_links": (
                     team_progress_by_item[item.id].submitted_links if item.id in team_progress_by_item
@@ -1793,6 +1822,10 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
     team_progress_by_item = await _team_progress_by_item(
         db, pairs=pairs, cohort_id=assignment.cohort_id, user_id=assignment.user_id,
     )
+    mission_ids = {item.mission_id for item, _ in pairs if item.mission_id}
+    mission_kinds = dict((await db.execute(
+        select(Mission.id, Mission.kind).where(Mission.id.in_(mission_ids))
+    )).all()) if mission_ids else {}
 
     out = []
     dashboard_cache: dict[uuid.UUID, dict | None] = {}
@@ -1818,11 +1851,14 @@ async def assignment_item_detail(db: AsyncSession, *, assignment_id: uuid.UUID) 
         out.append({
             "item_id": item.id, "title": item.title, "item_type": item.item_type,
             "status": status, "submitted_url": submitted_url,
+            "submission_field_type": item.submission_field_type,
+            "submitted_text": target.submitted_text,
             "submission_multi_link": item.submission_multi_link,
             "submitted_links": target.submitted_links,
             "completed_at": completed_at, "mission_attempt_id": attempt_id,
             "confirmed_by_user_id": confirmed_by_user_id,
             "mission_step_key": item.mission_step_key,
+            "mission_kind": mission_kinds.get(item.mission_id) if item.mission_id else None,
         })
     return out
 

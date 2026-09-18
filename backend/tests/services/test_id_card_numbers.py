@@ -11,7 +11,8 @@ import pytest
 
 from app.core.security import create_access_token
 from app.models.user import User
-from app.services.documents.id_card import ensure_card_number, format_card_id
+from app.services.documents.card_id import format_card_id
+from app.services.documents.id_card import ensure_card_number
 
 
 def test_format_card_id_uses_staff_prefix_for_non_students():

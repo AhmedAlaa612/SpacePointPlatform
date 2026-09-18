@@ -395,7 +395,9 @@ async def test_judge_team_detail_groups_multiple_labeled_links_on_a_multi_link_s
     submission = resp.json()["submissions"][0]
     assert submission["submission_multi_link"] is True
     assert len(submission["submitted_links"]) == 3
-    assert submission["submitted_links"][0] == {"label": "Member 1 link", "url": "https://example.com/mem1"}
+    assert submission["submitted_links"][0] == {
+        "label": "Member 1 link", "url": "https://example.com/mem1", "text": None,
+    }
     assert submission["submitted_links"][2]["label"] == "Team link"
 
 
@@ -1272,6 +1274,86 @@ async def test_assignable_students_honors_invite_code_filter(db, client):
     )
     assert miss.status_code == 200, miss.text
     assert str(student.id) not in {r["id"] for r in miss.json()}
+
+
+@pytest.mark.asyncio
+async def test_assignable_students_login_status_filter(db, client):
+    """login_status (2026-09-16) reads User.last_login_at directly — account
+    existing (self-registered here) says nothing about whether it's ever
+    actually been opened."""
+    from datetime import datetime, timezone
+
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    never_logged_in = await _self_registered_student(db, full_name="Never Logged In Assignee")
+    has_logged_in = await _self_registered_student(db, full_name="Has Logged In Assignee")
+    has_logged_in.last_login_at = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    await db.commit()
+
+    never = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"login_status": "never"}, headers=_headers(ops),
+    )
+    never_ids = {r["id"] for r in never.json()}
+    assert str(never_logged_in.id) in never_ids
+    assert str(has_logged_in.id) not in never_ids
+
+    has = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"login_status": "has_logged_in"}, headers=_headers(ops),
+    )
+    has_ids = {r["id"] for r in has.json()}
+    assert str(has_logged_in.id) in has_ids
+    assert str(never_logged_in.id) not in has_ids
+
+
+@pytest.mark.asyncio
+async def test_assignable_students_a_large_batch_is_not_truncated_by_the_open_search_cap(db, client):
+    """Found live (2026-09-15): with "Registered to this cohort" off, the
+    platform-wide branch capped every query at 50 rows — including one
+    already narrowed to a single invite-code batch, which is bounded on its
+    own the same way a cohort roster is (_registered_cohort_users is fully
+    uncapped for that same reason). A batch bigger than the cap silently lost
+    members, and "All batches" (no invite_code) could end up showing *fewer*
+    relevant people than one specific batch, since the unfiltered query
+    burned its cap on unrelated platform students while a batch mostly
+    didn't. The cap was then dropped entirely (not just for a selected
+    batch) after the same symptom showed up again on the plain "no filter at
+    all" case — an alphabetically-first slice of the whole platform is no
+    more useful there than it was for one batch. This pins "querying past
+    the old 50-row cap comes back whole" for both shapes so it regresses
+    loudly if either cap comes back."""
+    ops = await _ops(db)
+    _program, cohort = await _program_and_cohort(db)
+    batch_students = [
+        await _self_registered_student(db, full_name=f"Batch Student {i:03d}") for i in range(55)
+    ]
+    for s in batch_students:
+        s.invitation_code_used = "BIGBATCH"
+    other_students = [
+        await _self_registered_student(db, full_name=f"Zzz Other Student {i:03d}") for i in range(10)
+    ]
+    await db.commit()
+
+    by_batch = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"invite_code": "BIGBATCH", "registered_only": "false"},
+        headers=_headers(ops),
+    )
+    assert by_batch.status_code == 200, by_batch.text
+    batch_ids = {r["id"] for r in by_batch.json()}
+    assert len(batch_ids) == 55
+    assert {str(s.id) for s in batch_students} <= batch_ids
+
+    unfiltered = await client.get(
+        f"/competitions/admin/cohorts/{cohort.id}/assignable-students",
+        params={"registered_only": "false"},
+        headers=_headers(ops),
+    )
+    assert unfiltered.status_code == 200, unfiltered.text
+    all_ids = {r["id"] for r in unfiltered.json()}
+    assert {str(s.id) for s in batch_students} <= all_ids
+    assert {str(s.id) for s in other_students} <= all_ids
 
 
 @pytest.mark.asyncio

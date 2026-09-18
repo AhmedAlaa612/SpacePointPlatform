@@ -72,11 +72,14 @@ export interface CompetitionSubmissionItem {
   item_type: string
   status: string
   submitted_url: string | null
+  // The plain (non-multi) submission's own type — link (default) or text.
+  submission_field_type: "text" | "link"
+  submitted_text: string | null
   // 2026-09-14 — set (alongside submitted_url mirroring the first link)
   // only for a submission_multi_link item; render these grouped under the
   // one submission instead of a bare link.
   submission_multi_link: boolean
-  submitted_links: { label: string | null; url: string }[] | null
+  submitted_links: { label: string | null; url: string | null; text: string | null }[] | null
   updated_at: string | null
   updated_by_name: string | null
 }
@@ -147,6 +150,9 @@ export interface CompetitionAssignableStudent {
   grade: string | null
   status: string | null
   created_at: string | null
+  /** Set the moment a login actually succeeds — null means this account
+   * has never once been logged into. */
+  last_login_at: string | null
   team_id: string | null
   team_name: string | null
   registered: boolean
@@ -259,6 +265,18 @@ export const downloadCohortResultsWorkbookApi = async (cohortId: string, cohortN
   URL.revokeObjectURL(url)
 }
 
+/** One .xlsx: a 'Quiz Summary' sheet and a 'Quiz Answers' sheet (per-question
+ * answers grouped by Team and Quiz) — for reviewing cohort quiz diagnostic results. */
+export const downloadCohortQuizAnswersWorkbookApi = async (cohortId: string, cohortName: string) => {
+  const res = await api.get(`/competitions/admin/cohorts/${cohortId}/quiz-answers.xlsx`, { responseType: "blob" })
+  const url = URL.createObjectURL(res.data as Blob)
+  const a = document.createElement("a")
+  a.href = url
+  a.download = `${cohortName.replace(/[^a-z0-9]+/gi, "_")}_quiz_answers.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export const getCohortPublicationApi = (cohortId: string) =>
   api.get<CompetitionPublication>(`/competitions/admin/cohorts/${cohortId}/publication`).then((r) => r.data)
 
@@ -294,14 +312,15 @@ export const confirmCohortRegistrationImportApi = (
 /** Assign tab's own cohort-scoped student search — same name/email +
  * invite-code filters as `searchStudentsApi`, plus `registered_only`
  * (restrict to students who actually have a Registration in this cohort,
- * vs. the default platform-wide search) and `team_status`/`lms_status`
- * filters. */
+ * vs. the default platform-wide search) and `team_status`/`lms_status`/
+ * `login_status` filters. */
 export const searchAssignableStudentsApi = (
   cohortId: string,
   params: {
     q?: string; invite_code?: string; registered_only?: boolean
     team_status?: "all" | "has_team" | "no_team"
     lms_status?: "all" | "has_access" | "no_access"
+    login_status?: "all" | "never" | "has_logged_in"
   } = {},
 ) =>
   api.get<CompetitionAssignableStudent[]>(
@@ -376,3 +395,124 @@ export const getMyJudgeTeamMissionRunDetailApi = (teamId: string, attemptId: str
 export const submitMyJudgeScoreApi = (
   teamId: string, data: { criterion_scores: Record<string, number>; bonus_points?: number; submitted?: boolean },
 ) => api.put<CompetitionScore>(`/competitions/judge/teams/${teamId}/score`, data).then((r) => r.data)
+
+// ── Team analytics (2026-09-16) ─────────────────────────────────────────
+// Backs the Judging page's Analysis tab — one payload, mirroring
+// `CompetitionAnalyticsOut` in backend/app/schemas/competitions.py. See
+// `services/competitions/analytics.py` for where each number comes from
+// (in particular: `mission_run` items are reported under `missions`, not
+// as `items` rows, because their real completion is per-design-step).
+
+export interface CompetitionAnalyticsItem {
+  item_id: string
+  title: string
+  item_type: string
+  scope: "team" | "individual"
+  position: number
+  optional: boolean
+  deadline_at: string | null
+  /** What `total` counts — so the UI never infers it from `scope`. */
+  denominator: "teams" | "students"
+  total: number
+  done: number
+  awaiting: number
+  pending: number
+  pct: number
+}
+
+export interface CompetitionAnalyticsMission {
+  mission_id: string
+  title: string
+  scope: "team" | "individual"
+  total: number
+  passed: number
+  in_progress: number
+  not_started: number
+}
+
+export interface CompetitionAnalyticsDeliverable {
+  item_id: string
+  title: string
+  status: string
+  submitted_url: string | null
+  submitted_text: string | null
+  submitted_links: { label: string | null; url: string | null; text: string | null }[] | null
+}
+
+export interface CompetitionAnalyticsTeamMember {
+  user_id?: string
+  name: string
+  last_login_at: string | null
+}
+
+export interface CompetitionTeamQuizSubmission {
+  user_id: string
+  student_name: string
+  assignment_id: string | null
+  item_id: string
+  quiz_title: string
+  status: "submitted" | "in_progress" | "not_started"
+  score: number | null
+  total: number | null
+  submitted_at: string | null
+}
+
+export interface CompetitionAnalyticsTeam {
+  team_id: string
+  team_name: string
+  roster_team_id: string | null
+  member_count: number
+  members: CompetitionAnalyticsTeamMember[]
+  never_logged_in: number
+  items_total: number
+  items_done: number
+  awaiting: number
+  pct: number
+  /** Every required team deliverable — awaiting_confirmation counts as not
+   * done, since ops confirming it is the outstanding work, but a done or
+   * awaiting item still carries whatever the team actually submitted. */
+  deliverables: CompetitionAnalyticsDeliverable[]
+  /** Team-scoped Design mission runs on this team's checklist, if any. */
+  mission_runs: CompetitionMissionRun[]
+  /** Cohort quiz submissions for members of this team. */
+  quiz_submissions?: CompetitionTeamQuizSubmission[]
+  last_activity_at: string | null
+  stalled: boolean
+}
+
+export interface CompetitionAnalyticsActivity {
+  date: string
+  updates: number
+}
+
+export interface CompetitionAnalyticsTotals {
+  teams: number
+  students_on_teams: number
+  avg_team_size: number
+  empty_teams: number
+  registered_students: number
+  students_without_team: number
+  assigned_students: number
+  never_logged_in: number
+  deliverables_per_team: number
+  deliverables_done: number
+  deliverables_awaiting: number
+  teams_complete: number
+  teams_not_started: number
+  teams_stalled: number
+  avg_team_pct: number
+}
+
+export interface CompetitionAnalytics {
+  cohort_id: string
+  cohort_name: string
+  totals: CompetitionAnalyticsTotals
+  items: CompetitionAnalyticsItem[]
+  missions: CompetitionAnalyticsMission[]
+  teams: CompetitionAnalyticsTeam[]
+  activity: CompetitionAnalyticsActivity[]
+  stalled_after_days: number
+}
+
+export const getCohortTeamAnalyticsApi = (cohortId: string) =>
+  api.get<CompetitionAnalytics>(`/competitions/admin/cohorts/${cohortId}/team-analytics`).then((r) => r.data)

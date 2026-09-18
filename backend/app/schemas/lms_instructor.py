@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -54,6 +55,9 @@ class PendingConfirmationOut(BaseModel):
     item_id: UUID
     title: str
     submitted_url: str | None = None
+    # 2026-09-16 — see LmsProgramItem.submission_field_type's own comment.
+    submission_field_type: Literal["text", "link"] = "link"
+    submitted_text: str | None = None
     # 2026-09-14 — see LmsProgramItem.submission_multi_link's own comment.
     submission_multi_link: bool = False
     submitted_links: list[LmsSubmissionLink] | None = None
@@ -70,12 +74,19 @@ class LmsAssignmentItemDetailOut(BaseModel):
     item_type: str
     status: str
     submitted_url: str | None = None
+    submission_field_type: Literal["text", "link"] = "link"
+    submitted_text: str | None = None
     submission_multi_link: bool = False
     submitted_links: list[LmsSubmissionLink] | None = None
     completed_at: datetime | None = None
     mission_attempt_id: UUID | None = None
     confirmed_by_user_id: UUID | None = None
     mission_step_key: str | None = None
+    # 2026-09-17 — which kind of mission this run belongs to (e.g. "design"
+    # vs "ground_station"), so a viewer can tell a Design run (which has a
+    # DesignRunDetail replica to show) from a Ground Station run (which
+    # doesn't — there's no Design row to read, just a live console).
+    mission_kind: str | None = None
 
 
 class LmsProgramRosterRowOut(BaseModel):

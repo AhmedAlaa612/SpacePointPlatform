@@ -32,7 +32,7 @@ from app.models.user import User
 from app.schemas.documents import DossierItem, UserDossierOut
 from app.schemas.instructors.instructor import IdCardOut
 from app.schemas.user import UserCreate, UserOut, UserUpdate
-from app.services.documents.id_card import format_card_id
+from app.services.documents.card_id import format_card_id
 from app.services import storage, user as user_service
 from app.services.countries import COUNTRY_NAMES
 from app.services.documents.id_card import ensure_card_id, render_card_back_png, render_card_png

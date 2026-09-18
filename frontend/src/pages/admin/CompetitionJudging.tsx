@@ -18,16 +18,23 @@ import {
   type CompetitionJudgeProgress,
   type CompetitionLeaderboardRow, type CompetitionPublication, type CompetitionRubric, type CompetitionTeam,
 } from "@/api/competitions"
+import { CompetitionAnalysisTab } from "@/pages/admin/components/CompetitionAnalysis"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 import { Field } from "@/pages/admin/components/common"
 import { useToast } from "@/components/ui/toast"
 import { getErrorMessage } from "@/lib/utils"
 
-type JudgingTab = "roster" | "assign" | "teams" | "rubric" | "judges" | "results"
+type JudgingTab = "roster" | "assign" | "teams" | "analysis" | "rubric" | "judges" | "results"
 const TABS: { key: JudgingTab; label: string }[] = [
   { key: "roster", label: "Roster" },
   { key: "assign", label: "Assign" },
   { key: "teams", label: "Teams" },
+  // Analysis (2026-09-16) — read-only team progress across the whole
+  // cohort. Sits next to Teams because it answers the question the
+  // Teams tab makes you ask ("how are they all actually doing?"), and
+  // before the judging tabs because it is about the run-up, not the
+  // scoring.
+  { key: "analysis", label: "Analysis" },
   { key: "rubric", label: "Rubric" },
   { key: "judges", label: "Judges" },
   { key: "results", label: "Results" },
@@ -65,12 +72,15 @@ export default function CompetitionJudging() {
 
       <PageHeader title={`Judging — ${cohort.name}`} subtitle={cohort.program_name ?? "—"} />
 
-      <div className="flex gap-1 border-b border-border">
+      {/* overflow-x-auto + shrink-0 (2026-09-17) — seven tabs since Analysis
+          landed no longer fits a phone width; without this the row just
+          clipped past "Results" with no way to reach it by touch. */}
+      <div className="flex gap-1 border-b border-border overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors shrink-0 whitespace-nowrap ${
               tab === t.key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -82,6 +92,7 @@ export default function CompetitionJudging() {
       {tab === "roster" && <RosterTab cohortId={cohort.id} />}
       {tab === "assign" && <AssignTab cohortId={cohort.id} />}
       {tab === "teams" && <TeamsTab cohortId={cohort.id} />}
+      {tab === "analysis" && <CompetitionAnalysisTab cohortId={cohort.id} />}
       {tab === "rubric" && <RubricTab programId={cohort.program_id} />}
       {tab === "judges" && <JudgesTab cohortId={cohort.id} />}
       {tab === "results" && <ResultsTab cohortId={cohort.id} cohortName={cohort.name} programId={cohort.program_id} />}
@@ -342,28 +353,33 @@ function RosterTab({ cohortId }: { cohortId: string }) {
 // Team ID, never a display name.
 type TeamStatusFilter = "all" | "has_team" | "no_team"
 type LmsStatusFilter = "all" | "has_access" | "no_access"
+type LoginStatusFilter = "all" | "never" | "has_logged_in"
 
 function AssignTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const [query, setQuery] = useState("")
   const [inviteCode, setInviteCode] = useState("")
-  // Defaults to "my actual roster" (registered here, no team yet) — the
-  // common case ops opens this tab for. Widening any of the three finds
-  // an unregistered invite-code signup, or reviews who already has a
-  // team/LMS access.
-  const [registeredOnly, setRegisteredOnly] = useState(true)
+  // Unchecked by default (2026-09-15, flipped from the original "on" —
+  // ops kept landing here first and having to untick it to find anyone not
+  // already registered, since the platform-wide search underneath it just
+  // became reliable now that a selected batch isn't silently capped, see
+  // students.py::search_cohort_assignable_students). teamStatus still
+  // defaults to "no team yet" — that's the actual "my roster to still
+  // process" narrowing this tab is built around.
+  const [registeredOnly, setRegisteredOnly] = useState(false)
   const [teamStatus, setTeamStatus] = useState<TeamStatusFilter>("no_team")
   const [lmsStatus, setLmsStatus] = useState<LmsStatusFilter>("all")
+  const [loginStatus, setLoginStatus] = useState<LoginStatusFilter>("all")
   const [teamIds, setTeamIds] = useState<Record<string, string>>({})
   const [sendWelcomeEmail, setSendWelcomeEmail] = useState(true)
   const [sendTicketEmail, setSendTicketEmail] = useState(true)
   const [result, setResult] = useState<CompetitionAssignStudentsResult | null>(null)
 
   const { data: students = [], isLoading } = useQuery({
-    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, registeredOnly, teamStatus, lmsStatus],
+    queryKey: ["competitions-assignable-students", cohortId, query, inviteCode, registeredOnly, teamStatus, lmsStatus, loginStatus],
     queryFn: () => searchAssignableStudentsApi(cohortId, {
       q: query || undefined, invite_code: inviteCode || undefined, registered_only: registeredOnly,
-      team_status: teamStatus, lms_status: lmsStatus,
+      team_status: teamStatus, lms_status: lmsStatus, login_status: loginStatus,
     }),
   })
   const { data: codes = [] } = useQuery({
@@ -387,8 +403,14 @@ function AssignTab({ cohortId }: { cohortId: string }) {
     .map(([userId, teamId]) => ({ user_id: userId, team_id: teamId.trim() }))
 
   return (
-    <div className="flex flex-col gap-4 max-w-4xl">
-      <p className="text-sm text-muted-foreground">
+    // Wider than the other tabs' max-w-2xl/3xl/4xl (2026-09-15) — this is
+    // the one tab with a 6-column table (name/email/code/team/LMS/team ID
+    // input), and 4xl was clipping the Team ID column on an ordinary desktop
+    // viewport despite the table's own overflow-x-auto, since that scrolls
+    // the table *within* an already-too-narrow container instead of the
+    // container just using the room the page actually has.
+    <div className="flex flex-col gap-4 max-w-6xl">
+      <p className="text-sm text-muted-foreground max-w-4xl">
         Find students who already signed up with an invite code, type in a Team ID for each, and assign them —
         this registers them into this cohort and puts them on that team (creating it if it's new). Students set
         their own team's display name later; a Team ID here is just the grouping code, not a name.
@@ -437,6 +459,15 @@ function AssignTab({ cohortId }: { cohortId: string }) {
           <option value="no_access">No LMS access</option>
           <option value="has_access">Has LMS access</option>
         </select>
+        <select
+          value={loginStatus}
+          onChange={(e) => setLoginStatus(e.target.value as LoginStatusFilter)}
+          className="w-auto shrink-0 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors cursor-pointer"
+        >
+          <option value="all">Any login status</option>
+          <option value="never">Never logged in</option>
+          <option value="has_logged_in">Has logged in</option>
+        </select>
       </div>
 
       {isLoading ? (
@@ -460,6 +491,7 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                 <th className="py-2 pr-2">Code used</th>
                 <th className="py-2 pr-2">Current team</th>
                 <th className="py-2 pr-2">LMS access</th>
+                <th className="py-2 pr-2">Login</th>
                 <th className="py-2 pr-3">Team ID</th>
               </tr>
             </thead>
@@ -483,6 +515,15 @@ function AssignTab({ cohortId }: { cohortId: string }) {
                       <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">Yes</span>
                     ) : (
                       <span className="text-muted-foreground">No</span>
+                    )}
+                  </td>
+                  <td className="py-1.5 pr-2 align-top pt-3 whitespace-nowrap">
+                    {s.last_login_at ? (
+                      <span className="text-muted-foreground">{new Date(s.last_login_at).toLocaleDateString()}</span>
+                    ) : (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 whitespace-nowrap">
+                        NEVER LOGGED IN
+                      </span>
                     )}
                   </td>
                   <td className="py-1.5 pr-3">
@@ -567,6 +608,25 @@ function AssignTab({ cohortId }: { cohortId: string }) {
 /* ================================================================== */
 /* Teams (manual management — complements Roster import)               */
 /* ================================================================== */
+/** Same chip shape `CohortDetail.tsx`'s own counter row uses — read-only
+ * here, since every number is already visible in the list below it. */
+function TeamStatChip({ label, value, tone = "default" }: {
+  label: string; value: React.ReactNode; tone?: "default" | "alert"
+}) {
+  return (
+    <div
+      className={`flex items-center justify-center gap-1.5 h-9 px-4 rounded-xl border text-sm ${
+        tone === "alert"
+          ? "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+          : "border-border bg-card text-foreground"
+      }`}
+    >
+      <span className="font-semibold tabular-nums leading-none flex items-center">{value}</span>
+      <span className="text-xs text-muted-foreground leading-none flex items-center">{label}</span>
+    </div>
+  )
+}
+
 function TeamsTab({ cohortId }: { cohortId: string }) {
   const toast = useToast()
   const queryClient = useQueryClient()
@@ -584,6 +644,25 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to create team")),
   })
 
+  // Client-side (2026-09-16) — `teams` is already the whole cohort roster in
+  // one fetch (getCohortTeamsApi has no search param), and member_names
+  // rides along on every row already, so there's nothing to round-trip to
+  // the server for.
+  const [search, setSearch] = useState("")
+  const filteredTeams = teams.filter((team) => {
+    const q = search.trim().toLowerCase()
+    if (!q) return true
+    return team.name.toLowerCase().includes(q) || team.member_names.some((n) => n.toLowerCase().includes(q))
+  })
+
+  // Derived here rather than fetched (2026-09-16): `teams` is already the
+  // whole cohort roster, so the counts ops asked for on this tab cost
+  // nothing. A student on two teams in one cohort shouldn't be counted
+  // twice — not DB-enforced (see models/team.py), so dedupe rather than
+  // summing member_ids.length.
+  const studentsOnTeams = new Set(teams.flatMap((t) => t.member_ids)).size
+  const emptyTeams = teams.filter((t) => t.member_ids.length === 0).length
+
   if (isLoading) return <Spinner />
 
   return (
@@ -593,6 +672,15 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
         teams — without re-uploading a whole sheet. Adding a member by name + email registers them if
         they're new, or matches an existing account if that email already has one — same as a Roster row.
       </p>
+
+      {teams.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <TeamStatChip label={teams.length === 1 ? "team" : "teams"} value={teams.length} />
+          <TeamStatChip label="students on teams" value={studentsOnTeams} />
+          <TeamStatChip label="avg team size" value={(studentsOnTeams / teams.length).toFixed(1)} />
+          {emptyTeams > 0 && <TeamStatChip label="with no members" value={emptyTeams} tone="alert" />}
+        </div>
+      )}
 
       <div className="flex items-end gap-2">
         <Field label="New team name">
@@ -610,12 +698,24 @@ function TeamsTab({ cohortId }: { cohortId: string }) {
         </button>
       </div>
 
+      <div className="relative max-w-sm">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search by team or student name..."
+          className="w-full h-10 pl-8 pr-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+        />
+      </div>
+
       <div className="flex flex-col gap-3">
-        {teams.map((team) => (
+        {filteredTeams.map((team) => (
           <TeamCard key={team.id} team={team} onChanged={invalidate} />
         ))}
-        {teams.length === 0 && (
+        {teams.length === 0 ? (
           <EmptyState title="No teams yet" hint="Add one above, or import a roster from the Roster tab." />
+        ) : filteredTeams.length === 0 && (
+          <EmptyState title="No teams found" hint="Try a different name." />
         )}
       </div>
     </div>

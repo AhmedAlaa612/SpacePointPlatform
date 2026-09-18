@@ -5,7 +5,8 @@ import { isAxiosError } from "axios";
 import { Check, ExternalLink, Plus, Play, Trash2, X, type LucideIcon } from "lucide-react";
 import {
   completeChecklistItem, getChecklistItemGuidelineVideoUrlApi, getChecklistItemPdfUrlApi, setTeamNameChecklistItem,
-  submitChecklistItem, submitChecklistItemLinks, type LmsProgramChecklistItem, type SubmissionLink,
+  submitChecklistItem, submitChecklistItemText, submitChecklistItemLinks,
+  type LmsProgramChecklistItem, type SubmissionLink, type SubmissionLinkLabel,
 } from "@/api/lms";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -29,6 +30,16 @@ const SELF_CHECK_TYPES = new Set<LmsProgramChecklistItem["item_type"]>(["manual"
 function errorDetail(err: unknown, fallback: string): string {
   if (isAxiosError(err) && typeof err.response?.data?.detail === "string") return err.response.data.detail;
   return fallback;
+}
+
+/** Does this multi-field submission row have an answer? Reads .text for a
+ * text-type field, .url for everything else — including the free-text
+ * legacy path (no spec at all), which predates field_type and is always
+ * link-only. Mirrors routers/lms/student.py::submit_program_item's own
+ * per-field-type check. */
+function hasRowValue(link: SubmissionLink | undefined, spec: SubmissionLinkLabel | undefined): boolean {
+  if (!link) return false;
+  return spec?.field_type === "text" ? !!(link.text ?? "").trim() : !!(link.url ?? "").trim();
 }
 
 /** Per-item, per-browser "did they open the guideline yet" flag — the
@@ -86,6 +97,9 @@ interface DrawerBodyProps {
   submitUrl: string;
   setSubmitUrl: (url: string) => void;
   submitMutation: UseMutationResult<LmsProgramChecklistItem, Error, string>;
+  submitText: string;
+  setSubmitText: (text: string) => void;
+  submitTextMutation: UseMutationResult<LmsProgramChecklistItem, Error, string>;
   linksInput: SubmissionLink[];
   setLinksInput: (links: SubmissionLink[] | ((prev: SubmissionLink[]) => SubmissionLink[])) => void;
   submitLinksMutation: UseMutationResult<LmsProgramChecklistItem, Error, SubmissionLink[]>;
@@ -120,9 +134,14 @@ function DrawerBody({
   item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
   submissionReference, guidelineVideoUploaded, guidelineVideoInfo, isAutoTracked, isSubmission, isMultiLink, isTeamSetup, teamName,
   isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl, setSubmitUrl, submitMutation,
+  submitText, setSubmitText, submitTextMutation,
   linksInput, setLinksInput, submitLinksMutation,
   teamNameInput, setTeamNameInput, teamNameMutation, Icon, completeMutation,
 }: DrawerBodyProps) {
+  // A plain (non-multi) submission item can itself be a text field
+  // (2026-09-16) — isPoster is excluded on purpose, it's always
+  // item_type=="mission_run" and always link-only regardless of this flag.
+  const isTextSubmission = item.item_type === "submission" && !isMultiLink && item.submission_field_type === "text";
   return (
     <>
       <div className="flex items-center justify-between gap-2">
@@ -330,20 +349,24 @@ function DrawerBody({
             {item.updated_by_name && ` by ${item.updated_by_name}`}
           </div>
           {item.submitted_links.map((link, i) => (
-            <div key={i} className="flex items-center gap-1.5 pl-5">
+            <div key={i} className={link.text ? "flex flex-col gap-0.5 pl-5" : "flex items-center gap-1.5 pl-5"}>
               {link.label && <span className="shrink-0 font-medium text-foreground">{link.label}:</span>}
-              <a
-                href={ensureAbsoluteUrl(link.url)} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
-                className="text-primary hover:underline truncate max-w-full min-w-0"
-              >
-                {link.url}
-              </a>
+              {link.text ? (
+                <p className="whitespace-pre-wrap text-foreground">{link.text}</p>
+              ) : (
+                <a
+                  href={ensureAbsoluteUrl(link.url ?? "")} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}
+                  className="text-primary hover:underline truncate max-w-full min-w-0"
+                >
+                  {link.url}
+                </a>
+              )}
             </div>
           ))}
         </div>
       )}
 
-      {isSubmission && !isMultiLink && item.submitted_url && (
+      {isSubmission && !isMultiLink && !isTextSubmission && item.submitted_url && (
         <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
           <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" />
           <a
@@ -361,11 +384,35 @@ function DrawerBody({
         </div>
       )}
 
+      {isTextSubmission && item.submitted_text && (
+        <div className="flex flex-col gap-1 text-sm text-muted-foreground bg-muted/50 rounded-lg px-3 py-2">
+          <div className="flex items-center gap-1.5 font-medium text-foreground">
+            <Check className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-500" /> Submitted
+            {item.updated_at &&
+              ` ${new Date(item.updated_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+            {item.updated_by_name && ` by ${item.updated_by_name}`}
+          </div>
+          <p className="whitespace-pre-wrap text-foreground pl-5">{item.submitted_text}</p>
+        </div>
+      )}
+
       {isSubmission && !isMultiLink && (
         pastDeadline ? (
           <p className="text-sm font-medium text-amber-600 dark:text-amber-500">
             Deadline passed — no longer accepting submissions
           </p>
+        ) : isTextSubmission ? (
+          <div className="flex flex-col gap-2.5" onClick={(e) => e.stopPropagation()}>
+            {item.submission_prompt && <p className="text-sm text-muted-foreground">{item.submission_prompt}</p>}
+            <textarea
+              value={submitText || item.submitted_text || ""}
+              onChange={(e) => setSubmitText(e.target.value)}
+              placeholder="Type your answer…"
+              rows={5}
+              disabled={!canSubmit}
+              className="px-4 py-3 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50 resize-y"
+            />
+          </div>
         ) : (
           <div className="flex flex-col gap-2.5" onClick={(e) => e.stopPropagation()}>
             {item.submission_prompt ? (
@@ -401,13 +448,24 @@ function DrawerBody({
                 <label className="text-xs font-medium text-foreground">
                   {spec.label}{spec.required && <span className="text-destructive"> *</span>}
                 </label>
-                <input
-                  value={linksInput[i]?.url ?? ""}
-                  onChange={(e) => setLinksInput((prev) => prev.map((l, j) => j === i ? { ...l, url: e.target.value } : l))}
-                  placeholder="https://…"
-                  disabled={!canSubmit}
-                  className="h-12 px-3 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
-                />
+                {spec.field_type === "text" ? (
+                  <textarea
+                    value={linksInput[i]?.text ?? ""}
+                    onChange={(e) => setLinksInput((prev) => prev.map((l, j) => j === i ? { ...l, text: e.target.value } : l))}
+                    placeholder="Type your answer…"
+                    rows={4}
+                    disabled={!canSubmit}
+                    className="px-3 py-2.5 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50 resize-y"
+                  />
+                ) : (
+                  <input
+                    value={linksInput[i]?.url ?? ""}
+                    onChange={(e) => setLinksInput((prev) => prev.map((l, j) => j === i ? { ...l, url: e.target.value } : l))}
+                    placeholder="https://…"
+                    disabled={!canSubmit}
+                    className="h-12 px-3 border border-border bg-background text-foreground rounded-lg text-base focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+                  />
+                )}
               </div>
             ))}
           </div>
@@ -424,7 +482,7 @@ function DrawerBody({
                   className="h-12 w-2/5 px-3 border border-border bg-background text-foreground rounded-lg text-sm focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
                 />
                 <input
-                  value={link.url}
+                  value={link.url ?? ""}
                   onChange={(e) => setLinksInput((prev) => prev.map((l, j) => j === i ? { ...l, url: e.target.value } : l))}
                   placeholder="https://…"
                   disabled={!canSubmit}
@@ -444,7 +502,7 @@ function DrawerBody({
             <button
               type="button"
               disabled={!canSubmit}
-              onClick={() => setLinksInput((prev) => [...prev, { label: "", url: "" }])}
+              onClick={() => setLinksInput((prev) => [...prev, { label: "", url: "", text: "" }])}
               className="self-start flex items-center gap-1.5 text-sm font-medium text-primary hover:underline disabled:opacity-50"
             >
               <Plus size={14} /> Add another link
@@ -470,7 +528,7 @@ function DrawerBody({
             {teamNameMutation.isPending ? "Saving…" : teamName ? "Update team name" : "Save team name"}
           </Button>
         )}
-        {isSubmission && !isMultiLink && !pastDeadline && (
+        {isSubmission && !isMultiLink && !isTextSubmission && !pastDeadline && (
           <Button
             disabled={!canSubmit || (!submitUrl && !item.submitted_url) || submitMutation.isPending}
             onClick={() => submitMutation.mutate(submitUrl || item.submitted_url || "")}
@@ -487,19 +545,41 @@ function DrawerBody({
               : "Submit for review"}
           </Button>
         )}
+        {isTextSubmission && !pastDeadline && (
+          <Button
+            disabled={!canSubmit || (!submitText.trim() && !item.submitted_text) || submitTextMutation.isPending}
+            onClick={() => submitTextMutation.mutate((submitText || item.submitted_text || "").trim())}
+            className="h-[52px] text-base"
+          >
+            {submitTextMutation.isPending
+              ? "Submitting…"
+              : item.submitted_text
+              ? "Replace submission"
+              : "Submit for review"}
+          </Button>
+        )}
         {isSubmission && isMultiLink && !pastDeadline && (
           <Button
             disabled={
               !canSubmit || submitLinksMutation.isPending
-              || !linksInput.some((l) => l.url.trim())
-              // Ops's own required labels (2026-09-14) block submission
-              // until each has a real link — optional ones don't.
-              || (item.submission_link_labels?.some((spec, i) => spec.required && !linksInput[i]?.url.trim()) ?? false)
+              // A row's "does it have an answer" reads .text for a
+              // text-type field, .url for everything else (including the
+              // free-text legacy path, which has no specs and is always
+              // link-only) — same field-type-aware check the backend does.
+              || !linksInput.some((l, i) => hasRowValue(l, item.submission_link_labels?.[i]))
+              // Ops's own required fields (2026-09-14) block submission
+              // until each has a real answer — optional ones don't.
+              || (item.submission_link_labels?.some((spec, i) => spec.required && !hasRowValue(linksInput[i], spec)) ?? false)
             }
             onClick={() => submitLinksMutation.mutate(
               linksInput
-                .filter((l) => l.url.trim())
-                .map((l) => ({ label: l.label?.trim() || null, url: l.url.trim() })),
+                .map((l, i) => ({ link: l, spec: item.submission_link_labels?.[i] }))
+                .filter(({ link, spec }) => hasRowValue(link, spec))
+                .map(({ link, spec }) => (
+                  spec?.field_type === "text"
+                    ? { label: link.label?.trim() || null, url: null, text: (link.text ?? "").trim() }
+                    : { label: link.label?.trim() || null, url: (link.url ?? "").trim(), text: null }
+                )),
             )}
             className="h-[52px] text-base"
           >
@@ -542,6 +622,10 @@ export function TaskDrawer({
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [submitUrl, setSubmitUrl] = useState("");
+  // The plain single-text-field submission's own input (2026-09-16) —
+  // separate from submitUrl since a text answer and a link answer are
+  // mutually exclusive per item.submission_field_type, never both at once.
+  const [submitText, setSubmitText] = useState("");
   // Multi-link submission rows (2026-09-14, ops's per-item toggle) —
   // seeded from whatever's already submitted, one blank row for a fresh
   // item, resets per-item the same way every other drawer state does (via
@@ -552,12 +636,14 @@ export function TaskDrawer({
     // label — not just positionally, since ops can reorder/add labels
     // after students have already submitted under the old set.
     if (item?.submission_link_labels?.length) {
-      return item.submission_link_labels.map((spec) => ({
-        label: spec.label,
-        url: item.submitted_links?.find((l) => l.label === spec.label)?.url ?? "",
-      }));
+      return item.submission_link_labels.map((spec) => {
+        const existing = item.submitted_links?.find((l) => l.label === spec.label);
+        return { label: spec.label, url: existing?.url ?? "", text: existing?.text ?? "" };
+      });
     }
-    return item?.submitted_links?.length ? item.submitted_links.map((l) => ({ ...l })) : [{ label: "", url: "" }];
+    return item?.submitted_links?.length
+      ? item.submitted_links.map((l) => ({ label: l.label, url: l.url ?? "", text: l.text ?? "" }))
+      : [{ label: "", url: "", text: "" }];
   });
   const [teamNameInput, setTeamNameInput] = useState(teamName ?? "");
   const [viewingPdf, setViewingPdf] = useState(false);
@@ -625,6 +711,17 @@ export function TaskDrawer({
     },
     onError: (err) => {
       toast.error(errorDetail(err, "Failed to submit. Please check your link."));
+    },
+  });
+  const submitTextMutation = useMutation({
+    mutationFn: (text: string) => submitChecklistItemText(assignmentId, item!.id, text),
+    onSuccess: () => {
+      toast.success("Submission received!");
+      onChanged();
+      queryClient.invalidateQueries({ queryKey: ["lms-checklist", assignmentId] });
+    },
+    onError: (err) => {
+      toast.error(errorDetail(err, "Failed to submit. Please try again."));
     },
   });
   const submitLinksMutation = useMutation({
@@ -738,7 +835,8 @@ export function TaskDrawer({
     item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
     submissionReference, guidelineVideoUploaded: !!item.guideline_video_uploaded, guidelineVideoInfo, isAutoTracked,
     isSubmission, isMultiLink, isTeamSetup, teamName, isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline,
-    submitUrl, setSubmitUrl, submitMutation, linksInput, setLinksInput, submitLinksMutation,
+    submitUrl, setSubmitUrl, submitMutation, submitText, setSubmitText, submitTextMutation,
+    linksInput, setLinksInput, submitLinksMutation,
     teamNameInput, setTeamNameInput, teamNameMutation, Icon, completeMutation,
   };
 

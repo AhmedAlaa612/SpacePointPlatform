@@ -15,6 +15,17 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
+from app.core.log_context import RequestContextMiddleware, configure_logging
+
+# Must run before any router import below — those transitively import every
+# service/model module, and this needs to be active before any of them could
+# ever log. Safe to call at import time (rather than needing an on_startup
+# hook, unlike the worker process — see app/workers/main.py): uvicorn's own
+# Config.__init__ runs its own dictConfig *before* it imports "app.main:app",
+# so this call runs strictly after uvicorn's and wins, since it explicitly
+# redeclares the uvicorn.* logger names below.
+configure_logging(level=settings.LOG_LEVEL)
+
 from app.routers import admin, auth, documents, notifications
 from app.routers.apply import router as apply_router
 from app.routers.internship import router as internship_router
@@ -98,7 +109,22 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Without this the browser can read every *other* response header fine
+    # but silently drops X-Request-ID — CORS hides any response header not
+    # explicitly exposed, even same-origin-looking XHR/fetch calls that go
+    # through this middleware at all (any cross-origin call, which is most
+    # of them: the frontend and API run on different ports even in dev).
+    expose_headers=["X-Request-ID"],
 )
+
+# Raw ASGI middleware, not @app.middleware("http") — see
+# RequestContextMiddleware's own docstring (app/core/log_context.py) for
+# why: BaseHTTPMiddleware's dispatch function returns before the response
+# is actually sent, so resetting context there (the previous version of
+# this) ran before uvicorn's own access-log line and any unhandled
+# exception's traceback log ever saw it.
+app.add_middleware(RequestContextMiddleware)
+
 
 app.include_router(auth.router)
 app.include_router(files_router)          # public (HMAC-signed): /files/* — local storage backend

@@ -10,7 +10,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.dependencies import get_current_active_user
-from app.core.rate_limit import client_ip, enforce_rate_limit
+from app.core.log_context import client_ip
+from app.core.rate_limit import enforce_rate_limit
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -40,7 +41,8 @@ from app.models.instructors.video_submission import VideoSubmission
 from app.models.instructors.application_review import ApplicationReview
 from app.services.instructors.application_videos import get_configured_videos
 from app.schemas.user import InstructorApply
-from app.services.documents.id_card import ensure_card_number, format_card_id
+from app.services.documents.card_id import format_card_id
+from app.services.documents.id_card import ensure_card_number
 from app.services.invitations import resolve_invite_code
 from app.services.lms.invite_grants import apply_invite_code_grants_to_new_user
 from app.services.lms.ops_integration import send_set_password_email
@@ -322,6 +324,14 @@ async def student_signup(data: StudentSignupRequest, request: Request, db: Async
     if referred_by_ambassador_id:
         await notify(db, referred_by_ambassador_id, "New Student Signup",
                      f"{data.full_name} signed up as a student with your invite code.", type="student")
+
+    # Signup hands back a session the same shape as /auth/login does, so it
+    # counts as one — otherwise last_login_at stays NULL forever for every
+    # self-signup student (only /auth/login sets it), and every "never
+    # logged in" admin view (students list, assign list, registration desk)
+    # wrongly flags students who set their own password and are using the
+    # account.
+    user.last_login_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(user)

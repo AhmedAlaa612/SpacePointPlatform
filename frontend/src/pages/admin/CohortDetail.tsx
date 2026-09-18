@@ -1,8 +1,9 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link, useParams } from "@tanstack/react-router"
+import * as XLSX from "xlsx"
 import {
-  ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download,
+  ArrowLeft, CalendarPlus, UserPlus, Upload, Ticket, Mail, Wallet, Ban, FileText, Download, FileSpreadsheet, Copy,
   CheckCircle2, Award, Trash2, Search, Pencil, MoreVertical,
 } from "lucide-react"
 import type {
@@ -23,7 +24,7 @@ import { SessionsTable } from "@/pages/admin/components/SessionsTable"
 import {
   getCohortApi, getSessionsApi,
   generateSessionsApi, addSessionApi,
-  getRegistrationsApi, resendTicketApi, resendOnboardingEmailApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
+  getRegistrationsApi, resendTicketApi, resendOnboardingEmailApi, getSetPasswordLinkApi, cancelRegistrationApi, confirmPaymentApi, giveCertificateApi,
   deleteRegistrationApi, downloadCohortCertificatesApi,
   updateCohortApi,
 } from "@/api/sessions/cohorts"
@@ -129,6 +130,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   const [addSessionOpen, setAddSessionOpen] = useState(false)
   const [drawerError, setDrawerError] = useState<string | null>(null)
   const [regSearch, setRegSearch] = useState("")
+  const [regLoginFilter, setRegLoginFilter] = useState<"all" | "never" | "has_logged_in">("all")
   const [deleteTarget, setDeleteTarget] = useState<Registration | null>(null)
   const [cancelTarget, setCancelTarget] = useState<Registration | null>(null)
   const [certificateTarget, setCertificateTarget] = useState<Registration | null>(null)
@@ -162,6 +164,8 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
   // dozens of rows — searching beats scrolling. Matches every field shown on
   // the row so "the school" or "the parent's number" both work.
   const filteredRegistrations = registrations.filter((r) => {
+    if (regLoginFilter === "never" && r.last_login_at) return false
+    if (regLoginFilter === "has_logged_in" && !r.last_login_at) return false
     const q = regSearch.trim().toLowerCase()
     if (!q) return true
     return [
@@ -170,6 +174,39 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       r.status, r.payment_status,
     ].some((v) => (v ?? "").toString().toLowerCase().includes(q))
   })
+
+  // Client-side, from whatever's currently on screen — respects the search
+  // box and login-status filter above rather than always dumping every
+  // registration, same as the mission behind those filters in the first
+  // place (e.g. filter to "never logged in", export just that batch).
+  const handleExportRegistrations = () => {
+    const rows = filteredRegistrations.map((r) => ({
+      "Student Name": r.student_name,
+      "Phone": r.student_phone ?? "",
+      "Email": r.student_email ?? "",
+      "School": r.student_organization_name ?? "",
+      "Ticket Sent": r.ticket_sent ? "Yes" : "No",
+      "Onboarding Sent": r.onboarding_sent ? "Yes" : "No",
+      "Registered At": r.created_at ? new Date(r.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "",
+      "Last Login At": r.last_login_at ? new Date(r.last_login_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "Never logged in",
+    }))
+
+    const ws = XLSX.utils.json_to_sheet(rows)
+    ws["!cols"] = [
+      { wch: 24 }, // Student Name
+      { wch: 16 }, // Phone
+      { wch: 26 }, // Email
+      { wch: 22 }, // School
+      { wch: 12 }, // Ticket Sent
+      { wch: 16 }, // Onboarding Sent
+      { wch: 14 }, // Registered At
+      { wch: 16 }, // Last Login At
+    ]
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Registrations")
+    XLSX.writeFile(wb, `${cohort.name.replace(/[^a-z0-9]+/gi, "_")}_registrations.xlsx`)
+  }
 
   const invalidateCohort = () => {
     queryClient.invalidateQueries({ queryKey: ["sessions-cohort", cohort.id] })
@@ -196,6 +233,18 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
       else toast.error("Send failed — check SMTP")
     },
     onError: (e: any) => toast.error(getErrorMessage(e, "Failed to send onboarding email")),
+  })
+  const copySetPasswordLinkMutation = useMutation({
+    mutationFn: getSetPasswordLinkApi,
+    onSuccess: async ({ link }) => {
+      try {
+        await navigator.clipboard.writeText(link)
+        toast.success("Set-password link copied")
+      } catch {
+        toast.error("Couldn't copy to clipboard")
+      }
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to get set-password link")),
   })
   const cancelMutation = useMutation({
     mutationFn: cancelRegistrationApi,
@@ -516,14 +565,33 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
           Registrations{registrations.length > 0 ? ` (${registrations.length}${cohort.capacity != null ? ` / ${cohort.capacity}` : ""})` : ""}
         </p>
         {registrations.length > 0 && (
-          <div className="relative mb-2">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-            <input
-              value={regSearch}
-              onChange={(e) => setRegSearch(e.target.value)}
-              placeholder="Search name, phone, email, school…"
-              className="w-full h-9 pl-9 pr-3 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors"
-            />
+          <div className="flex items-center gap-2 mb-2">
+            <div className="relative flex-1">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <input
+                value={regSearch}
+                onChange={(e) => setRegSearch(e.target.value)}
+                placeholder="Search name, phone, email, school…"
+                className="w-full h-9 pl-9 pr-3 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+            <select
+              value={regLoginFilter}
+              onChange={(e) => setRegLoginFilter(e.target.value as "all" | "never" | "has_logged_in")}
+              className="w-auto shrink-0 h-9 px-2.5 bg-background border border-border rounded-xl text-xs focus:outline-none focus:border-primary transition-colors cursor-pointer"
+            >
+              <option value="all">Any login status</option>
+              <option value="never">Never logged in</option>
+              <option value="has_logged_in">Has logged in</option>
+            </select>
+            <button
+              onClick={handleExportRegistrations}
+              disabled={filteredRegistrations.length === 0}
+              title="Export the rows shown below to an .xlsx file"
+              className="flex items-center gap-1.5 h-9 px-3 shrink-0 border border-border rounded-xl text-xs font-medium text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              <FileSpreadsheet size={14} /> Export
+            </button>
           </div>
         )}
         {drawerError && (
@@ -534,7 +602,7 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
         {isLoading ? <Spinner /> : registrations.length === 0 ? (
           <EmptyState title="No registrations yet" />
         ) : filteredRegistrations.length === 0 ? (
-          <EmptyState title={`No registrations match "${regSearch}"`} />
+          <EmptyState title={regSearch ? `No registrations match "${regSearch}"` : "No registrations match this filter"} />
         ) : (
           <div className="flex flex-col gap-2">
             {filteredRegistrations.map((r) => {
@@ -589,6 +657,14 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                           Cancelled
                         </span>
                       )}
+                      {!r.last_login_at && (
+                        <span
+                          className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
+                          title="No LMS account exists yet, or one does but nobody's ever logged into it"
+                        >
+                          Never logged in
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground truncate">
                       {r.student_phone ?? "—"}
@@ -639,6 +715,12 @@ function CohortDetailView({ cohort }: { cohort: Cohort }) {
                           disabled={resendOnboardingMutation.isPending}
                         >
                           <Mail size={14} /> {r.onboarding_sent ? "Resend onboarding email" : "Send onboarding email"}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => copySetPasswordLinkMutation.mutate(r.id)}
+                          disabled={copySetPasswordLinkMutation.isPending}
+                        >
+                          <Copy size={14} /> Copy set-password link
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setPaymentTarget(r)}>
                           <Wallet size={14} /> Confirm payment

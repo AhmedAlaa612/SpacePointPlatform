@@ -5,8 +5,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.log_context import bind_user_label
 from app.db.session import get_db
 from app.models.user import User
+from app.services.documents.card_id import format_card_id
+
+
+def _label_for(user: User) -> str:
+    if user.card_number is None:
+        return f"user:{user.id}"
+    return format_card_id(user.card_number, user.role_values)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
@@ -31,6 +39,7 @@ async def get_current_user(
     user = (await db.execute(select(User).where(User.id == sub))).scalars().first()
     if user is None:
         raise credentials_exception
+    bind_user_label(_label_for(user))
     return user
 
 
@@ -51,7 +60,10 @@ async def get_current_user_optional(
             return None
     except JWTError:
         return None
-    return (await db.execute(select(User).where(User.id == sub))).scalars().first()
+    user = (await db.execute(select(User).where(User.id == sub))).scalars().first()
+    if user is not None:
+        bind_user_label(_label_for(user))
+    return user
 
 
 async def get_ws_user(token: str = Query(...), db: AsyncSession = Depends(get_db)) -> User | None:

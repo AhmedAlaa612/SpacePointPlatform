@@ -425,6 +425,7 @@ export function SetupTab({ state, onSaved }: { state: DesignState; onSaved: (s: 
           value={fields.name}
           onChange={(e) => setField("name", e.target.value)}
           placeholder="e.g. EduSat-1"
+          maxLength={128}
         />
         <p className="text-[11px] text-muted-foreground">You can run this mission more than once — this name is how you'll tell your runs apart.</p>
       </div>
@@ -1515,7 +1516,15 @@ export function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignSta
       }
     }, 500);
   }, [attemptId, onSaved]);
-  const setCellsValue = (next: number) => { setCells(next); pushCells(next); };
+  // Matches the backend's own bound (DesignUpdateIn.selected_solar_cells,
+  // ge=0/le=100_000) — no real CubeSat design gets anywhere near that many
+  // cells, so clamping here just avoids a round trip for a typo/paste that
+  // the server would reject anyway.
+  const setCellsValue = (next: number) => {
+    const clamped = Number.isFinite(next) ? Math.min(Math.max(next, 0), 100_000) : 0;
+    setCells(clamped);
+    pushCells(clamped);
+  };
 
   useEffect(() => () => {
     Object.values(pending.current).forEach(clearTimeout);
@@ -1709,7 +1718,7 @@ export function PowerBudgetTab({ state, attemptId, onSaved }: { state: DesignSta
               <label className={labelCls}>Selected number of solar cells (your design)</label>
               <div className="max-w-[200px]">
                 <input
-                  type="number" className={inputCls} value={cells}
+                  type="number" className={inputCls} value={cells} min={0} max={100_000}
                   onChange={(e) => setCellsValue(Number(e.target.value))}
                 />
               </div>
@@ -2445,6 +2454,7 @@ export function CostBudgetTab({ state, attemptId, onSaved, handbook }: {
                     <div className="w-28 mx-auto">
                       <input
                         type="text" className={compactTextInputCls} value={rows[c.id]?.vendor ?? ""} placeholder="e.g. Amazon"
+                        maxLength={80}
                         onChange={(e) => setRow(c.id, { vendor: e.target.value })}
                       />
                     </div>
@@ -2453,6 +2463,7 @@ export function CostBudgetTab({ state, attemptId, onSaved, handbook }: {
                     <div className="w-32 mx-auto">
                       <input
                         type="text" className={compactTextInputCls} value={rows[c.id]?.purchase_link ?? ""} placeholder="https://"
+                        maxLength={512}
                         onChange={(e) => setRow(c.id, { purchase_link: e.target.value })}
                       />
                     </div>

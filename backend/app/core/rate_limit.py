@@ -23,6 +23,8 @@ from collections import defaultdict
 
 from fastapi import HTTPException, Request, status
 
+from app.core.log_context import client_ip as _client_ip
+
 _WINDOW_SECONDS = 60
 # Sized to catch attacks, not to ration legitimate use — see module docstring:
 # per-IP means per-venue on any shared network, which is the normal case for
@@ -35,24 +37,6 @@ _hits: dict[str, list[float]] = defaultdict(list)
 # that only becomes reachable once nginx forwards real client addresses.
 _PRUNE_EVERY_SECONDS = 300
 _last_prune = 0.0
-
-
-def client_ip(request: Request) -> str:
-    """The address nginx actually saw.
-
-    X-Forwarded-For is a client-supplied header that our proxy *appends* to
-    (`$proxy_add_x_forwarded_for`), so the rightmost entry is the peer nginx
-    observed and anything to its left is whatever the caller claimed. Reading
-    the leftmost value — the usual convention when you trust a chain of proxies
-    — would let anyone bypass the limit entirely with a made-up header, since
-    there is exactly one proxy here and it is ours.
-    """
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        parts = [p.strip() for p in forwarded.split(",") if p.strip()]
-        if parts:
-            return parts[-1]
-    return request.client.host if request.client else "unknown"
 
 
 def _prune(now: float) -> None:
@@ -73,7 +57,7 @@ def enforce_rate_limit(
     Called explicitly inside a route rather than as a FastAPI dependency, so it
     can run after the honeypot check decides whether a request counts at all.
     """
-    ip = client_ip(request)
+    ip = _client_ip(request)
     now = time.monotonic()
     _prune(now)
 

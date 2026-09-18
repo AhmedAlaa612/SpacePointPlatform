@@ -20,7 +20,8 @@ from app.models.sessions.program import Program
 from app.models.user import User
 from app.models.team import Team
 from app.schemas.competitions import (
-    CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionAssignableStudentOut,
+    CompetitionAdvanceResultOut, CompetitionAdvanceTeamsIn, CompetitionAnalyticsOut,
+    CompetitionAssignableStudentOut,
     CompetitionAssignStudentRowOut, CompetitionAssignStudentsIn, CompetitionAssignStudentsOut,
     CompetitionImportConfirmIn,
     CompetitionImportPreviewOut, CompetitionImportPreviewRowOut, CompetitionImportResultOut,
@@ -28,6 +29,7 @@ from app.schemas.competitions import (
     CompetitionLeaderboardRowOut, CompetitionPublicationOut, CompetitionRubricIn, CompetitionRubricOut,
     CompetitionTeamCreateIn, CompetitionTeamMemberIn, CompetitionTeamOut, CompetitionTeamRenameIn,
 )
+from app.services.competitions import analytics as analytics_service
 from app.services.competitions import export as export_service
 from app.services.competitions import judges as judges_service
 from app.services.competitions import judging as judging_service
@@ -192,6 +194,20 @@ async def _team_cohort_id(db: AsyncSession, team_id: uuid.UUID) -> uuid.UUID:
     return team.cohort_id
 
 
+# ── Team analytics (2026-09-16) ─────────────────────────────────────────
+# One payload for the Judging page's Analysis tab. Read-only and cohort
+# -scoped, same as every other progress view here; deliberately team-first,
+# since per-student checklist progress already has its own surface (the
+# cohort's LMS > Progress tab).
+
+@router.get("/cohorts/{cohort_id}/team-analytics", response_model=CompetitionAnalyticsOut)
+async def get_cohort_team_analytics(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    result = await analytics_service.cohort_team_analytics(db, cohort_id=cohort_id)
+    if result is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Cohort not found")
+    return CompetitionAnalyticsOut(**result)
+
+
 # ── Registration import, progression ────────────────────────────────────
 
 @router.post("/cohorts/{cohort_id}/registration-import/preview", response_model=CompetitionImportPreviewOut)
@@ -262,20 +278,22 @@ async def get_cohort_assignable_students(
     registered_only: bool = False,
     team_status: Literal["all", "has_team", "no_team"] = "all",
     lms_status: Literal["all", "has_access", "no_access"] = "all",
+    login_status: Literal["all", "never", "has_logged_in"] = "all",
     db: AsyncSession = Depends(get_db),
 ):
     """Backs the Assign tab's search + filters (2026-09-15: `registered_only`,
     `team_status`, `lms_status` replaced the original boolean
-    `unassigned_only`). See `student_search_service.search_cohort_assignable_students`
-    for what each does — `registered_only` switches the candidate set
-    between "matches my search, anywhere on the platform" (the original
-    behavior, for finding an unregistered invite-code signup to assign)
-    and "actually registered in this cohort" (for viewing the roster
-    itself); `team_status`/`lms_status` filter either set further."""
+    `unassigned_only`; `login_status` added 2026-09-16). See
+    `student_search_service.search_cohort_assignable_students` for what each
+    does — `registered_only` switches the candidate set between "matches my
+    search, anywhere on the platform" (the original behavior, for finding an
+    unregistered invite-code signup to assign) and "actually registered in
+    this cohort" (for viewing the roster itself); `team_status`/`lms_status`/
+    `login_status` filter either set further."""
     await _get_cohort_or_404(db, cohort_id)
     return await student_search_service.search_cohort_assignable_students(
         db, cohort_id=cohort_id, q=q, invite_code=invite_code, registered_only=registered_only,
-        team_status=team_status, lms_status=lms_status,
+        team_status=team_status, lms_status=lms_status, login_status=login_status,
     )
 
 
@@ -370,6 +388,19 @@ async def export_cohort_results_workbook(cohort_id: uuid.UUID, db: AsyncSession 
     return Response(
         content=content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{safe_name} results.xlsx"'},
+    )
+
+
+@router.get("/cohorts/{cohort_id}/quiz-answers.xlsx")
+async def export_cohort_quiz_answers_workbook(cohort_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Exports all quiz answers for the cohort, grouped by team and quiz,
+    with an overview summary sheet and per-question answer breakdown sheet."""
+    cohort = await _get_cohort_or_404(db, cohort_id)
+    content = await export_service.export_quiz_answers_workbook(db, cohort_id=cohort_id)
+    safe_name = "".join(c if c.isalnum() or c in " -_" else "_" for c in cohort.name).strip() or cohort_id
+    return Response(
+        content=content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name} quiz answers.xlsx"'},
     )
 
 

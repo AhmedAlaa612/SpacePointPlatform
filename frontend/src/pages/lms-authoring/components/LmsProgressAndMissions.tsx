@@ -685,10 +685,18 @@ function AssignmentItemRow({
   item, cohortId, assignmentId,
 }: { item: LmsAssignmentItemDetail; cohortId?: string; assignmentId: string }) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [showRun, setShowRun] = useState(false)
   const [showQuizReview, setShowQuizReview] = useState(false)
   const [confirmReset, setConfirmReset] = useState(false)
-  const canViewRun = item.item_type === "mission_run" && !!item.mission_attempt_id
+  const isMissionRun = item.item_type === "mission_run" && !!item.mission_attempt_id
+  // DesignRunDetail replicates the Design wizard off a `Design` row that
+  // only a design-kind attempt ever has — a Ground Station (or any other
+  // non-design) run has no such row, so pointing it there just 404s
+  // ("Couldn't load this run's detail."). Those get a link to the same
+  // live console ops already can open from the Ground Station page.
+  const canViewRun = isMissionRun && item.mission_kind === "design"
+  const canOpenConsole = isMissionRun && item.mission_kind === "ground_station"
   const isQuiz = item.item_type === "quiz"
 
   const resetMutation = useMutation({
@@ -705,8 +713,8 @@ function AssignmentItemRow({
   const isAwaiting = item.status === "awaiting_confirmation"
   const isPoster = item.mission_step_key === "poster"
   const hasActions = Boolean(
-    item.submitted_url || (item.submission_multi_link && item.submitted_links?.length) || canViewRun
-    || (isQuiz && (isDone || cohortId)) || isPoster,
+    item.submitted_url || item.submitted_text || (item.submission_multi_link && item.submitted_links?.length)
+    || canViewRun || canOpenConsole || (isQuiz && (isDone || cohortId)) || isPoster,
   )
 
   return (
@@ -749,19 +757,31 @@ function AssignmentItemRow({
               {item.submission_multi_link ? (
                 item.submitted_links && item.submitted_links.length > 0 ? (
                   item.submitted_links.map((link, i) => (
-                    <a
-                      key={i}
-                      href={ensureAbsoluteUrl(link.url)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="h-8 px-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-bold flex items-center gap-1.5 hover:bg-primary/20 transition-colors shrink-0"
-                    >
-                      <ExternalLink size={13} /> {link.label || `Link ${i + 1}`}
-                    </a>
+                    link.text ? (
+                      // Text field (2026-09-16) — no link to open, so this is
+                      // a static badge; the full answer is in the title
+                      // tooltip since there's no room for it inline here.
+                      <span
+                        key={i} title={link.text}
+                        className="h-8 px-3 rounded-lg border border-border/60 bg-muted/40 text-foreground text-xs font-bold flex items-center gap-1.5 shrink-0 max-w-[200px]"
+                      >
+                        <span className="truncate">{link.label || `Field ${i + 1}`}: {link.text}</span>
+                      </span>
+                    ) : (
+                      <a
+                        key={i}
+                        href={ensureAbsoluteUrl(link.url ?? "")}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="h-8 px-3 rounded-lg border border-primary/30 bg-primary/10 text-primary text-xs font-bold flex items-center gap-1.5 hover:bg-primary/20 transition-colors shrink-0"
+                      >
+                        <ExternalLink size={13} /> {link.label || `Link ${i + 1}`}
+                      </a>
+                    )
                   ))
                 ) : (
                   <span className="h-8 px-2.5 rounded-lg border border-border/60 bg-muted/40 text-muted-foreground text-xs font-medium flex items-center gap-1.5 shrink-0">
-                    No links submitted yet
+                    No fields submitted yet
                   </span>
                 )
               ) : item.submitted_url ? (
@@ -773,6 +793,16 @@ function AssignmentItemRow({
                 >
                   <ExternalLink size={13} /> {isPoster ? "View Poster" : "Submission"}
                 </a>
+              ) : item.submitted_text ? (
+                // A plain single-field submission's own type can be text
+                // (2026-09-16) — no link to open, so this is a static badge;
+                // the full answer is in the title tooltip.
+                <span
+                  title={item.submitted_text}
+                  className="h-8 px-3 rounded-lg border border-border/60 bg-muted/40 text-foreground text-xs font-bold flex items-center gap-1.5 shrink-0 max-w-[240px]"
+                >
+                  <span className="truncate">{item.submitted_text}</span>
+                </span>
               ) : isPoster ? (
                 <span className="h-8 px-2.5 rounded-lg border border-border/60 bg-muted/40 text-muted-foreground text-xs font-medium flex items-center gap-1.5 shrink-0">
                   No poster submitted yet
@@ -788,6 +818,21 @@ function AssignmentItemRow({
                 >
                   <Play size={13} className="text-primary" />
                   {showRun ? "Hide run" : "View run"}
+                </Button>
+              )}
+
+              {canOpenConsole && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void navigate({
+                    to: "/learn/missions/ground-station/$attemptId",
+                    params: { attemptId: item.mission_attempt_id as string },
+                  })}
+                  className="h-8 text-xs font-semibold gap-1.5 shrink-0"
+                >
+                  <Play size={13} className="text-primary" />
+                  Open console
                 </Button>
               )}
 
@@ -860,7 +905,7 @@ function AssignmentItemRow({
  * correct/incorrect, how long they took, and what they left unanswered
  * (`selected_index: null`), all of which feeds the evaluation the same way
  * a mission run's detail does. */
-function QuizAnswersReview({ cohortId, assignmentId, itemId }: { cohortId: string; assignmentId: string; itemId: string }) {
+export function QuizAnswersReview({ cohortId, assignmentId, itemId }: { cohortId: string; assignmentId: string; itemId: string }) {
   const { data: result, isLoading, isError, error } = useQuery({
     queryKey: ["cohort-quiz-review", cohortId, assignmentId, itemId],
     queryFn: () => getInstructorCohortQuizReviewApi(cohortId, assignmentId, itemId),

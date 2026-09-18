@@ -140,6 +140,14 @@ class LmsProgramItem(Base):
     # What a `submission`-type item asks the student to paste back — same
     # shape as the Poster tab's link-paste-back flow.
     submission_prompt = Column(Text, nullable=True)
+    # 2026-09-16 — the *single*-field submission's own type (link or text).
+    # Only meaningful when submission_multi_link is False; a multi-link item
+    # picks its type per field in submission_link_labels instead. Defaults
+    # to "link", so every submission item authored before this existed (the
+    # only kind there was) is unaffected. Which column the student's
+    # paste-back lands in (submitted_url vs submitted_text) is decided by
+    # this at submit time — see routers/lms/student.py::submit_program_item.
+    submission_field_type = Column(String(8), nullable=False, default="link", server_default="link")
     # 2026-09-14: ops's own toggle for "one link, or several with optional
     # labels" (e.g. mem1/mem2/team link, all in one submission) — a
     # `submission`-only field (see validate_item_payload), off by default so
@@ -149,15 +157,19 @@ class LmsProgramItem(Base):
     # routers/lms/student.py::submit_program_item.
     submission_multi_link = Column(Boolean, nullable=False, default=False, server_default="false")
     # 2026-09-14: ops's own fixed label set for a submission_multi_link item
-    # — `[{"label": str, "required": bool}, ...]`, in the order ops entered
-    # them (e.g. "Member 1 link" required, "Member 2 link" required, "Team
-    # link" optional). NULL for a non-multi-link item, or for a multi-link
-    # item authored before this existed — that older shape (free-text,
-    # student-entered labels, none required) still works unchanged;
-    # routers/lms/student.py::submit_program_item and the frontend both
-    # fall back to it when this is empty. Once set, this is the one source
-    # of truth for which slots the student's form shows and which of them
-    # block submission — see that same function's required-label check.
+    # — `[{"label": str, "required": bool, "field_type": "link"|"text"},
+    # ...]`, in the order ops entered them (e.g. "Member 1 link" required,
+    # "Member 2 link" required, "Team link" optional, "Design writeup" as a
+    # required text field). `field_type` (2026-09-16, defaults to "link" for
+    # every row written before it existed) picks whether the student's form
+    # shows a link input or a text area for that slot. NULL for a
+    # non-multi-link item, or for a multi-link item authored before this
+    # existed — that older shape (free-text, student-entered labels, none
+    # required, link-only) still works unchanged; routers/lms/student.py::
+    # submit_program_item and the frontend both fall back to it when this
+    # is empty. Once set, this is the one source of truth for which slots
+    # the student's form shows and which of them block submission — see
+    # that same function's required-label check.
     submission_link_labels = Column(JSONB, nullable=True)
     # A `pdf` item's hosted file — same two-step shape as a module
     # `attachment` item (create the item, then a separate multipart upload
@@ -286,9 +298,18 @@ class LmsProgramItemProgress(Base):
     # link's url so any older reader that only knows `submitted_url` still
     # sees *something* real rather than nothing.
     submitted_url = Column(String(512), nullable=True)
+    # 2026-09-16 — the single-field submission's answer when the item's own
+    # submission_field_type is "text" instead of "link". Text, not
+    # String(512): a writeup can run well past that. Mutually exclusive with
+    # submitted_url for a non-multi-link item — exactly one of the two is
+    # ever populated, matching submission_field_type.
+    submitted_text = Column(Text, nullable=True)
     # 2026-09-14: a `submission_multi_link` item's real answer — a list of
-    # `{"label": str | None, "url": str}`, ops-controlled per item (e.g.
-    # "Member 1 link", "Member 2 link", "Team link" all in one submission).
+    # `{"label": str | None, "url": str | None, "text": str | None}`,
+    # ops-controlled per item (e.g. "Member 1 link", "Member 2 link", "Team
+    # link", "Design writeup" all in one submission). Exactly one of
+    # url/text is ever set per entry, matching that label's own
+    # `field_type` (2026-09-16) on `LmsProgramItem.submission_link_labels`.
     # NULL for every non-multi-link item.
     submitted_links = Column(JSONB, nullable=True)
     # When submitted_url (or status) last changed. No updated_by column —
@@ -335,6 +356,8 @@ class LmsProgramTeamItemProgress(Base):
         UUID(as_uuid=True), ForeignKey("mission_attempts.id", ondelete="SET NULL"), nullable=True,
     )
     submitted_url = Column(String(512), nullable=True)
+    # Same shape/purpose as LmsProgramItemProgress.submitted_text above.
+    submitted_text = Column(Text, nullable=True)
     # Same shape/purpose as LmsProgramItemProgress.submitted_links above —
     # the team's shared multi-link answer, editable by any teammate.
     submitted_links = Column(JSONB, nullable=True)

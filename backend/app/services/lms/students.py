@@ -61,19 +61,26 @@ async def _summarize_users(db: AsyncSession, users: list[User]) -> list[StudentS
             grade=contact.grade if contact else None,
             status=u.status,
             created_at=u.created_at,
+            last_login_at=u.last_login_at,
         ))
     return out
 
 
 async def search_students(
-    db: AsyncSession, *, q: str | None = None, invite_code: str | None = None, limit: int = 50,
+    db: AsyncSession, *, q: str | None = None, invite_code: str | None = None,
+    login_status: Literal["all", "never", "has_logged_in"] = "all", limit: int = 50,
 ) -> list[StudentSummaryOut]:
     """Name/email substring search over student accounts, capped at `limit` rows.
 
     `invite_code` filters to one batch. The literal string `none` selects
     students with no code at all — the ones who signed up before the gate
     existed; without it they'd be unreachable through the filter, since "no
-    code" isn't a code you can type."""
+    code" isn't a code you can type.
+
+    `login_status` (2026-09-16) filters on `User.last_login_at` — "never"
+    finds an account (however it was created) that's never actually been
+    opened, same signal search_cohort_assignable_students's own
+    login_status filters on."""
     stmt = select(User).where(User.roles.any("student"))
     if q:
         like = f"%{q.strip()}%"
@@ -83,6 +90,10 @@ async def search_students(
             stmt = stmt.where(User.invitation_code_used.is_(None))
         else:
             stmt = stmt.where(User.invitation_code_used == invite_code.strip().upper())
+    if login_status == "never":
+        stmt = stmt.where(User.last_login_at.is_(None))
+    elif login_status == "has_logged_in":
+        stmt = stmt.where(User.last_login_at.is_not(None))
     rows = (await db.execute(stmt.order_by(User.full_name).limit(limit))).scalars().all()
     return await _summarize_users(db, rows)
 
@@ -150,17 +161,21 @@ async def search_cohort_assignable_students(
     registered_only: bool = False,
     team_status: Literal["all", "has_team", "no_team"] = "all",
     lms_status: Literal["all", "has_access", "no_access"] = "all",
+    login_status: Literal["all", "never", "has_logged_in"] = "all",
 ) -> list[CompetitionAssignableStudentOut]:
     """Backs the Assign tab's search + filters (`registered_only` added
     2026-09-15 alongside `team_status`/`lms_status`, replacing the old
-    boolean `unassigned_only`). `registered_only=False` keeps the original
-    platform-wide student search (capped at 50, same as `/lms/admin/
-    students`) so ops can still find an unregistered invite-code signup to
-    assign; `registered_only=True` instead starts from this cohort's own
-    Registration rows (`_registered_cohort_users` above), uncapped, since
-    "everyone actually registered in my competition" is the whole point of
-    that view and a cohort's roster is bounded by nature, unlike an
-    open-ended name search."""
+    boolean `unassigned_only`). `registered_only=False` searches the whole
+    platform's student accounts (uncapped, see the note inline below — this
+    used to mirror `search_students`'s 50-row cap and that caused real
+    confusion, since "all matches" and "this one batch" behaved
+    inconsistently) so ops can still find an unregistered invite-code
+    signup to assign; `registered_only=True` instead starts from this
+    cohort's own Registration rows (`_registered_cohort_users` above),
+    same idea, since "everyone actually registered in my competition" is
+    the whole point of that view. `login_status` (2026-09-16) filters on
+    `User.last_login_at` — "never" means the account (however it was
+    created) has never actually been opened, not just that it exists."""
     if registered_only:
         users = await _registered_cohort_users(db, cohort_id=cohort_id, q=q, invite_code=invite_code)
         registered_ids = {u.id for u in users}
@@ -174,7 +189,21 @@ async def search_cohort_assignable_students(
                 stmt = stmt.where(User.invitation_code_used.is_(None))
             else:
                 stmt = stmt.where(User.invitation_code_used == invite_code.strip().upper())
-        users = (await db.execute(stmt.order_by(User.full_name).limit(50))).scalars().all()
+        # No cap at all here (2026-09-15, dropped the last remaining 50-row
+        # one) — same reasoning as _registered_cohort_users being fully
+        # uncapped: this is one cohort's Assign tab, not an open platform-wide
+        # directory, and the actual boundedness comes from the filters above
+        # (q/invite_code/team_status/lms_status), not from an arbitrary row
+        # count. A cap here silently returns an alphabetically-first slice —
+        # "All batches" showing fewer relevant people than one specific batch
+        # (found live) was one symptom of that; capping only the *unfiltered*
+        # case still left "no filter at all" returning a near-random slice of
+        # the whole platform's students instead of an honest "here's
+        # everyone, now filter" — worse than just querying it all. Diverges
+        # from search_students/`/lms/admin/students` on purpose: that one is
+        # a genuine platform-wide people-finder with no cohort to bound it by.
+        stmt = stmt.order_by(User.full_name)
+        users = (await db.execute(stmt)).scalars().all()
 
         contact_ids = [u.contact_id for u in users if u.contact_id]
         registered_contact_ids = set((await db.execute(
@@ -215,6 +244,10 @@ async def search_cohort_assignable_students(
         if lms_status == "has_access" and not has_lms:
             continue
         if lms_status == "no_access" and has_lms:
+            continue
+        if login_status == "never" and u.last_login_at is not None:
+            continue
+        if login_status == "has_logged_in" and u.last_login_at is None:
             continue
         team_id, team_name = team_by_user.get(u.id, (None, None))
         out.append(CompetitionAssignableStudentOut(

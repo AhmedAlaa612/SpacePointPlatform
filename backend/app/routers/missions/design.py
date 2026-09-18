@@ -502,7 +502,9 @@ async def save_data_budget(
     attempt = await _own_design_attempt(db, attempt_id, current)
     await require_step_unlocked(db, attempt=attempt, step_key="data_budget")
     design = await ensure_design(db, attempt=attempt)
-    await design_service.save_data_entry(db, design_component_id=design_component_id, **body.model_dump())
+    await design_service.save_data_entry(
+        db, design_id=design.id, design_component_id=design_component_id, **body.model_dump()
+    )
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
@@ -516,7 +518,9 @@ async def save_power_budget(
     attempt = await _own_design_attempt(db, attempt_id, current)
     await require_step_unlocked(db, attempt=attempt, step_key="power_budget")
     design = await ensure_design(db, attempt=attempt)
-    await design_service.save_power_entry(db, design_component_id=design_component_id, **body.model_dump())
+    await design_service.save_power_entry(
+        db, design_id=design.id, design_component_id=design_component_id, **body.model_dump()
+    )
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
@@ -530,7 +534,9 @@ async def save_mass_budget(
     attempt = await _own_design_attempt(db, attempt_id, current)
     await require_step_unlocked(db, attempt=attempt, step_key="mass_budget")
     design = await ensure_design(db, attempt=attempt)
-    await design_service.save_mass_entry(db, design_component_id=design_component_id, **body.model_dump())
+    await design_service.save_mass_entry(
+        db, design_id=design.id, design_component_id=design_component_id, **body.model_dump()
+    )
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result
@@ -544,7 +550,9 @@ async def save_cost_budget(
     attempt = await _own_design_attempt(db, attempt_id, current)
     await require_step_unlocked(db, attempt=attempt, step_key="cost_budget")
     design = await ensure_design(db, attempt=attempt)
-    await design_service.save_cost_entry(db, design_component_id=design_component_id, **body.model_dump())
+    await design_service.save_cost_entry(
+        db, design_id=design.id, design_component_id=design_component_id, **body.model_dump()
+    )
     result = await design_state_out(db, attempt=attempt, design=design)
     await db.commit()
     return result

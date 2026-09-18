@@ -93,6 +93,33 @@ async def test_search_students_excludes_staff(db, client):
 
 
 @pytest.mark.asyncio
+async def test_search_students_login_status_filter(db, client):
+    from datetime import datetime, timezone
+
+    ops = await _ops(db)
+    never_logged_in = await _student(db, full_name="Never Logged In")
+    has_logged_in = await _student(db, full_name="Has Logged In")
+    has_logged_in.last_login_at = datetime(2026, 9, 1, tzinfo=timezone.utc)
+    await db.commit()
+
+    unfiltered = await client.get("/lms/admin/students", headers=_headers(ops))
+    row = next(r for r in unfiltered.json() if r["id"] == str(never_logged_in.id))
+    assert row["last_login_at"] is None
+    row = next(r for r in unfiltered.json() if r["id"] == str(has_logged_in.id))
+    assert row["last_login_at"] is not None
+
+    never = await client.get("/lms/admin/students", headers=_headers(ops), params={"login_status": "never"})
+    never_ids = {r["id"] for r in never.json()}
+    assert str(never_logged_in.id) in never_ids
+    assert str(has_logged_in.id) not in never_ids
+
+    has = await client.get("/lms/admin/students", headers=_headers(ops), params={"login_status": "has_logged_in"})
+    has_ids = {r["id"] for r in has.json()}
+    assert str(has_logged_in.id) in has_ids
+    assert str(never_logged_in.id) not in has_ids
+
+
+@pytest.mark.asyncio
 async def test_student_profile_includes_nickname_and_programs(db, client):
     ops = await _ops(db)
     cohort = await _cohort(db)

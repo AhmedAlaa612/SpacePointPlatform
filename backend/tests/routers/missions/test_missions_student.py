@@ -177,3 +177,31 @@ async def test_cannot_fetch_another_students_attempt(db, client):
 
     resp = await client.get(f"/missions/attempts/{attempt_id}", headers=_headers(other))
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_staff_can_view_but_not_submit_another_students_attempt(db, client):
+    """Ops watching a student's run (e.g. Ground Station) needs read access
+    to an attempt it doesn't own — same staff-OR-owner composition as
+    services/ground_station/access.py. Submitting stays owner-only."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _quiz_mission(db, author=author)
+    await db.commit()
+    student = await _user(db)
+    staff = await _user(db, roles=["operations"])
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    resp = await client.get(f"/missions/attempts/{attempt_id}", headers=_headers(staff))
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["id"] == attempt_id
+
+    submit = await client.post(
+        f"/missions/attempts/{attempt_id}/submit", headers=_headers(staff),
+        json={"answers": [1]},
+    )
+    assert submit.status_code == 404

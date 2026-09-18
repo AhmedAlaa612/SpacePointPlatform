@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 
 # ── component library (the picker) ──────────────────────────────────────
@@ -102,7 +102,9 @@ class DesignComponentOut(BaseModel):
 
 class DesignComponentAddIn(BaseModel):
     library_component_id: UUID
-    quantity: int = 1
+    # Same DB-protecting ceiling as the budget-entry quantity fields above —
+    # DesignComponent.quantity is also a 32-bit Integer.
+    quantity: int = Field(default=1, ge=0, le=1_000_000)
 
 
 # ── CONOPS ────────────────────────────────────────────────────────────────
@@ -123,10 +125,13 @@ class ConopsSaveIn(BaseModel):
 # ── budget entry saves ────────────────────────────────────────────────────
 
 class DataEntrySaveIn(BaseModel):
-    data_type: str | None = None
+    # Both capped to match DesignDataBudgetEntry's DB columns
+    # (String(60)/String(12)) — same unbounded-string-into-fixed-column
+    # bug as CostEntrySaveIn.purchase_link below, just on this table.
+    data_type: str | None = Field(default=None, max_length=60)
     data_size_per_measurement_kb: float = 0.0
     measurements_per_minute: float = 0.0
-    priority: str = "Medium"
+    priority: str = Field(default="Medium", max_length=12)
     storage_mode: Literal["Stored", "Sent", "Both"] = "Stored"
     notes: str | None = None
 
@@ -138,7 +143,9 @@ class PowerEntrySaveIn(BaseModel):
 
 
 class MassEntrySaveIn(BaseModel):
-    quantity: int | None = None
+    # DB-protecting ceiling, same reasoning as DesignUpdateIn.selected_solar_cells
+    # — the column is a 32-bit Integer, no real design touches this range.
+    quantity: int | None = Field(default=None, ge=0, le=1_000_000)
     mass_per_unit_g: float | None = None
     length_mm: float | None = None
     width_mm: float | None = None
@@ -147,16 +154,23 @@ class MassEntrySaveIn(BaseModel):
 
 
 class CostEntrySaveIn(BaseModel):
-    quantity: int | None = None
+    quantity: int | None = Field(default=None, ge=0, le=1_000_000)
     cost_per_unit_aed: float | None = None
-    vendor: str | None = None
-    priority: str | None = None
-    purchase_link: str | None = None
+    # vendor/priority capped to match DesignCostBudgetEntry's DB columns
+    # (String(80)/String(12)) — same class of bug as purchase_link below.
+    vendor: str | None = Field(default=None, max_length=80)
+    priority: str | None = Field(default=None, max_length=12)
+    # Matches DesignCostBudgetEntry.purchase_link's DB column (String(512))
+    # — a pasted marketplace/tracking URL over that length used to sail
+    # past validation and crash the save at the driver layer
+    # (StringDataRightTruncationError -> 500) instead of a clean 400.
+    purchase_link: str | None = Field(default=None, max_length=512)
     notes: str | None = None
 
 
 class LinkEntrySaveIn(BaseModel):
-    band_profile: str = "UHF"
+    # Matches DesignLinkBudgetEntry.band_profile's DB column (String(12)).
+    band_profile: str = Field(default="UHF", max_length=12)
     downlink_frequency_mhz: float
     uplink_frequency_mhz: float
     satellite_antenna_gain_dbi: float
@@ -179,15 +193,35 @@ class LinkEntryOut(BaseModel):
 # ── design fields ──────────────────────────────────────────────────────
 
 class DesignUpdateIn(BaseModel):
-    design_name: str | None = None
+    # design_name/orbit_type/poster_url capped to match Design's DB columns
+    # (String(128)/String(20)/String(512)) — design_objective is a DB Text
+    # column (unbounded), so it's deliberately left uncapped here too.
+    design_name: str | None = Field(default=None, max_length=128)
     design_objective: str | None = None
-    orbit_type: str | None = None
+    orbit_type: str | None = Field(default=None, max_length=20)
     orbit_duration_min: float | None = None
     orbits_per_day: float | None = None
     selected_cubesat_size: Literal["1U", "2U", "3U", "6U"] | None = None
-    selected_solar_cells: int | None = None
+    # No real CubeSat design gets anywhere near 100,000 cells — this is a
+    # DB-protecting ceiling, not a domain constraint. Without it a huge
+    # pasted/typed value sailed past validation and only failed at the
+    # driver layer (OverflowError against the Integer column) -> 500.
+    selected_solar_cells: int | None = Field(default=None, ge=0, le=100_000)
     battery_capacity_wh: float | None = None
-    poster_url: str | None = None
+    poster_url: str | None = Field(default=None, max_length=512)
+
+    @model_validator(mode="after")
+    def _no_explicit_null_on_required_columns(self):
+        """design_name/selected_cubesat_size/selected_solar_cells back
+        NOT NULL Design columns — Optional here only so a partial PATCH can
+        omit them (update_design uses model_dump(exclude_unset=True)).
+        Omission is fine; an *explicit* null isn't excluded by that, and
+        used to sail through setattr straight into a NOT NULL column,
+        crashing at the driver layer (IntegrityError) -> 500."""
+        for field in ("design_name", "selected_cubesat_size", "selected_solar_cells"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be set to null")
+        return self
 
 
 # ── the dashboard (composed summary) ────────────────────────────────────

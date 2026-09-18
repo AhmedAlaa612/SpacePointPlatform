@@ -53,7 +53,7 @@ class User(Base):
     # Shared identity number for ID cards — one per person, reused across every
     # role's card. Formatted as "SP-{card_number:04d}-UAE" for staff or
     # "SP-ST-{card_number:04d}-UAE" for students (services/documents/
-    # id_card.py::format_card_id) — drawn from separate sequences
+    # card_id.py::format_card_id) — drawn from separate sequences
     # (card_seq_person / card_seq_student) so the two never look
     # interchangeable, even though this raw integer alone doesn't carry that
     # distinction. Allocated once, at account-creation time, never per-role
