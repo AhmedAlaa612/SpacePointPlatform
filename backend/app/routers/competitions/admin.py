@@ -157,6 +157,18 @@ async def delete_team(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     await db.commit()
 
 
+@router.post("/teams/{team_id}/unlock", response_model=CompetitionTeamOut)
+async def unlock_team(team_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    """Reopens a team's checklist after "Final Submit" — the only way that
+    lock ever clears (see `Team.final_locked_at`'s own docstring). Already
+    gated ops-only by this whole router's `require_lms_content` dependency
+    — no separate check needed here."""
+    await team_service.unlock_team_submission(db, team_id=team_id)
+    await db.commit()
+    rows = await team_service.list_teams_with_members(db, cohort_id=(await _team_cohort_id(db, team_id)))
+    return next(CompetitionTeamOut(**r) for r in rows if r["id"] == team_id)
+
+
 @router.post("/teams/{team_id}/members", response_model=CompetitionTeamOut, status_code=status.HTTP_201_CREATED)
 async def post_team_member(
     team_id: uuid.UUID, body: CompetitionTeamMemberIn, db: AsyncSession = Depends(get_db),

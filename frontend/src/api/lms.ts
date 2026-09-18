@@ -638,6 +638,9 @@ export interface LmsProgramChecklist {
   cohort_id: string | null;
   cohort_name: string | null;
   team_name: string | null;
+  // null means still editable — set once any teammate has hit "Final
+  // Submit". Only ops can clear it again.
+  team_final_locked_at: string | null;
   certificate_required: boolean;
   certificate_earned: boolean;
   items: LmsProgramChecklistItem[];
@@ -686,6 +689,15 @@ export async function submitChecklistItemLinks(
  * every other view that reads it) reflects it immediately. */
 export async function setTeamNameChecklistItem(assignmentId: string, itemId: string, name: string): Promise<LmsProgramChecklistItem> {
   const { data } = await api.post<LmsProgramChecklistItem>(`/lms/programs/${assignmentId}/items/${itemId}/team-name`, { name });
+  return data;
+}
+
+/** The FINAL GATE card's one action — see routers/lms/student.py's
+ * final_submit_program. Any teammate can call this once every required
+ * team-scoped item is done; one-way from the team's side, only ops can
+ * undo it. Returns the refreshed checklist (team_final_locked_at now set). */
+export async function finalSubmitChecklist(assignmentId: string): Promise<LmsProgramChecklist> {
+  const { data } = await api.post<LmsProgramChecklist>(`/lms/programs/${assignmentId}/final-submit`, {});
   return data;
 }
 

@@ -21,6 +21,7 @@ submission is worth.
 
 from __future__ import annotations
 
+import logging
 import random
 import uuid
 from datetime import datetime, timezone
@@ -34,6 +35,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.lms.course import ModuleItem
 from app.models.lms.enrollment import ItemProgress
 from app.services.lms.points import award_quiz_points
+
+logger = logging.getLogger(__name__)
 
 # Sentinel distinguishing "caller has no prefetched row, look it up" (the
 # default) from "caller already looked it up and it's None" — get_quiz_
@@ -278,6 +281,13 @@ async def submit_quiz(
         if row.status != "completed":
             row.status = "completed"
             row.completed_at = datetime.now(timezone.utc)
+            # Only the actual pass transition — a passed retry on an
+            # already-completed item takes the branch above silently, same
+            # "log the transition, not every attempt" call as certificates.
+            logger.info(
+                "lms.quiz completed: user=%s item=%s score=%s attempt=%s",
+                user_id, item_id, score, row.quiz_attempts,
+            )
     elif row.status != "completed":
         # a failed retry never un-completes a quiz that was already passed
         row.status = "in_progress"

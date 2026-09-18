@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
-import { CheckCircle2, Circle, Users } from "lucide-react"
+import { CheckCircle2, Circle, Lock, Users } from "lucide-react"
 import { getMyJudgeCohortsApi, getMyJudgeTeamsApi, type CompetitionJudgeCohort } from "@/api/competitions"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 
@@ -78,15 +78,22 @@ export default function JudgeTeams() {
                   </p>
                 </div>
               </div>
-              {team.already_scored ? (
-                <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 shrink-0">
-                  <CheckCircle2 size={14} /> Scored
-                </span>
-              ) : (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-                  <Circle size={14} /> Not scored
-                </span>
-              )}
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                {team.already_scored ? (
+                  <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                    <CheckCircle2 size={14} /> Scored
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Circle size={14} /> Not scored
+                  </span>
+                )}
+                {team.locked && (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Lock size={14} /> Final submission locked
+                  </span>
+                )}
+              </div>
             </Link>
           ))}
         </div>

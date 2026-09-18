@@ -27,6 +27,7 @@ IntegrityError that loser sees is caught and treated as success.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import date
 from html import escape
 from uuid import UUID, uuid4
@@ -45,6 +46,8 @@ from app.services import storage
 from app.services.documents.certificate import generate_completion_certificate_pdf
 from app.services.email import try_send_email
 from app.services.lms.progress import course_completion
+
+logger = logging.getLogger(__name__)
 
 CERTIFICATE_BUCKET = "certificates"
 
@@ -166,6 +169,10 @@ async def issue_course_certificate(
             )
         )).scalars().first()
 
+    # Reached only on the genuine first issuance — the IntegrityError branch
+    # above is what a duplicate/lost-race attempt takes, so this line alone
+    # marks the actual "course completed" transition in the journey.
+    logger.info("lms.certificate issued (course): user=%s course=%s", user_id, course_id)
     if notify:
         await _notify(user, what=course.title, kind="course", pdf=pdf)
     return certificate
@@ -208,6 +215,7 @@ async def issue_path_certificate(
             )
         )).scalars().first()
 
+    logger.info("lms.certificate issued (path): user=%s path=%s", user_id, path_id)
     if notify:
         await _notify(user, what=path.title, kind="learning path", pdf=pdf)
     return certificate

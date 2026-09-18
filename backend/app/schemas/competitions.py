@@ -188,6 +188,10 @@ class CompetitionJudgeTeamOut(TeamOut):
     UI can show a done/pending mark without a second round trip."""
 
     already_scored: bool = False
+    # True once the team has hit "Final Submit" (Team.final_locked_at is
+    # set) — same any-judge, not just-this-judge, visibility as a locked
+    # checklist genuinely is.
+    locked: bool = False
 
 
 class CompetitionTeamDetailOut(BaseModel):
@@ -431,6 +435,9 @@ class CompetitionAnalyticsTeamOut(BaseModel):
     quiz_submissions: list[CompetitionTeamQuizSubmissionOut] = []
     last_activity_at: datetime | None = None
     stalled: bool
+    # True once the team has hit "Final Submit" (Team.final_locked_at is
+    # set) — read straight off the already-loaded Team row, no new query.
+    locked: bool = False
 
 
 class CompetitionAnalyticsActivityOut(BaseModel):

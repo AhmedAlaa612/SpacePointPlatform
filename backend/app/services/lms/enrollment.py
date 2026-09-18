@@ -11,6 +11,7 @@ it began on.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import UUID, uuid4
@@ -21,6 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.lms.course import Course
 from app.models.lms.enrollment import Enrollment
+
+logger = logging.getLogger(__name__)
 
 EnrollmentSource = Literal["self", "ops", "registration", "purchase", "invite_code"]
 
@@ -96,6 +99,10 @@ async def enroll(
             if purchase_id is not None:
                 existing.purchase_id = purchase_id
             await db.flush()
+            logger.info(
+                "lms.enrollment reactivated: user=%s course=%s source=%s",
+                user_id, course_id, source,
+            )
         return existing
 
     enrollment = Enrollment(
@@ -112,4 +119,11 @@ async def enroll(
     )
     db.add(enrollment)
     await db.flush()
+    # The one place every course grant funnels through — self-checkout, ops
+    # single/bulk grant, learning-path fan-out, invite-code batch grant — so
+    # one log line here covers all of them instead of instrumenting each caller.
+    logger.info(
+        "lms.enrollment granted: user=%s course=%s source=%s granted_by=%s",
+        user_id, course_id, source, granted_by,
+    )
     return enrollment
