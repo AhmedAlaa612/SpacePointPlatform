@@ -247,6 +247,71 @@ async def test_a_mission_run_item_is_reported_as_a_mission_not_as_a_completion_b
     # silently dropped for having no attempt id.
     assert result["missions"][0]["not_started"] == 1
 
+    # The same team-scoped run also shows up per-team, not just in the
+    # cohort-wide aggregate above — same "not started, no attempt yet" state.
+    team_row = result["teams"][0]
+    assert len(team_row["mission_runs"]) == 1
+    assert team_row["mission_runs"][0]["title"] == "CubeSat Design"
+    assert team_row["mission_runs"][0]["attempt_id"] is None
+    assert team_row["mission_runs"][0]["status"] == "not_started"
+
+
+@pytest.mark.asyncio
+async def test_a_team_mission_run_with_an_assigned_attempt_shows_its_status_per_team(db):
+    """Once a team has a shared MissionAttempt behind its Design run, the
+    per-team block carries that attempt's real status and id — the id is
+    what lets ops open the actual design detail from the Analysis tab."""
+    from app.models.missions.mission import Mission, MissionAttempt, MissionVariant
+
+    program, cohort = await _program_and_cohort(db)
+    author = await _ops(db)
+    mission = Mission(
+        id=uuid.uuid4(), title="CubeSat Design", slug=f"cubesat-{uuid.uuid4().hex[:8]}",
+        kind="design", team_policy="team", status="published", access_mode="open",
+        authored_by=author.id,
+    )
+    db.add(mission)
+    await db.flush()
+    variant = MissionVariant(id=uuid.uuid4(), mission_id=mission.id, label="Standard", position=1, points=20)
+    db.add(variant)
+    await db.flush()
+    _lms_program, (design_item,) = await _checklist(db, program, [
+        {"title": "Design run", "scope": "team", "item_type": "mission_run", "mission_id": mission.id},
+    ])
+    student = await _student(db, "Solo", cohort=cohort)
+    team = await create_team(db, name="Alpha", created_by=student.id, cohort_id=cohort.id)
+    attempt = MissionAttempt(
+        id=uuid.uuid4(), mission_id=mission.id, variant_id=variant.id, team_id=team.id,
+        attempt_no=1, status="in_progress", payload={},
+    )
+    db.add(attempt)
+    await db.flush()
+    db.add(LmsProgramTeamItemProgress(
+        id=uuid.uuid4(), item_id=design_item.id, team_id=team.id, status="pending",
+        mission_attempt_id=attempt.id, updated_at=datetime.now(timezone.utc),
+    ))
+    await db.commit()
+
+    result = await cohort_team_analytics(db, cohort_id=cohort.id)
+    run = result["teams"][0]["mission_runs"][0]
+    assert run["attempt_id"] == attempt.id
+    assert run["status"] == "in_progress"
+
+
+@pytest.mark.asyncio
+async def test_a_team_with_no_team_scoped_mission_run_items_gets_an_empty_mission_runs_list(db):
+    """The overwhelming majority of cohorts today — checklist-only,
+    no Design mission on it at all — must not show a phantom mission
+    runs section."""
+    program, cohort = await _program_and_cohort(db)
+    _lms_program, (poster,) = await _checklist(db, program, [{"title": "Poster", "scope": "team"}])
+    student = await _student(db, "Solo", cohort=cohort)
+    await create_team(db, name="Alpha", created_by=student.id, cohort_id=cohort.id)
+    await db.commit()
+
+    result = await cohort_team_analytics(db, cohort_id=cohort.id)
+    assert result["teams"][0]["mission_runs"] == []
+
 
 # ── roster stats ────────────────────────────────────────────────────────
 
