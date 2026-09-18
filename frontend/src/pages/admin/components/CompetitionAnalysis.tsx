@@ -1,21 +1,23 @@
 import { useMemo, useState, useEffect } from "react"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import * as XLSX from "xlsx"
 import {
   Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer,
   Tooltip, XAxis, YAxis,
 } from "recharts"
 import {
-  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, Eye, FileSpreadsheet, Loader2, Search,
+  AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Circle, Clock, Eye, FileSpreadsheet, Loader2, Lock, Search,
   Rocket, UserX, Users, UsersRound,
 } from "lucide-react"
 import {
-  getCohortTeamAnalyticsApi, downloadCohortQuizAnswersWorkbookApi,
+  getCohortTeamAnalyticsApi, downloadCohortQuizAnswersWorkbookApi, unlockTeamApi,
   type CompetitionAnalytics, type CompetitionAnalyticsItem, type CompetitionAnalyticsTeam,
   type CompetitionAnalyticsDeliverable, type CompetitionMissionRun, type CompetitionTeamQuizSubmission,
 } from "@/api/competitions"
 import { Spinner, EmptyState, StatCard } from "@/components/ui/primitives"
 import { Button } from "@/components/ui/button"
+import { useToast } from "@/components/ui/toast"
+import { getErrorMessage } from "@/lib/utils"
 import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
 import { QuizAnswersReview } from "@/pages/lms-authoring/components/LmsProgressAndMissions"
 
@@ -461,6 +463,16 @@ function TeamTable({
   const [sort, setSort] = useState<SortKey>("pct")
   const [expanded, setExpanded] = useState<string | null>(null)
   const [exportingQuiz, setExportingQuiz] = useState(false)
+  const toast = useToast()
+  const queryClient = useQueryClient()
+  const unlockMutation = useMutation({
+    mutationFn: (teamId: string) => unlockTeamApi(teamId),
+    onSuccess: () => {
+      toast.success("Team's checklist reopened for editing")
+      queryClient.invalidateQueries({ queryKey: ["competitions-team-analytics", cohortId] })
+    },
+    onError: (e: any) => toast.error(getErrorMessage(e, "Failed to unlock this team")),
+  })
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -583,6 +595,11 @@ function TeamTable({
                   </p>
                 </div>
 
+                {team.locked && (
+                  <span className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
+                    <Lock size={11} /> Locked
+                  </span>
+                )}
                 {team.stalled && (
                   <span className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
                     <Clock size={11} /> Stalled
@@ -665,6 +682,21 @@ function TeamTable({
                     <span className="text-muted-foreground">Last activity: </span>
                     <span className="text-foreground">{relativeTime(team.last_activity_at)}</span>
                   </div>
+                  {team.locked && (
+                    <div>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Reopen "${team.team_name}"'s checklist for editing?`)) {
+                            unlockMutation.mutate(team.team_id)
+                          }
+                        }}
+                        disabled={unlockMutation.isPending}
+                        className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors disabled:opacity-60"
+                      >
+                        <Lock size={11} /> Unlock final submission
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

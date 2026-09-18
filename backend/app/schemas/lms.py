@@ -571,6 +571,11 @@ class LmsProgramChecklistOut(BaseModel):
     # (resolved once for the whole checklist, not per item). None when
     # they have no team yet or the program has no team-scoped items.
     team_name: str | None = None
+    # None means the team's checklist is still editable — set once any
+    # teammate has hit "Final Submit" (routers/lms/student.py::
+    # final_submit_program). Same None-for-no-team/no-team-items posture
+    # as team_name above.
+    team_final_locked_at: datetime | None = None
     certificate_required: bool
     certificate_earned: bool
     items: list[LmsProgramChecklistItemOut]

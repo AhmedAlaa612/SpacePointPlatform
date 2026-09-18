@@ -388,6 +388,27 @@ async def test_a_completed_team_is_never_stalled_however_long_it_has_been_quiet(
     assert row["stalled"] is False
 
 
+@pytest.mark.asyncio
+async def test_locked_reflects_the_teams_final_submission_lock(db):
+    program, cohort = await _program_and_cohort(db)
+    _lms_program, (poster,) = await _checklist(db, program, [{"title": "Poster", "scope": "team"}])
+    open_student = await _student(db, "Open", cohort=cohort)
+    locked_student = await _student(db, "Locked", cohort=cohort)
+    open_team = await create_team(db, name="Open", created_by=open_student.id, cohort_id=cohort.id)
+    locked_team = await create_team(db, name="Locked", created_by=locked_student.id, cohort_id=cohort.id)
+    db.add(LmsProgramTeamItemProgress(id=uuid.uuid4(), item_id=poster.id, team_id=open_team.id, status="pending"))
+    db.add(LmsProgramTeamItemProgress(id=uuid.uuid4(), item_id=poster.id, team_id=locked_team.id, status="done"))
+    await db.commit()
+
+    from app.services.competitions.team_management import finalize_team_submission
+    await finalize_team_submission(db, team_id=locked_team.id, locked_by_user_id=locked_student.id)
+    await db.commit()
+
+    teams = {row["team_name"]: row for row in (await cohort_team_analytics(db, cohort_id=cohort.id))["teams"]}
+    assert teams["Open"]["locked"] is False
+    assert teams["Locked"]["locked"] is True
+
+
 # ── degenerate cohorts ──────────────────────────────────────────────────
 
 @pytest.mark.asyncio
