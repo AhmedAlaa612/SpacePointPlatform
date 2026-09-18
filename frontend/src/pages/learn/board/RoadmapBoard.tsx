@@ -46,7 +46,15 @@ export default function RoadmapBoard() {
     if (y !== null) requestAnimationFrame(() => window.scrollTo(0, y));
   }, [checklist, assignmentId]);
 
-  const items = checklist?.items ?? [];
+  // A team-scoped tile reads locked once the team has hit "Final Submit"
+  // (checklist.team_final_locked_at), same as any other lock — every
+  // downstream consumer (tileState, computeLiveTaskId, openItemById's
+  // no-op guard) already keys off item.locked, so overriding it here once
+  // is enough to keep the whole board consistent with the 409 the backend
+  // would otherwise return on a now-pointless edit attempt.
+  const items = (checklist?.items ?? []).map((item) => (
+    item.scope === "team" && checklist?.team_final_locked_at ? { ...item, locked: true } : item
+  ));
   const liveTaskId = computeLiveTaskId(items);
   const liveItem = items.find((i) => i.id === liveTaskId) ?? null;
   const requiredItems = items.filter((i) => !i.optional);
