@@ -15,6 +15,8 @@ replace these lists, extend them.
 
 from arq import cron, func
 
+from app.core.config import settings
+from app.core.log_context import configure_logging
 from app.workers.heartbeat import heartbeat
 from app.workers.settings import redis_settings
 from app.workers.tasks.cohort_interest import send_cohort_interest_notifications
@@ -30,8 +32,18 @@ from app.workers.tasks.tickets import send_ticket_email
 from app.workers.tasks.video import transcode_video
 
 
+async def _configure_worker_logging(ctx: dict) -> None:
+    """arq's CLI runs its own dictConfig (plain-text) right after importing
+    this module — before run_worker() starts — so a bare top-of-file
+    configure_logging() call here would just get immediately overwritten.
+    on_startup is awaited after that point, which is why this is wired there
+    instead (see app/core/log_context.py's module docstring)."""
+    configure_logging(level=settings.LOG_LEVEL)
+
+
 class WorkerSettings:
     redis_settings = redis_settings()
+    on_startup = staticmethod(_configure_worker_logging)
     functions = [
         send_ticket_email,
         send_import_batch_emails,
@@ -59,6 +71,7 @@ class WorkerSettings:
 class VideoWorkerSettings:
     redis_settings = redis_settings()
     queue_name = "arq:queue:video"
+    on_startup = staticmethod(_configure_worker_logging)
     functions = [
         # CPU-bound HLS transcode with 3600s timeout (ffmpeg on a VPS takes time).
         # Kept on a separate queue and worker to avoid blocking IO-bound jobs like

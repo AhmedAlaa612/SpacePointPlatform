@@ -216,6 +216,7 @@ rollback_api() {
   fi
   docker run -d --name spacepoint-api \
     --restart unless-stopped --network host \
+    --log-opt max-size=10m --log-opt max-file=3 \
     --env-file "$ENV_FILE" \
     -v "$STORAGE_MOUNT" \
     "$OLD_API_IMAGE_ID"
@@ -240,6 +241,7 @@ API_ROLLBACK_ARMED=1
 docker rm -f spacepoint-api 2>/dev/null || true
 docker run -d --name spacepoint-api \
   --restart unless-stopped --network host \
+  --log-opt max-size=10m --log-opt max-file=3 \
   --env-file "$ENV_FILE" \
   -v "$STORAGE_MOUNT" \
   "$IMAGE"
@@ -289,6 +291,7 @@ docker inspect spacepoint-worker >/dev/null 2>&1 && OLD_WORKER_EXISTS=1
 docker rm -f spacepoint-worker-new 2>/dev/null || true
 docker run -d --name spacepoint-worker-new \
   --restart unless-stopped --network host \
+  --log-opt max-size=10m --log-opt max-file=3 \
   --env-file "$ENV_FILE" \
   -v "$STORAGE_MOUNT" \
   "$IMAGE" \
@@ -357,6 +360,7 @@ fi
 docker rm -f spacepoint-worker-video-new 2>/dev/null || true
 docker run -d --name spacepoint-worker-video-new \
   --restart unless-stopped --network host \
+  --log-opt max-size=10m --log-opt max-file=3 \
   --env-file "$ENV_FILE" \
   -v "$STORAGE_MOUNT" \
   "$IMAGE" \
