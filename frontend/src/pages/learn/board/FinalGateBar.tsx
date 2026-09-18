@@ -73,9 +73,6 @@ export function FinalGateBar({
           <div className="text-[9px] font-bold uppercase tracking-[0.08em] text-emerald-600 dark:text-emerald-400">{eyebrow}</div>
           <div className="font-display text-[16px] font-bold text-foreground truncate">Final submission locked</div>
         </div>
-        <div className="hidden sm:block shrink-0 text-xs text-muted-foreground text-right max-w-[220px]">
-          Ask an ops staff member to reopen it if you need changes.
-        </div>
       </div>
     );
   }
