@@ -109,20 +109,35 @@ export function PdfViewer({ url, className }: { url: string; className?: string 
     if (!url) return
     let cancelled = false
     let loadedDoc: PDFDocumentProxy | null = null
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
     setPdfError(false)
     setDoc(null)
     setZoom(1)
     wrapperRefs.current = []
     canvasRefs.current = []
     textLayerRefs.current = []
-    const loadingTask = pdfjsLib.getDocument(url)
-    loadingTask.promise.then((loaded) => {
-      if (cancelled) { loaded.destroy(); return }
-      loadedDoc = loaded
-      setDoc(loaded)
-    }).catch(() => { if (!cancelled) setPdfError(true) })
+
+    // One silent retry before surfacing the error — cheap insurance against
+    // exactly the failure mode this exists for: a transient network drop or
+    // (notably on iPad Safari) the tab losing its in-flight fetch to a brief
+    // background/lock. A short delay gives a flaky connection a moment to
+    // come back rather than immediately repeating the same failure.
+    const attempt = (retriesLeft: number) => {
+      pdfjsLib.getDocument(url).promise.then((loaded) => {
+        if (cancelled) { loaded.destroy(); return }
+        loadedDoc = loaded
+        setDoc(loaded)
+      }).catch(() => {
+        if (cancelled) return
+        if (retriesLeft > 0) { retryTimer = setTimeout(() => attempt(retriesLeft - 1), 500); return }
+        setPdfError(true)
+      })
+    }
+    attempt(1)
+
     return () => {
       cancelled = true
+      clearTimeout(retryTimer)
       loadedDoc?.destroy()
     }
   }, [url])
