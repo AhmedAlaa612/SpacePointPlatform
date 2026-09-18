@@ -410,6 +410,12 @@ class CompetitionAnalyticsTeamOut(BaseModel):
     awaiting: int
     pct: int
     deliverables: list[CompetitionAnalyticsDeliverableOut] = []
+    # Team-scoped Design mission runs on this team's checklist, if any —
+    # cheap (MissionAttempt.status only, no design-dashboard cascade, see
+    # the module docstring in services/competitions/analytics.py). Empty
+    # for any cohort with no team-scoped mission_run item, which is most
+    # of them today.
+    mission_runs: list[CompetitionMissionRunOut] = []
     last_activity_at: datetime | None = None
     stalled: bool
 

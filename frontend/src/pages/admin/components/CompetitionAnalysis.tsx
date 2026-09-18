@@ -12,9 +12,10 @@ import {
 import {
   getCohortTeamAnalyticsApi,
   type CompetitionAnalytics, type CompetitionAnalyticsItem, type CompetitionAnalyticsTeam,
-  type CompetitionAnalyticsDeliverable,
+  type CompetitionAnalyticsDeliverable, type CompetitionMissionRun,
 } from "@/api/competitions"
 import { Spinner, EmptyState, StatCard } from "@/components/ui/primitives"
+import { DesignRunDetail } from "@/pages/lms-authoring/components/DesignRunDetail"
 
 /* ================================================================== */
 /* Analysis tab (2026-09-16)                                           */
@@ -336,6 +337,40 @@ function DeliverableList({ deliverables }: { deliverables: CompetitionAnalyticsD
   )
 }
 
+const MISSION_RUN_STATUS_LABEL: Record<string, string> = {
+  not_started: "Not started", in_progress: "In progress", submitted: "Submitted", passed: "Passed", failed: "Failed",
+}
+
+/** One team-scoped Design mission run — a thin wrapper around
+ * `DesignRunDetail`, same expand-on-click pattern the judge team-detail
+ * view uses (`JudgeTeamDetail.tsx`'s MissionRunRow). No custom fetchFn
+ * needed here: `DesignRunDetail` already defaults to the ops/instructor
+ * design-detail endpoint, which `operations`/`admin` (this tab's own
+ * gate) can already call. */
+function MissionRunRow({ run }: { run: CompetitionMissionRun }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div className="border border-border rounded-lg overflow-hidden">
+      <button
+        onClick={() => run.attempt_id && setExpanded((v) => !v)}
+        disabled={!run.attempt_id}
+        className="w-full flex items-center gap-2 p-2 hover:bg-muted/40 transition-colors text-left disabled:cursor-not-allowed disabled:hover:bg-transparent"
+      >
+        {run.attempt_id ? (
+          expanded ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
+        <span className="text-foreground font-medium flex-1">{run.title}</span>
+        <span className="text-xs text-muted-foreground">{MISSION_RUN_STATUS_LABEL[run.status] ?? run.status}</span>
+      </button>
+      {expanded && run.attempt_id && (
+        <DesignRunDetail attemptId={run.attempt_id} queryKeySuffix="analysis" />
+      )}
+    </div>
+  )
+}
+
 type SortKey = "pct" | "name" | "members" | "activity"
 
 function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDark: boolean }) {
@@ -497,6 +532,16 @@ function TeamTable({ teams, isDark }: { teams: CompetitionAnalyticsTeam[]; isDar
                       <DeliverableList deliverables={team.deliverables} />
                     )}
                   </div>
+                  {team.mission_runs.length > 0 && (
+                    <div>
+                      <span className="text-muted-foreground">Mission runs: </span>
+                      <div className="mt-1 flex flex-col gap-1.5">
+                        {team.mission_runs.map((run) => (
+                          <MissionRunRow key={run.mission_id} run={run} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <span className="text-muted-foreground">Last activity: </span>
                     <span className="text-foreground">{relativeTime(team.last_activity_at)}</span>

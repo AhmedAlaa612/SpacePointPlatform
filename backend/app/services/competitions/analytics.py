@@ -194,10 +194,32 @@ async def _individual_done_user_ids(
     return done_by_item, awaiting_by_item, assigned_user_ids
 
 
+def _mission_attempt_lookup(
+    items: list[LmsProgramItem], team_progress: list[LmsProgramTeamItemProgress],
+) -> tuple[dict[uuid.UUID, uuid.UUID], dict[uuid.UUID, set[uuid.UUID]], set[uuid.UUID]]:
+    """item_id -> mission_id, mission_id -> set of attempt ids sourced from
+    `team_progress` (already fetched for the whole cohort, includes
+    mission_run item rows — see cohort_team_analytics's progress_item_ids
+    comment), and the set of team-scoped mission ids. Individual-scoped
+    attempt ids aren't included here — `_mission_blocks` queries those
+    itself, since only the cohort-wide aggregate needs them."""
+    mission_items = [i for i in items if i.item_type == "mission_run" and i.mission_id]
+    team_scoped_mission_ids = {i.mission_id for i in mission_items if i.scope == "team"}
+    item_mission = {i.id: i.mission_id for i in mission_items}
+
+    attempt_ids_by_mission: dict[uuid.UUID, set[uuid.UUID]] = {}
+    for row in team_progress:
+        mission_id = item_mission.get(row.item_id)
+        if mission_id is not None and row.mission_attempt_id is not None:
+            attempt_ids_by_mission.setdefault(mission_id, set()).add(row.mission_attempt_id)
+
+    return item_mission, attempt_ids_by_mission, team_scoped_mission_ids
+
+
 async def _mission_blocks(
     db: AsyncSession, *, items: list[LmsProgramItem], team_progress: list[LmsProgramTeamItemProgress],
     team_count: int, assigned_user_count: int,
-) -> list[dict]:
+) -> tuple[list[dict], dict[uuid.UUID, str], dict[uuid.UUID, str]]:
     """One row per mission_run mission (not per checklist item — several
     items can split one run into design steps via `mission_step_key`, the
     same grouping `team_mission_run_items` and the authoring Missions tab
@@ -205,20 +227,17 @@ async def _mission_blocks(
 
     Team-scoped runs count teams; individual-scoped runs count students.
     Both read the attempt row directly — no design-dashboard cascade, see
-    the module docstring."""
+    the module docstring.
+
+    Also returns `attempt_status`/`title_by_id` — the same lookups this
+    needs to build its own cohort-wide rows are exactly what
+    cohort_team_analytics's per-team pass needs too (_team_mission_runs
+    below), so they're handed back rather than requeried."""
     mission_items = [i for i in items if i.item_type == "mission_run" and i.mission_id]
     if not mission_items:
-        return []
+        return [], {}, {}
 
-    team_scoped_mission_ids = {i.mission_id for i in mission_items if i.scope == "team"}
-    item_mission = {i.id: i.mission_id for i in mission_items}
-
-    # Attempt ids, per mission, from whichever progress table holds them.
-    attempt_ids_by_mission: dict[uuid.UUID, set[uuid.UUID]] = {}
-    for row in team_progress:
-        mission_id = item_mission.get(row.item_id)
-        if mission_id is not None and row.mission_attempt_id is not None:
-            attempt_ids_by_mission.setdefault(mission_id, set()).add(row.mission_attempt_id)
+    item_mission, attempt_ids_by_mission, team_scoped_mission_ids = _mission_attempt_lookup(items, team_progress)
 
     individual_item_ids = [i.id for i in mission_items if i.scope != "team"]
     if individual_item_ids:
@@ -264,6 +283,59 @@ async def _mission_blocks(
             "in_progress": started,
             "not_started": max(total - passed - started, 0),
         })
+    return out, attempt_status, title_by_id
+
+
+def _team_mission_runs(
+    *, items: list[LmsProgramItem], progress_by_team_item: dict[tuple[uuid.UUID, uuid.UUID], LmsProgramTeamItemProgress],
+    team_ids: list[uuid.UUID],
+    attempt_status: dict[uuid.UUID, str], title_by_id: dict[uuid.UUID, str],
+) -> dict[uuid.UUID, list[dict]]:
+    """Per-team breakdown of the same team-scoped mission runs
+    `_mission_blocks` already aggregates cohort-wide — costs no new
+    queries, since `progress_by_team_item` already carries every
+    team-scoped item's row (mission_run included) and `attempt_status`/
+    `title_by_id` are handed down from `_mission_blocks`.
+
+    Grouped by mission_id, same as `_mission_blocks`/`team_mission_run_items`
+    — several checklist items can split one run into steps via
+    `mission_step_key` and all share one MissionAttempt. A team with no
+    team-scoped mission_run items on its checklist is simply absent from
+    the returned dict (not an empty list), matching the convention
+    CompetitionTeamDetailOut.mission_runs's own docstring uses."""
+    team_scoped_mission_items = [
+        i for i in items if i.item_type == "mission_run" and i.scope == "team" and i.mission_id
+    ]
+    if not team_scoped_mission_items:
+        return {}
+
+    # Preserve first-seen order, same as _mission_blocks's grouping.
+    mission_ids: list[uuid.UUID] = []
+    items_by_mission: dict[uuid.UUID, list[LmsProgramItem]] = {}
+    for item in team_scoped_mission_items:
+        if item.mission_id not in items_by_mission:
+            items_by_mission[item.mission_id] = []
+            mission_ids.append(item.mission_id)
+        items_by_mission[item.mission_id].append(item)
+
+    out: dict[uuid.UUID, list[dict]] = {}
+    for team_id in team_ids:
+        runs = []
+        for mission_id in mission_ids:
+            attempt_id = None
+            for item in items_by_mission[mission_id]:
+                progress = progress_by_team_item.get((team_id, item.id))
+                if progress is not None and progress.mission_attempt_id is not None:
+                    attempt_id = progress.mission_attempt_id
+                    break
+            runs.append({
+                "mission_id": mission_id,
+                "title": title_by_id.get(mission_id, "Mission"),
+                "attempt_id": attempt_id,
+                "status": attempt_status.get(attempt_id, "not_started") if attempt_id else "not_started",
+            })
+        if runs:
+            out[team_id] = runs
     return out
 
 
@@ -401,10 +473,16 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
         })
     team_rows.sort(key=lambda r: (-r["pct"], r["team_name"].lower()))
 
-    missions = await _mission_blocks(
+    missions, attempt_status, title_by_id = await _mission_blocks(
         db, items=items, team_progress=team_progress,
         team_count=len(teams), assigned_user_count=len(assigned_user_ids),
     )
+    team_mission_runs = _team_mission_runs(
+        items=items, progress_by_team_item=progress_by_team_item, team_ids=team_ids,
+        attempt_status=attempt_status, title_by_id=title_by_id,
+    )
+    for row in team_rows:
+        row["mission_runs"] = team_mission_runs.get(row["team_id"], [])
 
     # ── activity window ─────────────────────────────────────────────────
     # `updated_at` is a last-write timestamp, not an event log — a team

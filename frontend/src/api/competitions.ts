@@ -447,6 +447,8 @@ export interface CompetitionAnalyticsTeam {
    * done, since ops confirming it is the outstanding work, but a done or
    * awaiting item still carries whatever the team actually submitted. */
   deliverables: CompetitionAnalyticsDeliverable[]
+  /** Team-scoped Design mission runs on this team's checklist, if any. */
+  mission_runs: CompetitionMissionRun[]
   last_activity_at: string | null
   stalled: boolean
 }
