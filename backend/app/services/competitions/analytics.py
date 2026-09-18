@@ -299,10 +299,12 @@ def _team_mission_runs(
 
     Grouped by mission_id, same as `_mission_blocks`/`team_mission_run_items`
     — several checklist items can split one run into steps via
-    `mission_step_key` and all share one MissionAttempt. A team with no
-    team-scoped mission_run items on its checklist is simply absent from
-    the returned dict (not an empty list), matching the convention
-    CompetitionTeamDetailOut.mission_runs's own docstring uses."""
+    `mission_step_key` and all share one MissionAttempt. Returns `{}`
+    outright when the cohort's checklist has no team-scoped mission_run
+    items at all (most cohorts today); once it has even one, every team
+    gets an entry, with a "not_started"/no-attempt placeholder row for any
+    mission it hasn't been assigned yet — never a team selectively missing
+    from the dict."""
     team_scoped_mission_items = [
         i for i in items if i.item_type == "mission_run" and i.scope == "team" and i.mission_id
     ]
@@ -334,8 +336,7 @@ def _team_mission_runs(
                 "attempt_id": attempt_id,
                 "status": attempt_status.get(attempt_id, "not_started") if attempt_id else "not_started",
             })
-        if runs:
-            out[team_id] = runs
+        out[team_id] = runs
     return out
 
 

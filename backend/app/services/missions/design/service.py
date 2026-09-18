@@ -115,10 +115,22 @@ async def add_component(
     return dc
 
 
-async def remove_component(db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID) -> None:
+async def _get_owned_component(
+    db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID,
+) -> DesignComponent:
+    """Fetches a DesignComponent and confirms it belongs to `design_id`,
+    404ing otherwise — shared by remove_component and the budget-entry
+    ownership check below, both of which take a component id straight
+    off the URL path with nothing else confirming it's one of the
+    caller's own."""
     dc = await db.get(DesignComponent, design_component_id)
     if dc is None or dc.design_id != design_id:
         raise HTTPException(404, detail="Design component not found")
+    return dc
+
+
+async def remove_component(db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID) -> None:
+    dc = await _get_owned_component(db, design_id=design_id, design_component_id=design_component_id)
     await db.delete(dc)
     await db.flush()
 
@@ -184,6 +196,7 @@ async def save_mode_duration(db: AsyncSession, *, design_mode_id: uuid.UUID, dur
 
 async def _upsert_budget_entry(
     db: AsyncSession, *, model: type, key_column: str, key_value: uuid.UUID, fields: dict,
+    owning_design_id: uuid.UUID | None = None,
 ):
     """Real upsert (INSERT ... ON CONFLICT DO UPDATE), keyed on `key_column`
     — `design_component_id` for every budget entry below except the link
@@ -194,7 +207,21 @@ async def _upsert_budget_entry(
     hitting the unique constraint on `key_column` and 500ing instead of
     just landing the later write. `key_column` has a real unique
     constraint on every one of these tables, so it's a valid conflict
-    target."""
+    target.
+
+    `owning_design_id`, when given, confirms `key_value` (a
+    design_component_id) actually belongs to the caller's own design
+    before writing anything — the router only validates the *attempt*
+    belongs to the caller (`_own_design_attempt`), not that the
+    component id in the URL path is one of that design's own components.
+    Same check `remove_component` above already does; pre-existing gap in
+    the select-then-insert this replaced, not introduced by the upsert
+    rewrite — closing it here, the one place every budget save now goes
+    through. Not needed for the link budget (`design_id` is already the
+    caller's own design — see save_link_entry)."""
+    if owning_design_id is not None:
+        await _get_owned_component(db, design_id=owning_design_id, design_component_id=key_value)
+
     now = datetime.now(timezone.utc)
     values = {**fields, "id": uuid.uuid4(), key_column: key_value, "updated_at": now}
     await db.execute(
@@ -215,31 +242,39 @@ async def _upsert_budget_entry(
     return entry
 
 
-async def save_data_entry(db: AsyncSession, *, design_component_id: uuid.UUID, **fields) -> DesignDataBudgetEntry:
+async def save_data_entry(
+    db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID, **fields
+) -> DesignDataBudgetEntry:
     return await _upsert_budget_entry(
         db, model=DesignDataBudgetEntry, key_column="design_component_id",
-        key_value=design_component_id, fields=fields,
+        key_value=design_component_id, fields=fields, owning_design_id=design_id,
     )
 
 
-async def save_power_entry(db: AsyncSession, *, design_component_id: uuid.UUID, **fields) -> DesignPowerBudgetEntry:
+async def save_power_entry(
+    db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID, **fields
+) -> DesignPowerBudgetEntry:
     return await _upsert_budget_entry(
         db, model=DesignPowerBudgetEntry, key_column="design_component_id",
-        key_value=design_component_id, fields=fields,
+        key_value=design_component_id, fields=fields, owning_design_id=design_id,
     )
 
 
-async def save_mass_entry(db: AsyncSession, *, design_component_id: uuid.UUID, **fields) -> DesignMassBudgetEntry:
+async def save_mass_entry(
+    db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID, **fields
+) -> DesignMassBudgetEntry:
     return await _upsert_budget_entry(
         db, model=DesignMassBudgetEntry, key_column="design_component_id",
-        key_value=design_component_id, fields=fields,
+        key_value=design_component_id, fields=fields, owning_design_id=design_id,
     )
 
 
-async def save_cost_entry(db: AsyncSession, *, design_component_id: uuid.UUID, **fields) -> DesignCostBudgetEntry:
+async def save_cost_entry(
+    db: AsyncSession, *, design_id: uuid.UUID, design_component_id: uuid.UUID, **fields
+) -> DesignCostBudgetEntry:
     return await _upsert_budget_entry(
         db, model=DesignCostBudgetEntry, key_column="design_component_id",
-        key_value=design_component_id, fields=fields,
+        key_value=design_component_id, fields=fields, owning_design_id=design_id,
     )
 
 

@@ -590,11 +590,21 @@ async def team_mission_run_items(db: AsyncSession, *, team_id: uuid.UUID) -> lis
     )).scalars().all()
     # Any one item in a group's team progress row carries the run's
     # attempt id — they were all created against the same team_id, so
-    # whichever item's row got created first is the answer for the group.
+    # whichever item's row actually carries one is the answer for the
+    # group. Must check mission_attempt_id itself, not just that a
+    # progress row exists for that item: a step can have a progress row
+    # with a still-null mission_attempt_id (assigned before the shared
+    # attempt was created) while a later step in the same group already
+    # has it — stopping at "first row that exists" rather than "first row
+    # that actually carries an attempt id" used to report that run as
+    # not_started even once it had genuinely started.
     team_progress_by_item = {r.item_id: r for r in team_progress_rows}
     attempt_id_by_mission: dict[uuid.UUID, uuid.UUID | None] = {
         mission_id: next(
-            (team_progress_by_item[gi.id].mission_attempt_id for gi in group_items if gi.id in team_progress_by_item),
+            (
+                row.mission_attempt_id for gi in group_items
+                if (row := team_progress_by_item.get(gi.id)) is not None and row.mission_attempt_id is not None
+            ),
             None,
         )
         for mission_id, group_items in groups.items()

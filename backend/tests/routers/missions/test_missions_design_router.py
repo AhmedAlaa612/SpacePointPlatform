@@ -699,3 +699,34 @@ async def test_update_design_rejects_an_overlong_name_or_orbit_type_or_poster_ur
             f"/missions/design/attempts/{attempt_id}", headers=_headers(student), json={field: value},
         )
         assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, (field, resp.text)
+
+
+@pytest.mark.asyncio
+async def test_cannot_save_a_budget_entry_for_another_students_component(db, client):
+    """`_own_design_attempt` only checks the attempt in the URL belongs to
+    the caller — it says nothing about the design_component_id path
+    parameter. Bob has his own valid attempt/design, but passes Alice's
+    component id to his own attempt's cost-budget endpoint: this used to
+    write straight into Alice's row (the same shared unique-constraint
+    target the upsert conflicts on)."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    await db.commit()
+    alice = await _user(db)
+    bob = await _user(db)
+    await db.commit()
+
+    _alice_attempt_id, alice_dc_id = await _attempt_with_component(
+        client, mission=mission, variant=variant, student=alice, library=library,
+    )
+    bob_start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(bob), json={"variant_id": str(variant.id)},
+    )
+    bob_attempt_id = bob_start.json()["id"]
+
+    resp = await client.post(
+        f"/missions/design/attempts/{bob_attempt_id}/components/{alice_dc_id}/cost-budget",
+        headers=_headers(bob), json={"cost_per_unit_aed": 999.0, "vendor": "Bob's overwrite"},
+    )
+    assert resp.status_code == http_status.HTTP_404_NOT_FOUND, resp.text
