@@ -461,6 +461,29 @@ async def test_design_state_has_no_poster_template_url_outside_any_cohort(db, cl
 
 
 @pytest.mark.asyncio
+async def test_update_design_rejects_an_absurd_solar_cell_count(db, client):
+    """selected_solar_cells has no realistic upper bound in the domain, but
+    the DB column is a 32-bit Integer — an unbounded schema used to let a
+    huge pasted value sail past validation and 500 at the driver layer
+    (OverflowError) instead of a clean 422."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    resp = await client.patch(
+        f"/missions/design/attempts/{attempt_id}",
+        headers=_headers(student), json={"selected_solar_cells": 400_000_000_000_000_000},
+    )
+    assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, resp.text
+
+
+@pytest.mark.asyncio
 async def test_update_design_accepts_poster_url_with_no_deadline(db, client):
     author = await _user(db, roles=["operations"])
     mission, variant = await _design_mission(db, author=author)
@@ -521,3 +544,158 @@ async def test_update_design_allows_poster_url_after_cohort_ends(db, client):
         headers=_headers(student), json={"design_name": "Renamed"},
     )
     assert other.status_code == 200, other.text
+
+
+async def _attempt_with_component(client, *, mission, variant, student, library):
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+    add = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components", headers=_headers(student),
+        json={"library_component_id": str(library.id), "quantity": 1},
+    )
+    return attempt_id, add.json()["components"][0]["id"]
+
+
+@pytest.mark.asyncio
+async def test_cost_budget_rejects_an_overlong_purchase_link(db, client):
+    """DesignCostBudgetEntry.purchase_link is a DB String(512) — a pasted
+    marketplace/tracking URL past that length used to sail through
+    CostEntrySaveIn's unbounded str and crash at the driver layer
+    (StringDataRightTruncationError -> 500) instead of a clean 422."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    await db.commit()
+    student = await _user(db)
+    await db.commit()
+
+    attempt_id, dc_id = await _attempt_with_component(client, mission=mission, variant=variant, student=student, library=library)
+
+    resp = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components/{dc_id}/cost-budget", headers=_headers(student),
+        json={"purchase_link": "https://example.com/" + "x" * 500},
+    )
+    assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, resp.text
+
+
+@pytest.mark.asyncio
+async def test_cost_budget_accepts_a_purchase_link_at_the_max_length(db, client):
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    await db.commit()
+    student = await _user(db)
+    await db.commit()
+
+    attempt_id, dc_id = await _attempt_with_component(client, mission=mission, variant=variant, student=student, library=library)
+
+    link = "https://example.com/" + "x" * (512 - len("https://example.com/"))
+    assert len(link) == 512
+    resp = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components/{dc_id}/cost-budget", headers=_headers(student),
+        json={"purchase_link": link},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.asyncio
+async def test_cost_budget_rejects_an_overlong_vendor_or_priority(db, client):
+    """Same unbounded-string-into-fixed-column bug as purchase_link, on
+    DesignCostBudgetEntry's other two DB-capped columns (String(80) and
+    String(12)) — found by a follow-up review pass, not the original log
+    triage."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    await db.commit()
+    student = await _user(db)
+    await db.commit()
+
+    attempt_id, dc_id = await _attempt_with_component(client, mission=mission, variant=variant, student=student, library=library)
+
+    vendor_resp = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components/{dc_id}/cost-budget", headers=_headers(student),
+        json={"vendor": "x" * 81},
+    )
+    assert vendor_resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, vendor_resp.text
+
+    priority_resp = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components/{dc_id}/cost-budget", headers=_headers(student),
+        json={"priority": "x" * 13},
+    )
+    assert priority_resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, priority_resp.text
+
+
+@pytest.mark.asyncio
+async def test_data_budget_rejects_an_overlong_data_type_or_priority(db, client):
+    """Same bug, on DesignDataBudgetEntry's String(60)/String(12) columns."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    library = await _library_component(db)
+    await db.commit()
+    student = await _user(db)
+    await db.commit()
+
+    attempt_id, dc_id = await _attempt_with_component(client, mission=mission, variant=variant, student=student, library=library)
+
+    data_type_resp = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components/{dc_id}/data-budget", headers=_headers(student),
+        json={"data_type": "x" * 61},
+    )
+    assert data_type_resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, data_type_resp.text
+
+    priority_resp = await client.post(
+        f"/missions/design/attempts/{attempt_id}/components/{dc_id}/data-budget", headers=_headers(student),
+        json={"priority": "x" * 13},
+    )
+    assert priority_resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, priority_resp.text
+
+
+@pytest.mark.asyncio
+async def test_link_budget_rejects_an_overlong_band_profile(db, client):
+    """Same bug, on DesignLinkBudgetEntry's String(12) band_profile column."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    resp = await client.post(
+        f"/missions/design/attempts/{attempt_id}/link-budget", headers=_headers(student),
+        json={
+            "band_profile": "x" * 13,
+            "downlink_frequency_mhz": 437.5, "uplink_frequency_mhz": 145.8,
+            "satellite_antenna_gain_dbi": 2.0, "data_rate_kbps": 9.6, "required_signal_quality_db": 9.6,
+        },
+    )
+    assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, resp.text
+
+
+@pytest.mark.asyncio
+async def test_update_design_rejects_an_overlong_name_or_orbit_type_or_poster_url(db, client):
+    """Same bug, on Design's String(128)/String(20)/String(512) columns."""
+    author = await _user(db, roles=["operations"])
+    mission, variant = await _design_mission(db, author=author)
+    student = await _user(db)
+    await db.commit()
+
+    start = await client.post(
+        f"/missions/{mission.id}/attempts", headers=_headers(student), json={"variant_id": str(variant.id)},
+    )
+    attempt_id = start.json()["id"]
+
+    for field, value in (
+        ("design_name", "x" * 129),
+        ("orbit_type", "x" * 21),
+        ("poster_url", "https://example.com/" + "x" * 500),
+    ):
+        resp = await client.patch(
+            f"/missions/design/attempts/{attempt_id}", headers=_headers(student), json={field: value},
+        )
+        assert resp.status_code == http_status.HTTP_422_UNPROCESSABLE_CONTENT, (field, resp.text)
