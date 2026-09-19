@@ -55,7 +55,10 @@ export function FinWidget() {
         // The user changed (or we unmounted) while the request was in
         // flight — booting now would identify the wrong person.
         if (cancelled) return;
-        boot(identity);
+        // Only the token. The rest of the payload is already inside it as
+        // signed claims, and sending unsigned copies alongside gets the
+        // whole boot rejected — see `FinBootPayload`.
+        boot({ intercom_user_jwt: identity.intercom_user_jwt });
       } catch {
         if (cancelled) return;
         boot();

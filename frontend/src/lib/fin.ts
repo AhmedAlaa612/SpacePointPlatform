@@ -39,31 +39,23 @@ declare global {
   }
 }
 
-/** Attributes handed to the messenger on boot.
+/** What the messenger is booted with.
  *
- * All optional: an unauthenticated boot passes none of them, and the widget
- * still works — it just opens as an anonymous visitor.
+ * Deliberately **only** the token. Intercom reads identity from the JWT's
+ * signed claims, and passing unsigned `user_id`/`name`/`email` alongside it
+ * is precisely what Messenger Security rejects — it answers the boot ping
+ * with a 403 and the widget never opens. Nothing is lost by omitting them:
+ * the backend puts every attribute inside the token
+ * (`services/lms/support.py::chat_identity`), so the contact record and the
+ * Inbox still get the name, email, roles, team, cohort and card id.
  *
- * `intercom_user_jwt` is Intercom Messenger Security — an HS256 token the
- * backend signs (`services/lms/support.py::identity_jwt`) carrying the same
- * fields as claims. Intercom reads identity from the token, so a student
- * cannot open a chat as someone else. It replaces the older `user_hash`
- * HMAC, which Intercom deprecated; the two are mutually exclusive and must
- * never both be sent.
+ * Omit it entirely to boot as an anonymous visitor.
  *
- * The plain fields are sent too so the contact record and the Inbox show
- * them. `roles`, `team`, `cohort` and `card_id` are custom attributes rather
- * than Intercom built-ins: `roles` drives audience matching, the rest tell
- * whoever picks up a handover who they are talking to. */
+ * This type is narrow on purpose. An earlier version accepted the whole
+ * identity object and the caller spread it in wholesale, which is how the
+ * unsigned fields got sent in the first place. */
 export interface FinBootPayload {
   intercom_user_jwt?: string;
-  user_id?: string;
-  name?: string;
-  email?: string;
-  roles?: string;
-  team?: string | null;
-  cohort?: string | null;
-  card_id?: string | null;
 }
 
 /** Whether an App ID was baked into this build. Callers check this rather
