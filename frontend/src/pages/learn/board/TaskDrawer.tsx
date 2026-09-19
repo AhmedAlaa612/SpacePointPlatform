@@ -16,7 +16,7 @@ import { isKnownEmbedHost, toEmbedUrl } from "@/lib/embed";
 import { ensureAbsoluteUrl } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
 import {
-  iconForItem, MISSION_STEP_LABELS, navTargetFor, saveBoardScrollPosition, type MissionStepKey, type NavTarget,
+  iconForItem, MISSION_STEP_LABELS, navTargetFor, saveBoardScrollPosition, type MissionStepKey,
 } from "./roadmap";
 
 const SELF_CHECK_TYPES = new Set<LmsProgramChecklistItem["item_type"]>(["manual", "pdf", "external_link", "session"]);
@@ -76,7 +76,6 @@ interface DrawerBodyProps {
   effectiveGuidelineKind: string | null;
   guidelineOpened: boolean;
   openGuideline: () => void;
-  target: NavTarget;
   workLabel: string;
   doWork: () => void;
   submissionReference: string | null;
@@ -132,7 +131,7 @@ interface DrawerBodyProps {
  * `TaskDrawer`, which re-rendered it, which remounted this. Everything this
  * used to reach via closure is now an explicit prop instead. */
 function DrawerBody({
-  item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
+  item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, workLabel, doWork,
   submissionReference, guidelineVideoUploaded, guidelineVideoInfo, isAutoTracked, isSubmission, isMultiLink, isTeamSetup, teamName,
   isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline, submitUrl, setSubmitUrl, submitMutation,
   submitText, setSubmitText, submitTextMutation,
@@ -316,16 +315,6 @@ function DrawerBody({
             />
           )}
         </div>
-      )}
-
-      {isAutoTracked && (
-        <p className="rounded-xl ring-1 ring-border p-4 text-sm text-muted-foreground">
-          {target.kind === "course"
-            ? "Progress tracks automatically as you work through the course."
-            : target.kind === "quiz"
-            ? "Marked done as soon as you submit — no passing score required."
-            : "Completes automatically once this phase is finished in Madar."}
-        </p>
       )}
 
       {isSubmission && submissionReference && (
@@ -843,7 +832,7 @@ export function TaskDrawer({
   const Icon = iconForItem(item);
 
   const bodyProps: DrawerBodyProps = {
-    item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, target, workLabel, doWork,
+    item, onClose, hasGuideline, effectiveGuidelineKind, guidelineOpened, openGuideline, workLabel, doWork,
     submissionReference, guidelineVideoUploaded: !!item.guideline_video_uploaded, guidelineVideoInfo, isAutoTracked,
     isSubmission, isMultiLink, isTeamSetup, teamName, isPoster, onOpenMadar, isSelfCheck, done, awaiting, canSubmit, pastDeadline,
     submitUrl, setSubmitUrl, submitMutation, submitText, setSubmitText, submitTextMutation,
