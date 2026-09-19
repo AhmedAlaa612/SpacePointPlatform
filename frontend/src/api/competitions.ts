@@ -200,6 +200,7 @@ export interface CompetitionJudgeTeam {
   already_scored: boolean
   // Team hit "Final Submit" — its checklist is frozen, only ops can reopen it.
   locked: boolean
+  locked_at?: string | null
 }
 
 export interface CompetitionTeam {
@@ -220,6 +221,8 @@ export interface CompetitionTeamDetail {
   mission_runs: CompetitionMissionRun[]
   rubric: CompetitionRubric | null
   own_score: CompetitionScore | null
+  locked?: boolean
+  locked_at?: string | null
 }
 
 // ── Ops admin ────────────────────────────────────────────────────────────
@@ -488,6 +491,10 @@ export interface CompetitionAnalyticsTeam {
   stalled: boolean
   /** Team hit "Final Submit" — its checklist is frozen, only ops can reopen it. */
   locked: boolean
+  locked_at?: string | null
+  locked_by_name?: string | null
+  locked_by_email?: string | null
+  locked_by_id?: string | null
 }
 
 export interface CompetitionAnalyticsActivity {

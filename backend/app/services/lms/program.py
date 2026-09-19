@@ -1617,6 +1617,16 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
     student = await db.get(User, user_id)
     student_name = student.full_name if student else None
 
+    team_final_locked_by_name: str | None = None
+    if team is not None and team.final_locked_by is not None:
+        if team.final_locked_by == user_id:
+            team_final_locked_by_name = student_name
+        elif team.final_locked_by in updater_names:
+            team_final_locked_by_name = updater_names[team.final_locked_by]
+        else:
+            locked_user = await db.get(User, team.final_locked_by)
+            team_final_locked_by_name = locked_user.full_name if locked_user else None
+
     # One design-dashboard read per attempt for this whole checklist load,
     # not per item — several Madar phase tiles can share one
     # mission_attempt_id (see refresh_item_progress's own docstring).
@@ -1702,6 +1712,7 @@ async def get_student_checklist(db: AsyncSession, *, assignment_id: uuid.UUID, u
         # docstring. Same "resolved from the already-loaded team" posture
         # as team_name above, no extra query.
         "team_final_locked_at": team.final_locked_at if team is not None else None,
+        "team_final_locked_by_name": team_final_locked_by_name,
         "certificate_required": program.certificate_required,
         "certificate_earned": await _certificate_earned(db, assignment.registration_id),
         "items": items_out,

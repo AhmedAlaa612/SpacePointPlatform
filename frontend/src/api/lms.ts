@@ -641,6 +641,7 @@ export interface LmsProgramChecklist {
   // null means still editable — set once any teammate has hit "Final
   // Submit". Only ops can clear it again.
   team_final_locked_at: string | null;
+  team_final_locked_by_name?: string | null;
   certificate_required: boolean;
   certificate_earned: boolean;
   items: LmsProgramChecklistItem[];

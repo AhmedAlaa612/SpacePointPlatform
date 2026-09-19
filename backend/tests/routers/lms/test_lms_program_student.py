@@ -993,6 +993,7 @@ async def test_final_submit_locks_the_team_and_blocks_further_team_writes_but_no
     final = await client.post(f"/lms/programs/{assignment_a.id}/final-submit", headers=_headers(student_a))
     assert final.status_code == 200, final.text
     assert final.json()["team_final_locked_at"] is not None
+    assert final.json()["team_final_locked_by_name"] == student_a.full_name
 
     # Calling it again is idempotent — still 200, not a 400 for "already locked".
     again = await client.post(f"/lms/programs/{assignment_a.id}/final-submit", headers=_headers(student_a))

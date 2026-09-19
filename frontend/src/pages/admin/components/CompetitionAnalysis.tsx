@@ -92,12 +92,12 @@ function SectionCard({ title, hint, action, children }: {
 }) {
   return (
     <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 flex flex-col gap-4">
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-bold text-foreground">{title}</h3>
           {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
         </div>
-        {action}
+        {action && <div className="w-full sm:w-auto shrink-0">{action}</div>}
       </div>
       {children}
     </div>
@@ -284,11 +284,27 @@ function ActivityChart({ activity, isDark }: { activity: CompetitionAnalytics["a
 
 function relativeTime(iso: string | null): string {
   if (!iso) return "—"
-  const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
-  if (days <= 0) return "today"
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diffMs / 60_000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
   if (days === 1) return "yesterday"
   if (days < 30) return `${days}d ago`
   return new Date(iso).toLocaleDateString()
+}
+
+function formatDateTime(iso: string | null): string {
+  if (!iso) return "—"
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  })
 }
 
 /** Every required deliverable, not just what's missing — a done or
@@ -646,6 +662,9 @@ function TeamTable({
       Missing: t.deliverables.filter((d) => d.status !== "done").map((d) => d.title).join("; "),
       "Last activity": t.last_activity_at ? new Date(t.last_activity_at).toISOString().slice(0, 10) : "",
       Stalled: t.stalled ? "yes" : "",
+      Locked: t.locked ? "yes" : "no",
+      "Locked at": t.locked_at ? formatDateTime(t.locked_at) : "",
+      "Locked by": t.locked_by_name ? `${t.locked_by_name}${t.locked_by_email ? ` (${t.locked_by_email})` : ""}` : "",
       Roster: t.members.map((m) => `${m.name} (${m.last_login_at ? relativeTime(m.last_login_at) : "never logged in"})`).join("; "),
     })))
     const book = XLSX.utils.book_new()
@@ -658,21 +677,21 @@ function TeamTable({
       title="Team progress"
       hint="Against this cohort's required team deliverables. Awaiting confirmation counts as not done — confirming it is the outstanding work."
       action={
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
           <button
             onClick={exportQuizAnswers}
             disabled={exportingQuiz}
-            className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 h-9 px-3 border border-border rounded-xl text-xs sm:text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 disabled:opacity-50 cursor-pointer"
             title="Export all quiz answers grouped by team and quiz"
           >
             {exportingQuiz ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
-            Export Quiz Answers
+            <span>Export Quiz Answers</span>
           </button>
           <button
             onClick={exportXlsx}
-            className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 cursor-pointer"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 h-9 px-3 border border-border rounded-xl text-xs sm:text-sm font-medium text-foreground hover:bg-muted transition-colors shrink-0 cursor-pointer"
           >
-            <FileSpreadsheet size={14} /> Export Progress
+            <FileSpreadsheet size={14} /> <span>Export Progress</span>
           </button>
         </div>
       }
@@ -718,31 +737,34 @@ function TeamTable({
                 </div>
 
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-foreground truncate">
+                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                    <p className="text-sm font-semibold text-foreground truncate max-w-full">
                       {team.team_name}
                     </p>
                     {team.roster_team_id && team.roster_team_id !== team.team_name && (
-                      <span className="text-xs font-normal text-muted-foreground font-mono">
+                      <span className="text-xs font-normal text-muted-foreground font-mono shrink-0">
                         ({team.roster_team_id})
                       </span>
                     )}
-                  </div>
-                  <p className="text-xs text-muted-foreground truncate flex items-center gap-1.5 mt-0.5">
-                    <span>{team.member_count} {team.member_count === 1 ? "member" : "members"}</span>
-                    {team.never_logged_in > 0 && (
-                      <>
-                        <span>·</span>
-                        <span className="text-amber-600 dark:text-amber-400">
-                          {team.never_logged_in} never logged in
-                        </span>
-                      </>
+                    {team.locked && (
+                      <span
+                        className="inline-flex sm:hidden items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
+                        title={team.locked_at ? `Locked on ${formatDateTime(team.locked_at)}${team.locked_by_name ? ` by ${team.locked_by_name}` : ""}` : "Final submission locked"}
+                      >
+                        <Lock size={10} /> Locked
+                      </span>
                     )}
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">
+                    {team.member_count} {team.member_count === 1 ? "member" : "members"}
                   </p>
                 </div>
 
                 {team.locked && (
-                  <span className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
+                  <span
+                    className="hidden sm:flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0"
+                    title={team.locked_at ? `Locked on ${formatDateTime(team.locked_at)}${team.locked_by_name ? ` by ${team.locked_by_name}` : ""}` : "Final submission locked"}
+                  >
                     <Lock size={11} /> Locked
                   </span>
                 )}
@@ -757,7 +779,7 @@ function TeamTable({
                   </span>
                 )}
 
-                <div className="w-28 sm:w-40 shrink-0">
+                <div className="w-20 sm:w-36 md:w-40 shrink-0">
                   <div className="flex items-center justify-between text-[11px] font-semibold tabular-nums mb-1">
                     <span className="text-muted-foreground">{team.items_done}/{team.items_total}</span>
                     <span className={team.pct === 100 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"}>
@@ -788,18 +810,18 @@ function TeamTable({
                         {team.members.map((m, i) => (
                           <div
                             key={m.name + i}
-                            className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-border/60 bg-card/60 shadow-2xs"
+                            className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-border/60 bg-card/60 shadow-2xs max-w-full min-w-0"
                           >
                             <div className="w-6 h-6 rounded-lg bg-primary/10 border border-primary/20 text-primary font-bold flex items-center justify-center text-[10px] shrink-0">
                               {m.name.trim().slice(0, 2).toUpperCase()}
                             </div>
-                            <span className="font-semibold text-foreground text-xs">{m.name}</span>
+                            <span className="font-semibold text-foreground text-xs truncate">{m.name}</span>
                             {m.last_login_at ? (
-                              <span className="text-[11px] text-muted-foreground">
+                              <span className="text-[11px] text-muted-foreground shrink-0">
                                 {relativeTime(m.last_login_at)}
                               </span>
                             ) : (
-                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25">
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/25 shrink-0">
                                 never logged in
                               </span>
                             )}
@@ -856,14 +878,41 @@ function TeamTable({
                     </div>
                   )}
 
-                  {/* Footer metadata & actions */}
-                  <div className="flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-border/40 text-xs">
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Clock size={12} className="text-muted-foreground/70" />
-                      <span>Last activity: <strong className="text-foreground font-medium">{relativeTime(team.last_activity_at)}</strong></span>
-                    </div>
+                  {/* Locked submission banner */}
+                  {team.locked && (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs">
+                      <div className="flex items-start sm:items-center gap-2.5 min-w-0">
+                        <div className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5 sm:mt-0">
+                          <Lock size={14} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-emerald-700 dark:text-emerald-300 flex items-center gap-1.5 flex-wrap">
+                            <span>Final submission locked</span>
+                            {team.locked_at && (
+                              <span className="text-[11px] font-normal text-muted-foreground">
+                                · {relativeTime(team.locked_at)}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 flex flex-wrap gap-x-1 gap-y-0.5">
+                            {team.locked_at && (
+                              <span>
+                                Locked on <strong className="text-foreground font-medium">{formatDateTime(team.locked_at)}</strong>
+                              </span>
+                            )}
+                            {team.locked_by_name && (
+                              <span>
+                                by <strong className="text-foreground font-medium">{team.locked_by_name}</strong>
+                                {team.locked_by_email ? <span className="text-muted-foreground"> ({team.locked_by_email})</span> : ""}
+                              </span>
+                            )}
+                            {!team.locked_at && !team.locked_by_name && (
+                              <span>Checklist is finalized and locked.</span>
+                            )}
+                          </p>
+                        </div>
+                      </div>
 
-                    {team.locked && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -873,10 +922,24 @@ function TeamTable({
                           }
                         }}
                         disabled={unlockMutation.isPending}
-                        className="h-7 text-xs font-semibold gap-1.5 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 shrink-0"
+                        className="h-8 text-xs font-semibold gap-1.5 border-emerald-500/40 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 shrink-0 self-start sm:self-center cursor-pointer"
                       >
                         <Lock size={12} /> Unlock final submission
                       </Button>
+                    </div>
+                  )}
+
+                  {/* Footer metadata */}
+                  <div className="flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-border/40 text-xs">
+                    <div className="flex items-center gap-1.5 text-muted-foreground">
+                      <Clock size={12} className="text-muted-foreground/70" />
+                      <span>Last activity: <strong className="text-foreground font-medium">{relativeTime(team.last_activity_at)}</strong></span>
+                    </div>
+
+                    {!team.locked && (
+                      <span className="text-[11px] text-muted-foreground italic">
+                        Submission not locked
+                      </span>
                     )}
                   </div>
                 </div>

@@ -5,6 +5,12 @@ import { CheckCircle2, Circle, Lock, Users } from "lucide-react"
 import { getMyJudgeCohortsApi, getMyJudgeTeamsApi, type CompetitionJudgeCohort } from "@/api/competitions"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
 
+function formatLockTimestamp(iso: string | null | undefined): string {
+  if (!iso) return ""
+  const d = new Date(iso)
+  return `${d.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`
+}
+
 /** Judge landing page (Competition domain, 2026-08-24) — pick a cohort
  * (usually just one), see its teams, jump into scoring. A judge with no
  * `CompetitionJudge` row anywhere sees the empty state, not an error —
@@ -78,7 +84,7 @@ export default function JudgeTeams() {
                   </p>
                 </div>
               </div>
-              <div className="flex flex-col items-end gap-1 shrink-0">
+              <div className="flex flex-col items-end gap-1 shrink-0 text-right">
                 {team.already_scored ? (
                   <span className="flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 size={14} /> Scored
@@ -89,8 +95,12 @@ export default function JudgeTeams() {
                   </span>
                 )}
                 {team.locked && (
-                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Lock size={14} /> Final submission locked
+                  <span
+                    className="flex items-center gap-1 text-xs text-muted-foreground"
+                    title={team.locked_at ? `Locked on ${new Date(team.locked_at).toLocaleString()}` : undefined}
+                  >
+                    <Lock size={13} className="text-emerald-600 dark:text-emerald-400" />
+                    <span>Final submission locked{team.locked_at ? ` (${formatLockTimestamp(team.locked_at)})` : ""}</span>
                   </span>
                 )}
               </div>
