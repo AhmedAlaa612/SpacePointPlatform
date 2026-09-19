@@ -1044,106 +1044,159 @@ function JudgesTab({ cohortId }: { cohortId: string }) {
   if (isLoading) return <Spinner />
 
   return (
-    <div className="flex flex-col gap-5 max-w-2xl">
-      <div className="flex flex-col gap-2">
-        <Field label="Add an existing account as judge">
-          <input
-            value={staffQuery} onChange={(e) => setStaffQuery(e.target.value)}
-            placeholder="Search staff by name or email…"
-            className="w-full h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
-          />
-        </Field>
-        {staffQuery.trim().length >= 2 && (
-          <div className="flex flex-col gap-1 border border-border rounded-xl p-1.5 bg-card max-h-56 overflow-y-auto">
-            {staffOptions.length === 0 ? (
-              <p className="text-xs text-muted-foreground px-2 py-1.5">No matching staff account.</p>
-            ) : (
-              staffOptions.map((u) => {
-                const already = alreadyJudging.has(u.email)
-                return (
-                  <button
-                    key={u.id}
-                    disabled={already}
-                    onClick={() => { setName(u.full_name); setEmail(u.email); setStaffQuery("") }}
-                    className="flex items-center justify-between text-left px-2 py-1.5 rounded-lg text-sm hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <span>
-                      <span className="text-foreground font-medium">{u.full_name}</span>
-                      <span className="text-muted-foreground text-xs ml-2">{u.email}</span>
-                    </span>
-                    {already && <span className="text-xs text-muted-foreground shrink-0">Already judging</span>}
-                  </button>
-                )
-              })
-            )}
+    <div className="flex flex-col gap-6 max-w-2xl">
+      <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 flex flex-col gap-4">
+        <h3 className="text-sm font-bold text-foreground">Add a Judge</h3>
+
+        <div className="flex flex-col gap-2">
+          <Field label="Add an existing staff account">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                value={staffQuery} onChange={(e) => setStaffQuery(e.target.value)}
+                placeholder="Search staff by name or email…"
+                className="w-full h-10 pl-9 pr-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </div>
+          </Field>
+          {staffQuery.trim().length >= 2 && (
+            <div className="flex flex-col gap-1 border border-border rounded-xl p-1.5 bg-background max-h-56 overflow-y-auto">
+              {staffOptions.length === 0 ? (
+                <p className="text-xs text-muted-foreground px-2 py-1.5">No matching staff account.</p>
+              ) : (
+                staffOptions.map((u) => {
+                  const already = alreadyJudging.has(u.email)
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      disabled={already}
+                      onClick={() => { setName(u.full_name); setEmail(u.email); setStaffQuery("") }}
+                      className="flex items-center justify-between text-left px-2.5 py-2 rounded-lg text-sm hover:bg-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed gap-2 cursor-pointer"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-foreground font-medium truncate text-sm">{u.full_name}</p>
+                        <p className="text-muted-foreground text-xs truncate">{u.email}</p>
+                      </div>
+                      {already && <span className="text-xs text-muted-foreground shrink-0 font-medium">Already judging</span>}
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="relative flex items-center my-0.5">
+          <div className="flex-grow border-t border-border" />
+          <span className="flex-shrink mx-3 text-[11px] text-muted-foreground uppercase tracking-wider font-semibold">
+            or add someone new
+          </span>
+          <div className="flex-grow border-t border-border" />
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Name">
+              <input
+                value={name} onChange={(e) => setName(e.target.value)} placeholder="Dr. Amina Al Suwaidi"
+                className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+            <Field label="Email">
+              <input
+                value={email} onChange={(e) => setEmail(e.target.value)} placeholder="amina@example.com" type="email"
+                className="w-full h-10 px-3 border border-border bg-background text-foreground rounded-xl text-sm focus:outline-none focus:border-primary transition-colors"
+              />
+            </Field>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+            <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={sendJudgeEmail}
+                onChange={(e) => setSendJudgeEmail(e.target.checked)}
+                className="rounded border-border"
+              />
+              <span>Send onboarding invite email</span>
+            </label>
+
+            <button
+              type="button"
+              onClick={() => inviteMutation.mutate()}
+              disabled={inviteMutation.isPending || !name.trim() || !email.trim()}
+              className="w-full sm:w-auto flex items-center justify-center gap-1.5 h-10 px-5 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50 cursor-pointer shrink-0"
+            >
+              <UserPlus size={15} /> {inviteMutation.isPending ? "Adding…" : "Add as judge"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-foreground">
+            Assigned Judges {judges.length > 0 && `(${judges.length})`}
+          </h3>
+        </div>
+
+        {judges.length === 0 ? (
+          <EmptyState title="No judges yet" hint="Invite a judge above to get started." />
+        ) : (
+          <div className="flex flex-col gap-2">
+            {judges.map((j) => (
+              <div
+                key={j.user_id}
+                className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-card border border-border rounded-2xl gap-3 hover:border-border/80 transition-all"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-semibold text-foreground truncate">{j.full_name}</p>
+                    {j.onboarding_sent ? (
+                      <span className="text-[10px] sm:text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400">
+                        Onboarding sent
+                      </span>
+                    ) : (
+                      <span className="text-[10px] sm:text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+                        No onboarding email
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground truncate mt-0.5">{j.email}</p>
+                </div>
+
+                <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-border/40">
+                  <span className="text-xs font-medium text-muted-foreground tabular-nums">
+                    {j.scored_count} / {j.team_count} teams scored
+                  </span>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => resendOnboardingMutation.mutate(j.user_id)}
+                      disabled={resendOnboardingMutation.isPending}
+                      className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-50 cursor-pointer"
+                      title={j.onboarding_sent ? "Resend onboarding email" : "Send onboarding email"}
+                      aria-label="Send onboarding email"
+                    >
+                      <Mail size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { if (confirm(`Remove ${j.full_name} from this cohort's judges?`)) revokeMutation.mutate(j.user_id) }}
+                      className="p-2 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors cursor-pointer"
+                      title="Remove judge"
+                      aria-label="Remove judge"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
-      </div>
-
-      <div className="flex items-end gap-2">
-        <Field label={name || email ? "Name" : "…or add someone new — name"}>
-          <input
-            value={name} onChange={(e) => setName(e.target.value)} placeholder="Dr. Amina Al Suwaidi"
-            className="w-48 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
-          />
-        </Field>
-        <Field label="Email">
-          <input
-            value={email} onChange={(e) => setEmail(e.target.value)} placeholder="amina@example.com" type="email"
-            className="w-64 h-10 px-3 border border-border bg-card text-foreground rounded-xl text-sm focus:outline-none focus:border-primary"
-          />
-        </Field>
-        <button
-          onClick={() => inviteMutation.mutate()}
-          disabled={inviteMutation.isPending || !name.trim() || !email.trim()}
-          className="flex items-center gap-1.5 h-10 px-4 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:opacity-90 transition-colors disabled:opacity-50"
-        >
-          <UserPlus size={14} /> {inviteMutation.isPending ? "Adding…" : "Add as judge"}
-        </button>
-      </div>
-      <label className="flex items-center gap-2 text-sm text-foreground cursor-pointer select-none -mt-3">
-        <input type="checkbox" checked={sendJudgeEmail} onChange={(e) => setSendJudgeEmail(e.target.checked)} />
-        Send email
-      </label>
-
-      <div className="flex flex-col gap-2">
-        {judges.map((j) => (
-          <div key={j.user_id} className="flex items-center justify-between p-3 bg-card border border-border rounded-xl">
-            <div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <p className="text-sm font-medium text-foreground">{j.full_name}</p>
-                {j.onboarding_sent ? (
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-400">
-                    Onboarding sent
-                  </span>
-                ) : (
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
-                    No onboarding email
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-muted-foreground">{j.email}</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-muted-foreground">{j.scored_count} / {j.team_count} teams scored</span>
-              <button
-                onClick={() => resendOnboardingMutation.mutate(j.user_id)}
-                disabled={resendOnboardingMutation.isPending}
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-                title={j.onboarding_sent ? "Resend onboarding email" : "Send onboarding email"}
-              >
-                <Mail size={14} />
-              </button>
-              <button
-                onClick={() => { if (confirm(`Remove ${j.full_name} from this cohort's judges?`)) revokeMutation.mutate(j.user_id) }}
-                className="p-1.5 rounded-lg text-muted-foreground hover:text-red-600 hover:bg-red-500/10 transition-colors"
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-          </div>
-        ))}
-        {judges.length === 0 && <EmptyState title="No judges yet" hint="Invite a judge above to get started." />}
       </div>
     </div>
   )
