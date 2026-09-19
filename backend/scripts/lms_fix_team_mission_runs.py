@@ -28,11 +28,17 @@ reports `items_added: 0` every time.
 the team's cohort and is immune to that gate, so it repairs the state. It's
 idempotent — a no-op for every item that already has its attempt.
 
-Usage (repair one team, or every team in a cohort):
+Usage — no target sweeps every team on the platform, which is what a
+one-time catch-up wants:
 
-    python scripts/lms_fix_team_mission_runs.py --team <team_uuid> --dry-run
-    python scripts/lms_fix_team_mission_runs.py --team <team_uuid>
+    python scripts/lms_fix_team_mission_runs.py --dry-run
+    python scripts/lms_fix_team_mission_runs.py
     python scripts/lms_fix_team_mission_runs.py --cohort <cohort_uuid>
+    python scripts/lms_fix_team_mission_runs.py --team <team_uuid>
+
+On the VPS the app runs in a container, so it's:
+
+    docker exec spacepoint-api python scripts/lms_fix_team_mission_runs.py --dry-run
 
 Always run once with --dry-run first: it does the identical work and prints
 the identical report, then rolls back instead of committing.
@@ -82,7 +88,7 @@ async def _team_run_items(db, team: Team) -> list[LmsProgramItem]:
 
 async def main():
     ap = argparse.ArgumentParser(description="Repair unwired team-scoped mission_run checklist items")
-    target = ap.add_mutually_exclusive_group(required=True)
+    target = ap.add_mutually_exclusive_group()
     target.add_argument("--team", help="Single team uuid to repair")
     target.add_argument("--cohort", help="Repair every team in this cohort uuid")
     ap.add_argument("--dry-run", action="store_true", help="Do the work, print the report, then roll back")
@@ -95,13 +101,21 @@ async def main():
                 print(f"Team {args.team} not found.")
                 return
             teams = [team]
-        else:
+        elif args.cohort:
             teams = list((await db.execute(
                 select(Team).where(Team.cohort_id == uuid.UUID(args.cohort)).order_by(Team.name)
             )).scalars().all())
             if not teams:
                 print(f"No teams in cohort {args.cohort}.")
                 return
+        else:
+            # Platform-wide. A team with no cohort is self-formed and has no
+            # checklist to resolve, so it's excluded rather than reported as
+            # a skip for every such team on the box.
+            teams = list((await db.execute(
+                select(Team).where(Team.cohort_id.isnot(None)).order_by(Team.name)
+            )).scalars().all())
+            print(f"Sweeping every team with a cohort: {len(teams)} team(s).")
 
         total_repaired = 0
         for team in teams:
@@ -124,7 +138,11 @@ async def main():
                     print(f"  pos {item.position:>3}  {item.title[:44]:<44} REPAIRED -> {now}")
                     repaired += 1
                 else:
-                    print(f"  pos {item.position:>3}  {item.title[:44]:<44} STILL UNWIRED (no team members?)")
+                    # `sync_team_mission_runs` needs one member to resolve the
+                    # team from (cohort_id, user_id); an empty team has none.
+                    # Harmless — nobody can open the tile either, and
+                    # `join_team` re-runs this for them on the first join.
+                    print(f"  pos {item.position:>3}  {item.title[:44]:<44} skipped (team has no members yet)")
             print(f"  repaired {repaired} of {len(items)} item(s)")
             total_repaired += repaired
 
