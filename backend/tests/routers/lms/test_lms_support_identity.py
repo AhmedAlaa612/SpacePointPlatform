@@ -178,6 +178,21 @@ async def test_picks_the_most_recently_assigned_cohort(db, client):
     assert body["cohort"] == "Ru'ya 2026"
 
 
+async def test_roles_is_a_single_value_for_a_single_role_account(db, client):
+    user = await _user(db, roles=["student"])
+    body = (await client.get(URL, headers=_headers(user))).json()
+    assert body["roles"] == "student"
+
+
+async def test_roles_lists_every_role_a_multi_role_account_holds(db, client):
+    """The reason this is a joined list and not one value: an Intercom rule
+    reading `roles contains student` has to still match someone who also
+    teaches. A single `role` string would drop one of them."""
+    user = await _user(db, roles=["student", "instructor"])
+    body = (await client.get(URL, headers=_headers(user))).json()
+    assert body["roles"] == "student,instructor"
+
+
 async def test_card_id_uses_the_student_prefix(db, client):
     """`format_card_id` branches on roles, and the roles column hydrates as
     either enums or strings depending on the driver — this is what proves the

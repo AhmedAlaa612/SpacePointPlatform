@@ -556,6 +556,7 @@ class ChatIdentityOut(BaseModel):
     user_hash: str
     name: str
     email: str
+    roles: str
     team: str | None = None
     cohort: str | None = None
     card_id: str | None = None

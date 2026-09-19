@@ -56,6 +56,7 @@ export interface FinBootPayload {
   user_hash?: string;
   name?: string;
   email?: string;
+  roles?: string;
   team?: string | null;
   cohort?: string | null;
   card_id?: string | null;

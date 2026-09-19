@@ -106,6 +106,15 @@ async def chat_identity(db: AsyncSession, *, user: User, secret: str) -> dict:
         "user_hash": identity_hash(secret=secret, user_id=user.id),
         "name": user.full_name,
         "email": user.email,
+        # Comma-joined rather than a single role: `users.roles` is an array
+        # and a person can hold `student` and `instructor` at once, so one
+        # value would mean picking arbitrarily and having an Intercom rule
+        # silently miss the people who hold two. The rule reads
+        # `roles contains student`. Unsorted on purpose — `role_values`
+        # keeps the DB array order, and `roles[0]` carries a weak "primary
+        # role" meaning the frontend already leans on
+        # (AuthContext::resolveActiveRole).
+        "roles": ",".join(user.role_values),
         "team": team.name if team is not None else None,
         "cohort": await _latest_cohort_name(db, user_id=user.id),
         "card_id": (

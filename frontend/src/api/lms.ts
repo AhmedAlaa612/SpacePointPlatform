@@ -730,6 +730,9 @@ export interface ChatIdentity {
   user_hash: string;
   name: string;
   email: string;
+  /** Every role this account holds, comma-joined ("student,instructor") —
+   * an Intercom audience rule matches with `roles contains student`. */
+  roles: string;
   team: string | null;
   cohort: string | null;
   card_id: string | null;
