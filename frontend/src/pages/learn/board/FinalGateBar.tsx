@@ -20,7 +20,13 @@ function formatTimestamp(isoString: string): string {
   try {
     const d = new Date(isoString);
     if (isNaN(d.getTime())) return "CONFIRMED";
-    return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")} UTC`;
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
   } catch {
     return "CONFIRMED";
   }
@@ -346,6 +352,7 @@ export function FinalGateBar({
   onFinalized,
   teamName,
   lockedAt,
+  lockedByName,
   pct = 0,
   remainingCount,
 }: {
@@ -357,6 +364,7 @@ export function FinalGateBar({
   onFinalized: () => void;
   teamName?: string | null;
   lockedAt?: string | null;
+  lockedByName?: string | null;
   pct?: number;
   remainingCount: number;
 }) {
@@ -553,8 +561,12 @@ export function FinalGateBar({
                 <div className="font-display font-extrabold text-[16px] sm:text-xl text-foreground tracking-tight">
                   Final submission locked
                 </div>
-                <div className="text-xs text-muted-foreground font-medium mt-0.5">
-                  All deliverables locked for review
+                <div className="text-xs sm:text-[13px] text-muted-foreground font-medium mt-0.5">
+                  {lockedAt && lockedByName
+                    ? `Locked in at ${formatTimestamp(lockedAt)} by ${lockedByName}`
+                    : lockedAt
+                    ? `Locked in at ${formatTimestamp(lockedAt)}`
+                    : "All deliverables locked for review"}
                 </div>
               </div>
 
@@ -562,6 +574,7 @@ export function FinalGateBar({
                 <span className="text-[11px] text-primary font-semibold tracking-wider">LOCKED</span>
                 <span className="text-[10px] text-muted-foreground">
                   {lockedAt ? formatTimestamp(lockedAt) : "COMPLETED"}
+                  {lockedByName ? ` · by ${lockedByName}` : ""}
                 </span>
               </div>
             </div>

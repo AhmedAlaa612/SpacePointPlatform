@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, ChevronDown, ChevronRight, ExternalLink } from "lucide-react"
+import { ArrowLeft, ChevronDown, ChevronRight, ExternalLink, Lock } from "lucide-react"
 import { Link, useParams } from "@tanstack/react-router"
 import { getMyJudgeTeamApi, getMyJudgeTeamMissionRunDetailApi, submitMyJudgeScoreApi, type CompetitionMissionRun } from "@/api/competitions"
 import { PageHeader, Spinner, EmptyState } from "@/components/ui/primitives"
@@ -142,6 +142,15 @@ export default function JudgeTeamDetail() {
       </Link>
 
       <PageHeader title={detail.team.name} subtitle={detail.team.member_names.join(", ") || "No members yet"} />
+
+      {detail.locked && (
+        <div className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-xs text-emerald-700 dark:text-emerald-300">
+          <Lock size={14} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <span>
+            Final submission locked{detail.locked_at ? ` on ${formatSubmittedAt(detail.locked_at)}` : ""}.
+          </span>
+        </div>
+      )}
 
       <section className="flex flex-col gap-2">
         <h2 className="text-sm font-semibold text-foreground">Submissions</h2>

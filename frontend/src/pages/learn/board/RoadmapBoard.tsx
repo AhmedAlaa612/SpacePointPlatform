@@ -151,6 +151,7 @@ export default function RoadmapBoard() {
             onFinalized={invalidate}
             teamName={checklist.team_name}
             lockedAt={checklist.team_final_locked_at}
+            lockedByName={checklist.team_final_locked_by_name}
             pct={pct}
             remainingCount={remainingCount}
           />

@@ -192,6 +192,7 @@ class CompetitionJudgeTeamOut(TeamOut):
     # set) — same any-judge, not just-this-judge, visibility as a locked
     # checklist genuinely is.
     locked: bool = False
+    locked_at: datetime | None = None
 
 
 class CompetitionTeamDetailOut(BaseModel):
@@ -203,6 +204,8 @@ class CompetitionTeamDetailOut(BaseModel):
     mission_runs: list[CompetitionMissionRunOut] = []
     rubric: CompetitionRubricOut | None = None
     own_score: CompetitionScoreOut | None = None
+    locked: bool = False
+    locked_at: datetime | None = None
 
 
 class CompetitionImportRowOut(BaseModel):
@@ -438,6 +441,10 @@ class CompetitionAnalyticsTeamOut(BaseModel):
     # True once the team has hit "Final Submit" (Team.final_locked_at is
     # set) — read straight off the already-loaded Team row, no new query.
     locked: bool = False
+    locked_at: datetime | None = None
+    locked_by_name: str | None = None
+    locked_by_email: str | None = None
+    locked_by_id: UUID | None = None
 
 
 class CompetitionAnalyticsActivityOut(BaseModel):

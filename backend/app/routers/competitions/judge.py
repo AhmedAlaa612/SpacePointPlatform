@@ -77,7 +77,10 @@ async def list_my_teams(
     for team in teams:
         base = await _team_out(db, team)
         out.append(CompetitionJudgeTeamOut(
-            **base.model_dump(), already_scored=team.id in scored, locked=team.final_locked_at is not None,
+            **base.model_dump(),
+            already_scored=team.id in scored,
+            locked=team.final_locked_at is not None,
+            locked_at=team.final_locked_at,
         ))
     return out
 
@@ -115,6 +118,8 @@ async def get_my_team(
         mission_runs=[CompetitionMissionRunOut(**m) for m in mission_runs],
         rubric=rubric_out,
         own_score=own_score_out,
+        locked=team.final_locked_at is not None,
+        locked_at=team.final_locked_at,
     )
 
 

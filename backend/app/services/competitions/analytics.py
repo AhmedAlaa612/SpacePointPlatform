@@ -358,6 +358,11 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
     )).scalars().all())
     team_ids = [t.id for t in teams]
     members_by_team, users_by_id = await _team_rosters(db, team_ids=team_ids)
+    missing_locked_by = {t.final_locked_by for t in teams if t.final_locked_by and t.final_locked_by not in users_by_id}
+    if missing_locked_by:
+        more_users = (await db.execute(select(User).where(User.id.in_(missing_locked_by)))).scalars().all()
+        for u in more_users:
+            users_by_id[u.id] = u
 
     registered_user_ids = await _cohort_roster_user_ids(db, cohort_id=cohort_id)
     on_a_team = {uid for ids in members_by_team.values() for uid in ids}
@@ -486,6 +491,7 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
                 })
 
         total = len(required_team_items)
+        locked_by_user = users_by_id.get(team.final_locked_by) if team.final_locked_by else None
         team_rows.append({
             "team_id": team.id,
             "team_name": team.name,
@@ -505,6 +511,10 @@ async def cohort_team_analytics(db: AsyncSession, *, cohort_id: uuid.UUID) -> di
                 and (last_activity is None or (now - last_activity) > timedelta(days=STALLED_AFTER_DAYS))
             ),
             "locked": team.final_locked_at is not None,
+            "locked_at": team.final_locked_at,
+            "locked_by_name": locked_by_user.full_name if locked_by_user else None,
+            "locked_by_email": locked_by_user.email if locked_by_user else None,
+            "locked_by_id": team.final_locked_by,
         })
     team_rows.sort(key=lambda r: (-r["pct"], r["team_name"].lower()))
 

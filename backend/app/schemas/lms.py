@@ -576,6 +576,7 @@ class LmsProgramChecklistOut(BaseModel):
     # final_submit_program). Same None-for-no-team/no-team-items posture
     # as team_name above.
     team_final_locked_at: datetime | None = None
+    team_final_locked_by_name: str | None = None
     certificate_required: bool
     certificate_earned: bool
     items: list[LmsProgramChecklistItemOut]
